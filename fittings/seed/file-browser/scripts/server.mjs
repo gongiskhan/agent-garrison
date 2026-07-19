@@ -273,8 +273,8 @@ export function createServer() {
 }
 
 export async function startServer() {
-  const host = process.env.FILEBROWSER_UI_HOST || "127.0.0.1";
-  const port = Number(process.env.FILEBROWSER_UI_PORT || DEFAULT_PORT);
+  const host = process.env.GARRISON_FILEBROWSER_BIND_HOST || process.env.FILEBROWSER_UI_HOST || "127.0.0.1";
+  const port = Number(process.env.GARRISON_FILEBROWSER_PORT || process.env.FILEBROWSER_UI_PORT || DEFAULT_PORT);
   await mkdir(ROOT, { recursive: true }).catch(() => {});
   for (const ns of NAMESPACES) await mkdir(path.join(ROOT, ns), { recursive: true }).catch(() => {});
   const server = createServer();

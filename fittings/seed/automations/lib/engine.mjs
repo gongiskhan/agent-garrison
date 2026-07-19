@@ -196,10 +196,10 @@ async function visionResolve(observation, step, mode, contextTag, fetchImpl = gl
 // browser-free. `viewport` (delta 3) is applied at tab creation; `bypassCache`
 // (delta 2) is threaded straight into runBrowserStep; `contextTag` (delta 1)
 // flows into every vision call's classification.
-function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, contextTag = null } = {}) {
+function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, contextTag = null, captureSession = null } = {}) {
   let client = null;
   const runBrowser = async ({ step, emit, runId, stepIndex }) => {
-    client ??= makeBrowserClient({ viewport });
+    client ??= makeBrowserClient({ viewport, captureSession });
     emit?.({ type: "run_streaming_available", runId, stepIndex, wsUrl: `${browserViewportUrl()}/${client.tabId ?? ""}` });
     return runBrowserStep({
       automationId: automation.id,
@@ -255,6 +255,11 @@ export async function runAutomation(opts) {
     bypassCache = false,
     // viewport (delta 3): applied when the live browser client opens its tab.
     viewport = null,
+    // captureSession (delta 8): opaque caller-minted id forwarded to the
+    // Browser fitting at tab creation so the caller (e.g. Drill) can group
+    // this run's tab into a recorded capture context. Generic plumbing — the
+    // engine never interprets it and it is not part of the run record.
+    captureSession = null,
     // ephemeral (delta 1): true for a run whose `automation` was never saved to
     // the store — informational only, changes no engine behavior.
     ephemeral = false,
@@ -265,7 +270,7 @@ export async function runAutomation(opts) {
   const connectorAuthEnv = deps.connectorAuthEnv || ((id) => defaultConnectorAuthEnv(id, fetchImpl));
   const runConnector = deps.runConnector || defaultRunConnector;
   const runCommand = deps.runCommand || defaultRunCommand;
-  const runBrowser = deps.runBrowser || makeLiveRunBrowser(automation, { viewport, bypassCache, contextTag });
+  const runBrowser = deps.runBrowser || makeLiveRunBrowser(automation, { viewport, bypassCache, contextTag, captureSession });
   const runSubAutomation = deps.runSubAutomation;
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const persist = deps.persist || saveRun;

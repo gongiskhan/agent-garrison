@@ -93,6 +93,13 @@ export function buildRequest(spec, target, token) {
   if (spec.shape === "ollama") {
     const body = { model, prompt: toPromptString(spec), stream: false, options: { num_predict: maxTokens } };
     if (system) body.system = system;
+    // Multimodal: Ollama's native generate accepts base64 image payloads for
+    // vision models (llava / qwen-vl / llama3.2-vision); text models ignore
+    // the field. This is the single image-capable ollama primitive — the
+    // gateway's local-vision lane rides it.
+    if (Array.isArray(spec.images) && spec.images.length) {
+      body.images = spec.images.map((img) => String(img));
+    }
     // Ollama native structured output: `format` accepts a full JSON schema.
     if (spec.schema) body.format = spec.schema;
     return {

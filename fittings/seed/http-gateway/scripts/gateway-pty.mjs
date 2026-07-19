@@ -1011,6 +1011,44 @@ async function runRoutedTurn(message, onChunk, hints) {
  *  claude-code PTY) and return the channel-shaped result. Split out of
  *  runRoutedTurn so the D19 quick-card completion runs on every runtime path. */
 async function execRoutedTurn(pre, message, onChunk, hints) {
+  // Local-vision lane (Evidence V2): an ollama-local target cannot Read image
+  // files (its Anthropic-compat endpoint surfaces no tool_use), so a turn that
+  // carries image paths executes natively via garrison-call's image-capable
+  // ollama shape — never on the PTY/SDK session. Checked FIRST so cc-ollama-*
+  // (PTY-lane) targets are covered too.
+  if (typeof router.isOllamaVisionTurn === "function" && router.isOllamaVisionTurn(pre.route, hints?.images)) {
+    broadcastRich("turn", { active: true });
+    try {
+      const r = await router.runOllamaVisionTurn(pre.route, message, hints.images);
+      broadcastRich("assistant", { text: r.reply });
+      logEvent("stdout", {
+        kind: "routed-turn",
+        target: pre.route.targetId,
+        role: pre.route.role,
+        runtime: "ollama-native",
+        provider: "ollama-local",
+        model: r.model,
+      });
+      return {
+        reply: r.reply,
+        session_id: null,
+        cost_usd: null,
+        route: pre.route.targetId,
+        runtime: "ollama-native",
+        provider: "ollama-local",
+        model: r.model,
+        effort: null,
+        effortApplied: null,
+        stoppedReason: null,
+        taskType: pre.decision?.taskType ?? null,
+        tier: pre.decision?.tier ?? null,
+        ruleId: pre.decision?.ruleId ?? null,
+        profile: pre.decision?.profile ?? null,
+      };
+    } finally {
+      broadcastRich("turn", { active: false });
+    }
+  }
   // Agent SDK runtime (non-Anthropic model via the Claude Agent SDK): the turn
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
@@ -1368,6 +1406,13 @@ function routeHintsFromBody(body) {
       : null;
   return {
     classification,
+    // Local-vision lane (Evidence V2): absolute image file paths. A turn that
+    // resolves to an ollama-local target receives these natively (base64 via
+    // garrison-call); Claude lanes Read the same paths from the prompt, so the
+    // field is inert for them.
+    images: Array.isArray(body?.images)
+      ? body.images.filter((p) => typeof p === "string" && p).slice(0, 16)
+      : null,
     skill: typeof body?.skill === "string" ? body.skill : null,
     suppressContinuations: body?.suppressContinuations === true,
     // D19 carding inputs: the channel name (kanban/scheduler/board/garrison turns

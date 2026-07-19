@@ -39,7 +39,7 @@ x-garrison:
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
-            gateway_url: http://127.0.0.1:24777/jobs
+            gateway_url: http://127.0.0.1:4777/jobs
       scheduler:
         - id: scheduler
           config:
@@ -88,7 +88,7 @@ x-garrison:
       gateway:
         - id: http-gateway
           config:
-            port: 24777
+            port: 4777
             bind_host: 127.0.0.1
             model: opus
             permission_mode: bypassPermissions
@@ -98,7 +98,7 @@ x-garrison:
       observability:
         - id: monitor-default
           config:
-            port: 27077
+            port: 7077
             bind_host: 127.0.0.1
       soul: []
       orchestrator:
@@ -107,10 +107,12 @@ x-garrison:
       sessions:
         - id: dev-env
           config:
-            port: 27086
+            port: 7086
             bind_host: 127.0.0.1
       surfaces:
         - id: screen-share-default
-          config: {}
+          config:
+            port: 7079
+            bind_host: 127.0.0.1
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md

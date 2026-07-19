@@ -125,7 +125,13 @@ describe("Codex secondary-instance isolation", () => {
     }
   });
 
-  it("keeps every effective default-composition listener off the primary instance ports", () => {
+  // Two-instance topology on the dev box: THIS checkout is the PRIMARY (main)
+  // instance — app :7777, gateway :4777, fittings 7xxx, real ~/.garrison — and
+  // the committed compositions carry the primary scheme. The codex SECONDARY
+  // instance runs from its own checkout; its isolation is the launcher ENV
+  // (tested above) plus per-instance composition config there, never this
+  // repo's committed composition values.
+  it("keeps every effective default-composition listener on the primary family, off the codex ports", () => {
     const composition = readYaml(path.join(ROOT, "compositions", "default", "apm.yml"));
     const selections = composition["x-garrison"].composition.selections as Record<
       string,
@@ -152,22 +158,27 @@ describe("Codex secondary-instance isolation", () => {
     ports.set(Number(gateway?.config?.port), "http-gateway");
     ports.set(Number(slack?.config?.slack_port), "slack-channel");
     ports.set(Number(scheduler?.config?.health_port), "scheduler");
-    ports.set(27777, "garrison-next");
-    ports.set(23702, "outpost-host");
+    ports.set(7777, "garrison-next");
+    ports.set(3702, "outpost-host");
 
-    const primaryPorts = new Set([
-      7777, 4777, 3702, 9512, 7077, 7082, 7083, 7084, 7085, 7086, 7087, 7088,
-      7090, 7091, 7092, 7093, 7095, 7096, 7099, 27099
+    // The codex secondary's reserved family (its launcher env + its checkout's
+    // composition config): the primary composition must never squat these, or
+    // the two instances cannot run side by side.
+    const codexPorts = new Set([
+      27777, 24777, 23702, 29512, 27999, 27077, 27079, 27082, 27083, 27084,
+      27085, 27086, 27087, 27088, 27089, 27090, 27091, 27092, 27093, 27095,
+      27096, 27098, 27099
     ]);
     for (const [port, owner] of ports) {
-      expect(primaryPorts.has(port), `${owner} still uses primary port ${port}`).toBe(false);
+      expect(codexPorts.has(port), `${owner} squats codex port ${port}`).toBe(false);
     }
-    expect(ports.get(27096)).toBe("drill");
-    expect(ports.get(24777)).toBe("http-gateway");
-    expect(ports.get(27999)).toBe("scheduler");
+    expect(ports.get(7096)).toBe("drill");
+    expect(ports.get(7089)).toBe("kanban-loop");
+    expect(ports.get(4777)).toBe("http-gateway");
+    expect(ports.get(7099)).toBe("scheduler");
   });
 
-  it("keeps every shipped default profile on the same isolated state roots", () => {
+  it("keeps every shipped default profile on the primary state roots", () => {
     for (const profile of ["default", "default-build", "default-economy", "default-premium"]) {
       const composition = readYaml(path.join(ROOT, "compositions", profile, "apm.yml"));
       const selections = composition["x-garrison"].composition.selections as Record<
@@ -178,27 +189,31 @@ describe("Codex secondary-instance isolation", () => {
         selections[group].find((entry) => entry.id === id)?.config;
 
       expect(config("memory", "basic-memory"), profile).toMatchObject({
-        vault_dir: "~/.garrison-codex/ObsidianVault",
-        project_name: "codex",
+        vault_dir: "~/ObsidianVault",
+        project_name: "main",
         register_codex_gemini: false
       });
-      expect(config("observability", "automations")?.automations_dir, profile)
-        .toBe("~/.garrison-codex/automations");
+      // No automations_dir override: the primary default (~/.garrison/automations)
+      // comes from the fitting itself, and a codex value here would silently
+      // cross the instance boundary.
+      expect(config("observability", "automations")?.automations_dir, profile).toBeUndefined();
       expect(config("observability", "improver")?.vault_dir, profile)
-        .toBe("~/.garrison-codex/ObsidianVault");
+        .toBe("~/ObsidianVault");
       expect(config("observability", "scheduler"), profile).toMatchObject({
-        jobs_file: "~/.garrison-codex/scheduler-jobs.json",
-        log_file: "~/.garrison-codex/scheduler.log",
-        health_port: 27999
+        jobs_file: "~/.garrison/scheduler-jobs.json",
+        log_file: "~/.garrison/scheduler.log",
+        health_port: 7099
       });
       expect(config("observability", "kanban-loop")?.board_dir, profile)
-        .toBe("~/.garrison-codex/kanban-loop");
+        .toBe("~/.garrison/kanban-loop");
       expect(config("sessions", "file-browser")?.root, profile)
-        .toBe("~/.garrison-codex/files");
+        .toBe("~/.garrison/files");
       expect(config("sessions", "vault-git-sync")?.vault_dir, profile)
-        .toBe("~/.garrison-codex/ObsidianVault");
+        .toBe("~/ObsidianVault");
       expect(config("surfaces", "outpost-tailscale-host")?.outpost_host_url, profile)
-        .toBe("http://127.0.0.1:23702");
+        .toBe("http://127.0.0.1:3702");
+      const codexLeak = JSON.stringify(selections).includes(".garrison-codex");
+      expect(codexLeak, `${profile} references the codex home`).toBe(false);
     }
   });
 

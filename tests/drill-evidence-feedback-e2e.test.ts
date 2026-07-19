@@ -89,6 +89,17 @@ function resultCard(p: Page, viewport: string): Locator {
   return p.locator(".dr-res").filter({ has: p.locator(".chip", { hasText: viewport }) });
 }
 
+// Debrief (Evidence V2) is the default run-detail surface now; these tests pin
+// the CLASSIC per-check rows, parked behind the view toggle. Runs without an
+// evidence index still render classic directly (no toggle appears).
+async function openClassicView(p: Page, timeout = 8000): Promise<void> {
+  const toggle = p.getByRole("button", { name: "Classic view" });
+  try {
+    await toggle.waitFor({ state: "visible", timeout });
+    await toggle.click();
+  } catch { /* no debrief for this run — classic already showing */ }
+}
+
 beforeAll(async () => {
   automationsSrv = spawn("node", [AUTOMATIONS_START], {
     stdio: "ignore",
@@ -299,14 +310,16 @@ describe("Drill evidence and viewport-scoped review", () => {
   it("explains a passed deterministic result that has no reasoning or screenshot", async () => {
     const p = page!;
     await p.goto(`${DRILL_BASE}/?view=results&run=${deterministicRunId}`);
+    await openClassicView(p);
     const card = resultCard(p, "desktop");
-    await card.getByText("Deterministic check — no screenshot was captured.", { exact: true }).waitFor({ timeout: 10_000 });
+    await card.getByText("Deterministic check - no screenshot was captured.", { exact: true }).waitFor({ timeout: 10_000 });
     expect(await card.locator(".dr-evidence-image").count()).toBe(0);
   }, 30_000);
 
   it("explains why contaminated evidence was not saved as a state reference", async () => {
     const p = page!;
     await p.goto(`${DRILL_BASE}/?view=results&run=${rejectedReferenceRunId}`);
+    await openClassicView(p);
     const card = resultCard(p, "desktop");
     await card.getByText(
       "State reference not saved: the screenshot also contains an unexpected page error (“Request timed out after 120000ms”).",
@@ -317,6 +330,7 @@ describe("Drill evidence and viewport-scoped review", () => {
   it("renders pass and failure evidence through confined URLs, hides host paths, and explains a missing image", async () => {
     const p = page!;
     await p.goto(`${DRILL_BASE}/?view=results&run=${drillRunId}`);
+    await openClassicView(p);
     await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 10_000 });
 
     const passImage = resultCard(p, "desktop").locator(".dr-evidence-image");
@@ -421,6 +435,7 @@ describe("Drill evidence and viewport-scoped review", () => {
     const { observation } = await added.json();
 
     await p.goto(`${DRILL_BASE}/?view=results&run=${drillRunId}`);
+    await openClassicView(p);
     const attribution = p.getByLabel(/Attribute observation .* to a product page/);
     await attribution.waitFor();
     expect(await attribution.inputValue()).toBe("");

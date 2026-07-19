@@ -88,6 +88,45 @@ x-garrison:
     per-step evidence stay machine-local as plain files with links, browsed in
     the File Browser (R13 — no artifact store).
 
+    Evidence capture (v0.1): every run records through a Browser-fitting
+    capture session (dedicated context + one reusable tab, threaded as the
+    opaque `captureSession` id through run-inline — engine delta 8). A Full
+    Drill (multi-check) run also records ONE run-level `video.webm` (D5;
+    override via POST /api/runs `evidence.video`); every run cuts one
+    Playwright trace chunk (`trace-<page>--<step>--<viewport>.zip`) and a
+    full-page step-end screenshot per check, plus a failure screenshot on
+    failed checks. Artifacts land under
+    `~/.garrison/drill/evidence/<drillId>/<runId>/` (drillId = the snapshots
+    projectKey) with a per-run `steps.json` offset manifest and an
+    `evidence.json` index (one row per item, sha256+bytes on the video row).
+    Records reference evidence by RELATIVE name only; bytes are served
+    confined via GET /api/runs/:id/evidence-index and
+    /api/runs/:id/evidence-file/<name> (Range-capable, so `#t=` deep links
+    scrub the webm). Findings carry an evidence pointer
+    ({screenshot, trace, videoMs}); dispatch appends screenshot + video-offset
+    links per finding and sets the card's videoUrl. Retention (D6): runs with
+    findings or Needs-Attention keep everything; the last 3 green Full Drill
+    runs stay complete; older green runs keep screenshots + manifests but
+    lose video/traces (index rows flagged `pruned`). Screenshots remain the
+    ONLY evidence eligible as drillJudge input — video and traces never enter
+    a model call.
+
+    Spotter (Evidence V2): deterministic trigger-driven frame capture rides
+    every run's capture session — step boundaries (always), perceptual-hash
+    change, console bursts, and message-region growth (configure via the
+    Book's `spotter` block or POST /api/runs `evidence.spotter`; `false`
+    disables). Near-duplicate frames collapse locally before anything
+    downstream sees them; kept frames land as flat `frame-NNNN.jpg` files
+    with a `spotter-frames.json` manifest recording every keep AND every
+    collapse. After the run, curation batch-judges the candidates through
+    the Model Router (`ex-drill-curation` exception; frames ride as local
+    file paths, or base64-natively for an ollama-local target) into
+    `reel.json` — the Debrief reel manifest with keep/importance/annotation/
+    highlight per frame — plus one sidecar JSON per curated frame
+    (`evidence.curation` / Book `spotter.curation` configure budget + batch
+    size; `false` disables). Raw frames follow video/trace retention;
+    manifests, sidecars, and reels are always kept.
+
     Direct runs need no Kanban card: GET /api/projects lists the dev-root
     repos (same discovery contract as the dev-env/Kanban pickers) and POST
     /api/projects/select retargets the Book/pages/runs live - the selection

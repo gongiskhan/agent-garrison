@@ -18,6 +18,7 @@ import url from "node:url";
 import { tmpdir } from "node:os";
 import { WebSocketServer, WebSocket } from "ws";
 import { chromium } from "playwright";
+import { createSpotter } from "./spotter.mjs";
 
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
@@ -76,7 +77,9 @@ let chromiumLaunching = null;
  *   inputClients: Set<import("ws").WebSocket>,
  *   focusedEditable: boolean,
  *   focusWatcher: NodeJS.Timeout | null,
- *   selection: object | null
+ *   selection: object | null,
+ *   captureSessionId?: string | null,
+ *   onConsoleEntry?: ((entry: ConsoleEntry) => void) | null
  * }} TabState
  */
 
@@ -113,6 +116,14 @@ const HEARTBEAT_MS = 15_000;
 function pushBounded(arr, entry) {
   arr.push(entry);
   if (arr.length > BUFFER_LIMIT) arr.splice(0, arr.length - BUFFER_LIMIT);
+}
+
+// Console entries feed the bounded buffer AND an optional per-tab listener
+// (Spotter's console-burst trigger on capture-session tabs). A listener error
+// must never break instrumentation.
+function pushConsole(tab, entry) {
+  pushBounded(tab.console, entry);
+  try { tab.onConsoleEntry?.(entry); } catch {}
 }
 
 // Hand a popup destination off to the user's REAL Chrome (the desktop app),
@@ -218,7 +229,7 @@ async function attachInstrumentation(tab) {
 
   // Console: console.log/warn/error/info/debug
   cdp.on("Runtime.consoleAPICalled", (e) => {
-    pushBounded(tab.console, {
+    pushConsole(tab, {
       ts: Date.now(),
       level: e.type || "log",
       text: formatConsoleArgs(e.args),
@@ -232,7 +243,7 @@ async function attachInstrumentation(tab) {
   // Console: uncaught exceptions
   cdp.on("Runtime.exceptionThrown", (e) => {
     const ex = e.exceptionDetails;
-    pushBounded(tab.console, {
+    pushConsole(tab, {
       ts: Date.now(),
       level: "error",
       text: ex?.exception?.description || ex?.text || "exception",
@@ -247,7 +258,7 @@ async function attachInstrumentation(tab) {
   cdp.on("Log.entryAdded", (e) => {
     const en = e.entry;
     if (!en) return;
-    pushBounded(tab.console, {
+    pushConsole(tab, {
       ts: Date.now(),
       level: en.level || "log",
       text: `[${en.source || "browser"}] ${en.text}`,
@@ -301,8 +312,11 @@ async function attachInstrumentation(tab) {
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.BROWSER_PORT || 27084),
-    host: process.env.BROWSER_HOST || "127.0.0.1",
+    // Port precedence (house convention, same as improver/ports-default):
+    // runner-projected composition config first (per-instance, e.g. main=7084
+    // vs codex=27084), then the legacy env / --port (tests), then the default.
+    port: Number(process.env.GARRISON_BROWSERDEFAULT_PORT || process.env.BROWSER_PORT || 27084),
+    host: process.env.GARRISON_BROWSERDEFAULT_BIND_HOST || process.env.BROWSER_HOST || "127.0.0.1",
     // Defaults match the LOW quality preset — responsive over Tailscale beats
     // sharpness for the common case. The canvas's quality toggle bumps it.
     viewportWidth: Number(process.env.BROWSER_VIEWPORT_WIDTH || 800),
@@ -558,6 +572,19 @@ function discardChromium() {
     for (const ws of tab.inputClients) { try { ws.close(); } catch {} }
   }
   tabs.clear();
+  // Capture sessions died with the browser — their contexts are gone and any
+  // partially-flushed video stays in .video-tmp. Callers see the session as
+  // missing and degrade (a warning, never a failed run).
+  if (captureSessions.size) {
+    console.warn(`[capture] dropping ${captureSessions.size} session(s) with the dead browser`);
+    for (const session of captureSessions.values()) {
+      // No context survives to finalize against — stop Spotter's timers and
+      // flush its manifest for whatever frames already hit disk.
+      try { session.spotter?.abandon(); } catch {}
+      session.spotter = null;
+    }
+    captureSessions.clear();
+  }
   browser = null;
   context = null;
 }
@@ -578,6 +605,11 @@ async function ensureChromium() {
 }
 
 async function shutdownChromium() {
+  // Finalize live capture sessions first so a SIGTERM still flushes their
+  // videos to disk instead of leaving orphaned .video-tmp fragments.
+  for (const session of [...captureSessions.values()]) {
+    await stopCaptureSession(session, { reason: "shutdown" }).catch(() => {});
+  }
   for (const tab of tabs.values()) await cleanupTab(tab).catch(() => {});
   tabs.clear();
   try { await browser?.close(); } catch {}
@@ -589,15 +621,19 @@ async function shutdownChromium() {
 
 // ─── Tab lifecycle ──────────────────────────────────────────────────────
 
-async function openTab(initialUrl) {
+async function openTab(initialUrl, { context: targetContext = null, captureSessionId = null } = {}) {
   await ensureChromium();
+  // A capture session's tab lives in the session's dedicated context; a
+  // relaunch retry is only meaningful for the shared default context (the
+  // session context died with the old browser and cannot be resurrected).
+  const ctx = targetContext || context;
   let page;
   try {
-    page = await context.newPage();
+    page = await ctx.newPage();
   } catch (err) {
     // The CDP connection can drop between ensureChromium and newPage (the
     // headless process gets reaped). Relaunch once and retry before failing.
-    if (/has been closed|disconnected|Target closed|Target page/i.test(String(err))) {
+    if (!targetContext && /has been closed|disconnected|Target closed|Target page/i.test(String(err))) {
       discardChromium();
       await ensureChromium();
       page = await context.newPage();
@@ -607,7 +643,8 @@ async function openTab(initialUrl) {
   }
   // Create the CDP session + attach instrumentation BEFORE the initial
   // navigation so first-load console/network events get captured too.
-  const cdpSession = await context.newCDPSession(page);
+  const owningContext = page.context();
+  const cdpSession = await owningContext.newCDPSession(page);
   const { targetInfo } = await cdpSession.send("Target.getTargetInfo");
   const tabId = targetInfo.targetId;
 
@@ -632,7 +669,8 @@ async function openTab(initialUrl) {
     // Most recent user "pointing" — an element pick or a drawn region — that the
     // Operative session can read via GET /selection (the garrison-browser CLI),
     // so "remove this" resolves to whatever the user marked on the canvas.
-    selection: null
+    selection: null,
+    captureSessionId
   };
   tabs.set(tabId, tab);
   await attachInstrumentation(tab);
@@ -701,6 +739,310 @@ async function listTabs() {
   });
 }
 
+// ─── Capture sessions (Drill evidence D1/D2) ────────────────────────────
+//
+// A capture session is a dedicated Playwright-owned context created because
+// the shared CDP default context cannot record evidence: recordVideo is a
+// newContext-time option, and the default context is never closed per run
+// (video/tracing only finalize on close). One session = one context + ONE
+// reusable tab; engine-opened tabs carrying `captureSession` in the POST
+// /tabs body ATTACH to that tab instead of creating a page, so a whole
+// multi-check run lands in a single continuous webm finalized at
+// /capture/stop. The session id is caller-minted and opaque; the caller owns
+// the artifact dir's naming and layout. Evidence must never fail a run:
+// every degraded path here answers with ok:false or a warning, never a throw
+// into the tab flow.
+
+const captureSessions = new Map();
+const CAPTURE_IDLE_TTL_MS = 20 * 60 * 1000;
+// Held sessions (Debrief's Live Browser replay) are viewer-facing: watching
+// the canvas never bumps lastActivityAt, so they get a long hard cap instead
+// of the idle TTL. Explicit /capture/stop remains the designed release.
+const CAPTURE_HELD_TTL_MS = 2 * 60 * 60 * 1000;
+const CAPTURE_SWEEP_MS = 60 * 1000;
+
+function captureDirAllowed(dir) {
+  const root = path.resolve(process.env.GARRISON_HOME || path.join(HOME, ".garrison"));
+  const target = path.resolve(dir);
+  return target === root || target.startsWith(root + path.sep);
+}
+
+async function handleCaptureStart(req, res) {
+  const body = (await readBody(req)) || {};
+  const sessionId = typeof body.sessionId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(body.sessionId)
+    ? body.sessionId
+    : null;
+  if (!sessionId) return jsonRes(res, 400, { ok: false, error: "sessionId ([A-Za-z0-9_-]{1,64}) required" });
+  if (captureSessions.has(sessionId)) return jsonRes(res, 409, { ok: false, error: "capture session already exists" });
+  const dir = typeof body.dir === "string" ? body.dir : "";
+  if (!dir || !path.isAbsolute(dir) || !captureDirAllowed(dir)) {
+    return jsonRes(res, 400, { ok: false, error: "dir must be an absolute path under the garrison home" });
+  }
+  const vp = body.viewport && typeof body.viewport === "object" ? body.viewport : {};
+  const width = Math.round(Number(vp.width)) || 1280;
+  const height = Math.round(Number(vp.height)) || 800;
+  const wantVideo = body.video === true;
+  const wantHold = body.hold === true;
+  const warnings = [];
+  try {
+    await ensureChromium();
+    await mkdir(dir, { recursive: true });
+    // Login continuity: the shared default context holds whatever auth state
+    // earlier runs/authoring established; a fresh context starts cookie-less
+    // and would fail drills against logged-in apps. Best-effort seed.
+    let storageState = null;
+    try {
+      storageState = await context.storageState();
+    } catch (err) {
+      warnings.push(`storage-state seed unavailable: ${err.message}`);
+    }
+    const videoDir = wantVideo ? path.join(dir, ".video-tmp") : null;
+    if (videoDir) await mkdir(videoDir, { recursive: true });
+    // viewport: null is LOAD-BEARING. A context-configured viewport makes
+    // Playwright own emulation for its pages and re-assert it on navigation,
+    // stomping the per-check CDP override applied at attach (mobile checks
+    // would silently run at the desktop size). The shared default context
+    // never had a Playwright viewport either — per-check emulation is applied
+    // via raw CDP below, exactly as before. recordVideo carries its own size.
+    const sessionContext = await browser.newContext({
+      viewport: null,
+      ...(storageState ? { storageState } : {}),
+      ...(wantVideo ? { recordVideo: { dir: videoDir, size: { width, height } } } : {})
+    });
+    const session = {
+      id: sessionId,
+      dir,
+      videoDir,
+      context: sessionContext,
+      tab: null,
+      video: wantVideo,
+      tracing: false,
+      chunkOpen: false,
+      startedAt: 0,
+      lastActivityAt: Date.now(),
+      warnings,
+      stopping: false,
+      spotter: null,
+      hold: wantHold
+    };
+    // Tracing runs once per session (a second tracing.start throws); per-step
+    // isolation comes from startChunk/stopChunk around each check. sources:false
+    // — there is no test-source file to embed for engine-driven actions.
+    try {
+      await sessionContext.tracing.start({ screenshots: true, snapshots: true, sources: false });
+      session.tracing = true;
+    } catch (err) {
+      warnings.push(`tracing unavailable: ${err.message}`);
+    }
+    captureSessions.set(sessionId, session);
+    // The session tab is created eagerly: the video timeline begins when the
+    // page opens, so startedAt — the offset origin consumers use to deep-link
+    // into the webm — is the tab's creation time, not the context's.
+    session.tab = await openTab("about:blank", { context: sessionContext, captureSessionId: sessionId });
+    session.startedAt = Date.now();
+    // Spotter (Evidence V2): trigger-driven frame capture rides the session
+    // when the caller asks for it. A Spotter failure is a warning — the run
+    // keeps its V1 evidence (video/traces/screenshots) untouched.
+    if (body.spotter && typeof body.spotter === "object") {
+      try {
+        session.spotter = await createSpotter({ session, config: body.spotter });
+      } catch (err) {
+        warnings.push(`spotter unavailable: ${err.message}`);
+      }
+    }
+    jsonRes(res, 201, {
+      ok: true,
+      sessionId,
+      startedAt: session.startedAt,
+      // The session tab's id: callers embedding the live canvas need it and
+      // it is not otherwise discoverable without racing /tabs.
+      tabId: session.tab?.tabId ?? null,
+      video: wantVideo,
+      hold: wantHold,
+      spotter: !!session.spotter,
+      warnings
+    });
+  } catch (err) {
+    const broken = captureSessions.get(sessionId);
+    captureSessions.delete(sessionId);
+    if (broken?.context) { try { await broken.context.close(); } catch {} }
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function stopCaptureSession(session, { reason = "stop" } = {}) {
+  if (session.stopping) return { ok: false, error: "capture session already stopping" };
+  session.stopping = true;
+  captureSessions.delete(session.id);
+  const warnings = [...session.warnings];
+  const endedAt = Date.now();
+  let videoRel = null;
+  // Spotter first: it needs the live page for a final grab and must drain its
+  // write chain before the context goes away.
+  let spotter = null;
+  if (session.spotter) {
+    try {
+      spotter = await session.spotter.stop();
+    } catch (err) {
+      warnings.push(`spotter stop: ${err.message}`);
+    }
+    session.spotter = null;
+  }
+  // Tracing teardown first (it needs the live context): discard any chunk a
+  // crashed caller left open, then stop the session-level trace.
+  if (session.tracing) {
+    if (session.chunkOpen) {
+      try { await session.context.tracing.stopChunk(); } catch (err) { warnings.push(`trace chunk discard: ${err.message}`); }
+      session.chunkOpen = false;
+    }
+    try { await session.context.tracing.stop(); } catch (err) { warnings.push(`tracing stop: ${err.message}`); }
+    session.tracing = false;
+  }
+  // Grab the video handle BEFORE closing: page.video() is unreachable after
+  // the page object is gone, but saveAs() resolves only after close flushes.
+  const video = session.video && session.tab ? session.tab.page.video() : null;
+  if (session.tab) {
+    try { await cleanupTab(session.tab); } catch (err) { warnings.push(`tab close: ${err.message}`); }
+  }
+  try { await session.context.close(); } catch (err) { warnings.push(`context close: ${err.message}`); }
+  if (video) {
+    try {
+      await video.saveAs(path.join(session.dir, "video.webm"));
+      try { await video.delete(); } catch {}
+      videoRel = "video.webm";
+    } catch (err) {
+      warnings.push(`video finalize: ${err.message}`);
+    }
+  }
+  if (session.videoDir) { try { await rm(session.videoDir, { recursive: true, force: true }); } catch {} }
+  if (reason !== "stop") console.warn(`[capture] session ${session.id} finalized on ${reason}`);
+  return { ok: true, sessionId: session.id, startedAt: session.startedAt, endedAt, video: videoRel, spotter, warnings };
+}
+
+async function handleCaptureStop(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = captureSessions.get(typeof body.sessionId === "string" ? body.sessionId : "");
+  if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  jsonRes(res, 200, await stopCaptureSession(session));
+}
+
+// Session-tab viewport emulation is ALWAYS raw CDP — never
+// page.setViewportSize. On the reused session tab a Playwright-owned
+// viewport would be re-asserted on the next navigation, stomping a later
+// check's mobile override (the exact hazard applyViewportEmulation documents
+// for the CDP path, inverted). tab.emulatedViewport stays the source of
+// truth for observers.
+async function applySessionViewport(tab, vp) {
+  const width = Math.round(Number(vp.width) || 0);
+  const height = Math.round(Number(vp.height) || 0);
+  if (!width || !height) throw new Error("viewport requires numeric width and height");
+  await tab.cdpSession.send("Emulation.setDeviceMetricsOverride", {
+    width,
+    height,
+    deviceScaleFactor: Number(vp.deviceScaleFactor) || 1,
+    mobile: !!vp.isMobile
+  });
+  tab.emulatedViewport = { width, height };
+}
+
+// Artifact names are caller-chosen but confined to one path segment inside
+// the session dir — no separators, no dotfiles.
+function safeArtifactName(name) {
+  return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/.test(name) ? name : null;
+}
+
+function liveCaptureSession(body) {
+  const session = captureSessions.get(typeof body.sessionId === "string" ? body.sessionId : "");
+  if (!session || session.stopping) return null;
+  session.lastActivityAt = Date.now();
+  return session;
+}
+
+// Per-check trace chunks (D2): one zip per check, cut by the caller around
+// each engine run. An already-open chunk (caller crashed mid-check) is
+// discarded rather than leaking into the next check's trace.
+async function handleCaptureChunkStart(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = liveCaptureSession(body);
+  if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  if (!session.tracing) return jsonRes(res, 200, { ok: false, error: "tracing unavailable for this session" });
+  try {
+    if (session.chunkOpen) {
+      try { await session.context.tracing.stopChunk(); } catch {}
+      session.chunkOpen = false;
+    }
+    await session.context.tracing.startChunk({ title: typeof body.title === "string" ? body.title : undefined });
+    session.chunkOpen = true;
+    // Spotter boundary (D2a): tag the new check window and always keep a
+    // frame at the step boundary. `name` is the caller's check key — the same
+    // key the chunk-stop trace will carry — so frames join checks downstream.
+    session.spotter?.onChunkStart(
+      typeof body.name === "string" && body.name
+        ? body.name.slice(0, 200)
+        : typeof body.title === "string" ? body.title.slice(0, 200) : null
+    );
+    jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleCaptureChunkStop(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = liveCaptureSession(body);
+  if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  const name = safeArtifactName(body.name);
+  if (!name) return jsonRes(res, 400, { ok: false, error: "name ([A-Za-z0-9][A-Za-z0-9._-]*) required" });
+  if (!session.tracing || !session.chunkOpen) {
+    return jsonRes(res, 200, { ok: false, error: "no open trace chunk" });
+  }
+  session.spotter?.onChunkStop();
+  try {
+    const rel = `trace-${name}.zip`;
+    await session.context.tracing.stopChunk({ path: path.join(session.dir, rel) });
+    session.chunkOpen = false;
+    jsonRes(res, 200, { ok: true, trace: rel });
+  } catch (err) {
+    session.chunkOpen = false;
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Step screenshots (D3): full-page PNGs of the session tab, taken at check
+// end (and again on failure). These are the only evidence kind eligible as
+// model input downstream — video/traces never enter a model call.
+async function handleCaptureScreenshot(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = liveCaptureSession(body);
+  if (!session || !session.tab) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  const name = safeArtifactName(body.name);
+  if (!name) return jsonRes(res, 400, { ok: false, error: "name ([A-Za-z0-9][A-Za-z0-9._-]*) required" });
+  try {
+    const rel = `${name}.png`;
+    await session.tab.page.screenshot({
+      type: "png",
+      fullPage: body.fullPage !== false,
+      path: path.join(session.dir, rel),
+      timeout: 15000
+    });
+    jsonRes(res, 200, { ok: true, screenshot: rel });
+  } catch (err) {
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Abandoned sessions (a crashed caller never sends /capture/stop) still
+// finalize to disk instead of leaking a context + an unbounded recording.
+setInterval(() => {
+  const now = Date.now();
+  for (const session of [...captureSessions.values()]) {
+    const ttl = session.hold ? CAPTURE_HELD_TTL_MS : CAPTURE_IDLE_TTL_MS;
+    if (now - session.lastActivityAt > ttl) {
+      void stopCaptureSession(session, { reason: session.hold ? "held-ttl" : "idle-ttl" }).catch(() => {});
+    }
+  }
+}, CAPTURE_SWEEP_MS).unref();
+
 // ─── HTTP handlers ──────────────────────────────────────────────────────
 
 function handleHealth(_req, res, opts) {
@@ -735,6 +1077,32 @@ async function handleCreateTab(req, res) {
   const body = (await readBody(req)) || {};
   const initialUrl = typeof body.url === "string" ? body.url : "about:blank";
   if (!isAllowedNavScheme(initialUrl)) return jsonRes(res, 400, { error: "navigation scheme not allowed" });
+  // Capture-session attach: a caller carrying the session id gets the
+  // session's single reusable tab (viewport re-emulated, navigated like a
+  // fresh tab) so every check of a run records into one continuous video.
+  // A dead/unknown session falls through to a plain tab — the run must
+  // proceed with degraded evidence, never fail on it.
+  const captureSessionId = typeof body.captureSession === "string" ? body.captureSession : null;
+  if (captureSessionId) {
+    const session = captureSessions.get(captureSessionId);
+    if (session && session.tab && !session.stopping) {
+      const tab = session.tab;
+      session.lastActivityAt = Date.now();
+      tab.lastActivityAt = Date.now();
+      if (body.viewport && typeof body.viewport === "object") {
+        await applySessionViewport(tab, body.viewport).catch((err) => {
+          console.warn(`[capture] viewport-at-attach failed: ${err.message}`);
+        });
+      }
+      if (initialUrl && initialUrl !== "about:blank") {
+        tab.requestedUrl = initialUrl;
+        try { await tab.page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 }); }
+        catch (err) { console.warn(`[capture] goto-at-attach failed: ${err.message}`); }
+      }
+      return jsonRes(res, 201, { tabId: tab.tabId, url: tab.page.url() });
+    }
+    console.warn(`[capture] unknown/stopped session ${captureSessionId} on /tabs — opening a plain tab`);
+  }
   try {
     const tab = await openTab(initialUrl);
     // Viewport emulation at creation (Automations engine delta 3): applied
@@ -815,6 +1183,16 @@ async function handleNavigateTab(req, res, tabId) {
 async function handleDeleteTab(_req, res, tabId) {
   const tab = tabs.get(tabId);
   if (!tab) return jsonRes(res, 404, { ok: false });
+  // A capture session's tab is BORROWED by engine runs: their close is a
+  // detach (the tab outlives each check; /capture/stop closes it for real,
+  // which is what finalizes the session video).
+  if (tab.captureSessionId) {
+    const session = captureSessions.get(tab.captureSessionId);
+    if (session && session.tab === tab && !session.stopping) {
+      session.lastActivityAt = Date.now();
+      return jsonRes(res, 200, { ok: true, detached: true });
+    }
+  }
   await cleanupTab(tab);
   jsonRes(res, 200, { ok: true });
 }
@@ -1294,7 +1672,9 @@ async function attachViewport(ws, tab, _opts) {
 
   if (!tab.viewportCdp) {
     // Fresh attach: create the CDP session and wire the frame listener.
-    const cdp = await context.newCDPSession(tab.page);
+    // The page's OWN context — a capture-session tab lives in a dedicated
+    // context, and the default context cannot mint sessions for its pages.
+    const cdp = await tab.page.context().newCDPSession(tab.page);
     tab.viewportCdp = cdp;
     // TEMP: swap-timing — first frame after every (re)start. Reset on restart.
     tab.firstFrameLogged = false;
@@ -1760,6 +2140,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/tabs" && method === "GET") return await handleListTabs(req, res);
       if (pathname === "/tabs" && method === "POST") return await handleCreateTab(req, res);
+
+      if (pathname === "/capture/start" && method === "POST") return await handleCaptureStart(req, res);
+      if (pathname === "/capture/stop" && method === "POST") return await handleCaptureStop(req, res);
+      if (pathname === "/capture/chunk-start" && method === "POST") return await handleCaptureChunkStart(req, res);
+      if (pathname === "/capture/chunk-stop" && method === "POST") return await handleCaptureChunkStop(req, res);
+      if (pathname === "/capture/screenshot" && method === "POST") return await handleCaptureScreenshot(req, res);
 
       const navMatch = pathname.match(/^\/tabs\/([^/]+)\/nav$/);
       if (navMatch && method === "POST") return await handleNavigateTab(req, res, decodeURIComponent(navMatch[1]));

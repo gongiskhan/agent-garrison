@@ -38,8 +38,11 @@ const CHANNEL_ID = "web";
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.WEB_CHANNEL_PORT || 27083),
-    host: process.env.WEB_CHANNEL_HOST || "127.0.0.1",
+    // Port precedence (house convention, same as improver/ports-default):
+    // runner-projected composition config first (per-instance, e.g. main=7083
+    // vs codex=27083), then the legacy explicit env (tests), then the default.
+    port: Number(process.env.GARRISON_WEBCHANNELDEFAULT_PORT || process.env.WEB_CHANNEL_PORT || 27083),
+    host: process.env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST || process.env.WEB_CHANNEL_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
     tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
     tlsKey: process.env.WEB_CHANNEL_TLS_KEY || ""

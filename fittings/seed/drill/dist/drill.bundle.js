@@ -1087,7 +1087,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState2(initialState) {
+        function useState3(initialState) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState);
         }
@@ -1095,11 +1095,11 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer, initialArg, init);
         }
-        function useRef2(initialValue) {
+        function useRef3(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect2(create, deps) {
+        function useEffect3(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create, deps);
         }
@@ -1111,11 +1111,11 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useLayoutEffect(create, deps);
         }
-        function useCallback(callback, deps) {
+        function useCallback3(callback, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo(create, deps) {
+        function useMemo2(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create, deps);
         }
@@ -1878,19 +1878,19 @@ var require_react_development = __commonJS({
         exports.memo = memo;
         exports.startTransition = startTransition;
         exports.unstable_act = act;
-        exports.useCallback = useCallback;
+        exports.useCallback = useCallback3;
         exports.useContext = useContext;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect2;
+        exports.useEffect = useEffect3;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect;
-        exports.useMemo = useMemo;
+        exports.useMemo = useMemo2;
         exports.useReducer = useReducer;
-        exports.useRef = useRef2;
-        exports.useState = useState2;
+        exports.useRef = useRef3;
+        exports.useState = useState3;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -2491,7 +2491,7 @@ var require_react_dom_development = __commonJS({
             allNativeEvents.add(dependencies[i]);
           }
         }
-        var canUseDOM = !!(typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined");
+        var canUseDOM2 = !!(typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined");
         var hasOwnProperty = Object.prototype.hasOwnProperty;
         function typeName(value) {
           {
@@ -5541,7 +5541,7 @@ var require_react_dom_development = __commonJS({
           return listener;
         }
         var passiveBrowserEventsSupported = false;
-        if (canUseDOM) {
+        if (canUseDOM2) {
           try {
             var options = {};
             Object.defineProperty(options, "passive", {
@@ -7981,13 +7981,13 @@ var require_react_dom_development = __commonJS({
         var SyntheticWheelEvent = createSyntheticEvent(WheelEventInterface);
         var END_KEYCODES = [9, 13, 27, 32];
         var START_KEYCODE = 229;
-        var canUseCompositionEvent = canUseDOM && "CompositionEvent" in window;
+        var canUseCompositionEvent = canUseDOM2 && "CompositionEvent" in window;
         var documentMode = null;
-        if (canUseDOM && "documentMode" in document) {
+        if (canUseDOM2 && "documentMode" in document) {
           documentMode = document.documentMode;
         }
-        var canUseTextInputEvent = canUseDOM && "TextEvent" in window && !documentMode;
-        var useFallbackCompositionData = canUseDOM && (!canUseCompositionEvent || documentMode && documentMode > 8 && documentMode <= 11);
+        var canUseTextInputEvent = canUseDOM2 && "TextEvent" in window && !documentMode;
+        var useFallbackCompositionData = canUseDOM2 && (!canUseCompositionEvent || documentMode && documentMode > 8 && documentMode <= 11);
         var SPACEBAR_CODE = 32;
         var SPACEBAR_CHAR = String.fromCharCode(SPACEBAR_CODE);
         function registerEvents() {
@@ -8181,7 +8181,7 @@ var require_react_dom_development = __commonJS({
           return false;
         }
         function isEventSupported(eventNameSuffix) {
-          if (!canUseDOM) {
+          if (!canUseDOM2) {
             return false;
           }
           var eventName = "on" + eventNameSuffix;
@@ -8233,7 +8233,7 @@ var require_react_dom_development = __commonJS({
           }
         }
         var isInputEventSupported = false;
-        if (canUseDOM) {
+        if (canUseDOM2) {
           isInputEventSupported = isEventSupported("input") && (!document.documentMode || document.documentMode > 9);
         }
         function startWatchingForValueChange(target, targetInst) {
@@ -8665,7 +8665,7 @@ var require_react_dom_development = __commonJS({
             setOffsets(input, offsets);
           }
         }
-        var skipSelectionChangeEvent = canUseDOM && "documentMode" in document && document.documentMode <= 11;
+        var skipSelectionChangeEvent = canUseDOM2 && "documentMode" in document && document.documentMode <= 11;
         function registerEvents$3() {
           registerTwoPhaseEvent("onSelect", ["focusout", "contextmenu", "dragend", "focusin", "keydown", "keyup", "mousedown", "mouseup", "selectionchange"]);
         }
@@ -8773,7 +8773,7 @@ var require_react_dom_development = __commonJS({
         };
         var prefixedEventNames = {};
         var style = {};
-        if (canUseDOM) {
+        if (canUseDOM2) {
           style = document.createElement("div").style;
           if (!("AnimationEvent" in window)) {
             delete vendorPrefixes.animationend.animation;
@@ -9289,7 +9289,7 @@ var require_react_dom_development = __commonJS({
               possibleRegistrationNames
             });
           };
-          canDiffStyleForHydrationWarning = canUseDOM && !document.documentMode;
+          canDiffStyleForHydrationWarning = canUseDOM2 && !document.documentMode;
           warnForPropDifference = function(propName, serverValue, clientValue) {
             if (didWarnInvalidHydration) {
               return;
@@ -23511,7 +23511,7 @@ var require_react_dom_development = __commonJS({
           rendererPackageName: "react-dom"
         });
         {
-          if (!foundDevTools && canUseDOM && window.top === window.self) {
+          if (!foundDevTools && canUseDOM2 && window.top === window.self) {
             if (navigator.userAgent.indexOf("Chrome") > -1 && navigator.userAgent.indexOf("Edge") === -1 || navigator.userAgent.indexOf("Firefox") > -1) {
               var protocol = window.location.protocol;
               if (/^(https?|file):$/.test(protocol)) {
@@ -24490,11 +24490,1713 @@ var require_jsx_runtime = __commonJS({
 });
 
 // ui/main.tsx
-var import_react3 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 var import_client = __toESM(require_client(), 1);
 
+// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+var import_react = __toESM(require_react(), 1);
+
+// ../../../node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
+function isObject(subject) {
+  return Object.prototype.toString.call(subject) === "[object Object]";
+}
+function isRecord(subject) {
+  return isObject(subject) || Array.isArray(subject);
+}
+function canUseDOM() {
+  return !!(typeof window !== "undefined" && window.document && window.document.createElement);
+}
+function areOptionsEqual(optionsA, optionsB) {
+  const optionsAKeys = Object.keys(optionsA);
+  const optionsBKeys = Object.keys(optionsB);
+  if (optionsAKeys.length !== optionsBKeys.length) return false;
+  const breakpointsA = JSON.stringify(Object.keys(optionsA.breakpoints || {}));
+  const breakpointsB = JSON.stringify(Object.keys(optionsB.breakpoints || {}));
+  if (breakpointsA !== breakpointsB) return false;
+  return optionsAKeys.every((key) => {
+    const valueA = optionsA[key];
+    const valueB = optionsB[key];
+    if (typeof valueA === "function") return `${valueA}` === `${valueB}`;
+    if (!isRecord(valueA) || !isRecord(valueB)) return valueA === valueB;
+    return areOptionsEqual(valueA, valueB);
+  });
+}
+function sortAndMapPluginToOptions(plugins) {
+  return plugins.concat().sort((a, b) => a.name > b.name ? 1 : -1).map((plugin) => plugin.options);
+}
+function arePluginsEqual(pluginsA, pluginsB) {
+  if (pluginsA.length !== pluginsB.length) return false;
+  const optionsA = sortAndMapPluginToOptions(pluginsA);
+  const optionsB = sortAndMapPluginToOptions(pluginsB);
+  return optionsA.every((optionA, index) => {
+    const optionB = optionsB[index];
+    return areOptionsEqual(optionA, optionB);
+  });
+}
+
+// ../../../node_modules/embla-carousel/esm/embla-carousel.esm.js
+function isNumber(subject) {
+  return typeof subject === "number";
+}
+function isString(subject) {
+  return typeof subject === "string";
+}
+function isBoolean(subject) {
+  return typeof subject === "boolean";
+}
+function isObject2(subject) {
+  return Object.prototype.toString.call(subject) === "[object Object]";
+}
+function mathAbs(n) {
+  return Math.abs(n);
+}
+function mathSign(n) {
+  return Math.sign(n);
+}
+function deltaAbs(valueB, valueA) {
+  return mathAbs(valueB - valueA);
+}
+function factorAbs(valueB, valueA) {
+  if (valueB === 0 || valueA === 0) return 0;
+  if (mathAbs(valueB) <= mathAbs(valueA)) return 0;
+  const diff = deltaAbs(mathAbs(valueB), mathAbs(valueA));
+  return mathAbs(diff / valueB);
+}
+function roundToTwoDecimals(num) {
+  return Math.round(num * 100) / 100;
+}
+function arrayKeys(array) {
+  return objectKeys(array).map(Number);
+}
+function arrayLast(array) {
+  return array[arrayLastIndex(array)];
+}
+function arrayLastIndex(array) {
+  return Math.max(0, array.length - 1);
+}
+function arrayIsLastIndex(array, index) {
+  return index === arrayLastIndex(array);
+}
+function arrayFromNumber(n, startAt = 0) {
+  return Array.from(Array(n), (_, i) => startAt + i);
+}
+function objectKeys(object) {
+  return Object.keys(object);
+}
+function objectsMergeDeep(objectA, objectB) {
+  return [objectA, objectB].reduce((mergedObjects, currentObject) => {
+    objectKeys(currentObject).forEach((key) => {
+      const valueA = mergedObjects[key];
+      const valueB = currentObject[key];
+      const areObjects = isObject2(valueA) && isObject2(valueB);
+      mergedObjects[key] = areObjects ? objectsMergeDeep(valueA, valueB) : valueB;
+    });
+    return mergedObjects;
+  }, {});
+}
+function isMouseEvent(evt, ownerWindow) {
+  return typeof ownerWindow.MouseEvent !== "undefined" && evt instanceof ownerWindow.MouseEvent;
+}
+function Alignment(align, viewSize) {
+  const predefined = {
+    start,
+    center,
+    end
+  };
+  function start() {
+    return 0;
+  }
+  function center(n) {
+    return end(n) / 2;
+  }
+  function end(n) {
+    return viewSize - n;
+  }
+  function measure(n, index) {
+    if (isString(align)) return predefined[align](n);
+    return align(viewSize, n, index);
+  }
+  const self = {
+    measure
+  };
+  return self;
+}
+function EventStore() {
+  let listeners = [];
+  function add(node, type, handler, options = {
+    passive: true
+  }) {
+    let removeListener;
+    if ("addEventListener" in node) {
+      node.addEventListener(type, handler, options);
+      removeListener = () => node.removeEventListener(type, handler, options);
+    } else {
+      const legacyMediaQueryList = node;
+      legacyMediaQueryList.addListener(handler);
+      removeListener = () => legacyMediaQueryList.removeListener(handler);
+    }
+    listeners.push(removeListener);
+    return self;
+  }
+  function clear() {
+    listeners = listeners.filter((remove) => remove());
+  }
+  const self = {
+    add,
+    clear
+  };
+  return self;
+}
+function Animations(ownerDocument, ownerWindow, update, render) {
+  const documentVisibleHandler = EventStore();
+  const fixedTimeStep = 1e3 / 60;
+  let lastTimeStamp = null;
+  let accumulatedTime = 0;
+  let animationId = 0;
+  function init() {
+    documentVisibleHandler.add(ownerDocument, "visibilitychange", () => {
+      if (ownerDocument.hidden) reset();
+    });
+  }
+  function destroy() {
+    stop();
+    documentVisibleHandler.clear();
+  }
+  function animate(timeStamp) {
+    if (!animationId) return;
+    if (!lastTimeStamp) {
+      lastTimeStamp = timeStamp;
+      update();
+      update();
+    }
+    const timeElapsed = timeStamp - lastTimeStamp;
+    lastTimeStamp = timeStamp;
+    accumulatedTime += timeElapsed;
+    while (accumulatedTime >= fixedTimeStep) {
+      update();
+      accumulatedTime -= fixedTimeStep;
+    }
+    const alpha = accumulatedTime / fixedTimeStep;
+    render(alpha);
+    if (animationId) {
+      animationId = ownerWindow.requestAnimationFrame(animate);
+    }
+  }
+  function start() {
+    if (animationId) return;
+    animationId = ownerWindow.requestAnimationFrame(animate);
+  }
+  function stop() {
+    ownerWindow.cancelAnimationFrame(animationId);
+    lastTimeStamp = null;
+    accumulatedTime = 0;
+    animationId = 0;
+  }
+  function reset() {
+    lastTimeStamp = null;
+    accumulatedTime = 0;
+  }
+  const self = {
+    init,
+    destroy,
+    start,
+    stop,
+    update,
+    render
+  };
+  return self;
+}
+function Axis(axis, contentDirection) {
+  const isRightToLeft = contentDirection === "rtl";
+  const isVertical = axis === "y";
+  const scroll = isVertical ? "y" : "x";
+  const cross = isVertical ? "x" : "y";
+  const sign = !isVertical && isRightToLeft ? -1 : 1;
+  const startEdge = getStartEdge();
+  const endEdge = getEndEdge();
+  function measureSize(nodeRect) {
+    const {
+      height,
+      width
+    } = nodeRect;
+    return isVertical ? height : width;
+  }
+  function getStartEdge() {
+    if (isVertical) return "top";
+    return isRightToLeft ? "right" : "left";
+  }
+  function getEndEdge() {
+    if (isVertical) return "bottom";
+    return isRightToLeft ? "left" : "right";
+  }
+  function direction(n) {
+    return n * sign;
+  }
+  const self = {
+    scroll,
+    cross,
+    startEdge,
+    endEdge,
+    measureSize,
+    direction
+  };
+  return self;
+}
+function Limit(min = 0, max = 0) {
+  const length = mathAbs(min - max);
+  function reachedMin(n) {
+    return n < min;
+  }
+  function reachedMax(n) {
+    return n > max;
+  }
+  function reachedAny(n) {
+    return reachedMin(n) || reachedMax(n);
+  }
+  function constrain(n) {
+    if (!reachedAny(n)) return n;
+    return reachedMin(n) ? min : max;
+  }
+  function removeOffset(n) {
+    if (!length) return n;
+    return n - length * Math.ceil((n - max) / length);
+  }
+  const self = {
+    length,
+    max,
+    min,
+    constrain,
+    reachedAny,
+    reachedMax,
+    reachedMin,
+    removeOffset
+  };
+  return self;
+}
+function Counter(max, start, loop) {
+  const {
+    constrain
+  } = Limit(0, max);
+  const loopEnd = max + 1;
+  let counter = withinLimit(start);
+  function withinLimit(n) {
+    return !loop ? constrain(n) : mathAbs((loopEnd + n) % loopEnd);
+  }
+  function get() {
+    return counter;
+  }
+  function set(n) {
+    counter = withinLimit(n);
+    return self;
+  }
+  function add(n) {
+    return clone().set(get() + n);
+  }
+  function clone() {
+    return Counter(max, get(), loop);
+  }
+  const self = {
+    get,
+    set,
+    add,
+    clone
+  };
+  return self;
+}
+function DragHandler(axis, rootNode, ownerDocument, ownerWindow, target, dragTracker, location2, animation, scrollTo, scrollBody, scrollTarget, index, eventHandler, percentOfView, dragFree, dragThreshold, skipSnaps, baseFriction, watchDrag) {
+  const {
+    cross: crossAxis,
+    direction
+  } = axis;
+  const focusNodes = ["INPUT", "SELECT", "TEXTAREA"];
+  const nonPassiveEvent = {
+    passive: false
+  };
+  const initEvents = EventStore();
+  const dragEvents = EventStore();
+  const goToNextThreshold = Limit(50, 225).constrain(percentOfView.measure(20));
+  const snapForceBoost = {
+    mouse: 300,
+    touch: 400
+  };
+  const freeForceBoost = {
+    mouse: 500,
+    touch: 600
+  };
+  const baseSpeed = dragFree ? 43 : 25;
+  let isMoving = false;
+  let startScroll = 0;
+  let startCross = 0;
+  let pointerIsDown = false;
+  let preventScroll = false;
+  let preventClick = false;
+  let isMouse = false;
+  function init(emblaApi) {
+    if (!watchDrag) return;
+    function downIfAllowed(evt) {
+      if (isBoolean(watchDrag) || watchDrag(emblaApi, evt)) down(evt);
+    }
+    const node = rootNode;
+    initEvents.add(node, "dragstart", (evt) => evt.preventDefault(), nonPassiveEvent).add(node, "touchmove", () => void 0, nonPassiveEvent).add(node, "touchend", () => void 0).add(node, "touchstart", downIfAllowed).add(node, "mousedown", downIfAllowed).add(node, "touchcancel", up).add(node, "contextmenu", up).add(node, "click", click, true);
+  }
+  function destroy() {
+    initEvents.clear();
+    dragEvents.clear();
+  }
+  function addDragEvents() {
+    const node = isMouse ? ownerDocument : rootNode;
+    dragEvents.add(node, "touchmove", move, nonPassiveEvent).add(node, "touchend", up).add(node, "mousemove", move, nonPassiveEvent).add(node, "mouseup", up);
+  }
+  function isFocusNode(node) {
+    const nodeName = node.nodeName || "";
+    return focusNodes.includes(nodeName);
+  }
+  function forceBoost() {
+    const boost = dragFree ? freeForceBoost : snapForceBoost;
+    const type = isMouse ? "mouse" : "touch";
+    return boost[type];
+  }
+  function allowedForce(force, targetChanged) {
+    const next = index.add(mathSign(force) * -1);
+    const baseForce = scrollTarget.byDistance(force, !dragFree).distance;
+    if (dragFree || mathAbs(force) < goToNextThreshold) return baseForce;
+    if (skipSnaps && targetChanged) return baseForce * 0.5;
+    return scrollTarget.byIndex(next.get(), 0).distance;
+  }
+  function down(evt) {
+    const isMouseEvt = isMouseEvent(evt, ownerWindow);
+    isMouse = isMouseEvt;
+    preventClick = dragFree && isMouseEvt && !evt.buttons && isMoving;
+    isMoving = deltaAbs(target.get(), location2.get()) >= 2;
+    if (isMouseEvt && evt.button !== 0) return;
+    if (isFocusNode(evt.target)) return;
+    pointerIsDown = true;
+    dragTracker.pointerDown(evt);
+    scrollBody.useFriction(0).useDuration(0);
+    target.set(location2);
+    addDragEvents();
+    startScroll = dragTracker.readPoint(evt);
+    startCross = dragTracker.readPoint(evt, crossAxis);
+    eventHandler.emit("pointerDown");
+  }
+  function move(evt) {
+    const isTouchEvt = !isMouseEvent(evt, ownerWindow);
+    if (isTouchEvt && evt.touches.length >= 2) return up(evt);
+    const lastScroll = dragTracker.readPoint(evt);
+    const lastCross = dragTracker.readPoint(evt, crossAxis);
+    const diffScroll = deltaAbs(lastScroll, startScroll);
+    const diffCross = deltaAbs(lastCross, startCross);
+    if (!preventScroll && !isMouse) {
+      if (!evt.cancelable) return up(evt);
+      preventScroll = diffScroll > diffCross;
+      if (!preventScroll) return up(evt);
+    }
+    const diff = dragTracker.pointerMove(evt);
+    if (diffScroll > dragThreshold) preventClick = true;
+    scrollBody.useFriction(0.3).useDuration(0.75);
+    animation.start();
+    target.add(direction(diff));
+    evt.preventDefault();
+  }
+  function up(evt) {
+    const currentLocation = scrollTarget.byDistance(0, false);
+    const targetChanged = currentLocation.index !== index.get();
+    const rawForce = dragTracker.pointerUp(evt) * forceBoost();
+    const force = allowedForce(direction(rawForce), targetChanged);
+    const forceFactor = factorAbs(rawForce, force);
+    const speed = baseSpeed - 10 * forceFactor;
+    const friction = baseFriction + forceFactor / 50;
+    preventScroll = false;
+    pointerIsDown = false;
+    dragEvents.clear();
+    scrollBody.useDuration(speed).useFriction(friction);
+    scrollTo.distance(force, !dragFree);
+    isMouse = false;
+    eventHandler.emit("pointerUp");
+  }
+  function click(evt) {
+    if (preventClick) {
+      evt.stopPropagation();
+      evt.preventDefault();
+      preventClick = false;
+    }
+  }
+  function pointerDown() {
+    return pointerIsDown;
+  }
+  const self = {
+    init,
+    destroy,
+    pointerDown
+  };
+  return self;
+}
+function DragTracker(axis, ownerWindow) {
+  const logInterval = 170;
+  let startEvent;
+  let lastEvent;
+  function readTime(evt) {
+    return evt.timeStamp;
+  }
+  function readPoint(evt, evtAxis) {
+    const property = evtAxis || axis.scroll;
+    const coord = `client${property === "x" ? "X" : "Y"}`;
+    return (isMouseEvent(evt, ownerWindow) ? evt : evt.touches[0])[coord];
+  }
+  function pointerDown(evt) {
+    startEvent = evt;
+    lastEvent = evt;
+    return readPoint(evt);
+  }
+  function pointerMove(evt) {
+    const diff = readPoint(evt) - readPoint(lastEvent);
+    const expired = readTime(evt) - readTime(startEvent) > logInterval;
+    lastEvent = evt;
+    if (expired) startEvent = evt;
+    return diff;
+  }
+  function pointerUp(evt) {
+    if (!startEvent || !lastEvent) return 0;
+    const diffDrag = readPoint(lastEvent) - readPoint(startEvent);
+    const diffTime = readTime(evt) - readTime(startEvent);
+    const expired = readTime(evt) - readTime(lastEvent) > logInterval;
+    const force = diffDrag / diffTime;
+    const isFlick = diffTime && !expired && mathAbs(force) > 0.1;
+    return isFlick ? force : 0;
+  }
+  const self = {
+    pointerDown,
+    pointerMove,
+    pointerUp,
+    readPoint
+  };
+  return self;
+}
+function NodeRects() {
+  function measure(node) {
+    const {
+      offsetTop,
+      offsetLeft,
+      offsetWidth,
+      offsetHeight
+    } = node;
+    const offset = {
+      top: offsetTop,
+      right: offsetLeft + offsetWidth,
+      bottom: offsetTop + offsetHeight,
+      left: offsetLeft,
+      width: offsetWidth,
+      height: offsetHeight
+    };
+    return offset;
+  }
+  const self = {
+    measure
+  };
+  return self;
+}
+function PercentOfView(viewSize) {
+  function measure(n) {
+    return viewSize * (n / 100);
+  }
+  const self = {
+    measure
+  };
+  return self;
+}
+function ResizeHandler(container, eventHandler, ownerWindow, slides, axis, watchResize, nodeRects) {
+  const observeNodes = [container].concat(slides);
+  let resizeObserver;
+  let containerSize;
+  let slideSizes = [];
+  let destroyed = false;
+  function readSize(node) {
+    return axis.measureSize(nodeRects.measure(node));
+  }
+  function init(emblaApi) {
+    if (!watchResize) return;
+    containerSize = readSize(container);
+    slideSizes = slides.map(readSize);
+    function defaultCallback(entries) {
+      for (const entry of entries) {
+        if (destroyed) return;
+        const isContainer = entry.target === container;
+        const slideIndex = slides.indexOf(entry.target);
+        const lastSize = isContainer ? containerSize : slideSizes[slideIndex];
+        const newSize = readSize(isContainer ? container : slides[slideIndex]);
+        const diffSize = mathAbs(newSize - lastSize);
+        if (diffSize >= 0.5) {
+          emblaApi.reInit();
+          eventHandler.emit("resize");
+          break;
+        }
+      }
+    }
+    resizeObserver = new ResizeObserver((entries) => {
+      if (isBoolean(watchResize) || watchResize(emblaApi, entries)) {
+        defaultCallback(entries);
+      }
+    });
+    ownerWindow.requestAnimationFrame(() => {
+      observeNodes.forEach((node) => resizeObserver.observe(node));
+    });
+  }
+  function destroy() {
+    destroyed = true;
+    if (resizeObserver) resizeObserver.disconnect();
+  }
+  const self = {
+    init,
+    destroy
+  };
+  return self;
+}
+function ScrollBody(location2, offsetLocation, previousLocation, target, baseDuration, baseFriction) {
+  let scrollVelocity = 0;
+  let scrollDirection = 0;
+  let scrollDuration = baseDuration;
+  let scrollFriction = baseFriction;
+  let rawLocation = location2.get();
+  let rawLocationPrevious = 0;
+  function seek() {
+    const displacement = target.get() - location2.get();
+    const isInstant = !scrollDuration;
+    let scrollDistance = 0;
+    if (isInstant) {
+      scrollVelocity = 0;
+      previousLocation.set(target);
+      location2.set(target);
+      scrollDistance = displacement;
+    } else {
+      previousLocation.set(location2);
+      scrollVelocity += displacement / scrollDuration;
+      scrollVelocity *= scrollFriction;
+      rawLocation += scrollVelocity;
+      location2.add(scrollVelocity);
+      scrollDistance = rawLocation - rawLocationPrevious;
+    }
+    scrollDirection = mathSign(scrollDistance);
+    rawLocationPrevious = rawLocation;
+    return self;
+  }
+  function settled() {
+    const diff = target.get() - offsetLocation.get();
+    return mathAbs(diff) < 1e-3;
+  }
+  function duration() {
+    return scrollDuration;
+  }
+  function direction() {
+    return scrollDirection;
+  }
+  function velocity() {
+    return scrollVelocity;
+  }
+  function useBaseDuration() {
+    return useDuration(baseDuration);
+  }
+  function useBaseFriction() {
+    return useFriction(baseFriction);
+  }
+  function useDuration(n) {
+    scrollDuration = n;
+    return self;
+  }
+  function useFriction(n) {
+    scrollFriction = n;
+    return self;
+  }
+  const self = {
+    direction,
+    duration,
+    velocity,
+    seek,
+    settled,
+    useBaseFriction,
+    useBaseDuration,
+    useFriction,
+    useDuration
+  };
+  return self;
+}
+function ScrollBounds(limit, location2, target, scrollBody, percentOfView) {
+  const pullBackThreshold = percentOfView.measure(10);
+  const edgeOffsetTolerance = percentOfView.measure(50);
+  const frictionLimit = Limit(0.1, 0.99);
+  let disabled = false;
+  function shouldConstrain() {
+    if (disabled) return false;
+    if (!limit.reachedAny(target.get())) return false;
+    if (!limit.reachedAny(location2.get())) return false;
+    return true;
+  }
+  function constrain(pointerDown) {
+    if (!shouldConstrain()) return;
+    const edge = limit.reachedMin(location2.get()) ? "min" : "max";
+    const diffToEdge = mathAbs(limit[edge] - location2.get());
+    const diffToTarget = target.get() - location2.get();
+    const friction = frictionLimit.constrain(diffToEdge / edgeOffsetTolerance);
+    target.subtract(diffToTarget * friction);
+    if (!pointerDown && mathAbs(diffToTarget) < pullBackThreshold) {
+      target.set(limit.constrain(target.get()));
+      scrollBody.useDuration(25).useBaseFriction();
+    }
+  }
+  function toggleActive(active) {
+    disabled = !active;
+  }
+  const self = {
+    shouldConstrain,
+    constrain,
+    toggleActive
+  };
+  return self;
+}
+function ScrollContain(viewSize, contentSize, snapsAligned, containScroll, pixelTolerance) {
+  const scrollBounds = Limit(-contentSize + viewSize, 0);
+  const snapsBounded = measureBounded();
+  const scrollContainLimit = findScrollContainLimit();
+  const snapsContained = measureContained();
+  function usePixelTolerance(bound, snap) {
+    return deltaAbs(bound, snap) <= 1;
+  }
+  function findScrollContainLimit() {
+    const startSnap = snapsBounded[0];
+    const endSnap = arrayLast(snapsBounded);
+    const min = snapsBounded.lastIndexOf(startSnap);
+    const max = snapsBounded.indexOf(endSnap) + 1;
+    return Limit(min, max);
+  }
+  function measureBounded() {
+    return snapsAligned.map((snapAligned, index) => {
+      const {
+        min,
+        max
+      } = scrollBounds;
+      const snap = scrollBounds.constrain(snapAligned);
+      const isFirst = !index;
+      const isLast = arrayIsLastIndex(snapsAligned, index);
+      if (isFirst) return max;
+      if (isLast) return min;
+      if (usePixelTolerance(min, snap)) return min;
+      if (usePixelTolerance(max, snap)) return max;
+      return snap;
+    }).map((scrollBound) => parseFloat(scrollBound.toFixed(3)));
+  }
+  function measureContained() {
+    if (contentSize <= viewSize + pixelTolerance) return [scrollBounds.max];
+    if (containScroll === "keepSnaps") return snapsBounded;
+    const {
+      min,
+      max
+    } = scrollContainLimit;
+    return snapsBounded.slice(min, max);
+  }
+  const self = {
+    snapsContained,
+    scrollContainLimit
+  };
+  return self;
+}
+function ScrollLimit(contentSize, scrollSnaps, loop) {
+  const max = scrollSnaps[0];
+  const min = loop ? max - contentSize : arrayLast(scrollSnaps);
+  const limit = Limit(min, max);
+  const self = {
+    limit
+  };
+  return self;
+}
+function ScrollLooper(contentSize, limit, location2, vectors) {
+  const jointSafety = 0.1;
+  const min = limit.min + jointSafety;
+  const max = limit.max + jointSafety;
+  const {
+    reachedMin,
+    reachedMax
+  } = Limit(min, max);
+  function shouldLoop(direction) {
+    if (direction === 1) return reachedMax(location2.get());
+    if (direction === -1) return reachedMin(location2.get());
+    return false;
+  }
+  function loop(direction) {
+    if (!shouldLoop(direction)) return;
+    const loopDistance = contentSize * (direction * -1);
+    vectors.forEach((v) => v.add(loopDistance));
+  }
+  const self = {
+    loop
+  };
+  return self;
+}
+function ScrollProgress(limit) {
+  const {
+    max,
+    length
+  } = limit;
+  function get(n) {
+    const currentLocation = n - max;
+    return length ? currentLocation / -length : 0;
+  }
+  const self = {
+    get
+  };
+  return self;
+}
+function ScrollSnaps(axis, alignment, containerRect, slideRects, slidesToScroll) {
+  const {
+    startEdge,
+    endEdge
+  } = axis;
+  const {
+    groupSlides
+  } = slidesToScroll;
+  const alignments = measureSizes().map(alignment.measure);
+  const snaps = measureUnaligned();
+  const snapsAligned = measureAligned();
+  function measureSizes() {
+    return groupSlides(slideRects).map((rects) => arrayLast(rects)[endEdge] - rects[0][startEdge]).map(mathAbs);
+  }
+  function measureUnaligned() {
+    return slideRects.map((rect) => containerRect[startEdge] - rect[startEdge]).map((snap) => -mathAbs(snap));
+  }
+  function measureAligned() {
+    return groupSlides(snaps).map((g) => g[0]).map((snap, index) => snap + alignments[index]);
+  }
+  const self = {
+    snaps,
+    snapsAligned
+  };
+  return self;
+}
+function SlideRegistry(containSnaps, containScroll, scrollSnaps, scrollContainLimit, slidesToScroll, slideIndexes) {
+  const {
+    groupSlides
+  } = slidesToScroll;
+  const {
+    min,
+    max
+  } = scrollContainLimit;
+  const slideRegistry = createSlideRegistry();
+  function createSlideRegistry() {
+    const groupedSlideIndexes = groupSlides(slideIndexes);
+    const doNotContain = !containSnaps || containScroll === "keepSnaps";
+    if (scrollSnaps.length === 1) return [slideIndexes];
+    if (doNotContain) return groupedSlideIndexes;
+    return groupedSlideIndexes.slice(min, max).map((group, index, groups) => {
+      const isFirst = !index;
+      const isLast = arrayIsLastIndex(groups, index);
+      if (isFirst) {
+        const range = arrayLast(groups[0]) + 1;
+        return arrayFromNumber(range);
+      }
+      if (isLast) {
+        const range = arrayLastIndex(slideIndexes) - arrayLast(groups)[0] + 1;
+        return arrayFromNumber(range, arrayLast(groups)[0]);
+      }
+      return group;
+    });
+  }
+  const self = {
+    slideRegistry
+  };
+  return self;
+}
+function ScrollTarget(loop, scrollSnaps, contentSize, limit, targetVector) {
+  const {
+    reachedAny,
+    removeOffset,
+    constrain
+  } = limit;
+  function minDistance(distances) {
+    return distances.concat().sort((a, b) => mathAbs(a) - mathAbs(b))[0];
+  }
+  function findTargetSnap(target) {
+    const distance = loop ? removeOffset(target) : constrain(target);
+    const ascDiffsToSnaps = scrollSnaps.map((snap, index2) => ({
+      diff: shortcut(snap - distance, 0),
+      index: index2
+    })).sort((d1, d2) => mathAbs(d1.diff) - mathAbs(d2.diff));
+    const {
+      index
+    } = ascDiffsToSnaps[0];
+    return {
+      index,
+      distance
+    };
+  }
+  function shortcut(target, direction) {
+    const targets = [target, target + contentSize, target - contentSize];
+    if (!loop) return target;
+    if (!direction) return minDistance(targets);
+    const matchingTargets = targets.filter((t) => mathSign(t) === direction);
+    if (matchingTargets.length) return minDistance(matchingTargets);
+    return arrayLast(targets) - contentSize;
+  }
+  function byIndex(index, direction) {
+    const diffToSnap = scrollSnaps[index] - targetVector.get();
+    const distance = shortcut(diffToSnap, direction);
+    return {
+      index,
+      distance
+    };
+  }
+  function byDistance(distance, snap) {
+    const target = targetVector.get() + distance;
+    const {
+      index,
+      distance: targetSnapDistance
+    } = findTargetSnap(target);
+    const reachedBound = !loop && reachedAny(target);
+    if (!snap || reachedBound) return {
+      index,
+      distance
+    };
+    const diffToSnap = scrollSnaps[index] - targetSnapDistance;
+    const snapDistance = distance + shortcut(diffToSnap, 0);
+    return {
+      index,
+      distance: snapDistance
+    };
+  }
+  const self = {
+    byDistance,
+    byIndex,
+    shortcut
+  };
+  return self;
+}
+function ScrollTo(animation, indexCurrent, indexPrevious, scrollBody, scrollTarget, targetVector, eventHandler) {
+  function scrollTo(target) {
+    const distanceDiff = target.distance;
+    const indexDiff = target.index !== indexCurrent.get();
+    targetVector.add(distanceDiff);
+    if (distanceDiff) {
+      if (scrollBody.duration()) {
+        animation.start();
+      } else {
+        animation.update();
+        animation.render(1);
+        animation.update();
+      }
+    }
+    if (indexDiff) {
+      indexPrevious.set(indexCurrent.get());
+      indexCurrent.set(target.index);
+      eventHandler.emit("select");
+    }
+  }
+  function distance(n, snap) {
+    const target = scrollTarget.byDistance(n, snap);
+    scrollTo(target);
+  }
+  function index(n, direction) {
+    const targetIndex = indexCurrent.clone().set(n);
+    const target = scrollTarget.byIndex(targetIndex.get(), direction);
+    scrollTo(target);
+  }
+  const self = {
+    distance,
+    index
+  };
+  return self;
+}
+function SlideFocus(root2, slides, slideRegistry, scrollTo, scrollBody, eventStore, eventHandler, watchFocus) {
+  const focusListenerOptions = {
+    passive: true,
+    capture: true
+  };
+  let lastTabPressTime = 0;
+  function init(emblaApi) {
+    if (!watchFocus) return;
+    function defaultCallback(index) {
+      const nowTime = (/* @__PURE__ */ new Date()).getTime();
+      const diffTime = nowTime - lastTabPressTime;
+      if (diffTime > 10) return;
+      eventHandler.emit("slideFocusStart");
+      root2.scrollLeft = 0;
+      const group = slideRegistry.findIndex((group2) => group2.includes(index));
+      if (!isNumber(group)) return;
+      scrollBody.useDuration(0);
+      scrollTo.index(group, 0);
+      eventHandler.emit("slideFocus");
+    }
+    eventStore.add(document, "keydown", registerTabPress, false);
+    slides.forEach((slide, slideIndex) => {
+      eventStore.add(slide, "focus", (evt) => {
+        if (isBoolean(watchFocus) || watchFocus(emblaApi, evt)) {
+          defaultCallback(slideIndex);
+        }
+      }, focusListenerOptions);
+    });
+  }
+  function registerTabPress(event) {
+    if (event.code === "Tab") lastTabPressTime = (/* @__PURE__ */ new Date()).getTime();
+  }
+  const self = {
+    init
+  };
+  return self;
+}
+function Vector1D(initialValue) {
+  let value = initialValue;
+  function get() {
+    return value;
+  }
+  function set(n) {
+    value = normalizeInput(n);
+  }
+  function add(n) {
+    value += normalizeInput(n);
+  }
+  function subtract(n) {
+    value -= normalizeInput(n);
+  }
+  function normalizeInput(n) {
+    return isNumber(n) ? n : n.get();
+  }
+  const self = {
+    get,
+    set,
+    add,
+    subtract
+  };
+  return self;
+}
+function Translate(axis, container) {
+  const translate = axis.scroll === "x" ? x : y;
+  const containerStyle = container.style;
+  let previousTarget = null;
+  let disabled = false;
+  function x(n) {
+    return `translate3d(${n}px,0px,0px)`;
+  }
+  function y(n) {
+    return `translate3d(0px,${n}px,0px)`;
+  }
+  function to(target) {
+    if (disabled) return;
+    const newTarget = roundToTwoDecimals(axis.direction(target));
+    if (newTarget === previousTarget) return;
+    containerStyle.transform = translate(newTarget);
+    previousTarget = newTarget;
+  }
+  function toggleActive(active) {
+    disabled = !active;
+  }
+  function clear() {
+    if (disabled) return;
+    containerStyle.transform = "";
+    if (!container.getAttribute("style")) container.removeAttribute("style");
+  }
+  const self = {
+    clear,
+    to,
+    toggleActive
+  };
+  return self;
+}
+function SlideLooper(axis, viewSize, contentSize, slideSizes, slideSizesWithGaps, snaps, scrollSnaps, location2, slides) {
+  const roundingSafety = 0.5;
+  const ascItems = arrayKeys(slideSizesWithGaps);
+  const descItems = arrayKeys(slideSizesWithGaps).reverse();
+  const loopPoints = startPoints().concat(endPoints());
+  function removeSlideSizes(indexes, from) {
+    return indexes.reduce((a, i) => {
+      return a - slideSizesWithGaps[i];
+    }, from);
+  }
+  function slidesInGap(indexes, gap) {
+    return indexes.reduce((a, i) => {
+      const remainingGap = removeSlideSizes(a, gap);
+      return remainingGap > 0 ? a.concat([i]) : a;
+    }, []);
+  }
+  function findSlideBounds(offset) {
+    return snaps.map((snap, index) => ({
+      start: snap - slideSizes[index] + roundingSafety + offset,
+      end: snap + viewSize - roundingSafety + offset
+    }));
+  }
+  function findLoopPoints(indexes, offset, isEndEdge) {
+    const slideBounds = findSlideBounds(offset);
+    return indexes.map((index) => {
+      const initial = isEndEdge ? 0 : -contentSize;
+      const altered = isEndEdge ? contentSize : 0;
+      const boundEdge = isEndEdge ? "end" : "start";
+      const loopPoint = slideBounds[index][boundEdge];
+      return {
+        index,
+        loopPoint,
+        slideLocation: Vector1D(-1),
+        translate: Translate(axis, slides[index]),
+        target: () => location2.get() > loopPoint ? initial : altered
+      };
+    });
+  }
+  function startPoints() {
+    const gap = scrollSnaps[0];
+    const indexes = slidesInGap(descItems, gap);
+    return findLoopPoints(indexes, contentSize, false);
+  }
+  function endPoints() {
+    const gap = viewSize - scrollSnaps[0] - 1;
+    const indexes = slidesInGap(ascItems, gap);
+    return findLoopPoints(indexes, -contentSize, true);
+  }
+  function canLoop() {
+    return loopPoints.every(({
+      index
+    }) => {
+      const otherIndexes = ascItems.filter((i) => i !== index);
+      return removeSlideSizes(otherIndexes, viewSize) <= 0.1;
+    });
+  }
+  function loop() {
+    loopPoints.forEach((loopPoint) => {
+      const {
+        target,
+        translate,
+        slideLocation
+      } = loopPoint;
+      const shiftLocation = target();
+      if (shiftLocation === slideLocation.get()) return;
+      translate.to(shiftLocation);
+      slideLocation.set(shiftLocation);
+    });
+  }
+  function clear() {
+    loopPoints.forEach((loopPoint) => loopPoint.translate.clear());
+  }
+  const self = {
+    canLoop,
+    clear,
+    loop,
+    loopPoints
+  };
+  return self;
+}
+function SlidesHandler(container, eventHandler, watchSlides) {
+  let mutationObserver;
+  let destroyed = false;
+  function init(emblaApi) {
+    if (!watchSlides) return;
+    function defaultCallback(mutations) {
+      for (const mutation of mutations) {
+        if (mutation.type === "childList") {
+          emblaApi.reInit();
+          eventHandler.emit("slidesChanged");
+          break;
+        }
+      }
+    }
+    mutationObserver = new MutationObserver((mutations) => {
+      if (destroyed) return;
+      if (isBoolean(watchSlides) || watchSlides(emblaApi, mutations)) {
+        defaultCallback(mutations);
+      }
+    });
+    mutationObserver.observe(container, {
+      childList: true
+    });
+  }
+  function destroy() {
+    if (mutationObserver) mutationObserver.disconnect();
+    destroyed = true;
+  }
+  const self = {
+    init,
+    destroy
+  };
+  return self;
+}
+function SlidesInView(container, slides, eventHandler, threshold) {
+  const intersectionEntryMap = {};
+  let inViewCache = null;
+  let notInViewCache = null;
+  let intersectionObserver;
+  let destroyed = false;
+  function init() {
+    intersectionObserver = new IntersectionObserver((entries) => {
+      if (destroyed) return;
+      entries.forEach((entry) => {
+        const index = slides.indexOf(entry.target);
+        intersectionEntryMap[index] = entry;
+      });
+      inViewCache = null;
+      notInViewCache = null;
+      eventHandler.emit("slidesInView");
+    }, {
+      root: container.parentElement,
+      threshold
+    });
+    slides.forEach((slide) => intersectionObserver.observe(slide));
+  }
+  function destroy() {
+    if (intersectionObserver) intersectionObserver.disconnect();
+    destroyed = true;
+  }
+  function createInViewList(inView) {
+    return objectKeys(intersectionEntryMap).reduce((list, slideIndex) => {
+      const index = parseInt(slideIndex);
+      const {
+        isIntersecting
+      } = intersectionEntryMap[index];
+      const inViewMatch = inView && isIntersecting;
+      const notInViewMatch = !inView && !isIntersecting;
+      if (inViewMatch || notInViewMatch) list.push(index);
+      return list;
+    }, []);
+  }
+  function get(inView = true) {
+    if (inView && inViewCache) return inViewCache;
+    if (!inView && notInViewCache) return notInViewCache;
+    const slideIndexes = createInViewList(inView);
+    if (inView) inViewCache = slideIndexes;
+    if (!inView) notInViewCache = slideIndexes;
+    return slideIndexes;
+  }
+  const self = {
+    init,
+    destroy,
+    get
+  };
+  return self;
+}
+function SlideSizes(axis, containerRect, slideRects, slides, readEdgeGap, ownerWindow) {
+  const {
+    measureSize,
+    startEdge,
+    endEdge
+  } = axis;
+  const withEdgeGap = slideRects[0] && readEdgeGap;
+  const startGap = measureStartGap();
+  const endGap = measureEndGap();
+  const slideSizes = slideRects.map(measureSize);
+  const slideSizesWithGaps = measureWithGaps();
+  function measureStartGap() {
+    if (!withEdgeGap) return 0;
+    const slideRect = slideRects[0];
+    return mathAbs(containerRect[startEdge] - slideRect[startEdge]);
+  }
+  function measureEndGap() {
+    if (!withEdgeGap) return 0;
+    const style = ownerWindow.getComputedStyle(arrayLast(slides));
+    return parseFloat(style.getPropertyValue(`margin-${endEdge}`));
+  }
+  function measureWithGaps() {
+    return slideRects.map((rect, index, rects) => {
+      const isFirst = !index;
+      const isLast = arrayIsLastIndex(rects, index);
+      if (isFirst) return slideSizes[index] + startGap;
+      if (isLast) return slideSizes[index] + endGap;
+      return rects[index + 1][startEdge] - rect[startEdge];
+    }).map(mathAbs);
+  }
+  const self = {
+    slideSizes,
+    slideSizesWithGaps,
+    startGap,
+    endGap
+  };
+  return self;
+}
+function SlidesToScroll(axis, viewSize, slidesToScroll, loop, containerRect, slideRects, startGap, endGap, pixelTolerance) {
+  const {
+    startEdge,
+    endEdge,
+    direction
+  } = axis;
+  const groupByNumber = isNumber(slidesToScroll);
+  function byNumber(array, groupSize) {
+    return arrayKeys(array).filter((i) => i % groupSize === 0).map((i) => array.slice(i, i + groupSize));
+  }
+  function bySize(array) {
+    if (!array.length) return [];
+    return arrayKeys(array).reduce((groups, rectB, index) => {
+      const rectA = arrayLast(groups) || 0;
+      const isFirst = rectA === 0;
+      const isLast = rectB === arrayLastIndex(array);
+      const edgeA = containerRect[startEdge] - slideRects[rectA][startEdge];
+      const edgeB = containerRect[startEdge] - slideRects[rectB][endEdge];
+      const gapA = !loop && isFirst ? direction(startGap) : 0;
+      const gapB = !loop && isLast ? direction(endGap) : 0;
+      const chunkSize = mathAbs(edgeB - gapB - (edgeA + gapA));
+      if (index && chunkSize > viewSize + pixelTolerance) groups.push(rectB);
+      if (isLast) groups.push(array.length);
+      return groups;
+    }, []).map((currentSize, index, groups) => {
+      const previousSize = Math.max(groups[index - 1] || 0);
+      return array.slice(previousSize, currentSize);
+    });
+  }
+  function groupSlides(array) {
+    return groupByNumber ? byNumber(array, slidesToScroll) : bySize(array);
+  }
+  const self = {
+    groupSlides
+  };
+  return self;
+}
+function Engine(root2, container, slides, ownerDocument, ownerWindow, options, eventHandler) {
+  const {
+    align,
+    axis: scrollAxis,
+    direction,
+    startIndex,
+    loop,
+    duration,
+    dragFree,
+    dragThreshold,
+    inViewThreshold,
+    slidesToScroll: groupSlides,
+    skipSnaps,
+    containScroll,
+    watchResize,
+    watchSlides,
+    watchDrag,
+    watchFocus
+  } = options;
+  const pixelTolerance = 2;
+  const nodeRects = NodeRects();
+  const containerRect = nodeRects.measure(container);
+  const slideRects = slides.map(nodeRects.measure);
+  const axis = Axis(scrollAxis, direction);
+  const viewSize = axis.measureSize(containerRect);
+  const percentOfView = PercentOfView(viewSize);
+  const alignment = Alignment(align, viewSize);
+  const containSnaps = !loop && !!containScroll;
+  const readEdgeGap = loop || !!containScroll;
+  const {
+    slideSizes,
+    slideSizesWithGaps,
+    startGap,
+    endGap
+  } = SlideSizes(axis, containerRect, slideRects, slides, readEdgeGap, ownerWindow);
+  const slidesToScroll = SlidesToScroll(axis, viewSize, groupSlides, loop, containerRect, slideRects, startGap, endGap, pixelTolerance);
+  const {
+    snaps,
+    snapsAligned
+  } = ScrollSnaps(axis, alignment, containerRect, slideRects, slidesToScroll);
+  const contentSize = -arrayLast(snaps) + arrayLast(slideSizesWithGaps);
+  const {
+    snapsContained,
+    scrollContainLimit
+  } = ScrollContain(viewSize, contentSize, snapsAligned, containScroll, pixelTolerance);
+  const scrollSnaps = containSnaps ? snapsContained : snapsAligned;
+  const {
+    limit
+  } = ScrollLimit(contentSize, scrollSnaps, loop);
+  const index = Counter(arrayLastIndex(scrollSnaps), startIndex, loop);
+  const indexPrevious = index.clone();
+  const slideIndexes = arrayKeys(slides);
+  const update = ({
+    dragHandler,
+    scrollBody: scrollBody2,
+    scrollBounds,
+    options: {
+      loop: loop2
+    }
+  }) => {
+    if (!loop2) scrollBounds.constrain(dragHandler.pointerDown());
+    scrollBody2.seek();
+  };
+  const render = ({
+    scrollBody: scrollBody2,
+    translate,
+    location: location3,
+    offsetLocation: offsetLocation2,
+    previousLocation: previousLocation2,
+    scrollLooper,
+    slideLooper,
+    dragHandler,
+    animation: animation2,
+    eventHandler: eventHandler2,
+    scrollBounds,
+    options: {
+      loop: loop2
+    }
+  }, alpha) => {
+    const shouldSettle = scrollBody2.settled();
+    const withinBounds = !scrollBounds.shouldConstrain();
+    const hasSettled = loop2 ? shouldSettle : shouldSettle && withinBounds;
+    const hasSettledAndIdle = hasSettled && !dragHandler.pointerDown();
+    if (hasSettledAndIdle) animation2.stop();
+    const interpolatedLocation = location3.get() * alpha + previousLocation2.get() * (1 - alpha);
+    offsetLocation2.set(interpolatedLocation);
+    if (loop2) {
+      scrollLooper.loop(scrollBody2.direction());
+      slideLooper.loop();
+    }
+    translate.to(offsetLocation2.get());
+    if (hasSettledAndIdle) eventHandler2.emit("settle");
+    if (!hasSettled) eventHandler2.emit("scroll");
+  };
+  const animation = Animations(ownerDocument, ownerWindow, () => update(engine), (alpha) => render(engine, alpha));
+  const friction = 0.68;
+  const startLocation = scrollSnaps[index.get()];
+  const location2 = Vector1D(startLocation);
+  const previousLocation = Vector1D(startLocation);
+  const offsetLocation = Vector1D(startLocation);
+  const target = Vector1D(startLocation);
+  const scrollBody = ScrollBody(location2, offsetLocation, previousLocation, target, duration, friction);
+  const scrollTarget = ScrollTarget(loop, scrollSnaps, contentSize, limit, target);
+  const scrollTo = ScrollTo(animation, index, indexPrevious, scrollBody, scrollTarget, target, eventHandler);
+  const scrollProgress = ScrollProgress(limit);
+  const eventStore = EventStore();
+  const slidesInView = SlidesInView(container, slides, eventHandler, inViewThreshold);
+  const {
+    slideRegistry
+  } = SlideRegistry(containSnaps, containScroll, scrollSnaps, scrollContainLimit, slidesToScroll, slideIndexes);
+  const slideFocus = SlideFocus(root2, slides, slideRegistry, scrollTo, scrollBody, eventStore, eventHandler, watchFocus);
+  const engine = {
+    ownerDocument,
+    ownerWindow,
+    eventHandler,
+    containerRect,
+    slideRects,
+    animation,
+    axis,
+    dragHandler: DragHandler(axis, root2, ownerDocument, ownerWindow, target, DragTracker(axis, ownerWindow), location2, animation, scrollTo, scrollBody, scrollTarget, index, eventHandler, percentOfView, dragFree, dragThreshold, skipSnaps, friction, watchDrag),
+    eventStore,
+    percentOfView,
+    index,
+    indexPrevious,
+    limit,
+    location: location2,
+    offsetLocation,
+    previousLocation,
+    options,
+    resizeHandler: ResizeHandler(container, eventHandler, ownerWindow, slides, axis, watchResize, nodeRects),
+    scrollBody,
+    scrollBounds: ScrollBounds(limit, offsetLocation, target, scrollBody, percentOfView),
+    scrollLooper: ScrollLooper(contentSize, limit, offsetLocation, [location2, offsetLocation, previousLocation, target]),
+    scrollProgress,
+    scrollSnapList: scrollSnaps.map(scrollProgress.get),
+    scrollSnaps,
+    scrollTarget,
+    scrollTo,
+    slideLooper: SlideLooper(axis, viewSize, contentSize, slideSizes, slideSizesWithGaps, snaps, scrollSnaps, offsetLocation, slides),
+    slideFocus,
+    slidesHandler: SlidesHandler(container, eventHandler, watchSlides),
+    slidesInView,
+    slideIndexes,
+    slideRegistry,
+    slidesToScroll,
+    target,
+    translate: Translate(axis, container)
+  };
+  return engine;
+}
+function EventHandler() {
+  let listeners = {};
+  let api;
+  function init(emblaApi) {
+    api = emblaApi;
+  }
+  function getListeners(evt) {
+    return listeners[evt] || [];
+  }
+  function emit(evt) {
+    getListeners(evt).forEach((e) => e(api, evt));
+    return self;
+  }
+  function on(evt, cb) {
+    listeners[evt] = getListeners(evt).concat([cb]);
+    return self;
+  }
+  function off(evt, cb) {
+    listeners[evt] = getListeners(evt).filter((e) => e !== cb);
+    return self;
+  }
+  function clear() {
+    listeners = {};
+  }
+  const self = {
+    init,
+    emit,
+    off,
+    on,
+    clear
+  };
+  return self;
+}
+var defaultOptions = {
+  align: "center",
+  axis: "x",
+  container: null,
+  slides: null,
+  containScroll: "trimSnaps",
+  direction: "ltr",
+  slidesToScroll: 1,
+  inViewThreshold: 0,
+  breakpoints: {},
+  dragFree: false,
+  dragThreshold: 10,
+  loop: false,
+  skipSnaps: false,
+  duration: 25,
+  startIndex: 0,
+  active: true,
+  watchDrag: true,
+  watchResize: true,
+  watchSlides: true,
+  watchFocus: true
+};
+function OptionsHandler(ownerWindow) {
+  function mergeOptions(optionsA, optionsB) {
+    return objectsMergeDeep(optionsA, optionsB || {});
+  }
+  function optionsAtMedia(options) {
+    const optionsAtMedia2 = options.breakpoints || {};
+    const matchedMediaOptions = objectKeys(optionsAtMedia2).filter((media) => ownerWindow.matchMedia(media).matches).map((media) => optionsAtMedia2[media]).reduce((a, mediaOption) => mergeOptions(a, mediaOption), {});
+    return mergeOptions(options, matchedMediaOptions);
+  }
+  function optionsMediaQueries(optionsList) {
+    return optionsList.map((options) => objectKeys(options.breakpoints || {})).reduce((acc, mediaQueries) => acc.concat(mediaQueries), []).map(ownerWindow.matchMedia);
+  }
+  const self = {
+    mergeOptions,
+    optionsAtMedia,
+    optionsMediaQueries
+  };
+  return self;
+}
+function PluginsHandler(optionsHandler) {
+  let activePlugins = [];
+  function init(emblaApi, plugins) {
+    activePlugins = plugins.filter(({
+      options
+    }) => optionsHandler.optionsAtMedia(options).active !== false);
+    activePlugins.forEach((plugin) => plugin.init(emblaApi, optionsHandler));
+    return plugins.reduce((map, plugin) => Object.assign(map, {
+      [plugin.name]: plugin
+    }), {});
+  }
+  function destroy() {
+    activePlugins = activePlugins.filter((plugin) => plugin.destroy());
+  }
+  const self = {
+    init,
+    destroy
+  };
+  return self;
+}
+function EmblaCarousel(root2, userOptions, userPlugins) {
+  const ownerDocument = root2.ownerDocument;
+  const ownerWindow = ownerDocument.defaultView;
+  const optionsHandler = OptionsHandler(ownerWindow);
+  const pluginsHandler = PluginsHandler(optionsHandler);
+  const mediaHandlers = EventStore();
+  const eventHandler = EventHandler();
+  const {
+    mergeOptions,
+    optionsAtMedia,
+    optionsMediaQueries
+  } = optionsHandler;
+  const {
+    on,
+    off,
+    emit
+  } = eventHandler;
+  const reInit = reActivate;
+  let destroyed = false;
+  let engine;
+  let optionsBase = mergeOptions(defaultOptions, EmblaCarousel.globalOptions);
+  let options = mergeOptions(optionsBase);
+  let pluginList = [];
+  let pluginApis;
+  let container;
+  let slides;
+  function storeElements() {
+    const {
+      container: userContainer,
+      slides: userSlides
+    } = options;
+    const customContainer = isString(userContainer) ? root2.querySelector(userContainer) : userContainer;
+    container = customContainer || root2.children[0];
+    const customSlides = isString(userSlides) ? container.querySelectorAll(userSlides) : userSlides;
+    slides = [].slice.call(customSlides || container.children);
+  }
+  function createEngine(options2) {
+    const engine2 = Engine(root2, container, slides, ownerDocument, ownerWindow, options2, eventHandler);
+    if (options2.loop && !engine2.slideLooper.canLoop()) {
+      const optionsWithoutLoop = Object.assign({}, options2, {
+        loop: false
+      });
+      return createEngine(optionsWithoutLoop);
+    }
+    return engine2;
+  }
+  function activate(withOptions, withPlugins) {
+    if (destroyed) return;
+    optionsBase = mergeOptions(optionsBase, withOptions);
+    options = optionsAtMedia(optionsBase);
+    pluginList = withPlugins || pluginList;
+    storeElements();
+    engine = createEngine(options);
+    optionsMediaQueries([optionsBase, ...pluginList.map(({
+      options: options2
+    }) => options2)]).forEach((query) => mediaHandlers.add(query, "change", reActivate));
+    if (!options.active) return;
+    engine.translate.to(engine.location.get());
+    engine.animation.init();
+    engine.slidesInView.init();
+    engine.slideFocus.init(self);
+    engine.eventHandler.init(self);
+    engine.resizeHandler.init(self);
+    engine.slidesHandler.init(self);
+    if (engine.options.loop) engine.slideLooper.loop();
+    if (container.offsetParent && slides.length) engine.dragHandler.init(self);
+    pluginApis = pluginsHandler.init(self, pluginList);
+  }
+  function reActivate(withOptions, withPlugins) {
+    const startIndex = selectedScrollSnap();
+    deActivate();
+    activate(mergeOptions({
+      startIndex
+    }, withOptions), withPlugins);
+    eventHandler.emit("reInit");
+  }
+  function deActivate() {
+    engine.dragHandler.destroy();
+    engine.eventStore.clear();
+    engine.translate.clear();
+    engine.slideLooper.clear();
+    engine.resizeHandler.destroy();
+    engine.slidesHandler.destroy();
+    engine.slidesInView.destroy();
+    engine.animation.destroy();
+    pluginsHandler.destroy();
+    mediaHandlers.clear();
+  }
+  function destroy() {
+    if (destroyed) return;
+    destroyed = true;
+    mediaHandlers.clear();
+    deActivate();
+    eventHandler.emit("destroy");
+    eventHandler.clear();
+  }
+  function scrollTo(index, jump, direction) {
+    if (!options.active || destroyed) return;
+    engine.scrollBody.useBaseFriction().useDuration(jump === true ? 0 : options.duration);
+    engine.scrollTo.index(index, direction || 0);
+  }
+  function scrollNext(jump) {
+    const next = engine.index.add(1).get();
+    scrollTo(next, jump, -1);
+  }
+  function scrollPrev(jump) {
+    const prev = engine.index.add(-1).get();
+    scrollTo(prev, jump, 1);
+  }
+  function canScrollNext() {
+    const next = engine.index.add(1).get();
+    return next !== selectedScrollSnap();
+  }
+  function canScrollPrev() {
+    const prev = engine.index.add(-1).get();
+    return prev !== selectedScrollSnap();
+  }
+  function scrollSnapList() {
+    return engine.scrollSnapList;
+  }
+  function scrollProgress() {
+    return engine.scrollProgress.get(engine.offsetLocation.get());
+  }
+  function selectedScrollSnap() {
+    return engine.index.get();
+  }
+  function previousScrollSnap() {
+    return engine.indexPrevious.get();
+  }
+  function slidesInView() {
+    return engine.slidesInView.get();
+  }
+  function slidesNotInView() {
+    return engine.slidesInView.get(false);
+  }
+  function plugins() {
+    return pluginApis;
+  }
+  function internalEngine() {
+    return engine;
+  }
+  function rootNode() {
+    return root2;
+  }
+  function containerNode() {
+    return container;
+  }
+  function slideNodes() {
+    return slides;
+  }
+  const self = {
+    canScrollNext,
+    canScrollPrev,
+    containerNode,
+    internalEngine,
+    destroy,
+    off,
+    on,
+    emit,
+    plugins,
+    previousScrollSnap,
+    reInit,
+    rootNode,
+    scrollNext,
+    scrollPrev,
+    scrollProgress,
+    scrollSnapList,
+    scrollTo,
+    selectedScrollSnap,
+    slideNodes,
+    slidesInView,
+    slidesNotInView
+  };
+  activate(userOptions, userPlugins);
+  setTimeout(() => eventHandler.emit("init"), 0);
+  return self;
+}
+EmblaCarousel.globalOptions = void 0;
+
+// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+function useEmblaCarousel(options = {}, plugins = []) {
+  const storedOptions = (0, import_react.useRef)(options);
+  const storedPlugins = (0, import_react.useRef)(plugins);
+  const [emblaApi, setEmblaApi] = (0, import_react.useState)();
+  const [viewport, setViewport] = (0, import_react.useState)();
+  const reInit = (0, import_react.useCallback)(() => {
+    if (emblaApi) emblaApi.reInit(storedOptions.current, storedPlugins.current);
+  }, [emblaApi]);
+  (0, import_react.useEffect)(() => {
+    if (areOptionsEqual(storedOptions.current, options)) return;
+    storedOptions.current = options;
+    reInit();
+  }, [options, reInit]);
+  (0, import_react.useEffect)(() => {
+    if (arePluginsEqual(storedPlugins.current, plugins)) return;
+    storedPlugins.current = plugins;
+    reInit();
+  }, [plugins, reInit]);
+  (0, import_react.useEffect)(() => {
+    if (canUseDOM() && viewport) {
+      EmblaCarousel.globalOptions = useEmblaCarousel.globalOptions;
+      const newEmblaApi = EmblaCarousel(viewport, storedOptions.current, storedPlugins.current);
+      setEmblaApi(newEmblaApi);
+      return () => newEmblaApi.destroy();
+    } else {
+      setEmblaApi(void 0);
+    }
+  }, [viewport, setEmblaApi]);
+  return [setViewport, emblaApi];
+}
+useEmblaCarousel.globalOptions = void 0;
+
 // ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
-var import_react2 = __toESM(require_react());
+var import_react3 = __toESM(require_react());
 
 // ../../../node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
@@ -24503,7 +26205,7 @@ var mergeClasses = (...classes) => classes.filter((className, index, array) => {
 }).join(" ").trim();
 
 // ../../../node_modules/lucide-react/dist/esm/Icon.js
-var import_react = __toESM(require_react());
+var import_react2 = __toESM(require_react());
 
 // ../../../node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
@@ -24519,7 +26221,7 @@ var defaultAttributes = {
 };
 
 // ../../../node_modules/lucide-react/dist/esm/Icon.js
-var Icon = (0, import_react.forwardRef)(
+var Icon = (0, import_react2.forwardRef)(
   ({
     color = "currentColor",
     size = 24,
@@ -24530,7 +26232,7 @@ var Icon = (0, import_react.forwardRef)(
     iconNode,
     ...rest
   }, ref) => {
-    return (0, import_react.createElement)(
+    return (0, import_react2.createElement)(
       "svg",
       {
         ref,
@@ -24543,7 +26245,7 @@ var Icon = (0, import_react.forwardRef)(
         ...rest
       },
       [
-        ...iconNode.map(([tag, attrs]) => (0, import_react.createElement)(tag, attrs)),
+        ...iconNode.map(([tag, attrs]) => (0, import_react2.createElement)(tag, attrs)),
         ...Array.isArray(children) ? children : [children]
       ]
     );
@@ -24552,8 +26254,8 @@ var Icon = (0, import_react.forwardRef)(
 
 // ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
-  const Component = (0, import_react2.forwardRef)(
-    ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
+  const Component = (0, import_react3.forwardRef)(
+    ({ className, ...props }, ref) => (0, import_react3.createElement)(Icon, {
       ref,
       iconNode,
       className: mergeClasses(`lucide-${toKebabCase(iconName)}`, className),
@@ -24615,6 +26317,39 @@ var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
 ]);
 
+// ../../../node_modules/lucide-react/dist/esm/icons/film.js
+var Film = createLucideIcon("Film", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
+  ["path", { d: "M7 3v18", key: "bbkbws" }],
+  ["path", { d: "M3 7.5h4", key: "zfgn84" }],
+  ["path", { d: "M3 12h18", key: "1i2n21" }],
+  ["path", { d: "M3 16.5h4", key: "1230mu" }],
+  ["path", { d: "M17 3v18", key: "in4fa5" }],
+  ["path", { d: "M17 7.5h4", key: "myr1c1" }],
+  ["path", { d: "M17 16.5h4", key: "go4c1d" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/flag.js
+var Flag = createLucideIcon("Flag", [
+  ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", key: "i9b6wo" }],
+  ["line", { x1: "4", x2: "4", y1: "22", y2: "15", key: "1cm3nv" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/layout-grid.js
+var LayoutGrid = createLucideIcon("LayoutGrid", [
+  ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
+  ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
+  ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1", key: "nxv5o0" }],
+  ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/list-filter.js
+var ListFilter = createLucideIcon("ListFilter", [
+  ["path", { d: "M3 6h18", key: "d0wm0j" }],
+  ["path", { d: "M7 12h10", key: "b7w52i" }],
+  ["path", { d: "M10 18h4", key: "1ulq68" }]
+]);
+
 // ../../../node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
@@ -24636,6 +26371,17 @@ var NotebookPen = createLucideIcon("NotebookPen", [
       key: "pqwjuv"
     }
   ]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/pause.js
+var Pause = createLucideIcon("Pause", [
+  ["rect", { x: "14", y: "4", width: "4", height: "16", rx: "1", key: "zuxfzm" }],
+  ["rect", { x: "6", y: "4", width: "4", height: "16", rx: "1", key: "1okwgv" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/play.js
+var Play = createLucideIcon("Play", [
+  ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
 ]);
 
 // ../../../node_modules/lucide-react/dist/esm/icons/plus.js
@@ -24674,6 +26420,18 @@ var Tablet = createLucideIcon("Tablet", [
 var Terminal = createLucideIcon("Terminal", [
   ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
   ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/video.js
+var Video = createLucideIcon("Video", [
+  [
+    "path",
+    {
+      d: "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5",
+      key: "ftymec"
+    }
+  ],
+  ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ]);
 
 // ../../../node_modules/lucide-react/dist/esm/icons/x.js
@@ -24731,10 +26489,10 @@ var FOCUSABLE = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 function DialogFrame({ labelledBy, onClose, children }) {
-  const dialogRef = (0, import_react3.useRef)(null);
-  const closeRef = (0, import_react3.useRef)(onClose);
+  const dialogRef = (0, import_react4.useRef)(null);
+  const closeRef = (0, import_react4.useRef)(onClose);
   closeRef.current = onClose;
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root2 = dialogRef.current;
     const initial = root2?.querySelector("[data-dialog-initial]") ?? root2?.querySelector(FOCUSABLE);
@@ -24781,10 +26539,10 @@ function DialogFrame({ labelledBy, onClose, children }) {
   ) });
 }
 function useMediaQuery(query) {
-  const [matches, setMatches] = (0, import_react3.useState)(
+  const [matches, setMatches] = (0, import_react4.useState)(
     () => typeof window !== "undefined" ? window.matchMedia(query).matches : false
   );
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     const media = window.matchMedia(query);
     const update = () => setMatches(media.matches);
     update();
@@ -24849,7 +26607,7 @@ async function ensurePlanned({ brief = null, join = false, rootHint = null }, on
   }
 }
 function ProjectBar({ info, onOpenPicker }) {
-  const [switching, setSwitching] = (0, import_react3.useState)(false);
+  const [switching, setSwitching] = (0, import_react4.useState)(false);
   if (!info) return null;
   const onChange = async (p) => {
     if (p === "__custom") {
@@ -24878,9 +26636,9 @@ function ProjectBar({ info, onOpenPicker }) {
   ] });
 }
 function ProjectPickerDialog({ info, onClose }) {
-  const [path, setPath] = (0, import_react3.useState)(info.active?.root ?? info.projects[0]?.path ?? "");
-  const [busy, setBusy] = (0, import_react3.useState)(false);
-  const [err, setErr] = (0, import_react3.useState)(null);
+  const [path, setPath] = (0, import_react4.useState)(info.active?.root ?? info.projects[0]?.path ?? "");
+  const [busy, setBusy] = (0, import_react4.useState)(false);
+  const [err, setErr] = (0, import_react4.useState)(null);
   const submit = async () => {
     if (!path.trim() || busy) return;
     setBusy(true);
@@ -24944,7 +26702,7 @@ function ProjectPickerDialog({ info, onClose }) {
   ] });
 }
 function PlanDialog({ hasPages, onClose, onKick }) {
-  const [brief, setBrief] = (0, import_react3.useState)("");
+  const [brief, setBrief] = (0, import_react4.useState)("");
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogFrame, { labelledBy: "dr-plan-dialog-title", onClose, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { id: "dr-plan-dialog-title", children: "Plan the Drill Book" }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "hint", children: [
@@ -24976,12 +26734,12 @@ function PlanDialog({ hasPages, onClose, onKick }) {
   ] });
 }
 function AppStatusChip() {
-  const [st, setSt] = (0, import_react3.useState)(null);
-  const [phase, setPhase] = (0, import_react3.useState)(null);
-  const [err, setErr] = (0, import_react3.useState)(null);
+  const [st, setSt] = (0, import_react4.useState)(null);
+  const [phase, setPhase] = (0, import_react4.useState)(null);
+  const [err, setErr] = (0, import_react4.useState)(null);
   const refresh = () => apiGet("/api/app/status").then(setSt).catch(() => {
   });
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     refresh();
     const t = setInterval(refresh, 5e3);
     return () => clearInterval(t);
@@ -25038,8 +26796,8 @@ function formatDuration(startedAt, endedAt) {
   return `${Math.floor(ms / 6e4)}m ${Math.round(ms % 6e4 / 1e3)}s`;
 }
 function useFetchedImage(src, availabilityUrl = null) {
-  const [imageUrl, setImageUrl] = (0, import_react3.useState)(() => src ? void 0 : null);
-  (0, import_react3.useEffect)(() => {
+  const [imageUrl, setImageUrl] = (0, import_react4.useState)(() => src ? void 0 : null);
+  (0, import_react4.useEffect)(() => {
     if (!src) {
       setImageUrl(null);
       return;
@@ -25067,18 +26825,18 @@ function useFetchedImage(src, availabilityUrl = null) {
   return imageUrl;
 }
 function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
-  const [book, setBook] = (0, import_react3.useState)(null);
-  const [pages, setPages] = (0, import_react3.useState)([]);
-  const [error, setError] = (0, import_react3.useState)(null);
-  const [planPhase, setPlanPhase] = (0, import_react3.useState)(null);
-  const [planOpen, setPlanOpen] = (0, import_react3.useState)(false);
-  const [planBusy, setPlanBusy] = (0, import_react3.useState)(false);
-  const [planJob, setPlanJob] = (0, import_react3.useState)(null);
-  const [canceling, setCanceling] = (0, import_react3.useState)(false);
-  const [canceledNotice, setCanceledNotice] = (0, import_react3.useState)(null);
-  const [planLog, setPlanLog] = (0, import_react3.useState)(null);
-  const [planLogOpen, setPlanLogOpen] = (0, import_react3.useState)(false);
-  const pinnedRootRef = (0, import_react3.useRef)(null);
+  const [book, setBook] = (0, import_react4.useState)(null);
+  const [pages, setPages] = (0, import_react4.useState)([]);
+  const [error, setError] = (0, import_react4.useState)(null);
+  const [planPhase, setPlanPhase] = (0, import_react4.useState)(null);
+  const [planOpen, setPlanOpen] = (0, import_react4.useState)(false);
+  const [planBusy, setPlanBusy] = (0, import_react4.useState)(false);
+  const [planJob, setPlanJob] = (0, import_react4.useState)(null);
+  const [canceling, setCanceling] = (0, import_react4.useState)(false);
+  const [canceledNotice, setCanceledNotice] = (0, import_react4.useState)(null);
+  const [planLog, setPlanLog] = (0, import_react4.useState)(null);
+  const [planLogOpen, setPlanLogOpen] = (0, import_react4.useState)(false);
+  const pinnedRootRef = (0, import_react4.useRef)(null);
   const load = () => {
     Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]).then(([b, p]) => {
       pinnedRootRef.current = b.root ?? pinnedRootRef.current;
@@ -25144,7 +26902,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       setPlanLog(`(could not load the plan log: ${e.message})`);
     }
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     load();
     runPlan(null, false, true);
   }, []);
@@ -25395,55 +27153,55 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
   ] });
 }
 function AuthoringView({ initialPageId, onPageChange }) {
-  const [pages, setPages] = (0, import_react3.useState)([]);
+  const [pages, setPages] = (0, import_react4.useState)([]);
   const initialAuthoringPage = initialPageId ?? localStorage.getItem("drill.authoring.page");
-  const [pageId, setPageId] = (0, import_react3.useState)(initialAuthoringPage);
-  const pageIdRef = (0, import_react3.useRef)(initialAuthoringPage);
-  const [viewportId, setViewportId] = (0, import_react3.useState)("desktop");
-  const [tab, setTab] = (0, import_react3.useState)(null);
-  const [tabError, setTabError] = (0, import_react3.useState)(null);
-  const [tabLoadRevision, setTabLoadRevision] = (0, import_react3.useState)(0);
-  const [pickMode, setPickMode] = (0, import_react3.useState)(false);
-  const [pickError, setPickError] = (0, import_react3.useState)(null);
-  const [previewRevision, setPreviewRevision] = (0, import_react3.useState)(0);
-  const [areaResolutionRevision, setAreaResolutionRevision] = (0, import_react3.useState)(0);
-  const [previewReady, setPreviewReady] = (0, import_react3.useState)(false);
-  const [previewSize, setPreviewSize] = (0, import_react3.useState)(null);
-  const [targetViewport, setTargetViewport] = (0, import_react3.useState)(null);
-  const [preparingPick, setPreparingPick] = (0, import_react3.useState)(false);
-  const [saveStatus, setSaveStatus] = (0, import_react3.useState)("idle");
-  const [stateSel, setStateSel] = (0, import_react3.useState)("default");
-  const [error, setError] = (0, import_react3.useState)(null);
-  const [authError, setAuthError] = (0, import_react3.useState)(null);
-  const [newPageId, setNewPageId] = (0, import_react3.useState)("");
-  const [mobileSheetOpen, setMobileSheetOpen] = (0, import_react3.useState)(false);
+  const [pageId, setPageId] = (0, import_react4.useState)(initialAuthoringPage);
+  const pageIdRef = (0, import_react4.useRef)(initialAuthoringPage);
+  const [viewportId, setViewportId] = (0, import_react4.useState)("desktop");
+  const [tab, setTab] = (0, import_react4.useState)(null);
+  const [tabError, setTabError] = (0, import_react4.useState)(null);
+  const [tabLoadRevision, setTabLoadRevision] = (0, import_react4.useState)(0);
+  const [pickMode, setPickMode] = (0, import_react4.useState)(false);
+  const [pickError, setPickError] = (0, import_react4.useState)(null);
+  const [previewRevision, setPreviewRevision] = (0, import_react4.useState)(0);
+  const [areaResolutionRevision, setAreaResolutionRevision] = (0, import_react4.useState)(0);
+  const [previewReady, setPreviewReady] = (0, import_react4.useState)(false);
+  const [previewSize, setPreviewSize] = (0, import_react4.useState)(null);
+  const [targetViewport, setTargetViewport] = (0, import_react4.useState)(null);
+  const [preparingPick, setPreparingPick] = (0, import_react4.useState)(false);
+  const [saveStatus, setSaveStatus] = (0, import_react4.useState)("idle");
+  const [stateSel, setStateSel] = (0, import_react4.useState)("default");
+  const [error, setError] = (0, import_react4.useState)(null);
+  const [authError, setAuthError] = (0, import_react4.useState)(null);
+  const [newPageId, setNewPageId] = (0, import_react4.useState)("");
+  const [mobileSheetOpen, setMobileSheetOpen] = (0, import_react4.useState)(false);
   const isNarrowAuthoring = useMediaQuery("(max-width: 760px)");
-  const overlayRef = (0, import_react3.useRef)(null);
-  const [urlDraft, setUrlDraft] = (0, import_react3.useState)("");
-  const urlFocused = (0, import_react3.useRef)(false);
-  const [liveUrl, setLiveUrl] = (0, import_react3.useState)(null);
-  const [consoleOpen, setConsoleOpen] = (0, import_react3.useState)(false);
-  const [consoleEntries, setConsoleEntries] = (0, import_react3.useState)([]);
-  const consoleEndRef = (0, import_react3.useRef)(null);
-  const planFabRef = (0, import_react3.useRef)(null);
-  const planCloseRef = (0, import_react3.useRef)(null);
-  const sheetWasOpenRef = (0, import_react3.useRef)(false);
-  const pagesRef = (0, import_react3.useRef)([]);
-  const saveQueuesRef = (0, import_react3.useRef)(/* @__PURE__ */ new Map());
-  const frozenTabRef = (0, import_react3.useRef)(null);
-  const pickEpochRef = (0, import_react3.useRef)(0);
-  const pinnedRootRef = (0, import_react3.useRef)(null);
-  (0, import_react3.useEffect)(() => {
+  const overlayRef = (0, import_react4.useRef)(null);
+  const [urlDraft, setUrlDraft] = (0, import_react4.useState)("");
+  const urlFocused = (0, import_react4.useRef)(false);
+  const [liveUrl, setLiveUrl] = (0, import_react4.useState)(null);
+  const [consoleOpen, setConsoleOpen] = (0, import_react4.useState)(false);
+  const [consoleEntries, setConsoleEntries] = (0, import_react4.useState)([]);
+  const consoleEndRef = (0, import_react4.useRef)(null);
+  const planFabRef = (0, import_react4.useRef)(null);
+  const planCloseRef = (0, import_react4.useRef)(null);
+  const sheetWasOpenRef = (0, import_react4.useRef)(false);
+  const pagesRef = (0, import_react4.useRef)([]);
+  const saveQueuesRef = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
+  const frozenTabRef = (0, import_react4.useRef)(null);
+  const pickEpochRef = (0, import_react4.useRef)(0);
+  const pinnedRootRef = (0, import_react4.useRef)(null);
+  (0, import_react4.useEffect)(() => {
     const wasOpen = sheetWasOpenRef.current;
     sheetWasOpenRef.current = mobileSheetOpen;
     if (!isNarrowAuthoring || wasOpen === mobileSheetOpen) return;
     const target = mobileSheetOpen ? planCloseRef.current : planFabRef.current;
     requestAnimationFrame(() => target?.focus());
   }, [isNarrowAuthoring, mobileSheetOpen]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     pagesRef.current = pages;
   }, [pages]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     pageIdRef.current = pageId;
     if (pageId) localStorage.setItem("drill.authoring.page", pageId);
   }, [pageId]);
@@ -25458,7 +27216,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
       if (next && next !== previous) onPageChange(next);
     }).catch((e) => setError(e.message));
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     void loadPages();
   }, []);
   const page = pages.find((p) => p.id === pageId) ?? null;
@@ -25471,10 +27229,10 @@ function AuthoringView({ initialPageId, onPageChange }) {
     activeStateImageSource,
     activeStateImageSource ? `/api/states/${page?.id}/${activeStateSel}/screenshot-status` : null
   );
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (stateSel !== activeStateSel) setStateSel(activeStateSel);
   }, [activeStateSel, page?.id, pageStateKey, stateSel]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!pageId) return;
     const previousFrozen = frozenTabRef.current;
     pickEpochRef.current += 1;
@@ -25512,7 +27270,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
       });
     };
   }, [pageId, viewportId, tabLoadRevision]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!tab) {
       setLiveUrl(null);
       setConsoleEntries([]);
@@ -25541,7 +27299,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
       clearInterval(timer);
     };
   }, [tab?.tabId]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (consoleOpen) consoleEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [consoleOpen, consoleEntries.length]);
   const refreshPreviewAfterBrowserAction = () => {
@@ -25606,7 +27364,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
       setAuthError(`Could not restart the app preview: ${err.message}`);
     }
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!tab || pickMode) return;
     const timer = setInterval(() => setPreviewRevision((n) => n + 1), 2e3);
     return () => clearInterval(timer);
@@ -25760,7 +27518,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
     if (frozen) apiPost("/api/authoring/freeze", { tabId: frozen, frozen: false }).catch(() => {
     });
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!pickMode) return;
     const onKey = (event) => {
       if (event.key === "Escape") cancelHighlight();
@@ -25768,7 +27526,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, [pickMode, tab]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!isNarrowAuthoring || !mobileSheetOpen) return;
     const closeOnEscape = (event) => {
       if (event.key !== "Escape") return;
@@ -25778,9 +27536,9 @@ function AuthoringView({ initialPageId, onPageChange }) {
     addEventListener("keydown", closeOnEscape);
     return () => removeEventListener("keydown", closeOnEscape);
   }, [isNarrowAuthoring, mobileSheetOpen]);
-  const [livePct, setLivePct] = (0, import_react3.useState)({});
+  const [livePct, setLivePct] = (0, import_react4.useState)({});
   const areaAnchorKey = JSON.stringify(page?.areas.map((area) => [area.id, area.anchors]) ?? []);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!tab || !page) {
       setLivePct({});
       return;
@@ -26155,6 +27913,10 @@ function AuthoringView({ initialPageId, onPageChange }) {
     )
   ] });
 }
+function chunkKeyFor(pageId, stepId, viewportId) {
+  const clean = (part) => String(part ?? "").replace(/[^A-Za-z0-9_-]/g, "_");
+  return `${clean(pageId)}--${clean(stepId)}--${clean(viewportId)}`;
+}
 function legacyInfrastructureMeta(finding) {
   const text = String(finding.text ?? "").trim();
   if (finding.kind === "infra-error") return { component: "drill", code: "legacy-infra" };
@@ -26246,11 +28008,60 @@ function tierTone(tier) {
   return "paper";
 }
 function EvidenceImage({ src, alt, compact = false }) {
-  const [failed, setFailed] = (0, import_react3.useState)(false);
+  const [failed, setFailed] = (0, import_react4.useState)(false);
   if (failed) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-evidence-missing", children: "Evidence image unavailable" });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "dr-evidence-link" + (compact ? " compact" : ""), href: src, target: "_blank", rel: "noreferrer", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-evidence-image", src, alt, loading: "lazy", onError: () => setFailed(true) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Open full evidence" })
+  ] });
+}
+function evidenceFileUrl(runId, name) {
+  return `/api/runs/${encodeURIComponent(runId)}/evidence-file/${encodeURIComponent(name)}`;
+}
+function fmtOffset(ms) {
+  const s = Math.max(0, Math.floor(ms / 1e3));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function RunEvidenceVideo({ runId, video, steps }) {
+  const ref = (0, import_react4.useRef)(null);
+  const [failed, setFailed] = (0, import_react4.useState)(false);
+  if (failed) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "The whole run in one recording. Jump to a check with its chapter button." })
+    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "video",
+      {
+        ref,
+        controls: true,
+        preload: "metadata",
+        src: evidenceFileUrl(runId, video),
+        onError: () => setFailed(true),
+        style: { width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }
+      }
+    ),
+    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "button",
+      {
+        className: "btn small",
+        title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
+        onClick: () => {
+          const v = ref.current;
+          if (!v || !Number.isFinite(row.startMs)) return;
+          v.currentTime = (row.startMs ?? 0) / 1e3;
+          void v.play().catch(() => {
+          });
+        },
+        children: [
+          row.stepId,
+          " @",
+          fmtOffset(row.startMs ?? 0)
+        ]
+      },
+      row.item
+    )) })
   ] });
 }
 function stepPassed(entry) {
@@ -26260,31 +28071,1237 @@ function stepPassed(entry) {
   if (entry.result.result && entry.result.result.passed === false) return false;
   return true;
 }
+function useDebriefFeedback(runId) {
+  const queue = (0, import_react4.useRef)([]);
+  const flushRef = (0, import_react4.useRef)(() => {
+  });
+  (0, import_react4.useEffect)(() => {
+    const flush = () => {
+      if (queue.current.length === 0) return;
+      const batch = queue.current.splice(0, 100);
+      void fetch(`/api/runs/${encodeURIComponent(runId)}/debrief-feedback`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ events: batch })
+      }).catch(() => {
+      });
+    };
+    flushRef.current = flush;
+    const timer = window.setInterval(flush, 15e3);
+    return () => {
+      window.clearInterval(timer);
+      flush();
+    };
+  }, [runId]);
+  return (0, import_react4.useCallback)((event) => {
+    queue.current.push(event);
+    if (queue.current.length >= 10) flushRef.current();
+  }, []);
+}
+function scopeCheckKeys(scope, steps) {
+  if (scope.kind === "all") return null;
+  if (scope.kind === "check") return /* @__PURE__ */ new Set([chunkKeyFor(scope.pageId, scope.stepId, scope.viewportId)]);
+  const keys = /* @__PURE__ */ new Set();
+  for (const step of steps) {
+    if (step.pageId === scope.pageId) keys.add(chunkKeyFor(step.pageId, step.stepId, step.viewportId));
+  }
+  return keys;
+}
+function frameInScope(chunk, scopeKeys) {
+  if (!scopeKeys) return true;
+  if (!chunk) return false;
+  return scopeKeys.has(chunk);
+}
+function findingChunk(finding) {
+  if (finding.stepId && finding.viewportId) return chunkKeyFor(finding.pageId, finding.stepId, finding.viewportId);
+  return null;
+}
+function HighlightOverlay({ rect }) {
+  const x = Math.max(0, Math.min(1, rect.x ?? 0));
+  const y = Math.max(0, Math.min(1, rect.y ?? 0));
+  const w = Math.max(0, Math.min(1, rect.w ?? 0));
+  const h = Math.max(0, Math.min(1, rect.h ?? 0));
+  if (w * h > 0.6) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-bracket", style: { left: `${x * 100}%`, top: `${y * 100}%` }, "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-bracket-h" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-bracket-v" })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    "div",
+    {
+      className: "dr-db-highlight",
+      style: { left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` },
+      "aria-hidden": "true"
+    }
+  );
+}
+var DWELL_OPTIONS = [
+  { ms: 1e3, label: "1s" },
+  { ms: 1500, label: "1.5s" },
+  { ms: 2500, label: "2.5s" },
+  { ms: 4e3, label: "4s" },
+  { ms: 6e3, label: "6s" }
+];
+function ReelCarousel({
+  runId,
+  frames,
+  dwellMs,
+  setDwellMs,
+  showAll,
+  onToggleShowAll,
+  onActiveFrameChange,
+  enqueue,
+  scopeLabel,
+  flagged,
+  onFlag,
+  reelCount,
+  candidateCount,
+  curationPending
+}) {
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
+  const [selected, setSelected] = (0, import_react4.useState)(0);
+  const [playing, setPlaying] = (0, import_react4.useState)(true);
+  const [held, setHeld] = (0, import_react4.useState)(false);
+  (0, import_react4.useEffect)(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit();
+    emblaApi.scrollTo(0, true);
+    setSelected(0);
+  }, [emblaApi, frames]);
+  (0, import_react4.useEffect)(() => {
+    if (!emblaApi) return;
+    const onSel = () => setSelected(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSel);
+    onSel();
+    return () => {
+      emblaApi.off("select", onSel);
+    };
+  }, [emblaApi]);
+  const active = frames[selected] ?? null;
+  (0, import_react4.useEffect)(() => {
+    onActiveFrameChange(active);
+  }, [active, onActiveFrameChange]);
+  (0, import_react4.useEffect)(() => {
+    if (!emblaApi || !playing || held || frames.length <= 1) return;
+    const base = active?.importance === "high" ? Math.max(dwellMs, 4e3) : dwellMs;
+    const timer = window.setTimeout(() => {
+      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
+      else emblaApi.scrollTo(0);
+    }, base);
+    return () => window.clearTimeout(timer);
+  }, [emblaApi, playing, held, selected, dwellMs, frames, active]);
+  (0, import_react4.useEffect)(() => {
+    if (!active) return;
+    const name = active.name;
+    const timer = window.setTimeout(() => {
+      enqueue({ type: "dwell", frame: name, ms: 5e3, scope: scopeLabel });
+    }, 5e3);
+    return () => window.clearTimeout(timer);
+  }, [active, enqueue, scopeLabel]);
+  const onKeyDown = (e) => {
+    const target = e.target;
+    const tag = target.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      emblaApi?.scrollPrev();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      emblaApi?.scrollNext();
+    }
+  };
+  if (frames.length === 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No captured frames for this scope." : curationPending ? "Curation is still selecting the reel for this scope." : "No reel frames for this scope. Toggle Show all frames to see raw candidates." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-reel-controls", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
+        " ",
+        showAll ? "Showing all frames" : "Show all frames"
+      ] }) })
+    ] });
+  }
+  const flaggedActive = active ? flagged.has(active.name) : false;
+  return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", tabIndex: 0, onKeyDown, "aria-label": "Screenshot reel", role: "group", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-carousel", ref: emblaRef, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-track", children: frames.map((frame, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-slide", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "div",
+        {
+          className: "dr-db-stage",
+          onPointerDown: () => setHeld(true),
+          onPointerUp: () => setHeld(false),
+          onPointerLeave: () => setHeld(false),
+          onPointerCancel: () => setHeld(false),
+          children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-frame", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-db-frame-img", src: evidenceFileUrl(runId, frame.name), alt: frame.annotation || frame.trigger || frame.name, draggable: false }),
+            frame.inReel && frame.highlight && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HighlightOverlay, { rect: frame.highlight })
+          ] })
+        }
+      ) }, `${frame.name}:${i}`)) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot" + (active?.importance === "high" ? " high" : ""), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot-meta", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-trigger", children: active?.trigger ?? "" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-time mono", children: fmtOffset(active?.tMs ?? 0) }),
+          active?.importance === "high" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "key moment" }),
+          active && !active.inReel && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-nr", children: "not in reel" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-annot-text", children: active?.inReel && active.annotation ? active.annotation : active && !active.inReel ? `Raw candidate - ${active.trigger || "captured frame"}` : "" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small dr-db-flag" + (flaggedActive ? " primary" : ""),
+            disabled: !active,
+            "aria-pressed": flaggedActive,
+            onClick: () => active && onFlag(active.name),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flag, { size: 12 }),
+              " ",
+              flaggedActive ? "Flagged" : "Flag"
+            ]
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-controls", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-transport", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": "Previous frame", onClick: () => emblaApi?.scrollPrev(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 14 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": playing ? "Pause" : "Play", onClick: () => setPlaying((p) => !p), children: playing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 14 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": "Next frame", onClick: () => emblaApi?.scrollNext(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { size: 14 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-counter mono", children: frames.length === 0 ? "0 / 0" : `${selected + 1} / ${frames.length}` })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-right", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dr-db-dwell", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Dwell" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: dwellMs, onChange: (e) => setDwellMs(Number(e.target.value)), "aria-label": "Frame dwell time", children: DWELL_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: opt.ms, children: opt.label }, opt.ms)) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
+            " ",
+            showAll ? "All frames" : "Show all"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-reel-counts mono", title: "reel / candidate frames", children: [
+            reelCount,
+            " / ",
+            candidateCount
+          ] })
+        ] })
+      ] }),
+      curationPending && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation pending - showing raw candidates until the reel is selected." })
+    ] })
+  );
+}
+function DebriefVideo({ runId, video, pruned, steps, scopeKeys }) {
+  const ref = (0, import_react4.useRef)(null);
+  const scopedSteps = (0, import_react4.useMemo)(
+    () => steps.filter((s) => Number.isFinite(s.startMs)).filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)).sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
+    [steps, scopeKeys]
+  );
+  (0, import_react4.useEffect)(() => {
+    const v = ref.current;
+    if (!v || scopeKeys === null) return;
+    const first = scopedSteps[0];
+    if (!first || !Number.isFinite(first.startMs)) return;
+    const seek = () => {
+      v.currentTime = (first.startMs ?? 0) / 1e3;
+    };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+  }, [scopedSteps, scopeKeys]);
+  if (pruned) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video pruned by retention." });
+  if (!video) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "No video for this run." });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "video",
+      {
+        ref,
+        controls: true,
+        preload: "metadata",
+        src: evidenceFileUrl(runId, video),
+        className: "dr-db-video-el"
+      }
+    ),
+    scopedSteps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-db-chapters", children: scopedSteps.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "button",
+      {
+        className: "btn small",
+        title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
+        onClick: () => {
+          const v = ref.current;
+          if (!v || !Number.isFinite(row.startMs)) return;
+          v.currentTime = (row.startMs ?? 0) / 1e3;
+          void v.play().catch(() => {
+          });
+        },
+        children: [
+          row.stepId,
+          " @",
+          fmtOffset(row.startMs ?? 0)
+        ]
+      },
+      `${row.pageId}:${row.stepId}:${row.viewportId}`
+    )) })
+  ] });
+}
+function liveStageStyle(canvasUrl) {
+  let w = 16;
+  let h = 10;
+  if (canvasUrl) {
+    try {
+      const u = new URL(canvasUrl, window.location.href);
+      const cw = Number(u.searchParams.get("viewportWidth"));
+      const ch = Number(u.searchParams.get("viewportHeight"));
+      if (Number.isFinite(cw) && Number.isFinite(ch) && cw > 0 && ch > 0) {
+        w = cw;
+        h = ch;
+      }
+    } catch {
+    }
+  }
+  const capHeight = 560;
+  return { aspectRatio: `${w} / ${h}`, width: "100%", maxWidth: `${Math.round(capHeight * (w / h))}px`, margin: "0 auto" };
+}
+function liveCheckLabel(step) {
+  const base = step.title?.trim() || step.stepId;
+  return step.viewportId ? `${base} @ ${step.viewportId}` : base;
+}
+function liveTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
+}
+function LiveBrowser({ runId, steps, scope, scopeKeys, session, onSession, warnings, onWarnings }) {
+  const [status, setStatus] = (0, import_react4.useState)(session ? "idle" : "checking");
+  const [error, setError] = (0, import_react4.useState)(null);
+  const [conflict, setConflict] = (0, import_react4.useState)(null);
+  const [busy, setBusy] = (0, import_react4.useState)(false);
+  const [pendingStepId, setPendingStepId] = (0, import_react4.useState)(null);
+  const [pickedKey, setPickedKey] = (0, import_react4.useState)("");
+  const scopedChecks = (0, import_react4.useMemo)(
+    () => steps.filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)),
+    [steps, scopeKeys]
+  );
+  const singleCheck = scope.kind === "check" ? steps.find((s) => s.pageId === scope.pageId && s.stepId === scope.stepId && s.viewportId === scope.viewportId) ?? { pageId: scope.pageId, stepId: scope.stepId, viewportId: scope.viewportId } : null;
+  const pickedCheck = singleCheck ?? scopedChecks.find((s) => chunkKeyFor(s.pageId, s.stepId, s.viewportId) === pickedKey) ?? scopedChecks[0] ?? null;
+  (0, import_react4.useEffect)(() => {
+    if (session) {
+      setStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setStatus("checking");
+    fetch("/api/live-replay").then((r) => r.json()).then((j) => {
+      if (cancelled) return;
+      const live = j.live ?? null;
+      if (!live) {
+        setStatus("idle");
+        return;
+      }
+      if (live.runId === runId) {
+        onSession(live);
+        setStatus("idle");
+      } else {
+        setConflict(live);
+        setStatus("conflict");
+      }
+    }).catch(() => {
+      if (!cancelled) setStatus("idle");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+  const openLive = async (check) => {
+    setBusy(true);
+    setError(null);
+    setConflict(null);
+    setPendingStepId(check.stepId);
+    setStatus("replaying");
+    try {
+      const r = await fetch(`/api/runs/${encodeURIComponent(runId)}/live-replay`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pageId: check.pageId, stepId: check.stepId, viewportId: check.viewportId })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        setConflict(j.live ?? null);
+        setStatus("conflict");
+        return;
+      }
+      if (!r.ok) {
+        setError(j.error || `Replay failed (${r.status})`);
+        setStatus("error");
+        return;
+      }
+      onWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+      onSession(j.live ?? null);
+      setStatus("idle");
+    } catch (e) {
+      setError(e.message);
+      setStatus("error");
+    } finally {
+      setBusy(false);
+      setPendingStepId(null);
+    }
+  };
+  const closeLive = async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/live-replay", { method: "DELETE" });
+    } catch {
+    }
+    onSession(null);
+    onWarnings([]);
+    setConflict(null);
+    setError(null);
+    setStatus("idle");
+    setBusy(false);
+  };
+  const reopen = async (s) => {
+    if (!s.pageId || !s.stepId) {
+      await closeLive();
+      return;
+    }
+    setBusy(true);
+    try {
+      await fetch("/api/live-replay", { method: "DELETE" });
+    } catch {
+    }
+    onSession(null);
+    setBusy(false);
+    await openLive({ pageId: s.pageId, stepId: s.stepId, viewportId: s.viewportId ?? "desktop" });
+  };
+  const showConflict = status === "conflict" && conflict;
+  const showSession = !showConflict && status !== "replaying" && !!session;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dr-db-live-note", children: "Interactive live session - clicks affect the replayed state." }),
+    status === "checking" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Checking for an open session..." }),
+    status === "replaying" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-progress", role: "status", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-spinner", "aria-hidden": "true" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("b", { children: [
+          "Replaying steps up to ",
+          pendingStepId,
+          "..."
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Re-running the compiled steps in a fresh browser session. This can take up to a minute." })
+      ] })
+    ] }),
+    showConflict && conflict && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-conflict", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "A live session is already open" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+        conflict.runId === runId ? "It belongs to this run" : "It belongs to another run",
+        conflict.stepId ? ` - up to ${conflict.stepId}` : "",
+        conflict.viewportId ? ` at ${conflict.viewportId}` : "",
+        Number.isFinite(conflict.replayed) && Number.isFinite(conflict.of) ? ` (${conflict.replayed}/${conflict.of} steps)` : "",
+        "."
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+        conflict.canvasUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: busy, onClick: () => {
+          onSession(conflict);
+          setConflict(null);
+          setStatus("idle");
+        }, children: "Show it" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: busy, onClick: closeLive, children: "Close it" })
+      ] })
+    ] }),
+    showSession && session && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-session", children: [
+      session.canvasUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-stage", style: liveStageStyle(session.canvasUrl), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("iframe", { className: "dr-db-live-frame", src: session.canvasUrl, title: "Live browser session" }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-recover", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "A live session is active for this run, but its canvas link is only returned when it is opened." }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: busy, onClick: () => reopen(session), children: "Reopen to view" }) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-meta", children: [
+        session.stepId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: liveCheckLabel({ stepId: session.stepId, viewportId: session.viewportId }) }),
+        Number.isFinite(session.replayed) && Number.isFinite(session.of) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-live-metaitem", children: [
+          "Replayed ",
+          session.replayed,
+          "/",
+          session.of,
+          " steps"
+        ] }),
+        session.startedAt && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-live-metaitem mono", children: [
+          "started ",
+          liveTime(session.startedAt)
+        ] })
+      ] }),
+      warnings.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-warnings", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Replay warnings" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { children: warnings.map((w, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: w }, i)) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: busy, onClick: closeLive, children: "Close live session" }) })
+    ] }),
+    status === "error" && !session && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-error", role: "alert", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: error }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => {
+        setError(null);
+        setStatus("idle");
+      }, children: "Dismiss" })
+    ] }),
+    status === "idle" && !session && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-launch", children: scope.kind === "check" && pickedCheck ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn primary", disabled: busy, onClick: () => openLive(pickedCheck), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
+      " Open live at ",
+      liveCheckLabel(pickedCheck)
+    ] }) : scopedChecks.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dr-db-live-hint", children: "Select a check to open the app live at that state." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "select",
+          {
+            "aria-label": "Check to open live",
+            value: pickedCheck ? chunkKeyFor(pickedCheck.pageId, pickedCheck.stepId, pickedCheck.viewportId) : "",
+            onChange: (e) => setPickedKey(e.target.value),
+            children: scopedChecks.map((s) => {
+              const key = chunkKeyFor(s.pageId, s.stepId, s.viewportId);
+              return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: key, children: liveCheckLabel(s) }, key);
+            })
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn primary", disabled: busy || !pickedCheck, onClick: () => pickedCheck && openLive(pickedCheck), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
+          " Open live at this state"
+        ] })
+      ] })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "No checks available to open live for this run." }) })
+  ] });
+}
+function DebriefView({
+  run,
+  pages,
+  steps,
+  evidenceIndex,
+  issues,
+  confirmedCount,
+  dispatchableCount,
+  dispatchedCard,
+  dispatchMode,
+  setDispatchMode,
+  dispatching,
+  dispatch,
+  triage
+}) {
+  const [scope, setScope] = (0, import_react4.useState)({ kind: "all" });
+  const [tab, setTab] = (0, import_react4.useState)("screenshots");
+  const [showAll, setShowAll] = (0, import_react4.useState)(false);
+  const [dwellMs, setDwellMs] = (0, import_react4.useState)(2500);
+  const [reel, setReel] = (0, import_react4.useState)(null);
+  const [spotter, setSpotter] = (0, import_react4.useState)(null);
+  const [activeFrame, setActiveFrame] = (0, import_react4.useState)(null);
+  const [flagged, setFlagged] = (0, import_react4.useState)(() => /* @__PURE__ */ new Set());
+  const [liveSession, setLiveSession] = (0, import_react4.useState)(null);
+  const [liveWarnings, setLiveWarnings] = (0, import_react4.useState)([]);
+  (0, import_react4.useEffect)(() => {
+    setLiveSession(null);
+    setLiveWarnings([]);
+  }, [run.id]);
+  const enqueue = useDebriefFeedback(run.id);
+  const checkRefs = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
+  const findingRefs = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
+  const indexItems = evidenceIndex?.items ?? [];
+  const hasReelRow = indexItems.some((i) => i.kind === "reel");
+  const hasSpotterRow = indexItems.some((i) => i.kind === "spotter");
+  const curationPending = hasSpotterRow && !hasReelRow;
+  const videoItem = indexItems.find((i) => i.kind === "video");
+  const videoPruned = !!videoItem?.pruned;
+  const videoName = run.evidence?.video ?? null;
+  (0, import_react4.useEffect)(() => {
+    setReel(null);
+    let cancelled = false;
+    if (!hasReelRow) return;
+    fetch(evidenceFileUrl(run.id, "reel.json")).then((r) => r.ok ? r.json() : null).then((j) => {
+      if (!cancelled) setReel(j);
+    }).catch(() => {
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [run.id, hasReelRow]);
+  (0, import_react4.useEffect)(() => {
+    setSpotter(null);
+    let cancelled = false;
+    if (!hasSpotterRow) return;
+    fetch(evidenceFileUrl(run.id, "spotter-frames.json")).then((r) => r.ok ? r.json() : null).then((j) => {
+      if (!cancelled) setSpotter(j);
+    }).catch(() => {
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [run.id, hasSpotterRow]);
+  const scopeKeys = (0, import_react4.useMemo)(() => scopeCheckKeys(scope, steps), [scope, steps]);
+  const scopeLabel = scope.kind === "all" ? "all" : scope.kind === "page" ? scope.pageId : `${scope.pageId}#${scope.stepId}@${scope.viewportId}`;
+  const reelByName = (0, import_react4.useMemo)(() => {
+    const map = /* @__PURE__ */ new Map();
+    for (const f of reel?.frames ?? []) map.set(f.name, f);
+    return map;
+  }, [reel]);
+  const frames = (0, import_react4.useMemo)(() => {
+    const inScope = (chunk) => frameInScope(chunk, scopeKeys);
+    if (showAll) {
+      const raw = spotter?.frames ?? reel?.frames ?? [];
+      return raw.filter((f) => inScope(f.chunk ?? null)).map((f) => {
+        const v = reelByName.get(f.name);
+        const inReel = v?.keep === true;
+        return {
+          name: f.name,
+          tMs: f.tMs ?? 0,
+          trigger: f.trigger ?? "",
+          chunk: f.chunk ?? null,
+          keep: inReel,
+          importance: v?.importance === "high" ? "high" : "normal",
+          annotation: inReel ? v?.annotation ?? "" : "",
+          highlight: inReel ? v?.highlight ?? null : null,
+          inReel
+        };
+      }).sort((a, b) => a.tMs - b.tMs);
+    }
+    if (reel) {
+      return reel.frames.filter((f) => f.keep === true).filter((f) => inScope(f.chunk ?? null)).map((f) => ({
+        name: f.name,
+        tMs: f.tMs ?? 0,
+        trigger: f.trigger ?? "",
+        chunk: f.chunk ?? null,
+        keep: true,
+        importance: f.importance === "high" ? "high" : "normal",
+        annotation: f.annotation ?? "",
+        highlight: f.highlight ?? null,
+        inReel: true
+      })).sort((a, b) => a.tMs - b.tMs);
+    }
+    return (spotter?.frames ?? []).filter((f) => inScope(f.chunk ?? null)).map((f) => ({
+      name: f.name,
+      tMs: f.tMs ?? 0,
+      trigger: f.trigger ?? "",
+      chunk: f.chunk ?? null,
+      keep: false,
+      importance: "normal",
+      annotation: "",
+      highlight: null,
+      inReel: false
+    })).sort((a, b) => a.tMs - b.tMs);
+  }, [showAll, reel, spotter, reelByName, scopeKeys]);
+  const reelCount = reel?.counts?.reel ?? reel?.frames.filter((f) => f.keep === true).length ?? 0;
+  const candidateCount = spotter?.frames.length ?? reel?.counts?.candidates ?? reel?.frames.length ?? 0;
+  const passedByChunk = (0, import_react4.useMemo)(() => {
+    const map = /* @__PURE__ */ new Map();
+    for (const entry of run.pages) {
+      map.set(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId), effectiveStepPassed(run, entry));
+    }
+    return map;
+  }, [run]);
+  const pageGroups = (0, import_react4.useMemo)(() => {
+    const order = [];
+    const byPage = /* @__PURE__ */ new Map();
+    for (const step of steps) {
+      if (!byPage.has(step.pageId)) {
+        byPage.set(step.pageId, []);
+        order.push(step.pageId);
+      }
+      byPage.get(step.pageId).push(step);
+    }
+    return order.map((pageId) => ({
+      pageId,
+      title: pages.find((p) => p.id === pageId)?.title ?? pageId,
+      checks: byPage.get(pageId)
+    }));
+  }, [steps, pages]);
+  const activeChunk = activeFrame?.chunk ?? null;
+  (0, import_react4.useEffect)(() => {
+    if (!activeChunk) return;
+    checkRefs.current.get(activeChunk)?.scrollIntoView({ block: "nearest" });
+    const finding = issues.productFindings.find((f) => findingChunk(f) === activeChunk);
+    if (finding) findingRefs.current.get(finding.id)?.scrollIntoView({ block: "nearest" });
+  }, [activeChunk, issues.productFindings]);
+  const toggleShowAll = () => {
+    setShowAll((prev) => {
+      const next = !prev;
+      if (next) enqueue({ type: "show-all", scope: scopeLabel });
+      return next;
+    });
+  };
+  const onFlag = (frameName) => {
+    setFlagged((prev) => {
+      const next = new Set(prev);
+      next.add(frameName);
+      return next;
+    });
+    enqueue({ type: "flag", frame: frameName, scope: scopeLabel });
+  };
+  const selectCheck = (step) => {
+    setScope(
+      (prev) => prev.kind === "check" && prev.pageId === step.pageId && prev.stepId === step.stepId && prev.viewportId === step.viewportId ? { kind: "all" } : { kind: "check", pageId: step.pageId, stepId: step.stepId, viewportId: step.viewportId }
+    );
+  };
+  const selectPage = (pageId) => {
+    setScope((prev) => prev.kind === "page" && prev.pageId === pageId ? { kind: "all" } : { kind: "page", pageId });
+  };
+  const selectFinding = (finding) => {
+    if (finding.stepId && finding.viewportId) {
+      setScope({ kind: "check", pageId: finding.pageId, stepId: finding.stepId, viewportId: finding.viewportId });
+    } else {
+      setScope({ kind: "page", pageId: finding.pageId });
+    }
+  };
+  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry)).length;
+  const failedCount = run.pages.length - passedCount;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-topline", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Debrief" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "dr-db-title", children: formatDate(run.startedAt) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-run-id", children: run.id })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-scope-pill", children: [
+        scope.kind === "all" ? "All checks" : scope.kind === "page" ? `Page: ${pages.find((p) => p.id === scope.pageId)?.title ?? scope.pageId}` : `Check: ${scope.stepId} @ ${scope.viewportId}`,
+        scope.kind !== "all" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-scope-clear", "aria-label": "Clear scope", onClick: () => setScope({ kind: "all" }), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 12 }) })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-grid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", { className: "dr-db-rail", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-rail-sec", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-rail-head", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ListFilter, { size: 12 }),
+            " Scope",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-rail-sub", children: [
+              passedCount,
+              " passed \xB7 ",
+              failedCount,
+              " failed"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: "dr-db-scope-row all" + (scope.kind === "all" ? " active" : ""),
+              onClick: () => setScope({ kind: "all" }),
+              children: "All checks"
+            }
+          ),
+          pageGroups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-scope-group", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+              "button",
+              {
+                className: "dr-db-scope-row page" + (scope.kind === "page" && scope.pageId === group.pageId ? " active" : ""),
+                "aria-pressed": scope.kind === "page" && scope.pageId === group.pageId,
+                onClick: () => selectPage(group.pageId),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-scope-title", children: group.title }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-scope-num", children: group.checks.length })
+                ]
+              }
+            ),
+            group.checks.map((check) => {
+              const key = chunkKeyFor(check.pageId, check.stepId, check.viewportId);
+              const passed = passedByChunk.get(key);
+              const isScoped = scope.kind === "check" && scope.pageId === check.pageId && scope.stepId === check.stepId && scope.viewportId === check.viewportId;
+              const isActive = activeChunk === key;
+              const tone = passed === void 0 ? "" : passed ? " pass" : " fail";
+              return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                "button",
+                {
+                  ref: (el) => {
+                    checkRefs.current.set(key, el);
+                  },
+                  className: "dr-db-check" + tone + (isScoped ? " scoped" : "") + (isActive ? " live" : ""),
+                  "aria-pressed": isScoped,
+                  title: `${check.pageId}#${check.stepId} at ${check.viewportId}`,
+                  onClick: () => selectCheck(check),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-dot" + tone, "aria-hidden": "true" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-check-label", children: check.title?.trim() || check.stepId }),
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip dr-db-vp", children: check.viewportId })
+                  ]
+                },
+                key
+              );
+            })
+          ] }, group.pageId))
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-rail-sec", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-rail-head", children: [
+            "Findings ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-rail-sub", children: issues.productFindings.length })
+          ] }),
+          issues.productFindings.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-rail-empty", children: "No product findings." }),
+          issues.productFindings.map((f) => {
+            const chunk = findingChunk(f);
+            const isActive = !!chunk && chunk === activeChunk;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-finding" + (isActive ? " live" : ""), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+                "button",
+                {
+                  className: "dr-db-finding-main",
+                  ref: (el) => {
+                    findingRefs.current.set(f.id, el);
+                  },
+                  onClick: () => selectFinding(f),
+                  title: "Narrow the reel to this finding's check",
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-finding-status " + f.status, children: f.status }),
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-finding-text", style: { textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
+                      f.pageId,
+                      f.stepId ? `#${f.stepId}` : "",
+                      ": ",
+                      f.text
+                    ] })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-finding-actions", children: [
+                f.card && (f.card.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip brass", href: f.card.url, target: "_blank", rel: "noreferrer", title: "Open the Kanban fix card carrying this finding", children: "on card" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "This finding is already on a Kanban fix card", children: "on card" })),
+                f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
+                f.status !== "dismissed" && !f.card && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
+              ] })
+            ] }, f.id);
+          }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-dispatch", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+              "select",
+              {
+                "aria-label": "When to send confirmed findings",
+                value: dispatchMode,
+                disabled: dispatching,
+                onChange: (e) => setDispatchMode(e.target.value),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Send now" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "On the next heartbeat" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Send now (immediate)" })
+                ]
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: dispatchableCount === 0 || dispatching, onClick: dispatch, children: dispatching ? "Sending\u2026" : dispatchMode === "heartbeat" ? `Queue confirmed (${dispatchableCount})` : `Send confirmed (${dispatchableCount})` }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: confirmedCount > 0 && dispatchableCount === 0 ? "Every confirmed finding is already on a fix card." : run.dispatch === "heartbeat" ? "Queued. The next heartbeat creates one Code card carrying this reviewed report." : "Creates one Kanban card carrying the reviewed report and moves it into Code." }),
+            dispatchedCard && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", children: [
+              "Sent to card",
+              " ",
+              dispatchedCard.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { href: dispatchedCard.url, target: "_blank", rel: "noreferrer", style: { color: "inherit" }, children: dispatchedCard.id.slice(-6) }) : dispatchedCard.id.slice(-6)
+            ] })
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "dr-db-content", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-tabs", role: "tablist", "aria-label": "Debrief evidence", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "screenshots", className: "dr-db-tab" + (tab === "screenshots" ? " on" : ""), onClick: () => setTab("screenshots"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LayoutGrid, { size: 13 }),
+            " Screenshots"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "video", className: "dr-db-tab" + (tab === "video" ? " on" : ""), onClick: () => setTab("video"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Video, { size: 13 }),
+            " Video"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "live", className: "dr-db-tab experimental" + (tab === "live" ? " on" : ""), title: "Experimental - replays the app live at a check's state", onClick: () => setTab("live"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
+            " Live Browser ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-exp-chip", children: "experimental" })
+          ] })
+        ] }),
+        tab === "screenshots" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          ReelCarousel,
+          {
+            runId: run.id,
+            frames,
+            dwellMs,
+            setDwellMs,
+            showAll,
+            onToggleShowAll: toggleShowAll,
+            onActiveFrameChange: setActiveFrame,
+            enqueue,
+            scopeLabel,
+            flagged,
+            onFlag,
+            reelCount,
+            candidateCount,
+            curationPending
+          }
+        ),
+        tab === "video" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          DebriefVideo,
+          {
+            runId: run.id,
+            video: videoName,
+            pruned: videoPruned,
+            steps,
+            scopeKeys
+          }
+        ),
+        tab === "live" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          LiveBrowser,
+          {
+            runId: run.id,
+            steps,
+            scope,
+            scopeKeys,
+            session: liveSession,
+            onSession: setLiveSession,
+            warnings: liveWarnings,
+            onWarnings: setLiveWarnings
+          }
+        )
+      ] })
+    ] })
+  ] });
+}
+function ClassicRunDetail({
+  run,
+  pages,
+  evidenceRows,
+  productPageEntries,
+  activeFindings,
+  incompleteCoverageCount,
+  displayedInfra,
+  issues,
+  confirmedCount,
+  dispatchableCount,
+  dispatchedCard,
+  dispatchMode,
+  setDispatchMode,
+  dispatching,
+  obsText,
+  setObsText,
+  giveFeedback,
+  override,
+  addObs,
+  convertObsToStep,
+  convertObsToFinding,
+  triage,
+  dispatch
+}) {
+  const evidenceRowFor = (entry) => evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+    run.evidence?.video && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RunEvidenceVideo, { runId: run.id, video: run.evidence.video, steps: evidenceRows ?? [] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-detail-heading", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Selected run" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: formatDate(run.startedAt) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-run-id", children: run.id }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length }),
+            " passed"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length }),
+            " failed"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: activeFindings.length }),
+            " findings"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: incompleteCoverageCount }),
+            " infra-affected or skipped"
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Check results" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused." })
+      ] }) }),
+      productPageEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product checks completed. Review the infrastructure section below before rerunning." }),
+      productPageEntries.map((entry) => {
+        const originalPassed = stepPassed(entry);
+        const recordKey = `${entry.pageId}:${entry.stepId}`;
+        const renderKey = `${recordKey}:${entry.viewportId}`;
+        const override_ = overrideForEntry(run.overrides, entry);
+        const passed = override_ ? override_.verdict === "passed" : originalPassed;
+        const notes = [
+          ...run.feedback[recordKey] ?? [],
+          ...run.feedback[renderKey] ?? []
+        ];
+        const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
+        const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
+        const deterministicWithoutScreenshot = originalPassed && entry.status === "completed" && !!entry.result && !entry.result.evidencePath && !resultReasoning;
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
+            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
+              entry.pageId,
+              "#",
+              entry.stepId
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
+            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier })
+          ] }),
+          stepDefinition?.description && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-description", children: stepDefinition.description }),
+          resultReasoning && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: resultReasoning }),
+          entry.result?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4 }, children: entry.result.error }),
+          deterministicWithoutScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: "Deterministic check - no screenshot was captured." }),
+          entry.stateReferenceRejected && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-result-reference-warning", role: "status", children: [
+            "State reference not saved: the screenshot also contains an unexpected page error",
+            entry.stateReferenceRejected.warnings[0]?.text ? ` (\u201C${entry.stateReferenceRejected.warnings[0].text}\u201D).` : "."
+          ] }),
+          !entry.result && entry.status === "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-detail-unavailable", children: "Passed when run \xB7 detailed evidence is temporarily unavailable" }),
+          entry.result?.evidencePath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            EvidenceImage,
+            {
+              src: `/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`,
+              alt: `${entry.pageId} ${stepDefinition?.description || entry.stepId} at ${entry.viewportId}`
+            }
+          ),
+          (() => {
+            const row = evidenceRowFor(entry);
+            if (!row || !row.screenshot && !row.trace && !row.failureScreenshot) return null;
+            const videoName = run.evidence?.video;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 5, gap: 6 }, children: [
+              row.screenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.screenshot), target: "_blank", rel: "noreferrer", children: "full-page shot" }),
+              row.failureScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip alarm", href: evidenceFileUrl(run.id, row.failureScreenshot), target: "_blank", rel: "noreferrer", children: "failure shot" }),
+              row.trace && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.trace), title: "Playwright trace chunk - open with npx playwright show-trace", children: "trace" }),
+              videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
+                "video @",
+                fmtOffset(row.startMs ?? 0)
+              ] })
+            ] });
+          })(),
+          override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
+            "Overridden -> ",
+            override_.verdict,
+            " (",
+            override_.note,
+            ")"
+          ] }),
+          notes.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10.5, color: "var(--sage)", marginTop: 3 }, children: n.note }, n.id)),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 6 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "input",
+              {
+                className: "dr-feedback",
+                "aria-label": `Feedback for ${entry.pageId} ${entry.stepId} at ${entry.viewportId}`,
+                placeholder: "Add feedback\u2026",
+                onKeyDown: async (e) => {
+                  if (e.key !== "Enter") return;
+                  const input = e.currentTarget;
+                  if (await giveFeedback(entry.pageId, entry.stepId, entry.viewportId, input.value)) input.value = "";
+                }
+              }
+            ),
+            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, entry.viewportId, "failed", "marked failed by reviewer"), children: "Mark failed" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, entry.viewportId, "passed", "marked passed by reviewer"), children: "Mark passed" })
+          ] })
+        ] }, renderKey);
+      })
+    ] }),
+    displayedInfra.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-sec dr-infra", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Test infrastructure problems" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("small", { children: [
+            incompleteCoverageCount,
+            " affected or skipped check",
+            incompleteCoverageCount === 1 ? "" : "s",
+            " \xB7 grouped into ",
+            displayedInfra.length,
+            " incident",
+            displayedInfra.length === 1 ? "" : "s",
+            " \xB7 hidden from findings"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "Run incomplete" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "These errors came from Drill, Browser, Automations, Vision, or their connection. They are retained for diagnosis but cannot be confirmed or dispatched as product fixes." }),
+      run.circuit && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-circuit-summary", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run stopped early to prevent repeated noise." }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+          "Executed ",
+          run.executedChecks ?? run.circuit.afterCheck,
+          " of ",
+          run.plannedChecks ?? (run.executedChecks ?? 0) + run.circuit.skippedChecks,
+          " planned checks;",
+          " ",
+          run.circuit.skippedChecks,
+          " were skipped after ",
+          run.circuit.component,
+          " reported ",
+          run.circuit.code,
+          "."
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-infra-list", children: displayedInfra.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", children: [
+          item.component ?? item.pageId ?? "run",
+          item.stepId ? ` \xB7 ${item.stepId}` : "",
+          (item.count ?? 1) > 1 ? ` \xB7 ${item.count} checks` : ""
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: item.text })
+      ] }, item.id)) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Observations" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Record something you noticed that no existing check covered. Turn it into a future Book step or a product finding without rerunning." })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "Things you noticed that no step covers - no re-run needed to record them. Convert one into a draft step (future runs will check it) or into a finding (it goes into the fix report below)." }),
+      run.observations.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { padding: "5px 0", borderTop: "1px dashed var(--rule)" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 220px" }, children: o.text }),
+        o.convertedToStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "-> step added" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": `Add observation \u201C${o.text}\u201D as a draft step on page`, onChange: (e) => e.target.value && convertObsToStep(o.id, e.target.value), defaultValue: "", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> draft step on\u2026" }),
+          pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
+        ] }),
+        o.convertedToFinding ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "-> finding" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": `Attribute observation \u201C${o.text}\u201D to a product page`, onChange: (e) => e.target.value && convertObsToFinding(o.id, e.target.value), defaultValue: "", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> finding on\u2026" }),
+          pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
+        ] })
+      ] }, o.id)),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "input",
+          {
+            className: "dr-feedback",
+            "aria-label": "New run observation",
+            placeholder: "Add an observation\u2026",
+            value: obsText,
+            onChange: (e) => setObsText(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter") addObs();
+            }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: addObs, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
+          " Add"
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--sage-2)", borderWidth: 1.5 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Product findings" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only evidence about the app belongs here. Confirm real defects, dismiss false positives, then send confirmed items as one reviewable fix card." })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: issues.productFindings.length })
+      ] }),
+      issues.productFindings.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product findings in this run." }),
+      issues.productFindings.map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-finding", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: "1 1 220px", minWidth: 0 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
+            "[",
+            f.kind,
+            "] ",
+            f.pageId,
+            f.stepId ? `#${f.stepId}` : "",
+            f.viewportId ? ` [${f.viewportId}]` : "",
+            ": ",
+            f.text
+          ] }),
+          f.evidence?.screenshot ? (
+            // The finding carries its own evidence pointer (Drill
+            // Evidence v0.1); older records fall back to the
+            // render-time join below.
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                EvidenceImage,
+                {
+                  compact: true,
+                  src: evidenceFileUrl(run.id, f.evidence.screenshot),
+                  alt: `Evidence for ${f.text}`
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 4, gap: 6 }, children: [
+                f.evidence.trace && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, f.evidence.trace), title: "Playwright trace chunk - open with npx playwright show-trace", children: "trace" }),
+                run.evidence?.video && Number.isFinite(f.evidence.videoMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
+                  "video @",
+                  fmtOffset(f.evidence.videoMs ?? 0)
+                ] })
+              ] })
+            ] })
+          ) : f.stepId && run.pages.filter(
+            (entry) => entry.pageId === f.pageId && entry.stepId === f.stepId && (!f.viewportId || entry.viewportId === f.viewportId) && !!entry.result?.evidencePath
+          ).map((entry) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            EvidenceImage,
+            {
+              compact: true,
+              src: `/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`,
+              alt: `Evidence for ${f.text} at ${entry.viewportId}`
+            },
+            `${entry.pageId}:${entry.stepId}:${entry.viewportId}`
+          ))
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (f.status === "confirmed" ? " sage active" : ""), children: f.status }),
+          f.card && (f.card.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip brass", href: f.card.url, target: "_blank", rel: "noreferrer", title: "Open the Kanban fix card carrying this finding", children: "on card" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "This finding is already on a Kanban fix card", children: "on card" })),
+          f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
+          f.status !== "dismissed" && !f.card && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
+        ] })
+      ] }, f.id)),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-dispatch", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "select",
+          {
+            "aria-label": "When to send confirmed findings",
+            value: dispatchMode,
+            disabled: dispatching,
+            onChange: (e) => setDispatchMode(e.target.value),
+            style: { fontSize: 11, padding: "5px 8px" },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Send now" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "On the next heartbeat" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Send now (immediate)" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: dispatchableCount === 0 || dispatching, onClick: dispatch, children: dispatching ? "Sending\u2026" : dispatchMode === "heartbeat" ? `Queue confirmed (${dispatchableCount})` : `Send confirmed to Code (${dispatchableCount})` }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: confirmedCount > 0 && dispatchableCount === 0 ? "Every confirmed finding is already on a fix card." : run.dispatch === "heartbeat" ? "Queued. The next heartbeat creates one Code card carrying this reviewed report." : "Creates one Kanban card carrying the reviewed report and moves it directly into Code." }),
+        dispatchedCard && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", children: [
+          "Sent to card",
+          " ",
+          dispatchedCard.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { href: dispatchedCard.url, target: "_blank", rel: "noreferrer", style: { color: "inherit" }, children: dispatchedCard.id.slice(-6) }) : dispatchedCard.id.slice(-6)
+        ] })
+      ] })
+    ] })
+  ] });
+}
 function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }) {
-  const [pages, setPages] = (0, import_react3.useState)([]);
-  const [pagesLoaded, setPagesLoaded] = (0, import_react3.useState)(false);
-  const [book, setBook] = (0, import_react3.useState)(null);
-  const [runs, setRuns] = (0, import_react3.useState)([]);
-  const [runsLoaded, setRunsLoaded] = (0, import_react3.useState)(false);
-  const [run, setRun] = (0, import_react3.useState)(null);
-  const [historyPage, setHistoryPage] = (0, import_react3.useState)(0);
-  const [selectedPages, setSelectedPages] = (0, import_react3.useState)(() => new Set(
+  const [pages, setPages] = (0, import_react4.useState)([]);
+  const [pagesLoaded, setPagesLoaded] = (0, import_react4.useState)(false);
+  const [book, setBook] = (0, import_react4.useState)(null);
+  const [runs, setRuns] = (0, import_react4.useState)([]);
+  const [runsLoaded, setRunsLoaded] = (0, import_react4.useState)(false);
+  const [run, setRun] = (0, import_react4.useState)(null);
+  const [historyPage, setHistoryPage] = (0, import_react4.useState)(0);
+  const [evidenceRows, setEvidenceRows] = (0, import_react4.useState)(null);
+  const [evidenceIndex, setEvidenceIndex] = (0, import_react4.useState)(null);
+  const [evidenceStepsJson, setEvidenceStepsJson] = (0, import_react4.useState)(null);
+  const [classicView, setClassicView] = (0, import_react4.useState)(false);
+  (0, import_react4.useEffect)(() => {
+    setClassicView(false);
+  }, [run?.id]);
+  (0, import_react4.useEffect)(() => {
+    setEvidenceRows(null);
+    setEvidenceIndex(null);
+    setEvidenceStepsJson(null);
+    if (!run?.id || !run?.evidence) return;
+    let cancelled = false;
+    apiGet(`/api/runs/${encodeURIComponent(run.id)}/evidence-index`).then((r) => {
+      if (cancelled) return;
+      setEvidenceIndex(r.index ?? null);
+      setEvidenceStepsJson(Array.isArray(r.steps) ? r.steps : null);
+      setEvidenceRows((r.index?.items ?? []).filter((item) => item.kind === "step"));
+    }).catch(() => {
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [run?.id, run?.evidence]);
+  const [selectedPages, setSelectedPages] = (0, import_react4.useState)(() => new Set(
     initialSelection ? [initialSelection.pageId] : initialRun?.pageIds ?? []
   ));
-  const [selectedViewports, setSelectedViewports] = (0, import_react3.useState)(() => new Set(
+  const [selectedViewports, setSelectedViewports] = (0, import_react4.useState)(() => new Set(
     initialSelection ? [initialSelection.viewportId] : initialRun?.viewports ?? ["desktop"]
   ));
-  const [selectedState, setSelectedState] = (0, import_react3.useState)(initialSelection?.state ?? "default");
-  const [running, setRunning] = (0, import_react3.useState)(false);
-  const [phase, setPhase] = (0, import_react3.useState)(null);
-  const [error, setError] = (0, import_react3.useState)(null);
-  const [notice, setNotice] = (0, import_react3.useState)(null);
-  const [obsText, setObsText] = (0, import_react3.useState)("");
-  const [dispatchMode, setDispatchMode] = (0, import_react3.useState)("manual");
-  const [dispatchedCard, setDispatchedCard] = (0, import_react3.useState)(null);
-  const [deleteArm, setDeleteArm] = (0, import_react3.useState)(null);
-  const [dispatching, setDispatching] = (0, import_react3.useState)(false);
-  const [pendingGate, setPendingGate] = (0, import_react3.useState)(null);
+  const [selectedState, setSelectedState] = (0, import_react4.useState)(initialSelection?.state ?? "default");
+  const [running, setRunning] = (0, import_react4.useState)(false);
+  const [phase, setPhase] = (0, import_react4.useState)(null);
+  const [error, setError] = (0, import_react4.useState)(null);
+  const [notice, setNotice] = (0, import_react4.useState)(null);
+  const [obsText, setObsText] = (0, import_react4.useState)("");
+  const [dispatchMode, setDispatchMode] = (0, import_react4.useState)("manual");
+  const [dispatchedCard, setDispatchedCard] = (0, import_react4.useState)(null);
+  const [deleteArm, setDeleteArm] = (0, import_react4.useState)(null);
+  const [dispatching, setDispatching] = (0, import_react4.useState)(false);
+  const [pendingGate, setPendingGate] = (0, import_react4.useState)(null);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
       setPages(p.pages);
@@ -26299,7 +29316,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       setError(e.message);
     });
   };
-  (0, import_react3.useEffect)(load, []);
+  (0, import_react4.useEffect)(load, []);
   const startRun = async (pageIdsArg, viewportsArg, stateArg) => {
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
@@ -26340,14 +29357,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       setRunning(false);
     }
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!initialRun || pages.length === 0) return;
     setSelectedPages(new Set(initialRun.pageIds));
     setSelectedViewports(new Set(initialRun.viewports));
     onConsumeInitialRun();
     startRun(initialRun.pageIds, initialRun.viewports, "default");
   }, [initialRun, pages.length]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!initialSelection || pages.length === 0) return;
     if (pages.some((candidate) => candidate.id === initialSelection.pageId)) {
       setSelectedPages(/* @__PURE__ */ new Set([initialSelection.pageId]));
@@ -26397,7 +29414,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       setError(e.message);
     }
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (run?.dispatch) setDispatchMode(run.dispatch);
     setNotice(null);
   }, [run?.id]);
@@ -26480,6 +29497,19 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const activeFindings = run ? activeProductFindings(run, issues.productFindings) : [];
   const confirmedCount = activeFindings.filter((f) => f.status === "confirmed").length;
   const dispatchableCount = activeFindings.filter((finding) => finding.status === "confirmed" && !finding.card).length;
+  const debriefSteps = (0, import_react4.useMemo)(
+    () => evidenceStepsJson && evidenceStepsJson.length > 0 ? evidenceStepsJson : (evidenceRows ?? []).map((row) => ({
+      pageId: row.pageId ?? "",
+      stepId: row.stepId ?? "",
+      viewportId: row.viewportId ?? "",
+      startMs: row.startMs,
+      endMs: row.endMs,
+      status: row.status,
+      automationRunId: row.automationRunId ?? null
+    })),
+    [evidenceStepsJson, evidenceRows]
+  );
+  const debriefAvailable = !!evidenceIndex && debriefSteps.length > 0;
   const historyPageSize = 6;
   const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
   const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
@@ -26517,7 +29547,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   );
   const availableStates = ["default", ...commonNamedStates];
   const availableStateKey = availableStates.join("\0");
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (pagesLoaded && !availableStates.includes(selectedState)) setSelectedState("default");
   }, [availableStateKey, pagesLoaded, selectedState]);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -26706,255 +29736,78 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
     run && (() => {
+      const showDebrief = debriefAvailable && !classicView;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-detail-heading", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Selected run" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: formatDate(run.startedAt) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-run-id", children: run.id }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
-              ] })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length }),
-                " passed"
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length }),
-                " failed"
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: activeFindings.length }),
-                " findings"
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: incompleteCoverageCount }),
-                " infra-affected or skipped"
-              ] })
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Check results" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused." })
-          ] }) }),
-          productPageEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product checks completed. Review the infrastructure section below before rerunning." }),
-          productPageEntries.map((entry) => {
-            const originalPassed = stepPassed(entry);
-            const recordKey = `${entry.pageId}:${entry.stepId}`;
-            const renderKey = `${recordKey}:${entry.viewportId}`;
-            const override_ = overrideForEntry(run.overrides, entry);
-            const passed = override_ ? override_.verdict === "passed" : originalPassed;
-            const notes = [
-              ...run.feedback[recordKey] ?? [],
-              ...run.feedback[renderKey] ?? []
-            ];
-            const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
-            const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
-            const deterministicWithoutScreenshot = originalPassed && entry.status === "completed" && !!entry.result && !entry.result.evidencePath && !resultReasoning;
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-                passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
-                  entry.pageId,
-                  "#",
-                  entry.stepId
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
-                entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier })
-              ] }),
-              stepDefinition?.description && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-description", children: stepDefinition.description }),
-              resultReasoning && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: resultReasoning }),
-              entry.result?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4 }, children: entry.result.error }),
-              deterministicWithoutScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: "Deterministic check \u2014 no screenshot was captured." }),
-              entry.stateReferenceRejected && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-result-reference-warning", role: "status", children: [
-                "State reference not saved: the screenshot also contains an unexpected page error",
-                entry.stateReferenceRejected.warnings[0]?.text ? ` (\u201C${entry.stateReferenceRejected.warnings[0].text}\u201D).` : "."
-              ] }),
-              !entry.result && entry.status === "completed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-detail-unavailable", children: "Passed when run \xB7 detailed evidence is temporarily unavailable" }),
-              entry.result?.evidencePath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                EvidenceImage,
-                {
-                  src: `/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`,
-                  alt: `${entry.pageId} ${stepDefinition?.description || entry.stepId} at ${entry.viewportId}`
-                }
-              ),
-              override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
-                "Overridden -> ",
-                override_.verdict,
-                " (",
-                override_.note,
-                ")"
-              ] }),
-              notes.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono", style: { fontSize: 10.5, color: "var(--sage)", marginTop: 3 }, children: n.note }, n.id)),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 6 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                  "input",
-                  {
-                    className: "dr-feedback",
-                    "aria-label": `Feedback for ${entry.pageId} ${entry.stepId} at ${entry.viewportId}`,
-                    placeholder: "Add feedback\u2026",
-                    onKeyDown: async (e) => {
-                      if (e.key !== "Enter") return;
-                      const input = e.currentTarget;
-                      if (await giveFeedback(entry.pageId, entry.stepId, entry.viewportId, input.value)) input.value = "";
-                    }
-                  }
-                ),
-                passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, entry.viewportId, "failed", "marked failed by reviewer"), children: "Mark failed" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => override(entry.pageId, entry.stepId, entry.viewportId, "passed", "marked passed by reviewer"), children: "Mark passed" })
-              ] })
-            ] }, renderKey);
-          })
+        debriefAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-modeswitch", role: "group", "aria-label": "Run detail view", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-modeswitch-label", children: "View" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              className: "btn small" + (showDebrief ? " primary" : ""),
+              "aria-pressed": showDebrief,
+              onClick: () => setClassicView(false),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LayoutGrid, { size: 12 }),
+                " Debrief"
+              ]
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: "btn small" + (!showDebrief ? " primary" : ""),
+              "aria-pressed": !showDebrief,
+              onClick: () => setClassicView(true),
+              children: "Classic view"
+            }
+          )
         ] }),
-        displayedInfra.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-sec dr-infra", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Test infrastructure problems" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("small", { children: [
-                incompleteCoverageCount,
-                " affected or skipped check",
-                incompleteCoverageCount === 1 ? "" : "s",
-                " \xB7 grouped into ",
-                displayedInfra.length,
-                " incident",
-                displayedInfra.length === 1 ? "" : "s",
-                " \xB7 hidden from findings"
-              ] })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "Run incomplete" })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "These errors came from Drill, Browser, Automations, Vision, or their connection. They are retained for diagnosis but cannot be confirmed or dispatched as product fixes." }),
-          run.circuit && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-circuit-summary", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run stopped early to prevent repeated noise." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-              "Executed ",
-              run.executedChecks ?? run.circuit.afterCheck,
-              " of ",
-              run.plannedChecks ?? (run.executedChecks ?? 0) + run.circuit.skippedChecks,
-              " planned checks;",
-              " ",
-              run.circuit.skippedChecks,
-              " were skipped after ",
-              run.circuit.component,
-              " reported ",
-              run.circuit.code,
-              "."
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-infra-list", children: displayedInfra.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", children: [
-              item.component ?? item.pageId ?? "run",
-              item.stepId ? ` \xB7 ${item.stepId}` : "",
-              (item.count ?? 1) > 1 ? ` \xB7 ${item.count} checks` : ""
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: item.text })
-          ] }, item.id)) })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Observations" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Record something you noticed that no existing check covered. Turn it into a future Book step or a product finding without rerunning." })
-          ] }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Help, { children: "Things you noticed that no step covers - no re-run needed to record them. Convert one into a draft step (future runs will check it) or into a finding (it goes into the fix report below)." }),
-          run.observations.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { padding: "5px 0", borderTop: "1px dashed var(--rule)" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: "1 1 220px" }, children: o.text }),
-            o.convertedToStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "-> step added" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": `Add observation \u201C${o.text}\u201D as a draft step on page`, onChange: (e) => e.target.value && convertObsToStep(o.id, e.target.value), defaultValue: "", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> draft step on\u2026" }),
-              pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
-            ] }),
-            o.convertedToFinding ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "-> finding" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { "aria-label": `Attribute observation \u201C${o.text}\u201D to a product page`, onChange: (e) => e.target.value && convertObsToFinding(o.id, e.target.value), defaultValue: "", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", disabled: true, children: "-> finding on\u2026" }),
-              pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: p.id, children: p.title }, p.id))
-            ] })
-          ] }, o.id)),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "input",
-              {
-                className: "dr-feedback",
-                "aria-label": "New run observation",
-                placeholder: "Add an observation\u2026",
-                value: obsText,
-                onChange: (e) => setObsText(e.target.value),
-                onKeyDown: (e) => {
-                  if (e.key === "Enter") addObs();
-                }
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", onClick: addObs, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 11 }),
-              " Add"
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", style: { borderColor: "var(--sage-2)", borderWidth: 1.5 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Product findings" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Only evidence about the app belongs here. Confirm real defects, dismiss false positives, then send confirmed items as one reviewable fix card." })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: issues.productFindings.length })
-          ] }),
-          issues.productFindings.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product findings in this run." }),
-          issues.productFindings.map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-finding", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: "1 1 220px", minWidth: 0 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { textDecoration: f.status === "dismissed" ? "line-through" : "none" }, children: [
-                "[",
-                f.kind,
-                "] ",
-                f.pageId,
-                f.stepId ? `#${f.stepId}` : "",
-                f.viewportId ? ` [${f.viewportId}]` : "",
-                ": ",
-                f.text
-              ] }),
-              f.stepId && run.pages.filter(
-                (entry) => entry.pageId === f.pageId && entry.stepId === f.stepId && (!f.viewportId || entry.viewportId === f.viewportId) && !!entry.result?.evidencePath
-              ).map((entry) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                EvidenceImage,
-                {
-                  compact: true,
-                  src: `/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`,
-                  alt: `Evidence for ${f.text} at ${entry.viewportId}`
-                },
-                `${entry.pageId}:${entry.stepId}:${entry.viewportId}`
-              ))
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (f.status === "confirmed" ? " sage active" : ""), children: f.status }),
-              f.card && (f.card.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip brass", href: f.card.url, target: "_blank", rel: "noreferrer", title: "Open the Kanban fix card carrying this finding", children: "on card" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "This finding is already on a Kanban fix card", children: "on card" })),
-              f.status !== "confirmed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "confirmed"), children: "Confirm" }),
-              f.status !== "dismissed" && !f.card && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => triage(f.id, "dismissed"), children: "Dismiss" })
-            ] })
-          ] }, f.id)),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-dispatch", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-              "select",
-              {
-                "aria-label": "When to send confirmed findings",
-                value: dispatchMode,
-                disabled: dispatching,
-                onChange: (e) => setDispatchMode(e.target.value),
-                style: { fontSize: 11, padding: "5px 8px" },
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "manual", children: "Send now" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "heartbeat", children: "On the next heartbeat" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "immediate", children: "Send now (immediate)" })
-                ]
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: dispatchableCount === 0 || dispatching, onClick: dispatch, children: dispatching ? "Sending\u2026" : dispatchMode === "heartbeat" ? `Queue confirmed (${dispatchableCount})` : `Send confirmed to Code (${dispatchableCount})` }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: confirmedCount > 0 && dispatchableCount === 0 ? "Every confirmed finding is already on a fix card." : run.dispatch === "heartbeat" ? "Queued. The next heartbeat creates one Code card carrying this reviewed report." : "Creates one Kanban card carrying the reviewed report and moves it directly into Code." }),
-            dispatchedCard && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", children: [
-              "Sent to card",
-              " ",
-              dispatchedCard.url ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { href: dispatchedCard.url, target: "_blank", rel: "noreferrer", style: { color: "inherit" }, children: dispatchedCard.id.slice(-6) }) : dispatchedCard.id.slice(-6)
-            ] })
-          ] })
-        ] })
+        showDebrief ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          DebriefView,
+          {
+            run,
+            pages,
+            steps: debriefSteps,
+            evidenceIndex,
+            issues,
+            activeFindings,
+            confirmedCount,
+            dispatchableCount,
+            dispatchedCard,
+            dispatchMode,
+            setDispatchMode,
+            dispatching,
+            dispatch,
+            triage
+          }
+        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          ClassicRunDetail,
+          {
+            run,
+            pages,
+            evidenceRows,
+            productPageEntries,
+            activeFindings,
+            incompleteCoverageCount,
+            displayedInfra,
+            issues,
+            confirmedCount,
+            dispatchableCount,
+            dispatchedCard,
+            dispatchMode,
+            setDispatchMode,
+            dispatching,
+            obsText,
+            setObsText,
+            giveFeedback,
+            override,
+            addObs,
+            convertObsToStep,
+            convertObsToFinding,
+            triage,
+            dispatch
+          }
+        )
       ] });
     })()
   ] });
@@ -27019,16 +29872,16 @@ function StatesView({
   onPrepareRun,
   onOpenAuthoring
 }) {
-  const [pages, setPages] = (0, import_react3.useState)([]);
-  const [pageId, setPageId] = (0, import_react3.useState)(null);
-  const [error, setError] = (0, import_react3.useState)(null);
+  const [pages, setPages] = (0, import_react4.useState)([]);
+  const [pageId, setPageId] = (0, import_react4.useState)(null);
+  const [error, setError] = (0, import_react4.useState)(null);
   const load = () => {
     apiGet("/api/pages").then((r) => {
       setPages(r.pages);
       if (!pageId && r.pages.length > 0) setPageId(r.pages[0].id);
     }).catch((e) => setError(e.message));
   };
-  (0, import_react3.useEffect)(load, []);
+  (0, import_react4.useEffect)(load, []);
   const page = pages.find((p) => p.id === pageId) ?? null;
   if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
     error,
@@ -27118,22 +29971,22 @@ function App() {
     };
   };
   const initial = initialLocation();
-  const [view, setView] = (0, import_react3.useState)(initial.view);
-  const [authorPageId, setAuthorPageId] = (0, import_react3.useState)(initial.pageId);
-  const [selectedRunId, setSelectedRunId] = (0, import_react3.useState)(initial.runId);
-  const [pendingRun, setPendingRun] = (0, import_react3.useState)(null);
-  const [pendingRunSelection, setPendingRunSelection] = (0, import_react3.useState)(null);
-  const [projInfo, setProjInfo] = (0, import_react3.useState)(null);
-  const [pickerOpen, setPickerOpen] = (0, import_react3.useState)(false);
-  const tabRefs = (0, import_react3.useRef)([]);
-  (0, import_react3.useEffect)(() => {
+  const [view, setView] = (0, import_react4.useState)(initial.view);
+  const [authorPageId, setAuthorPageId] = (0, import_react4.useState)(initial.pageId);
+  const [selectedRunId, setSelectedRunId] = (0, import_react4.useState)(initial.runId);
+  const [pendingRun, setPendingRun] = (0, import_react4.useState)(null);
+  const [pendingRunSelection, setPendingRunSelection] = (0, import_react4.useState)(null);
+  const [projInfo, setProjInfo] = (0, import_react4.useState)(null);
+  const [pickerOpen, setPickerOpen] = (0, import_react4.useState)(false);
+  const tabRefs = (0, import_react4.useRef)([]);
+  (0, import_react4.useEffect)(() => {
     apiGet("/api/projects").then((r) => {
       setProjInfo(r);
       if (!r.selected) setPickerOpen(true);
     }).catch(() => {
     });
   }, []);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     const onPop = () => {
       const next = initialLocation();
       setView(next.view);
@@ -27317,14 +30170,21 @@ lucide-react/dist/esm/icons/crosshair.js:
 lucide-react/dist/esm/icons/external-link.js:
 lucide-react/dist/esm/icons/eye.js:
 lucide-react/dist/esm/icons/file-code-2.js:
+lucide-react/dist/esm/icons/film.js:
+lucide-react/dist/esm/icons/flag.js:
+lucide-react/dist/esm/icons/layout-grid.js:
+lucide-react/dist/esm/icons/list-filter.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/notebook-pen.js:
+lucide-react/dist/esm/icons/pause.js:
+lucide-react/dist/esm/icons/play.js:
 lucide-react/dist/esm/icons/plus.js:
 lucide-react/dist/esm/icons/refresh-ccw.js:
 lucide-react/dist/esm/icons/rotate-cw.js:
 lucide-react/dist/esm/icons/smartphone.js:
 lucide-react/dist/esm/icons/tablet.js:
 lucide-react/dist/esm/icons/terminal.js:
+lucide-react/dist/esm/icons/video.js:
 lucide-react/dist/esm/icons/x.js:
 lucide-react/dist/esm/lucide-react.js:
   (**

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal } from "lucide-react";
+import useEmblaCarousel from "embla-carousel-react";
+import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter } from "lucide-react";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -1802,7 +1803,77 @@ interface Finding {
   status: "proposed" | "confirmed" | "dismissed";
   at: string;
   card?: { id: string; url: string | null; at: string } | null;
+  evidence?: { screenshot: string | null; trace: string | null; videoMs: number | null } | null;
 }
+
+// Drill Evidence v0.1 — run-level pointer (relative names inside the run's
+// evidence dir) + the per-check index rows served by /evidence-index.
+interface RunEvidence { video: string | null; steps: string | null; index?: string | null }
+interface EvidenceStepRow {
+  item: string; kind: string; pageId?: string; stepId?: string; viewportId?: string;
+  status?: string; startMs?: number; endMs?: number; automationRunId?: string | null;
+  trace?: string | null; screenshot?: string | null; failureScreenshot?: string | null;
+  path?: string; bytes?: number | null; sha256?: string | null; pruned?: boolean;
+}
+// Drill Evidence V2 - the reel/spotter manifests the Debrief consumes. A run's
+// evidence-index carries summary rows; the frame-level detail lives in these
+// two sidecars, joined to steps.json by `chunk` (the sanitized check key).
+interface ReelHighlight { x: number; y: number; w: number; h: number }
+interface ReelFrame {
+  name: string;
+  tMs: number;
+  trigger: string;
+  chunk: string | null;
+  keep?: boolean;
+  importance?: "normal" | "high";
+  annotation?: string;
+  highlight?: ReelHighlight | null;
+  uncurated?: boolean;
+}
+interface ReelManifest {
+  version?: number;
+  routedVia?: string | null;
+  counts?: { frames?: number; candidates?: number; curated?: number; reel?: number; uncurated?: number };
+  frames: ReelFrame[];
+}
+interface SpotterFrame {
+  name: string;
+  tMs: number;
+  trigger: string;
+  chunk: string | null;
+  hash?: string;
+  bytes?: number;
+  collapsed?: boolean;
+}
+interface SpotterManifest {
+  counts?: { frames?: number; kept?: number; collapsed?: number; dropped?: number };
+  frames: SpotterFrame[];
+  collapsed?: SpotterFrame[];
+}
+// Rows of steps.json (D1): the per-check offset manifest. Distinct from the
+// evidence-index step items - it carries the human-readable `title`.
+interface DebriefStep {
+  pageId: string;
+  stepId: string;
+  viewportId: string;
+  title?: string;
+  startMs?: number;
+  endMs?: number;
+  status?: string;
+  automationRunId?: string | null;
+}
+type DebriefScope =
+  | { kind: "all" }
+  | { kind: "page"; pageId: string }
+  | { kind: "check"; pageId: string; stepId: string; viewportId: string };
+
+// The check-key sanitizer mirrors lib/evidence.mjs `checkKey`: frames carry
+// `chunk` in this exact shape, so scope filtering must build the same key.
+function chunkKeyFor(pageId: string, stepId: string, viewportId: string): string {
+  const clean = (part: string) => String(part ?? "").replace(/[^A-Za-z0-9_-]/g, "_");
+  return `${clean(pageId)}--${clean(stepId)}--${clean(viewportId)}`;
+}
+
 interface InfraError {
   id: string;
   pageId: string | null;
@@ -1830,6 +1901,7 @@ interface DrillRun {
   observations: Observation[];
   findings: Finding[];
   infraErrors?: InfraError[];
+  evidence?: RunEvidence | null;
 }
 
 interface DrillRunSummary {
@@ -1990,6 +2062,60 @@ function EvidenceImage({ src, alt, compact = false }: { src: string; alt: string
   );
 }
 
+function evidenceFileUrl(runId: string, name: string): string {
+  return `/api/runs/${encodeURIComponent(runId)}/evidence-file/${encodeURIComponent(name)}`;
+}
+
+function fmtOffset(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// The whole run in one recording (Drill Evidence v0.1, D1) — chapter buttons
+// seek the player to each check's steps.json offset.
+function RunEvidenceVideo({ runId, video, steps }: { runId: string; video: string; steps: EvidenceStepRow[] }) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <div className="dr-sec card">
+      <div className="dr-card-heading">
+        <div>
+          <b>Run video</b>
+          <p>The whole run in one recording. Jump to a check with its chapter button.</p>
+        </div>
+      </div>
+      <video
+        ref={ref}
+        controls
+        preload="metadata"
+        src={evidenceFileUrl(runId, video)}
+        onError={() => setFailed(true)}
+        style={{ width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }}
+      />
+      {steps.length > 0 && (
+        <div className="dr-rowwrap" style={{ marginTop: 8 }}>
+          {steps.map((row) => (
+            <button
+              key={row.item}
+              className="btn small"
+              title={`${row.pageId}#${row.stepId} at ${row.viewportId}`}
+              onClick={() => {
+                const v = ref.current;
+                if (!v || !Number.isFinite(row.startMs)) return;
+                v.currentTime = (row.startMs ?? 0) / 1000;
+                void v.play().catch(() => {});
+              }}
+            >
+              {row.stepId} @{fmtOffset(row.startMs ?? 0)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function stepPassed(entry: RunPageEntry): boolean {
   if (entry.terminal) return entry.terminal.kind === "passed";
   // Historical result hydration depends on Automations being reachable. The
@@ -2000,6 +2126,1350 @@ function stepPassed(entry: RunPageEntry): boolean {
   if (entry.result.status === "failed") return false;
   if (entry.result.result && entry.result.result.passed === false) return false;
   return true;
+}
+
+// ─── Debrief (Evidence V2 D7-D10) ────────────────────────────────────────
+// The default run-detail surface: a scope rail + findings on the left, an
+// autoplaying reel of curated screenshots (or the scoped run video) on the
+// right. Reads the reel/spotter sidecars and joins frames to checks by chunk.
+
+interface DebriefFeedbackEvent { type: string; frame?: string; ms?: number; scope?: string }
+
+// Batched operator feedback (D6): flush at 10 queued events, every 15s, and on
+// unmount (best effort). The server stamps timestamps; we never block on it.
+function useDebriefFeedback(runId: string) {
+  const queue = useRef<DebriefFeedbackEvent[]>([]);
+  const flushRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const flush = () => {
+      if (queue.current.length === 0) return;
+      const batch = queue.current.splice(0, 100);
+      void fetch(`/api/runs/${encodeURIComponent(runId)}/debrief-feedback`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ events: batch })
+      }).catch(() => { /* best effort - feedback is advisory */ });
+    };
+    flushRef.current = flush;
+    const timer = window.setInterval(flush, 15000);
+    return () => { window.clearInterval(timer); flush(); };
+  }, [runId]);
+  return useCallback((event: DebriefFeedbackEvent) => {
+    queue.current.push(event);
+    if (queue.current.length >= 10) flushRef.current();
+  }, []);
+}
+
+// The check keys a scope covers; null means "everything" (All checks), where
+// frames with a null/unmatched chunk are still shown.
+function scopeCheckKeys(scope: DebriefScope, steps: DebriefStep[]): Set<string> | null {
+  if (scope.kind === "all") return null;
+  if (scope.kind === "check") return new Set([chunkKeyFor(scope.pageId, scope.stepId, scope.viewportId)]);
+  const keys = new Set<string>();
+  for (const step of steps) {
+    if (step.pageId === scope.pageId) keys.add(chunkKeyFor(step.pageId, step.stepId, step.viewportId));
+  }
+  return keys;
+}
+
+function frameInScope(chunk: string | null, scopeKeys: Set<string> | null): boolean {
+  if (!scopeKeys) return true;
+  if (!chunk) return false;
+  return scopeKeys.has(chunk);
+}
+
+// A finding's coordinate collapses to a single check only when it carries both
+// a step and a viewport; otherwise it belongs to the whole page.
+function findingChunk(finding: Finding): string | null {
+  if (finding.stepId && finding.viewportId) return chunkKeyFor(finding.pageId, finding.stepId, finding.viewportId);
+  return null;
+}
+
+// The normalized frame the carousel renders - merged from the reel row (kept
+// frames, annotations) and, in show-all, the raw spotter candidates.
+interface DebriefFrame {
+  name: string;
+  tMs: number;
+  trigger: string;
+  chunk: string | null;
+  keep: boolean;
+  importance: "normal" | "high";
+  annotation: string;
+  highlight: ReelHighlight | null;
+  inReel: boolean;
+}
+
+// The highlight never occludes: an outline-only rectangle, or - when it covers
+// more than 60% of the frame - a small L-bracket at its top-left corner.
+function HighlightOverlay({ rect }: { rect: ReelHighlight }) {
+  const x = Math.max(0, Math.min(1, rect.x ?? 0));
+  const y = Math.max(0, Math.min(1, rect.y ?? 0));
+  const w = Math.max(0, Math.min(1, rect.w ?? 0));
+  const h = Math.max(0, Math.min(1, rect.h ?? 0));
+  if (w * h > 0.6) {
+    return (
+      <div className="dr-db-bracket" style={{ left: `${x * 100}%`, top: `${y * 100}%` }} aria-hidden="true">
+        <span className="dr-db-bracket-h" />
+        <span className="dr-db-bracket-v" />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="dr-db-highlight"
+      style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }}
+      aria-hidden="true"
+    />
+  );
+}
+
+const DWELL_OPTIONS: Array<{ ms: number; label: string }> = [
+  { ms: 1000, label: "1s" },
+  { ms: 1500, label: "1.5s" },
+  { ms: 2500, label: "2.5s" },
+  { ms: 4000, label: "4s" },
+  { ms: 6000, label: "6s" }
+];
+
+interface ReelCarouselProps {
+  runId: string;
+  frames: DebriefFrame[];
+  dwellMs: number;
+  setDwellMs: (ms: number) => void;
+  showAll: boolean;
+  onToggleShowAll: () => void;
+  onActiveFrameChange: (frame: DebriefFrame | null) => void;
+  enqueue: (event: DebriefFeedbackEvent) => void;
+  scopeLabel: string;
+  flagged: Set<string>;
+  onFlag: (frameName: string) => void;
+  reelCount: number;
+  candidateCount: number;
+  curationPending: boolean;
+}
+function ReelCarousel({
+  runId, frames, dwellMs, setDwellMs, showAll, onToggleShowAll, onActiveFrameChange,
+  enqueue, scopeLabel, flagged, onFlag, reelCount, candidateCount, curationPending
+}: ReelCarouselProps) {
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
+  const [selected, setSelected] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [held, setHeld] = useState(false);
+
+  // Re-init and snap to the start whenever the source list changes (scope
+  // change, show-all toggle) so a stale index never points past the new list.
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit();
+    emblaApi.scrollTo(0, true);
+    setSelected(0);
+  }, [emblaApi, frames]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    const onSel = () => setSelected(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSel);
+    onSel();
+    return () => { emblaApi.off("select", onSel); };
+  }, [emblaApi]);
+
+  const active = frames[selected] ?? null;
+  useEffect(() => { onActiveFrameChange(active); }, [active, onActiveFrameChange]);
+
+  // Autoplay: advance after the active frame's dwell. High-importance frames
+  // never sit shorter than 4s; press-and-hold and the pause button freeze it.
+  useEffect(() => {
+    if (!emblaApi || !playing || held || frames.length <= 1) return;
+    const base = active?.importance === "high" ? Math.max(dwellMs, 4000) : dwellMs;
+    const timer = window.setTimeout(() => {
+      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
+      else emblaApi.scrollTo(0);
+    }, base);
+    return () => window.clearTimeout(timer);
+  }, [emblaApi, playing, held, selected, dwellMs, frames, active]);
+
+  // Long-dwell feedback (D6): a single event when a frame stays active past 5s,
+  // paused time included; re-armed on every activation so it fires once/visit.
+  useEffect(() => {
+    if (!active) return;
+    const name = active.name;
+    const timer = window.setTimeout(() => {
+      enqueue({ type: "dwell", frame: name, ms: 5000, scope: scopeLabel });
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [active, enqueue, scopeLabel]);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const tag = target.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); emblaApi?.scrollPrev(); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); emblaApi?.scrollNext(); }
+  };
+
+  if (frames.length === 0) {
+    return (
+      <div className="dr-db-reel">
+        <div className="dr-db-empty">
+          {showAll
+            ? "No captured frames for this scope."
+            : curationPending
+              ? "Curation is still selecting the reel for this scope."
+              : "No reel frames for this scope. Toggle Show all frames to see raw candidates."}
+        </div>
+        <div className="dr-db-reel-controls">
+          <button className={"btn small" + (showAll ? " primary" : "")} onClick={onToggleShowAll} aria-pressed={showAll}>
+            <Film size={12} /> {showAll ? "Showing all frames" : "Show all frames"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const flaggedActive = active ? flagged.has(active.name) : false;
+
+  return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+    <div className="dr-db-reel" tabIndex={0} onKeyDown={onKeyDown} aria-label="Screenshot reel" role="group">
+      <div className="dr-db-carousel" ref={emblaRef}>
+        <div className="dr-db-track">
+          {frames.map((frame, i) => (
+            <div className="dr-db-slide" key={`${frame.name}:${i}`}>
+              <div
+                className="dr-db-stage"
+                onPointerDown={() => setHeld(true)}
+                onPointerUp={() => setHeld(false)}
+                onPointerLeave={() => setHeld(false)}
+                onPointerCancel={() => setHeld(false)}
+              >
+                <div className="dr-db-frame">
+                  <img className="dr-db-frame-img" src={evidenceFileUrl(runId, frame.name)} alt={frame.annotation || frame.trigger || frame.name} draggable={false} />
+                  {frame.inReel && frame.highlight && <HighlightOverlay rect={frame.highlight} />}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Annotation strip - always BELOW the image, fixed height so the reel
+          does not jump between annotated and bare frames. */}
+      <div className={"dr-db-annot" + (active?.importance === "high" ? " high" : "")}>
+        <div className="dr-db-annot-meta">
+          <span className="dr-db-annot-trigger">{active?.trigger ?? ""}</span>
+          <span className="dr-db-annot-time mono">{fmtOffset(active?.tMs ?? 0)}</span>
+          {active?.importance === "high" && <span className="chip brass">key moment</span>}
+          {active && !active.inReel && <span className="dr-db-annot-nr">not in reel</span>}
+        </div>
+        <div className="dr-db-annot-text">
+          {active?.inReel && active.annotation
+            ? active.annotation
+            : active && !active.inReel
+              ? `Raw candidate - ${active.trigger || "captured frame"}`
+              : ""}
+        </div>
+        <button
+          className={"btn small dr-db-flag" + (flaggedActive ? " primary" : "")}
+          disabled={!active}
+          aria-pressed={flaggedActive}
+          onClick={() => active && onFlag(active.name)}
+        >
+          <Flag size={12} /> {flaggedActive ? "Flagged" : "Flag"}
+        </button>
+      </div>
+
+      <div className="dr-db-reel-controls">
+        <div className="dr-db-transport">
+          <button className="dr-db-iconbtn" aria-label="Previous frame" onClick={() => emblaApi?.scrollPrev()}><ArrowLeft size={14} /></button>
+          <button className="dr-db-iconbtn" aria-label={playing ? "Pause" : "Play"} onClick={() => setPlaying((p) => !p)}>
+            {playing ? <Pause size={14} /> : <Play size={14} />}
+          </button>
+          <button className="dr-db-iconbtn" aria-label="Next frame" onClick={() => emblaApi?.scrollNext()}><ArrowRight size={14} /></button>
+          <span className="dr-db-counter mono">{frames.length === 0 ? "0 / 0" : `${selected + 1} / ${frames.length}`}</span>
+        </div>
+        <div className="dr-db-reel-right">
+          <label className="dr-db-dwell">
+            <span>Dwell</span>
+            <select value={dwellMs} onChange={(e) => setDwellMs(Number(e.target.value))} aria-label="Frame dwell time">
+              {DWELL_OPTIONS.map((opt) => <option key={opt.ms} value={opt.ms}>{opt.label}</option>)}
+            </select>
+          </label>
+          <button className={"btn small" + (showAll ? " primary" : "")} onClick={onToggleShowAll} aria-pressed={showAll}>
+            <Film size={12} /> {showAll ? "All frames" : "Show all"}
+          </button>
+          <span className="dr-db-reel-counts mono" title="reel / candidate frames">{reelCount} / {candidateCount}</span>
+        </div>
+      </div>
+      {curationPending && !showAll && (
+        <div className="dr-db-pending">Curation pending - showing raw candidates until the reel is selected.</div>
+      )}
+    </div>
+  );
+}
+
+interface DebriefVideoProps {
+  runId: string;
+  video: string | null;
+  pruned: boolean;
+  steps: DebriefStep[];
+  scopeKeys: Set<string> | null;
+}
+function DebriefVideo({ runId, video, pruned, steps, scopeKeys }: DebriefVideoProps) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const scopedSteps = useMemo(() =>
+    steps
+      .filter((s) => Number.isFinite(s.startMs))
+      .filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys))
+      .sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
+    [steps, scopeKeys]
+  );
+
+  // When scope is narrowed, land the player on the scope's first chapter.
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || scopeKeys === null) return;
+    const first = scopedSteps[0];
+    if (!first || !Number.isFinite(first.startMs)) return;
+    const seek = () => { v.currentTime = (first.startMs ?? 0) / 1000; };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+  }, [scopedSteps, scopeKeys]);
+
+  if (pruned) return <div className="dr-db-empty">Video pruned by retention.</div>;
+  if (!video) return <div className="dr-db-empty">No video for this run.</div>;
+  return (
+    <div className="dr-db-video">
+      <video
+        ref={ref}
+        controls
+        preload="metadata"
+        src={evidenceFileUrl(runId, video)}
+        className="dr-db-video-el"
+      />
+      {scopedSteps.length > 0 && (
+        <div className="dr-rowwrap dr-db-chapters">
+          {scopedSteps.map((row) => (
+            <button
+              key={`${row.pageId}:${row.stepId}:${row.viewportId}`}
+              className="btn small"
+              title={`${row.pageId}#${row.stepId} at ${row.viewportId}`}
+              onClick={() => {
+                const v = ref.current;
+                if (!v || !Number.isFinite(row.startMs)) return;
+                v.currentTime = (row.startMs ?? 0) / 1000;
+                void v.play().catch(() => {});
+              }}
+            >
+              {row.stepId} @{fmtOffset(row.startMs ?? 0)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Live Browser tab (Evidence V2 S6/D11) ───────────────────────────────
+// Replays a check's compiled steps up to and including the selected step in a
+// fresh held browser session, then embeds the interactive canvas. The live
+// session is a server-side singleton (one at a time); POST is run-scoped, the
+// GET/DELETE lifecycle is global.
+interface LiveSession {
+  sessionId: string;
+  tabId?: string | null;
+  canvasUrl?: string | null;
+  runId?: string;
+  pageId?: string;
+  stepId?: string;
+  viewportId?: string;
+  replayed?: number;
+  of?: number;
+  startedAt?: string;
+}
+
+// The canvas embed skews if the wrapper aspect differs from the replayed
+// viewport, so we derive the wrapper's aspect from the canvasUrl's viewport
+// params (the server sets viewportWidth/viewportHeight) and cap the height so
+// a portrait viewport can't blow up the page. Before any session: 16/10.
+function liveStageStyle(canvasUrl?: string | null): React.CSSProperties {
+  let w = 16;
+  let h = 10;
+  if (canvasUrl) {
+    try {
+      const u = new URL(canvasUrl, window.location.href);
+      const cw = Number(u.searchParams.get("viewportWidth"));
+      const ch = Number(u.searchParams.get("viewportHeight"));
+      if (Number.isFinite(cw) && Number.isFinite(ch) && cw > 0 && ch > 0) { w = cw; h = ch; }
+    } catch { /* fall back to the default aspect */ }
+  }
+  const capHeight = 560;
+  return { aspectRatio: `${w} / ${h}`, width: "100%", maxWidth: `${Math.round(capHeight * (w / h))}px`, margin: "0 auto" };
+}
+
+function liveCheckLabel(step: { stepId: string; viewportId?: string; title?: string }): string {
+  const base = step.title?.trim() || step.stepId;
+  return step.viewportId ? `${base} @ ${step.viewportId}` : base;
+}
+function liveTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
+}
+
+interface LiveBrowserProps {
+  runId: string;
+  steps: DebriefStep[];
+  scope: DebriefScope;
+  scopeKeys: Set<string> | null;
+  session: LiveSession | null;
+  onSession: (session: LiveSession | null) => void;
+  warnings: string[];
+  onWarnings: (warnings: string[]) => void;
+}
+type LiveStatus = "checking" | "idle" | "replaying" | "conflict" | "error";
+function LiveBrowser({ runId, steps, scope, scopeKeys, session, onSession, warnings, onWarnings }: LiveBrowserProps) {
+  const [status, setStatus] = useState<LiveStatus>(session ? "idle" : "checking");
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<LiveSession | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [pendingStepId, setPendingStepId] = useState<string | null>(null);
+  const [pickedKey, setPickedKey] = useState<string>("");
+
+  const scopedChecks = useMemo(() =>
+    steps.filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)),
+    [steps, scopeKeys]
+  );
+  const singleCheck: DebriefStep | null = scope.kind === "check"
+    ? (steps.find((s) => s.pageId === scope.pageId && s.stepId === scope.stepId && s.viewportId === scope.viewportId)
+        ?? { pageId: scope.pageId, stepId: scope.stepId, viewportId: scope.viewportId })
+    : null;
+  const pickedCheck: DebriefStep | null = singleCheck
+    ?? scopedChecks.find((s) => chunkKeyFor(s.pageId, s.stepId, s.viewportId) === pickedKey)
+    ?? scopedChecks[0]
+    ?? null;
+
+  // Discover an already-open session when the tab opens (poll-free). A session
+  // for this run re-embeds; one for another run is surfaced as a conflict.
+  useEffect(() => {
+    if (session) { setStatus("idle"); return; }
+    let cancelled = false;
+    setStatus("checking");
+    fetch("/api/live-replay")
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const live = (j.live ?? null) as LiveSession | null;
+        if (!live) { setStatus("idle"); return; }
+        if (live.runId === runId) { onSession(live); setStatus("idle"); }
+        else { setConflict(live); setStatus("conflict"); }
+      })
+      .catch(() => { if (!cancelled) setStatus("idle"); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- discover once per run
+  }, [runId]);
+
+  const openLive = async (check: DebriefStep) => {
+    setBusy(true);
+    setError(null);
+    setConflict(null);
+    setPendingStepId(check.stepId);
+    setStatus("replaying");
+    try {
+      const r = await fetch(`/api/runs/${encodeURIComponent(runId)}/live-replay`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pageId: check.pageId, stepId: check.stepId, viewportId: check.viewportId })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409) { setConflict((j.live ?? null) as LiveSession | null); setStatus("conflict"); return; }
+      if (!r.ok) { setError(j.error || `Replay failed (${r.status})`); setStatus("error"); return; }
+      onWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+      onSession((j.live ?? null) as LiveSession | null);
+      setStatus("idle");
+    } catch (e: any) {
+      setError(e.message);
+      setStatus("error");
+    } finally {
+      setBusy(false);
+      setPendingStepId(null);
+    }
+  };
+
+  const closeLive = async () => {
+    setBusy(true);
+    try { await fetch("/api/live-replay", { method: "DELETE" }); } catch { /* best effort close */ }
+    onSession(null);
+    onWarnings([]);
+    setConflict(null);
+    setError(null);
+    setStatus("idle");
+    setBusy(false);
+  };
+
+  // A same-run session recovered via GET has no canvasUrl (only POST returns
+  // it), so re-running the replay is the only way to re-embed its pixels.
+  const reopen = async (s: LiveSession) => {
+    if (!s.pageId || !s.stepId) { await closeLive(); return; }
+    setBusy(true);
+    try { await fetch("/api/live-replay", { method: "DELETE" }); } catch { /* best effort */ }
+    onSession(null);
+    setBusy(false);
+    await openLive({ pageId: s.pageId, stepId: s.stepId, viewportId: s.viewportId ?? "desktop" });
+  };
+
+  const showConflict = status === "conflict" && conflict;
+  const showSession = !showConflict && status !== "replaying" && !!session;
+
+  return (
+    <div className="dr-db-live">
+      <p className="dr-db-live-note">Interactive live session - clicks affect the replayed state.</p>
+
+      {status === "checking" && <div className="dr-db-empty">Checking for an open session...</div>}
+
+      {status === "replaying" && (
+        <div className="dr-db-live-progress" role="status">
+          <span className="dr-db-spinner" aria-hidden="true" />
+          <div>
+            <b>Replaying steps up to {pendingStepId}...</b>
+            <p>Re-running the compiled steps in a fresh browser session. This can take up to a minute.</p>
+          </div>
+        </div>
+      )}
+
+      {showConflict && conflict && (
+        <div className="dr-db-live-conflict">
+          <b>A live session is already open</b>
+          <p>
+            {conflict.runId === runId ? "It belongs to this run" : "It belongs to another run"}
+            {conflict.stepId ? ` - up to ${conflict.stepId}` : ""}
+            {conflict.viewportId ? ` at ${conflict.viewportId}` : ""}
+            {Number.isFinite(conflict.replayed) && Number.isFinite(conflict.of) ? ` (${conflict.replayed}/${conflict.of} steps)` : ""}.
+          </p>
+          <div className="dr-rowwrap">
+            {conflict.canvasUrl && (
+              <button className="btn small" disabled={busy} onClick={() => { onSession(conflict); setConflict(null); setStatus("idle"); }}>Show it</button>
+            )}
+            <button className="btn primary" disabled={busy} onClick={closeLive}>Close it</button>
+          </div>
+        </div>
+      )}
+
+      {showSession && session && (
+        <div className="dr-db-live-session">
+          {session.canvasUrl ? (
+            <div className="dr-db-live-stage" style={liveStageStyle(session.canvasUrl)}>
+              <iframe className="dr-db-live-frame" src={session.canvasUrl} title="Live browser session" />
+            </div>
+          ) : (
+            <div className="dr-db-live-recover">
+              <div className="dr-db-empty">A live session is active for this run, but its canvas link is only returned when it is opened.</div>
+              <div className="dr-rowwrap">
+                <button className="btn primary" disabled={busy} onClick={() => reopen(session)}>Reopen to view</button>
+              </div>
+            </div>
+          )}
+          <div className="dr-db-live-meta">
+            {session.stepId && <span className="chip">{liveCheckLabel({ stepId: session.stepId, viewportId: session.viewportId })}</span>}
+            {Number.isFinite(session.replayed) && Number.isFinite(session.of) && (
+              <span className="dr-db-live-metaitem">Replayed {session.replayed}/{session.of} steps</span>
+            )}
+            {session.startedAt && <span className="dr-db-live-metaitem mono">started {liveTime(session.startedAt)}</span>}
+          </div>
+          {warnings.length > 0 && (
+            <div className="dr-db-live-warnings">
+              <b>Replay warnings</b>
+              <ul>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+            </div>
+          )}
+          <div className="dr-rowwrap">
+            <button className="btn small" disabled={busy} onClick={closeLive}>Close live session</button>
+          </div>
+        </div>
+      )}
+
+      {status === "error" && !session && (
+        <div className="dr-db-live-error" role="alert">
+          <span>{error}</span>
+          <button className="btn small" onClick={() => { setError(null); setStatus("idle"); }}>Dismiss</button>
+        </div>
+      )}
+
+      {status === "idle" && !session && (
+        <div className="dr-db-live-launch">
+          {scope.kind === "check" && pickedCheck ? (
+            <button className="btn primary" disabled={busy} onClick={() => openLive(pickedCheck)}>
+              <Eye size={13} /> Open live at {liveCheckLabel(pickedCheck)}
+            </button>
+          ) : scopedChecks.length > 0 ? (
+            <>
+              <p className="dr-db-live-hint">Select a check to open the app live at that state.</p>
+              <div className="dr-rowwrap">
+                <select
+                  aria-label="Check to open live"
+                  value={pickedCheck ? chunkKeyFor(pickedCheck.pageId, pickedCheck.stepId, pickedCheck.viewportId) : ""}
+                  onChange={(e) => setPickedKey(e.target.value)}
+                >
+                  {scopedChecks.map((s) => {
+                    const key = chunkKeyFor(s.pageId, s.stepId, s.viewportId);
+                    return <option key={key} value={key}>{liveCheckLabel(s)}</option>;
+                  })}
+                </select>
+                <button className="btn primary" disabled={busy || !pickedCheck} onClick={() => pickedCheck && openLive(pickedCheck)}>
+                  <Eye size={13} /> Open live at this state
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="dr-db-empty">No checks available to open live for this run.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface DebriefViewProps {
+  run: DrillRun;
+  pages: DrillPage[];
+  steps: DebriefStep[];
+  evidenceIndex: { items: EvidenceStepRow[] } | null;
+  issues: { productFindings: Finding[]; infraErrors: InfraError[] };
+  activeFindings: Finding[];
+  confirmedCount: number;
+  dispatchableCount: number;
+  dispatchedCard: { id: string; url: string | null } | null;
+  dispatchMode: "manual" | "heartbeat" | "immediate";
+  setDispatchMode: (mode: "manual" | "heartbeat" | "immediate") => void;
+  dispatching: boolean;
+  dispatch: () => void;
+  triage: (findingId: string, status: "confirmed" | "dismissed") => void;
+}
+type DebriefTab = "screenshots" | "video" | "live";
+function DebriefView({
+  run, pages, steps, evidenceIndex, issues, confirmedCount, dispatchableCount,
+  dispatchedCard, dispatchMode, setDispatchMode, dispatching, dispatch, triage
+}: DebriefViewProps) {
+  const [scope, setScope] = useState<DebriefScope>({ kind: "all" });
+  const [tab, setTab] = useState<DebriefTab>("screenshots");
+  const [showAll, setShowAll] = useState(false);
+  const [dwellMs, setDwellMs] = useState(2500);
+  const [reel, setReel] = useState<ReelManifest | null>(null);
+  const [spotter, setSpotter] = useState<SpotterManifest | null>(null);
+  const [activeFrame, setActiveFrame] = useState<DebriefFrame | null>(null);
+  const [flagged, setFlagged] = useState<Set<string>>(() => new Set());
+  // The live session lives here (not in LiveBrowser) so it survives tab
+  // switches; cleared when the selected run changes.
+  const [liveSession, setLiveSession] = useState<LiveSession | null>(null);
+  const [liveWarnings, setLiveWarnings] = useState<string[]>([]);
+  useEffect(() => { setLiveSession(null); setLiveWarnings([]); }, [run.id]);
+  const enqueue = useDebriefFeedback(run.id);
+  const checkRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
+  const findingRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
+
+  const indexItems = evidenceIndex?.items ?? [];
+  const hasReelRow = indexItems.some((i) => i.kind === "reel");
+  const hasSpotterRow = indexItems.some((i) => i.kind === "spotter");
+  const curationPending = hasSpotterRow && !hasReelRow;
+  const videoItem = indexItems.find((i) => i.kind === "video");
+  const videoPruned = !!videoItem?.pruned;
+  const videoName = run.evidence?.video ?? null;
+
+  // Load the sidecars the index advertises. Both are confined artifact routes.
+  useEffect(() => {
+    setReel(null);
+    let cancelled = false;
+    if (!hasReelRow) return;
+    fetch(evidenceFileUrl(run.id, "reel.json"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled) setReel(j); })
+      .catch(() => { /* reel not ready */ });
+    return () => { cancelled = true; };
+  }, [run.id, hasReelRow]);
+
+  useEffect(() => {
+    setSpotter(null);
+    let cancelled = false;
+    if (!hasSpotterRow) return;
+    fetch(evidenceFileUrl(run.id, "spotter-frames.json"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled) setSpotter(j); })
+      .catch(() => { /* spotter manifest absent */ });
+    return () => { cancelled = true; };
+  }, [run.id, hasSpotterRow]);
+
+  const scopeKeys = useMemo(() => scopeCheckKeys(scope, steps), [scope, steps]);
+  const scopeLabel = scope.kind === "all"
+    ? "all"
+    : scope.kind === "page"
+      ? scope.pageId
+      : `${scope.pageId}#${scope.stepId}@${scope.viewportId}`;
+
+  const reelByName = useMemo(() => {
+    const map = new Map<string, ReelFrame>();
+    for (const f of reel?.frames ?? []) map.set(f.name, f);
+    return map;
+  }, [reel]);
+
+  // The reel is the default source; show-all swaps to every raw candidate.
+  // With no reel yet we fall back to spotter frames so the surface is never
+  // empty while curation runs.
+  const frames = useMemo<DebriefFrame[]>(() => {
+    const inScope = (chunk: string | null) => frameInScope(chunk, scopeKeys);
+    if (showAll) {
+      const raw = spotter?.frames ?? reel?.frames ?? [];
+      return raw
+        .filter((f) => inScope(f.chunk ?? null))
+        .map((f) => {
+          const v = reelByName.get(f.name);
+          const inReel = v?.keep === true;
+          return {
+            name: f.name,
+            tMs: f.tMs ?? 0,
+            trigger: f.trigger ?? "",
+            chunk: f.chunk ?? null,
+            keep: inReel,
+            importance: v?.importance === "high" ? "high" : "normal",
+            annotation: inReel ? (v?.annotation ?? "") : "",
+            highlight: inReel ? (v?.highlight ?? null) : null,
+            inReel
+          } as DebriefFrame;
+        })
+        .sort((a, b) => a.tMs - b.tMs);
+    }
+    if (reel) {
+      return reel.frames
+        .filter((f) => f.keep === true)
+        .filter((f) => inScope(f.chunk ?? null))
+        .map((f): DebriefFrame => ({
+          name: f.name,
+          tMs: f.tMs ?? 0,
+          trigger: f.trigger ?? "",
+          chunk: f.chunk ?? null,
+          keep: true,
+          importance: f.importance === "high" ? "high" : "normal",
+          annotation: f.annotation ?? "",
+          highlight: f.highlight ?? null,
+          inReel: true
+        }))
+        .sort((a, b) => a.tMs - b.tMs);
+    }
+    // Fallback while curation is pending: raw spotter frames, no annotations.
+    return (spotter?.frames ?? [])
+      .filter((f) => inScope(f.chunk ?? null))
+      .map((f): DebriefFrame => ({
+        name: f.name,
+        tMs: f.tMs ?? 0,
+        trigger: f.trigger ?? "",
+        chunk: f.chunk ?? null,
+        keep: false,
+        importance: "normal",
+        annotation: "",
+        highlight: null,
+        inReel: false
+      }))
+      .sort((a, b) => a.tMs - b.tMs);
+  }, [showAll, reel, spotter, reelByName, scopeKeys]);
+
+  const reelCount = reel?.counts?.reel ?? reel?.frames.filter((f) => f.keep === true).length ?? 0;
+  const candidateCount = spotter?.frames.length ?? reel?.counts?.candidates ?? reel?.frames.length ?? 0;
+
+  // Pass/fail tone per check, taken from the authoritative run verdicts so the
+  // rail agrees with the classic check-results list.
+  const passedByChunk = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const entry of run.pages) {
+      map.set(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId), effectiveStepPassed(run, entry));
+    }
+    return map;
+  }, [run]);
+
+  // Checks grouped by page for the scope rail, preserving first-seen order.
+  const pageGroups = useMemo(() => {
+    const order: string[] = [];
+    const byPage = new Map<string, DebriefStep[]>();
+    for (const step of steps) {
+      if (!byPage.has(step.pageId)) { byPage.set(step.pageId, []); order.push(step.pageId); }
+      byPage.get(step.pageId)!.push(step);
+    }
+    return order.map((pageId) => ({
+      pageId,
+      title: pages.find((p) => p.id === pageId)?.title ?? pageId,
+      checks: byPage.get(pageId)!
+    }));
+  }, [steps, pages]);
+
+  const activeChunk = activeFrame?.chunk ?? null;
+
+  // Scroll the active frame's check (and any finding on it) into view within
+  // the rail as the reel advances.
+  useEffect(() => {
+    if (!activeChunk) return;
+    checkRefs.current.get(activeChunk)?.scrollIntoView({ block: "nearest" });
+    const finding = issues.productFindings.find((f) => findingChunk(f) === activeChunk);
+    if (finding) findingRefs.current.get(finding.id)?.scrollIntoView({ block: "nearest" });
+  }, [activeChunk, issues.productFindings]);
+
+  const toggleShowAll = () => {
+    setShowAll((prev) => {
+      const next = !prev;
+      if (next) enqueue({ type: "show-all", scope: scopeLabel });
+      return next;
+    });
+  };
+  const onFlag = (frameName: string) => {
+    setFlagged((prev) => {
+      const next = new Set(prev);
+      next.add(frameName);
+      return next;
+    });
+    enqueue({ type: "flag", frame: frameName, scope: scopeLabel });
+  };
+
+  const selectCheck = (step: DebriefStep) => {
+    setScope((prev) =>
+      prev.kind === "check" && prev.pageId === step.pageId && prev.stepId === step.stepId && prev.viewportId === step.viewportId
+        ? { kind: "all" }
+        : { kind: "check", pageId: step.pageId, stepId: step.stepId, viewportId: step.viewportId }
+    );
+  };
+  const selectPage = (pageId: string) => {
+    setScope((prev) => (prev.kind === "page" && prev.pageId === pageId ? { kind: "all" } : { kind: "page", pageId }));
+  };
+  const selectFinding = (finding: Finding) => {
+    if (finding.stepId && finding.viewportId) {
+      setScope({ kind: "check", pageId: finding.pageId, stepId: finding.stepId, viewportId: finding.viewportId });
+    } else {
+      setScope({ kind: "page", pageId: finding.pageId });
+    }
+  };
+
+  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry)).length;
+  const failedCount = run.pages.length - passedCount;
+
+  return (
+    <div className="dr-db">
+      <div className="dr-db-topline">
+        <div>
+          <div className="dr-lbl">Debrief</div>
+          <h2 className="dr-db-title">{formatDate(run.startedAt)}</h2>
+          <div className="mono dr-run-id">{run.id}</div>
+        </div>
+        <div className="dr-db-scope-pill">
+          {scope.kind === "all"
+            ? "All checks"
+            : scope.kind === "page"
+              ? `Page: ${pages.find((p) => p.id === scope.pageId)?.title ?? scope.pageId}`
+              : `Check: ${scope.stepId} @ ${scope.viewportId}`}
+          {scope.kind !== "all" && (
+            <button className="dr-db-scope-clear" aria-label="Clear scope" onClick={() => setScope({ kind: "all" })}><X size={12} /></button>
+          )}
+        </div>
+      </div>
+
+      <div className="dr-db-grid">
+        <aside className="dr-db-rail">
+          <div className="dr-db-rail-sec">
+            <div className="dr-db-rail-head">
+              <ListFilter size={12} /> Scope
+              <span className="dr-db-rail-sub">{passedCount} passed · {failedCount} failed</span>
+            </div>
+            <button
+              className={"dr-db-scope-row all" + (scope.kind === "all" ? " active" : "")}
+              onClick={() => setScope({ kind: "all" })}
+            >
+              All checks
+            </button>
+            {pageGroups.map((group) => (
+              <div key={group.pageId} className="dr-db-scope-group">
+                <button
+                  className={"dr-db-scope-row page" + (scope.kind === "page" && scope.pageId === group.pageId ? " active" : "")}
+                  aria-pressed={scope.kind === "page" && scope.pageId === group.pageId}
+                  onClick={() => selectPage(group.pageId)}
+                >
+                  <span className="dr-db-scope-title">{group.title}</span>
+                  <span className="dr-db-scope-num">{group.checks.length}</span>
+                </button>
+                {group.checks.map((check) => {
+                  const key = chunkKeyFor(check.pageId, check.stepId, check.viewportId);
+                  const passed = passedByChunk.get(key);
+                  const isScoped = scope.kind === "check" && scope.pageId === check.pageId && scope.stepId === check.stepId && scope.viewportId === check.viewportId;
+                  const isActive = activeChunk === key;
+                  const tone = passed === undefined ? "" : passed ? " pass" : " fail";
+                  return (
+                    <button
+                      key={key}
+                      ref={(el) => { checkRefs.current.set(key, el); }}
+                      className={"dr-db-check" + tone + (isScoped ? " scoped" : "") + (isActive ? " live" : "")}
+                      aria-pressed={isScoped}
+                      title={`${check.pageId}#${check.stepId} at ${check.viewportId}`}
+                      onClick={() => selectCheck(check)}
+                    >
+                      <span className={"dr-db-dot" + tone} aria-hidden="true" />
+                      <span className="dr-db-check-label">{check.title?.trim() || check.stepId}</span>
+                      <span className="chip dr-db-vp">{check.viewportId}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          <div className="dr-db-rail-sec">
+            <div className="dr-db-rail-head">
+              Findings <span className="dr-db-rail-sub">{issues.productFindings.length}</span>
+            </div>
+            {issues.productFindings.length === 0 && <div className="dr-db-rail-empty">No product findings.</div>}
+            {issues.productFindings.map((f) => {
+              const chunk = findingChunk(f);
+              const isActive = !!chunk && chunk === activeChunk;
+              return (
+                <div key={f.id} className={"dr-db-finding" + (isActive ? " live" : "")}>
+                  <button
+                    className="dr-db-finding-main"
+                    ref={(el) => { findingRefs.current.set(f.id, el); }}
+                    onClick={() => selectFinding(f)}
+                    title="Narrow the reel to this finding's check"
+                  >
+                    <span className={"dr-db-finding-status " + f.status}>{f.status}</span>
+                    <span className="dr-db-finding-text" style={{ textDecoration: f.status === "dismissed" ? "line-through" : "none" }}>
+                      {f.pageId}{f.stepId ? `#${f.stepId}` : ""}: {f.text}
+                    </span>
+                  </button>
+                  <div className="dr-db-finding-actions">
+                    {f.card && (f.card.url
+                      ? <a className="chip brass" href={f.card.url} target="_blank" rel="noreferrer" title="Open the Kanban fix card carrying this finding">on card</a>
+                      : <span className="chip brass" title="This finding is already on a Kanban fix card">on card</span>)}
+                    {f.status !== "confirmed" && <button className="btn small" onClick={() => triage(f.id, "confirmed")}>Confirm</button>}
+                    {f.status !== "dismissed" && !f.card && <button className="btn small" onClick={() => triage(f.id, "dismissed")}>Dismiss</button>}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="dr-db-dispatch">
+              <select
+                aria-label="When to send confirmed findings"
+                value={dispatchMode}
+                disabled={dispatching}
+                onChange={(e) => setDispatchMode(e.target.value as any)}
+              >
+                <option value="manual">Send now</option>
+                <option value="heartbeat">On the next heartbeat</option>
+                <option value="immediate">Send now (immediate)</option>
+              </select>
+              <button className="btn primary" disabled={dispatchableCount === 0 || dispatching} onClick={dispatch}>
+                {dispatching
+                  ? "Sending…"
+                  : dispatchMode === "heartbeat"
+                    ? `Queue confirmed (${dispatchableCount})`
+                    : `Send confirmed (${dispatchableCount})`}
+              </button>
+              <span className="dr-help-inline">
+                {confirmedCount > 0 && dispatchableCount === 0
+                  ? "Every confirmed finding is already on a fix card."
+                  : run.dispatch === "heartbeat"
+                    ? "Queued. The next heartbeat creates one Code card carrying this reviewed report."
+                    : "Creates one Kanban card carrying the reviewed report and moves it into Code."}
+              </span>
+              {dispatchedCard && (
+                <span className="chip sage active">
+                  Sent to card{" "}
+                  {dispatchedCard.url
+                    ? <a href={dispatchedCard.url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{dispatchedCard.id.slice(-6)}</a>
+                    : dispatchedCard.id.slice(-6)}
+                </span>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <section className="dr-db-content">
+          <div className="dr-db-tabs" role="tablist" aria-label="Debrief evidence">
+            <button role="tab" aria-selected={tab === "screenshots"} className={"dr-db-tab" + (tab === "screenshots" ? " on" : "")} onClick={() => setTab("screenshots")}>
+              <LayoutGrid size={13} /> Screenshots
+            </button>
+            <button role="tab" aria-selected={tab === "video"} className={"dr-db-tab" + (tab === "video" ? " on" : "")} onClick={() => setTab("video")}>
+              <VideoIcon size={13} /> Video
+            </button>
+            <button role="tab" aria-selected={tab === "live"} className={"dr-db-tab experimental" + (tab === "live" ? " on" : "")} title="Experimental - replays the app live at a check's state" onClick={() => setTab("live")}>
+              <Eye size={13} /> Live Browser <span className="dr-db-exp-chip">experimental</span>
+            </button>
+          </div>
+
+          {tab === "screenshots" && (
+            <ReelCarousel
+              runId={run.id}
+              frames={frames}
+              dwellMs={dwellMs}
+              setDwellMs={setDwellMs}
+              showAll={showAll}
+              onToggleShowAll={toggleShowAll}
+              onActiveFrameChange={setActiveFrame}
+              enqueue={enqueue}
+              scopeLabel={scopeLabel}
+              flagged={flagged}
+              onFlag={onFlag}
+              reelCount={reelCount}
+              candidateCount={candidateCount}
+              curationPending={curationPending}
+            />
+          )}
+          {tab === "video" && (
+            <DebriefVideo
+              runId={run.id}
+              video={videoName}
+              pruned={videoPruned}
+              steps={steps}
+              scopeKeys={scopeKeys}
+            />
+          )}
+          {tab === "live" && (
+            <LiveBrowser
+              runId={run.id}
+              steps={steps}
+              scope={scope}
+              scopeKeys={scopeKeys}
+              session={liveSession}
+              onSession={setLiveSession}
+              warnings={liveWarnings}
+              onWarnings={setLiveWarnings}
+            />
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+// Parked pre-Debrief run detail (Evidence V2 D7): the original results
+// rendering, kept behaviourally byte-equivalent and reachable via the run
+// detail's "Classic view" toggle. Runs with no evidence index render this
+// directly.
+interface ClassicRunDetailProps {
+  run: DrillRun;
+  pages: DrillPage[];
+  evidenceRows: EvidenceStepRow[] | null;
+  productPageEntries: RunPageEntry[];
+  activeFindings: Finding[];
+  incompleteCoverageCount: number;
+  displayedInfra: InfraError[];
+  issues: { productFindings: Finding[]; infraErrors: InfraError[] };
+  confirmedCount: number;
+  dispatchableCount: number;
+  dispatchedCard: { id: string; url: string | null } | null;
+  dispatchMode: "manual" | "heartbeat" | "immediate";
+  setDispatchMode: (mode: "manual" | "heartbeat" | "immediate") => void;
+  dispatching: boolean;
+  obsText: string;
+  setObsText: (value: string) => void;
+  giveFeedback: (pageId: string, stepId: string, viewportId: string, note: string) => Promise<boolean>;
+  override: (pageId: string, stepId: string, viewportId: string, verdict: "passed" | "failed", note?: string) => void;
+  addObs: () => void;
+  convertObsToStep: (obsId: string, pageId: string) => void;
+  convertObsToFinding: (obsId: string, pageId: string) => void;
+  triage: (findingId: string, status: "confirmed" | "dismissed") => void;
+  dispatch: () => void;
+}
+function ClassicRunDetail({
+  run, pages, evidenceRows, productPageEntries, activeFindings, incompleteCoverageCount,
+  displayedInfra, issues, confirmedCount, dispatchableCount, dispatchedCard, dispatchMode,
+  setDispatchMode, dispatching, obsText, setObsText, giveFeedback, override, addObs,
+  convertObsToStep, convertObsToFinding, triage, dispatch
+}: ClassicRunDetailProps) {
+  const evidenceRowFor = (entry: { pageId: string; stepId: string; viewportId: string }) =>
+    evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  return (
+        <>
+          {run.evidence?.video && (
+            <RunEvidenceVideo runId={run.id} video={run.evidence.video} steps={evidenceRows ?? []} />
+          )}
+          <div className="dr-sec">
+            <div className="dr-detail-heading">
+              <div>
+                <div className="dr-lbl">Selected run</div>
+                <h2>{formatDate(run.startedAt)}</h2>
+                <div className="mono dr-run-id">{run.id}</div>
+                <div className="dr-rowwrap dr-selected-run-meta">
+                  <span className="chip">{run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard"}</span>
+                  <span className="chip">{run.state === "default" ? "Default state" : `State: ${run.state}`}</span>
+                </div>
+              </div>
+              <div className="dr-run-summary">
+                <span><b>{productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length}</b> passed</span>
+                <span><b>{productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length}</b> failed</span>
+                <span><b>{activeFindings.length}</b> findings</span>
+                <span><b>{incompleteCoverageCount}</b> infra-affected or skipped</span>
+              </div>
+            </div>
+            <div className="dr-card-heading">
+              <div>
+                <b>Check results</b>
+                <p>Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused.</p>
+              </div>
+            </div>
+            {productPageEntries.length === 0 && (
+              <div className="dr-empty">No product checks completed. Review the infrastructure section below before rerunning.</div>
+            )}
+            {productPageEntries.map((entry) => {
+              const originalPassed = stepPassed(entry);
+              const recordKey = `${entry.pageId}:${entry.stepId}`;
+              const renderKey = `${recordKey}:${entry.viewportId}`;
+              const override_ = overrideForEntry(run.overrides, entry);
+              const passed = override_ ? override_.verdict === "passed" : originalPassed;
+              const notes = [
+                ...(run.feedback[recordKey] ?? []),
+                ...(run.feedback[renderKey] ?? [])
+              ];
+              const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
+              const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
+              const deterministicWithoutScreenshot =
+                originalPassed &&
+                entry.status === "completed" &&
+                !!entry.result &&
+                !entry.result.evidencePath &&
+                !resultReasoning;
+              return (
+                <div key={renderKey} className="dr-res" style={{ borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }}>
+                  <div className="dr-rowwrap">
+                    {passed ? <Check size={14} style={{ color: "var(--sage)" }} /> : <span style={{ color: "var(--alarm)", fontWeight: 700 }}>×</span>}
+                    <span className="mono" style={{ fontSize: 11, color: "var(--mute)" }}>{entry.pageId}#{entry.stepId}</span>
+                    <span className="chip">{entry.viewportId}</span>
+                    {entry.result?.tier && <span className={"chip " + tierTone(entry.result.tier)}>{entry.result.tier}</span>}
+                  </div>
+                  {stepDefinition?.description && <div className="dr-result-description">{stepDefinition.description}</div>}
+                  {resultReasoning && (
+                    <div className="dr-result-reason">{resultReasoning}</div>
+                  )}
+                  {entry.result?.error && <div style={{ color: "var(--alarm)", fontSize: 11, marginTop: 4 }}>{entry.result.error}</div>}
+                  {deterministicWithoutScreenshot && (
+                    <div className="dr-result-reason">Deterministic check - no screenshot was captured.</div>
+                  )}
+                  {entry.stateReferenceRejected && (
+                    <div className="dr-result-reference-warning" role="status">
+                      State reference not saved: the screenshot also contains an unexpected page error
+                      {entry.stateReferenceRejected.warnings[0]?.text
+                        ? ` (“${entry.stateReferenceRejected.warnings[0].text}”).`
+                        : "."}
+                    </div>
+                  )}
+                  {!entry.result && entry.status === "completed" && (
+                    <div className="dr-result-detail-unavailable">Passed when run · detailed evidence is temporarily unavailable</div>
+                  )}
+                  {entry.result?.evidencePath && (
+                    <EvidenceImage
+                      src={`/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`}
+                      alt={`${entry.pageId} ${stepDefinition?.description || entry.stepId} at ${entry.viewportId}`}
+                    />
+                  )}
+                  {(() => {
+                    const row = evidenceRowFor(entry);
+                    if (!row || (!row.screenshot && !row.trace && !row.failureScreenshot)) return null;
+                    const videoName = run.evidence?.video;
+                    return (
+                      <div className="dr-rowwrap" style={{ marginTop: 5, gap: 6 }}>
+                        {row.screenshot && (
+                          <a className="chip" href={evidenceFileUrl(run.id, row.screenshot)} target="_blank" rel="noreferrer">full-page shot</a>
+                        )}
+                        {row.failureScreenshot && (
+                          <a className="chip alarm" href={evidenceFileUrl(run.id, row.failureScreenshot)} target="_blank" rel="noreferrer">failure shot</a>
+                        )}
+                        {row.trace && (
+                          <a className="chip" href={evidenceFileUrl(run.id, row.trace)} title="Playwright trace chunk - open with npx playwright show-trace">trace</a>
+                        )}
+                        {videoName && Number.isFinite(row.startMs) && (
+                          <a className="chip" href={`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`} target="_blank" rel="noreferrer">
+                            video @{fmtOffset(row.startMs ?? 0)}
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {override_ && <div style={{ color: "var(--brass)", fontSize: 11, marginTop: 4 }}>Overridden -&gt; {override_.verdict} ({override_.note})</div>}
+                  {notes.map((n) => <div key={n.id} className="mono" style={{ fontSize: 10.5, color: "var(--sage)", marginTop: 3 }}>{n.note}</div>)}
+                  <div className="dr-rowwrap" style={{ marginTop: 6 }}>
+                    <input className="dr-feedback" aria-label={`Feedback for ${entry.pageId} ${entry.stepId} at ${entry.viewportId}`} placeholder="Add feedback…"
+                      onKeyDown={async (e) => {
+                        if (e.key !== "Enter") return;
+                        const input = e.currentTarget;
+                        if (await giveFeedback(entry.pageId, entry.stepId, entry.viewportId, input.value)) input.value = "";
+                      }} />
+                    {passed
+                      ? <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, entry.viewportId, "failed", "marked failed by reviewer")}>Mark failed</button>
+                      : <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, entry.viewportId, "passed", "marked passed by reviewer")}>Mark passed</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {displayedInfra.length > 0 && (
+            <details className="dr-sec dr-infra">
+              <summary>
+                <span>
+                  <b>Test infrastructure problems</b>
+                  <small>{incompleteCoverageCount} affected or skipped check{incompleteCoverageCount === 1 ? "" : "s"} · grouped into {displayedInfra.length} incident{displayedInfra.length === 1 ? "" : "s"} · hidden from findings</small>
+                </span>
+                <span className="chip brass">Run incomplete</span>
+              </summary>
+              <p>
+                These errors came from Drill, Browser, Automations, Vision, or their connection. They are retained for diagnosis but cannot be confirmed or dispatched as product fixes.
+              </p>
+              {run.circuit && (
+                <div className="dr-circuit-summary">
+                  <b>Run stopped early to prevent repeated noise.</b>
+                  <span>
+                    Executed {run.executedChecks ?? run.circuit.afterCheck} of {run.plannedChecks ?? ((run.executedChecks ?? 0) + run.circuit.skippedChecks)} planned checks;
+                    {" "}{run.circuit.skippedChecks} were skipped after {run.circuit.component} reported {run.circuit.code}.
+                  </span>
+                </div>
+              )}
+              <div className="dr-infra-list">
+                {displayedInfra.map((item) => (
+                  <div key={item.id}>
+                    <span className="mono">
+                      {item.component ?? item.pageId ?? "run"}
+                      {item.stepId ? ` · ${item.stepId}` : ""}
+                      {(item.count ?? 1) > 1 ? ` · ${item.count} checks` : ""}
+                    </span>
+                    <span>{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          <div className="dr-sec card">
+            <div className="dr-card-heading">
+              <div>
+                <b>Observations</b>
+                <p>Record something you noticed that no existing check covered. Turn it into a future Book step or a product finding without rerunning.</p>
+              </div>
+            </div>
+            <Help>
+              Things you noticed that no step covers - no re-run needed to record them. Convert one into a
+              draft step (future runs will check it) or into a finding (it goes into the fix report below).
+            </Help>
+            {run.observations.map((o) => (
+              <div key={o.id} className="dr-rowwrap" style={{ padding: "5px 0", borderTop: "1px dashed var(--rule)" }}>
+                <span style={{ flex: "1 1 220px" }}>{o.text}</span>
+                {o.convertedToStep
+                  ? <span className="chip sage">-&gt; step added</span>
+                  : <select aria-label={`Add observation “${o.text}” as a draft step on page`} onChange={(e) => e.target.value && convertObsToStep(o.id, e.target.value)} defaultValue="">
+                      <option value="" disabled>-&gt; draft step on…</option>
+                      {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>}
+                {o.convertedToFinding
+                  ? <span className="chip alarm">-&gt; finding</span>
+                  : <select aria-label={`Attribute observation “${o.text}” to a product page`} onChange={(e) => e.target.value && convertObsToFinding(o.id, e.target.value)} defaultValue="">
+                      <option value="" disabled>-&gt; finding on…</option>
+                      {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>}
+              </div>
+            ))}
+            <div className="dr-rowwrap" style={{ marginTop: 8 }}>
+              <input className="dr-feedback" aria-label="New run observation" placeholder="Add an observation…" value={obsText} onChange={(e) => setObsText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") addObs(); }} />
+              <button className="btn small" onClick={addObs}><Plus size={11} /> Add</button>
+            </div>
+          </div>
+
+          <div className="dr-sec card" style={{ borderColor: "var(--sage-2)", borderWidth: 1.5 }}>
+            <div className="dr-card-heading">
+              <div>
+                <b>Product findings</b>
+                <p>Only evidence about the app belongs here. Confirm real defects, dismiss false positives, then send confirmed items as one reviewable fix card.</p>
+              </div>
+              <span className="chip">{issues.productFindings.length}</span>
+            </div>
+            {issues.productFindings.length === 0 && <div className="dr-empty">No product findings in this run.</div>}
+            {issues.productFindings.map((f) => (
+              <div key={f.id} className="dr-finding">
+                <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                  <span style={{ textDecoration: f.status === "dismissed" ? "line-through" : "none" }}>
+                    [{f.kind}] {f.pageId}{f.stepId ? `#${f.stepId}` : ""}{f.viewportId ? ` [${f.viewportId}]` : ""}: {f.text}
+                  </span>
+                  {f.evidence?.screenshot ? (
+                    // The finding carries its own evidence pointer (Drill
+                    // Evidence v0.1); older records fall back to the
+                    // render-time join below.
+                    <>
+                      <EvidenceImage
+                        compact
+                        src={evidenceFileUrl(run.id, f.evidence.screenshot)}
+                        alt={`Evidence for ${f.text}`}
+                      />
+                      <div className="dr-rowwrap" style={{ marginTop: 4, gap: 6 }}>
+                        {f.evidence.trace && (
+                          <a className="chip" href={evidenceFileUrl(run.id, f.evidence.trace)} title="Playwright trace chunk - open with npx playwright show-trace">trace</a>
+                        )}
+                        {run.evidence?.video && Number.isFinite(f.evidence.videoMs) && (
+                          <a className="chip" href={`${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1000)}`} target="_blank" rel="noreferrer">
+                            video @{fmtOffset(f.evidence.videoMs ?? 0)}
+                          </a>
+                        )}
+                      </div>
+                    </>
+                  ) : f.stepId && run.pages.filter((entry) =>
+                    entry.pageId === f.pageId &&
+                    entry.stepId === f.stepId &&
+                    (!f.viewportId || entry.viewportId === f.viewportId) &&
+                    !!entry.result?.evidencePath
+                  ).map((entry) => (
+                    <EvidenceImage
+                      key={`${entry.pageId}:${entry.stepId}:${entry.viewportId}`}
+                      compact
+                      src={`/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`}
+                      alt={`Evidence for ${f.text} at ${entry.viewportId}`}
+                    />
+                  ))}
+                </div>
+                <div className="dr-actions">
+                  <span className={"chip" + (f.status === "confirmed" ? " sage active" : "")}>{f.status}</span>
+                  {f.card && (f.card.url
+                    ? <a className="chip brass" href={f.card.url} target="_blank" rel="noreferrer" title="Open the Kanban fix card carrying this finding">on card</a>
+                    : <span className="chip brass" title="This finding is already on a Kanban fix card">on card</span>)}
+                  {f.status !== "confirmed" && <button className="btn small" onClick={() => triage(f.id, "confirmed")}>Confirm</button>}
+                  {f.status !== "dismissed" && !f.card && <button className="btn small" onClick={() => triage(f.id, "dismissed")}>Dismiss</button>}
+                </div>
+              </div>
+            ))}
+            <div className="dr-dispatch">
+              <select
+                aria-label="When to send confirmed findings"
+                value={dispatchMode}
+                disabled={dispatching}
+                onChange={(e) => setDispatchMode(e.target.value as any)}
+                style={{ fontSize: 11, padding: "5px 8px" }}
+              >
+                <option value="manual">Send now</option>
+                <option value="heartbeat">On the next heartbeat</option>
+                <option value="immediate">Send now (immediate)</option>
+              </select>
+              <button className="btn primary" disabled={dispatchableCount === 0 || dispatching} onClick={dispatch}>
+                {dispatching
+                    ? "Sending…"
+                    : dispatchMode === "heartbeat"
+                      ? `Queue confirmed (${dispatchableCount})`
+                      : `Send confirmed to Code (${dispatchableCount})`}
+              </button>
+              <span className="dr-help-inline">
+                {confirmedCount > 0 && dispatchableCount === 0
+                  ? "Every confirmed finding is already on a fix card."
+                  : run.dispatch === "heartbeat"
+                    ? "Queued. The next heartbeat creates one Code card carrying this reviewed report."
+                    : "Creates one Kanban card carrying the reviewed report and moves it directly into Code."}
+              </span>
+              {dispatchedCard && (
+                <span className="chip sage active">
+                  Sent to card{" "}
+                  {dispatchedCard.url
+                    ? <a href={dispatchedCard.url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{dispatchedCard.id.slice(-6)}</a>
+                    : dispatchedCard.id.slice(-6)}
+                </span>
+              )}
+            </div>
+          </div>
+        </>
+  );
 }
 
 function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }: {
@@ -2017,6 +3487,34 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [run, setRun] = useState<DrillRun | null>(null);
   const [historyPage, setHistoryPage] = useState(0);
+  // Per-check evidence rows from the run's evidence.json (Drill Evidence
+  // v0.1) - absent for runs recorded before capture existed. The full index
+  // (all item kinds) and steps.json feed the Debrief surface (Evidence V2).
+  const [evidenceRows, setEvidenceRows] = useState<EvidenceStepRow[] | null>(null);
+  const [evidenceIndex, setEvidenceIndex] = useState<{ items: EvidenceStepRow[] } | null>(null);
+  const [evidenceStepsJson, setEvidenceStepsJson] = useState<DebriefStep[] | null>(null);
+  const [classicView, setClassicView] = useState(false);
+  // Reset the view choice only when the SELECTED RUN changes. The evidence
+  // effect below re-runs on every data refresh (run?.evidence is a fresh
+  // object per refetch after an override/triage/feedback), and resetting
+  // there yanked the operator out of the classic view they toggled.
+  useEffect(() => { setClassicView(false); }, [run?.id]);
+  useEffect(() => {
+    setEvidenceRows(null);
+    setEvidenceIndex(null);
+    setEvidenceStepsJson(null);
+    if (!run?.id || !run?.evidence) return;
+    let cancelled = false;
+    apiGet(`/api/runs/${encodeURIComponent(run.id)}/evidence-index`)
+      .then((r) => {
+        if (cancelled) return;
+        setEvidenceIndex(r.index ?? null);
+        setEvidenceStepsJson(Array.isArray(r.steps) ? r.steps : null);
+        setEvidenceRows((r.index?.items ?? []).filter((item: EvidenceStepRow) => item.kind === "step"));
+      })
+      .catch(() => { /* no index for this run */ });
+    return () => { cancelled = true; };
+  }, [run?.id, run?.evidence]);
   // Cross-view handoffs are already known when Results mounts. Seed the
   // controls from them so the first page-button commit is truthful; waiting
   // for the pages request and then applying a passive effect exposed one frame
@@ -2264,6 +3762,28 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const activeFindings = run ? activeProductFindings(run, issues.productFindings) : [];
   const confirmedCount = activeFindings.filter((f) => f.status === "confirmed").length;
   const dispatchableCount = activeFindings.filter((finding) => finding.status === "confirmed" && !finding.card).length;
+  // Debrief scope is built from steps.json (carries the human-readable title);
+  // when a run predates steps.json we fall back to the index's step items so
+  // the scope rail still lists every executed check. Memoised so its reference
+  // stays stable across unrelated re-renders - otherwise the reel's scope memo
+  // would churn and snap the carousel back to the first frame.
+  const debriefSteps: DebriefStep[] = useMemo(() =>
+    evidenceStepsJson && evidenceStepsJson.length > 0
+      ? evidenceStepsJson
+      : (evidenceRows ?? []).map((row) => ({
+          pageId: row.pageId ?? "",
+          stepId: row.stepId ?? "",
+          viewportId: row.viewportId ?? "",
+          startMs: row.startMs,
+          endMs: row.endMs,
+          status: row.status,
+          automationRunId: row.automationRunId ?? null
+        })),
+    [evidenceStepsJson, evidenceRows]
+  );
+  // The Debrief is the default surface once a run has an evidence index with
+  // executable checks; older, index-less runs fall through to Classic.
+  const debriefAvailable = !!evidenceIndex && debriefSteps.length > 0;
   const historyPageSize = 6;
   const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
   const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
@@ -2512,251 +4032,73 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       )}
 
       {run && (() => {
+        const showDebrief = debriefAvailable && !classicView;
         return (
-        <>
-          <div className="dr-sec">
-            <div className="dr-detail-heading">
-              <div>
-                <div className="dr-lbl">Selected run</div>
-                <h2>{formatDate(run.startedAt)}</h2>
-                <div className="mono dr-run-id">{run.id}</div>
-                <div className="dr-rowwrap dr-selected-run-meta">
-                  <span className="chip">{run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard"}</span>
-                  <span className="chip">{run.state === "default" ? "Default state" : `State: ${run.state}`}</span>
-                </div>
+          <>
+            {debriefAvailable && (
+              <div className="dr-db-modeswitch" role="group" aria-label="Run detail view">
+                <span className="dr-db-modeswitch-label">View</span>
+                <button
+                  className={"btn small" + (showDebrief ? " primary" : "")}
+                  aria-pressed={showDebrief}
+                  onClick={() => setClassicView(false)}
+                >
+                  <LayoutGrid size={12} /> Debrief
+                </button>
+                <button
+                  className={"btn small" + (!showDebrief ? " primary" : "")}
+                  aria-pressed={!showDebrief}
+                  onClick={() => setClassicView(true)}
+                >
+                  Classic view
+                </button>
               </div>
-              <div className="dr-run-summary">
-                <span><b>{productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length}</b> passed</span>
-                <span><b>{productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length}</b> failed</span>
-                <span><b>{activeFindings.length}</b> findings</span>
-                <span><b>{incompleteCoverageCount}</b> infra-affected or skipped</span>
-              </div>
-            </div>
-            <div className="dr-card-heading">
-              <div>
-                <b>Check results</b>
-                <p>Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused.</p>
-              </div>
-            </div>
-            {productPageEntries.length === 0 && (
-              <div className="dr-empty">No product checks completed. Review the infrastructure section below before rerunning.</div>
             )}
-            {productPageEntries.map((entry) => {
-              const originalPassed = stepPassed(entry);
-              const recordKey = `${entry.pageId}:${entry.stepId}`;
-              const renderKey = `${recordKey}:${entry.viewportId}`;
-              const override_ = overrideForEntry(run.overrides, entry);
-              const passed = override_ ? override_.verdict === "passed" : originalPassed;
-              const notes = [
-                ...(run.feedback[recordKey] ?? []),
-                ...(run.feedback[renderKey] ?? [])
-              ];
-              const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
-              const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
-              const deterministicWithoutScreenshot =
-                originalPassed &&
-                entry.status === "completed" &&
-                !!entry.result &&
-                !entry.result.evidencePath &&
-                !resultReasoning;
-              return (
-                <div key={renderKey} className="dr-res" style={{ borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }}>
-                  <div className="dr-rowwrap">
-                    {passed ? <Check size={14} style={{ color: "var(--sage)" }} /> : <span style={{ color: "var(--alarm)", fontWeight: 700 }}>×</span>}
-                    <span className="mono" style={{ fontSize: 11, color: "var(--mute)" }}>{entry.pageId}#{entry.stepId}</span>
-                    <span className="chip">{entry.viewportId}</span>
-                    {entry.result?.tier && <span className={"chip " + tierTone(entry.result.tier)}>{entry.result.tier}</span>}
-                  </div>
-                  {stepDefinition?.description && <div className="dr-result-description">{stepDefinition.description}</div>}
-                  {resultReasoning && (
-                    <div className="dr-result-reason">{resultReasoning}</div>
-                  )}
-                  {entry.result?.error && <div style={{ color: "var(--alarm)", fontSize: 11, marginTop: 4 }}>{entry.result.error}</div>}
-                  {deterministicWithoutScreenshot && (
-                    <div className="dr-result-reason">Deterministic check — no screenshot was captured.</div>
-                  )}
-                  {entry.stateReferenceRejected && (
-                    <div className="dr-result-reference-warning" role="status">
-                      State reference not saved: the screenshot also contains an unexpected page error
-                      {entry.stateReferenceRejected.warnings[0]?.text
-                        ? ` (“${entry.stateReferenceRejected.warnings[0].text}”).`
-                        : "."}
-                    </div>
-                  )}
-                  {!entry.result && entry.status === "completed" && (
-                    <div className="dr-result-detail-unavailable">Passed when run · detailed evidence is temporarily unavailable</div>
-                  )}
-                  {entry.result?.evidencePath && (
-                    <EvidenceImage
-                      src={`/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`}
-                      alt={`${entry.pageId} ${stepDefinition?.description || entry.stepId} at ${entry.viewportId}`}
-                    />
-                  )}
-                  {override_ && <div style={{ color: "var(--brass)", fontSize: 11, marginTop: 4 }}>Overridden -&gt; {override_.verdict} ({override_.note})</div>}
-                  {notes.map((n) => <div key={n.id} className="mono" style={{ fontSize: 10.5, color: "var(--sage)", marginTop: 3 }}>{n.note}</div>)}
-                  <div className="dr-rowwrap" style={{ marginTop: 6 }}>
-                    <input className="dr-feedback" aria-label={`Feedback for ${entry.pageId} ${entry.stepId} at ${entry.viewportId}`} placeholder="Add feedback…"
-                      onKeyDown={async (e) => {
-                        if (e.key !== "Enter") return;
-                        const input = e.currentTarget;
-                        if (await giveFeedback(entry.pageId, entry.stepId, entry.viewportId, input.value)) input.value = "";
-                      }} />
-                    {passed
-                      ? <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, entry.viewportId, "failed", "marked failed by reviewer")}>Mark failed</button>
-                      : <button className="btn small" onClick={() => override(entry.pageId, entry.stepId, entry.viewportId, "passed", "marked passed by reviewer")}>Mark passed</button>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {displayedInfra.length > 0 && (
-            <details className="dr-sec dr-infra">
-              <summary>
-                <span>
-                  <b>Test infrastructure problems</b>
-                  <small>{incompleteCoverageCount} affected or skipped check{incompleteCoverageCount === 1 ? "" : "s"} · grouped into {displayedInfra.length} incident{displayedInfra.length === 1 ? "" : "s"} · hidden from findings</small>
-                </span>
-                <span className="chip brass">Run incomplete</span>
-              </summary>
-              <p>
-                These errors came from Drill, Browser, Automations, Vision, or their connection. They are retained for diagnosis but cannot be confirmed or dispatched as product fixes.
-              </p>
-              {run.circuit && (
-                <div className="dr-circuit-summary">
-                  <b>Run stopped early to prevent repeated noise.</b>
-                  <span>
-                    Executed {run.executedChecks ?? run.circuit.afterCheck} of {run.plannedChecks ?? ((run.executedChecks ?? 0) + run.circuit.skippedChecks)} planned checks;
-                    {" "}{run.circuit.skippedChecks} were skipped after {run.circuit.component} reported {run.circuit.code}.
-                  </span>
-                </div>
-              )}
-              <div className="dr-infra-list">
-                {displayedInfra.map((item) => (
-                  <div key={item.id}>
-                    <span className="mono">
-                      {item.component ?? item.pageId ?? "run"}
-                      {item.stepId ? ` · ${item.stepId}` : ""}
-                      {(item.count ?? 1) > 1 ? ` · ${item.count} checks` : ""}
-                    </span>
-                    <span>{item.text}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-
-          <div className="dr-sec card">
-            <div className="dr-card-heading">
-              <div>
-                <b>Observations</b>
-                <p>Record something you noticed that no existing check covered. Turn it into a future Book step or a product finding without rerunning.</p>
-              </div>
-            </div>
-            <Help>
-              Things you noticed that no step covers - no re-run needed to record them. Convert one into a
-              draft step (future runs will check it) or into a finding (it goes into the fix report below).
-            </Help>
-            {run.observations.map((o) => (
-              <div key={o.id} className="dr-rowwrap" style={{ padding: "5px 0", borderTop: "1px dashed var(--rule)" }}>
-                <span style={{ flex: "1 1 220px" }}>{o.text}</span>
-                {o.convertedToStep
-                  ? <span className="chip sage">-&gt; step added</span>
-                  : <select aria-label={`Add observation “${o.text}” as a draft step on page`} onChange={(e) => e.target.value && convertObsToStep(o.id, e.target.value)} defaultValue="">
-                      <option value="" disabled>-&gt; draft step on…</option>
-                      {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                    </select>}
-                {o.convertedToFinding
-                  ? <span className="chip alarm">-&gt; finding</span>
-                  : <select aria-label={`Attribute observation “${o.text}” to a product page`} onChange={(e) => e.target.value && convertObsToFinding(o.id, e.target.value)} defaultValue="">
-                      <option value="" disabled>-&gt; finding on…</option>
-                      {pages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                    </select>}
-              </div>
-            ))}
-            <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-              <input className="dr-feedback" aria-label="New run observation" placeholder="Add an observation…" value={obsText} onChange={(e) => setObsText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addObs(); }} />
-              <button className="btn small" onClick={addObs}><Plus size={11} /> Add</button>
-            </div>
-          </div>
-
-          <div className="dr-sec card" style={{ borderColor: "var(--sage-2)", borderWidth: 1.5 }}>
-            <div className="dr-card-heading">
-              <div>
-                <b>Product findings</b>
-                <p>Only evidence about the app belongs here. Confirm real defects, dismiss false positives, then send confirmed items as one reviewable fix card.</p>
-              </div>
-              <span className="chip">{issues.productFindings.length}</span>
-            </div>
-            {issues.productFindings.length === 0 && <div className="dr-empty">No product findings in this run.</div>}
-            {issues.productFindings.map((f) => (
-              <div key={f.id} className="dr-finding">
-                <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-                  <span style={{ textDecoration: f.status === "dismissed" ? "line-through" : "none" }}>
-                    [{f.kind}] {f.pageId}{f.stepId ? `#${f.stepId}` : ""}{f.viewportId ? ` [${f.viewportId}]` : ""}: {f.text}
-                  </span>
-                  {f.stepId && run.pages.filter((entry) =>
-                    entry.pageId === f.pageId &&
-                    entry.stepId === f.stepId &&
-                    (!f.viewportId || entry.viewportId === f.viewportId) &&
-                    !!entry.result?.evidencePath
-                  ).map((entry) => (
-                    <EvidenceImage
-                      key={`${entry.pageId}:${entry.stepId}:${entry.viewportId}`}
-                      compact
-                      src={`/api/runs/${encodeURIComponent(run.id)}/evidence/${encodeURIComponent(entry.pageId)}/${encodeURIComponent(entry.stepId)}/${encodeURIComponent(entry.viewportId)}`}
-                      alt={`Evidence for ${f.text} at ${entry.viewportId}`}
-                    />
-                  ))}
-                </div>
-                <div className="dr-actions">
-                  <span className={"chip" + (f.status === "confirmed" ? " sage active" : "")}>{f.status}</span>
-                  {f.card && (f.card.url
-                    ? <a className="chip brass" href={f.card.url} target="_blank" rel="noreferrer" title="Open the Kanban fix card carrying this finding">on card</a>
-                    : <span className="chip brass" title="This finding is already on a Kanban fix card">on card</span>)}
-                  {f.status !== "confirmed" && <button className="btn small" onClick={() => triage(f.id, "confirmed")}>Confirm</button>}
-                  {f.status !== "dismissed" && !f.card && <button className="btn small" onClick={() => triage(f.id, "dismissed")}>Dismiss</button>}
-                </div>
-              </div>
-            ))}
-            <div className="dr-dispatch">
-              <select
-                aria-label="When to send confirmed findings"
-                value={dispatchMode}
-                disabled={dispatching}
-                onChange={(e) => setDispatchMode(e.target.value as any)}
-                style={{ fontSize: 11, padding: "5px 8px" }}
-              >
-                <option value="manual">Send now</option>
-                <option value="heartbeat">On the next heartbeat</option>
-                <option value="immediate">Send now (immediate)</option>
-              </select>
-              <button className="btn primary" disabled={dispatchableCount === 0 || dispatching} onClick={dispatch}>
-                {dispatching
-                    ? "Sending…"
-                    : dispatchMode === "heartbeat"
-                      ? `Queue confirmed (${dispatchableCount})`
-                      : `Send confirmed to Code (${dispatchableCount})`}
-              </button>
-              <span className="dr-help-inline">
-                {confirmedCount > 0 && dispatchableCount === 0
-                  ? "Every confirmed finding is already on a fix card."
-                  : run.dispatch === "heartbeat"
-                    ? "Queued. The next heartbeat creates one Code card carrying this reviewed report."
-                    : "Creates one Kanban card carrying the reviewed report and moves it directly into Code."}
-              </span>
-              {dispatchedCard && (
-                <span className="chip sage active">
-                  Sent to card{" "}
-                  {dispatchedCard.url
-                    ? <a href={dispatchedCard.url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{dispatchedCard.id.slice(-6)}</a>
-                    : dispatchedCard.id.slice(-6)}
-                </span>
-              )}
-            </div>
-          </div>
-        </>
+            {showDebrief ? (
+              <DebriefView
+                run={run}
+                pages={pages}
+                steps={debriefSteps}
+                evidenceIndex={evidenceIndex}
+                issues={issues}
+                activeFindings={activeFindings}
+                confirmedCount={confirmedCount}
+                dispatchableCount={dispatchableCount}
+                dispatchedCard={dispatchedCard}
+                dispatchMode={dispatchMode}
+                setDispatchMode={setDispatchMode}
+                dispatching={dispatching}
+                dispatch={dispatch}
+                triage={triage}
+              />
+            ) : (
+              <ClassicRunDetail
+                run={run}
+                pages={pages}
+                evidenceRows={evidenceRows}
+                productPageEntries={productPageEntries}
+                activeFindings={activeFindings}
+                incompleteCoverageCount={incompleteCoverageCount}
+                displayedInfra={displayedInfra}
+                issues={issues}
+                confirmedCount={confirmedCount}
+                dispatchableCount={dispatchableCount}
+                dispatchedCard={dispatchedCard}
+                dispatchMode={dispatchMode}
+                setDispatchMode={setDispatchMode}
+                dispatching={dispatching}
+                obsText={obsText}
+                setObsText={setObsText}
+                giveFeedback={giveFeedback}
+                override={override}
+                addObs={addObs}
+                convertObsToStep={convertObsToStep}
+                convertObsToFinding={convertObsToFinding}
+                triage={triage}
+                dispatch={dispatch}
+              />
+            )}
+          </>
         );
       })()}
     </div>

@@ -607,6 +607,36 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
 // operative. A non-eager view starts on demand from the Views UI
 // (/api/fittings/[id]/start hands it this same env via operativeEnvForFitting)
 // and still stops with the operative at down().
+// The URL of THIS garrison app (the Next server the runner lives in). Own-port
+// fittings call back into it (automations vision, drill curation, drillJudge)
+// and their hardcoded fallbacks are per-instance wrong by construction — the
+// main instance runs on 7777, the codex instance on 27777, and a fitting
+// spawned without the projection posts its internal-token calls at the OTHER
+// instance, which rejects them with 403. The projection keeps every fitting
+// talking to ITS OWN instance.
+function garrisonSelfBaseUrl(): string {
+  return (
+    process.env.GARRISON_SELF_BASE_URL ||
+    `http://127.0.0.1:${process.env.PORT || 3000}`
+  );
+}
+
+// The live gateway base URL of the first RUNNING composition. Internal app
+// routes (automations vision, drill curation) post model turns here; their
+// old hardcoded 24777 fallback is per-instance wrong by construction (main
+// gateway=4777, codex=24777) and silently handed turns to the OTHER
+// instance's operative. Env override first (tests pin it), then the live
+// runner record; null when nothing is running (callers keep their fallback).
+export function activeGatewayBaseUrl(): string | null {
+  if (process.env.GARRISON_GATEWAY_URL) return process.env.GARRISON_GATEWAY_URL;
+  for (const record of runtime().records.values()) {
+    if (record.state.status === "running" && record.gateway?.baseUrl) {
+      return record.gateway.baseUrl;
+    }
+  }
+  return null;
+}
+
 export async function startOperativeBoundFittings(
   compositionId: string
 ): Promise<Map<string, Record<string, string>>> {
@@ -650,6 +680,7 @@ export async function startOperativeBoundFittings(
       // ~/.garrison/orchestrator/routing.json while the gateway/runner read the
       // composition's .garrison/routing.json — a config split-brain.
       GARRISON_COMPOSITION_DIR: composition.directory,
+      GARRISON_BASE_URL: garrisonSelfBaseUrl(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
     envByFitting.set(entry.id, extraEnv);
@@ -714,6 +745,7 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
       // startOperativeBoundFittings) so an on-demand Views start keys its
       // routing.json off the composition, not ~/.garrison/orchestrator.
       GARRISON_COMPOSITION_DIR: composition.directory,
+      GARRISON_BASE_URL: garrisonSelfBaseUrl(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
   }

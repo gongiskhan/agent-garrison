@@ -42,8 +42,8 @@ const DG_WS_BASE = process.env.DEEPGRAM_WS_BASE || "wss://api.deepgram.com";
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.DEEPGRAM_VOICE_PORT || 27085),
-    host: process.env.DEEPGRAM_VOICE_HOST || "127.0.0.1",
+    port: Number(process.env.GARRISON_DEEPGRAMVOICE_PORT || process.env.DEEPGRAM_VOICE_PORT || 27085),
+    host: process.env.GARRISON_DEEPGRAMVOICE_BIND_HOST || process.env.DEEPGRAM_VOICE_HOST || "127.0.0.1",
     sttModel: process.env.DEEPGRAM_STT_MODEL || "nova-2",
     ttsModel: process.env.DEEPGRAM_TTS_MODEL || "aura-asteria-en",
     // Streaming read-aloud runs over Deepgram's /v1/speak WebSocket; the Aura-2

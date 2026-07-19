@@ -213,6 +213,7 @@ async function handle(req, res) {
         contextTag: body.contextTag ?? null,
         bypassCache: body.bypassCache === true,
         viewport: body.viewport ?? null,
+        captureSession: typeof body.captureSession === "string" ? body.captureSession : null,
         ephemeral: true,
         emit: (ev) => publishEvent(runId, ev),
         deps: { runSubAutomation: makeSubRunner(), waitForResume: waitForResumeFor(runId) }
@@ -469,8 +470,11 @@ export function createServer() {
 }
 
 export async function startServer() {
-  const host = process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
-  const port = Number(process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
+  // Port precedence (house convention, same as improver/ports-default): the
+  // runner-projected composition config first (per-instance, e.g. main=7090
+  // vs codex=27090), then the legacy explicit env (tests), then the default.
+  const host = process.env.GARRISON_AUTOMATIONS_BIND_HOST || process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
+  const port = Number(process.env.GARRISON_AUTOMATIONS_PORT || process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
   assertStatusSlotFree();
   const server = createServer();
   server.once("error", (err) => {

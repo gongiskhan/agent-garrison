@@ -182,8 +182,13 @@ export function addObservation(record, text) {
 
 // D10: pool a finding (failure / flipped verdict / observation / UX note)
 // into the report as "proposed" — triage (confirm/dismiss) happens after.
-export function addFinding(record, { kind, pageId, stepId = null, viewportId = null, text }) {
-  const finding = { id: ulid(), kind, pageId, stepId, viewportId, text, status: "proposed", at: new Date().toISOString() };
+// `evidence` (Drill Evidence v0.1) is an optional pointer into the run's
+// evidence dir: { screenshot, trace, videoMs } — relative names only.
+export function addFinding(record, { kind, pageId, stepId = null, viewportId = null, text, evidence = null }) {
+  const finding = {
+    id: ulid(), kind, pageId, stepId, viewportId, text, status: "proposed", at: new Date().toISOString(),
+    ...(evidence ? { evidence } : {})
+  };
   record.findings.push(finding);
   return finding;
 }

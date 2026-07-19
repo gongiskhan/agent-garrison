@@ -110,7 +110,8 @@ function firstBalancedObject(text: string): string | null {
   return null;
 }
 
-function escapeStringControlCharacters(json: string): string {
+// Exported for the drill curation route — same PTY-reply damage, same repairs.
+export function escapeStringControlCharacters(json: string): string {
   let output = "";
   let inString = false;
   let escaped = false;
@@ -152,7 +153,7 @@ function escapeStringControlCharacters(json: string): string {
   return output;
 }
 
-function escapeUnambiguousInteriorQuotes(json: string): string {
+export function escapeUnambiguousInteriorQuotes(json: string): string {
   let output = "";
   let inString = false;
   let escaped = false;

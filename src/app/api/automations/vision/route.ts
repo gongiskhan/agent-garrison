@@ -6,6 +6,7 @@ import {
   resolveRoute
 } from "@/lib/model-router";
 import { verifyInternalToken } from "@/lib/internal-token";
+import { activeGatewayBaseUrl } from "@/lib/runner";
 import {
   materializeVisionScreenshot,
   parseVisionModelReply,
@@ -85,8 +86,11 @@ export async function POST(req: Request) {
       step,
       screenshotPath
     );
+    // Live-record first: the hardcoded 24777 fallback belongs to the codex
+    // instance and silently handed vision turns to ITS operative when this
+    // app ran without GARRISON_GATEWAY_URL in the env.
     const gatewayUrl =
-      process.env.GARRISON_GATEWAY_URL ||
+      activeGatewayBaseUrl() ??
       `http://127.0.0.1:${
         process.env.GARRISON_GATEWAY_PORT || "24777"
       }`;

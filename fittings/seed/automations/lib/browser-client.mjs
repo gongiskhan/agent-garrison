@@ -46,7 +46,10 @@ function recoverablePageError(message) {
 // is applied at tab-creation time so responsive CSS sees the right size from
 // first paint — a run matrix (delta 6) gets a fresh client (fresh tab) per
 // viewport, so there is no mid-run re-emulation ordering hazard to handle here.
-export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = null } = {}) {
+// `captureSession` (engine delta 8) is an OPAQUE caller-minted id forwarded on
+// tab creation so the Browser fitting can group this run's tab into a recorded
+// capture context (Drill evidence); the engine never interprets it.
+export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = null, captureSession = null } = {}) {
   const base = browserBaseUrl();
   if (!base) {
     throw infrastructureError(
@@ -94,7 +97,11 @@ export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = nul
     const created = await json(await request(`${base}/tabs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: url ?? "about:blank", viewport: viewport ?? undefined })
+      body: JSON.stringify({
+        url: url ?? "about:blank",
+        viewport: viewport ?? undefined,
+        captureSession: captureSession ?? undefined
+      })
     }));
     tabId = created.id || created.tabId;
     currentUrl = created.url || url || currentUrl;

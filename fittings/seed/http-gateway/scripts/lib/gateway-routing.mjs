@@ -160,6 +160,47 @@ export function resolveGarrisonCallScript(compositionDir) {
   return null;
 }
 
+// ── Local-vision lane (Drill Evidence V2) ────────────────────────────────────
+// ollama's Anthropic-compat endpoint never surfaces tool_use, so a routed
+// ollama-local target cannot Read image files the way the Claude lanes do. A
+// turn that carries image paths executes NATIVELY instead: the files are
+// validated (absolute, confined to the garrison home, bounded), base64-inlined,
+// and sent through garrison-call's image-capable ollama shape — the single
+// ollama primitive. Pure builder; the gateway method performs the invocation.
+export const OLLAMA_VISION_MAX_IMAGES = 16;
+export const OLLAMA_VISION_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+export async function buildOllamaVisionSpec(target, message, imagePaths, { fsImpl = fs } = {}) {
+  const home = path.resolve(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"));
+  const paths = (Array.isArray(imagePaths) ? imagePaths : [])
+    .filter((p) => typeof p === "string" && p)
+    .slice(0, OLLAMA_VISION_MAX_IMAGES);
+  if (!paths.length) throw new Error("ollama vision turn carried no usable image paths");
+  const images = [];
+  for (const p of paths) {
+    if (!path.isAbsolute(p)) throw new Error(`image path not absolute: ${p.slice(0, 80)}`);
+    const real = await fsImpl.promises.realpath(p);
+    if (real !== home && !real.startsWith(home + path.sep)) {
+      throw new Error(`image path escapes the garrison home: ${path.basename(p)}`);
+    }
+    const buf = await fsImpl.promises.readFile(real);
+    if (!buf.length || buf.length > OLLAMA_VISION_MAX_IMAGE_BYTES) {
+      throw new Error(`image empty or too large: ${path.basename(real)}`);
+    }
+    images.push(buf.toString("base64"));
+  }
+  return {
+    shape: "ollama",
+    provider: "ollama-local",
+    ...(typeof target.baseUrl === "string" && target.baseUrl ? { baseUrl: target.baseUrl } : {}),
+    model: target.model,
+    prompt: message,
+    images,
+    maxTokens: Number.isFinite(target.maxTokens) ? target.maxTokens : 2048,
+    timeoutMs: Number.isFinite(target.timeoutMs) ? target.timeoutMs : 180000
+  };
+}
+
 // Auth and provider configuration remain inside garrison-call: this wrapper only
 // carries the structured spec over stdin and parses its secret-free result.
 export function makeGarrisonCallInvoker(callScript, opts = {}) {
@@ -495,6 +536,43 @@ export class RoutedGateway {
     const mod = await import(pathToFileURL(path.join(dir, "lib", "agent-sdk-adapter.mjs")).href);
     this._agentSdkAdapter = new mod.AgentSdkAdapter();
     return this._agentSdkAdapter;
+  }
+
+  // True when this turn must take the native ollama vision lane: the caller
+  // attached image paths AND the live resolved target runs on the local ollama
+  // provider (the ONLY authoritative place that provider is knowable).
+  isOllamaVisionTurn(route, images) {
+    return Array.isArray(images) && images.length > 0 && route?.target?.provider === "ollama-local";
+  }
+
+  // Execute an image-carrying turn natively against ollama via garrison-call's
+  // image-capable ollama shape. Single shot, no session, no tools — the local
+  // model sees the frames inline instead of an unreadable file path.
+  async runOllamaVisionTurn(route, message, imagePaths) {
+    const t = route.target;
+    const spec = await buildOllamaVisionSpec(t, message, imagePaths);
+    this._ollamaVisionCall ??= makeGarrisonCallInvoker(
+      resolveGarrisonCallScript(this.compositionDir),
+      { compositionDir: this.compositionDir }
+    );
+    this.logFn({
+      kind: "runtime-turn",
+      runtime: "ollama-native",
+      provider: "ollama-local",
+      model: t.model,
+      target: route.targetId,
+      images: spec.images.length
+    });
+    const result = await this._ollamaVisionCall(spec);
+    if (!result?.ok) {
+      throw new Error(`ollama vision call failed: ${result?.error ?? "unknown error"}`);
+    }
+    return {
+      reply: result.text ?? (result.structured ? JSON.stringify(result.structured) : ""),
+      provider: "ollama-local",
+      model: t.model,
+      route: route.targetId
+    };
   }
 
   // Run one turn on the agent-sdk runtime. THE HARNESS picks the preset (full) or

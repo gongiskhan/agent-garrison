@@ -91,8 +91,8 @@ const EXTERNAL_STATUSES = new Set(["working", "waiting", "starting"]);
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.DEV_ENV_PORT || DEFAULT_PORT),
-    host: process.env.DEV_ENV_HOST || "127.0.0.1",
+    port: Number(process.env.GARRISON_DEVENV_PORT || process.env.DEV_ENV_PORT || DEFAULT_PORT),
+    host: process.env.GARRISON_DEVENV_BIND_HOST || process.env.DEV_ENV_HOST || "127.0.0.1",
     defaultShell: process.env.DEV_ENV_SHELL || process.env.SHELL || "/bin/zsh",
     dirtyTtlMs: Number(process.env.DEV_ENV_DIRTY_TTL_MS || 10_000),
     // PTY backing: auto (tmux if installed, else direct), on (require tmux),

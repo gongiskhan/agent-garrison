@@ -6,8 +6,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
-import { access, mkdir, writeFile, unlink, readFile } from "node:fs/promises";
+import { readFileSync, createReadStream } from "node:fs";
+import { access, mkdir, writeFile, unlink, readFile, stat, realpath } from "node:fs/promises";
 import { getDrillBook, saveDrillBook, listPages, getPage, savePage, deletePage, drillTargetRoot } from "../lib/store.mjs";
 import { listProjects, selectProject, findRunSkill, projectInfo, activeProjectRoot, readDevRoot, canonicalRoot, isValidProjectRoot } from "../lib/projects.mjs";
 import { urlReachable, startApp, getJob, publicJob } from "../lib/app-runner.mjs";
@@ -20,7 +20,7 @@ import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPerc
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import { selectSteps, compileStepAutomation } from "../lib/compile.mjs";
 import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
-import { saveSnapshot, listSnapshots, getSnapshot } from "../lib/snapshots.mjs";
+import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
 import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
 import { runInline, getRun as getAutomationRun, getStepEvidence, checkAutomationsHealth } from "../lib/automations-client.mjs";
@@ -35,11 +35,40 @@ import {
   addFeedback, setOverride, addObservation, addFinding, addInfraError, setFindingStatus, confirmedFindings,
   undispatchedConfirmedFindings, markFindingsDispatched, isInfraError, publicRunRecord
 } from "../lib/runs-store.mjs";
+import {
+  captureStart, captureStop, captureChunkStart, captureChunkStop, captureScreenshot,
+  writeStepsManifest, manifestRow, checkKey, writeEvidenceIndex, spotterRequest,
+  evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall,
+  classifyForRetention, pruneEvidence, removeRunEvidence
+} from "../lib/evidence.mjs";
+import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
 // calls in an authoring session rather than reopened per request.
 const authoringTabs = new Map(); // "<root>|<pageId>|<viewportId>" -> tabId
+
+// Live Browser replay (Evidence V2, S6 - experimental): ONE held browser
+// session at a time replays a run page's compiled steps up to a selected
+// check, then stays open surfaced through the browser canvas iframe.
+// Explicit DELETE releases it; the browser fitting's held-session hard TTL
+// is the abandoned-session backstop. No DOM-snapshot fakery - state is
+// reproduced by executing the same compiled steps the run executed, and
+// auth continuity comes from the capture session's default-context
+// storageState seed.
+let liveReplay = null; // { sessionId, tabId, runId, pageId, stepId, viewportId, startedAt, replayed }
+
+// The wire shape of the live session: always carries canvasUrl (recomputed —
+// it is derived state, never stored) so a recovered session re-embeds after a
+// page reload, not just within the mount that opened it.
+function liveReplayPublic() {
+  if (!liveReplay) return null;
+  let url = null;
+  try {
+    url = liveReplay.tabId ? canvasUrl(liveReplay.tabId, resolveViewport(liveReplay.viewportId)) : null;
+  } catch { /* unknown viewport id — no embed URL */ }
+  return { ...liveReplay, canvasUrl: url };
+}
 
 function send(res, code, body, headers = {}) {
   const data = typeof body === "string" ? body : JSON.stringify(body);
@@ -142,6 +171,15 @@ async function kanbanBaseUrl() {
   }
 }
 
+// This server's own base URL — evidence links handed to other surfaces
+// (cards) must go through the confined evidence routes, and dispatch can run
+// from the heartbeat where no request context exists.
+function selfBaseUrl() {
+  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || "127.0.0.1";
+  const port = Number(process.env.GARRISON_DRILL_PORT || process.env.DRILL_UI_PORT || DEFAULT_PORT);
+  return `http://${host}:${port}`;
+}
+
 // One batch card carrying the findings report (R10) - a normal `code` duty
 // fix card (findings need real code changes + the usual review/test gates),
 // distinct from the R14 testing-only card schema (Phase 7), which instead
@@ -149,9 +187,23 @@ async function kanbanBaseUrl() {
 async function dispatchBatchFixCard(record, confirmed) {
   const base = await kanbanBaseUrl();
   if (!base) throw new Error("kanban-loop fitting not running (no status file)");
-  const lines = confirmed.map((f) =>
-    `- [${f.kind}] ${f.pageId}${f.stepId ? "#" + f.stepId : ""}${f.viewportId ? ` [${f.viewportId}]` : ""}: ${f.text}`
-  );
+  // Evidence travels as links through Drill's confined evidence routes
+  // (Drill Evidence v0.1) — a finding's screenshot plus a time-offset deep
+  // link into the run video. Findings without captured evidence keep the
+  // plain line.
+  const evidenceUrl = (name) =>
+    `${selfBaseUrl()}/api/runs/${encodeURIComponent(record.id)}/evidence-file/${encodeURIComponent(name)}`;
+  const lines = confirmed.map((f) => {
+    const parts = [
+      `- [${f.kind}] ${f.pageId}${f.stepId ? "#" + f.stepId : ""}${f.viewportId ? ` [${f.viewportId}]` : ""}: ${f.text}`
+    ];
+    if (f.evidence?.screenshot) parts.push(`  evidence: ${evidenceUrl(f.evidence.screenshot)}`);
+    if (record.evidence?.video && Number.isFinite(f.evidence?.videoMs)) {
+      const s = Math.max(0, Math.floor(f.evidence.videoMs / 1000));
+      parts.push(`  video @${s}s: ${evidenceUrl(record.evidence.video)}#t=${s}`);
+    }
+    return parts.join("\n");
+  });
   const description = `Drill batch fix (report ${record.id}):\n${lines.join("\n")}`;
   // A human-scannable title: which pages, how many findings, dispatched when.
   // Identical "Drill batch fix (report 01KX...)" titles made the board
@@ -166,7 +218,11 @@ async function dispatchBatchFixCard(record, confirmed) {
     // The run RECORD's project, not the live selection - a heartbeat sweep or
     // a stale Results view can dispatch after the user retargeted Drill, and
     // the fix card must point at the repo the findings came from.
-    body: JSON.stringify({ title, description, duty: "code", level: 2, sequence, origin: "drill", project: record.project || drillTargetRoot() })
+    body: JSON.stringify({
+      title, description, duty: "code", level: 2, sequence, origin: "drill",
+      project: record.project || drillTargetRoot(),
+      ...(record.evidence?.video ? { videoUrl: evidenceUrl(record.evidence.video) } : {})
+    })
   });
   if (!res.ok) throw new Error(`kanban-loop ${res.status}: ${await res.text()}`);
   const created = await res.json();
@@ -782,7 +838,8 @@ async function handle(req, res) {
       const state = page?.states?.find((candidate) => candidate.id === stateId);
       if (!state?.screenshotPath) return send(res, 200, { available: false, reason: "not-recorded" });
       try {
-        await access(state.screenshotPath);
+        // Root-relative (Drill Evidence v0.1) or legacy absolute — both resolve.
+        await access(resolveEvidencePath(state.screenshotPath));
         return send(res, 200, { available: true });
       } catch {
         return send(res, 200, { available: false, reason: "file-missing" });
@@ -796,8 +853,9 @@ async function handle(req, res) {
       const state = page?.states?.find((s) => s.id === stateId);
       if (!state?.screenshotPath) return send(res, 404, { error: "no screenshot for this state" });
       try {
-        const bytes = await readFile(state.screenshotPath);
-        res.writeHead(200, { "content-type": "image/jpeg" });
+        const bytes = await readFile(resolveEvidencePath(state.screenshotPath));
+        const type = state.screenshotPath.endsWith(".png") ? "image/png" : "image/jpeg";
+        res.writeHead(200, { "content-type": type });
         return res.end(bytes);
       } catch {
         return send(res, 404, { error: "screenshot file missing" });
@@ -963,8 +1021,35 @@ async function handle(req, res) {
         return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
       }
 
+      // Evidence capture (Drill Evidence v0.1, D1/D5): one browser capture
+      // session per run — video for multi-check (Full Drill) runs unless the
+      // caller toggles it, per-check offset manifest whenever the session came
+      // up. Every helper is warn-never-throw: a missing browser fitting or a
+      // failed recording degrades evidence, never the run.
+      const wantVideo = body.evidence?.video ?? jobs.length > 1;
+      const sessionViewport = jobs
+        .map((job) => job.viewport)
+        .filter((vp) => vp && vp.width && vp.height)
+        .reduce((best, vp) => (!best || vp.width * vp.height > best.width * best.height ? vp : best), null);
+      const capture = await captureStart({
+        runId: record.id,
+        root,
+        video: wantVideo,
+        viewport: sessionViewport,
+        // Spotter (Evidence V2): deterministic trigger-driven frames, on by
+        // default for every run; Book config + per-run body overrides.
+        spotter: spotterRequest(book, body.evidence)
+      });
+      const manifestRows = [];
+      const checkArtifacts = [];
+
       for (const job of jobs) {
         record.executedChecks += 1;
+        const jobStartedAt = Date.now();
+        const jobKey = checkKey({ pageId: job.pageId, stepId: job.step.id, viewportId: job.viewportId });
+        // Per-check trace chunk (D2): bracket the engine run so the zip holds
+        // exactly this check's actions/snapshots.
+        const chunkOpen = await captureChunkStart(capture, `${job.pageId} · ${job.step.id} · ${job.viewportId}`, { key: jobKey });
         let automationRun;
         let terminal;
         try {
@@ -973,6 +1058,7 @@ async function handle(req, res) {
             contextTag,
             bypassCache,
             viewport: job.viewport,
+            captureSession: capture?.sessionId,
             sync: true
           });
           automationRun = response?.run;
@@ -990,6 +1076,33 @@ async function handle(req, res) {
           terminal
         };
         record.pages.push(pr);
+        if (capture) {
+          const trace = chunkOpen ? await captureChunkStop(capture, jobKey) : null;
+          // Step-end full-page screenshot always; an additional one on failure
+          // (D3) — the session tab still shows the failure state, and the
+          // engine's own at-failure viewport shot rides evidencePath as before.
+          const screenshot = await captureScreenshot(capture, `step-${jobKey}`);
+          const failureScreenshot = pr.status === "completed"
+            ? null
+            : await captureScreenshot(capture, `fail-${jobKey}`);
+          checkArtifacts.push({
+            key: jobKey,
+            pageId: job.pageId,
+            stepId: job.step.id,
+            viewportId: job.viewportId,
+            trace,
+            screenshot,
+            failureScreenshot
+          });
+          manifestRows.push(manifestRow({
+            job,
+            automationRun,
+            status: pr.status,
+            session: capture,
+            fallbackStartMs: jobStartedAt - capture.startedAt,
+            fallbackEndMs: Date.now() - capture.startedAt
+          }));
+        }
 
         // Recovery infrastructure is a secondary incident. Keep the page
         // defect as the authoritative terminal result and finding, but record
@@ -1000,12 +1113,21 @@ async function handle(req, res) {
         }
 
         if (terminal.kind === "product-failure") {
+          const art = capture ? checkArtifacts.at(-1) : null;
+          const timing = capture ? manifestRows.at(-1) : null;
           addFinding(record, {
             kind: "step-fail",
             pageId: pr.pageId,
             stepId: pr.stepId,
             viewportId: pr.viewportId,
-            text: terminal.message ?? `${pr.stepId} failed`
+            text: terminal.message ?? `${pr.stepId} failed`,
+            evidence: art && (art.screenshot || art.failureScreenshot || art.trace)
+              ? {
+                  screenshot: art.failureScreenshot ?? art.screenshot ?? null,
+                  trace: art.trace ?? null,
+                  videoMs: timing?.startMs ?? null
+                }
+              : null
           });
           continue;
         }
@@ -1045,7 +1167,13 @@ async function handle(req, res) {
                       ...(!candidate.matcher?.assertion && outcome.result?.assertion
                         ? { matcher: { assertion: outcome.result.assertion } }
                         : {}),
-                      screenshotPath: outcome.evidencePath,
+                      // Prefer drill's own step-end capture as a ROOT-RELATIVE
+                      // reference (D4: Book entries reference evidence by
+                      // relative path only); legacy absolute engine paths stay
+                      // readable via resolveEvidencePath.
+                      screenshotPath: capture && checkArtifacts.at(-1)?.screenshot
+                        ? evidenceRootRef(record.id, root, checkArtifacts.at(-1).screenshot)
+                        : outcome.evidencePath,
                       referenceSource: {
                         runId: record.id,
                         stepId: pr.stepId,
@@ -1090,6 +1218,30 @@ async function handle(req, res) {
         }
       }
 
+      if (capture) {
+        const stopped = await captureStop(capture);
+        const stepsFile = await writeStepsManifest(capture, manifestRows);
+        // Relative names only (portability constraint): the run's evidence
+        // dir is derivable from (project, runId); bytes go through confined
+        // HTTP routes, never host paths.
+        const checks = manifestRows.map((row, i) => ({ ...row, ...checkArtifacts[i] }));
+        const indexFile = await writeEvidenceIndex(capture, {
+          project: root,
+          runId: record.id,
+          video: stopped?.video ?? null,
+          checks,
+          spotter: stopped?.spotter ?? null
+        });
+        record.evidence = {
+          video: stopped?.video ?? null,
+          steps: stepsFile ?? null,
+          index: indexFile ?? null,
+          spotter: stopped?.spotter?.manifest
+            ? { manifest: stopped.spotter.manifest, frames: stopped.spotter.frames ?? stopped.spotter.counts?.kept ?? 0 }
+            : null
+        };
+      }
+
       record.endedAt = new Date().toISOString();
       record.summary = {
         steps: record.pages.length,
@@ -1097,6 +1249,30 @@ async function handle(req, res) {
         infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
       };
       await saveDrillRun(record);
+      // Retention (D6): applied on run completion, fire-and-forget — pruning
+      // must never delay or fail the run response.
+      void (async () => {
+        const runs = await listDrillRuns();
+        const scoped = runs.filter((r) => (r.project || null) === (root || null));
+        const pruned = await pruneEvidence({ root, classified: classifyForRetention(scoped) });
+        for (const p of pruned) console.log(`[drill] evidence retention: pruned ${p.removed.join(", ")} from run ${p.runId}`);
+      })().catch((err) => console.warn(`[drill] evidence: retention sweep failed: ${err.message}`));
+      // Curation (Evidence V2, S2/D4): batch vision judging of the Spotter
+      // frames into the Debrief reel — fire-and-forget, and it writes ONLY
+      // evidence files (reel.json + sidecars), never the run record, so a
+      // slow model turn can't clobber concurrent triage.
+      if (record.evidence?.spotter) {
+        void curateRunEvidence({
+          record,
+          root,
+          config: curationConfig(book, body.evidence),
+          app: book.app?.name
+        })
+          .then((reel) => {
+            if (reel) console.log(`[drill] curation: reel ${reel.counts.reel}/${reel.counts.frames} frames for run ${record.id} via ${reel.routedVia ?? "?"}`);
+          })
+          .catch((err) => console.warn(`[drill] curation: ${err.message}`));
+      }
       return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
     }
     if (pathname === "/api/runs" && req.method === "GET") {
@@ -1114,7 +1290,207 @@ async function handle(req, res) {
       return record ? send(res, 200, { run: await assembleRunView(record) }) : send(res, 404, { error: "not found" });
     }
     if (runGet && req.method === "DELETE") {
-      return send(res, 200, { deleted: await deleteDrillRun(decodeURIComponent(runGet[1])) });
+      const runId = decodeURIComponent(runGet[1]);
+      const record = await getDrillRun(runId);
+      const deleted = await deleteDrillRun(runId);
+      if (deleted && record) await removeRunEvidence(runId, record.project || drillTargetRoot());
+      return send(res, 200, { deleted });
+    }
+    // Drill Evidence v0.1 (D4): the per-run index + confined artifact serving.
+    // Artifact bytes only ever leave through these routes — records carry
+    // relative names, never host paths.
+    const runEvidenceIndexGet = pathname.match(/^\/api\/runs\/([^/]+)\/evidence-index$/);
+    if (runEvidenceIndexGet && req.method === "GET") {
+      const record = await getDrillRun(decodeURIComponent(runEvidenceIndexGet[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      const dir = evidenceRunDir(record.id, record.project || drillTargetRoot());
+      try {
+        const index = JSON.parse(await readFile(path.join(dir, "evidence.json"), "utf8"));
+        let steps = null;
+        try { steps = JSON.parse(await readFile(path.join(dir, "steps.json"), "utf8")); } catch { /* pre-index run */ }
+        return send(res, 200, { index, steps });
+      } catch {
+        return send(res, 404, { error: "no evidence index for this run" });
+      }
+    }
+    const runEvidenceFileGet = pathname.match(/^\/api\/runs\/([^/]+)\/evidence-file\/([^/]+)$/);
+    if (runEvidenceFileGet && req.method === "GET") {
+      const record = await getDrillRun(decodeURIComponent(runEvidenceFileGet[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      const name = decodeURIComponent(runEvidenceFileGet[2]);
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,160}$/.test(name)) return send(res, 400, { error: "invalid evidence name" });
+      const dir = evidenceRunDir(record.id, record.project || drillTargetRoot());
+      const file = path.join(dir, name);
+      let fileInfo;
+      try {
+        // Realpath containment: the name regex already forbids separators and
+        // dotfiles; this guards symlinked run dirs the same way the
+        // automations evidence serve does.
+        const real = await realpath(file);
+        const realDir = await realpath(dir);
+        if (real !== path.join(realDir, name)) return send(res, 404, { error: "not found" });
+        fileInfo = await stat(real);
+        if (!fileInfo.isFile()) return send(res, 404, { error: "not found" });
+      } catch {
+        return send(res, 404, { error: "not found" });
+      }
+      const types = {
+        ".webm": "video/webm",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".zip": "application/zip",
+        ".json": "application/json"
+      };
+      const ext = path.extname(name).toLowerCase();
+      const type = types[ext] ?? "application/octet-stream";
+      const headers = {
+        "content-type": type,
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        ...(ext === ".zip" ? { "content-disposition": `attachment; filename="${name}"` } : {})
+      };
+      // Range support: webm scrubbing and #t= media-fragment deep links need
+      // 206 responses; everything else streams whole.
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+      if (range && (range[1] || range[2]) && ext === ".webm") {
+        const size = fileInfo.size;
+        let start = range[1] ? Number(range[1]) : size - Number(range[2]);
+        let end = range[1] && range[2] ? Number(range[2]) : size - 1;
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end >= size || start > end) {
+          return send(res, 416, { error: "range not satisfiable" }, { "content-range": `bytes */${size}` });
+        }
+        res.writeHead(206, {
+          ...headers,
+          "accept-ranges": "bytes",
+          "content-range": `bytes ${start}-${end}/${size}`,
+          "content-length": String(end - start + 1)
+        });
+        createReadStream(file, { start, end }).pipe(res);
+        return;
+      }
+      res.writeHead(200, { ...headers, "accept-ranges": "bytes", "content-length": String(fileInfo.size) });
+      createReadStream(file).pipe(res);
+      return;
+    }
+    if (pathname === "/api/live-replay" && req.method === "GET") {
+      return send(res, 200, { live: liveReplayPublic() });
+    }
+    if (pathname === "/api/live-replay" && req.method === "DELETE") {
+      if (!liveReplay) return send(res, 200, { ok: true, released: false });
+      const sessionId = liveReplay.sessionId;
+      liveReplay = null;
+      try {
+        await captureCall("/capture/stop", { sessionId });
+      } catch (err) {
+        console.warn(`[drill] live-replay stop: ${err.message}`);
+      }
+      return send(res, 200, { ok: true, released: true });
+    }
+    const liveReplayPost = pathname.match(/^\/api\/runs\/([^/]+)\/live-replay$/);
+    if (liveReplayPost && req.method === "POST") {
+      const record = await getDrillRun(decodeURIComponent(liveReplayPost[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      if (liveReplay) {
+        return send(res, 409, { error: "a live session is already open - close it first", live: liveReplayPublic() });
+      }
+      const body = await readJsonBody(req);
+      const pageId = String(body.pageId ?? "");
+      const stepId = String(body.stepId ?? "");
+      const viewportId = String(body.viewportId ?? "desktop");
+      const root = record.project || drillTargetRoot();
+      const book = await getDrillBook(root);
+      const page = await getPage(pageId, root);
+      if (!page) return send(res, 404, { error: "page not found" });
+      const steps = selectSteps(page, { state: record.state || "default", viewport: viewportId });
+      const idx = steps.findIndex((s) => s.id === stepId);
+      if (idx === -1) return send(res, 404, { error: "step not part of this page/viewport selection" });
+      let viewport;
+      try { viewport = resolveViewport(viewportId); } catch (err) { return send(res, 400, { error: err.message }); }
+      const sessionId = `live-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const dir = path.join(drillHomeDir(), "live", sessionId);
+      let session;
+      try {
+        session = await captureCall("/capture/start", {
+          sessionId,
+          dir,
+          video: false,
+          hold: true,
+          viewport: viewport?.width ? { width: viewport.width, height: viewport.height } : undefined
+        });
+      } catch (err) {
+        return send(res, 502, { error: `browser session failed: ${err.message}` });
+      }
+      liveReplay = {
+        sessionId,
+        tabId: session.tabId ?? null,
+        runId: record.id,
+        pageId,
+        stepId,
+        viewportId,
+        startedAt: new Date().toISOString(),
+        replayed: 0,
+        of: idx + 1
+      };
+      // Replay steps 0..idx sequentially in the held session - the exact
+      // compiled automations a run would execute, one shared tab so state
+      // accumulates the same way it does during a drill run.
+      const warnings = [];
+      for (let i = 0; i <= idx; i++) {
+        const step = steps[i];
+        try {
+          const response = await runInline({
+            automation: compileStepAutomation(book, page, step, { blind: false }),
+            contextTag: "drill",
+            bypassCache: false,
+            viewport,
+            captureSession: sessionId,
+            sync: true
+          });
+          if (response?.run?.status !== "completed") warnings.push(`${step.id}: ${response?.run?.status ?? "no run"}`);
+        } catch (err) {
+          warnings.push(`${step.id}: ${err.message}`);
+          break;
+        }
+        if (!liveReplay || liveReplay.sessionId !== sessionId) {
+          return send(res, 409, { error: "live session was closed during replay" });
+        }
+        liveReplay.replayed = i + 1;
+      }
+      const url = liveReplay.tabId ? canvasUrl(liveReplay.tabId, viewport) : null;
+      return send(res, 200, { ok: true, live: { ...liveReplay, canvasUrl: url }, warnings });
+    }
+    // Debrief operator feedback (Evidence V2, D6): lightweight view events —
+    // long dwells, show-all expansions, explicit frame flags — appended next
+    // to the run's evidence. v1 only RECORDS them; nothing consumes them to
+    // reweight rules yet. Never pruned (the name matches no retention rule).
+    const debriefFeedbackPost = pathname.match(/^\/api\/runs\/([^/]+)\/debrief-feedback$/);
+    if (debriefFeedbackPost && req.method === "POST") {
+      const record = await getDrillRun(decodeURIComponent(debriefFeedbackPost[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      const body = await readJsonBody(req);
+      const incoming = (Array.isArray(body.events) ? body.events : [])
+        .filter((e) => e && typeof e === "object" && typeof e.type === "string")
+        .slice(0, 100)
+        .map((e) => ({
+          type: e.type.slice(0, 32),
+          frame: typeof e.frame === "string" ? e.frame.slice(0, 200) : undefined,
+          ms: Number.isFinite(Number(e.ms)) ? Math.round(Number(e.ms)) : undefined,
+          scope: typeof e.scope === "string" ? e.scope.slice(0, 200) : undefined,
+          at: new Date().toISOString()
+        }));
+      if (incoming.length === 0) return send(res, 400, { error: "events required" });
+      const dir = evidenceRunDir(record.id, record.project || drillTargetRoot());
+      const file = path.join(dir, "debrief-feedback.json");
+      let events = [];
+      try { events = JSON.parse(await readFile(file, "utf8")).events ?? []; } catch { /* first write */ }
+      events.push(...incoming);
+      if (events.length > 5000) events = events.slice(events.length - 5000);
+      try {
+        await atomicWrite(file, JSON.stringify({ runId: record.id, events }, null, 2));
+      } catch (err) {
+        return send(res, 500, { error: `feedback write failed: ${err.message}` });
+      }
+      return send(res, 200, { ok: true, recorded: incoming.length, total: events.length });
     }
     const runEvidenceGet = pathname.match(/^\/api\/runs\/([^/]+)\/evidence\/([^/]+)\/([^/]+)\/([^/]+)$/);
     if (runEvidenceGet && req.method === "GET") {
@@ -1428,8 +1804,12 @@ export function createServer() {
 }
 
 export async function startServer() {
-  const host = process.env.DRILL_UI_HOST || "127.0.0.1";
-  const port = Number(process.env.DRILL_UI_PORT || DEFAULT_PORT);
+  // Port precedence (house convention, same as improver/ports-default): the
+  // runner-projected composition config first (GARRISON_DRILL_* — the
+  // per-instance source of truth, e.g. main=7096 while codex=27096), then
+  // the legacy explicit env (tests), then the hardcoded default.
+  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || "127.0.0.1";
+  const port = Number(process.env.GARRISON_DRILL_PORT || process.env.DRILL_UI_PORT || DEFAULT_PORT);
   assertStatusSlotFree();
   const server = createServer();
   server.once("error", (err) => {

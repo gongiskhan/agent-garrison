@@ -1045,6 +1045,13 @@ async function handleCreateCard(req, res, opts) {
     const q = await updateCard(opts.root, card.id, (c) => ({ ...c, quick: true }));
     if (q) Object.assign(card, q);
   }
+  // Drill Evidence v0.1: an origin may hand the card its run-evidence video
+  // link at create time — the field already exists on the card (the
+  // Walkthrough list sets it for build runs); same stamp-after-create shape.
+  if (typeof body.videoUrl === "string" && /^https?:\/\//i.test(body.videoUrl)) {
+    const v = await updateCard(opts.root, card.id, (c) => ({ ...c, videoUrl: body.videoUrl }));
+    if (v) Object.assign(card, v);
+  }
   // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
   // origin record + appends to its event log; web origins also get a thread ack).
   routeOriginEvent(opts.root, null, card, { kind: "created", message: createdMessage(card) });
@@ -2188,8 +2195,11 @@ async function clearStatusFile() {
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.KANBAN_UI_PORT || DEFAULT_PORT),
-    host: process.env.KANBAN_UI_HOST || "127.0.0.1",
+    // Port precedence (house convention, same as improver/ports-default):
+    // runner-projected composition config first (per-instance, e.g. main=7089
+    // vs codex=27089), then the legacy explicit env (tests), then the default.
+    port: Number(process.env.GARRISON_KANBANLOOP_PORT || process.env.KANBAN_UI_PORT || DEFAULT_PORT),
+    host: process.env.GARRISON_KANBANLOOP_BIND_HOST || process.env.KANBAN_UI_HOST || "127.0.0.1",
     root: kanbanRoot(),
     cwd: projectRoot(),
     // Default to the gateway's conventional URL (like the web channel) so the board can

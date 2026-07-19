@@ -673,7 +673,9 @@ export async function startServer(opts = {}) {
   const host = opts.host || process.env.ORCHESTRATOR_HOST || process.env.MODEL_ROUTER_HOST || "127.0.0.1";
   // An explicit `port: 0` means an OS-assigned ephemeral port (the test
   // harness); otherwise the configured port is canonical - never auto-shift.
-  const configured = Number(opts.port ?? (process.env.ORCHESTRATOR_PORT || process.env.MODEL_ROUTER_PORT || 27087));
+  // Runner-projected composition config first (per-instance, e.g. main=7087
+  // vs codex=27087), then the legacy envs, then the default.
+  const configured = Number(opts.port ?? (process.env.GARRISON_ORCHESTRATOR_PORT || process.env.ORCHESTRATOR_PORT || process.env.MODEL_ROUTER_PORT || 27087));
   await migrateLegacyState();
   assertStatusSlotFree();
   let port = configured;

@@ -31,7 +31,7 @@ const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PAS
 const REDACTED = "***REDACTED***";
 
 function parseArgs(argv) {
-  const out = { port: Number(process.env.MONITOR_PORT || 27077), host: process.env.MONITOR_HOST || "127.0.0.1", parentPid: Number(process.env.GARRISON_PARENT_PID || 0), pollMs: Number(process.env.MONITOR_POLL_MS || 1000), retentionHours: Number(process.env.MONITOR_LOG_RETENTION_HOURS || 24) };
+  const out = { port: Number(process.env.GARRISON_MONITORDEFAULT_PORT || process.env.MONITOR_PORT || 27077), host: process.env.GARRISON_MONITORDEFAULT_BIND_HOST || process.env.MONITOR_HOST || "127.0.0.1", parentPid: Number(process.env.GARRISON_PARENT_PID || 0), pollMs: Number(process.env.MONITOR_POLL_MS || 1000), retentionHours: Number(process.env.MONITOR_LOG_RETENTION_HOURS || 24) };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") out.port = Number(argv[++i]);

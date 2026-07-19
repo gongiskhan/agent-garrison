@@ -31,14 +31,15 @@ async function json(res) {
 
 // Inline ephemeral run (engine delta 1) — contextTag identifies the caller
 // (e.g. "drill" / "drill-adversarial") with no drill-specific naming inside
-// the engine itself.
-export async function runInline({ automation, inputs, contextTag, bypassCache, viewport, sync = true, fetchImpl = globalThis.fetch }) {
+// the engine itself. captureSession (delta 8) groups the run's tab into a
+// recorded browser capture context for evidence; opaque to the engine.
+export async function runInline({ automation, inputs, contextTag, bypassCache, viewport, captureSession, sync = true, fetchImpl = globalThis.fetch }) {
   const base = requireBase();
   const qs = sync ? "?sync=1" : "";
   const res = await fetchImpl(`${base}/api/automations/run-inline${qs}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ automation, inputs, contextTag, bypassCache, viewport })
+    body: JSON.stringify({ automation, inputs, contextTag, bypassCache, viewport, captureSession })
   });
   return json(res);
 }

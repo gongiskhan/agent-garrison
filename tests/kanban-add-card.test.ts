@@ -119,6 +119,30 @@ describe("POST /cards — the Backlog quick-add contract", () => {
     expect(create.body.card.list).toBe("backlog");
   });
 
+  it("stamps an http(s) videoUrl at create (Drill Evidence) and rejects other schemes", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Drill fix: home",
+      description: "Drill batch fix",
+      project: "garrison",
+      videoUrl: "http://127.0.0.1:27096/api/runs/01TEST/evidence-file/video.webm"
+    });
+    expect(create.status).toBe(201);
+    expect(create.body.card.videoUrl).toBe("http://127.0.0.1:27096/api/runs/01TEST/evidence-file/video.webm");
+    const detail = await jget(`/cards/${create.body.card.id}`);
+    expect(detail.body.card.videoUrl).toBe("http://127.0.0.1:27096/api/runs/01TEST/evidence-file/video.webm");
+    // The links block (a sibling of `card` in the detail response) renders it
+    // as the card's video href.
+    expect(detail.body.links?.video).toMatchObject({ kind: "href" });
+
+    const bad = await jsend("POST", "/cards", {
+      title: "No file links",
+      project: "garrison",
+      videoUrl: "file:///etc/passwd"
+    });
+    expect(bad.status).toBe(201);
+    expect(bad.body.card.videoUrl).toBeNull();
+  });
+
   it("synchronously scopes an auto-project card to its explicit absolute workspace", async () => {
     const create = await jsend("POST", "/cards", {
       title: "Build an isolated cache",

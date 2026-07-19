@@ -47,6 +47,27 @@ import { buildDiscussUrl } from "../scripts/discuss.mjs";
 
 const ITERATION_CAP = 10;
 
+// Bare http(s) URLs inside plain-text bodies (e.g. a drill fix card carrying
+// evidence links) render as real links; all other text stays literal — the
+// body remains plain text, never markup.
+function linkifyText(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const re = /https?:\/\/[^\s<>"')\]]+/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <a key={m.index} href={m[0]} target="_blank" rel="noopener noreferrer">
+        {m[0]}
+      </a>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
 function listClass(list: ListView): string {
   if (list.id === "needs-attention") return "list attn";
   if (list.interactive) return "list interactive";
@@ -1093,7 +1114,10 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
       {card.description && card.description.trim() && (
         <div className="detail-desc">
           <div className="dd-title">Description</div>
-          <p>{card.description}</p>
+          {/* pre-wrap: multi-line bodies (drill fix cards list one finding
+              per line with indented evidence links) keep their line structure
+              in the plain-text render. */}
+          <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(card.description)}</p>
         </div>
       )}
 

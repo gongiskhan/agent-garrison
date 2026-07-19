@@ -98,17 +98,25 @@ describe("Run & results — real UI", () => {
     // clicking it would DEselect it, so leave it alone.
     await p.getByRole("button", { name: "Run selected", exact: true }).click();
 
+    // Debrief (Evidence V2) is the default run-detail surface; the classic
+    // per-check rows this test pins live behind the view toggle now.
+    const classicToggle = p.getByRole("button", { name: "Classic view" });
+    await classicToggle.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+    if (await classicToggle.count()) await classicToggle.click();
     await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 15000 });
     await p.getByText(/cached|vision|recovered/).first().waitFor({ timeout: 10000 });
 
     await p.getByRole("button", { name: "Mark failed" }).click();
     await p.getByText(/Overridden -> failed/).waitFor({ timeout: 5000 });
 
-    // the override auto-pooled a verdict-flip finding — confirm it and dispatch
+    // the override auto-pooled a verdict-flip finding — confirm it and
+    // dispatch, both still in the classic detail (the sticky-view fix keeps
+    // classic showing across the refetches these mutations trigger)
     await p.getByRole("button", { name: "Confirm" }).first().click();
     await p.getByText("confirmed", { exact: true }).first().waitFor({ timeout: 5000 });
 
     const fixBtn = p.getByRole("button", { name: /Send confirmed to Code/ });
+    await fixBtn.waitFor({ state: "visible", timeout: 10000 });
     expect(await fixBtn.isDisabled()).toBe(false);
   }, 40000);
 });

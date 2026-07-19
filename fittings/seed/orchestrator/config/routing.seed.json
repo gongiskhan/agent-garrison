@@ -75,12 +75,17 @@
     },
     {
       "id": "ex-automation-vision-adversarial",
-      "when": "an internal automation vision turn requests an independent adversarial verdict",
+      "when": "caller-asserted: an internal automation vision turn requests an independent adversarial verdict",
       "target": "cc-opus-high"
     },
     {
       "id": "ex-automation-vision",
-      "when": "an internal automation vision turn must inspect a local browser screenshot",
+      "when": "caller-asserted: an internal automation vision turn must inspect a local browser screenshot",
+      "target": "cc-sonnet-med"
+    },
+    {
+      "id": "ex-drill-curation",
+      "when": "caller-asserted: Drill Spotter evidence curation, batch-judging captured frames into the Debrief reel",
       "target": "cc-sonnet-med"
     },
     {

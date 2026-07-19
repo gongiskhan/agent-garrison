@@ -83,6 +83,13 @@ describe("up boots only eager views", () => {
     expect(envByFitting.get(PLAIN_ID)?.GARRISON_COMPOSITION_DIR).toMatch(
       /compositions[/\\]default$/
     );
+    // THIS instance's app URL is projected too: fittings that call back into
+    // the garrison app (automations vision, drill curation) carry hardcoded
+    // per-instance-wrong fallbacks, and a missing projection sent internal
+    // calls to the OTHER instance's app, which 403s them.
+    expect(envByFitting.get(PLAIN_ID)?.GARRISON_BASE_URL).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+$/
+    );
   });
 
   it("an eager-toggled view still boots with the operative; non-eager siblings do not", async () => {
@@ -118,6 +125,7 @@ describe("operativeEnvForFitting (manual Views start env parity)", () => {
     expect(env?.GARRISON_COMPOSITION_ID).toBe("default");
     expect(env?.GARRISON_COMPOSITION_DIR).toMatch(/compositions[/\\]default$/);
     expect(env?.GARRISON_GATEWAY_URL).toBe("http://127.0.0.1:24777");
+    expect(env?.GARRISON_BASE_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
 
   it("omits the gateway URL when the running record has no gateway, and rejects unknown fittings", async () => {

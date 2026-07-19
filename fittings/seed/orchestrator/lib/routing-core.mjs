@@ -351,9 +351,15 @@ export function buildClassifierPrompt(config, userPrompt) {
   lines.push(`taskType — one of: ${taskTypes.join(", ")}`);
   lines.push(`tier — one of: ${tiers.join(", ")}, where:`);
   for (const t of tiers) lines.push(`  - ${t}: ${tierDefs[t] || "(no definition)"}`);
-  if (exceptions.length) {
+  // Caller-asserted exceptions (internal engine lanes: automation vision,
+  // drill curation) are matched by id from the CALLER's classification hint —
+  // the classifier must never guess them, and offering them both invites
+  // misclassification and bloats the fixed prompt budget. Convention: their
+  // `when` text starts with "caller-asserted".
+  const offered = exceptions.filter((e) => !/^caller-asserted/i.test(String(e.when || "")));
+  if (offered.length) {
     lines.push("matchedException — the id of the FIRST matching exception condition, else null:");
-    for (const e of exceptions) lines.push(`  - ${e.id}: ${e.when}`);
+    for (const e of offered) lines.push(`  - ${e.id}: ${e.when}`);
   }
   lines.push("contextKind — optional short string describing the context, else omit.");
   lines.push(
