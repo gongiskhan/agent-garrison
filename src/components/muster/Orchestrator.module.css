@@ -97,7 +97,7 @@
   min-height: 132px;
   padding: 11px 13px;
   border: 1px solid var(--rule-2);
-  background: white;
+  background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 12px;
@@ -212,7 +212,7 @@
   gap: 10px;
   padding: 9px 12px;
   border: 1px solid var(--rule);
-  background: white;
+  background: var(--surface);
   min-width: 0;
 }
 .decisionKind {

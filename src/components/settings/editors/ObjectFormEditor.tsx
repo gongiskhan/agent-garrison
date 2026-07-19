@@ -54,10 +54,14 @@ export function ObjectFormEditor({
   const extras = passthroughKeys(fields, value);
 
   return (
-    <div data-testid={testIdBase} style={{ display: "grid", gap: 10 }}>
+    <div
+      data-testid={testIdBase}
+      className="settings-object-form"
+      style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 10 }}
+    >
       {fields.map((f) => (
         <div key={f.key}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+          <div className="settings-object-field-head" style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
             <label style={{ fontWeight: 600, fontSize: 12.5 }}>{f.label}</label>
             <code style={{ fontSize: 10.5, color: "var(--mute)" }}>{f.key}</code>
             {f.required && f.constValue === undefined ? (

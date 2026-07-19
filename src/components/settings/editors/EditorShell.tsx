@@ -59,16 +59,9 @@ export function EditorShell({
   return (
     <div
       data-row={setting.key}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(200px, 280px) 1fr",
-        gap: 16,
-        alignItems: "start",
-        padding: "12px 18px",
-        borderBottom: "1px solid var(--rule)"
-      }}
+      className="settings-editor-row"
     >
-      <div>
+      <div className="settings-editor-control">
         <label className="font-display" style={{ fontWeight: 600, fontSize: 13.5, display: "block" }}>
           {setting.label}
         </label>

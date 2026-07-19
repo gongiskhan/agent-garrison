@@ -562,3 +562,140 @@ body {
     border: 0; box-shadow: 0 0 0 100vmax rgba(24,33,28,.88);
   }
 }
+
+/* ── Fortress operations-room refit ────────────────────────────────────── */
+:root {
+  --paper: #f2eee3;
+  --paper-2: #e8e1d1;
+  --paper-3: #ddd3bf;
+  --ink: #182019;
+  --ink-2: #263127;
+  --ink-mute: #465047;
+  --sage: #45634b;
+  --sage-2: #58785d;
+  --sage-soft: #dfe8dd;
+  --brass: #9b7a3d;
+  --brass-2: #c3a15a;
+  --rule: #c9bea8;
+  --rule-2: #a99b80;
+  --mute: #62685f;
+  --mute-2: #7a7d73;
+  --alarm: #913e35;
+  --alarm-soft: #f1dfda;
+  --warn: #8d6828;
+  --warn-soft: #eee2c6;
+  --warn-ink: #76551d;
+  --olive: #273126;
+  --olive-2: #344135;
+  --sans: "Avenir Next", Avenir, "Barlow", "DIN Alternate", "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style", "Source Serif 4", "Palatino Linotype", Georgia, serif;
+  --mono: "SFMono-Regular", "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+}
+
+body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(rgba(39, 49, 38, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 49, 38, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 12% 0%, rgba(155, 122, 61, 0.09), transparent 32rem);
+  background-size: 28px 28px, 28px 28px, auto;
+  text-wrap: pretty;
+}
+::selection { background: rgba(195, 161, 90, 0.3); }
+:focus-visible {
+  outline: 2px solid var(--brass-2) !important;
+  outline-offset: 2px;
+}
+button, input, select, textarea, .btn, .dr-tab {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
+
+.dr-header {
+  background: var(--olive);
+  color: #f5efdf;
+  box-shadow: 0 10px 28px rgba(28, 34, 26, 0.16);
+}
+.topbar {
+  min-height: 58px;
+  background: var(--olive);
+  color: #f5efdf;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+.topbar .brand .name {
+  color: #fffaf0;
+  font-size: 23px;
+  letter-spacing: -0.025em;
+}
+.topbar .brand .sub, .topbar .status { color: #c7bfae; }
+.topbar .status {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.dr-project select {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5efdf;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.dr-project select option { color: var(--ink); background: var(--paper); }
+.dr-tabs {
+  background: var(--olive);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+.dr-tab { color: #c7bfae; border-bottom-width: 3px; }
+.dr-tab:hover { color: #fffaf0; background: rgba(255, 255, 255, 0.045); }
+.dr-tab.on {
+  color: #fffaf0;
+  border-bottom-color: var(--brass-2);
+  background: rgba(195, 161, 90, 0.08);
+}
+.dr-body {
+  width: min(100%, 1480px);
+  margin-inline: auto;
+  padding: clamp(18px, 3vw, 38px);
+}
+.dr-intro {
+  padding: 4px 0 24px;
+  margin-bottom: 24px;
+  border-bottom-color: var(--rule-2);
+}
+.dr-intro h1, .dr-card h2, .dr-detail-heading h2, .dr-modal h2 {
+  font-family: var(--serif);
+  letter-spacing: -0.025em;
+}
+.dr-card, .dr-state-card, .dr-tablewrap, .dr-canvas,
+.dr-infra, .dr-run-card {
+  background: rgba(248, 244, 234, 0.82);
+  border-color: var(--rule);
+  box-shadow: 0 16px 36px rgba(35, 42, 33, 0.06);
+}
+.btn.primary {
+  background: var(--olive);
+  border-color: var(--olive);
+  color: #f5efdf;
+}
+.btn.primary:hover:not(:disabled) { background: var(--olive-2); border-color: var(--olive-2); }
+.dr-table thead, .dr-history-table thead {
+  background: var(--paper-3);
+  color: var(--ink-2);
+}
+.chip, .dr-save-status, .dr-app-status {
+  border-radius: 2px;
+  font-family: var(--mono);
+}
+.dr-modal {
+  border-radius: 2px;
+  box-shadow: 0 28px 64px rgba(27, 34, 26, 0.28);
+}
+.dr-modal-overlay { background: rgba(24, 31, 24, 0.7); backdrop-filter: blur(3px); }
+
+@media (pointer: coarse) {
+  button, .btn, .dr-tab, input, select { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

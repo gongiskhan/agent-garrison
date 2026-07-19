@@ -10,16 +10,37 @@ import { FittingOverview } from "./FittingOverview";
 
 export function FittingSurfacePanel() {
   const params = useParams();
-  const { composition, library } = useAppShell();
+  const { composition, library, error, refreshAll } = useAppShell();
   const fittingId = singleParam(params?.fittingId);
   const restSegments = arrayParam(params?.rest);
   const subPath = "/" + restSegments.join("/");
 
   if (!fittingId) {
-    return <SurfaceMessage title="No Fitting selected" />;
+    return (
+      <SurfaceMessage
+        eyebrow="Fitting surface"
+        title="No Fitting selected"
+        body="Choose a stationed Fitting from the Garrison navigation."
+      />
+    );
   }
   if (!composition) {
-    return <SurfaceMessage title="Loading composition…" />;
+    return error ? (
+      <SurfaceMessage
+        eyebrow="Composition unavailable"
+        title="Could not load this Fitting"
+        body={error}
+        tone="error"
+        action={{ label: "Try again", onClick: () => void refreshAll() }}
+      />
+    ) : (
+      <SurfaceMessage
+        eyebrow="Reading composition"
+        title="Loading Fitting…"
+        body="Resolving its station, capabilities, and views."
+        loading
+      />
+    );
   }
 
   // The Fitting must be present in the library AND selected in the
@@ -30,8 +51,10 @@ export function FittingSurfacePanel() {
   if (!entry) {
     return (
       <SurfaceMessage
+        eyebrow="Fitting unavailable"
         title={`Fitting "${fittingId}" not found`}
         body="It is not present in the Armory."
+        tone="error"
       />
     );
   }
@@ -41,6 +64,7 @@ export function FittingSurfacePanel() {
   if (!selection) {
     return (
       <SurfaceMessage
+        eyebrow="Station required"
         title={`Fitting "${entry.name}" is not stationed`}
         body="Add it to the Composition to access this surface."
       />
@@ -58,7 +82,7 @@ export function FittingSurfacePanel() {
   // maximize usable area.
   if (match?.view.chrome === "full-bleed") {
     return (
-      <main style={{ padding: "12px 14px" }}>
+      <main className="min-w-0 bg-[var(--paper)] p-2.5 sm:p-3.5">
         <FittingView
           entry={entry}
           selection={selection}
@@ -70,8 +94,8 @@ export function FittingSurfacePanel() {
   }
 
   return (
-    <main style={{ padding: "32px 36px", maxWidth: 880 }}>
-      <div className="crumbs" style={{ marginBottom: 16 }}>
+    <main className="w-full max-w-[1080px] px-5 py-8 sm:px-8 lg:px-12 lg:py-12">
+      <div className="crumbs mb-6">
         <Link href="/compose">Compose</Link>
         {faculty ? (
           <>
@@ -82,41 +106,15 @@ export function FittingSurfacePanel() {
         {" · "}
         <b>{entry.name}</b>
       </div>
-      <header style={{ marginBottom: 24 }}>
-        <div
-          className="font-mono"
-          style={{
-            fontSize: 10.5,
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            color: "var(--brass)",
-            marginBottom: 6
-          }}
-        >
-          Fitting · {entry.metadata.component_shape}
+      <header className="mb-8 grid gap-3 border-l-2 border-[var(--brass)] pl-5 sm:pl-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--brass)]">
+          Stationed Fitting · {entry.metadata.component_shape}
           {faculty ? ` · ${faculty.name} faculty` : ""}
         </div>
-        <h1
-          className="font-display"
-          style={{
-            fontWeight: 600,
-            fontSize: 30,
-            letterSpacing: "-0.012em",
-            lineHeight: 1.1,
-            margin: "0 0 8px"
-          }}
-        >
+        <h1 className="font-display m-0 max-w-[18ch] text-[clamp(2rem,5vw,3.25rem)] font-semibold leading-[0.98] tracking-[-0.035em] text-[var(--ink)]">
           {entry.name}
         </h1>
-        <p
-          style={{
-            fontSize: 14,
-            lineHeight: 1.55,
-            color: "var(--ink-mute)",
-            margin: 0,
-            maxWidth: 640
-          }}
-        >
+        <p className="m-0 max-w-[66ch] text-[15px] leading-7 text-[var(--ink-mute)]">
           {entry.summary}
         </p>
       </header>
@@ -124,17 +122,11 @@ export function FittingSurfacePanel() {
       <FittingOverview entry={entry} composition={composition} library={library} />
 
       {match ? (
-        <section style={{ marginTop: 28 }}>
-          <div
-            className="lab"
-            style={{ marginBottom: 4 }}
-          >
-            {entry.name} · {match.view.id}
+        <section className="mt-10 border-t border-[var(--rule-2)] pt-7">
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.17em] text-[var(--brass)]">
+            Live surface · {match.view.id}
           </div>
-          <div
-            className="font-mono"
-            style={{ fontSize: 11, color: "var(--mute)", marginBottom: 14 }}
-          >
+          <div className="mb-5 font-mono text-[11px] text-[var(--mute)]">
             /fitting/{fittingId}{subPath === "/" ? "" : subPath}
           </div>
           <FittingView
@@ -146,15 +138,10 @@ export function FittingSurfacePanel() {
         </section>
       ) : hasDeepLink ? (
         <section
-          style={{
-            marginTop: 28,
-            padding: "10px 14px",
-            background: "var(--paper-2)",
-            border: "1px dashed var(--rule-2)",
-            color: "var(--mute)",
-            fontSize: 12.5
-          }}
+          className="mt-10 border border-dashed border-[var(--rule-2)] border-l-[3px] border-l-[var(--alarm)] bg-[var(--surface)] px-4 py-3 text-[13px] leading-6 text-[var(--mute)]"
+          role="alert"
         >
+          <b className="text-[var(--ink)]">Surface unavailable.</b>{" "}
           No view in {entry.name} matches <code>{subPath}</code>.
         </section>
       ) : null}
@@ -162,15 +149,57 @@ export function FittingSurfacePanel() {
   );
 }
 
-function SurfaceMessage({ title, body }: { title: string; body?: string }) {
+function SurfaceMessage({
+  eyebrow,
+  title,
+  body,
+  tone = "neutral",
+  loading = false,
+  action
+}: {
+  eyebrow: string;
+  title: string;
+  body?: string;
+  tone?: "neutral" | "error";
+  loading?: boolean;
+  action?: { label: string; onClick: () => void };
+}) {
   return (
-    <main style={{ padding: "48px 36px" }}>
-      <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
-        {title}
-      </h1>
-      {body ? (
-        <p style={{ color: "var(--mute)", fontSize: 13 }}>{body}</p>
-      ) : null}
+    <main
+      className="grid min-h-[58dvh] place-items-center px-5 py-12 sm:px-8"
+      aria-busy={loading || undefined}
+    >
+      <section
+        className="w-full max-w-xl border-l-[3px] bg-[var(--surface)] px-5 py-6 sm:px-7 sm:py-8"
+        style={{ borderLeftColor: tone === "error" ? "var(--alarm)" : "var(--brass)" }}
+        role={tone === "error" ? "alert" : loading ? "status" : undefined}
+      >
+        <div
+          className="font-mono text-[10px] uppercase tracking-[0.18em]"
+          style={{ color: tone === "error" ? "var(--alarm)" : "var(--brass)" }}
+        >
+          {eyebrow}
+        </div>
+        <h1 className="font-display mb-0 mt-2 text-2xl font-semibold leading-tight tracking-[-0.02em] text-[var(--ink)]">
+          {title}
+        </h1>
+        {body ? <p className="mb-0 mt-3 max-w-[58ch] text-sm leading-6 text-[var(--mute)]">{body}</p> : null}
+        {loading ? (
+          <div className="mt-5 grid gap-2" aria-hidden>
+            <span className="skeleton-line h-2.5 w-4/5 rounded-sm" />
+            <span className="skeleton-line h-2.5 w-3/5 rounded-sm" />
+          </div>
+        ) : null}
+        {action ? (
+          <button
+            type="button"
+            className="btn small primary mt-5 active:translate-y-px"
+            onClick={action.onClick}
+          >
+            {action.label}
+          </button>
+        ) : null}
+      </section>
     </main>
   );
 }

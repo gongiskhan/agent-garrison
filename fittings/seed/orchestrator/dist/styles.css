@@ -576,3 +576,136 @@ button:focus-visible, .seg:focus-visible {
 
 /* Click-to-assign: the armed tray card (click to arm, click a cell/row to assign) */
 .tcard.armed { outline: 2px solid var(--sage-2); outline-offset: 2px; box-shadow: 0 0 0 4px var(--sage-soft); }
+
+/* ── Fortress operations-room refit ────────────────────────────────────── */
+:root {
+  --paper: #f2eee3;
+  --paper-2: #e8e1d1;
+  --paper-3: #ddd3bf;
+  --ink: #182019;
+  --ink-2: #263127;
+  --ink-mute: #465047;
+  --sage: #45634b;
+  --sage-2: #58785d;
+  --sage-soft: #dfe8dd;
+  --brass: #9b7a3d;
+  --brass-2: #c3a15a;
+  --rule: #c9bea8;
+  --rule-2: #a99b80;
+  --mute: #62685f;
+  --mute-2: #7a7d73;
+  --alarm: #913e35;
+  --alarm-soft: #f1dfda;
+  --warn: #8d6828;
+  --warn-soft: #eee2c6;
+  --edge-sage: #bdcdbb;
+  --edge-warn: #d7c49b;
+  --deep-brass: #6f4e18;
+  --olive: #273126;
+  --olive-2: #344135;
+  --sans: "Avenir Next", Avenir, "Barlow", "DIN Alternate", "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style", "Source Serif 4", "Palatino Linotype", Georgia, serif;
+  --mono: "SFMono-Regular", "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+}
+
+body {
+  min-height: 100dvh;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(rgba(39, 49, 38, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 49, 38, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 12% 0%, rgba(155, 122, 61, 0.09), transparent 32rem);
+  background-size: 28px 28px, 28px 28px, auto;
+  text-wrap: pretty;
+}
+::selection { background: rgba(195, 161, 90, 0.3); }
+button, input, select, textarea, .seg, .tcard, .matrix-cell {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+button:active, .seg:active { transform: translateY(1px); }
+
+.topbar {
+  min-height: 66px;
+  padding: 12px 18px;
+  background: var(--olive);
+  color: #f5efdf;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 30px rgba(28, 34, 26, 0.18);
+}
+.topbar h1 {
+  color: #fffaf0;
+  font-size: 25px;
+  letter-spacing: -0.03em;
+}
+.topbar .seg {
+  color: #c7bfae;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.topbar .seg:hover:not(.on) {
+  color: #fffaf0;
+  border-color: var(--brass-2);
+}
+.topbar .seg.on {
+  background: var(--brass-2);
+  border-color: var(--brass-2);
+  color: var(--olive);
+}
+.topbar .status {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #c7bfae;
+}
+.topbar .primary-picker label { color: #bdb5a5; }
+.topbar .primary-picker select {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5efdf;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.topbar .primary-picker select option { background: var(--paper); color: var(--ink); }
+.board {
+  max-width: 1320px;
+  padding: clamp(24px, 4vw, 48px) clamp(18px, 3vw, 34px) 72px;
+}
+.surface { margin-bottom: clamp(34px, 5vw, 58px); }
+.surface-h {
+  color: var(--brass);
+  letter-spacing: 0.14em;
+}
+.surface-hint { max-width: 72ch; font-size: 13px; }
+.tray { gap: 14px; }
+.tcard, .matrix, .rail, .collapsible, .try-strip, .recent {
+  background: rgba(249, 246, 237, 0.82);
+  border-color: var(--rule);
+  box-shadow: 0 16px 38px rgba(35, 42, 33, 0.055);
+}
+.tcard {
+  min-width: 205px;
+  padding: 14px;
+}
+.tcard:hover { border-color: var(--rule-2); box-shadow: 0 18px 40px rgba(35, 42, 33, 0.09); }
+button, input, select, textarea, .seg, .glyph, .token, .tcard, .lease-item {
+  border-radius: 1px;
+}
+button.primary {
+  background: var(--olive);
+  border-color: var(--olive);
+  color: #f5efdf;
+}
+button.primary:hover:not(:disabled) { background: var(--olive-2); border-color: var(--olive-2); }
+.sheet-scrim { background: rgba(24, 31, 24, 0.72); backdrop-filter: blur(3px); }
+.inspector {
+  background: #f5f0e5;
+  border-left-color: var(--brass);
+  box-shadow: -22px 0 60px rgba(26, 32, 25, 0.26);
+}
+.ghost-diff { background: #171e18; }
+
+@media (pointer: coarse) {
+  button, .seg, input, select, textarea { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -30,6 +30,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
+import { GarrisonMark } from "./GarrisonMark";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
@@ -64,7 +65,11 @@ export function Sidebar() {
   const liveViews = viewStatuses.filter((s) => s.healthy === true).length;
   const knownViews = viewStatuses.length;
 
-  const isCompose = pathname === "/compose" || pathname.startsWith("/compose/");
+  const isCompose =
+    pathname === "/muster" ||
+    pathname.startsWith("/muster/") ||
+    pathname === "/compose" ||
+    pathname.startsWith("/compose/");
 
   // Live-ticking uptime while the operative is up. Recomputed each second so
   // the footer reads like a running clock rather than a stale snapshot.
@@ -118,7 +123,7 @@ export function Sidebar() {
       className={clsx("side", overlay && "side-overlay")}
       role={overlay ? "dialog" : undefined}
       aria-modal={overlay ? true : undefined}
-      aria-label={overlay ? "Garrison menu" : undefined}
+      aria-label={overlay ? "Garrison menu" : "Primary navigation"}
       onClick={
         overlay
           ? (event) => {
@@ -151,16 +156,10 @@ export function Sidebar() {
           : undefined
       }
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 2 }}>
-        <Link className="brand" href="/" style={{ flex: 1, paddingBottom: 0, borderBottom: "none", marginBottom: 0 }}>
+      <div className="side-brand-row">
+        <Link className="brand" href="/" aria-label="Agent Garrison home">
           <span className="brand-mark" aria-hidden>
-            <svg viewBox="0 0 80 80" fill="none" width={32} height={32}>
-              <path
-                d="M14 24 L19 18 L24 24 L24 64 L14 64 Z M28 20 L33 14 L38 20 L38 64 L28 64 Z M42 24 L47 18 L52 24 L52 64 L42 64 Z M56 20 L61 14 L66 20 L66 64 L56 64 Z"
-                fill="#18211c"
-              />
-              <rect x="10" y="40" width="60" height="3" fill="#b4862a" />
-            </svg>
+            <GarrisonMark />
           </span>
           <span className="brand-text">
             <span className="name">Agent Garrison</span>
@@ -171,23 +170,15 @@ export function Sidebar() {
           type="button"
           onClick={toggleSidebar}
           title="Collapse sidebar"
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--mute)",
-            display: "flex",
-            alignItems: "center",
-            padding: 4,
-            flexShrink: 0,
-          }}
+          className="side-collapse"
+          aria-label="Collapse sidebar"
         >
           <ChevronLeft size={14} aria-hidden />
         </button>
       </div>
-      <div style={{ borderBottom: "1px solid var(--rule)", marginBottom: 0 }} />
 
-      <nav className="tabs">
+      <nav className="tabs" aria-label="Garrison">
+        <div className="nav-section-label">Command</div>
         <NavLink href="/" pathname={pathname} icon={<Home aria-hidden />} label="Garrison" />
         <NavLink
           href="/compose"
@@ -287,35 +278,20 @@ function CollapsedRail({
 }) {
   return (
     <aside
-      className="side"
-      style={{ padding: "10px 4px", alignItems: "center", overflow: "hidden" }}
+      className="side side-rail"
+      aria-label="Collapsed primary navigation"
     >
       <button
         type="button"
         onClick={onExpand}
         title="Expand sidebar"
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          color: "var(--mute)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 6,
-          width: "100%",
-        }}
+        className="side-rail-toggle"
+        aria-label="Expand sidebar"
       >
         <ChevronRight size={16} aria-hidden />
       </button>
-      <Link href="/" title="Agent Garrison" style={{ display: "block", marginTop: 8, lineHeight: 0 }}>
-        <svg viewBox="0 0 80 80" fill="none" width={32} height={32} aria-hidden>
-          <path
-            d="M14 24 L19 18 L24 24 L24 64 L14 64 Z M28 20 L33 14 L38 20 L38 64 L28 64 Z M42 24 L47 18 L52 24 L52 64 L42 64 Z M56 20 L61 14 L66 20 L66 64 L56 64 Z"
-            fill="#18211c"
-          />
-          <rect x="10" y="40" width="60" height="3" fill="#b4862a" />
-        </svg>
+      <Link href="/" title="Agent Garrison" className="side-rail-brand">
+        <GarrisonMark aria-hidden="true" />
       </Link>
       {switching || switchError ? (
         // The switch state lives in the expanded footer; while collapsed,
@@ -333,14 +309,7 @@ function CollapsedRail({
               ? "Composition switch failed - expand the menu for details"
               : "Switching composition"
           }
-          style={{
-            display: "block",
-            marginTop: 12,
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: switchError ? "var(--alarm)" : "var(--sage-2)"
-          }}
+          className={clsx("side-rail-state", switchError ? "is-error" : "is-switching")}
         />
       ) : null}
     </aside>
@@ -483,13 +452,19 @@ function FittingViewsLinks({
   // and tint their icon by health; embedded views are always reachable.
   return (
     <>
+      <div className="nav-section-label nav-section-views">Views</div>
       {rows.map((row) => {
         const Icon = viewIcon(row.entry, row.kind === "own-port");
         if (row.kind === "embedded") {
           const href = `/fitting/${row.entry.id}`;
           const isActive = pathname === href || pathname.startsWith(`${href}/`);
           return (
-            <Link key={`embedded:${row.entry.id}`} href={href} className={clsx("item", isActive && "active")}>
+            <Link
+              key={`embedded:${row.entry.id}`}
+              href={href}
+              className={clsx("item", isActive && "active")}
+              aria-current={isActive ? "page" : undefined}
+            >
               <span>
                 <span className="ic"><Icon aria-hidden /></span>
                 {row.entry.name}
@@ -499,13 +474,13 @@ function FittingViewsLinks({
         }
         const status = row.status;
         const healthy = status?.healthy === true;
-        const iconColor = healthy
-          ? "var(--sage)"
-          : status?.healthy === false
-            ? "var(--alarm)"
-            : "var(--mute)";
         const icon = (
-          <span className="ic" style={{ color: iconColor }}>
+          <span
+            className={clsx(
+              "ic",
+              healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off"
+            )}
+          >
             <Icon aria-hidden />
           </span>
         );
@@ -538,6 +513,7 @@ function FittingViewsLinks({
               key={`own-port:${row.entry.id}`}
               href={embedHref}
               className={clsx("item", isActive && "active")}
+              aria-current={isActive ? "page" : undefined}
               title={`Open ${row.entry.name} embedded (${openUrl})`}
             >
               <span>
@@ -555,6 +531,7 @@ function FittingViewsLinks({
             key={`own-port:${row.entry.id}`}
             href={fallbackHref}
             className={clsx("item", isActive && "active")}
+            aria-current={isActive ? "page" : undefined}
             title={status?.healthy === false ? "View is unreachable" : "View is not running"}
           >
             <span>
@@ -602,21 +579,20 @@ function CompositionSwitcher() {
   const selectValue = activeExternal && activePointer ? activePointer : activeId ?? "";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingBottom: 6 }}>
+    <div className="composition-switcher">
       <div className="row">
         <label htmlFor="composition-switcher">operative</label>
-        {switching ? <span>switching...</span> : null}
+        {switching ? <span role="status">switching...</span> : null}
       </div>
       <select
         id="composition-switcher"
-        className="text"
+        className="text composition-switch"
         value={selectValue}
         disabled={switching}
         onChange={(event) => {
           const target = event.target.value;
           if (target && target !== selectValue) switchTo(target);
         }}
-        style={{ width: "100%", padding: "5px 8px", fontSize: 12 }}
       >
         {activeExternal && activePointer ? (
           <option value={activePointer}>{`${activeId ?? activePointer} (external)`}</option>
@@ -628,27 +604,16 @@ function CompositionSwitcher() {
         ))}
       </select>
       {switchError ? (
-        <div
-          role="alert"
-          onClick={dismissSwitchError}
-          title="Click to dismiss"
-          style={{
-            fontSize: 10.5,
-            color: "var(--alarm)",
-            background: "var(--alarm-soft)",
-            border: "1px solid var(--alarm)",
-            borderRadius: 4,
-            padding: "5px 8px",
-            whiteSpace: "pre-wrap",
-            cursor: "pointer",
-            lineHeight: 1.4,
-            // A multi-line resolver error must never swallow the menu at
-            // landscape-phone heights; clamp and scroll instead.
-            maxHeight: 96,
-            overflowY: "auto"
-          }}
-        >
-          {switchError}
+        <div role="alert" className="composition-switch-error">
+          <span>{switchError}</span>
+          <button
+            type="button"
+            onClick={dismissSwitchError}
+            title="Dismiss error"
+            aria-label="Dismiss composition switch error"
+          >
+            ×
+          </button>
         </div>
       ) : null}
     </div>
@@ -672,7 +637,11 @@ function NavLink({
 }) {
   const isActive = active ?? (href === "/" ? pathname === "/" : pathname === href);
   return (
-    <Link href={href} className={clsx("item", isActive && "active")}>
+    <Link
+      href={href}
+      className={clsx("item", isActive && "active")}
+      aria-current={isActive ? "page" : undefined}
+    >
       <span>
         <span className="ic">{icon}</span>
         {label}

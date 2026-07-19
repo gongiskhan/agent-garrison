@@ -526,3 +526,156 @@ html, body, #root {
 .devtools-shell.dragging .shell-right {
   pointer-events: none;
 }
+
+/* ─── Fortress operations-room refit ─────────────────────────
+   Browser is a command surface: dark olive chrome around a warm, map-like
+   dossier canvas. The remote page remains visually untouched on the canvas. */
+:root {
+  --paper: #f2eee3;
+  --paper-2: #e8e1d1;
+  --paper-3: #ddd3bf;
+  --ink: #182019;
+  --ink-2: #263127;
+  --ink-mute: #465047;
+  --sage: #45634b;
+  --sage-2: #58785d;
+  --sage-soft: #dfe8dd;
+  --brass: #9b7a3d;
+  --brass-2: #c3a15a;
+  --rule: #c9bea8;
+  --rule-2: #a99b80;
+  --mute: #62685f;
+  --mute-2: #7a7d73;
+  --alarm: #913e35;
+  --alarm-soft: #f1dfda;
+  --warn: #8d6828;
+  --warn-soft: #eee2c6;
+  --olive: #273126;
+  --olive-2: #344135;
+  --sans: "Avenir Next", Avenir, "Barlow", "DIN Alternate", "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style", "Source Serif 4", "Palatino Linotype", Georgia, serif;
+  --mono: "SFMono-Regular", "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+}
+
+html, body, #root {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(rgba(39, 49, 38, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 49, 38, 0.028) 1px, transparent 1px),
+    radial-gradient(circle at 18% 0%, rgba(155, 122, 61, 0.1), transparent 30rem);
+  background-size: 28px 28px, 28px 28px, auto;
+  text-wrap: pretty;
+}
+
+::selection { background: rgba(195, 161, 90, 0.3); }
+:focus-visible {
+  outline: 2px solid var(--brass-2) !important;
+  outline-offset: 2px;
+}
+
+button, .opt, .tabs-list a, input {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+button:active, .opt:active, .tabs-list a:active { transform: translateY(1px); }
+
+.tabs-list {
+  max-width: 860px;
+  padding: clamp(54px, 9vh, 104px) clamp(20px, 5vw, 54px) 64px;
+}
+.tabs-list h1 {
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  padding-bottom: 22px;
+  margin-bottom: 26px;
+  border-bottom-color: var(--rule-2);
+}
+.tabs-list h1::before {
+  color: var(--brass);
+  letter-spacing: 0.22em;
+  margin-bottom: 14px;
+}
+.tabs-list .new-tab-form {
+  gap: 0;
+  box-shadow: 0 18px 44px rgba(35, 42, 33, 0.1);
+}
+.tabs-list .new-tab-form input {
+  min-height: 48px;
+  background: rgba(255, 253, 247, 0.82);
+  border-color: var(--rule-2);
+}
+.tabs-list .new-tab-form button {
+  min-height: 48px;
+  background: var(--olive);
+  border-color: var(--olive);
+  color: #f6f0df;
+  padding-inline: 20px;
+}
+.tabs-list .new-tab-form button:hover { background: var(--olive-2); }
+.tabs-list .tab-row {
+  background: rgba(250, 247, 238, 0.82);
+  border-color: var(--rule);
+  padding: 15px 16px;
+}
+.tabs-list .empty {
+  min-height: 142px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule);
+  background: rgba(232, 225, 209, 0.54);
+  color: var(--mute);
+  font: 10px/1.5 var(--mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.urlbar {
+  min-height: 52px;
+  background: var(--olive);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  color: #f3eddd;
+  box-shadow: 0 8px 24px rgba(26, 31, 24, 0.18);
+}
+.urlbar button, .urlbar .opt, .urlbar a.opt {
+  color: #e8e0ce;
+  border-color: rgba(232, 224, 206, 0.2);
+  background: rgba(255, 255, 255, 0.035);
+}
+.urlbar button:hover, .urlbar .opt:hover, .urlbar a.opt:hover {
+  color: #fffaf0;
+  border-color: var(--brass-2);
+  background: rgba(195, 161, 90, 0.13);
+}
+.urlbar .active {
+  background: var(--brass-2) !important;
+  color: var(--olive) !important;
+  border-color: var(--brass-2) !important;
+}
+.urlbar input {
+  min-height: 36px;
+  background: #f6f1e6;
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--ink);
+}
+.canvas-wrapper { background: #151a16; }
+.conn-overlay {
+  background: rgba(39, 49, 38, 0.94);
+  color: #f3eddd;
+  backdrop-filter: blur(8px);
+}
+.devtools-shell .shell-divider {
+  background: var(--olive);
+  border-color: var(--brass);
+}
+
+@media (pointer: coarse) {
+  button, .opt, .tabs-list a { min-height: 44px; min-width: 44px; }
+  .urlbar { gap: 7px; padding-block: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

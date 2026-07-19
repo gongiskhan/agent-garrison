@@ -20,6 +20,7 @@ import { launchTour, listTours } from "../lib/tours.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FITTING_DIR = path.resolve(__dirname, "..");
 const TOURS_DIR = path.join(FITTING_DIR, "tours");
+const UI_FILE = path.join(FITTING_DIR, "dist", "index.html");
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 
@@ -55,6 +56,14 @@ function send(res, code, obj) {
   res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
   res.end(body);
 }
+function sendHtml(res, html) {
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "content-length": Buffer.byteLength(html),
+    "cache-control": "no-store"
+  });
+  res.end(html);
+}
 function readBody(req) {
   return new Promise((resolve) => {
     let b = "";
@@ -69,7 +78,10 @@ export function createServer() {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     try {
-      if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/")) {
+      if (req.method === "GET" && url.pathname === "/") {
+        return sendHtml(res, readFileSync(UI_FILE, "utf8"));
+      }
+      if (req.method === "GET" && url.pathname === "/health") {
         return send(res, 200, { ok: true, port: SERVER_PORT, pid: process.pid, modes: ["answer", "guide", "build"], index: ensureIndex().size });
       }
       if (req.method === "POST" && url.pathname === "/answer") {

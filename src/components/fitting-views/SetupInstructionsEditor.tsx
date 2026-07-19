@@ -90,24 +90,39 @@ export function SetupInstructionsEditor({
   }
 
   return (
-    <section data-testid="setup-instructions" style={{ marginTop: 28 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+    <section
+      data-testid="setup-instructions"
+      style={{
+        marginTop: 34,
+        borderTop: "1px solid var(--rule-2)",
+        paddingTop: 24
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div>
-          <h2 className="font-display" style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
+          <div className="font-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--brass)", marginBottom: 4 }}>
+            Installation sequence
+          </div>
+          <h2 className="font-display" style={{ fontSize: 22, lineHeight: 1.15, fontWeight: 600, letterSpacing: "-0.02em", margin: 0 }}>
             Setup instructions
           </h2>
-          <p className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)", margin: "3px 0 0", lineHeight: 1.5 }}>
+          <p style={{ maxWidth: 620, fontSize: 13, color: "var(--mute)", margin: "7px 0 0", lineHeight: 1.6 }}>
             One-time steps run, in order, when this Fitting is installed. They are saved automatically.
           </p>
         </div>
         <span
           data-testid="setup-save-status"
           className="font-mono"
+          role="status"
+          aria-live="polite"
           style={{
             fontSize: 10.5,
             letterSpacing: "0.08em",
             textTransform: "uppercase",
             whiteSpace: "nowrap",
+            border: status === "idle" ? "1px solid transparent" : "1px solid var(--rule)",
+            background: status === "idle" ? "transparent" : "var(--surface)",
+            padding: status === "idle" ? "4px 0" : "4px 7px",
             color:
               status === "error" ? "var(--alarm)" : status === "saved" ? "var(--sage)" : "var(--mute)"
           }}
@@ -116,37 +131,48 @@ export function SetupInstructionsEditor({
         </span>
       </div>
 
-      <ol style={{ listStyle: "none", margin: "14px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+      <ol style={{ listStyle: "none", margin: "18px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
         {steps.length === 0 ? (
           <li
-            className="font-mono"
             data-testid="setup-empty"
             style={{
-              fontSize: 12.5,
+              fontSize: 13,
+              lineHeight: 1.65,
               color: "var(--mute)",
               border: "1px dashed var(--rule-2)",
-              background: "var(--paper-2)",
+              borderLeft: "3px solid var(--brass)",
+              background: "var(--surface)",
               padding: "16px 18px"
             }}
           >
-            No setup needed — this Fitting works as soon as it&apos;s installed. Add a step if it has a one-time
-            dependency.
+            <b style={{ color: "var(--ink)" }}>Ready without setup.</b>{" "}
+            This Fitting works as soon as it&apos;s installed. Add a step if it has a one-time dependency.
           </li>
         ) : (
           steps.map((step, i) => (
             <li
               key={i}
               data-testid={`setup-step-${i}`}
-              style={{ border: "1px solid var(--rule)", background: "white", padding: "12px 14px" }}
+              style={{
+                border: "1px solid var(--rule)",
+                borderTop: "2px solid var(--brass)",
+                background: "var(--surface)",
+                padding: "14px 15px"
+              }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 9, marginBottom: 10 }}>
                 <span
                   className="font-mono"
                   style={{
-                    fontSize: 11,
-                    color: "var(--brass)",
-                    minWidth: 22,
-                    fontWeight: 600
+                    display: "grid",
+                    placeItems: "center",
+                    fontSize: 10,
+                    color: "var(--paper)",
+                    background: "var(--ink)",
+                    width: 28,
+                    height: 28,
+                    fontWeight: 600,
+                    letterSpacing: "0.08em"
                   }}
                 >
                   {String(i + 1).padStart(2, "0")}
@@ -157,19 +183,20 @@ export function SetupInstructionsEditor({
                   value={step.label ?? ""}
                   placeholder="Step name (optional) — e.g. Install the browser"
                   onChange={(e) => updateStep(i, { label: e.target.value })}
+                  className="min-w-[180px] rounded-[3px] transition hover:bg-[var(--paper-2)] focus:bg-[var(--paper)]"
                   style={{
                     flex: 1,
                     border: "none",
-                    borderBottom: "1px solid transparent",
+                    borderBottom: "1px solid var(--rule)",
                     fontFamily: "inherit",
                     fontSize: 13.5,
                     fontWeight: 600,
                     background: "transparent",
                     color: "var(--ink)",
-                    padding: "2px 0"
+                    padding: "5px 7px"
                   }}
                 />
-                <div style={{ display: "flex", gap: 4 }}>
+                <div style={{ display: "flex", gap: 5, marginLeft: "auto" }}>
                   <StepButton
                     testid={`setup-step-up-${i}`}
                     label="Move up"
@@ -197,22 +224,24 @@ export function SetupInstructionsEditor({
                 value={step.command}
                 placeholder="Command to run — e.g. npm i -g playwright"
                 onChange={(e) => updateStep(i, { command: e.target.value })}
+                className="rounded-[4px] transition hover:border-[var(--rule-2)] focus:border-[var(--brass)]"
                 style={{
                   width: "100%",
                   border: "1px solid var(--rule)",
-                  background: "var(--paper-2)",
+                  background: "var(--surface-strong)",
                   fontFamily: "var(--font-mono, monospace)",
                   fontSize: 12.5,
                   color: "var(--ink)",
-                  padding: "7px 9px"
+                  padding: "9px 10px"
                 }}
               />
               <label
                 className="font-mono"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--mute)", marginTop: 7 }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11, color: "var(--mute)", marginTop: 9, cursor: "pointer" }}
               >
                 <input
                   type="checkbox"
+                  className="accent-[var(--sage)]"
                   data-testid={`setup-step-idempotent-${i}`}
                   checked={step.idempotent}
                   onChange={(e) => updateStep(i, { idempotent: e.target.checked })}
@@ -228,14 +257,15 @@ export function SetupInstructionsEditor({
         type="button"
         data-testid="setup-step-add"
         onClick={addStep}
-        className="font-mono"
+        className="font-mono rounded-[4px] transition hover:border-[var(--brass)] hover:bg-[var(--paper-2)] active:translate-y-px active:scale-[0.99]"
         style={{
-          marginTop: 12,
+          marginTop: 14,
           border: "1px solid var(--rule)",
-          background: "var(--paper)",
+          background: "var(--surface)",
           color: "var(--ink)",
           fontSize: 12,
-          padding: "7px 12px",
+          fontWeight: 600,
+          padding: "9px 13px",
           cursor: "pointer"
         }}
       >
@@ -266,13 +296,14 @@ function StepButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
+      className="rounded-[3px] transition hover:border-[var(--brass)] hover:bg-[var(--paper-2)] hover:text-[var(--ink)] active:translate-y-px disabled:hover:border-[var(--rule)] disabled:hover:bg-[var(--surface)]"
       style={{
         border: "1px solid var(--rule)",
-        background: "var(--paper)",
+        background: "var(--surface)",
         color: disabled ? "var(--rule-2)" : "var(--mute)",
         fontSize: 12,
-        width: 26,
-        height: 26,
+        width: 30,
+        height: 30,
         cursor: disabled ? "default" : "pointer",
         lineHeight: 1
       }}

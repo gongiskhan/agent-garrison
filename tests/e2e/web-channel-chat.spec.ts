@@ -178,15 +178,15 @@ test.describe("web-channel rich chat UI", () => {
     await expect(page.locator(".cc-slashitem", { hasText: "summarize" }).locator(".cc-badge-skill")).toBeVisible();
   });
 
-  test("wears the Garrison skin (cream paper + serif title)", async ({ page }) => {
+  test("wears the Garrison fortress skin (warm dossier + serif title)", async ({ page }) => {
     await page.goto(`http://127.0.0.1:${wcPort}/?console=1`);
     await expect(page.locator(".cc-root")).toBeVisible();
 
-    // The web-channel skin re-points the component palette at Garrison "paper"
-    // (#fbf8f1 = rgb(251, 248, 241)) — proving the override layer won, not the
-    // shared dark default (#0d1117).
+    // The web-channel skin re-points the component palette at Garrison's warm
+    // dossier canvas, proving the override layer won over the shared dark
+    // default (#0d1117).
     const bg = await page.locator(".cc-root").evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(bg).toBe("rgb(251, 248, 241)");
+    expect(bg).toBe("rgb(245, 240, 230)");
 
     // Title is set in the Source Serif display face.
     const titleFont = await page.locator(".cc-title").evaluate((el) => getComputedStyle(el).fontFamily);

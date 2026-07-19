@@ -1,0 +1,379 @@
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.72fr);
+  gap: 2rem;
+  align-items: end;
+  padding: 1.5rem 0 2.25rem;
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.header h1 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(3.8rem, 8vw, 7.5rem);
+  font-weight: 500;
+  line-height: 0.82;
+  letter-spacing: -0.055em;
+}
+
+.header p {
+  max-width: 35rem;
+  margin: 0;
+  color: var(--mute);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.7rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.vaultGrid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.72fr) minmax(0, 1.6fr);
+  gap: 1rem;
+  align-items: stretch;
+  margin-top: 1.5rem;
+}
+
+.statusPanel {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.5rem, 3vw, 2.35rem);
+  color: var(--paper);
+  background:
+    linear-gradient(135deg, rgba(15, 24, 18, 0.98), rgba(28, 44, 33, 0.96)),
+    var(--shell, #101813);
+}
+
+.statusPanel::after {
+  content: "";
+  position: absolute;
+  right: -4.5rem;
+  bottom: -4.5rem;
+  width: 13rem;
+  height: 13rem;
+  border: 1px solid rgba(200, 157, 69, 0.22);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2rem rgba(200, 157, 69, 0.045),
+    0 0 0 4rem rgba(200, 157, 69, 0.025);
+  pointer-events: none;
+}
+
+.statusTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statusLamp {
+  width: 0.58rem;
+  height: 0.58rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--brass);
+  box-shadow: 0 0 0 0.28rem rgba(169, 120, 46, 0.12);
+}
+
+.statusLampLive {
+  background: #78a687;
+  box-shadow: 0 0 0 0.28rem rgba(86, 139, 104, 0.14);
+}
+
+.statusPanel h2 {
+  max-width: 7ch;
+  margin: 2.2rem 0 0.8rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2.8rem, 5vw, 4.8rem);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+}
+
+.statusPanel > p {
+  max-width: 33rem;
+  margin: 0;
+  color: rgba(244, 239, 226, 0.62);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.statusLedger {
+  display: grid;
+  gap: 0;
+  margin: 2rem 0 1.6rem;
+  border-top: 1px solid rgba(244, 239, 226, 0.16);
+}
+
+.statusLedger div {
+  display: grid;
+  grid-template-columns: 6.4rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid rgba(244, 239, 226, 0.1);
+}
+
+.statusLedger dt,
+.statusLedger dd,
+.readyMark {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+}
+
+.statusLedger dt {
+  color: rgba(244, 239, 226, 0.42);
+}
+
+.statusLedger dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: rgba(244, 239, 226, 0.88);
+}
+
+.readyMark {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  color: #a7c2af;
+}
+
+.readyMark span {
+  font-size: 0.55rem;
+}
+
+.secretsPanel {
+  min-width: 0;
+  border-top: 3px solid var(--ink);
+  background: var(--surface, #f8f4eb);
+  box-shadow: 0 1.2rem 2.8rem rgba(34, 44, 36, 0.08);
+}
+
+.secretsHead {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.35rem 1.5rem 1.15rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.secretsHead h2 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.7rem, 3vw, 2.45rem);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.secretsHead h2 span {
+  margin-left: 0.35rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  color: var(--brass);
+}
+
+.secretActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.secretRows {
+  padding: 0 1.5rem 0.5rem;
+}
+
+.secretRow {
+  grid-template-columns: minmax(9.5rem, 0.72fr) minmax(12rem, 1fr) auto auto;
+  grid-template-areas:
+    "key value reveal remove"
+    "consumer consumer consumer consumer";
+  gap: 0.65rem 0.75rem;
+  padding: 1rem 0;
+  background: transparent;
+}
+
+.secretField {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.secretField > span {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.secretField input {
+  min-height: 2.75rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.74rem;
+}
+
+.secretField:first-child {
+  grid-area: key;
+}
+
+.secretField:nth-child(2) {
+  grid-area: value;
+}
+
+.rowButton {
+  align-self: end;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.72rem;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.rowButton:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.removeButton {
+  color: var(--alarm);
+}
+
+.consumer {
+  grid-area: consumer;
+  font-size: 0.64rem;
+  letter-spacing: 0.035em;
+  color: var(--mute);
+}
+
+.consumer b {
+  color: var(--ink);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.73rem;
+  font-weight: 600;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: start;
+  min-height: 17rem;
+  align-content: center;
+  padding: 2.5rem;
+}
+
+.emptyState > span {
+  margin-bottom: 1rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 2.4rem;
+  color: var(--brass);
+}
+
+.emptyState strong {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+}
+
+.emptyState p {
+  max-width: 34rem;
+  margin: 0.45rem 0 0;
+  color: var(--mute);
+}
+
+.lifecycleHead {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(18rem, 0.65fr);
+  gap: 0 2rem;
+  align-items: end;
+  margin: clamp(3.5rem, 8vw, 7rem) 0 1rem;
+}
+
+.lifecycleHead .eyebrow {
+  grid-column: 1 / -1;
+}
+
+.lifecycleHead h2 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+  font-weight: 500;
+  line-height: 0.94;
+  letter-spacing: -0.04em;
+}
+
+.lifecycleHead p {
+  margin: 0;
+  color: var(--mute);
+  line-height: 1.6;
+}
+
+.tableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border-top: 3px solid var(--ink);
+}
+
+@media (max-width: 900px) {
+  .vaultGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .statusPanel h2 {
+    max-width: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .header,
+  .lifecycleHead {
+    grid-template-columns: 1fr;
+  }
+
+  .header h1 {
+    margin-bottom: 1.25rem;
+  }
+
+  .secretsHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .secretActions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .secretActions :global(.btn) {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .secretRow {
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas:
+      "key key key"
+      "value reveal remove"
+      "consumer consumer consumer";
+  }
+
+  .lifecycleHead p {
+    margin-top: 1rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .rowButton {
+    min-width: 2.75rem;
+  }
+}

@@ -1479,6 +1479,298 @@
   }
 }
 
+/* Fortress operations redesign (2026-07)
+   Muster is the composition's command table. The shell now uses dark command
+   chrome around warm dossier surfaces, so this central workspace carries the
+   same hierarchy instead of reading as a long settings form. */
+.console {
+  max-width: 1440px;
+  padding: 24px clamp(22px, 4vw, 58px) 112px;
+}
+
+.commandBar {
+  position: relative;
+  isolation: isolate;
+  top: auto;
+  min-height: 260px;
+  align-items: flex-end;
+  margin: 0 0 22px;
+  padding: clamp(30px, 5vw, 62px);
+  overflow: hidden;
+  border: 0;
+  color: var(--paper);
+  background:
+    linear-gradient(112deg, rgba(14, 22, 17, 0.985), rgba(27, 43, 33, 0.95)),
+    var(--shell);
+  box-shadow: 0 28px 64px rgba(25, 35, 28, 0.14);
+}
+
+.commandBar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.2;
+  background-image:
+    linear-gradient(rgba(205, 162, 73, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(205, 162, 73, 0.2) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(90deg, transparent, #000 55%, transparent);
+}
+
+.commandBar::after {
+  left: clamp(30px, 5vw, 62px);
+  bottom: 0;
+  width: 136px;
+  height: 4px;
+  background: var(--brass-2);
+}
+
+.identity {
+  max-width: 760px;
+}
+
+.kicker {
+  margin-bottom: 12px;
+  color: var(--brass-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+}
+
+.title {
+  max-width: 13ch;
+  color: var(--paper);
+  font-size: clamp(45px, 6.5vw, 84px);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.titleId {
+  margin-top: 14px;
+  color: rgba(242, 235, 220, 0.5);
+  font-size: 11px;
+}
+
+.command {
+  align-items: flex-end;
+}
+
+.switcherLabel {
+  color: rgba(242, 235, 220, 0.5);
+}
+
+.select {
+  border-color: rgba(242, 235, 220, 0.22);
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--paper);
+}
+
+.select:hover,
+.select:focus {
+  border-color: var(--brass-2);
+}
+
+.select option {
+  background: var(--shell);
+  color: var(--paper);
+}
+
+.statusPill {
+  min-height: 44px;
+  background: transparent;
+  backdrop-filter: blur(10px);
+}
+
+.pillReady {
+  border-color: #80aa8e;
+  color: #b4cdbb;
+  background: rgba(68, 111, 82, 0.12);
+}
+
+.pillNotReady {
+  color: #e1a89e;
+  background: rgba(155, 54, 45, 0.1);
+}
+
+.readiness {
+  padding: 0 0 6px;
+}
+
+.rulePills {
+  gap: 6px;
+}
+
+.rulePill {
+  min-height: 32px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.sectionNav {
+  gap: clamp(20px, 4vw, 50px);
+  margin: 12px 0 18px;
+  border-bottom-color: var(--rule-2);
+}
+
+.navItem {
+  min-height: 62px;
+  padding: 12px 2px 16px;
+  font-size: clamp(20px, 2.2vw, 28px);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+.navItem::after {
+  height: 4px;
+}
+
+.navActive::after,
+.navActive:hover::after {
+  background: var(--brass);
+}
+
+.navCount {
+  border-color: transparent;
+  background: var(--paper-2);
+}
+
+.navActive .navCount {
+  border-color: var(--brass);
+  color: var(--brass);
+  background: transparent;
+}
+
+.stage {
+  padding: clamp(18px, 3vw, 34px);
+  border-top: 3px solid var(--ink);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 20px 52px rgba(31, 42, 34, 0.075);
+}
+
+.stageHead {
+  margin-bottom: 24px;
+}
+
+.stageLead {
+  max-width: 670px;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.dutiesPanel {
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 0.34fr);
+  gap: clamp(22px, 3.5vw, 48px);
+}
+
+.traySide {
+  top: 24px;
+  padding: 18px;
+  border: 0;
+  border-top: 3px solid var(--brass);
+  background: var(--paper-2);
+}
+
+.trayHeading {
+  margin-bottom: 7px;
+  font-weight: 600;
+}
+
+.dutyRow,
+.slotCard,
+.targetChip,
+.addPanel,
+.stateBox {
+  background: var(--surface);
+}
+
+.dutyRow {
+  border-left: 2px solid transparent;
+  transition: border-color 180ms ease, transform 180ms ease, background-color 180ms ease;
+}
+
+.dutyRow:hover {
+  border-left-color: var(--brass);
+}
+
+.dutyRow.expanded {
+  border-left-color: var(--sage);
+  box-shadow: 0 14px 30px rgba(31, 42, 34, 0.06);
+}
+
+.dutyToggle,
+.targetChip,
+.slotCard,
+.pickerItem,
+.addOption {
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.targetChip:hover,
+.slotCard:hover,
+.pickerItem:hover,
+.addOption:hover {
+  transform: translateY(-1px);
+}
+
+.standingGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 350px), 1fr));
+  gap: 14px;
+}
+
+.slotCard {
+  border-top: 2px solid var(--ink);
+  box-shadow: 0 12px 30px rgba(31, 42, 34, 0.05);
+}
+
+.slotHead {
+  padding: 16px;
+}
+
+.slotName {
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.fittingBlock {
+  padding: 15px 16px;
+}
+
+@media (max-width: 720px) {
+  .console {
+    padding: 0 14px 80px;
+  }
+
+  .commandBar {
+    min-height: 0;
+    margin-inline: -14px;
+    padding: 36px 20px 28px;
+  }
+
+  .command {
+    align-items: stretch;
+  }
+
+  .title {
+    font-size: clamp(42px, 14vw, 62px);
+  }
+
+  .sectionNav {
+    margin-top: 6px;
+  }
+
+  .navItem {
+    min-height: 52px;
+    font-size: 18px;
+  }
+
+  .stage {
+    margin-inline: -4px;
+    padding: 18px 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .slotFootBtn,
   .primaryBtn,

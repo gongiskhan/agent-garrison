@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Source_Serif_4, JetBrains_Mono } from "next/font/google";
+import { Barlow, Source_Serif_4, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/chrome/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/chrome/ServiceWorkerRegistrar";
 
-const inter = Inter({
+const barlow = Barlow({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1f3026",
+  themeColor: "#172019",
   width: "device-width",
   initialScale: 1
 };
@@ -57,7 +57,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${sourceSerif.variable} ${jetBrainsMono.variable}`}
+      className={`${barlow.variable} ${sourceSerif.variable} ${jetBrainsMono.variable}`}
     >
       <body>
         <AppShell>{children}</AppShell>

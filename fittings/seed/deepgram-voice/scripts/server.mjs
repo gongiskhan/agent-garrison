@@ -180,50 +180,53 @@ function handleStatusPage(res, opts) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#fbf8f1" />
+<meta name="theme-color" content="#273126" />
 <title>Voice Fitting - Deepgram</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
 :root{
-  --paper:#fbf8f1; --paper-2:#f4ede0; --paper-3:#ece2cc;
-  --ink:#18211c; --ink-2:#2a342e; --mute:#66695f; --mute-2:#7d8077;
-  --sage:#2f4a3a; --sage-2:#3d6249; --sage-soft:#eaf1e7;
-  --brass:#b4862a; --rule:#d6cdba; --rule-2:#c4b89f;
-  --alarm:#9b362d; --alarm-soft:#f7eae6;
-  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --serif:"Source Serif 4",Georgia,serif;
-  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --paper:#f2ecdf; --paper-2:#e8dfcf; --paper-3:#ddd1bb;
+  --ink:#202820; --ink-2:#303a31; --mute:#666b61; --mute-2:#85887f;
+  --sage:#526f58; --sage-2:#668267; --sage-soft:#dce6d9;
+  --brass:#b1954e; --rule:#cec2ab; --rule-2:#a99b82;
+  --alarm:#963f35; --alarm-soft:#f1ddd8;
+  --sans:Avenir,"Avenir Next","Barlow","Segoe UI",sans-serif;
+  --serif:Iowan Old Style,"Source Serif 4","Palatino Linotype",Georgia,serif;
+  --mono:"SFMono-Regular","Cascadia Code",Consolas,monospace;
 }
 *{box-sizing:border-box;}
-html,body{margin:0;background:var(--paper);-webkit-text-size-adjust:100%;}
+html,body{margin:0;background:#182019;-webkit-text-size-adjust:100%;}
 body{
   font-family:var(--sans); font-size:15px; line-height:1.55; color:var(--ink);
   -webkit-font-smoothing:antialiased;
   min-height:100vh; padding:40px 20px;
   display:flex; align-items:flex-start; justify-content:center;
+  background:
+    linear-gradient(rgba(177,149,78,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(177,149,78,.035) 1px,transparent 1px),
+    #182019;
+  background-size:30px 30px;
 }
 .card{
-  width:100%; max-width:620px; background:var(--paper);
-  border:1px solid var(--rule); border-radius:2px; overflow:hidden;
+  width:100%; max-width:680px; background:var(--paper);
+  border:1px solid #4e5b50; border-radius:2px; overflow:hidden;
+  box-shadow:0 24px 60px rgba(5,8,6,.3);
 }
 .card-head{
   display:flex; align-items:center; gap:12px;
-  padding:22px 24px; border-bottom:1px solid var(--rule);
-  background:var(--paper-2);
+  padding:24px; border-bottom:1px solid #59665a;
+  background:linear-gradient(90deg,rgba(177,149,78,.12),transparent 48%),#273126;
 }
-.mark{ flex-shrink:0; color:var(--sage-2); }
+.mark{ flex-shrink:0; color:#c7ae66; }
 .head-text{ min-width:0; }
 .kicker{
   font-family:var(--mono); font-size:10px; letter-spacing:0.14em;
-  text-transform:uppercase; color:var(--brass); margin-bottom:4px;
+  text-transform:uppercase; color:#c7ae66; margin-bottom:4px;
 }
 .title{
   font-family:var(--serif); font-weight:600; font-size:22px;
-  letter-spacing:-0.01em; color:var(--ink); line-height:1.15;
+  letter-spacing:-0.01em; color:#f5f0e6; line-height:1.15;
 }
-.subtitle{ font-size:13px; color:var(--mute); margin-top:3px; }
+.subtitle{ font-size:13px; color:#b7beb2; margin-top:3px; }
 .section{ padding:20px 24px; border-bottom:1px solid var(--rule); }
 .section:last-child{ border-bottom:0; }
 .label{

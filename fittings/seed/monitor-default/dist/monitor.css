@@ -663,3 +663,170 @@ body {
 .unit-other {
   color: var(--fg-muted);
 }
+
+/* Fortress operations-room refit */
+:root {
+  --bg: #f2ecdf;
+  --bg-elevated: #273126;
+  --bg-card: #f8f4eb;
+  --border: #cec2ab;
+  --border-strong: #a99b82;
+  --fg: #202820;
+  --fg-muted: #666b61;
+  --muted: #85887f;
+  --success: #668267;
+  --info: #506f58;
+  --warning: #9a762d;
+  --danger: #963f35;
+  --brass: #b1954e;
+  --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  --font: Avenir, "Avenir Next", "Barlow", "Segoe UI", sans-serif;
+  --serif: Iowan Old Style, "Source Serif 4", "Palatino Linotype", Georgia, serif;
+}
+
+html,
+body {
+  background:
+    linear-gradient(rgba(42,55,44,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42,55,44,.035) 1px, transparent 1px),
+    var(--bg);
+  background-size: 30px 30px;
+}
+
+.app-header {
+  min-height: 64px;
+  padding: 14px 22px;
+  background:
+    linear-gradient(90deg, rgba(177,149,78,.1), transparent 34%),
+    var(--bg-elevated);
+  border-bottom-color: #59665a;
+  color: #f5f0e6;
+  box-shadow: 0 10px 28px rgba(20,26,21,.12);
+}
+
+.app-header h1 {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -.012em;
+  text-transform: none;
+}
+
+.app-header .muted { color: #b7beb2; }
+.app-header .error { color: #ef9b8e; }
+.content { padding: 22px; }
+.grid { gap: 10px; }
+
+.card,
+.vital-card,
+.drilldown section {
+  background: rgba(248,244,235,.92);
+  border-color: var(--border);
+  border-radius: 2px;
+  box-shadow: 0 10px 28px rgba(31,40,32,.045);
+}
+
+.card {
+  border-left: 3px solid transparent;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  border-left-color: var(--brass);
+  box-shadow: 0 14px 32px rgba(31,40,32,.08);
+}
+
+.card:active,
+.tree-button:active,
+.link-btn:active {
+  transform: translateY(1px);
+}
+
+.card-label,
+.vital-title,
+.drilldown h3,
+.units-table th {
+  font-family: var(--mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.drilldown {
+  background: #ebe2d2;
+  border-left-color: var(--border-strong);
+}
+
+.drilldown-header {
+  background: #273126;
+  border-bottom-color: #59665a;
+  color: #f5f0e6;
+}
+
+.drilldown-header h2 {
+  font-family: var(--serif);
+  font-size: 18px;
+}
+
+.close-btn,
+.link-btn,
+.tree-button,
+.tab {
+  border-radius: 2px;
+  font-family: var(--font);
+}
+
+.close-btn {
+  min-width: 40px;
+  min-height: 40px;
+  color: #d9ddd4;
+}
+
+.tab-active,
+.tree-button-active {
+  border-color: var(--brass);
+  color: #5f522b;
+  box-shadow: inset 0 -2px 0 var(--brass);
+}
+
+.logs,
+.drilldown pre {
+  border-radius: 2px;
+  background: #141b16;
+  border-color: #344137;
+  color: #dce4d9;
+}
+
+.tag {
+  border-radius: 2px;
+  font-family: var(--mono);
+  letter-spacing: .035em;
+}
+
+.empty-state,
+.empty,
+.vitals-empty {
+  margin: 7vh auto;
+  max-width: 520px;
+  padding: 28px;
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--serif);
+  font-size: 16px;
+}
+
+:is(button, a, [tabindex]):focus-visible {
+  outline: 2px solid #b1954e;
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  :is(button, .tree-button, .tab, .link-btn) { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

@@ -522,7 +522,11 @@ function HooksRows({ view }: { view: SettingsView | null }) {
         <div style={{ padding: 20, color: "var(--mute)", fontSize: 13, textAlign: "center" }}>No hooks configured.</div>
       ) : (
         hooks.map((h, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "160px 160px 1fr", gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--rule)", alignItems: "center" }}>
+          <div
+            key={i}
+            className="settings-hook-row"
+            style={{ display: "grid", gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--rule)", alignItems: "center" }}
+          >
             <span className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{h.event}</span>
             <span className="pill" style={{ fontSize: 10.5, justifySelf: "start" }}>{h.owner}</span>
             <code style={{ fontSize: 11, color: "var(--mute)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

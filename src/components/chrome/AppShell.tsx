@@ -39,6 +39,7 @@ export interface AppShellState {
   vaultUnlocked: boolean;
   vaultNeedsPassword: boolean;
   vaultDevMode: boolean;
+  vaultKeySource: string;
   secrets: VaultSecret[];
   // ui state
   busy: string | null;
@@ -53,7 +54,7 @@ export interface AppShellState {
     globalConfig: GlobalConfig;
   }>) => Promise<void>;
   runAction: (action: "up" | "down" | "verify" | "dev") => Promise<void>;
-  unlockVault: (passphrase: string) => Promise<void>;
+  unlockVault: (passphrase?: string) => Promise<void>;
   setSecrets: (secrets: VaultSecret[]) => void;
   saveSecrets: () => Promise<void>;
   setError: (err: string | null) => void;
@@ -88,6 +89,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [vaultNeedsPassword, setVaultNeedsPassword] = useState(false);
   const [vaultDevMode, setVaultDevMode] = useState(false);
+  const [vaultKeySource, setVaultKeySource] = useState("unavailable");
   const [secrets, setSecrets] = useState<VaultSecret[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -209,6 +211,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       setVaultUnlocked(Boolean(vaultData.unlocked));
       setVaultNeedsPassword(Boolean(vaultData.needsPassword));
       setVaultDevMode(Boolean(vaultData.devMode));
+      setVaultKeySource(
+        typeof vaultData.keySource === "string" ? vaultData.keySource : "unavailable"
+      );
       setSecrets(vaultData.secrets ?? []);
       if (next?.id) {
         const stateRes = await fetch(`/api/runner/${next.id}/state`);
@@ -319,7 +324,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         const res = await fetch("/api/vault/unlock", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ passphrase })
+          body: JSON.stringify({ passphrase: passphrase ?? "" })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? res.statusText);
@@ -455,6 +460,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       vaultUnlocked,
       vaultNeedsPassword,
       vaultDevMode,
+      vaultKeySource,
       secrets,
       busy,
       error,
@@ -487,6 +493,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       vaultUnlocked,
       vaultNeedsPassword,
       vaultDevMode,
+      vaultKeySource,
       secrets,
       busy,
       error,
@@ -506,18 +513,27 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={value}>
-      <div
-        className="app-shell"
-        style={{
-          // At narrow widths the expanded sidebar is a fixed overlay drawer
-          // (out of flow), so the grid keeps the 48px rail column either way.
-          gridTemplateColumns:
-            sidebarCollapsed || narrowViewport ? "48px 1fr" : "244px 1fr"
-        }}
-      >
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <div className={`app-shell ${sidebarCollapsed || narrowViewport ? "shell-rail" : ""}`}>
         <Sidebar />
-        {children}
+        <div className="shell-content">
+          <span id="main-content" className="shell-main-anchor" tabIndex={-1} />
+          {children}
+        </div>
       </div>
+      {error ? (
+        <div className="shell-notice" role="alert" aria-live="assertive">
+          <div>
+            <span className="shell-notice-kicker">Command fault</span>
+            <p>{error}</p>
+          </div>
+          <button type="button" onClick={() => setError(null)}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       <CompositionCreator
         activeName={composition?.name ?? composition?.id ?? null}
         disabled={switching || activeExternal || !composition}
@@ -552,34 +568,57 @@ function CompositionCreator({
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLFormElement | null>(null);
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    submittingRef.current = submitting;
+  }, [submitting]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    const returnFocus = triggerRef.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !submittingRef.current) {
+        event.preventDefault();
+        setCreateOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusables = root.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+      window.requestAnimationFrame(() => returnFocus?.focus());
+    };
+  }, [createOpen]);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        top: 10,
-        right: 14,
-        zIndex: 40,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-end",
-        gap: 4,
-        maxWidth: "min(360px, calc(100vw - 28px))"
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 10px",
-          background: "var(--paper)",
-          border: "1px solid var(--rule)",
-          borderRadius: 6,
-          boxShadow: "0 1px 3px rgba(24, 33, 28, 0.08)"
-        }}
-      >
+    <div className="composition-creator">
+      <div className="composition-creator-trigger-wrap">
         <button
+          ref={triggerRef}
           type="button"
           disabled={disabled}
           onClick={() => setCreateOpen(true)}
@@ -589,18 +628,10 @@ function CompositionCreator({
               ? "Clone an in-repo composition to create a new one"
               : "Create from the active composition"
           }
-          style={{
-            border: "1px solid var(--rule)",
-            borderRadius: 5,
-            background: "var(--paper)",
-            color: "var(--ink)",
-            padding: "5px 8px",
-            fontSize: 12,
-            whiteSpace: "nowrap",
-            cursor: disabled ? "default" : "pointer"
-          }}
+          className="composition-creator-trigger"
         >
-          + New
+          <span aria-hidden="true">＋</span>
+          New composition
         </button>
       </div>
       {createOpen ? (
@@ -609,20 +640,13 @@ function CompositionCreator({
           aria-modal="true"
           aria-labelledby="new-composition-title"
           data-testid="new-composition-dialog"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 80,
-            display: "grid",
-            placeItems: "center",
-            padding: 20,
-            background: "rgba(18, 24, 21, 0.28)"
-          }}
+          className="composition-dialog-backdrop"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !submitting) setCreateOpen(false);
           }}
         >
           <form
+            ref={dialogRef}
             onSubmit={async (event) => {
               event.preventDefault();
               const name = newName.trim();
@@ -635,24 +659,17 @@ function CompositionCreator({
                 setCreateOpen(false);
               }
             }}
-            style={{
-              width: "min(420px, 100%)",
-              background: "var(--paper)",
-              color: "var(--ink)",
-              border: "1px solid var(--rule)",
-              borderRadius: 8,
-              boxShadow: "0 16px 48px rgba(12, 18, 15, 0.22)",
-              padding: 20
-            }}
+            className="composition-dialog"
           >
-            <h2 id="new-composition-title" style={{ margin: 0, fontSize: 18 }}>
+            <span className="composition-dialog-kicker">Clone operative</span>
+            <h2 id="new-composition-title">
               New composition
             </h2>
-            <p style={{ margin: "8px 0 16px", color: "var(--mute)", fontSize: 13, lineHeight: 1.45 }}>
-              Start from a clean copy of {activeName}.
+            <p className="composition-dialog-copy">
+              Start from a clean copy of {activeName ?? "the active composition"}.
               Runtime sessions and installed files are left behind.
             </p>
-            <label htmlFor="new-composition-name" style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
+            <label htmlFor="new-composition-name">
               Name
             </label>
             <input
@@ -664,14 +681,13 @@ function CompositionCreator({
               onChange={(event) => setNewName(event.target.value)}
               placeholder="Codex build crew"
               data-testid="new-composition-name"
-              style={{ width: "100%", padding: "8px 10px" }}
             />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+            <div className="composition-dialog-actions">
               <button
                 type="button"
                 disabled={submitting}
                 onClick={() => setCreateOpen(false)}
-                style={{ padding: "7px 11px" }}
+                className="btn ghost"
               >
                 Cancel
               </button>
@@ -679,7 +695,7 @@ function CompositionCreator({
                 type="submit"
                 disabled={submitting || !newName.trim()}
                 data-testid="new-composition-submit"
-                style={{ padding: "7px 11px" }}
+                className="btn primary"
               >
                 {submitting ? "Creating and starting…" : "Create and start"}
               </button>
