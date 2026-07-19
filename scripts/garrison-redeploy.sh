@@ -84,4 +84,19 @@ fi
 say "starting operative + eager fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 
+# --- 5. publish any newly-started own-port view to the tailnet --------------
+# Idempotent (existing mappings are kept). Without this a fitting that gains an
+# own port, or one started for the first time, has no `tailscale serve` mapping
+# and its embedded view is a BLANK pane over the tailnet: the iframe would need
+# a plain-HTTP frame on an HTTPS page, which the browser blocks as mixed
+# content. Exactly how drill's view broke.
+say "publishing own-port views to the tailnet"
+# Pass prod's identity explicitly: the script reads $GARRISON_HOME/ui-fittings to
+# find running views, and its own guard refuses any non-prod profile. Relying on
+# the ~/.garrison default would happen to work but would silently publish the
+# wrong instance's views if the default ever changed.
+GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
+  node "$REPO_ROOT/scripts/tailnet-serve-views.mjs" || \
+  echo "[redeploy] tailnet publish failed (views may be unreachable off-box)"
+
 say "done — prod serving $BASE (tailnet: https://dev-madrid.tail31efa.ts.net)"

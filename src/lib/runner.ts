@@ -43,6 +43,7 @@ import {
 } from "./kanban-model";
 import { garrisonDir } from "./claude-home";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
+import { claimComposition, releaseComposition } from "./composition-owner";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
@@ -163,6 +164,13 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
   try {
     await requireCommand(compositionId, "apm");
     const composition = await readCompositionWithDerivedTasks(compositionId);
+    // Claim the composition's working tree for THIS instance before anything
+    // destructive touches it. prod/dev/codex share one checkout, so an `up`
+    // from a second instance would run apm install + every setup hook inside
+    // the tree the first instance's operative is executing from, and would
+    // overwrite its materialized .env secrets from a different vault.
+    // Same-profile re-entry (restart, redeploy) just refreshes the record.
+    await claimComposition(composition.directory, compositionId);
     // Run evidence (WS4 / D6): record which composition started + a content hash
     // of its apm.yml, written EARLY (before the heavy install/verify/spawn steps)
     // so the record lands even if a later step fails. Best-effort - a failed
@@ -530,6 +538,10 @@ export async function down(compositionId: string): Promise<RunnerState> {
   record.gateway = undefined;
   const composition = await readCompositionWithDerivedTasks(compositionId);
   await wipeMaterializedEnv(composition.directory);
+  // Hand the working tree back so another instance may take it. Only the
+  // owning profile's release does anything, so this can never give away a
+  // tree that is still live under a different instance.
+  await releaseComposition(composition.directory);
   updateState(compositionId, { status: "stopped", pid: undefined, devMode: false });
   appendLog(compositionId, "runner", "Stopped and wiped materialised .env");
   return getRunnerState(compositionId);

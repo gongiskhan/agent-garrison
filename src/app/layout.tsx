@@ -35,6 +35,11 @@ export const metadata: Metadata = {
     title: "Garrison",
     statusBarStyle: "black-translucent"
   },
+  other: {
+    // `appleWebApp.capable` only emits the apple-prefixed tag; Chrome warns
+    // that it is deprecated in favour of the standard name and wants both.
+    "mobile-web-app-capable": "yes"
+  },
   icons: {
     icon: [
       { url: "/icons/icon.svg", type: "image/svg+xml" },
