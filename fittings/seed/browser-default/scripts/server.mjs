@@ -1560,6 +1560,45 @@ function proxyDevtools(req, res) {
   req.pipe(upstream);
 }
 
+// CSRF origin check, shared by the HTTP and WebSocket guards.
+//
+// This service drives a real browser and can read page content, so a malicious
+// webpage must never be able to call it. The original rule was "the Origin's
+// host must be loopback" — which also rejected the Fitting's OWN page whenever
+// Garrison was reached over the tailnet: a `<script type="module">` is fetched
+// with CORS, so it carries Origin: https://<tailnet-host>:<port>, got a 403,
+// and the SPA never booted (an empty Browser pane, while curl — which sends no
+// Origin — looked perfectly healthy).
+//
+// The correct test is same-origin: compare the Origin against the Host the
+// request actually arrived on. That is strictly safer than a host allowlist and
+// works on any hostname — loopback, tailnet or LAN — because a malicious page
+// at evil.com still sends Origin: https://evil.com against Host: <us>, which
+// mismatches. Verified that `tailscale serve` preserves the original Host
+// (it forwards Host + X-Forwarded-Host as the tailnet name), so a proxied
+// same-origin request compares equal.
+function isAllowedOrigin(origin, hostHeader) {
+  if (!origin) return true; // server-to-server callers send no Origin
+  let originHost;
+  try {
+    const parsedOrigin = new URL(origin);
+    const hostname = parsedOrigin.hostname;
+    if (
+      hostname === "127.0.0.1" ||
+      hostname === "localhost" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    ) {
+      return true;
+    }
+    originHost = parsedOrigin.host; // includes the port
+  } catch {
+    return false;
+  }
+  if (!hostHeader) return false;
+  return originHost.toLowerCase() === String(hostHeader).toLowerCase();
+}
+
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url || "/").pathname || "/";
   // SPA fallback: route /canvas/:tabId, /devtools-shell/:tabId and / to
@@ -2117,12 +2156,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       // Origin; the same-origin canvas sends a loopback Origin — both allowed.
       const reqOrigin = req.headers.origin;
       if (reqOrigin) {
-        let loopback = false;
-        try {
-          const h = new URL(reqOrigin).hostname;
-          loopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-        } catch { loopback = false; }
-        if (!loopback) {
+        if (!isAllowedOrigin(reqOrigin, req.headers.host)) {
           res.statusCode = 403;
           res.setHeader("content-type", "application/json");
           return res.end(JSON.stringify({ error: "cross-origin forbidden" }));
@@ -2217,17 +2251,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     // CSRF defense for the drivable WS surfaces (/input drives the browser): reject
     // a cross-origin (non-loopback) Origin, same as the HTTP guard.
     const wsOrigin = request.headers.origin;
-    if (wsOrigin) {
-      let loopback = false;
-      try {
-        const h = new URL(wsOrigin).hostname;
-        loopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-      } catch { loopback = false; }
-      if (!loopback) {
-        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+    if (!isAllowedOrigin(wsOrigin, request.headers.host)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
       const tab = tabs.get(decodeURIComponent(route.tabId));
