@@ -337,6 +337,15 @@ body {
   padding: 8px 10px; background: rgba(24,33,28,.92); color: var(--paper);
   font-size: 11px; pointer-events: none; text-align: center;
 }
+/* Remote device with no tailnet mapping for the Browser fitting: the live
+   iframe is unreachable, so a strip explains why while the screenshot layer
+   underneath keeps tracking the page. Sits above the frame (z 1) but under
+   the pick overlay (z 3) - picking still works, it is screenshot-based. */
+.dr-cv-unreachable {
+  position: absolute; z-index: 2; left: 10px; right: 10px; bottom: 10px;
+  padding: 8px 10px; background: rgba(24,33,28,.92); color: var(--paper);
+  font-size: 11px; text-align: center;
+}
 .dr-pick-cancel {
   position: absolute; z-index: 7; right: 16px; bottom: 16px; min-width: 72px; min-height: 40px;
   border: 1px solid var(--paper); background: rgba(24,33,28,.92); color: var(--paper); cursor: pointer;

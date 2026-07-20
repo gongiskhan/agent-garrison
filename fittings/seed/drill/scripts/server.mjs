@@ -42,6 +42,7 @@ import {
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
+import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
@@ -60,14 +61,16 @@ let liveReplay = null; // { sessionId, tabId, runId, pageId, stepId, viewportId,
 
 // The wire shape of the live session: always carries canvasUrl (recomputed —
 // it is derived state, never stored) so a recovered session re-embeds after a
-// page reload, not just within the mount that opened it.
-function liveReplayPublic() {
+// page reload, not just within the mount that opened it. canvasTailnetUrl is
+// the same embed rehosted at its HTTPS tailnet mapping - the URL a browser on
+// ANOTHER device needs, since the loopback canvasUrl only works on this box.
+async function liveReplayPublic() {
   if (!liveReplay) return null;
   let url = null;
   try {
     url = liveReplay.tabId ? canvasUrl(liveReplay.tabId, resolveViewport(liveReplay.viewportId)) : null;
   } catch { /* unknown viewport id — no embed URL */ }
-  return { ...liveReplay, canvasUrl: url };
+  return { ...liveReplay, canvasUrl: url, canvasTailnetUrl: await toTailnetUrl(url) };
 }
 
 function send(res, code, body, headers = {}) {
@@ -567,9 +570,11 @@ async function handle(req, res) {
         }
         authoringTabs.set(key, tabId);
       }
+      const canvas = canvasUrl(tabId, viewport);
       return send(res, 200, {
         tabId,
-        canvasUrl: canvasUrl(tabId, viewport),
+        canvasUrl: canvas,
+        canvasTailnetUrl: await toTailnetUrl(canvas),
         screenshotUrl: `/api/authoring/screenshot/${encodeURIComponent(tabId)}`,
         viewport,
         url: target,
@@ -696,9 +701,11 @@ async function handle(req, res) {
         return send(res, 502, { error: err.message });
       }
       authoringTabs.set(key, tabId);
+      const canvas = canvasUrl(tabId, viewport);
       return send(res, 200, {
         tabId,
-        canvasUrl: canvasUrl(tabId, viewport),
+        canvasUrl: canvas,
+        canvasTailnetUrl: await toTailnetUrl(canvas),
         screenshotUrl: `/api/authoring/screenshot/${encodeURIComponent(tabId)}`,
         viewport,
         url: target,
@@ -1373,7 +1380,7 @@ async function handle(req, res) {
       return;
     }
     if (pathname === "/api/live-replay" && req.method === "GET") {
-      return send(res, 200, { live: liveReplayPublic() });
+      return send(res, 200, { live: await liveReplayPublic() });
     }
     if (pathname === "/api/live-replay" && req.method === "DELETE") {
       if (!liveReplay) return send(res, 200, { ok: true, released: false });
@@ -1391,7 +1398,7 @@ async function handle(req, res) {
       const record = await getDrillRun(decodeURIComponent(liveReplayPost[1]));
       if (!record) return send(res, 404, { error: "not found" });
       if (liveReplay) {
-        return send(res, 409, { error: "a live session is already open - close it first", live: liveReplayPublic() });
+        return send(res, 409, { error: "a live session is already open - close it first", live: await liveReplayPublic() });
       }
       const body = await readJsonBody(req);
       const pageId = String(body.pageId ?? "");
@@ -1457,7 +1464,7 @@ async function handle(req, res) {
         liveReplay.replayed = i + 1;
       }
       const url = liveReplay.tabId ? canvasUrl(liveReplay.tabId, viewport) : null;
-      return send(res, 200, { ok: true, live: { ...liveReplay, canvasUrl: url }, warnings });
+      return send(res, 200, { ok: true, live: { ...liveReplay, canvasUrl: url, canvasTailnetUrl: await toTailnetUrl(url) }, warnings });
     }
     // Debrief operator feedback (Evidence V2, D6): lightweight view events —
     // long dwells, show-all expansions, explicit frame flags — appended next

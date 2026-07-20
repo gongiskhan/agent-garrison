@@ -316,6 +316,22 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
   another **profile** holds it; `down()` releases. Keyed on profile, not pid, so
   restarts and redeploys re-enter freely. If you need two instances at once,
   point them at **different compositions**.
+- **HARD RULE — the user's browser is almost never on the Garrison machine.**
+  Garrison runs everything on the box it is installed on, but it is *used* from
+  other machines and mobile over the HTTPS tailnet address
+  (`https://dev-madrid.tail31efa.ts.net:<serve-port>`). So no server — shell or
+  fitting — may hand the client an absolute machine-local URL
+  (`http://localhost:…`, `http://127.0.0.1:…`, or a `GARRISON_*_URL` /
+  `ui-fittings/*.json` value) for use as an iframe/img/link/fetch/WS target:
+  remotely it is unreachable AND mixed content (a silently blank pane).
+  Client-delivered URLs must be **relative** (same-origin), or a
+  **loopback + tailnet pair** the client resolves by page host. Shell pattern:
+  `src/lib/tailnet-serve.ts` + `resolveViewUrl`
+  (`src/components/fitting-views/browser-view-url.ts`); fitting-local pattern:
+  `fittings/seed/drill/lib/tailnet-serve.mjs` + `resolveEmbedUrl`
+  (`drill/ui/main.tsx`). Server-to-server loopback calls on the box are fine.
+  Every new client-facing surface must be verified from a non-localhost origin
+  before it ships.
 - **HARD RULE — a new own-port view must be published to the tailnet.** Its port
   needs a `tailscale serve` mapping or the embedded view is a blank pane over
   HTTPS (a plain-HTTP frame is blocked as mixed content).

@@ -23,6 +23,29 @@ async function apiPost(path: string, body: unknown) {
   return j;
 }
 
+// The server's canvasUrl is a loopback URL into the Browser fitting - correct
+// on the Garrison machine, unreachable from anywhere else. The user is usually
+// on ANOTHER device reaching this UI over the HTTPS tailnet address, so the
+// server pairs every canvas URL with canvasTailnetUrl (the same embed at its
+// `tailscale serve` mapping). Pick by where this page actually runs - mirrors
+// the shell's resolveViewUrl (src/components/fitting-views/browser-view-url.ts).
+// Returns "" when nothing reachable exists (remote page + unmapped port): an
+// http:// loopback rebind under an HTTPS page is mixed content, which the
+// browser blocks into a silently blank iframe - callers must say so instead.
+function resolveEmbedUrl(url?: string | null, tailnetUrl?: string | null): string {
+  if (!url) return "";
+  const here = window.location.hostname;
+  if (!here || here === "127.0.0.1" || here === "localhost") return url;
+  if (tailnetUrl) {
+    try {
+      if (new URL(tailnetUrl).hostname === here) return tailnetUrl;
+    } catch { /* fall through to the rebind fallback */ }
+  }
+  const rebound = url.replace(/^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i, `$1${here}`);
+  if (window.location.protocol === "https:" && rebound.startsWith("http://")) return "";
+  return rebound;
+}
+
 function fullBrowserViewUrl(canvasUrl: string) {
   try {
     const url = new URL(canvasUrl, window.location.href);
@@ -953,6 +976,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
   const [tab, setTab] = useState<{
     tabId: string;
     canvasUrl: string;
+    canvasTailnetUrl: string | null;
     screenshotUrl: string;
     url: string;
     viewport: { width: number; height: number };
@@ -1080,6 +1104,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
         setTab({
           tabId: r.tabId,
           canvasUrl: r.canvasUrl,
+          canvasTailnetUrl: r.canvasTailnetUrl ?? null,
           screenshotUrl: r.screenshotUrl,
           url: r.url,
           viewport: r.viewport
@@ -1190,6 +1215,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
       setTab({
         tabId: response.tabId,
         canvasUrl: response.canvasUrl,
+        canvasTailnetUrl: response.canvasTailnetUrl ?? null,
         screenshotUrl: response.screenshotUrl ?? `/api/authoring/screenshot/${encodeURIComponent(response.tabId)}`,
         url: response.url,
         viewport: response.viewport
@@ -1550,7 +1576,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
             <button className="btn small" title="Close this preview tab and reopen the page fresh (resets app state)" onClick={restartTab}>
               <RefreshCcw size={11} /> Restart
             </button>
-            <a className="btn small" href={fullBrowserViewUrl(tab.canvasUrl)} target="_blank" rel="noreferrer"
+            <a className="btn small" href={fullBrowserViewUrl(resolveEmbedUrl(tab.canvasUrl, tab.canvasTailnetUrl) || tab.canvasUrl)} target="_blank" rel="noreferrer"
               title="Open this same live tab full-size in the Browser fitting">
               <ExternalLink size={11} /> Full view
             </a>
@@ -1578,14 +1604,20 @@ function AuthoringView({ initialPageId, onPageChange }: {
               }}
               onError={() => setPreviewReady(false)}
             />
-            {!pickMode && !preparingPick && (
+            {!pickMode && !preparingPick && (resolveEmbedUrl(tab.canvasUrl, tab.canvasTailnetUrl) ? (
               <iframe
                 className="dr-cv-live"
-                src={tab.canvasUrl}
+                src={resolveEmbedUrl(tab.canvasUrl, tab.canvasTailnetUrl)}
                 title={`${page.title} interactive browser`}
                 onLoad={() => setAreaResolutionRevision((n) => n + 1)}
               />
-            )}
+            ) : (
+              <div className="dr-cv-unreachable" role="note">
+                Live interaction is unavailable from this device: the Browser fitting's port is not
+                published to the tailnet. Run scripts/tailnet-serve-views.mjs on the Garrison machine,
+                then reload. The screenshot preview above still tracks the page.
+              </div>
+            ))}
             <div
               ref={overlayRef}
               className="dr-cv-overlay"
@@ -2478,6 +2510,7 @@ interface LiveSession {
   sessionId: string;
   tabId?: string | null;
   canvasUrl?: string | null;
+  canvasTailnetUrl?: string | null;
   runId?: string;
   pageId?: string;
   stepId?: string;
@@ -2656,9 +2689,17 @@ function LiveBrowser({ runId, steps, scope, scopeKeys, session, onSession, warni
 
       {showSession && session && (
         <div className="dr-db-live-session">
-          {session.canvasUrl ? (
+          {session.canvasUrl && resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl) ? (
             <div className="dr-db-live-stage" style={liveStageStyle(session.canvasUrl)}>
-              <iframe className="dr-db-live-frame" src={session.canvasUrl} title="Live browser session" />
+              <iframe className="dr-db-live-frame" src={resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl)} title="Live browser session" />
+            </div>
+          ) : session.canvasUrl ? (
+            <div className="dr-db-live-recover">
+              <div className="dr-db-empty">
+                The live session is open on the Garrison machine, but the Browser fitting's port is not
+                published to the tailnet, so it cannot be embedded from this device. Run
+                scripts/tailnet-serve-views.mjs there, then reload.
+              </div>
             </div>
           ) : (
             <div className="dr-db-live-recover">

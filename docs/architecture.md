@@ -275,3 +275,47 @@ per rule 4) asserting both behaviour and safety:
 - **drift** — an externally-edited owned file is left intact on uninstall.
 - **passthrough** — unknown keys round-trip byte-for-byte (the writer never
   drops a config key it doesn't recognise).
+
+## (C) Remote access model — URLs the client can actually reach
+
+Garrison and its own-port Fittings run on ONE machine, but the user's browser
+is almost never on it: the normal path is another workstation, an iPad, or a
+phone reaching **prod** over the HTTPS tailnet address
+(`https://<tailnet-host>:<serve-port>`, mapped by
+`scripts/tailnet-serve-views.mjs`). Design every client-facing URL for that
+reality:
+
+1. **Relative URLs first.** A fitting UI talking to its own server uses
+   same-origin relative paths (`/api/...`). These survive any access path -
+   loopback, LAN, tailnet - and are the default answer. Drill's screenshot
+   proxy (`/api/authoring/screenshot/<tabId>`) exists precisely so the image
+   is same-origin instead of a cross-origin loopback URL.
+
+2. **Loopback + tailnet URL pairs when an absolute URL is unavoidable**
+   (cross-fitting embeds, "open in X" links). The SERVER pairs the canonical
+   loopback URL with its `tailscale serve` mapping; the CLIENT picks by
+   `window.location.hostname`:
+   - on localhost -> the loopback URL (direct);
+   - on the tailnet host -> the HTTPS tailnet URL;
+   - otherwise -> best-effort hostname rebind, refused (empty string) when it
+     would be mixed content - and the UI must SAY the view is unreachable
+     rather than render a silently blank iframe.
+
+   Shell implementation: `src/lib/tailnet-serve.ts` (serve-status read, cached)
+   consumed by `src/app/api/fittings/views/route.ts` (`url` + `tailnetUrl`)
+   and resolved by `resolveViewUrl` in
+   `src/components/fitting-views/browser-view-url.ts`. Fitting-local
+   implementation (no cross-fitting imports, per house convention):
+   `fittings/seed/drill/lib/tailnet-serve.mjs` (`canvasUrl` +
+   `canvasTailnetUrl` pairs) resolved by `resolveEmbedUrl` in
+   `fittings/seed/drill/ui/main.tsx`.
+
+3. **Server-to-server loopback is fine.** Fittings calling sibling fittings on
+   the same box (`GARRISON_BROWSER_URL`, status-file URLs) stay loopback -
+   those URLs just must never be forwarded to the client as-is.
+
+4. **Verify from a non-localhost origin before shipping.** A surface that
+   looks perfect on `http://127.0.0.1:<port>` can be a grey broken-frame pane
+   over the tailnet (unreachable host + mixed content). Loading the prod
+   tailnet URL headlessly from the Garrison box itself reproduces the remote
+   path faithfully - the page host is the tailnet host, not localhost.
