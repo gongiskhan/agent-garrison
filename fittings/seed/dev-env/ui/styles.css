@@ -256,7 +256,9 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
   --panel: #f7f3e9;
   --border: #c9bea8;
   --text: #182019;
-  --mute: #62685f;
+  /* Muted ink must clear 4.5:1 on the paper tones (--bg / --bg-2 / --panel);
+     #62685f only reached ~4.4:1 on --bg-2, which the 9-11px mono labels sit on. */
+  --mute: #565b54;
   --sage: #45634b;
   --accent: #344f39;
   --alarm: #913e35;
@@ -311,6 +313,9 @@ button:active, .tab:active { transform: translateY(1px); }
 .header .segmented button:hover, .header .term-theme button:hover {
   border-color: var(--brass);
   background: rgba(195, 161, 90, 0.12);
+  /* Must be restated: the base `.term-theme button:hover:not(.active)` rule
+     ties on specificity and would otherwise paint --text (near-black) on olive. */
+  color: #f5efdf;
 }
 .header .tab.active, .header .segmented button.on,
 .header .term-theme button.active, .sessions-btn.on {
@@ -375,6 +380,48 @@ button:active, .tab:active { transform: translateY(1px); }
   color: #f5efdf;
   border-color: var(--brass);
   border-radius: 2px;
+}
+
+/* ── Header legibility on the olive bar ────────────────────────────────────
+   Everything inside .header sits on --olive or on the brass active chip, so
+   the light-surface defaults (--mute ink, white-on-brass) fail AA there.
+   Each selector is deliberately deeper than the base rule it corrects. */
+.header .tabs-empty { color: #c7bfae; }
+.header .tab .close { color: #c7bfae; }
+.header .tab .close:hover { color: #e0a79c; }
+.header .spinner { border-color: #c7bfae; border-top-color: transparent; }
+.header .tab .tab-placement {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(238, 229, 210, 0.22);
+  color: #d7cfbc;
+}
+/* Active tab = brass; light text on brass is ~2:1, so flip to olive ink. */
+.header .tab.active .close { color: var(--olive); }
+.header .tab.active .close:hover { color: #6d2b24; }
+.header .tab.active .spinner { border-color: var(--olive); border-top-color: transparent; }
+.header .tab.active .tab-placement {
+  background: rgba(39, 49, 38, 0.14);
+  border-color: rgba(39, 49, 38, 0.3);
+  color: var(--olive);
+}
+
+/* ── Scrollbars: near-invisible, still scrollable ──────────────────────────*/
+:root { --sb-thumb: rgba(24, 32, 25, 0.16); --sb-thumb-hover: rgba(24, 32, 25, 0.34); }
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Dark containers get the paper-toned thumb: the olive header strip, the
+   terminal panes (xterm's own viewport scrolls) and the dark chat view. */
+.header, .tabs, .pane-body, .xterm-mount, .pane-overlay, .cc-root {
+  --sb-thumb: rgba(240, 234, 220, 0.18);
+  --sb-thumb-hover: rgba(240, 234, 220, 0.36);
+}
+.cc-root[data-theme="light"] {
+  --sb-thumb: rgba(24, 32, 25, 0.16);
+  --sb-thumb-hover: rgba(24, 32, 25, 0.34);
 }
 
 @media (pointer: coarse) {

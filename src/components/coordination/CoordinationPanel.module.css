@@ -3,17 +3,17 @@
   grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.6fr);
   gap: 2rem;
   align-items: end;
-  padding: 1.5rem 0 2.3rem;
+  padding: 1.1rem 0 1.5rem;
   border-bottom: 1px solid var(--rule-2);
 }
 
 .header h1 {
   margin: 0;
   font-family: var(--font-display), Georgia, serif;
-  font-size: clamp(3.7rem, 6.5vw, 6.25rem);
-  font-weight: 500;
-  line-height: 0.84;
-  letter-spacing: -0.055em;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
 }
 
 .header p {
@@ -52,7 +52,7 @@
   right: 1rem;
   bottom: -0.45em;
   font-family: var(--font-mono), monospace;
-  font-size: clamp(2rem, 7vw, 5rem);
+  font-size: clamp(1.5rem, 4vw, 2.75rem);
   font-weight: 700;
   letter-spacing: -0.08em;
   opacity: 0.035;
@@ -91,10 +91,10 @@
     grid-template-columns: 1fr;
   }
 
+  /* The narrow-width override used to RAISE the title to ~52px; the base rule
+     is now already utility-scale, so this only keeps the stacked spacing. */
   .header h1 {
     margin-bottom: 1rem;
-    font-size: clamp(2.65rem, 12vw, 3.25rem);
-    letter-spacing: -0.065em;
   }
 
   .planning,

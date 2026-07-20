@@ -154,7 +154,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
         <Link href="/compose">Compose</Link> · <b>{faculty.name}</b>
       </div>
       <div className="page narrow">
-        <header style={{ padding: "8px 0 22px", borderBottom: "1px solid var(--rule)", marginBottom: 26 }}>
+        <header style={{ padding: "6px 0 18px", borderBottom: "1px solid var(--rule)", marginBottom: 22 }}>
           <div
             className="font-mono"
             style={{
@@ -172,7 +172,13 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           </div>
           <h1
             className="font-display"
-            style={{ fontWeight: 600, fontSize: 40, letterSpacing: "-0.014em", lineHeight: 1.04, margin: "0 0 12px" }}
+            style={{
+              fontWeight: 600,
+              fontSize: "clamp(26px, 2.6vw, 34px)",
+              letterSpacing: "-0.014em",
+              lineHeight: 1.08,
+              margin: "0 0 10px"
+            }}
           >
             {faculty.name}
           </h1>

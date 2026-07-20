@@ -56,7 +56,7 @@
   flex-shrink: 0;
 }
 .statusSaving { color: var(--brass); }
-.statusSaved { color: var(--sage-2); }
+.statusSaved { color: var(--sage); }
 .statusWarn { color: var(--warn); }
 .statusBad { color: var(--alarm); }
 
@@ -125,7 +125,7 @@
 }
 .muted {
   font-size: 11.5px;
-  color: var(--mute-2);
+  color: var(--mute);
 }
 .ghostBtn {
   border: 1px solid var(--rule-2);
@@ -194,8 +194,8 @@
   font-size: 8.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--sage-2);
-  border: 1px solid var(--sage-2);
+  color: var(--sage);
+  border: 1px solid var(--sage);
   padding: 1px 6px;
 }
 .railMeta {
@@ -230,8 +230,14 @@
   border-color: var(--sage-2);
 }
 .chipOff {
-  opacity: 0.55;
+  /* 0.55 washed the chip name to 3.6:1 and the 8.5px skill line to 2.3:1 - the
+     dashed border already carries the off state, so dim only slightly */
+  opacity: 0.85;
   border-style: dashed;
+}
+.chipOff .chipSkill,
+.chipOff .chipTarget {
+  color: var(--ink-mute);
 }
 .chipGrip {
   display: inline-flex;
@@ -250,7 +256,7 @@
   border: none;
   border-right: 1px solid var(--rule);
   background: transparent;
-  color: var(--sage-2);
+  color: var(--sage);
   padding: 0 8px;
   cursor: pointer;
 }
@@ -280,7 +286,7 @@
 .chipSkill {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 8.5px;
-  color: var(--mute-2);
+  color: var(--mute);
   letter-spacing: 0.02em;
 }
 .chipTarget {
@@ -305,10 +311,11 @@
   border: 1px solid currentColor;
 }
 .gClaude { color: var(--brass); }
-.gSdk { color: var(--sage-2); }
-.gCodex { color: #3d6ea5; }
-.gGemini { color: #7a5aa0; }
-.gOllama { color: #4e7d5b; }
+.gSdk { color: var(--sage); }
+/* darkened one step per hue - the 7.5px engine marks sat at 3.9-4.7:1 on paper */
+.gCodex { color: #35608f; }
+.gGemini { color: #6b4b8e; }
+.gOllama { color: #3f6549; }
 .gWorkflow { color: var(--ink-mute); }
 .gOther { color: var(--mute); }
 
@@ -392,7 +399,7 @@
 }
 .inspNote {
   font-size: 10.5px;
-  color: var(--mute-2);
+  color: var(--mute);
   line-height: 1.4;
 }
 
@@ -418,7 +425,7 @@
 }
 .ctlNote {
   font-size: 10.5px;
-  color: var(--mute-2);
+  color: var(--mute);
   line-height: 1.4;
   min-width: 0;
 }
@@ -637,8 +644,8 @@
   padding: 1px 6px;
   white-space: nowrap;
 }
-.gateOn { color: var(--sage-2); }
-.gateOff { color: var(--mute-2); }
+.gateOn { color: var(--sage); }
+.gateOff { color: var(--mute); }
 .gateWhy {
   font-size: 10.5px;
   color: var(--mute);

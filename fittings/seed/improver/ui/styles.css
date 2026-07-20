@@ -181,7 +181,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .badge.applied {
-  color: var(--sage-2);
+  /* --sage-2 lands under 4.5:1 for 10px text on the card tint; --sage clears it */
+  color: var(--sage);
   border-color: var(--sage-2);
 }
 
@@ -307,8 +308,8 @@ button:active, .tab:active { transform: translateY(1px); }
 }
 header {
   margin-inline: calc(clamp(18px, 4vw, 48px) * -1);
-  padding: 20px clamp(18px, 4vw, 48px);
-  min-height: 78px;
+  padding: 13px clamp(18px, 4vw, 48px);
+  min-height: 54px;
   background: var(--olive);
   color: #f5efdf;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -316,11 +317,13 @@ header {
 }
 header h1 {
   color: #fffaf0;
-  font-size: clamp(25px, 4vw, 38px);
-  line-height: 1;
-  letter-spacing: -0.035em;
+  /* Topbar-scale title, not a page banner — matches the 18px olive-bar
+     precedent in outpost-tailscale-host. */
+  font-size: 18px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
 }
-header .sub { color: #c7bfae; margin-top: 7px; }
+header .sub { color: #c7bfae; margin-top: 5px; }
 header button.primary {
   background: var(--brass-2);
   border-color: var(--brass-2);
@@ -362,9 +365,23 @@ pre.diff {
   border-color: #334034;
   padding: 14px 16px;
 }
+pre.diff .add {
+  /* base rule's --sage-2 is ~3.4:1 on the dark diff pane; lightened sage clears 4.5:1 */
+  color: #9ec4a4;
+}
 button {
   min-height: 36px;
   border-radius: 1px;
+}
+/* Every resolved proposal card renders Approve+Reject disabled, so the
+   disabled state is a dominant surface, not an edge case. At 0.55 the faded
+   labels fell to 2.5–3.7:1; 0.7 clears 4.5:1 for the ghost and primary
+   variants, and the danger label takes a darker alarm tone to clear it too. */
+button:disabled {
+  opacity: 0.7;
+}
+button.danger:disabled {
+  color: #5e241d;
 }
 button.primary {
   background: var(--olive);
@@ -379,6 +396,21 @@ button.primary {
   background: rgba(232, 225, 209, 0.54);
   font-family: var(--serif);
   font-size: 18px;
+}
+
+/* Near-invisible scrollbars — thin, palette-tinted, still scrollable
+   (same pattern as kanban-loop/ui/styles.css). Dark ink thumb on the light
+   paper surfaces; light thumb on dark containers via a --sb-thumb override. */
+:root { --sb-thumb: rgba(24, 32, 25, 0.16); --sb-thumb-hover: rgba(24, 32, 25, 0.34); }
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+pre.diff {
+  --sb-thumb: rgba(220, 230, 216, 0.18);
+  --sb-thumb-hover: rgba(220, 230, 216, 0.36);
 }
 
 @media (pointer: coarse) {

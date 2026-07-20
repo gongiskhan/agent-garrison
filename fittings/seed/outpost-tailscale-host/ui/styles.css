@@ -152,7 +152,7 @@ h1 {
   font-size: 11.5px;
 }
 .empty {
-  color: var(--mute);
+  color: var(--ink-mute);
   font-size: 13px;
   padding: 36px 0;
   text-align: center;
@@ -181,7 +181,7 @@ input {
   font-size: 13px;
 }
 input:focus { outline: 2px solid var(--brass); outline-offset: -1px; border-color: var(--brass); }
-input::placeholder { color: var(--mute-2); }
+input::placeholder { color: var(--mute); }
 input:disabled { opacity: 0.5; }
 
 /* ── Status square (7px) with soft halo — sage ok / brass pending / alarm down ── */
@@ -216,7 +216,7 @@ input:disabled { opacity: 0.5; }
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  color: var(--mute);
+  color: var(--ink-mute);
   padding: 11px 12px;
   font-family: var(--mono);
   font-size: 10.5px;
@@ -401,7 +401,7 @@ input:disabled { opacity: 0.5; }
   --mute-2: #85887f;
   --alarm: #963f35;
   --alarm-soft: #f1ddd8;
-  --warn: #9a762d;
+  --warn: #7a5c22;
   --warn-soft: #efe4c8;
   --code-bg: #141b16;
   --code-fg: #dce4d9;
@@ -428,7 +428,7 @@ body {
 
 header {
   margin: 0 -22px;
-  padding: 24px 22px 20px;
+  padding: 14px 22px 12px;
   background:
     linear-gradient(90deg, rgba(177,149,78,.11), transparent 36%),
     #273126;
@@ -438,7 +438,7 @@ header {
 
 h1 {
   color: #f5f0e6;
-  font-size: 27px;
+  font-size: 18px;
 }
 
 header .subtitle { color: #b7beb2; }
@@ -471,6 +471,19 @@ select {
   border-color: #6f6338;
   color: #fffaf0;
 }
+
+/* Disabled controls: opacity 0.4/0.5 dropped their labels to ~1.8-2.3:1 (the
+   default state for an offline outpost). Flat paper + muted ink instead —
+   still visibly inert, but 4.95:1. Must sit after .btn.primary to win. */
+.btn:disabled,
+input:disabled {
+  opacity: 1;
+  background: var(--paper-2);
+  border-color: var(--rule);
+  color: var(--ink-mute);
+}
+
+input:disabled::placeholder { color: var(--ink-mute); }
 
 .cards { gap: 12px; }
 
@@ -511,6 +524,9 @@ select {
   box-shadow: inset 0 -2px 0 var(--brass);
 }
 
+/* Brass micro-label is too faint on paper (2.4:1) — use the deep brass-ink. */
+.installer-head .k { color: #5f522b; }
+
 .installer-cmd,
 .prov-out,
 .run-out {
@@ -547,4 +563,30 @@ select {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* Scrollbars — near-invisible until needed: thin bars, transparent tracks, a
+   faint ink thumb. The dark console panes flip to a faint paper thumb. */
+:root {
+  --sb-thumb: rgba(32, 40, 32, 0.16);
+  --sb-thumb-hover: rgba(32, 40, 32, 0.34);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+.installer-cmd,
+.prov-out,
+.run-out {
+  --sb-thumb: rgba(220, 228, 217, 0.18);
+  --sb-thumb-hover: rgba(220, 228, 217, 0.36);
 }

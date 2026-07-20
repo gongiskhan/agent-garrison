@@ -72,7 +72,7 @@ export default function DocumentEdit({ params }: FittingViewProps) {
           <div style={{ fontSize: 20, fontWeight: 600 }}>
             Editing · {meta.title || meta.filename}
           </div>
-          <div className="font-mono" style={{ fontSize: 11, color: "var(--mute)" }}>
+          <div className="font-mono" style={{ fontSize: 11, color: "var(--ink-mute)" }}>
             {meta.namespace}/{meta.filename}
           </div>
         </div>

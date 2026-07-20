@@ -86,7 +86,9 @@ const T = {
 };
 
 const VERDICT = {
-  "live-and-used": { label: "LIVE & IN USE", glyph: "●", bg: "var(--sage-soft)", border: "var(--sage)", fg: "var(--sage-2)" },
+  // fg is the deep --sage, not --sage-2: the lighter tone only reached ~3.4:1
+  // against --sage-soft, which fails AA for the verdict label and glyph.
+  "live-and-used": { label: "LIVE & IN USE", glyph: "●", bg: "var(--sage-soft)", border: "var(--sage)", fg: "var(--sage)" },
   idle: { label: "LIVE (IDLE)", glyph: "○", bg: "var(--paper-2)", border: "var(--rule-2)", fg: "var(--mute)" },
   degraded: { label: "DEGRADED", glyph: "▲", bg: "var(--warn-soft)", border: "var(--brass)", fg: "var(--brass)" },
   down: { label: "DOWN", glyph: "■", bg: "var(--alarm-soft)", border: "var(--alarm)", fg: "var(--alarm)" },

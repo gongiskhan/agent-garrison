@@ -101,7 +101,7 @@ html, body, #root {
   outline-offset: -1px;
   border-color: var(--rule-2);
 }
-.tabs-list .new-tab-form input::placeholder { color: var(--mute-2); }
+.tabs-list .new-tab-form input::placeholder { color: var(--mute); }
 
 /* Primary action - solid ink button, paper text. */
 .tabs-list .new-tab-form button {
@@ -252,7 +252,7 @@ html, body, #root {
   outline-offset: -1px;
   border-color: var(--rule-2);
 }
-.urlbar input::placeholder { color: var(--mute-2); }
+.urlbar input::placeholder { color: var(--mute); }
 
 /* Anchor styled like a button - used by Open native. */
 .urlbar a.opt {
@@ -315,13 +315,13 @@ html, body, #root {
 .urlbar .selection-badge .sel-clear {
   border: 0;
   background: transparent;
-  color: var(--sage-2);
+  color: var(--sage);
   font-size: 14px;
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
 }
-.urlbar .selection-badge .sel-clear:hover { color: var(--sage); }
+.urlbar .selection-badge .sel-clear:hover { color: var(--ink); }
 
 /* Quality segmented control - ink-active, mono micro-labels. */
 .urlbar .quality-toggle {
@@ -581,20 +581,20 @@ button:active, .opt:active, .tabs-list a:active { transform: translateY(1px); }
 
 .tabs-list {
   max-width: 860px;
-  padding: clamp(54px, 9vh, 104px) clamp(20px, 5vw, 54px) 64px;
+  padding: clamp(28px, 5vh, 48px) clamp(20px, 5vw, 54px) 48px;
 }
 .tabs-list h1 {
-  font-size: clamp(34px, 5vw, 54px);
-  line-height: 0.98;
-  letter-spacing: -0.035em;
-  padding-bottom: 22px;
-  margin-bottom: 26px;
+  font-size: clamp(20px, 2.4vw, 24px);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  padding-bottom: 14px;
+  margin-bottom: 20px;
   border-bottom-color: var(--rule-2);
 }
 .tabs-list h1::before {
-  color: var(--brass);
+  color: #7a5e2c; /* darker brass - var(--brass) is 3.45:1 on paper */
   letter-spacing: 0.22em;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 .tabs-list .new-tab-form {
   gap: 0;
@@ -664,9 +664,57 @@ button:active, .opt:active, .tabs-list a:active { transform: translateY(1px); }
   color: #f3eddd;
   backdrop-filter: blur(8px);
 }
+/* The base .title/.subtitle rules assume the old paper scrim; on the dark
+   olive scrim above they render ink-on-ink, so flip them light here. Error
+   overlays keep the paper scrim (base .conn-overlay.error still wins on
+   background) - the alarm title wins on specificity, the subtitle is
+   restored to mute below. */
+.conn-overlay .title { color: #f6f0df; }
+.conn-overlay .subtitle { color: #c7bfae; }
+.conn-overlay.error .subtitle { color: var(--mute); }
 .devtools-shell .shell-divider {
   background: var(--olive);
   border-color: var(--brass);
+}
+/* The base quality-toggle rules out-specify the `.urlbar button` refit above,
+   so they kept a paper-bright block on the olive bar. Match their specificity
+   so the segmented control joins the dark chrome; `.urlbar .active` is
+   !important and still wins for the selected level. */
+.urlbar .quality-toggle { border-color: rgba(232, 224, 206, 0.2); }
+.urlbar .quality-toggle button.quality-btn {
+  background: rgba(255, 255, 255, 0.035);
+  color: #c7bfae;
+}
+.urlbar .quality-toggle button.quality-btn:hover {
+  background: rgba(195, 161, 90, 0.13);
+  color: #fffaf0;
+}
+.urlbar .quality-toggle button.quality-btn + button.quality-btn {
+  border-left-color: rgba(232, 224, 206, 0.2);
+}
+
+/* ─── Scrollbars - near-invisible, still scrollable ─────────── */
+:root {
+  --sb-thumb: rgba(24, 32, 25, 0.16);
+  --sb-thumb-hover: rgba(24, 32, 25, 0.34);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Light thumb on the dark chrome (olive urlbar, canvas well). */
+.urlbar, .canvas-wrapper {
+  --sb-thumb: rgba(243, 237, 221, 0.18);
+  --sb-thumb-hover: rgba(243, 237, 221, 0.36);
 }
 
 @media (pointer: coarse) {

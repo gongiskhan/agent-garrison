@@ -194,6 +194,18 @@ function handleStatusPage(res, opts) {
   --mono:"SFMono-Regular","Cascadia Code",Consolas,monospace;
 }
 *{box-sizing:border-box;}
+/* Near-invisible scrollbars: thin bars, transparent tracks, a faint thumb
+   that only asserts itself on hover. Light thumb on the dark page shell. */
+:root{ --sb-thumb:rgba(24,32,25,0.16); --sb-thumb-hover:rgba(24,32,25,0.34); }
+*{ scrollbar-width:thin; scrollbar-color:var(--sb-thumb) transparent; }
+::-webkit-scrollbar{ width:8px; height:8px; background:transparent; }
+::-webkit-scrollbar-track{ background:transparent; }
+::-webkit-scrollbar-thumb{
+  background:var(--sb-thumb); border:2px solid transparent; background-clip:padding-box;
+}
+*::-webkit-scrollbar-thumb:hover{ background-color:var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner{ background:transparent; }
+html{ --sb-thumb:rgba(242,236,223,0.18); --sb-thumb-hover:rgba(242,236,223,0.34); }
 html,body{margin:0;background:#182019;-webkit-text-size-adjust:100%;}
 body{
   font-family:var(--sans); font-size:15px; line-height:1.55; color:var(--ink);
@@ -256,7 +268,8 @@ td:last-child{ padding-right:0; }
 .method{
   display:inline-block; min-width:42px; text-align:center;
   font-family:var(--mono); font-size:9.5px; font-weight:600;
-  letter-spacing:0.08em; color:var(--sage-2);
+  /* 9.5px bold needs the 4.5:1 floor; --sage-2 on --sage-soft is only 3.3:1. */
+  letter-spacing:0.08em; color:#445c49;
   background:var(--sage-soft); border:1px solid #cfdcc9;
   border-radius:2px; padding:2px 6px;
 }

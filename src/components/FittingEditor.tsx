@@ -405,7 +405,7 @@ export function FittingEditor({
                       className={clsx(
                         "inline-flex h-9 items-center gap-2 rounded-[5px] border px-3 text-xs font-semibold transition active:translate-y-px active:scale-[0.99]",
                         dirty && !saving
-                          ? "border-[var(--sage)] bg-[var(--sage)] text-[var(--paper)] hover:border-[var(--sage-2)] hover:bg-[var(--sage-2)]"
+                          ? "border-[var(--sage)] bg-[var(--sage)] text-[var(--paper)] hover:brightness-90"
                           : "border-[var(--rule)] bg-[var(--surface)] text-[var(--mute)]"
                       )}
                     >

@@ -261,11 +261,11 @@ body { min-height: 100vh; }
   --border: #cec2ab;
   --border-strong: #a99b82;
   --fg: #202820;
-  --fg-muted: #666b61;
+  --fg-muted: #5c6157;
   --muted: #85887f;
   --success: #668267;
-  --info: #506f58;
-  --warning: #9a762d;
+  --info: #3d6249;
+  --warning: #7a5a1d;
   --danger: #963f35;
   --brass: #b1954e;
   --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
@@ -294,7 +294,7 @@ body {
 }
 
 .app-header h1 {
-  font: 650 19px/1.1 var(--serif);
+  font: 650 18px/1.1 var(--serif);
   letter-spacing: -.012em;
   text-transform: none;
 }
@@ -320,6 +320,21 @@ body {
   color: #f5f0e6;
 }
 
+/* The refit `.btn` above shares the base `.btn-danger*` specificity but comes
+   later, so it silently won and left `color: #fff` on cream paper. Restate the
+   danger variants here so they keep their own surface. */
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #f8f4eb;
+}
+
+.btn-danger-outline {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .ports-table {
   border: 1px solid var(--border);
   border-radius: 2px;
@@ -332,6 +347,9 @@ body {
   font-family: var(--mono);
   letter-spacing: .08em;
   text-transform: uppercase;
+  /* 10px letterspaced mono on the #e4dac7 tint: muted ink only just clears
+     4.5:1, so take the darker tone from the same family. */
+  color: #4a4f45;
 }
 
 .ports-table tbody tr:hover { background: #ebe3d4; }
@@ -346,6 +364,12 @@ body {
   font-family: var(--mono);
   letter-spacing: .035em;
 }
+
+/* Grey chips sit on the #cec2ab tint — muted ink there needs a darker tone
+   from the same family to clear 4.5:1. */
+.chip-loopback,
+.chip-process,
+.chip-unknown { color: #4a4f45; }
 
 .empty-state {
   margin: 7vh auto;
@@ -372,3 +396,16 @@ body {
     transition-duration: .01ms !important;
   }
 }
+
+/* Near-invisible scrollbars — thin, palette-matched, still scrollable */
+:root { --sb-thumb: rgba(32, 40, 32, 0.16); --sb-thumb-hover: rgba(32, 40, 32, 0.34); }
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }

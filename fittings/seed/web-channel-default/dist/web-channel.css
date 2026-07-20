@@ -1478,6 +1478,10 @@ html, body {
   --wc-stone-300: #cbbda3;
   --wc-ink: #202820;
   --wc-muted: #676b62;
+  /* Declared (not just a fallback literal) so every `var(--wc-fg-dim, #7a7568)`
+     in the brief slide-over resolves to a tone that clears AA on stone-100/-200
+     chrome; the #7a7568 fallback was 3.3:1 on the brief head/foot bars. */
+  --wc-fg-dim: #465348;
   --wc-brass: #b1954e;
   --wc-brass-deep: #746232;
   --wc-sage: #6f8e6d;
@@ -1606,8 +1610,11 @@ body {
   --cc-bg-elev: var(--wc-stone-100);
   --cc-bg-sunk: var(--wc-stone-200);
   --cc-fg: var(--wc-ink);
-  --cc-fg-dim: var(--wc-muted);
-  --cc-fg-faint: #86887e;
+  /* Muted tones are darkened to clear AA on the warm dossier surfaces: the old
+     #676b62 / #86887e sat at 3.6:1 - 2.7:1 against stone-200/-100 chips, badges
+     and the status strip. Same olive family, two steps down. */
+  --cc-fg-dim: var(--wc-olive-700);
+  --cc-fg-faint: #5c6157;
   --cc-border: #d2c7b1;
   --cc-border-strong: #b7a98e;
   --cc-accent: var(--wc-brass-deep);
@@ -1833,3 +1840,49 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Contrast floor (AA) ──────────────────────────────────────────────────
+   Remaining text/background pairs that sat under 4.5:1 after the token
+   darkening above. Each replacement is a tone of the SAME palette family.
+   Declared last so it wins over the equal-specificity base rules. */
+
+/* Sidebar metadata on the olive thread rows: the active row's brass wash
+   lightens the background, dropping #9fa69a to ~4.5:1. */
+.wc-thread-meta {
+  color: #b0b7aa;
+}
+
+/* Brief slide-over status words on the stone-100 foot bar. */
+.wc-brief-ok { color: #3d6540; }
+.wc-brief-dirty { color: #5c4d28; }
+.wc-brief-err { color: var(--wc-alarm); }
+
+/* Loading placeholder on the stone-50 chat pane (was #7d8077 at 3.5:1). */
+.wc-loading { color: var(--wc-olive-700); }
+
+/* ── Scrollbars — near-invisible, still scrollable ────────────────────────
+   Dark ink thumb by default (the app's scrollable panes are warm stone); the
+   light variant is re-declared on the olive sidebar and the ink code cards. */
+:root {
+  --sb-thumb: rgba(32, 40, 32, 0.16);
+  --sb-thumb-hover: rgba(32, 40, 32, 0.34);
+}
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.wc-sidebar,
+.wc-thread-list,
+.cc-md pre,
+.cc-codeblock pre {
+  --sb-thumb: rgba(245, 240, 230, 0.18);
+  --sb-thumb-hover: rgba(245, 240, 230, 0.36);
+}
+

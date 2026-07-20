@@ -405,13 +405,13 @@ function TourOverlay({
               fontSize: 10.5,
               letterSpacing: "0.14em",
               textTransform: "uppercase",
-              color: "var(--mute, #67736c)",
+              color: "var(--mute, #5f645d)",
               fontWeight: 600
             }}
           >
             {mode === "demo" ? "Demo tour" : "Guided tour"} · {title}
           </span>
-          <span data-testid="tour-counter" style={{ fontSize: 11, color: "var(--mute, #67736c)", whiteSpace: "nowrap" }}>
+          <span data-testid="tour-counter" style={{ fontSize: 11, color: "var(--mute, #5f645d)", whiteSpace: "nowrap" }}>
             {index + 1} / {total}
           </span>
         </div>
@@ -419,7 +419,7 @@ function TourOverlay({
         <p style={{ margin: "0 0 12px", fontSize: 14, lineHeight: 1.5 }}>{step.caption}</p>
 
         {mode === "guided" && assertGated && !complete ? (
-          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--mute, #67736c)" }}>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--mute, #5f645d)" }}>
             Do the highlighted action to continue.
           </p>
         ) : null}
@@ -494,7 +494,7 @@ function btnStyle(primary: boolean): React.CSSProperties {
     : {
         border: "1px solid var(--rule, #d8ded9)",
         background: "transparent",
-        color: "var(--mute, #67736c)",
+        color: "var(--mute, #5f645d)",
         borderRadius: 6,
         padding: "6px 12px",
         fontSize: 12.5,

@@ -3,17 +3,17 @@
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.72fr);
   gap: 2rem;
   align-items: end;
-  padding: 1.5rem 0 2.25rem;
+  padding: 1.1rem 0 1.5rem;
   border-bottom: 1px solid var(--rule-2);
 }
 
 .header h1 {
   margin: 0;
   font-family: var(--font-display), Georgia, serif;
-  font-size: clamp(3.8rem, 8vw, 7.5rem);
-  font-weight: 500;
-  line-height: 0.82;
-  letter-spacing: -0.055em;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
 }
 
 .header p {
@@ -46,7 +46,7 @@
 .statusPanel {
   position: relative;
   overflow: hidden;
-  padding: clamp(1.5rem, 3vw, 2.35rem);
+  padding: clamp(1.25rem, 2.2vw, 1.6rem);
   color: var(--paper);
   background:
     linear-gradient(135deg, rgba(15, 24, 18, 0.98), rgba(28, 44, 33, 0.96)),
@@ -88,13 +88,12 @@
 }
 
 .statusPanel h2 {
-  max-width: 7ch;
-  margin: 2.2rem 0 0.8rem;
+  margin: 1.1rem 0 0.6rem;
   font-family: var(--font-display), Georgia, serif;
-  font-size: clamp(2.8rem, 5vw, 4.8rem);
+  font-size: clamp(20px, 1.9vw, 24px);
   font-weight: 500;
-  line-height: 0.9;
-  letter-spacing: -0.04em;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
 }
 
 .statusPanel > p {
@@ -108,7 +107,7 @@
 .statusLedger {
   display: grid;
   gap: 0;
-  margin: 2rem 0 1.6rem;
+  margin: 1.4rem 0 1.2rem;
   border-top: 1px solid rgba(244, 239, 226, 0.16);
 }
 
@@ -128,8 +127,10 @@
   letter-spacing: 0.04em;
 }
 
+/* 0.42 alpha landed at ~3.6:1 against the dark panel — under AA for a 10px
+   mono label. 0.62 lifts it to ~6:1 while staying the quieter of the pair. */
 .statusLedger dt {
-  color: rgba(244, 239, 226, 0.42);
+  color: rgba(244, 239, 226, 0.62);
 }
 
 .statusLedger dd {
@@ -169,10 +170,10 @@
 .secretsHead h2 {
   margin: 0;
   font-family: var(--font-display), Georgia, serif;
-  font-size: clamp(1.7rem, 3vw, 2.45rem);
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.03em;
+  font-size: clamp(17px, 1.6vw, 21px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
 }
 
 .secretsHead h2 span {
@@ -267,22 +268,22 @@
 .emptyState {
   display: grid;
   justify-items: start;
-  min-height: 17rem;
+  min-height: 12rem;
   align-content: center;
-  padding: 2.5rem;
+  padding: 1.75rem;
 }
 
 .emptyState > span {
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
   font-family: var(--font-display), Georgia, serif;
-  font-size: 2.4rem;
+  font-size: 1.6rem;
   color: var(--brass);
 }
 
 .emptyState strong {
   font-family: var(--font-display), Georgia, serif;
-  font-size: 1.45rem;
-  font-weight: 500;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .emptyState p {
@@ -296,7 +297,7 @@
   grid-template-columns: minmax(0, 0.8fr) minmax(18rem, 0.65fr);
   gap: 0 2rem;
   align-items: end;
-  margin: clamp(3.5rem, 8vw, 7rem) 0 1rem;
+  margin: clamp(2rem, 4vw, 3rem) 0 0.9rem;
 }
 
 .lifecycleHead .eyebrow {
@@ -306,10 +307,10 @@
 .lifecycleHead h2 {
   margin: 0;
   font-family: var(--font-display), Georgia, serif;
-  font-size: clamp(2.4rem, 5vw, 4.5rem);
-  font-weight: 500;
-  line-height: 0.94;
-  letter-spacing: -0.04em;
+  font-size: clamp(19px, 1.8vw, 23px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.018em;
 }
 
 .lifecycleHead p {
@@ -327,10 +328,6 @@
 @media (max-width: 900px) {
   .vaultGrid {
     grid-template-columns: 1fr;
-  }
-
-  .statusPanel h2 {
-    max-width: none;
   }
 }
 

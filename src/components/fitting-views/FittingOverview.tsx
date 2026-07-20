@@ -601,7 +601,11 @@ function LogPanel({ fittingId }: { fittingId: string }) {
           maxHeight: 280,
           overflow: "auto",
           whiteSpace: "pre-wrap",
-          wordBreak: "break-word"
+          wordBreak: "break-word",
+          // Dark pane: flip the global scrollbar thumb to the faint paper
+          // variant so the bar stays visible on the ink background.
+          ["--sb-thumb" as string]: "rgba(242, 234, 217, 0.14)",
+          ["--sb-thumb-hover" as string]: "rgba(242, 234, 217, 0.3)"
         }}
       >
         {loading ? "Loading log…" : content || "(no output captured yet)"}

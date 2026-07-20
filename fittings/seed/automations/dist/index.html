@@ -7,10 +7,10 @@
 <title>Automations</title>
 <style>
   :root{
-    --paper:#f2ecdf;--paper-2:#e8dfcf;--card:#f8f4eb;--ink:#202820;--muted:#666b61;--faint:#85887f;
-    --line:#cec2ab;--line-strong:#a99b82;--brass:#b1954e;--running:#806326;--running-bg:#efe4c8;
-    --ok:#526f58;--ok-bg:#dce6d9;--fail:#963f35;--fail-bg:#f1ddd8;
-    --vision:#675d3c;--vision-bg:#e9e0cc;--cyan:#4f6b68;--cyan-bg:#dbe6e2;--slate:#60675f;--slate-bg:#dfd7c8;
+    --paper:#f2ecdf;--paper-2:#e8dfcf;--card:#f8f4eb;--ink:#202820;--muted:#666b61;--faint:#63675e;
+    --line:#cec2ab;--line-strong:#a99b82;--brass:#b1954e;--running:#71571f;--running-bg:#efe4c8;
+    --ok:#405a46;--ok-bg:#dce6d9;--fail:#963f35;--fail-bg:#f1ddd8;
+    --vision:#5c5333;--vision-bg:#e9e0cc;--cyan:#415b58;--cyan-bg:#dbe6e2;--slate:#4c5350;--slate-bg:#dfd7c8;
     --olive:#273126;--olive-2:#303b31;
     --sans:Avenir,"Avenir Next","Barlow","Segoe UI",sans-serif;
     --serif:Iowan Old Style,"Source Serif 4","Palatino Linotype",Georgia,serif;
@@ -28,14 +28,14 @@
   }
   .mono{font-family:var(--mono)}
   header{
-    display:flex;align-items:center;gap:12px;min-height:64px;padding:14px 20px;border-bottom:1px solid #59665a;
+    display:flex;align-items:center;gap:12px;min-height:56px;padding:11px 20px;border-bottom:1px solid #59665a;
     background:linear-gradient(90deg,rgba(177,149,78,.11),transparent 34%),var(--olive);
     color:#f5f0e6;position:sticky;top:0;z-index:5;box-shadow:0 10px 28px rgba(20,26,21,.14)
   }
   header svg{stroke:#c7ae66}
-  header h1{font:650 20px/1.1 var(--serif);letter-spacing:-.012em;margin:0}
+  header h1{font:650 17px/1.15 var(--serif);letter-spacing:-.012em;margin:0}
   header .badge{margin-left:auto}
-  .wrap{display:grid;grid-template-columns:284px minmax(0,1fr);min-height:calc(100vh - 64px)}
+  .wrap{display:grid;grid-template-columns:284px minmax(0,1fr);min-height:calc(100vh - 56px)}
   aside{
     border-right:1px solid #4e5b50;padding:14px;background:
       linear-gradient(180deg,rgba(177,149,78,.07),transparent 28%),var(--olive-2);color:#eef0e8
@@ -76,6 +76,8 @@
   .notice{border-left:3px solid var(--brass);background:var(--vision-bg);padding:10px 12px;border-radius:0 2px 2px 0;font-size:12.5px;margin-top:10px}
   .notice.pause{border-left-color:var(--cyan);background:var(--cyan-bg)}
   .empty{color:var(--muted);font:16px/1.55 var(--serif);padding:30px;text-align:center;border-top:1px solid var(--line-strong);border-bottom:1px solid var(--line);max-width:520px;margin:8vh auto}
+  /* the sidebar sits on dark olive — the paper-tone .empty is unreadable there */
+  aside .empty{color:#c7cbc2;border-top-color:#5a6558;border-bottom-color:#4e5b50}
   .toast{position:fixed;right:18px;bottom:18px;max-width:min(360px,calc(100vw - 36px));padding:11px 14px;border:1px solid #657166;border-left:3px solid var(--brass);border-radius:2px;background:var(--olive);color:#f5f0e6;box-shadow:0 18px 42px rgba(20,26,21,.28);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .16s,transform .16s;z-index:20}
   .toast.show{opacity:1;transform:none}
   :is(button,a,[tabindex]):focus-visible{outline:2px solid #c7ae66;outline-offset:2px}
@@ -85,6 +87,17 @@
   }
   @media(pointer:coarse){button,.auto-item{min-height:44px}}
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+  /* scrollbars — near-invisible, still scrollable */
+  :root{--sb-thumb:rgba(24,32,25,.16);--sb-thumb-hover:rgba(24,32,25,.34)}
+  *{scrollbar-width:thin;scrollbar-color:var(--sb-thumb) transparent}
+  ::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--sb-thumb);border:2px solid transparent;background-clip:padding-box}
+  *::-webkit-scrollbar-thumb:hover{background-color:var(--sb-thumb-hover)}
+  ::-webkit-scrollbar-corner{background:transparent}
+  /* light thumb on the dark containers */
+  aside,.term{--sb-thumb:rgba(240,238,228,.18);--sb-thumb-hover:rgba(240,238,228,.36)}
 </style>
 </head>
 <body>

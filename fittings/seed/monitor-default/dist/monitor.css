@@ -226,30 +226,30 @@ body {
   border-radius: 3px;
   font-size: 11px;
   background: var(--border);
-  color: var(--fg-muted);
+  color: var(--fg);
   font-family: var(--mono);
 }
 
 .tag-tracked {
   background: rgba(74, 222, 128, 0.12);
-  color: var(--success);
+  color: var(--success-ink);
 }
 
 .tag-soul {
   background: rgba(96, 165, 250, 0.16);
-  color: var(--info);
+  color: var(--info-ink);
   font-weight: 500;
   text-transform: lowercase;
 }
 
 .tag-tier {
   background: rgba(251, 191, 36, 0.12);
-  color: var(--warning);
+  color: var(--warning-ink);
 }
 
 .tag-branch {
   background: rgba(74, 222, 128, 0.08);
-  color: var(--success);
+  color: var(--success-ink);
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -379,7 +379,7 @@ body {
 
 .empty {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--fg-muted);
   font-style: italic;
 }
 
@@ -407,7 +407,7 @@ body {
 
 .tab {
   background: var(--border);
-  color: var(--fg-muted);
+  color: var(--fg);
   border: none;
   padding: 3px 10px;
   font-size: 11px;
@@ -595,7 +595,7 @@ body {
 }
 
 .disk-pct.sev-warn {
-  color: var(--warning);
+  color: var(--warning-ink);
   font-weight: 500;
 }
 
@@ -652,7 +652,7 @@ body {
 
 .unit-active {
   background: rgba(74, 222, 128, 0.12);
-  color: var(--success);
+  color: var(--success-ink);
 }
 
 .unit-failed {
@@ -679,6 +679,14 @@ body {
   --warning: #9a762d;
   --danger: #963f35;
   --brass: #b1954e;
+  /* Text-weight tones of the status hues: the --success/--info/--warning
+   * values above are tuned for dots and bar fills and are too light to
+   * carry AA-legible text on the cream card surfaces. */
+  --success-ink: #2f4a3a;
+  --info-ink: #3d6249;
+  --warning-ink: #7a5a15;
+  --paper-ink: #f5efdf;
+  --paper-ink-muted: #b7beb2;
   --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
   --font: Avenir, "Avenir Next", "Barlow", "Segoe UI", sans-serif;
   --serif: Iowan Old Style, "Source Serif 4", "Palatino Linotype", Georgia, serif;
@@ -694,8 +702,8 @@ body {
 }
 
 .app-header {
-  min-height: 64px;
-  padding: 14px 22px;
+  min-height: 56px;
+  padding: 12px 22px;
   background:
     linear-gradient(90deg, rgba(177,149,78,.1), transparent 34%),
     var(--bg-elevated);
@@ -706,7 +714,7 @@ body {
 
 .app-header h1 {
   font-family: var(--serif);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 650;
   letter-spacing: -.012em;
   text-transform: none;
@@ -778,14 +786,26 @@ body {
 .close-btn {
   min-width: 40px;
   min-height: 40px;
-  color: #d9ddd4;
+  /* The button keeps its light stone background, so it needs dark ink -
+   * the previous paper tone was near-invisible on it. */
+  color: var(--fg);
 }
 
+/* Split: the two states sit on opposite surfaces. .tab-active is a dark
+ * olive chip (needs paper ink); .tree-button-active is a light stone chip
+ * (needs dark ink). A single brass tone lost AA on both. */
 .tab-active,
 .tree-button-active {
   border-color: var(--brass);
-  color: #5f522b;
   box-shadow: inset 0 -2px 0 var(--brass);
+}
+
+.tab-active {
+  color: var(--paper-ink);
+}
+
+.tree-button-active {
+  color: var(--fg);
 }
 
 .logs,
@@ -829,4 +849,43 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* The drilldown header is the dark olive bar; muted ink set for the cream
+ * card surfaces is unreadable on it. Selector is deliberately more specific
+ * than the base .status-label / .muted rules so it actually wins. */
+.drilldown-header .status-label,
+.drilldown-header .muted {
+  color: var(--paper-ink-muted);
+}
+
+/* ---- Scrollbars: near-invisible, still scrollable ---- */
+
+:root {
+  --sb-thumb: rgba(24, 32, 25, 0.16);
+  --sb-thumb-hover: rgba(24, 32, 25, 0.34);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Dark panes (log console, command/env blocks) take the paper thumb. */
+.logs,
+.drilldown pre {
+  --sb-thumb: rgba(220, 228, 217, 0.16);
+  --sb-thumb-hover: rgba(220, 228, 217, 0.34);
 }

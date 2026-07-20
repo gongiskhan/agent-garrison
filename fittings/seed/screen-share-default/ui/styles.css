@@ -46,7 +46,7 @@ h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
   --panel: #f8f4eb;
   --border: #cec2ab;
   --text: #202820;
-  --mute: #676b62;
+  --mute: #565a51;
   --sage: #668267;
   --brass: #b1954e;
   --alarm: #963f35;
@@ -101,6 +101,10 @@ h1 {
 }
 
 .meta { color: #b7beb2; }
+
+/* status dots read against the dark strip */
+.strip .dot.mute { background: #b7beb2; }
+.strip .dot.sage { background: #8ba98c; }
 
 .btn {
   min-height: 40px;
@@ -162,4 +166,29 @@ button:active:not(:disabled) { transform: translateY(1px); }
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* Disabled/busy buttons: 40% opacity composited the label into its own
+   background against the dark strip (2.2:1). Neutral panel tone instead. */
+.btn:disabled,
+.btn.primary:disabled,
+.btn.danger:disabled {
+  opacity: 1;
+  background: var(--bg-2);
+  border-color: var(--border);
+  color: var(--mute);
+}
+
+/* Near-invisible scrollbars */
+:root { --sb-thumb: rgba(32, 40, 32, 0.16); --sb-thumb-hover: rgba(32, 40, 32, 0.34); }
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+.app > div:first-child,
+.strip {
+  --sb-thumb: rgba(233, 236, 228, 0.18);
+  --sb-thumb-hover: rgba(233, 236, 228, 0.36);
 }

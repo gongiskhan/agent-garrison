@@ -384,9 +384,9 @@ body {
 }
 
 .app-header {
-  min-height: 68px;
+  min-height: 60px;
   margin: 0 -20px;
-  padding: 14px 20px;
+  padding: 12px 20px;
   background:
     linear-gradient(90deg, rgba(177,149,78,.1), transparent 42%),
     var(--bg-elevated);
@@ -396,15 +396,21 @@ body {
 }
 
 .app-header h1 {
-  font: 650 20px/1.1 var(--serif);
+  font: 650 18px/1.1 var(--serif);
   letter-spacing: -.012em;
   text-transform: none;
 }
 
 .conn-lost { color: #e2bd6d; }
 
+/* The state badge sits on the dark olive header; the light-surface badge
+   tones fall below AA there — use the palette's light variants. */
+.app-header .badge-idle { background: rgba(127, 195, 154, 0.16); color: #7fc39a; }
+.app-header .badge-busy { background: rgba(224, 164, 78, 0.16); color: #e0a44e; }
+.app-header .badge-suspending { background: rgba(224, 128, 118, 0.18); color: #eb9d93; }
+
 .hero {
-  padding: 28px 24px;
+  padding: 22px 24px;
   border-radius: 2px;
   background:
     radial-gradient(circle at 85% 12%, rgba(177,149,78,.13), transparent 38%),
@@ -415,6 +421,7 @@ body {
 
 .hero-count {
   font-family: var(--serif);
+  font-size: 30px;
   color: #35483b;
 }
 
@@ -426,6 +433,13 @@ body {
   letter-spacing: .08em;
   text-transform: uppercase;
 }
+
+.hero-label { font-size: 22px; }
+
+/* Awake stat cells inherit the refit's dark olive --bg-elevated; the
+   default dark ink is unreadable there — use the light paper tones. */
+.awake-cell { color: #f5efdf; }
+.awake-cell .muted { color: #c7bfae; }
 
 .panel,
 .warning-banner,
@@ -480,3 +494,22 @@ body {
     transition-duration: .01ms !important;
   }
 }
+
+/* Near-invisible scrollbars — thin ink thumb, transparent track. */
+:root {
+  --sb-thumb: rgba(32, 40, 32, 0.16);
+  --sb-thumb-hover: rgba(32, 40, 32, 0.34);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }

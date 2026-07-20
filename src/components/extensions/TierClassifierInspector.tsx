@@ -28,8 +28,8 @@ export default function TierClassifierInspector({
         </div>
         <div
           style={{
-            marginTop: 12,
-            fontSize: 32,
+            marginTop: 10,
+            fontSize: 26,
             fontWeight: 600,
             fontFamily: "var(--font-display), Georgia, serif",
             letterSpacing: "-0.005em",

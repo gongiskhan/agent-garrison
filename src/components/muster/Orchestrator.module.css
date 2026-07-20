@@ -87,7 +87,7 @@
   color: var(--brass);
 }
 .authoredStatus.saved {
-  color: var(--sage-2);
+  color: var(--sage);
 }
 .authoredStatus.error {
   color: var(--alarm);
@@ -167,6 +167,10 @@
 .assembledWrap {
   border: 1px solid var(--rule-2);
   background: var(--ink);
+  /* dark pane: flip the global near-invisible ink thumb to the paper variant so
+     the assembled prompt's scrollbar stays legible against --ink */
+  --sb-thumb: rgba(242, 234, 217, 0.14);
+  --sb-thumb-hover: rgba(242, 234, 217, 0.3);
 }
 .assembledHead {
   display: flex;
@@ -226,8 +230,8 @@
   flex-shrink: 0;
 }
 .decisionKind.dispatch {
-  color: var(--sage-2);
-  border-color: var(--sage-2);
+  color: var(--sage);
+  border-color: var(--sage);
 }
 .decisionKind.misrouted {
   color: var(--alarm);
@@ -264,7 +268,7 @@
 .decisionAt {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 9px;
-  color: var(--mute-2);
+  color: var(--mute);
   white-space: nowrap;
   flex-shrink: 0;
 }

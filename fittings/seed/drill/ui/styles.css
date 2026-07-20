@@ -888,3 +888,69 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-db-chapters { margin-top: 8px; }
 
 .dr-db-empty { padding: 24px; text-align: center; color: var(--mute); font-size: 12.5px; border: 1px dashed var(--rule-2); background: var(--paper-2); }
+
+/* ── Legibility + chrome pass ───────────────────────────────────────────
+   Appended LAST on purpose: the Debrief block above the fold sits after the
+   "operations-room refit", so any override placed inside that refit would be
+   out-ordered by it. Everything here is the same warm-paper / olive / brass
+   palette, just tuned to clear WCAG AA. */
+
+/* Muted metadata tones. The old values were ~2.8-3.6:1 at 9.5-11px against
+   paper-2/paper-3 (table heads, rail heads, run ids, evidence paths). These
+   are the same greens, darkened until every paper tint clears 4.5:1. */
+:root {
+  --mute: #525851;
+  --mute-2: #575b53;
+}
+
+/* Brass reads as an accent, not as body text: #9b7a3d is 3.1:1 on warn-soft.
+   Text and small chips move to the palette's darker brass (--warn-ink);
+   borders, rules and the tab underline keep the bright brass. */
+.chip.brass,
+.dr-mode.vision,
+.dr-save-status.saving,
+.dr-result-detail-unavailable,
+.dr-db-exp-chip,
+.dr-con-row.warn .dr-con-lvl,
+.dr-con-row.warn .dr-con-text { color: var(--warn-ink); }
+.dr-db-exp-chip { border-color: var(--warn-ink); }
+/* Paper-on-brass badges were 3.4:1; darker brass ground puts them at 5.9:1. */
+.dr-abadge, .dr-area-n, .chip.brass.active { background: var(--warn-ink); }
+
+/* Olive header. These lost to higher-specificity base rules, so a hovered
+   inactive tab rendered --ink-2 on olive (1.0:1, invisible) and the "Project"
+   label rendered --mute on olive (2.4:1). */
+.dr-tab:hover:not(.on) { color: #fffaf0; }
+.topbar .dr-project .dr-lbl { color: #c7bfae; }
+
+/* The refit's thead colour lost to `.dr-table th` and never applied. */
+.dr-table thead th, .dr-history-table thead th { color: var(--ink-2); }
+
+/* Utility surface, not a landing page: the brand sat at 23px in a 58px bar. */
+.topbar { min-height: 48px; }
+.topbar .brand .name { font-size: 17px; }
+
+/* ── scrollbars: near-invisible, still scrollable ── */
+:root {
+  --sb-thumb: rgba(24, 32, 25, 0.16);
+  --sb-thumb-hover: rgba(24, 32, 25, 0.34);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Dark containers get the light thumb: the tab strip scrolls horizontally
+   over olive, and the preview/reel stages are ink-grounded. */
+.dr-header, .dr-tabs, .dr-cv, .dr-db-carousel, .dr-db-stage, .dr-db-live-stage {
+  --sb-thumb: rgba(215, 227, 220, 0.16);
+  --sb-thumb-hover: rgba(215, 227, 220, 0.32);
+}

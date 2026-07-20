@@ -98,7 +98,7 @@ export default function SnapshotsView(_props: FittingViewProps) {
         <div className="font-mono" style={{ fontSize: 10, letterSpacing: "0.17em", textTransform: "uppercase", color: "var(--brass)", marginBottom: 5 }}>
           State protection
         </div>
-        <div className="font-display" style={{ fontSize: 28, lineHeight: 1.05, letterSpacing: "-0.025em", fontWeight: 600 }}>
+        <div className="font-display" style={{ fontSize: 22, lineHeight: 1.15, letterSpacing: "-0.02em", fontWeight: 600 }}>
           Snapshots
         </div>
         <div style={{ maxWidth: 620, fontSize: 13.5, lineHeight: 1.65, color: "var(--mute)", marginTop: 7 }}>
@@ -325,7 +325,7 @@ function Notice({ title, body, tone }: { title: string; body?: string; tone?: "b
 }
 
 const primaryButtonClass =
-  "min-h-10 rounded-[4px] border border-[var(--sage)] bg-[var(--sage)] px-4 text-xs font-semibold text-[var(--paper)] transition hover:border-[var(--sage-2)] hover:bg-[var(--sage-2)] active:translate-y-px active:scale-[0.99] disabled:opacity-50";
+  "min-h-10 rounded-[4px] border border-[var(--sage)] bg-[var(--sage)] px-4 text-xs font-semibold text-[var(--paper)] transition hover:brightness-90 active:translate-y-px active:scale-[0.99] disabled:opacity-50";
 
 const secondaryButtonClass =
   "min-h-10 rounded-[4px] border border-[var(--rule-2)] bg-[var(--surface)] px-4 text-xs font-semibold text-[var(--ink)] transition hover:border-[var(--brass)] hover:bg-[var(--paper-2)] active:translate-y-px active:scale-[0.99] disabled:opacity-50";
@@ -341,7 +341,11 @@ const preStyle: React.CSSProperties = {
   overflowX: "auto",
   margin: 0,
   whiteSpace: "pre",
-  wordBreak: "normal"
+  wordBreak: "normal",
+  // Dark pane: flip the global scrollbar thumb to the faint paper variant so
+  // the horizontal bar stays visible on the ink background.
+  ["--sb-thumb" as string]: "rgba(242, 234, 217, 0.14)",
+  ["--sb-thumb-hover" as string]: "rgba(242, 234, 217, 0.3)"
 };
 
 function formatTime(iso?: string): string {
