@@ -280,8 +280,12 @@ async function registerSchedulerBeats() {
 // agent lists fire on entry, but the engine is polled (no event bus), so a frequent
 // scheduler job runs `--tick`. Cadence configurable via KANBAN_TICK_CRON (default every
 // 2 minutes). The Test list has its OWN, separate beat (registerTestBeat).
+// KANBAN_LOOP_* is the runner's setupConfigEnv projection of the composition's
+// config block (tick_cron / review_cron / review_stall_hours in config_schema),
+// so a composition value takes effect without the user exporting anything;
+// the bare KANBAN_* name stays the explicit operator override on top.
 async function registerTick() {
-  const cron = process.env.KANBAN_TICK_CRON || "*/2 * * * *"; // every 2 minutes
+  const cron = process.env.KANBAN_TICK_CRON || process.env.KANBAN_LOOP_TICK_CRON || "*/2 * * * *"; // every 2 minutes
   const cli = schedulerCli();
   const self = path.resolve(__dirname, "kanban.mjs");
   const cmd = `node ${self} --tick`;
@@ -304,21 +308,27 @@ async function registerTick() {
 // job's last_run survive re-setup. Cadence via KANBAN_REVIEW_CRON, declared in
 // apm.yml config_schema alongside tick_cron.
 async function registerWeeklyReview() {
-  const cron = process.env.KANBAN_REVIEW_CRON || "0 8 * * 1"; // Mondays 08:00 local
+  const cron = process.env.KANBAN_REVIEW_CRON || process.env.KANBAN_LOOP_REVIEW_CRON || "0 8 * * 1"; // Mondays 08:00 local
   const cli = schedulerCli();
   const self = path.resolve(__dirname, "kanban.mjs");
   if (!existsSync(cli)) {
     console.log(`kanban-loop: scheduler CLI not found at ${cli} (skipping weekly review job; register manually).`);
     return;
   }
+  // The review job runs from the scheduler daemon's env, which never sees the
+  // composition config — so a configured stall threshold is baked into the job
+  // command itself (the improver pattern: env assignment ahead of the command,
+  // visible in the jobs file). Numeric-only guard: the value rides a `sh -c`.
+  const stallRaw = process.env.KANBAN_REVIEW_STALL_HOURS || process.env.KANBAN_LOOP_REVIEW_STALL_HOURS || "";
+  const stallPrefix = /^[0-9]+(\.[0-9]+)?$/.test(stallRaw) ? [`KANBAN_REVIEW_STALL_HOURS=${stallRaw}`] : [];
   const { spawnSync } = await import("node:child_process");
   const reg = spawnSync(
     "node",
-    [cli, "register", "kanban-weekly-review", cron, "--description", "Weekly Monday board review (stall detection)", "--", "node", self, "--review"],
+    [cli, "register", "kanban-weekly-review", cron, "--description", "Weekly Monday board review (stall detection)", "--", ...stallPrefix, "node", self, "--review"],
     { encoding: "utf8" }
   );
   if (reg.status === 0) {
-    console.log(`kanban-loop: registered kanban-weekly-review @ '${cron}' -> node ${self} --review`);
+    console.log(`kanban-loop: registered kanban-weekly-review @ '${cron}' -> ${[...stallPrefix, "node", self, "--review"].join(" ")}`);
   } else {
     console.log(`kanban-loop: scheduler register (weekly review) failed (non-fatal in dev): ${reg.stderr || reg.stdout || reg.status}`);
   }

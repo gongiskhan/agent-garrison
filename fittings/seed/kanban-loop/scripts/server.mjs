@@ -64,7 +64,7 @@ import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
-import { loadPolicy } from "../lib/policy.mjs";
+import { loadPolicy, railForCard, railIsManualOnly } from "../lib/policy.mjs";
 import {
   readTouchSet,
   coordinationConfig,
@@ -1675,8 +1675,19 @@ async function handleStartCard(req, res, opts, id) {
   // instead resumes its still-valid parkedFrom phase, preserving the failed
   // phase's run context. A gated Discuss card falls through to agent dispatch.
   if (list.kind !== "agent" && !isGatedDiscuss(card, list)) {
-    const targets = validNextFor(board, card.list);
+    // A manual-only rail (empty phase plan — the personal/channel kinds, or a
+    // card with every phase toggled off) never advances INTO the dev pipeline:
+    // its journey is the manual head/tail, so Advance targets the manual
+    // subset of the list's exits, or Done when the pipeline was the only exit.
+    // parkedFrom resume is skipped too — there is no phase context to preserve.
+    const manualOnly = railIsManualOnly(railForCard(loadPolicy(), card));
+    let targets = validNextFor(board, card.list);
+    if (manualOnly) {
+      const manual = targets.filter((t) => getList(board, t)?.kind === "manual");
+      targets = manual.length ? manual : ["done"];
+    }
     const parkedTarget =
+      !manualOnly &&
       card.list === ATTENTION_LIST &&
       typeof card.parkedFrom === "string" &&
       card.parkedFrom !== ATTENTION_LIST &&

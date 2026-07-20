@@ -735,9 +735,24 @@ function MoveSheet({
   onMoved: () => void;
 }) {
   const current = board.lists.find((l) => l.id === card.list);
-  const targets = current?.validNext ?? [];
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A manual-only work kind (empty phase plan — personal/channel) rides the
+  // manual lists by hand: never offer the dev pipeline from here, surface the
+  // manual subset of the list's exits, or Done when the pipeline was the only
+  // exit. Mirrors the server's rail-aware Advance (railIsManualOnly).
+  const [policy, setPolicy] = useState<PolicyView | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.policy().then((v) => { if (alive) setPolicy(v); }).catch(() => { /* no policy — static targets */ });
+    return () => { alive = false; };
+  }, []);
+  const staticTargets = current?.validNext ?? [];
+  const kind = policy && card.workKind ? policy.workKinds[card.workKind] : null;
+  const plan = kind && policy ? policy.phasePlans[kind.phasePlan] : null;
+  const manualOnly = !!plan && (plan.phases ?? []).length === 0;
+  const manualTargets = staticTargets.filter((t) => board.lists.find((l) => l.id === t)?.kind === "manual");
+  const targets = manualOnly ? (manualTargets.length ? manualTargets : ["done"]) : staticTargets;
 
   async function moveTo(listId: string) {
     setBusy(true);

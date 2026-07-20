@@ -103,20 +103,28 @@ describe("Run & results — real UI", () => {
     const classicToggle = p.getByRole("button", { name: "Classic view" });
     await classicToggle.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
     if (await classicToggle.count()) await classicToggle.click();
-    await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 15000 });
-    await p.getByText(/cached|vision|recovered/).first().waitFor({ timeout: 10000 });
+    // This wait covers an ACTUAL QA run (drive a browser, assert, render) — the
+    // genuinely slow step, and the one that stretches when the full suite runs
+    // 350+ files in parallel. At 15s it flaked under load while passing in
+    // isolation in ~4s (same failure mode drill-gate-ui.test.ts hit); the
+    // sequential waits below also summed past the old 40s test budget. Budget
+    // the run generously and give the test headroom for the sum.
+    await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 45000 });
+    // Everything downstream of the run rides the same contention: keep these
+    // waits generous too, or each one is its own flake point under load.
+    await p.getByText(/cached|vision|recovered/).first().waitFor({ timeout: 30000 });
 
     await p.getByRole("button", { name: "Mark failed" }).click();
-    await p.getByText(/Overridden -> failed/).waitFor({ timeout: 5000 });
+    await p.getByText(/Overridden -> failed/).waitFor({ timeout: 15000 });
 
     // the override auto-pooled a verdict-flip finding — confirm it and
     // dispatch, both still in the classic detail (the sticky-view fix keeps
     // classic showing across the refetches these mutations trigger)
     await p.getByRole("button", { name: "Confirm" }).first().click();
-    await p.getByText("confirmed", { exact: true }).first().waitFor({ timeout: 5000 });
+    await p.getByText("confirmed", { exact: true }).first().waitFor({ timeout: 15000 });
 
     const fixBtn = p.getByRole("button", { name: /Send confirmed to Code/ });
-    await fixBtn.waitFor({ state: "visible", timeout: 10000 });
+    await fixBtn.waitFor({ state: "visible", timeout: 15000 });
     expect(await fixBtn.isDisabled()).toBe(false);
-  }, 40000);
+  }, 180000);
 });

@@ -29,7 +29,7 @@ import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scri
 // @ts-ignore — pure .mjs
 import { buildBoard } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
-import { resetPolicyCache, railForCard } from "../fittings/seed/kanban-loop/lib/policy.mjs";
+import { resetPolicyCache, railForCard, railIsManualOnly } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore — pure .mjs
 import { gateContractForTransition } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
@@ -528,6 +528,31 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
     expect(railForCard(policy, { workKind: "dev" }).evidenceRequired).toBe(true);
     expect(railForCard(policy, {}).evidenceRequired).toBe(true); // default kind
     expect(railForCard(policy, { workKind: "unknown" }).evidenceRequired).toBe(true); // forgiving all-on branch
+  });
+
+  it("railIsManualOnly: empty phase plan and all-toggled-off rails are manual-only; live rails and null rails are not", () => {
+    const policy = {
+      phases: ["plan", "implement", "test"],
+      workKinds: {
+        personal: { phasePlan: "manual-only", evidence: false },
+        dev: { phasePlan: "full" }
+      },
+      phasePlans: {
+        "manual-only": { phases: [], evidence: "none" },
+        full: { phases: ["plan", "implement", "test"] }
+      },
+      defaultWorkKind: "dev"
+    };
+    // Empty phase plan (the personal/channel kinds): every rail entry is off.
+    expect(railIsManualOnly(railForCard(policy, { workKind: "personal" }))).toBe(true);
+    // Dev kind: live rail.
+    expect(railIsManualOnly(railForCard(policy, { workKind: "dev" }))).toBe(false);
+    // Dev kind with every phase card-toggled off: nothing left to run.
+    expect(
+      railIsManualOnly(railForCard(policy, { workKind: "dev", phases: { plan: false, implement: false, test: false } }))
+    ).toBe(true);
+    // No policy → null rail → NOT manual-only (static board behavior stays).
+    expect(railIsManualOnly(railForCard(null, { workKind: "personal" }))).toBe(false);
   });
 
   it("both contracts report satisfied for an evidence-free rail, without touching disk", () => {

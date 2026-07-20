@@ -134,6 +134,16 @@ export function railForCard(policy, card) {
   return { workKind: kindName || null, evidence: plan.evidence || "none", evidenceRequired, phases };
 }
 
+// A rail with no ON phases — an empty phase plan (the personal/channel manual
+// kinds) or a card whose per-card toggles switched everything off. Nothing for
+// the engine to run: the card's whole journey is the manual head/tail
+// (backlog/todo/done), so manual affordances (Move/Advance) must never funnel
+// it into the dev pipeline. Null rail (no policy) is NOT manual-only — the
+// static board behavior stays authoritative there.
+export function railIsManualOnly(rail) {
+  return !!rail && Array.isArray(rail.phases) && rail.phases.every((p) => !p.on);
+}
+
 // Is `phase` ON for this card? A pipeline phase absent from the rail is OFF
 // (the plan is the complete set of what runs); a NON-pipeline phase (a custom
 // board column outside the policy vocabulary) defaults ON — the rail governs

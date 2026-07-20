@@ -39,7 +39,8 @@ function fmtAge(deltaMs) {
 //                 (b) waitingOn.since older than stallMs,
 //                 (c) not updated within windowMs.
 //   moving    — a routed (engine advance) or moved (manual move) event within
-//               windowMs, and not stalled.
+//               windowMs, and not stalled. Cards on done count: work that
+//               finished inside the window is exactly what moved this week.
 export function computeReview({ cards, now, stallMs = DEFAULT_STALL_HOURS * HOUR_MS, windowMs = REVIEW_WINDOW_DAYS * DAY_MS } = {}) {
   const nowMs = typeof now === "number" ? now : ms(now);
   if (!Number.isFinite(nowMs)) throw new Error("computeReview needs a valid `now` (ISO string or ms)");
@@ -54,25 +55,25 @@ export function computeReview({ cards, now, stallMs = DEFAULT_STALL_HOURS * HOUR
       attention.push({ card, reason: card.attentionReason || "parked" });
       continue;
     }
-    if (card.list === TERMINAL_LIST) continue;
-
-    const reasons = [];
-    const runningSince = card.status === "running" ? ms(card.runningSince) : null;
-    if (runningSince !== null && nowMs - runningSince > stallMs) {
-      reasons.push(`running for ${fmtAge(nowMs - runningSince)}`);
-    }
-    const waitingSince = card.waitingOn ? ms(card.waitingOn.since) : null;
-    if (waitingSince !== null && nowMs - waitingSince > stallMs) {
-      const on = card.waitingOn.cardTitle || card.waitingOn.cardId || card.waitingOn.until || "another card";
-      reasons.push(`waiting on ${on} for ${fmtAge(nowMs - waitingSince)}`);
-    }
-    const updated = ms(card.updated);
-    if (updated !== null && nowMs - updated > windowMs) {
-      reasons.push(`untouched for ${fmtAge(nowMs - updated)}`);
-    }
-    if (reasons.length) {
-      stalled.push({ card, reasons });
-      continue;
+    if (card.list !== TERMINAL_LIST) {
+      const reasons = [];
+      const runningSince = card.status === "running" ? ms(card.runningSince) : null;
+      if (runningSince !== null && nowMs - runningSince > stallMs) {
+        reasons.push(`running for ${fmtAge(nowMs - runningSince)}`);
+      }
+      const waitingSince = card.waitingOn ? ms(card.waitingOn.since) : null;
+      if (waitingSince !== null && nowMs - waitingSince > stallMs) {
+        const on = card.waitingOn.cardTitle || card.waitingOn.cardId || card.waitingOn.until || "another card";
+        reasons.push(`waiting on ${on} for ${fmtAge(nowMs - waitingSince)}`);
+      }
+      const updated = ms(card.updated);
+      if (updated !== null && nowMs - updated > windowMs) {
+        reasons.push(`untouched for ${fmtAge(nowMs - updated)}`);
+      }
+      if (reasons.length) {
+        stalled.push({ card, reasons });
+        continue;
+      }
     }
 
     const recentlyMoved = (Array.isArray(card.events) ? card.events : []).some((ev) => {

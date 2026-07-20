@@ -2,7 +2,7 @@
 // attention / stalled / moving from timestamps alone — pure, no disk, no
 // engine. These tests pin the bucket predicates and their precedence
 // (attention > stalled > moving), the stall threshold boundary, and that
-// terminal cards vanish from the report.
+// done cards count as moving only while their finishing move is in-window.
 import { describe, it, expect } from "vitest";
 
 // @ts-ignore — pure .mjs
@@ -89,9 +89,21 @@ describe("computeReview buckets", () => {
     expect(r.stalled).toEqual([]);
   });
 
-  it("done cards appear in no bucket", () => {
+  it("a done card whose finishing move is in-window is moving — never stalled", () => {
+    // Aged `updated` plus a recent routed event: done cards are exempt from every
+    // stall clause, and completed work IS what moved this week.
     const r = computeReview({
       cards: [card({ list: "done", updated: iso(30 * DAY), events: [{ at: iso(DAY), kind: "routed" }] })],
+      now: NOW
+    });
+    expect(r.moving.length).toBe(1);
+    expect(r.stalled).toEqual([]);
+    expect(r.attention).toEqual([]);
+  });
+
+  it("a done card with no in-window move appears in no bucket", () => {
+    const r = computeReview({
+      cards: [card({ list: "done", updated: iso(30 * DAY), events: [{ at: iso(9 * DAY), kind: "routed" }] })],
       now: NOW
     });
     expect(r.moving).toEqual([]);

@@ -104,7 +104,7 @@ describe("gated autonomy — real UI", () => {
     // also summed to 45s inside a 40s budget, so the test could blow its own
     // deadline before this one even expired. Budget the run generously and give
     // the test enough headroom for the sum.
-    await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 45000 });
+    await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 60000 });
     await p.getByText("Plan ready").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
-  }, 90000);
+  }, 120000);
 });
