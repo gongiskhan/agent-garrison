@@ -97,7 +97,14 @@ describe("gated autonomy — real UI", () => {
     const classicToggle = p.getByRole("button", { name: "Classic view" });
     await classicToggle.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
     if (await classicToggle.count()) await classicToggle.click();
-    await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 15000 });
+    // This wait is for an ACTUAL QA run to finish (drive a browser, assert,
+    // render results) — the one genuinely slow step here, and the one that
+    // stretches when the full suite runs 350+ files in parallel. At 15s it
+    // flaked under load while passing in isolation; the sequential waits above
+    // also summed to 45s inside a 40s budget, so the test could blow its own
+    // deadline before this one even expired. Budget the run generously and give
+    // the test enough headroom for the sum.
+    await p.locator(".dr-res").first().waitFor({ state: "visible", timeout: 45000 });
     await p.getByText("Plan ready").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
-  }, 40000);
+  }, 90000);
 });
