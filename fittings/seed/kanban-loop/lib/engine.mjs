@@ -224,7 +224,14 @@ export function evidenceRequiredForTransition(list, next) {
 // this helper about the ACTUAL destination after rail fast-forwarding; when Test
 // lands in Done, a non-empty evidence/evidence.md is mandatory. Other edges keep
 // the configurable Walkthrough/transition evidence contract.
-export function evidenceContractForTransition(list, phase, next) {
+export function evidenceContractForTransition(list, phase, next, rail = null) {
+  // An evidence-free rail (the card's work kind declares `evidence: false`)
+  // owes no evidence anywhere — including the terminal Test -> Done invariant,
+  // so the waiver comes first. Every seam funnels through this helper, so the
+  // waiver holds for the dispatched, batched, and in-session paths alike.
+  if (rail && rail.evidenceRequired === false) {
+    return { required: false, requiredEvidenceFile: null, invariant: null, waived: true };
+  }
   if (phase === "test" && next === "done") {
     return { required: true, requiredEvidenceFile: "evidence.md", invariant: "terminal-test-done" };
   }
@@ -240,7 +247,13 @@ export function evidenceContractForTransition(list, phase, next) {
 // (newest, phase-sidecar-preferred) record must name the ACTUAL edge. This is
 // intentionally checked after rail resolution so a gate saying
 // `adversarial-test` cannot silently authorize a real Test -> Done transition.
-export function gateContractForTransition(cwd, runDir, phase, next, freshness = null) {
+export function gateContractForTransition(cwd, runDir, phase, next, freshness = null, rail = null) {
+  // Evidence-free rail: the contract reports satisfied without touching the
+  // filesystem — no gate record is owed, so none is inspected. `waived: true`
+  // keeps the shape honest for diagnostics (this is a waiver, not a real gate).
+  if (rail && rail.evidenceRequired === false) {
+    return { exists: true, declaresNext: false, nextLists: [], stale: false, agrees: true, waived: true };
+  }
   const evidence = inspectPhaseGateEvidence(cwd, runDir, phase, freshness);
   // Keep stale history visible for diagnostics, but never let it satisfy a
   // current-attempt contract. With no freshness constraint this is the same
@@ -998,7 +1011,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     // OFF Walkthrough does not need screenshots). The sole cross-phase invariant
     // here is the canonical terminal Test -> Done report.
     const evidenceContract = phase === "test" && fwd === "done"
-      ? evidenceContractForTransition(list, phase, fwd)
+      ? evidenceContractForTransition(list, phase, fwd, rail)
       : { required: false, requiredEvidenceFile: null };
     if (evidenceContract.required && !hasEvidence(cwd, card.runDir, evidenceContract.requiredEvidenceFile)) {
       const expectedEvidence = evidenceContract.requiredEvidenceFile || "a screenshot or evidence.md";
@@ -1449,7 +1462,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // EVIDENCE GATE (Walkthrough artifacts + terminal Test report). The terminal
   // Test -> Done rule is engine-owned, so it remains active even when an installed
   // board predates or has lost requiresEvidenceOn/requiredEvidenceFile.
-  const evidenceContract = evidenceContractForTransition(list, phase, checkedNext);
+  const evidenceContract = evidenceContractForTransition(list, phase, checkedNext, rail);
   const evidenceMissing = Boolean(
     next &&
     evidenceContract.required &&
@@ -1472,7 +1485,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     gateEvidenceMissing = true;
   }
   if (next && pipelinePhase && runningCard.runDir) {
-    durableGate = gateContractForTransition(cwd, runningCard.runDir, phase, checkedNext, gateFreshness);
+    durableGate = gateContractForTransition(cwd, runningCard.runDir, phase, checkedNext, gateFreshness, rail);
     if (!durableGate.exists && durableGate.stale) gateEvidenceStale = true;
     else if (!durableGate.exists) gateEvidenceMissing = true;
     else if (!durableGate.agrees) gateVerdictMismatch = true;
@@ -2006,7 +2019,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   // it remains far tighter than the minutes-old retry residue this guards.
   const gateFreshness = Number.isFinite(phaseEntryMs) ? { notBeforeMs: phaseEntryMs - 1000 } : null;
   const durableGate = pipelinePhase && card.runDir
-    ? gateContractForTransition(cwd, card.runDir, phase, effectiveNext, gateFreshness)
+    ? gateContractForTransition(cwd, card.runDir, phase, effectiveNext, gateFreshness, rail)
     : null;
   if (durableGate && !durableGate.exists) {
     const stale = durableGate.stale;
@@ -2041,7 +2054,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   }
   // Evidence gate — including the engine-owned Test -> Done invariant that does
   // not depend on the installed list carrying fresh enforcement fields.
-  const evidenceContract = evidenceContractForTransition(list, phase, effectiveNext);
+  const evidenceContract = evidenceContractForTransition(list, phase, effectiveNext, rail);
   if (evidenceContract.required && !hasEvidence(cwd, card.runDir, evidenceContract.requiredEvidenceFile)) {
     const expectedEvidence = evidenceContract.requiredEvidenceFile || "a screenshot or evidence.md";
     const evReason = `In-session advance from ${listTitle} refused: no tangible evidence under ${card.runDir}/evidence/ (required: ${expectedEvidence}). Produce the evidence bundle first.`;
@@ -2615,7 +2628,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           }));
         }
       }
-      const evidenceContract = evidenceContractForTransition(list, phase, effectiveNext);
+      const evidenceContract = evidenceContractForTransition(list, phase, effectiveNext, rail);
       const evidenceMissing = Boolean(
         next &&
         evidenceContract.required &&
@@ -2628,7 +2641,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       let gateVerdictMismatch = false;
       let durableGate = null;
       if (next && pipelinePhase && a.running.runDir) {
-        durableGate = gateContractForTransition(cwd, a.running.runDir, phase, effectiveNext, a.gateFreshness);
+        durableGate = gateContractForTransition(cwd, a.running.runDir, phase, effectiveNext, a.gateFreshness, rail);
         if (!durableGate.exists && durableGate.stale) gateEvidenceStale = true;
         else if (!durableGate.exists) gateEvidenceMissing = true;
         else if (!durableGate.agrees) gateVerdictMismatch = true;

@@ -6,6 +6,8 @@
 //                      manual, and interactive lists)
 //   --tick-list <id>   process ONE list. For the Test list this is the BATCHED path
 //                      (one session per project); the Test scheduler beat calls it.
+//   --review           weekly board review: bucket cards into moving / stalled /
+//                      needs-attention, write a dated report, notify. Never moves cards.
 // The board UI is owned by other V1b slices; this is the engine spine.
 import { existsSync } from "node:fs";
 import { promises as fs } from "node:fs";
@@ -15,6 +17,8 @@ import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } f
 import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
+import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
+import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
 import {
@@ -295,6 +299,54 @@ async function registerTick() {
   }
 }
 
+// Register the weekly Monday review. Uses the scheduler CLI's idempotent
+// `register` form (NOT remove+add) so a user's enable/disable choice and the
+// job's last_run survive re-setup. Cadence via KANBAN_REVIEW_CRON, declared in
+// apm.yml config_schema alongside tick_cron.
+async function registerWeeklyReview() {
+  const cron = process.env.KANBAN_REVIEW_CRON || "0 8 * * 1"; // Mondays 08:00 local
+  const cli = schedulerCli();
+  const self = path.resolve(__dirname, "kanban.mjs");
+  if (!existsSync(cli)) {
+    console.log(`kanban-loop: scheduler CLI not found at ${cli} (skipping weekly review job; register manually).`);
+    return;
+  }
+  const { spawnSync } = await import("node:child_process");
+  const reg = spawnSync(
+    "node",
+    [cli, "register", "kanban-weekly-review", cron, "--description", "Weekly Monday board review (stall detection)", "--", "node", self, "--review"],
+    { encoding: "utf8" }
+  );
+  if (reg.status === 0) {
+    console.log(`kanban-loop: registered kanban-weekly-review @ '${cron}' -> node ${self} --review`);
+  } else {
+    console.log(`kanban-loop: scheduler register (weekly review) failed (non-fatal in dev): ${reg.stderr || reg.stdout || reg.status}`);
+  }
+}
+
+// The weekly review: assemble board state through lib/review.mjs (the single
+// summary source in the fitting), write a dated markdown report under the
+// kanban root, and post a short notice through the notify-origin transport.
+// Report-and-notify ONLY — the review never moves or writes cards, so it
+// cannot fight the engine.
+async function review() {
+  const root = kanbanRoot();
+  const cards = await loadAllCards(root);
+  const stallHoursRaw = Number(process.env.KANBAN_REVIEW_STALL_HOURS);
+  const stallHours = Number.isFinite(stallHoursRaw) && stallHoursRaw > 0 ? stallHoursRaw : DEFAULT_STALL_HOURS;
+  const nowIso = new Date().toISOString();
+  const result = computeReview({ cards, now: nowIso, stallMs: stallHours * 3_600_000 });
+  const reportDir = path.join(root, "reports");
+  await fs.mkdir(reportDir, { recursive: true });
+  const reportPath = path.join(reportDir, `review-${nowIso.slice(0, 10)}.md`);
+  await fs.writeFile(reportPath, renderReviewMarkdown(result, { now: nowIso }), "utf8");
+  console.log(
+    `kanban-loop: weekly review — attention=${result.attention.length} stalled=${result.stalled.length} moving=${result.moving.length} -> ${reportPath}`
+  );
+  const delivered = await deliverBoardNotice("Board review", reviewNoticeText(result, reportPath));
+  console.log(`kanban-loop: review notice ${delivered ? "delivered to the web channel" : "not delivered (channel down or absent) — report + log only"}`);
+}
+
 async function setup() {
   const root = kanbanRoot();
   await fs.mkdir(path.join(root, "cards"), { recursive: true });
@@ -329,6 +381,7 @@ async function setup() {
   }
   await registerTick();
   await registerSchedulerBeats();
+  await registerWeeklyReview();
 }
 
 async function probe() {
@@ -558,5 +611,6 @@ if (invokedDirectly) {
   else if (arg === "--probe") await probe();
   else if (arg === "--tick") await tick();
   else if (arg === "--tick-list") await tickList(process.argv[3]);
-  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id>");
+  else if (arg === "--review") await review();
+  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id> | --review");
 }

@@ -148,6 +148,9 @@ x-garrison:
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
+            tick_cron: '*/2 * * * *'
+            review_cron: 0 8 * * 1
+            review_stall_hours: 2
       sessions:
         - id: garrison-assistant
           config:

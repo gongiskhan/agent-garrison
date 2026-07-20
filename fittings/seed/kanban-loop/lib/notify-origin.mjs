@@ -204,6 +204,43 @@ function deliverWebMessage(threadId, text) {
     });
 }
 
+// Board-level notice (the weekly review) — not tied to any card or origin, so it
+// cannot ride routeOriginEvent. Reuses the same transport: resolve the web channel
+// via its status file, ensure a fixed well-known thread, post the text there.
+// Awaitable so a CLI caller can finish delivery before exiting, but never throws;
+// resolves false when the channel is down (the report file + stdout still land).
+const BOARD_NOTICE_THREAD = "kanban-board-review";
+
+export async function deliverBoardNotice(title, text) {
+  try {
+    if (!text) return false;
+    const base = statusFileUrl(CHANNEL_FITTINGS.web);
+    if (!base) return false;
+    const ensured = await fetch(`${base}/api/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: BOARD_NOTICE_THREAD, title: title || "Board review", source: "kanban-loop" })
+    });
+    if (!ensured.ok) {
+      console.error(`[kanban] board notice → thread ensure HTTP ${ensured.status}`);
+      return false;
+    }
+    const posted = await fetch(`${base}/api/threads/${BOARD_NOTICE_THREAD}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "assistant", text }] })
+    });
+    if (!posted.ok) {
+      console.error(`[kanban] board notice → HTTP ${posted.status}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[kanban] board notice failed: ${err?.message || err}`);
+    return false;
+  }
+}
+
 /**
  * Route one lifecycle event to a card's origin. Appends to the durable event log for
  * EVERY transport, then delivers per transport (web only for now). `event` is

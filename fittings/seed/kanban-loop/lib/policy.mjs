@@ -96,6 +96,10 @@ export function railForCard(policy, card) {
   const kindName = card?.workKind || policy.defaultWorkKind;
   const kind = (policy.workKinds || {})[kindName];
   const plan = kind ? (policy.phasePlans || {})[kind.phasePlan] : null;
+  // A work kind may declare `evidence: false` — an evidence-free rail whose
+  // transitions owe no evidence files and no durable gate records. Absent or
+  // any other value means evidence is required (every dev kind is untouched).
+  const evidenceRequired = kind ? kind.evidence !== false : true;
   const toggles = card?.phases && typeof card.phases === "object" ? card.phases : {};
   const bindings = (policy.phaseSkills || {}).bindings || {};
   const overrides = ((policy.phaseSkills || {}).overrides || {})[kindName] || {};
@@ -112,6 +116,7 @@ export function railForCard(policy, card) {
     return {
       workKind: kindName || null,
       evidence: "none",
+      evidenceRequired,
       phases: allPhases.map((id) => entry(id, true, null))
     };
   }
@@ -126,7 +131,7 @@ export function railForCard(policy, card) {
     ...[...inPlan.entries()].map(([id, on]) => entry(id, on, "phase-plan")),
     ...allPhases.filter((id) => !inPlan.has(id)).map((id) => entry(id, false, "phase-plan"))
   ];
-  return { workKind: kindName || null, evidence: plan.evidence || "none", phases };
+  return { workKind: kindName || null, evidence: plan.evidence || "none", evidenceRequired, phases };
 }
 
 // Is `phase` ON for this card? A pipeline phase absent from the rail is OFF

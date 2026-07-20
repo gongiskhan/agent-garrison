@@ -669,6 +669,10 @@
         "report"
       ],
       "evidence": "video"
+    },
+    "manual-only": {
+      "phases": [],
+      "evidence": "none"
     }
   },
   "workKinds": {
@@ -691,6 +695,16 @@
     "full-feature": {
       "phasePlan": "full",
       "description": "Feature work through the full gated pipeline"
+    },
+    "personal": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Personal task - rides backlog/todo/done by hand, no agent phases"
+    },
+    "channel": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge"
     }
   },
   "defaultWorkKind": "full-feature",

@@ -29,7 +29,9 @@ import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scri
 // @ts-ignore — pure .mjs
 import { buildBoard } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
-import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
+import { resetPolicyCache, railForCard } from "../fittings/seed/kanban-loop/lib/policy.mjs";
+// @ts-ignore — pure .mjs
+import { gateContractForTransition } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadAllCards, loadCard, saveCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
@@ -474,5 +476,150 @@ describe("terminal Test evidence — a short develop workflow still leaves user-
     expect(disk.list).toBe("done");
     expect(existsSync(join(disk.runDir, "gate-status.test.json"))).toBe(true);
     expect(hasEvidence(root, disk.runDir, "evidence.md")).toBe(true);
+  });
+});
+
+// Evidence-free rails: a work kind may declare `evidence: false`, and every
+// transition seam then treats the evidence AND durable-gate contracts as
+// satisfied — the card advances with no evidence files and no gate record,
+// and never parks on evidenceMissing / no-gate-evidence. Dev kinds (no flag)
+// keep the full contract — the rest of this file is the proof.
+describe("evidence-free rails (workKind.evidence === false)", () => {
+  // A compiled policy whose evidence-free kind still HAS a gate phase (test),
+  // so the waiver — not an empty plan — is what the seams exercise.
+  async function withEvidenceFreePolicy(root: string, run: () => Promise<any>): Promise<any> {
+    const previous = process.env.GARRISON_POLICY_PATH;
+    const policyFile = join(root, "evidence-free-policy.json");
+    writeFileSync(
+      policyFile,
+      JSON.stringify({
+        version: 1,
+        phases: ["test"],
+        taskTypes: ["test"],
+        tiers: ["T1-standard"],
+        phaseSkills: { bindings: {}, overrides: {} },
+        workKinds: { "no-proof": { phasePlan: "test-only", evidence: false } },
+        phasePlans: { "test-only": { phases: ["test"], evidence: "none" } }
+      }),
+      "utf8"
+    );
+    process.env.GARRISON_POLICY_PATH = policyFile;
+    resetPolicyCache();
+    try {
+      return await run();
+    } finally {
+      if (previous === undefined) delete process.env.GARRISON_POLICY_PATH;
+      else process.env.GARRISON_POLICY_PATH = previous;
+      resetPolicyCache();
+    }
+  }
+
+  it("railForCard surfaces evidenceRequired: false only for the flagged kind", () => {
+    const policy = {
+      phases: ["test"],
+      workKinds: {
+        "no-proof": { phasePlan: "test-only", evidence: false },
+        dev: { phasePlan: "test-only" }
+      },
+      phasePlans: { "test-only": { phases: ["test"], evidence: "none" } },
+      defaultWorkKind: "dev"
+    };
+    expect(railForCard(policy, { workKind: "no-proof" }).evidenceRequired).toBe(false);
+    expect(railForCard(policy, { workKind: "dev" }).evidenceRequired).toBe(true);
+    expect(railForCard(policy, {}).evidenceRequired).toBe(true); // default kind
+    expect(railForCard(policy, { workKind: "unknown" }).evidenceRequired).toBe(true); // forgiving all-on branch
+  });
+
+  it("both contracts report satisfied for an evidence-free rail, without touching disk", () => {
+    const rail = { evidenceRequired: false };
+    expect(evidenceContractForTransition({}, "test", "done", rail)).toEqual({
+      required: false,
+      requiredEvidenceFile: null,
+      invariant: null,
+      waived: true
+    });
+    const gate = gateContractForTransition("/nonexistent-cwd", "runs/none", "test", "done", null, rail);
+    expect(gate).toMatchObject({ exists: true, stale: false, agrees: true, waived: true });
+    // and an evidence-requiring rail keeps the engine-owned terminal invariant
+    expect(evidenceContractForTransition({}, "test", "done", { evidenceRequired: true })).toMatchObject({
+      required: true,
+      invariant: "terminal-test-done"
+    });
+  });
+
+  it("processCard advances Test -> Done with no gate record and no evidence files", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "no-proof direct", project: "demo", list: "test", workKind: "no-proof" });
+    const { outcome } = await withEvidenceFreePolicy(root, () => processCard({
+      root,
+      board: legacyTerminalTestBoard,
+      card,
+      runFn: async () => ({ reply: "chore complete\ndone" })
+    }));
+
+    expect(outcome).toMatchObject({ status: "moved", to: "done" });
+    const disk = await loadCard(root, card.id);
+    expect(disk.list).toBe("done");
+    expect(disk.status).toBe("ok");
+  });
+
+  it("processBatch advances the same edge without proof", async () => {
+    const root = tmp();
+    await createCard(root, { title: "no-proof batch", project: "demo", list: "test", workKind: "no-proof" });
+    const cards = await loadAllCards(root);
+    const { outcomes } = await withEvidenceFreePolicy(root, () => processBatch({
+      root,
+      board: legacyTerminalTestBoard,
+      listId: "test",
+      cards,
+      batchRunFn: async ({ cards: running }: { cards: any[] }) => ({ reply: `${running[0].id} done` })
+    }));
+
+    expect(outcomes[0]).toMatchObject({ status: "moved", to: "done" });
+    const disk = await loadCard(root, cards[0].id);
+    expect(disk.list).toBe("done");
+  });
+
+  it("advanceCardPhase advances in-session despite a runDir with no gate record", async () => {
+    const root = tmp();
+    const created = await createCard(root, { title: "no-proof in-session", project: "demo", list: "test", workKind: "no-proof" });
+    const runDir = join(root, "runs", created.id);
+    mkdirSync(runDir, { recursive: true }); // runDir exists — but holds NO gate, NO evidence
+    const card = await saveCard(root, { ...created, runId: "no-proof-in-session", runDir });
+
+    const { outcome } = await withEvidenceFreePolicy(root, () => advanceCardPhase({
+      root,
+      board: legacyTerminalTestBoard,
+      card,
+      verdict: "done"
+    }));
+
+    expect(outcome).toMatchObject({ status: "moved", to: "done" });
+    const disk = await loadCard(root, card.id);
+    expect(disk.list).toBe("done");
+  });
+
+  it("an OFF Test rail fast-forward to Done needs no evidence.md on an evidence-free rail", async () => {
+    const root = tmp();
+    const card = await createCard(root, {
+      title: "no-proof rail-off terminal",
+      project: "demo",
+      list: "test",
+      workKind: "no-proof",
+      phases: { test: false }
+    });
+    let dispatched = false;
+    const { outcome } = await withEvidenceFreePolicy(root, () => processCard({
+      root,
+      board: legacyTerminalTestBoard,
+      card,
+      runFn: async () => { dispatched = true; return { reply: "done" }; }
+    }));
+
+    expect(dispatched).toBe(false);
+    expect(outcome).toMatchObject({ status: "moved", to: "done" });
+    const disk = await loadCard(root, card.id);
+    expect(disk.list).toBe("done");
+    expect((disk.events || []).some((e: any) => e.kind === "phase-off")).toBe(true);
   });
 });
