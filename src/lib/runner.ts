@@ -352,7 +352,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       appendLog(
         compositionId,
         "stderr",
-        `global_config.primary_runtime is deprecated — set primaryRuntime in the Orchestrator composer (policy file) instead. Honoring "${legacyPrimary}" for this launch.`
+        `global_config.primary_runtime is deprecated — set primaryRuntime from the Muster Fittings tab (policy file) instead. Honoring "${legacyPrimary}" for this launch.`
       );
     }
     const effectivePrimary = policyPrimary ?? legacyPrimary ?? undefined;

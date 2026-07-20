@@ -11,12 +11,12 @@ import {
   Layers,
   Lock,
   Component,
+  Drill,
   ExternalLink,
   LayoutGrid,
   Globe,
   SquareTerminal,
   Sparkles,
-  Route,
   Activity,
   ScreenShare,
   Mic,
@@ -344,8 +344,7 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   "browser-default": Globe,
   "dev-env": SquareTerminal,
   improver: Sparkles,
-  orchestrator: Route,
-  "model-router": Route, // legacy id (renamed to orchestrator, GARRISON-UNIFY-V1 S2)
+  drill: Drill,
   "monitor-default": Activity,
   "screen-share-default": ScreenShare,
   "deepgram-voice": Mic,
@@ -452,7 +451,7 @@ function FittingViewsLinks({
   // and tint their icon by health; embedded views are always reachable.
   return (
     <>
-      <div className="nav-section-label nav-section-views">Views</div>
+      <div className="nav-section-label nav-section-views">Fittings Views</div>
       {rows.map((row) => {
         const Icon = viewIcon(row.entry, row.kind === "own-port");
         if (row.kind === "embedded") {

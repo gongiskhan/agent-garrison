@@ -23,6 +23,7 @@ import { dutyEfforts } from "@/lib/types";
 import { AddDuty, DutyList, MusterHeader, ReadinessDetail, TargetsTray } from "./MusterView";
 import { StandingFittings } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
+import { PolicyPanel } from "./PolicyPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
 import type { DutyEffort, MusterActions, MusterModel, MusterTargetUpdate } from "./types";
 import styles from "./Muster.module.css";
@@ -104,6 +105,9 @@ export function MusterPage() {
   const [armed, setArmed] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [section, setSection] = useState<SectionId>("duties");
+  // The Orchestrator tab holds two surfaces: the routing policy (the composer
+  // surfaces folded in when the own-port view retired) and the system prompt.
+  const [orchSub, setOrchSub] = useState<"policy" | "prompt">("policy");
 
   // The composition currently viewed (from ?composition=, else the active
   // pointer). Held in a ref so mutation POSTs always target the same one.
@@ -454,7 +458,40 @@ export function MusterPage() {
             ) : null}
 
             {section === "fittings" ? <StandingFittings compositionId={model.compositionId} /> : null}
-            {section === "orchestrator" ? <OrchestratorPanel compositionId={model.compositionId} /> : null}
+            {section === "orchestrator" ? (
+              <div data-testid="orchestrator-tab">
+                <nav
+                  className={styles.sectionNav}
+                  role="tablist"
+                  aria-label="Orchestrator surfaces"
+                  style={{ marginBottom: 18 }}
+                >
+                  {(
+                    [
+                      { id: "policy", label: "Routing policy" },
+                      { id: "prompt", label: "System prompt" }
+                    ] as const
+                  ).map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={orchSub === s.id}
+                      className={clsx(styles.navItem, orchSub === s.id && styles.navActive)}
+                      onClick={() => setOrchSub(s.id)}
+                      data-testid={`orchestrator-sub-${s.id}`}
+                    >
+                      <span className={styles.navLabel}>{s.label}</span>
+                    </button>
+                  ))}
+                </nav>
+                {orchSub === "policy" ? (
+                  <PolicyPanel compositionId={model.compositionId} />
+                ) : (
+                  <OrchestratorPanel compositionId={model.compositionId} />
+                )}
+              </div>
+            ) : null}
             {section === "decisions" ? <DecisionsPanel compositionId={model.compositionId} /> : null}
           </div>
         </div>

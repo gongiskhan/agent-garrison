@@ -225,7 +225,7 @@
     "name": "Orchestrator",
     "repo": "local:fittings/seed/orchestrator",
     "localPath": "fittings/seed/orchestrator",
-    "summary": "Orchestrator Faculty — the single brain and control panel. Owns the compiled policy (task types, matrix, phase plans, work kinds, skill bindings), the preRoute (task-type + tier + execution), the {{routing}} injection, and the composer view. Absorbs the former Model Router.",
+    "summary": "Orchestrator Faculty - the single brain. Owns the compiled policy (task types, matrix, phase plans, work kinds, skill bindings), the preRoute (task-type + tier + execution) and the {{routing}} injection; configured from the Muster Orchestrator tab. Absorbs the former Model Router.",
     "platforms": [
       "claude-code"
     ],

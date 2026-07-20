@@ -110,7 +110,7 @@ export function RuntimeFileEditor({
       {view.projected ? (
         <div className="banner warn">
           Garrison-managed projection — written by the Orchestrator projection for this runtime. Edit the source
-          (the Orchestrator prompt / composer), not this file; direct edits are refused server-side.
+          (the Muster Orchestrator tab), not this file; direct edits are refused server-side.
         </div>
       ) : null}
       {error ? <div className="banner bad">{error}</div> : null}

@@ -200,7 +200,7 @@ export async function projectPrimaryContext(opts: {
   const header =
     `<!-- ${PROJECTION_MARKER} source=orchestrator engine=${opts.engine} -->\n` +
     `<!-- Managed by Garrison (RUNTIMES-V1 P8): the assembled Orchestrator prompt projected to the ${opts.engine} ` +
-    `primary's native context convention. Edit the Orchestrator prompt / composer, not this file. -->\n\n`;
+    `primary's native context convention. Edit it from the Muster Orchestrator tab, not this file. -->\n\n`;
   await fsp.mkdir(opts.targetDir, { recursive: true });
   await writeFileAtomic(target, header + opts.instructions);
   return {

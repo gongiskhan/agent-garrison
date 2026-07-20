@@ -77,6 +77,11 @@ async function openSection(
 ): Promise<void> {
   await page.getByTestId("muster-page").waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
   await page.getByTestId(`section-nav-${id}`).click();
+  if (id === "orchestrator") {
+    // The Orchestrator tab now fronts two surfaces (Routing policy | System
+    // prompt); these tests exercise the prompt panel.
+    await page.getByTestId("orchestrator-sub-prompt").click();
+  }
 }
 
 async function waitForPanel(

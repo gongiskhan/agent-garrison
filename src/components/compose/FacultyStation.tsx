@@ -823,7 +823,7 @@ function OrchestratorGlobalConfig({
         <div className="field">
           <label>primary_runtime</label>
           <div className="hint">
-            Set in the Orchestrator composer&apos;s Primary picker now, not here.
+            Set from the Muster Fittings tab&apos;s Primary picker now, not here.
             {globalConfig.primary_runtime ? (
               <>
                 {" "}This composition still carries a deprecated value

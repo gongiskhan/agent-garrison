@@ -4,12 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ui/build.mjs",
     "probe": "node scripts/check-routing.mjs --check"
-  },
-  "dependencies": {
-    "@garrison/claude-pty": "file:../../../packages/claude-pty",
-    "esbuild": "^0.28.0",
-    "js-yaml": "^4.1.0"
   }
 }

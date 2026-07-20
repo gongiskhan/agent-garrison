@@ -1,38 +1,25 @@
 name: orchestrator
 version: 0.2.0
-description: Orchestrator for Agent Garrison — the single brain and control panel. Owns the compiled policy (task types × tiers → targets, phase plans, work kinds, phase-skill bindings), the preRoute, the {{routing}} injection, and the composer view. Absorbs the former Model Router (GARRISON-UNIFY-V1 D6).
+description: Orchestrator for Agent Garrison — the single brain. Owns the compiled policy (task types × tiers → targets, phase plans, work kinds, phase-skill bindings), the preRoute and the {{routing}} injection. Absorbs the former Model Router (GARRISON-UNIFY-V1 D6). Configured from the Muster Orchestrator tab; the former own-port composer view is retired.
 target: claude
 type: hybrid
 includes: auto
 x-garrison:
   faculty: orchestrator
   cardinality_hint: single
-  own_port: true
   component_shape: system-prompt
   platforms:
     - claude-code
   summary: >-
     Fills the Orchestrator Faculty — the one policy, one brain. Owns the v2
     policy config (matrix resolving every task type × tier straight to a
-    target; phase plans; work kinds; the phase-skill registry), compiles it
+    target; phase plans; work kinds; the phase-skill registry) and compiles it
     byte-stably into both the routing.md injected via {{routing}} and the
     machine-readable ~/.garrison/orchestrator/policy.json (the single
-    consumption interface for the run engine and every phase skill), and
-    serves the own-port composer view (default 27087) that owns GET/PUT
-    /routing with baseline-hash guarding.
-  config_schema:
-    - key: port
-      type: integer
-      default: 27087
-      description: HTTP port the Orchestrator view + config API binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
-    - key: bind_host
-      type: string
-      default: 127.0.0.1
-      description: Bind address; 0.0.0.0 to expose over Tailscale.
-    - key: routing_config
-      type: path
-      default: routing.json
-      description: Composition-scoped policy config path (whole-document, baseline-hash guarded on PUT).
+    consumption interface for the run engine and every phase skill). The
+    policy is edited from Garrison's Muster Orchestrator tab (whole-document,
+    baseline-hash guarded writes through /api/orchestrator/policy).
+  config_schema: []
   provides:
     - kind: orchestrator
       name: orchestrator
@@ -44,7 +31,7 @@ x-garrison:
     - kind: modes
       cardinality: optional-one
   setup:
-    command: node ui/build.mjs && node scripts/compile.mjs --check
+    command: node scripts/compile.mjs --check
     idempotent: true
     timeout_ms: 90000
   verify:
@@ -62,8 +49,7 @@ x-garrison:
     own model: the gateway pre-routes (Stage A: taskType + tier + execution)
     before the turn and places it on the resolved target.
     Every reply must end with `[route: <target-id> | rule: <rule-id> | profile: <name>]`.
-    Config API (own-port server, default 27087):
-      GET  /routing   → {config, baselineSha}
-      PUT  /routing   → whole-document write, 409 on baselineSha mismatch,
-                        422 when the policy fails to compile; recompiles
-                        policy.json on success
+    The policy is edited from Garrison's Muster Orchestrator tab (whole-document,
+    baseline-hash guarded writes via /api/orchestrator/policy; 409 on baseline
+    mismatch, 422 when the policy fails to validate or compile; policy.json is
+    recompiled on every accepted write).
