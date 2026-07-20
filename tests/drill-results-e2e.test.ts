@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
+import { waitExit } from "./helpers/wait-exit";
 
 // Run & results, real UI: click Run, watch a result render with a tier
 // badge, mark it failed, confirm the resulting finding, and dispatch it —
@@ -80,10 +81,11 @@ afterAll(async () => {
   await page?.close();
   await browser?.close();
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   browserSrv = null; automationsSrv = null; drillSrv = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 }, 15000);

@@ -5,6 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildPickScript, buildResolveScript, rectToPercent } from "../fittings/seed/drill/lib/picker.mjs";
 import { openTab, evalJs } from "../fittings/seed/drill/lib/browser-fitting-client.mjs";
+import { waitExit } from "./helpers/wait-exit";
 
 // D4/B2/B3 live — drives a REAL headless chromium (via browser-default) to
 // prove the picker's in-page scripts actually work, not just that they parse.
@@ -36,8 +37,9 @@ beforeAll(async () => {
   await waitHealthy(15000);
 }, 20000);
 
-afterAll(() => {
+afterAll(async () => {
   if (srv && !srv.killed) srv.kill("SIGTERM");
+  await waitExit(srv);
   srv = null;
   delete process.env.GARRISON_BROWSER_URL;
   rmSync(GHOME, { recursive: true, force: true });

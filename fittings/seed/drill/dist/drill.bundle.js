@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,14 +24489,14 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// fittings/seed/drill/ui/main.tsx
+// ui/main.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_client = __toESM(require_client(), 1);
 
-// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 var import_react = __toESM(require_react(), 1);
 
-// node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
+// ../../../node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
 function isObject(subject) {
   return Object.prototype.toString.call(subject) === "[object Object]";
 }
@@ -24534,7 +24534,7 @@ function arePluginsEqual(pluginsA, pluginsB) {
   });
 }
 
-// node_modules/embla-carousel/esm/embla-carousel.esm.js
+// ../../../node_modules/embla-carousel/esm/embla-carousel.esm.js
 function isNumber(subject) {
   return typeof subject === "number";
 }
@@ -26162,7 +26162,7 @@ function EmblaCarousel(root2, userOptions, userPlugins) {
 }
 EmblaCarousel.globalOptions = void 0;
 
-// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 function useEmblaCarousel(options = {}, plugins = []) {
   const storedOptions = (0, import_react.useRef)(options);
   const storedPlugins = (0, import_react.useRef)(plugins);
@@ -26195,19 +26195,19 @@ function useEmblaCarousel(options = {}, plugins = []) {
 }
 useEmblaCarousel.globalOptions = void 0;
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react3 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../../../node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../node_modules/lucide-react/dist/esm/Icon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../../../node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -26220,7 +26220,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react2.forwardRef)(
   ({
     color = "currentColor",
@@ -26252,7 +26252,7 @@ var Icon = (0, import_react2.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react3.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react3.createElement)(Icon, {
@@ -26266,22 +26266,22 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// ../../../node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// ../../../node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/check.js
+// ../../../node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// node_modules/lucide-react/dist/esm/icons/crosshair.js
+// ../../../node_modules/lucide-react/dist/esm/icons/crosshair.js
 var Crosshair = createLucideIcon("Crosshair", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "22", x2: "18", y1: "12", y2: "12", key: "l9bcsi" }],
@@ -26290,14 +26290,14 @@ var Crosshair = createLucideIcon("Crosshair", [
   ["line", { x1: "12", x2: "12", y1: "22", y2: "18", key: "15g9kq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/external-link.js
+// ../../../node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/eye.js
+// ../../../node_modules/lucide-react/dist/esm/icons/eye.js
 var Eye = createLucideIcon("Eye", [
   [
     "path",
@@ -26309,7 +26309,7 @@ var Eye = createLucideIcon("Eye", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/file-code-2.js
+// ../../../node_modules/lucide-react/dist/esm/icons/file-code-2.js
 var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4", key: "1pf5j1" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
@@ -26317,7 +26317,7 @@ var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/film.js
+// ../../../node_modules/lucide-react/dist/esm/icons/film.js
 var Film = createLucideIcon("Film", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
@@ -26329,13 +26329,13 @@ var Film = createLucideIcon("Film", [
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/flag.js
+// ../../../node_modules/lucide-react/dist/esm/icons/flag.js
 var Flag = createLucideIcon("Flag", [
   ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", key: "i9b6wo" }],
   ["line", { x1: "4", x2: "4", y1: "22", y2: "15", key: "1cm3nv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/layout-grid.js
+// ../../../node_modules/lucide-react/dist/esm/icons/layout-grid.js
 var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
@@ -26343,21 +26343,31 @@ var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/list-filter.js
+// ../../../node_modules/lucide-react/dist/esm/icons/list-filter.js
 var ListFilter = createLucideIcon("ListFilter", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M7 12h10", key: "b7w52i" }],
   ["path", { d: "M10 18h4", key: "1ulq68" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/monitor.js
+// ../../../node_modules/lucide-react/dist/esm/icons/locate-fixed.js
+var LocateFixed = createLucideIcon("LocateFixed", [
+  ["line", { x1: "2", x2: "5", y1: "12", y2: "12", key: "bvdh0s" }],
+  ["line", { x1: "19", x2: "22", y1: "12", y2: "12", key: "1tbv5k" }],
+  ["line", { x1: "12", x2: "12", y1: "2", y2: "5", key: "11lu5j" }],
+  ["line", { x1: "12", x2: "12", y1: "19", y2: "22", key: "x3vr5v" }],
+  ["circle", { cx: "12", cy: "12", r: "7", key: "fim9np" }],
+  ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/notebook-pen.js
+// ../../../node_modules/lucide-react/dist/esm/icons/notebook-pen.js
 var NotebookPen = createLucideIcon("NotebookPen", [
   ["path", { d: "M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4", key: "re6nr2" }],
   ["path", { d: "M2 6h4", key: "aawbzj" }],
@@ -26373,24 +26383,24 @@ var NotebookPen = createLucideIcon("NotebookPen", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/pause.js
+// ../../../node_modules/lucide-react/dist/esm/icons/pause.js
 var Pause = createLucideIcon("Pause", [
   ["rect", { x: "14", y: "4", width: "4", height: "16", rx: "1", key: "zuxfzm" }],
   ["rect", { x: "6", y: "4", width: "4", height: "16", rx: "1", key: "1okwgv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/play.js
+// ../../../node_modules/lucide-react/dist/esm/icons/play.js
 var Play = createLucideIcon("Play", [
   ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plus.js
+// ../../../node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
+// ../../../node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
 var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "14sxne" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
@@ -26398,31 +26408,31 @@ var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M16 16h5v5", key: "ccwih5" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// ../../../node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/smartphone.js
+// ../../../node_modules/lucide-react/dist/esm/icons/smartphone.js
 var Smartphone = createLucideIcon("Smartphone", [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/tablet.js
+// ../../../node_modules/lucide-react/dist/esm/icons/tablet.js
 var Tablet = createLucideIcon("Tablet", [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", ry: "2", key: "76otgf" }],
   ["line", { x1: "12", x2: "12.01", y1: "18", y2: "18", key: "1dp563" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/terminal.js
+// ../../../node_modules/lucide-react/dist/esm/icons/terminal.js
 var Terminal = createLucideIcon("Terminal", [
   ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
   ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/video.js
+// ../../../node_modules/lucide-react/dist/esm/icons/video.js
 var Video = createLucideIcon("Video", [
   [
     "path",
@@ -26434,13 +26444,13 @@ var Video = createLucideIcon("Video", [
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/x.js
+// ../../../node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// fittings/seed/drill/ui/main.tsx
+// ui/main.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 async function apiGet(path) {
   const r = await fetch(path);
@@ -27271,6 +27281,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
         canvasTailnetUrl: r.canvasTailnetUrl ?? null,
         screenshotUrl: r.screenshotUrl,
         url: r.url,
+        pageUrl: r.url,
         viewport: r.viewport
       });
     }).catch((e) => {
@@ -27353,6 +27364,23 @@ function AuthoringView({ initialPageId, onPageChange }) {
       setAuthError(`Could not ${action}: ${err.message}`);
     }
   };
+  const strandedOffPage = (() => {
+    if (!tab?.pageUrl) return false;
+    const current = liveUrl ?? tab.url;
+    try {
+      const here = new URL(current);
+      const target = new URL(tab.pageUrl);
+      const norm = (u) => u.origin + u.pathname.replace(/\/+$/, "") + u.hash;
+      return norm(here) !== norm(target);
+    } catch {
+      return false;
+    }
+  })();
+  const reachGuidance = (() => {
+    const raw = activeState?.reachPath;
+    if (!Array.isArray(raw)) return "";
+    return raw.map((step) => step && typeof step === "object" ? step.description : typeof step === "string" ? step : "").map((text) => typeof text === "string" ? text.trim() : "").filter(Boolean).join(", then ");
+  })();
   const restartTab = async () => {
     if (!pageId) return;
     cancelHighlight();
@@ -27372,6 +27400,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
         canvasTailnetUrl: response.canvasTailnetUrl ?? null,
         screenshotUrl: response.screenshotUrl ?? `/api/authoring/screenshot/${encodeURIComponent(response.tabId)}`,
         url: response.url,
+        pageUrl: response.url,
         viewport: response.viewport
       });
       refreshPreviewAfterBrowserAction();
@@ -27714,6 +27743,18 @@ function AuthoringView({ initialPageId, onPageChange }) {
             "aria-label": "preview URL"
           }
         ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small" + (strandedOffPage ? " primary" : ""),
+            title: `Navigate the live browser to this page's path (${tab.pageUrl})`,
+            onClick: () => doNav(tab.pageUrl),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LocateFixed, { size: 11 }),
+              " Go to page"
+            ]
+          }
+        ),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small", title: "Close this preview tab and reopen the page fresh (resets app state)", onClick: restartTab, children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 11 }),
           " Restart"
@@ -27854,7 +27895,12 @@ function AuthoringView({ initialPageId, onPageChange }) {
                 alt: `${activeStateSel} reference`,
                 src: activeStateImage
               }
-            ) : activeStateImage === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-reference-missing", role: "status", children: "Loading state reference\u2026" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-reference-missing", role: "status", children: activeState?.screenshotPath ? "Recorded state reference unavailable." : "No state reference captured yet." })
+            ) : activeStateImage === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-reference-missing", role: "status", children: "Loading state reference\u2026" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-state-reference-missing", role: "status", children: activeState?.screenshotPath ? "Recorded state reference unavailable." : "No state reference captured yet." }),
+            reachGuidance && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-state-reach", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Reach it in the live browser:" }),
+              " ",
+              reachGuidance
+            ] })
           ] }),
           states.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "State" }),
@@ -30190,6 +30236,7 @@ lucide-react/dist/esm/icons/film.js:
 lucide-react/dist/esm/icons/flag.js:
 lucide-react/dist/esm/icons/layout-grid.js:
 lucide-react/dist/esm/icons/list-filter.js:
+lucide-react/dist/esm/icons/locate-fixed.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/notebook-pen.js:
 lucide-react/dist/esm/icons/pause.js:

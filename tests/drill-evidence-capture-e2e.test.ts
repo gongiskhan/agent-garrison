@@ -5,6 +5,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 
 // Drill Evidence Capture (v0.1): a multi-check run records ONE run-level webm
 // through a browser capture session (dedicated context + single reusable tab)
@@ -167,12 +168,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   await new Promise((r) => stubSrv?.close(() => r(undefined)));
   await new Promise((r) => fakeKanban?.close(() => r(undefined)));
   browserSrv = null; automationsSrv = null; drillSrv = null; stubSrv = null; fakeKanban = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 });

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeBrowserClient } from "../fittings/seed/automations/lib/browser-client.mjs";
+import { waitExit } from "./helpers/wait-exit";
 
 // F1 — the Browser Fitting's new observation endpoint: the fingerprint inputs
 // (url/title/heading + DOM-shape counts + viewport) + a CDP a11y tree that the
@@ -37,8 +38,9 @@ beforeAll(async () => {
   await waitHealthy(15000);
 }, 20000);
 
-afterAll(() => {
+afterAll(async () => {
   if (srv && !srv.killed) srv.kill("SIGTERM");
+  await waitExit(srv);
   srv = null;
   delete process.env.GARRISON_BROWSER_URL;
   rmSync(GHOME, { recursive: true, force: true });

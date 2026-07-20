@@ -85,3 +85,6 @@ docs/autothing/runs/**/*.png
 docs/autothing/runs/**/status.json
 docs/autothing/runs/**/owner.lock.json
 # <<< autothing <<<
+
+# aborted drill-graduation e2e runs leave their temp playwright config behind
+.tmp-drill-graduation-pw-config-*.mjs

@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
+import { waitExit } from "./helpers/wait-exit";
 
 // Authoring surface, real UI (Phase 3 non-negotiable test items 1 + 2): drives
 // Drill's OWN React app in a real headless browser (not just its HTTP API) to
@@ -87,10 +88,11 @@ afterAll(async () => {
   await page?.close();
   await browser?.close();
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   browserSrv = null;
   drillSrv = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 }, 15000);
 
@@ -287,5 +289,77 @@ describe("Authoring surface — real UI", () => {
     ).toBe(0);
 
     p.off("request", recordFreeze);
+  }, 30000);
+
+  it("Go to page re-navigates a wandered live tab back to the authored page's path", async () => {
+    const p = page!;
+    await p.goto(DRILL_BASE);
+    await p.getByRole("tab", { name: "Authoring" }).click();
+    const urlInput = p.locator(".dr-urlin");
+    await urlInput.waitFor({ state: "visible", timeout: 15000 });
+
+    const opened = await (await fetch(`${DRILL_BASE}/api/authoring/tab`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pageId: "testpage", viewport: "desktop" })
+    })).json();
+
+    const tabUrl = async () => {
+      const info = await (await fetch(`${DRILL_BASE}/api/authoring/tab-info?tabId=${encodeURIComponent(opened.tabId)}`)).json();
+      return info.tab?.url ?? "";
+    };
+
+    // Wander off the page - the auth-gated app's /login redirect in miniature.
+    await urlInput.fill("about:blank");
+    await urlInput.press("Enter");
+    await expect.poll(tabUrl, { timeout: 10000 }).toBe("about:blank");
+
+    // Stranded off the page path -> the button lights up as the primary action
+    // and one click brings the live tab back to the authored page.
+    const goToPage = p.getByRole("button", { name: "Go to page", exact: true });
+    await expect.poll(async () => (await goToPage.getAttribute("class")) ?? "", { timeout: 10000 }).toContain("primary");
+    await goToPage.click();
+    await expect.poll(tabUrl, { timeout: 10000 }).toBe(FIXTURE_URL);
+  }, 30000);
+
+  it("renders reach guidance and survives a malformed reachPath without blanking the app", async () => {
+    const p = page!;
+    // A page whose states carry a well-formed reach path AND a malformed one
+    // (reachPath as a bare string, and an entry with no description) - exactly
+    // the shapes hand/planner-authored YAML can produce.
+    await fetch(`${DRILL_BASE}/api/pages/statey`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Statey", path: "",
+        states: [
+          { id: "good", label: "good", reachPath: [{ id: "r1", description: "click the Guardrails tab" }, { id: "r2", description: "open the add dialog" }] },
+          { id: "bad", label: "bad", reachPath: "click something" },
+          { id: "empty", label: "empty", reachPath: [{ id: "r3" }] }
+        ]
+      })
+    });
+
+    await p.goto(DRILL_BASE);
+    await p.getByRole("tab", { name: "Authoring" }).click();
+    await p.locator(".dr-au-canvas").waitFor({ state: "visible", timeout: 15000 });
+    await p.locator('select[aria-label="Authoring page"]').selectOption("statey");
+
+    // Good state: guidance renders the joined descriptions.
+    await p.getByRole("button", { name: "good", exact: true }).click();
+    await p.locator(".dr-state-reach").waitFor({ state: "visible", timeout: 10000 });
+    expect(await p.locator(".dr-state-reach").innerText())
+      .toContain("click the Guardrails tab, then open the add dialog");
+
+    // Malformed string reachPath: no crash (the app root is still mounted) and
+    // no reach strip rendered.
+    await p.getByRole("button", { name: "bad", exact: true }).click();
+    await p.waitForTimeout(200);
+    expect(await p.locator(".dr-au-canvas").count()).toBe(1);
+    expect(await p.locator(".dr-state-reach").count()).toBe(0);
+
+    // Descriptionless entry: no dangling "Reach it" label.
+    await p.getByRole("button", { name: "empty", exact: true }).click();
+    await p.waitForTimeout(200);
+    expect(await p.locator(".dr-au-canvas").count()).toBe(1);
+    expect(await p.locator(".dr-state-reach").count()).toBe(0);
   }, 30000);
 });

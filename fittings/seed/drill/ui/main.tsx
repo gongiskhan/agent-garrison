@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter } from "lucide-react";
+import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed } from "lucide-react";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -94,7 +94,7 @@ interface Step {
   judgment?: boolean; // B9/Q3: needs ongoing model judgment (drillJudge()) - never a one-time deterministic find
   assertion?: unknown; // set once graduated (B8)
 }
-interface DrillState { id: string; label: string; matcher?: unknown; reachPath?: unknown[]; screenshotPath?: string | null }
+interface DrillState { id: string; label: string; matcher?: unknown; reachPath?: unknown; screenshotPath?: string | null }
 interface DrillPage {
   id: string;
   title: string;
@@ -979,6 +979,11 @@ function AuthoringView({ initialPageId, onPageChange }: {
     canvasTailnetUrl: string | null;
     screenshotUrl: string;
     url: string;
+    // The authored page's target URL (page.path against the Book's app URL) at
+    // open time. `url` above is a live-URL mirror the tab-info poll rewrites
+    // as the author browses; this one stays fixed so "Go to page" always has
+    // the way back.
+    pageUrl: string;
     viewport: { width: number; height: number };
   } | null>(null);
   const [tabError, setTabError] = useState<string | null>(null);
@@ -1107,6 +1112,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
           canvasTailnetUrl: r.canvasTailnetUrl ?? null,
           screenshotUrl: r.screenshotUrl,
           url: r.url,
+          pageUrl: r.url,
           viewport: r.viewport
         });
       })
@@ -1199,6 +1205,45 @@ function AuthoringView({ initialPageId, onPageChange }: {
     }
   };
 
+  // Auth-gated apps redirect the pooled tab to /login; after signing in the
+  // author was stranded there with no way back but hand-typing the path.
+  // tab.pageUrl is the server-computed page target (page.path against the
+  // Book's app URL) - one click re-navigates, and the button lights up
+  // whenever the live browser has drifted off the authored page's path.
+  const strandedOffPage = (() => {
+    if (!tab?.pageUrl) return false;
+    const current = liveUrl ?? tab.url;
+    try {
+      const here = new URL(current);
+      const target = new URL(tab.pageUrl);
+      // Compare origin + path + hash, trailing slash normalised away so
+      // "/login" vs "/login/" is NOT drift. Hash IS compared so a hash-routed
+      // SPA's "#/login" redirect counts as drift; search is NOT, so benign
+      // query params the app appends to the same page ("?tab=overview") don't
+      // falsely light the button. A path-level "/login" redirect - the common
+      // case - is caught by the path either way.
+      const norm = (u: URL) =>
+        u.origin + u.pathname.replace(/\/+$/, "") + u.hash;
+      return norm(here) !== norm(target);
+    } catch {
+      return false;
+    }
+  })();
+
+  // The selected state's reach steps as one readable sentence, defensively:
+  // page YAML is user/planner-authored, so reachPath may be a non-array or hold
+  // non-object entries. Anything that isn't a usable {description} is dropped;
+  // an empty result renders nothing (no dangling "Reach it:" label, no crash).
+  const reachGuidance = (() => {
+    const raw = activeState?.reachPath;
+    if (!Array.isArray(raw)) return "";
+    return raw
+      .map((step) => (step && typeof step === "object" ? step.description : typeof step === "string" ? step : ""))
+      .map((text) => (typeof text === "string" ? text.trim() : ""))
+      .filter(Boolean)
+      .join(", then ");
+  })();
+
   const restartTab = async () => {
     if (!pageId) return;
     cancelHighlight();
@@ -1218,6 +1263,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
         canvasTailnetUrl: response.canvasTailnetUrl ?? null,
         screenshotUrl: response.screenshotUrl ?? `/api/authoring/screenshot/${encodeURIComponent(response.tabId)}`,
         url: response.url,
+        pageUrl: response.url,
         viewport: response.viewport
       });
       refreshPreviewAfterBrowserAction();
@@ -1573,6 +1619,11 @@ function AuthoringView({ initialPageId, onPageChange }: {
               onChange={(e) => setUrlDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") doNav(urlDraft); }}
               placeholder="URL - press Enter to navigate" aria-label="preview URL" />
+            <button className={"btn small" + (strandedOffPage ? " primary" : "")}
+              title={`Navigate the live browser to this page's path (${tab.pageUrl})`}
+              onClick={() => doNav(tab.pageUrl)}>
+              <LocateFixed size={11} /> Go to page
+            </button>
             <button className="btn small" title="Close this preview tab and reopen the page fresh (resets app state)" onClick={restartTab}>
               <RefreshCcw size={11} /> Restart
             </button>
@@ -1728,6 +1779,11 @@ function AuthoringView({ initialPageId, onPageChange }: {
             ) : (
               <div className="dr-state-reference-missing" role="status">
                 {activeState?.screenshotPath ? "Recorded state reference unavailable." : "No state reference captured yet."}
+              </div>
+            )}
+            {reachGuidance && (
+              <div className="dr-state-reach">
+                <b>Reach it in the live browser:</b> {reachGuidance}
               </div>
             )}
           </div>

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 import { writeVaultSecrets, scopedSecrets } from "@/lib/vault";
 import { resetMasterKeyCache, masterKeySource } from "@/lib/keychain";
 // REAL feature code under test — no mocks of Garrison's own logic.
@@ -65,8 +66,9 @@ beforeAll(async () => {
   await waitHealthy(process.env.GARRISON_BROWSER_URL, 15000);
 }, 30000);
 
-afterAll(() => {
+afterAll(async () => {
   if (browser && !browser.killed) browser.kill("SIGTERM");
+  await waitExit(browser);
   browser = null;
   delete process.env.GARRISON_BROWSER_URL;
   delete process.env.GARRISON_VAULT_PATH;

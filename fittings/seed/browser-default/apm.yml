@@ -12,7 +12,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Headless Chromium substrate (default port 27084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Opt-in persistent profile + stealth.
+  summary: Headless Chromium substrate (default port 27084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Persistent profile by default (login continuity across restarts); opt-in stealth.
   config_schema:
     - key: port
       type: integer
@@ -20,12 +20,12 @@ x-garrison:
       description: HTTP port the Browser Fitting binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: persistent_profile
       type: boolean
-      default: false
-      description: Reuse a stable user-data-dir so cookies/consent survive across runs (env GARRISON_BROWSER_PERSISTENT=1; dir GARRISON_BROWSER_PROFILE_DIR).
+      default: true
+      description: Reuse a stable user-data-dir (~/.garrison/browser-profile, override GARRISON_BROWSER_PROFILE_DIR) so cookies/logins survive fitting restarts and redeploys - login continuity for drill authoring and runs. Set false (or env GARRISON_BROWSER_PERSISTENT=0) for an ephemeral profile wiped on shutdown.
     - key: stealth
       type: boolean
       default: false
-      description: Reduce headless/automation fingerprints — disable AutomationControlled + mask navigator.webdriver (env GARRISON_BROWSER_STEALTH=1).
+      description: Reduce headless/automation fingerprints — disable AutomationControlled + mask navigator.webdriver (env GARRISON_BROWSER_STEALTH=1 or this key's GARRISON_BROWSERDEFAULT_STEALTH projection).
     - key: bind_host
       type: string
       default: 127.0.0.1

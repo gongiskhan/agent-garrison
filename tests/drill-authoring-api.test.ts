@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 
 // Authoring surface server endpoints (Phase 3): open/reuse a tab per
 // (pageId, viewport), pick an element, resolve stored anchors. Drives both
@@ -55,12 +56,13 @@ beforeAll(async () => {
   });
 }, 25000);
 
-afterAll(() => {
+afterAll(async () => {
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   browserSrv = null;
   drillSrv = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 });
 

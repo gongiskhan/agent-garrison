@@ -399,6 +399,8 @@ body {
 .dr-save-status.saved { color: var(--sage); }
 .dr-state-reference { margin: 0 0 12px; }
 .dr-state-reference img { width: 100%; max-height: 180px; object-fit: contain; border: 1px solid var(--rule); background: var(--ink); }
+.dr-state-reach { margin-top: 6px; font-size: 11px; color: var(--mute); line-height: 1.5; }
+.dr-state-reach b { color: var(--text); font-weight: 600; }
 
 /* ── Results (D1-D10) ── */
 .dr-res { padding: 10px 12px; background: var(--paper-2); margin-bottom: 10px; border: 1px solid var(--rule); }

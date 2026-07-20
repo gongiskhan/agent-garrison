@@ -4,6 +4,7 @@ import path from "node:path";
 import http from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 
 // A5/R7/S22/self-test-item-10 — the configurable autonomy gate: "gated"
 // pauses with a plan diff before running (no automation run happens at all);
@@ -85,11 +86,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   await new Promise((r) => stub?.close(() => r(undefined)));
   browserSrv = null; automationsSrv = null; drillSrv = null; stub = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 });

@@ -4,6 +4,7 @@ import path from "node:path";
 import http from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 
 // Drill curation e2e (Evidence V2, S2): a real drill run's Spotter frames are
 // batch-curated through the /api/drill/curation contract into reel.json +
@@ -179,12 +180,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   await new Promise((r) => stubSrv?.close(() => r(undefined)));
   await new Promise((r) => fakeApp?.close(() => r(undefined)));
   browserSrv = null; automationsSrv = null; drillSrv = null; stubSrv = null; fakeApp = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 });

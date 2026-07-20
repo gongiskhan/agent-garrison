@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
+import { waitExit } from "./helpers/wait-exit";
 
 // Phase 8 (E1-E4) — Drill's own UI at phone width: FAB toggles the plan
 // sheet; Highlight closes the sheet, picks on the full-screen canvas with
@@ -65,9 +66,10 @@ afterAll(async () => {
   await page?.close();
   await browser?.close();
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   browserSrv = null; drillSrv = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 }, 15000);
 

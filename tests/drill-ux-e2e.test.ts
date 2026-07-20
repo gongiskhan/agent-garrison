@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page, type Route } from "playwright";
+import { waitExit } from "./helpers/wait-exit";
 
 // Acceptance coverage for the manual-review failures that unit tests missed:
 // real visual targeting, steps-left/browser-right geometry, dated paginated
@@ -151,10 +152,11 @@ afterAll(async () => {
   await page?.close();
   await browser?.close();
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   browserSrv = null;
   drillSrv = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 }, 15_000);
 

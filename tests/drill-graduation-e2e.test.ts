@@ -4,6 +4,7 @@ import path from "node:path";
 import http from "node:http";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 
 // Phase 5 acceptance bar: a vision run graduates to a committed spec, and the
 // EMITTED SPEC actually re-runs green with ZERO model calls (self-test item
@@ -138,12 +139,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   await new Promise((r) => visionStub?.close(() => r(undefined)));
   await new Promise((r) => trapStub?.close(() => r(undefined)));
   browserSrv = null; automationsSrv = null; drillSrv = null; visionStub = null; trapStub = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
   rmSync(pwConfigPath, { force: true });

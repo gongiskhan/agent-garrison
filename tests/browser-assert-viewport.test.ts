@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 
 // Automations engine deltas 5 (richer deterministic assertions) and 3
 // (viewport emulation) — the Browser Fitting side. Launches the real headless
@@ -54,8 +55,9 @@ beforeAll(async () => {
   await waitHealthy(15000);
 }, 20000);
 
-afterAll(() => {
+afterAll(async () => {
   if (srv && !srv.killed) srv.kill("SIGTERM");
+  await waitExit(srv);
   srv = null;
   rmSync(GHOME, { recursive: true, force: true });
 });

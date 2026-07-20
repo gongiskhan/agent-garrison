@@ -8,7 +8,7 @@
 //   - tabs list + canvas page UI at HTTP / and /canvas/:tabId
 
 import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -25,6 +25,61 @@ const HOME = os.homedir();
 // own-port fitting follows so spawned test instances never touch live status files.
 const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
+
+// Boolean env knob readable under BOTH its legacy name and the runner's
+// composition-config projection (GARRISON_BROWSERDEFAULT_<KEY>, which renders
+// booleans as "true"/"false") - the projected form was previously a dead knob.
+function envFlag(names, fallback) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value !== undefined) return value !== "0" && value !== "false" && value !== "";
+  }
+  return fallback;
+}
+// PERSISTENT PROFILE defaults ON: login sessions established in the shared
+// context (drill authoring, canvas browsing) must survive fitting restarts -
+// prod redeploys on every landed commit, and an ephemeral /tmp profile forced
+// a fresh login each time. Opt out with persistent_profile: false /
+// GARRISON_BROWSER_PERSISTENT=0 (tests get isolation for free anyway: the
+// profile lives under GARRISON_HOME, which test spawns point at a tmpdir).
+const PERSISTENT_PROFILE = envFlag(["GARRISON_BROWSER_PERSISTENT", "GARRISON_BROWSERDEFAULT_PERSISTENT_PROFILE"], true);
+const STEALTH = envFlag(["GARRISON_BROWSER_STEALTH", "GARRISON_BROWSERDEFAULT_STEALTH"], false);
+
+function persistentProfileDir() {
+  return process.env.GARRISON_BROWSER_PROFILE_DIR
+    || path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "browser-profile");
+}
+
+// Cookie continuity belt-and-braces. The persistent user-data-dir carries
+// everything (localStorage, IndexedDB, cookies) but only when chromium's own
+// shutdown flush completes - which a loaded box or a SIGKILL path can rob. So
+// the shared context's cookies are ALSO snapshotted to a storageState file
+// (on shutdown while CDP is still alive, plus a periodic timer) and merged
+// back via addCookies at launch. Deterministic, timing-independent logins.
+function storageStateFile() {
+  return path.join(persistentProfileDir(), "storage-state.json");
+}
+
+let storageSnapshotTimer = null;
+
+async function snapshotStorageState() {
+  if (!PERSISTENT_PROFILE || !context) return;
+  try {
+    const state = await context.storageState();
+    const file = storageStateFile();
+    await writeFile(`${file}.tmp`, JSON.stringify(state), { mode: 0o600 });
+    await rename(`${file}.tmp`, file);
+  } catch { /* CDP already gone or disk hiccup - the profile flush remains */ }
+}
+
+async function seedCookiesFromSnapshot() {
+  try {
+    const saved = JSON.parse(await readFile(storageStateFile(), "utf8"));
+    if (Array.isArray(saved?.cookies) && saved.cookies.length) {
+      await context.addCookies(saved.cookies);
+    }
+  } catch { /* no snapshot yet, or unreadable - nothing to seed */ }
+}
 
 /** @type {Map<string, TabState>} */
 const tabs = new Map();
@@ -43,6 +98,12 @@ let launchOpts = null;
 // In-flight relaunch promise — guards ensureChromium against double-launching
 // when concurrent requests race after the headless process dies.
 let chromiumLaunching = null;
+// Set once shutdown begins. Blocks two hazards the persistent profile made
+// costly: (a) a late tab/capture request relaunching chromium during the
+// shutdown window and leaving the fresh child orphaned on the profile, and
+// (b) a second signal running shutdown() concurrently and truncating the
+// first pass's cookie-flush wait.
+let shuttingDown = false;
 
 /**
  * @typedef {{
@@ -451,22 +512,94 @@ async function waitForDevToolsPort(userDataDir, timeoutMs = 15000) {
   throw new Error(`Chromium did not write ${portFile} within ${timeoutMs}ms`);
 }
 
+// The parent pid of a /proc process, or null if unreadable. Used to tell an
+// ORPHANED chromium (its old server exited, so it reparented to init/systemd)
+// from one a LIVE sibling server still owns.
+async function parentPidOf(pid) {
+  try {
+    // /proc/<pid>/stat: "pid (comm) state ppid ..."; comm can contain spaces
+    // and parens, so parse ppid as the 2nd field after the final ')'.
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    const ppid = Number(after[1]);
+    return Number.isFinite(ppid) ? ppid : null;
+  } catch {
+    return null;
+  }
+}
+
+// A chromium leaked by a previous server generation (a unit kill that missed
+// the child) can still hold the persistent profile's SingletonLock, and a new
+// launch against the same user-data-dir refuses to start. The lock is a
+// symlink to "<host>-<pid>". Reclaim it ONLY from a chromium that (a) uses THIS
+// exact user-data-dir AND (b) is genuinely orphaned - its parent is gone or it
+// reparented to init. A chromium a LIVE sibling server owns (shared profile dir
+// misconfig - dev/prod/codex normally have separate GARRISON_HOMEs) is left
+// alone, so two instances never kill-ping-pong; the second just fails to boot,
+// the honest signal to fix the config. Best-effort throughout.
+async function breakStaleProfileLock(dir) {
+  const lockPath = path.join(dir, "SingletonLock");
+  try {
+    const target = await readlink(lockPath);
+    const pid = Number(target.split("-").pop());
+    if (Number.isFinite(pid) && pid > 1) {
+      let args = [];
+      try {
+        // cmdline is NUL-separated; split (not space-join) so the arg compares
+        // EXACTLY - a substring test would match a sibling prefix dir
+        // (browser-profile vs browser-profile-dev) and hit an innocent process.
+        args = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
+      } catch { /* pid gone or non-linux - stale lock */ }
+      const ppid = await parentPidOf(pid);
+      // Orphan iff the parent is init/systemd (<=1) or no longer alive.
+      let orphaned = ppid === null || ppid <= 1;
+      if (!orphaned && ppid) {
+        try { process.kill(ppid, 0); } catch { orphaned = true; }
+      }
+      if (args.includes(`--user-data-dir=${dir}`) && !orphaned) {
+        // A live sibling owns the profile. Leave BOTH its process and its lock
+        // intact and let our own launch fail - never clear a live chromium's
+        // SingletonLock.
+        console.error(`[chromium] persistent profile ${dir} is held by a LIVE chromium (pid=${pid}, parent=${ppid}) - not reclaiming; is another browser fitting sharing this profile dir?`);
+        return;
+      }
+      if (args.includes(`--user-data-dir=${dir}`)) {
+        console.error(`[chromium] terminating orphaned chromium pid=${pid} holding the persistent profile`);
+        try {
+          process.kill(pid, "SIGTERM");
+          // Give it time to flush the profile (cookies included) before the
+          // last-resort SIGKILL - a fast kill would lose the very session
+          // state the persistent profile exists to keep.
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            process.kill(pid, 0); // throws when the process is gone
+          }
+          process.kill(pid, "SIGKILL");
+        } catch { /* exited - the graceful path */ }
+      }
+    }
+  } catch { /* no lock - nothing to break */ }
+  await rm(lockPath, { force: true }).catch(() => {});
+}
+
 async function launchChromium(opts) {
   launchOpts = opts;
 
   const exe = resolveFullChromiumBinary();
-  // Opt-in PERSISTENT PROFILE: reuse a stable user-data-dir so cookies/consent
-  // survive across runs (set GARRISON_BROWSER_PERSISTENT=1, dir overridable via
-  // GARRISON_BROWSER_PROFILE_DIR). Default stays an ephemeral temp profile.
-  const persistent = process.env.GARRISON_BROWSER_PERSISTENT === "1";
+  // PERSISTENT PROFILE (default on, see PERSISTENT_PROFILE above): reuse a
+  // stable user-data-dir so cookies/logins survive fitting restarts. Opt-out
+  // falls back to an ephemeral temp profile removed on shutdown.
+  const persistent = PERSISTENT_PROFILE;
   const userDataDir = persistent
-    ? (process.env.GARRISON_BROWSER_PROFILE_DIR
-        || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "browser-profile"))
+    ? persistentProfileDir()
     : await mkdtemp(path.join(tmpdir(), "garrison-browser-"));
-  if (persistent) await mkdir(userDataDir, { recursive: true });
+  if (persistent) {
+    await mkdir(userDataDir, { recursive: true });
+    await breakStaleProfileLock(userDataDir);
+  }
   ephemeralProfileDir = persistent ? null : userDataDir;
-  // Opt-in STEALTH: reduce headless/automation fingerprints (GARRISON_BROWSER_STEALTH=1).
-  const stealth = process.env.GARRISON_BROWSER_STEALTH === "1";
+  const stealth = STEALTH;
 
   // Headless-gap fix (GARRISON-UNIFY-V1 S16/E11-adjacent): Ubuntu 23.10+ (and
   // this GCP box) restricts unprivileged user namespaces via AppArmor, so
@@ -560,6 +693,13 @@ async function launchChromium(opts) {
     }
   }
 
+  if (persistent && context) {
+    await seedCookiesFromSnapshot();
+    if (storageSnapshotTimer) clearInterval(storageSnapshotTimer);
+    storageSnapshotTimer = setInterval(() => void snapshotStorageState(), 60_000);
+    storageSnapshotTimer.unref();
+  }
+
   console.log(`[browser] chromium up on rdp port ${cdpPort} (exe=${exe})${persistent ? " [persistent]" : ""}${stealth ? " [stealth]" : ""}`);
 }
 
@@ -595,6 +735,10 @@ function discardChromium() {
 // context or browser has been closed".
 async function ensureChromium() {
   if (browser && browser.isConnected() && context) return;
+  // During shutdown, CDP Browser.close drops the connection on purpose - never
+  // relaunch a fresh chromium behind the departing process's back (it would
+  // outlive us, orphaned on the persistent profile).
+  if (shuttingDown) throw new Error("browser fitting is shutting down");
   if (!chromiumLaunching) {
     if (chromiumChild) { try { chromiumChild.kill("SIGTERM"); } catch {} chromiumChild = null; }
     discardChromium();
@@ -605,6 +749,15 @@ async function ensureChromium() {
 }
 
 async function shutdownChromium() {
+  // Snapshot the shared context's cookies FIRST - this is the timing-INDEPENDENT
+  // login-continuity guarantee. The own-port lifecycle SIGKILLs this process ~4s
+  // after SIGTERM (own-port-lifecycle.ts terminateWithEscalation), which would
+  // cut off chromium's own profile flush; a single fast storageState() write up
+  // front means cookies survive even that hard kill, re-seeded via addCookies on
+  // the next boot. The graceful chromium wait below is a clean-exit nicety fully
+  // realized only on the 90s systemd-stop path, not required for correctness.
+  if (storageSnapshotTimer) { clearInterval(storageSnapshotTimer); storageSnapshotTimer = null; }
+  await snapshotStorageState();
   // Finalize live capture sessions first so a SIGTERM still flushes their
   // videos to disk instead of leaving orphaned .video-tmp fragments.
   for (const session of [...captureSessions.values()]) {
@@ -612,10 +765,35 @@ async function shutdownChromium() {
   }
   for (const tab of tabs.values()) await cleanupTab(tab).catch(() => {});
   tabs.clear();
+  // Ask chromium to shut ITSELF down first (CDP Browser.close): the only path
+  // that reliably flushes the persistent profile - cookies included - before
+  // exit. Signals below are fallback (SIGTERM) and last resort (SIGKILL).
+  try {
+    const cdp = await browser?.newBrowserCDPSession();
+    await cdp?.send("Browser.close");
+  } catch { /* CDP already gone - the signal path below still applies */ }
   try { await browser?.close(); } catch {}
   if (chromiumChild) {
-    try { chromiumChild.kill("SIGTERM"); } catch {}
+    const child = chromiumChild;
     chromiumChild = null;
+    // WAIT for chromium to actually exit (SIGKILL only as a last resort):
+    // exiting the server while chromium is still flushing leaves an orphan
+    // holding the persistent profile with unflushed cookies - the next boot
+    // would break its lock and lose the login state persistence exists for.
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => {
+        // 15s: chromium exit is normally sub-second, but on a loaded box the
+        // renderer teardown can crawl - and a SIGKILL here loses the cookie
+        // flush the persistent profile exists for. systemd's stop budget on a
+        // redeploy is 90s, so a generous wait costs nothing real.
+        const timer = setTimeout(() => {
+          try { child.kill("SIGKILL"); } catch { /* already gone */ }
+          resolve();
+        }, 15000);
+        child.once("exit", () => { clearTimeout(timer); resolve(); });
+        try { child.kill("SIGTERM"); } catch { clearTimeout(timer); resolve(); }
+      });
+    }
   }
 }
 
@@ -1053,7 +1231,11 @@ function handleHealth(_req, res, opts) {
     host: opts.host,
     tabs: tabs.size,
     cdpHttpEndpoint,
-    cdpWsEndpoint
+    cdpWsEndpoint,
+    // Login-continuity observability: whether cookie/session state survives a
+    // fitting restart, and where it lives when it does.
+    persistentProfile: PERSISTENT_PROFILE,
+    profileDir: PERSISTENT_PROFILE ? persistentProfileDir() : null
   });
 }
 
@@ -2289,7 +2471,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   });
 
   const shutdown = async (signal) => {
+    if (shuttingDown) return; // a second signal must not truncate the first pass's flush
+    shuttingDown = true;
     console.log(`[browser] shutdown (${signal})`);
+    // Stop accepting NEW connections up front (no exit callback - it would fire
+    // the instant the last socket drains and race the cookie flush below). The
+    // shuttingDown latch already makes any in-flight request refuse to relaunch
+    // chromium. We exit explicitly only after the graceful teardown completes.
+    server.close();
     await shutdownChromium();
     await clearStatusFile();
     // Remove the ephemeral profile so the default leaves no cookies/session behind.
@@ -2297,8 +2486,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       await rm(ephemeralProfileDir, { recursive: true, force: true }).catch(() => {});
       ephemeralProfileDir = null;
     }
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 3000);
+    process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));

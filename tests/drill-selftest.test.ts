@@ -7,6 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
 import { startFixtureServer } from "../fittings/seed/drill/test-fixtures/serve.mjs";
+import { waitExit } from "./helpers/wait-exit";
 
 // ═══════════════════════════════════════════════════════════════════════
 // DRILL_SELFTEST — the brief's 13 non-negotiable items, all run against the
@@ -193,13 +194,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser?.close();
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
+  await waitExit(browserSrv);
   if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
   if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   await new Promise((r) => visionStub?.close(() => r(undefined)));
   await new Promise((r) => fakeKanban?.close(() => r(undefined)));
   await new Promise((r) => fixtureSrv?.close(() => r(undefined)));
   browserSrv = null; automationsSrv = null; drillSrv = null; visionStub = null; fakeKanban = null; fixtureSrv = null; browser = null;
-  rmSync(ghome, { recursive: true, force: true });
+    rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
   rmSync(path.join(REPO, `.tmp-selftest-pw-config-${process.pid}.mjs`), { force: true });
