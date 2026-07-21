@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Kanban Loop own-port server (V1b, port 27089). Serves the responsive,
+// Kanban Loop own-port server (V1b, base port 7089). Serves the responsive,
 // phone-first board UI (dist/) and a small REST surface over lib/board.mjs +
 // lib/engine.mjs. It NEVER duplicates artifacts: a card stores POINTERS
 // (runId/runDir/sliceId/sessionIds/briefPath/videoUrl) and this server resolves
@@ -91,7 +91,7 @@ import {
 export { isValidSliceId, isSafeEvidenceName, isEvidenceImage };
 
 const FITTING_ID = "kanban-loop";
-const DEFAULT_PORT = 27089;
+const DEFAULT_PORT = 7089;
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
 // own-port fitting follows so spawned test instances never touch live status files.

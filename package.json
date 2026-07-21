@@ -5,7 +5,7 @@
   "license": "MIT",
   "description": "Local-first composer and runner for autonomous agent setups.",
   "scripts": {
-    "start": "bash scripts/garrison-instance.sh dev start",
+    "start": "bash scripts/garrison-instance.sh prod start",
     "dev": "bash scripts/garrison-instance.sh dev start",
     "dev:next": "bash scripts/garrison-instance.sh dev next",
     "start:mobile": "bash scripts/garrison-instance.sh dev mobile",
@@ -27,7 +27,13 @@
     "prod:build": "bash scripts/garrison-instance.sh prod build",
     "prod:start": "bash scripts/garrison-instance.sh prod start",
     "prod:redeploy": "bash scripts/garrison-redeploy.sh",
-    "codex:start": "bash scripts/garrison-instance.sh codex start"
+    "codex:start": "bash scripts/garrison-instance.sh codex start",
+    "dev:start": "bash scripts/garrison-dev.sh start",
+    "dev:stop": "bash scripts/garrison-dev.sh stop",
+    "dev:restart": "bash scripts/garrison-dev.sh restart",
+    "dev:status": "bash scripts/garrison-dev.sh status",
+    "dev:install": "bash scripts/garrison-dev-install.sh",
+    "promote": "bash scripts/garrison-promote.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

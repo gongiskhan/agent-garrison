@@ -123,6 +123,12 @@ x-garrison:
             health_port: 7099
         - id: kanban-loop
           config:
+            # Committed base port; the runner shifts it per profile (dev 7089 /
+            # prod 8089 / codex 27089). Only composition config is offset and
+            # projected into the fitting env, so omitting this makes every
+            # profile bind default_port unshifted.
+            port: 7089
+            bind_host: 127.0.0.1
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *

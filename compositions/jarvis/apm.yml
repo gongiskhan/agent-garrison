@@ -161,6 +161,12 @@ x-garrison:
       observability:
         - id: kanban-loop
           config:
+            # The committed base port; the runner shifts it per profile
+            # (dev 7089 / prod 8089 / codex 27089). WITHOUT this the fitting
+            # falls back to its own default_port and every instance binds the
+            # same port, so dev and prod cannot both run the board.
+            port: 7089
+            bind_host: 127.0.0.1
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *

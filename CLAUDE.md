@@ -39,9 +39,13 @@ choice.
 
 ```bash
 npm install                                            # one-time (postinstall fixes node-pty perms)
-npm run dev                                            # DEV instance (7xxx, ~/.garrison-dev)
+npm start                                              # PROD instance (8xxx, ~/.garrison)  [= prod:start]
+npm run dev                                            # DEV instance  (7xxx, ~/.garrison-dev)
+npm run dev:start                                      # start DEV detached, under its own LaunchAgent
+npm run dev:stop                                       # stop DEV
+npm run dev:status                                     # is DEV up? which commit is it on?
+npm run promote -- "message"                           # commit in dev -> fast-forward prod -> redeploy
 npm run prod:redeploy                                  # build + restart prod, operative, fittings
-npm run prod:start                                     # PROD instance by hand (normally systemd)
 npm run typecheck                                      # tsc --noEmit
 npm test                                               # vitest run
 npm test -- tests/runner-setup.test.ts                 # single test file
@@ -349,6 +353,50 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
   `.next`. Keep them apart — a shared dist dir breaks the dev server's dynamic
   routes.
 
+### The two-tree model — where you are allowed to edit
+
+There are two checkouts of this repo on the box, on the SAME branch. Dev is
+simply ahead of prod.
+
+| | tree | port | GARRISON_HOME | Claude home | served by |
+|---|---|---|---|---|---|
+| **DEV** | `~/dev/agent-garrison-dev` | 7777 | `~/.garrison-dev` | `~/.claude-garrison-dev` | `next dev` (edit = live on save) |
+| **PROD** | `~/dev/agent-garrison` | 8777 | `~/.garrison` | the real `~/.claude` | `next start` on `.next-prod` |
+
+Fittings follow the same offset: local-voice dev 7090 / prod 8090, jarvis-os
+7092 / 8092, dev-env 7086 / 8086, kanban-loop 7089 / 8089.
+
+- **HARD RULE — all editing happens in the DEV tree.** `~/dev/agent-garrison`
+  is READ-ONLY. It never receives a hand edit; it only ever fast-forwards onto
+  a dev commit via `garrison-promote.sh`. That is what keeps the always-on
+  surface alive while work is in flight — an unfinished edit cannot reach it,
+  because prod's files simply do not change until a promote.
+- If `garrison-promote.sh` reports local edits in prod, someone broke that
+  rule. Move the work to the dev tree; do not commit it in prod.
+- Dev is **on-demand**, not always-on: this box has 8 GB of RAM and prod
+  already holds a Next server, the outpost, the scheduler, four own-port
+  Fittings and a live operative. Start dev to test, stop it when done.
+- `scripts/garrison-dev.sh start` brings up the dev SERVER only. The dev
+  operative is a separate, explicit `garrison-dev.sh up` — booting a second
+  Jarvis automatically would put two voice agents on one microphone.
+
+### "Faz commit" means promote
+
+When the user says they are happy with a change and asks for a commit, that is
+one command — it commits, lands the code on prod, and restarts prod onto it:
+
+```bash
+npm run promote -- "what changed"      # scripts/garrison-promote.sh
+```
+
+which does, in order: commit in the dev tree -> fast-forward the prod tree ->
+`npm install` in prod **only if the lockfile moved** -> `prod:redeploy`. A
+commit that is not promoted has changed nothing the user can see.
+
+Promoting is **local only**. Pushing to GitHub is opt-in
+(`npm run promote -- --push "msg"`): landing code on prod and publishing it are
+different decisions, and publishing must never be a silent side effect.
+
 ### Deploying — HARD RULE: commit is not landed until prod is redeployed
 
 Committed code changes nothing a user can see: prod serves a build, and the
@@ -362,15 +410,32 @@ npm run prod:redeploy        # scripts/garrison-redeploy.sh
 ```
 
 which does, in order: `prod build` → `down` (operative + fittings on the old
-code) → `systemctl --user restart garrison-prod` → wait for `:8777` → `up`
-(operative + eager fittings on the new code). A failed build stops the deploy
-with the last good build still serving.
+code) → restart the supervisor → wait for `:8777` → `up` (operative + eager
+fittings on the new code). A failed build stops the deploy with the last good
+build still serving.
 
-Prod is the systemd user unit **`garrison-prod.service`** (`Restart=always`,
-`WantedBy=default.target`, user lingering on) — that is what makes it always-on
-across reboots and logouts. Do **not** add a second scheduler unit: prod's
-launcher already runs the scheduler on 8099 against `~/.garrison`, and a
-standalone unit on the same jobs file double-fires every scheduled job.
+**Supervisors are per-host.** On this Mac prod is the LaunchAgent
+**`com.garrison.jarvis`** (`RunAtLoad` + `KeepAlive`, wrapper at
+`~/.local/bin/garrison-launch.sh`), restarted with
+`launchctl kickstart -k gui/$UID/com.garrison.jarvis`. On Linux hosts it is the
+systemd user unit **`garrison-prod.service`** (`Restart=always`,
+`WantedBy=default.target`, user lingering on). `garrison-redeploy.sh` detects
+which is present; it used to call `systemctl` unconditionally, so
+`prod:redeploy` had never worked on this Mac.
+
+Dev has its own LaunchAgent, **`com.garrison.dev`**, deliberately
+`RunAtLoad=false` / `KeepAlive=false` — dev must never resurrect itself on boot
+or after a crash. Only prod is always-on. Install/repair it with
+`npm run dev:install`.
+
+During a redeploy, `garrison-redeploy.sh` writes
+`~/.garrison/.redeploy-in-progress`; prod's launcher waiter sees the marker and
+stands down, so its `up()` and the redeploy's `up()` cannot race over the same
+operative.
+
+Do **not** add a second scheduler unit: prod's launcher already runs the
+scheduler on 8099 against `~/.garrison`, and a standalone unit on the same jobs
+file double-fires every scheduled job.
 
 ## Permissions
 
