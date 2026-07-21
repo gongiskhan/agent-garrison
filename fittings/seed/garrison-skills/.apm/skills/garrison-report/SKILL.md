@@ -1,6 +1,6 @@
 ---
 name: garrison-report
-description: Send a Slack notification when a garrison run finishes — a summary of the work, a Tailscale URL to the walkthrough video gallery, and Tailscale links to the session logs + run artifacts served IN PLACE (no duplication, via a small standing Node server). garrison calls this as its final step once the global gate is decided; also usable standalone to report on a finished run. Sends via a Slack incoming webhook (AUTOTHING_SLACK_WEBHOOK_URL), falling back to the Slack MCP when interactive. NOT for mid-run progress (that is the PROGRESS line) and NOT for recording the videos (that is garrison-walkthrough).
+description: The report step of a garrison run: sends a Slack notification when a run finishes - a summary of the work, a Tailscale URL to the walkthrough video gallery, and Tailscale links to the session logs and run artifacts served in place via a small standing Node server, delivered through a Slack incoming webhook (AUTOTHING_SLACK_WEBHOOK_URL) or the Slack MCP when interactive. NOT for mid-run progress (that is the PROGRESS line) and NOT for recording the videos (use garrison-walkthrough). Invoked by the Garrison run engine as its report step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-report

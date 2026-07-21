@@ -1,6 +1,6 @@
 ---
 name: garrison-test
-description: Write a COMMITTED, re-runnable correctness test for the current change and run it, plus clean build/typecheck/lint — the objective correctness gate. The default is end-to-end THROUGH THE UI (Playwright / playwright-cli) plus unit tests; a CLI/TUI deliverable uses a committed driver + asciinema capture. In a garrison build a failure sends the slice back to garrison-implement (garrison owns the retry ceiling); standalone it just reports the findings. Use for "write and run tests for this change", "add a committed e2e test", or as the test gate of a build. NOT a one-off manual run (use /run or /verify) and NOT the independent fresh-context test pass (use garrison-adversarial-test).
+description: Garrison's objective correctness gate: writes a COMMITTED, re-runnable correctness test for the current change and runs it, plus a clean build/typecheck/lint. The default is end-to-end through the UI (Playwright / playwright-cli) plus unit tests; a CLI/TUI deliverable uses a committed driver plus asciinema capture. In a garrison build a failure sends the slice back to garrison-implement; standalone it reports the findings. NOT a one-off manual run (use /run or /verify) and NOT the independent fresh-context test pass (use garrison-adversarial-test). Invoked by the Garrison run engine as its correctness-test step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-test

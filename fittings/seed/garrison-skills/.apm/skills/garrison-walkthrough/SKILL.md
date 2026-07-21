@@ -1,6 +1,6 @@
 ---
 name: garrison-walkthrough
-description: Record self-verified video evidence that the current change works by invoking the walkthrough skill with the change's diff and acceptance context, then surface the scrubbable link. In a garrison build a walkthrough STUCK/ask-user return becomes failed-but-unblocking and the run continues; standalone it records the walkthrough and reports (including a STUCK). Use for "record a walkthrough/demo of this", "capture proof it works", or as the evidence step of a build. Delegates to the walkthrough skill (never rebuilds it).
+description: Records self-verified video evidence that the current change works by invoking the walkthrough skill with the change's diff and acceptance context, then surfaces the scrubbable link. It is the walkthrough-evidence phase of a Garrison run; in a build a walkthrough STUCK/ask-user return becomes failed-but-unblocking and the run continues, and standalone it records the walkthrough and reports (including a STUCK). Delegates to the walkthrough skill and never rebuilds it. Invoked by the Garrison run engine as its walkthrough-evidence step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-walkthrough
