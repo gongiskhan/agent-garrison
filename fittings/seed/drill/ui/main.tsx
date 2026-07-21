@@ -3814,6 +3814,39 @@ interface LiveCheckRow {
   sessionId?: string;
 }
 
+// The check screenshot can land on disk a beat after the check_finished
+// event (the Browser fitting flushes asynchronously). Fetch-first like
+// useFetchedImage - no console 404 noise - and retry briefly so a
+// late-landing file still shows without a refresh.
+function LiveCheckThumb({ src, alt }: { src: string; alt: string }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const attempt = async (remaining: number) => {
+      try {
+        const response = await fetch(src, { cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (!cancelled) setImageUrl(objectUrl);
+      } catch {
+        if (!cancelled && remaining > 0) setTimeout(() => void attempt(remaining - 1), 1200);
+      }
+    };
+    void attempt(4);
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
+  if (!imageUrl) return null;
+  return (
+    <a className="dr-live-check-shot" href={src} target="_blank" rel="noreferrer">
+      <img src={imageUrl} alt={alt} />
+    </a>
+  );
+}
+
 function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; startedAt: string | null; onFinished: (runId: string) => void }) {
   const [planned, setPlanned] = useState<number | null>(null);
   const [current, setCurrent] = useState<{ index: number; total: number; pageId: string; stepId: string; viewportId: string; description?: string } | null>(null);
@@ -3963,11 +3996,7 @@ function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; started
                   {check.pageId} · {check.stepId} <span className="mono">[{check.viewportId}]</span>
                 </span>
                 {Number.isFinite(check.durationMs) && <span className="dr-live-check-ms mono">{((check.durationMs ?? 0) / 1000).toFixed(1)}s</span>}
-                {shot && (
-                  <a className="dr-live-check-shot" href={evidenceFileUrl(runId, shot)} target="_blank" rel="noreferrer">
-                    <img src={evidenceFileUrl(runId, shot)} alt={`${check.stepId} screenshot`} loading="lazy" />
-                  </a>
-                )}
+                {shot && <LiveCheckThumb src={evidenceFileUrl(runId, shot)} alt={`${check.stepId} screenshot`} />}
               </div>
             );
           })}
@@ -4591,7 +4620,10 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         <div className="dr-placeholder">No runs yet for this project. Select pages above and Run, or start from the Drill Book tab.</div>
       )}
 
-      {run && (() => {
+      {run && run.id !== watchRunId && (() => {
+        // While the watched run executes, the live panel IS its detail -
+        // rendering the (still-empty) record below it reads as "0 passed,
+        // review the infrastructure section" mid-run, which is misleading.
         const showDebrief = debriefAvailable && !classicView;
         return (
           <>

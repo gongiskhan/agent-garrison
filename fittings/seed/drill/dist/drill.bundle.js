@@ -29499,6 +29499,30 @@ function SessionViewer({ runId, sessions, live }) {
     selected && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionStream, { runId, sessionId: selected, live }, selected)
   ] });
 }
+function LiveCheckThumb({ src, alt }) {
+  const [imageUrl, setImageUrl] = (0, import_react4.useState)(null);
+  (0, import_react4.useEffect)(() => {
+    let cancelled = false;
+    let objectUrl = null;
+    const attempt = async (remaining) => {
+      try {
+        const response = await fetch(src, { cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (!cancelled) setImageUrl(objectUrl);
+      } catch {
+        if (!cancelled && remaining > 0) setTimeout(() => void attempt(remaining - 1), 1200);
+      }
+    };
+    void attempt(4);
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
+  if (!imageUrl) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "dr-live-check-shot", href: src, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: imageUrl, alt }) });
+}
 function LiveRunPanel({ runId, startedAt, onFinished }) {
   const [planned, setPlanned] = (0, import_react4.useState)(null);
   const [current, setCurrent] = (0, import_react4.useState)(null);
@@ -29631,7 +29655,7 @@ function LiveRunPanel({ runId, startedAt, onFinished }) {
           ((check.durationMs ?? 0) / 1e3).toFixed(1),
           "s"
         ] }),
-        shot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "dr-live-check-shot", href: evidenceFileUrl(runId, shot), target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: evidenceFileUrl(runId, shot), alt: `${check.stepId} screenshot`, loading: "lazy" }) })
+        shot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveCheckThumb, { src: evidenceFileUrl(runId, shot), alt: `${check.stepId} screenshot` })
       ] }, `${check.index}-${check.pageId}-${check.stepId}-${check.viewportId}`);
     }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-live-session-wrap", children: [
@@ -30157,7 +30181,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       ] })
     ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
-    run && (() => {
+    run && run.id !== watchRunId && (() => {
       const showDebrief = debriefAvailable && !classicView;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         debriefAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-modeswitch", role: "group", "aria-label": "Run detail view", children: [
