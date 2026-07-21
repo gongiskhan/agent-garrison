@@ -61,6 +61,24 @@ prod_branch="$(git -C "$PROD_TREE" rev-parse --abbrev-ref HEAD)"
 if [ "$deploy_only" = 0 ]; then
   [ -n "$message" ] || die "a commit message is required: garrison-promote.sh \"what changed\""
 
+  # --- 0. harvest prod's lockfile churn --------------------------------------
+  # Prod is read-only for HANDS, but its RUNTIME legitimately rewrites
+  # compositions/*/apm.lock.yaml on every up (apm install --force refreshes
+  # locks). Left in place they fail the read-only check below on every promote.
+  # The repo convention is to COMMIT refreshed locks, so adopt them into dev,
+  # let them ride this commit, and reset prod's copy for the fast-forward.
+  # Anything ELSE tracked-dirty in prod is still a hard error.
+  prod_lock_churn="$(git -C "$PROD_TREE" status --porcelain -uno | awk '$1 == "M" && $2 ~ /^compositions\/.*\/apm\.lock\.yaml$/ { print $2 }')"
+  if [ -n "$prod_lock_churn" ]; then
+    while IFS= read -r lock; do
+      say "adopting prod lockfile churn: $lock"
+      cp "$PROD_TREE/$lock" "$DEV_TREE/$lock"
+      git -C "$PROD_TREE" checkout -- "$lock"
+    done <<EOF_LOCKS
+$prod_lock_churn
+EOF_LOCKS
+  fi
+
   # --- 1. commit in dev ------------------------------------------------------
   if [ -n "$(git -C "$DEV_TREE" status --porcelain)" ]; then
     say "committing in dev: $message"
