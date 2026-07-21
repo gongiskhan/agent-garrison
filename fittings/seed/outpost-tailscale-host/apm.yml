@@ -1,6 +1,6 @@
 name: outpost-tailscale-host
-version: 0.2.0
-description: Garrison Outpost — remote Mac bridge. Stand-alone Fitting with own React UI on its own port (default 27082); proxies to the outpost-host daemon on 127.0.0.1:23702.
+version: 0.3.0
+description: Garrison Outpost — remote Mac bridge + Claude config sync. Stand-alone Fitting with own React UI on its own port (default 27082); proxies to the outpost-host daemon on 127.0.0.1:23702 and mirrors this host's portable ~/.claude config onto every configured outpost over rsync-over-SSH.
 target: claude
 type: hybrid
 includes: auto
@@ -50,7 +50,20 @@ x-garrison:
       POST   /outposts/:name/rpc            - issue blocking RPC call
       GET    /outposts/:name/log?limit=20   - last N invocation-log entries
       GET    /checkouts                     - FILES-FIT-V2 checkout registry (feature-detected; {} when absent)
-      POST   /provision {host, user}        - LOCAL: SSH-provision a Mac; returns {jobId}
+      POST   /provision {host, user}        - LOCAL: SSH-provision a Mac (installs bridge, mirrors config, registers a sync target); returns {jobId}
       GET    /provision/:jobId/stream       - LOCAL: SSE stream of the provision job output
-    The outpost-host daemon must be installed and running on the Garrison machine.
+    Config sync (LOCAL rsync-over-SSH; state-changing routes are CSRF/rebind guarded):
+      GET    /sync/targets                  - { claudeDir, portable:{dirs,files}, targets }
+      POST   /sync/targets {sshUser,sshHost,name?} - register/replace a config-sync target
+      DELETE /sync/targets/:name            - stop syncing to a target
+      POST   /sync                          - mirror the portable ~/.claude subset to ALL targets now
+      POST   /outposts/:name/sync           - mirror to one target now
+    Config sync mirrors the PORTABLE subset only (skills, commands, agents, rules,
+    output-styles, CLAUDE.md) with rsync --delete, so host removals propagate.
+    settings.json / plugins / mcp.json / sessions are machine-specific and NOT synced.
+    A file watcher pushes on change and a periodic healer (GARRISON_OUTPOST_SYNC_HEAL_MS,
+    default 10m) re-pushes so outposts that were offline during a change catch up - so
+    this Fitting should be eager-toggled if you want config reflected "always".
+    Sync targets are persisted at ~/.garrison/outpost-sync-targets.json.
+    The outpost-host daemon must be installed and running for the RPC/registry routes.
     Each remote Mac runs the garrison-outpost-bridge daemon over Tailscale.

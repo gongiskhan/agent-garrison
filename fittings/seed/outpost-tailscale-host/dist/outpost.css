@@ -590,3 +590,71 @@ input:disabled::placeholder { color: var(--ink-mute); }
   --sb-thumb: rgba(220, 228, 217, 0.18);
   --sb-thumb-hover: rgba(220, 228, 217, 0.36);
 }
+
+/* ============================================================================
+   Config sync panel — mirror ~/.claude config onto the outposts
+   ============================================================================ */
+.config-sync { padding: 16px; }
+.cs-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.cs-head h2 {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+.cs-head .grow, .cs-head { }
+.cs-head .btn { margin-left: auto; }
+
+.cs-empty {
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  padding: 14px 12px;
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+}
+
+.cs-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  background: var(--rule);
+  gap: 1px;
+}
+.cs-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 9px 11px;
+  background: var(--paper);
+}
+.cs-name {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+}
+.cs-status {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+.cs-err {
+  flex-basis: 100%;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--alarm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cs-add { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 14px; }

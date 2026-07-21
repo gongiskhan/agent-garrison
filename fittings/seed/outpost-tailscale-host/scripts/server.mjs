@@ -4,7 +4,7 @@
 // register / pair / unregister / RPC / invocation-log reads, and owns the SSH
 // provisioning flow (spawns ssh, streams the provision script output over SSE).
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, watch as fsWatch } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -12,6 +12,17 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import {
+  CLAUDE_DIR,
+  PORTABLE_DIRS,
+  PORTABLE_FILES,
+  readTargets,
+  upsertTarget,
+  removeTarget,
+  syncAll,
+  syncOne,
+  syncTarget,
+} from "./lib/config-sync.mjs";
 
 const HOME = os.homedir();
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
@@ -264,8 +275,24 @@ async function handleProvision(req, res, opts) {
   };
   child.stdout.on("data", relay);
   child.stderr.on("data", relay);
-  child.on("close", (code) => {
+  child.on("close", async (code) => {
     pushLine(job, code === 0 ? "==> Provisioning finished (exit 0)." : `==> Provisioning exited with code ${code}.`);
+    if (code === 0) {
+      // Register this Mac as a config-sync target and push the portable
+      // ~/.claude subset now (the "skills bundle" provision-outpost.sh leaves
+      // as a TODO). Ongoing sync is driven by the file watcher.
+      try {
+        upsertTarget({ name: machine, sshUser, sshHost });
+        pushLine(job, "==> Syncing Claude config to the outpost (skills, commands, agents, rules, CLAUDE.md)…");
+        const r = await syncOne(machine);
+        for (const it of r.items || []) {
+          pushLine(job, `    ${it.ok ? "ok  " : "FAIL"} ${it.name}${it.ok ? "" : " — " + (it.error || "error")}`);
+        }
+        pushLine(job, r.ok ? "==> Config sync complete." : "==> Config sync had errors (will retry on the next change).");
+      } catch (e) {
+        pushLine(job, `==> Config sync skipped: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     finishJob(job, code ?? 1);
   });
 
@@ -302,6 +329,44 @@ function handleProvisionStream(req, res, jobId) {
   }
   job.subs.add(res);
   req.on("close", () => { job.subs.delete(res); });
+}
+
+// ---------------------------------------------------------------------------
+// Config sync — mirror the portable ~/.claude subset onto the outposts.
+// State-changing routes are guarded by crossSiteBlocked (they drive rsync/ssh).
+// ---------------------------------------------------------------------------
+
+function handleListSyncTargets(req, res) {
+  jsonRes(res, 200, { claudeDir: CLAUDE_DIR, portable: { dirs: PORTABLE_DIRS, files: PORTABLE_FILES }, targets: readTargets() });
+}
+
+async function handleAddSyncTarget(req, res) {
+  const body = await readBody(req);
+  const sshHost = String(body?.sshHost || body?.host || "").trim();
+  const sshUser = String(body?.sshUser || body?.user || "").trim();
+  const name = String(body?.name || sshHost).trim();
+  if (!sshHost || !sshUser) return jsonRes(res, 400, { error: "sshUser and sshHost (strings) required" });
+  try {
+    const target = upsertTarget({ name, sshUser, sshHost });
+    jsonRes(res, 200, { ok: true, target });
+  } catch (e) {
+    jsonRes(res, 400, { error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function handleRemoveSyncTarget(req, res, name) {
+  const removed = removeTarget(name);
+  jsonRes(res, removed ? 200 : 404, removed ? { ok: true } : { error: "no such sync target" });
+}
+
+async function handleSyncAll(req, res) {
+  const summary = await syncAll();
+  jsonRes(res, 200, summary);
+}
+
+async function handleSyncOne(req, res, name) {
+  const r = await syncOne(name);
+  jsonRes(res, r.ok ? 200 : (r.error === "no such target" ? 404 : 200), r);
 }
 
 function serveStatic(req, res, distDir) {
@@ -341,6 +406,57 @@ async function clearStatusFile() {
   try { await unlink(STATUS_FILE); } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// Config-sync watcher — keep every configured outpost reflecting this host's
+// portable ~/.claude config "always". Debounced push on change + a periodic
+// healer so an outpost that was offline during a change catches up.
+// ---------------------------------------------------------------------------
+
+let syncDebounce = null;
+function scheduleSync(reason) {
+  if (syncDebounce) clearTimeout(syncDebounce);
+  syncDebounce = setTimeout(async () => {
+    syncDebounce = null;
+    if (!Object.keys(readTargets()).length) return;
+    try {
+      const r = await syncAll();
+      const ok = r.results.filter((x) => x.ok).length;
+      console.log(`[outpost] config sync (${reason}): ${ok}/${r.count} outposts ok`);
+    } catch (e) {
+      console.error("[outpost] config sync failed:", e instanceof Error ? e.message : String(e));
+    }
+  }, 4000);
+}
+
+function startConfigWatcher() {
+  const watchers = [];
+  // Recursive watch on each portable dir (Node 20+ supports recursive on Linux).
+  for (const dir of PORTABLE_DIRS) {
+    const abs = path.join(CLAUDE_DIR, dir);
+    if (!existsSync(abs)) continue;
+    try {
+      watchers.push(fsWatch(abs, { recursive: true, persistent: false }, () => scheduleSync(`change:${dir}`)));
+    } catch (e) {
+      console.error(`[outpost] cannot watch ${abs}:`, e instanceof Error ? e.message : String(e));
+    }
+  }
+  // Non-recursive watch on ~/.claude for the top-level CLAUDE.md only (avoids the
+  // churn of projects/, sessions/, todos/ that live alongside it).
+  try {
+    watchers.push(fsWatch(CLAUDE_DIR, { persistent: false }, (_ev, fname) => {
+      if (fname === "CLAUDE.md") scheduleSync("change:CLAUDE.md");
+    }));
+  } catch { /* CLAUDE_DIR may not exist yet */ }
+  const HEAL_MS = Number(process.env.GARRISON_OUTPOST_SYNC_HEAL_MS || 10 * 60 * 1000);
+  const heal = setInterval(() => { if (Object.keys(readTargets()).length) scheduleSync("heal"); }, HEAL_MS);
+  heal.unref?.();
+  // Initial catch-up at boot so a config that changed while the fitting was down
+  // is pushed as soon as it comes up.
+  if (Object.keys(readTargets()).length) scheduleSync("boot");
+  console.log(`[outpost] config watcher armed on ${CLAUDE_DIR} (dirs: ${PORTABLE_DIRS.join(", ")})`);
+  return { watchers, heal };
+}
+
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
@@ -362,6 +478,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
       const provStreamMatch = pathname.match(/^\/provision\/([^/]+)\/stream$/);
       if (provStreamMatch && method === "GET") return await handleProvisionStream(req, res, decodeURIComponent(provStreamMatch[1]));
+
+      if (pathname === "/sync/targets" && method === "GET") return handleListSyncTargets(req, res);
+      if (pathname === "/sync/targets" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleAddSyncTarget(req, res); }
+      if (pathname === "/sync" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleSyncAll(req, res); }
+      const syncTargetMatch = pathname.match(/^\/sync\/targets\/([^/]+)$/);
+      if (syncTargetMatch && method === "DELETE") { if (crossSiteBlocked(req, res)) return; return handleRemoveSyncTarget(req, res, decodeURIComponent(syncTargetMatch[1])); }
+      const syncOneMatch = pathname.match(/^\/outposts\/([^/]+)\/sync$/);
+      if (syncOneMatch && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleSyncOne(req, res, decodeURIComponent(syncOneMatch[1])); }
 
       const logMatch = pathname.match(/^\/outposts\/([^/]+)\/log$/);
       if (logMatch && method === "GET") return await handleLog(req, res, liveOpts, decodeURIComponent(logMatch[1]), parsed.query?.limit);
@@ -391,6 +515,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
       console.log(`[outpost] listening on http://${liveOpts.host}:${liveOpts.port} (outpost-host=${liveOpts.outpostHostUrl})`);
+      try { startConfigWatcher(); } catch (e) { console.error("[outpost] config watcher failed to start:", e instanceof Error ? e.message : String(e)); }
       resolve();
     });
   });

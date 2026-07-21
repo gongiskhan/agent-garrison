@@ -370,9 +370,9 @@ function AddOutpost({ onChanged }: { onChanged: () => void }) {
         </div>
       ) : (
         <div className="tab-body">
-          <p className="hint">Provision a reachable Mac over SSH (key auth; BatchMode). Output streams live below.</p>
+          <p className="hint">Provision a reachable Mac over SSH (key auth; BatchMode): installs the bridge, then mirrors this host's Claude config to it and registers it for ongoing sync. Output streams live below.</p>
           <div className="form-row">
-            <input value={sshHost} onChange={(e) => setSshHost(e.target.value)} placeholder="tailnet host or IP" />
+            <input value={sshHost} onChange={(e) => setSshHost(e.target.value)} placeholder="Tailscale IP or host" />
             <input value={sshUser} onChange={(e) => setSshUser(e.target.value)} placeholder="ssh user" />
             <button type="button" className="btn primary" disabled={provBusy || !sshHost.trim() || !sshUser.trim()} onClick={() => void provision()}>
               {provBusy ? "Provisioning…" : "Provision"}
@@ -387,6 +387,179 @@ function AddOutpost({ onChanged }: { onChanged: () => void }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Config sync — mirror this host's portable ~/.claude config onto the outposts
+// ---------------------------------------------------------------------------
+
+interface SyncTarget {
+  name: string;
+  sshUser: string;
+  sshHost: string;
+  addedAt?: string;
+  lastSyncAt?: string;
+  lastSyncOk?: boolean;
+  lastError?: string;
+}
+interface SyncItemResult { name: string; ok: boolean; error?: string }
+interface SyncTargetResult { name: string; ok: boolean; at?: string; error?: string; items?: SyncItemResult[] }
+
+function ConfigSync() {
+  const [targets, setTargets] = useState<Record<string, SyncTarget>>({});
+  const [portable, setPortable] = useState<{ dirs: string[]; files: string[] }>({ dirs: [], files: [] });
+  const [err, setErr] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null); // target name, or "*" for all
+  const [results, setResults] = useState<Record<string, SyncTargetResult>>({});
+
+  const [addName, setAddName] = useState("");
+  const [addHost, setAddHost] = useState("");
+  const [addUser, setAddUser] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/sync/targets", { cache: "no-store" });
+      const data = await res.json();
+      setTargets(data?.targets ?? {});
+      if (data?.portable) setPortable(data.portable);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const id = setInterval(refresh, POLL_MS);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  async function syncAll() {
+    setSyncing("*");
+    setErr(null);
+    try {
+      const res = await fetch("/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) setErr(data?.error ?? `HTTP ${res.status}`);
+      const map: Record<string, SyncTargetResult> = {};
+      for (const r of data?.results ?? []) map[r.name] = r;
+      setResults(map);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(null);
+    }
+  }
+
+  async function syncOne(name: string) {
+    setSyncing(name);
+    setErr(null);
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(name)}/sync`, { method: "POST" });
+      const data = await res.json();
+      setResults((prev) => ({ ...prev, [name]: data }));
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(null);
+    }
+  }
+
+  async function addTarget() {
+    if (!addHost.trim() || !addUser.trim()) return;
+    setAdding(true);
+    setErr(null);
+    try {
+      const res = await fetch("/sync/targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: addName.trim() || addHost.trim(), sshUser: addUser.trim(), sshHost: addHost.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data?.error ?? `HTTP ${res.status}`);
+      } else {
+        setAddName(""); setAddHost(""); setAddUser("");
+        await refresh();
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function removeTarget(name: string) {
+    if (!window.confirm(`Stop syncing Claude config to "${name}"?`)) return;
+    try {
+      await fetch(`/sync/targets/${encodeURIComponent(name)}`, { method: "DELETE" });
+      await refresh();
+    } catch { /* refresh surfaces state */ }
+  }
+
+  const list = Object.values(targets);
+  const subset = [...portable.dirs, ...portable.files].join(", ") || "skills, commands, agents, rules, CLAUDE.md";
+
+  return (
+    <div className="add config-sync">
+      <div className="cs-head">
+        <h2>Claude config sync</h2>
+        <button type="button" className="btn primary" disabled={syncing != null || list.length === 0} onClick={() => void syncAll()}>
+          {syncing === "*" ? "Syncing…" : "Sync all now"}
+        </button>
+      </div>
+      <p className="hint">
+        This host's portable Claude config ({subset}) is mirrored to every configured outpost - on change, and here on demand.
+        Machine-specific state (settings.json, plugins, sessions) is intentionally not synced.
+      </p>
+      {err && <div className="alert small">{err}</div>}
+
+      {list.length === 0 ? (
+        <div className="muted cs-empty">No sync targets yet. Provision a Mac over SSH (it auto-registers), or add one by Tailscale IP below.</div>
+      ) : (
+        <div className="cs-list">
+          {list.map((t) => {
+            const r = results[t.name];
+            const ok = t.lastSyncOk;
+            const state = t.lastSyncAt ? (ok ? "sage" : "alarm") : "brass";
+            return (
+              <div className="cs-row" key={t.name}>
+                <span className={"dot " + state} />
+                <span className="cs-name">{t.name}</span>
+                <code className="host">{t.sshUser}@{t.sshHost}</code>
+                <span className="grow" />
+                <span className="cs-status">
+                  {t.lastSyncAt ? `${ok ? "synced" : "failed"} ${fmtAgo(t.lastSyncAt)}` : "never synced"}
+                </span>
+                <button type="button" className="btn" disabled={syncing != null} onClick={() => void syncOne(t.name)}>
+                  {syncing === t.name ? "Syncing…" : "Sync"}
+                </button>
+                <button type="button" className="btn danger" disabled={syncing != null} onClick={() => void removeTarget(t.name)}>Remove</button>
+                {(t.lastError || (r && !r.ok)) && (
+                  <div className="cs-err">{t.lastError || r?.error || (r?.items || []).filter((i) => !i.ok).map((i) => `${i.name}: ${i.error}`).join("; ")}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="cs-add">
+        <p className="hint">Add a sync target by Tailscale IP (must be SSH-reachable with key auth from this host).</p>
+        <div className="form-row">
+          <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="name (optional)" />
+          <input value={addHost} onChange={(e) => setAddHost(e.target.value)} placeholder="Tailscale IP or host" />
+          <input value={addUser} onChange={(e) => setAddUser(e.target.value)} placeholder="ssh user" />
+          <button type="button" className="btn primary" disabled={adding || !addHost.trim() || !addUser.trim()} onClick={() => void addTarget()}>
+            {adding ? "Adding…" : "Add target"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -464,6 +637,8 @@ function App() {
           ))}
         </div>
       )}
+
+      <ConfigSync />
     </div>
   );
 }

@@ -12,6 +12,8 @@ import { mintPairing, logInvocation, readInvocationLog, buildInstaller, startHos
 import { resolveOutpostDispatch, outpostRunFn } from "../fittings/seed/kanban-loop/lib/outpost-dispatch.mjs";
 // @ts-ignore — pure .mjs; the UI server is guarded by an entry check so importing is side-effect-free
 import { isValidSshTarget } from "../fittings/seed/outpost-tailscale-host/scripts/server.mjs";
+// @ts-ignore — pure .mjs config-sync lib; store fns take an explicit file arg so the sandbox is honoured
+import { buildRsyncArgs, PORTABLE_DIRS, PORTABLE_FILES, readTargets, upsertTarget, removeTarget, syncTarget } from "../fittings/seed/outpost-tailscale-host/scripts/lib/config-sync.mjs";
 
 interface LogRow { at: string; verb: string; outpost: string; caller: string; ok: boolean; ms: number; error?: string }
 
@@ -242,5 +244,79 @@ describe("SSH target validation (S9 provisioning RCE guard)", () => {
     expect(isValidSshTarget("user", "h;rm -rf ~")).toBe(false);
     expect(isValidSshTarget("", "host")).toBe(false);
     expect(isValidSshTarget("user", "")).toBe(false);
+  });
+});
+
+// OUTPOST-CONFIG-SYNC: mirror the portable ~/.claude subset onto outposts.
+describe("config-sync: buildRsyncArgs", () => {
+  it("mirrors a portable directory with --delete/--safe-links/--mkpath, excludes, and a BatchMode ssh transport", () => {
+    const args = buildRsyncArgs({ claudeDir: "/home/u/.claude", user: "me", host: "100.64.0.1", kind: "dir", name: "skills" });
+    const s = args.join(" ");
+    expect(args).toContain("--delete");        // mirror: host removals (e.g. autothing) propagate
+    expect(args).toContain("--safe-links");    // drop unsafe symlinks (skills/cmux-* -> ../../.agents)
+    expect(args).toContain("--mkpath");        // create .claude/skills/ on a fresh outpost
+    expect(args).toContain("-rlpt");
+    expect(args).toContain("/home/u/.claude/skills/");        // trailing slash: sync CONTENTS
+    expect(args).toContain("me@100.64.0.1:.claude/skills/");  // remote path is home-relative
+    expect(s).toContain("-e ssh -o BatchMode=yes");           // key auth, never a password prompt
+    expect(s).toContain("--exclude .git/");
+    expect(s).toContain("--exclude state/");
+  });
+
+  it("copies a portable file WITHOUT --delete (would nuke siblings in the parent dir)", () => {
+    const args = buildRsyncArgs({ claudeDir: "/home/u/.claude", user: "me", host: "box.ts.net", kind: "file", name: "CLAUDE.md" });
+    expect(args).not.toContain("--delete");
+    expect(args).toContain("/home/u/.claude/CLAUDE.md");
+    expect(args).toContain("me@box.ts.net:.claude/CLAUDE.md");
+  });
+
+  it("covers the portable subset and excludes machine-specific surfaces", () => {
+    for (const d of ["skills", "commands", "agents", "rules"]) expect(PORTABLE_DIRS).toContain(d);
+    expect(PORTABLE_FILES).toContain("CLAUDE.md");
+    expect(PORTABLE_DIRS).not.toContain("plugins");
+    expect(PORTABLE_FILES).not.toContain("settings.json");
+  });
+});
+
+describe("config-sync: target registry", () => {
+  const file = () => join(sandbox, "outpost-sync-targets.json");
+
+  it("upserts, reads back, preserves addedAt on re-upsert, and removes", () => {
+    const f = file();
+    expect(readTargets(f)).toEqual({});
+    const t = upsertTarget({ name: "studio", sshUser: "ggomes", sshHost: "100.1.2.3" }, f);
+    expect(t).toMatchObject({ name: "studio", sshUser: "ggomes", sshHost: "100.1.2.3" });
+    expect(t.addedAt).toBeTruthy();
+    expect(readTargets(f).studio.sshHost).toBe("100.1.2.3");
+
+    const t2 = upsertTarget({ name: "studio", sshUser: "ggomes", sshHost: "100.9.9.9" }, f);
+    expect(t2.addedAt).toBe(t.addedAt);                 // re-upsert keeps the original addedAt
+    expect(readTargets(f).studio.sshHost).toBe("100.9.9.9");
+
+    expect(removeTarget("studio", f)).toBe(true);
+    expect(removeTarget("studio", f)).toBe(false);
+    expect(readTargets(f)).toEqual({});
+  });
+
+  it("refuses an injection-shaped ssh target and writes nothing", () => {
+    const f = file();
+    expect(() => upsertTarget({ name: "x", sshUser: "me", sshHost: "-oProxyCommand=x" }, f)).toThrow(/invalid/i);
+    expect(existsSync(f)).toBe(false);
+  });
+});
+
+describe("config-sync: syncTarget guards", () => {
+  it("refuses an invalid ssh target without spawning rsync", async () => {
+    const r = await syncTarget({ name: "bad", sshUser: "me", sshHost: "-x" }, { claudeDir: sandbox });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/invalid/i);
+    expect(r.items).toEqual([]);
+  });
+
+  it("does nothing (no rsync) when the claude dir has no portable config", async () => {
+    // sandbox has no skills/commands/agents/rules/CLAUDE.md, so every item is skipped.
+    const r = await syncTarget({ name: "empty", sshUser: "me", sshHost: "100.1.2.3" }, { claudeDir: sandbox });
+    expect(r.items).toEqual([]);
+    expect(r.ok).toBe(true);
   });
 });
