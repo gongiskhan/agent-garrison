@@ -50,12 +50,17 @@ if [ -z "$composition" ]; then
     const fs = require("fs");
     const home = process.argv[1];
     const read = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
-    // 1. explicit config, 2. the composition prod last ran, 3. jarvis.
-    try { const c = read(home + "/config.json").active_composition; if (c) { process.stdout.write(c); process.exit(0); } } catch {}
+    // 1. the composition prod last actually RAN (coord-lifecycle), 2. the
+    //    active_composition pointer, 3. jarvis.
+    // The lifecycle file leads because the pointer has been observed drifting
+    // back to "default" (2026-07-21, writer unidentified) — and redeploying
+    // that composition then silently swaps the always-on operative.
+    // What prod was running is the ground truth for what to bring back.
     try {
       const keys = Object.keys(read(home + "/coord-lifecycle.json"));
       if (keys.length === 1) { process.stdout.write(keys[0]); process.exit(0); }
     } catch {}
+    try { const c = read(home + "/config.json").active_composition; if (c) { process.stdout.write(c); process.exit(0); } } catch {}
     process.stdout.write("jarvis");
   ' "$PROD_HOME")"
 fi
