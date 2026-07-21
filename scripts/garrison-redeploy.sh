@@ -129,6 +129,20 @@ curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 # and its embedded view is a BLANK pane over the tailnet: the iframe would need
 # a plain-HTTP frame on an HTTPS page, which the browser blocks as mixed
 # content. Exactly how drill's view broke.
+# up() returns once the fittings are SPAWNED, but each one writes its
+# ~/.garrison/ui-fittings/<id>.json a moment later, when its listener is
+# actually bound. Publishing immediately therefore found zero views and skipped
+# every mapping — observed on the 2026-07-21 deploy, which left the board with
+# no tailnet mapping at all. Wait for the status files to settle first.
+say "waiting for own-port views to register"
+for _ in $(seq 1 15); do
+  if compgen -G "$PROD_HOME/ui-fittings/*.json" >/dev/null 2>&1; then
+    sleep 2   # let any remaining fitting finish binding
+    break
+  fi
+  sleep 2
+done
+
 say "publishing own-port views to the tailnet"
 # Pass prod's identity explicitly: the script reads $GARRISON_HOME/ui-fittings to
 # find running views, and its own guard refuses any non-prod profile. Relying on
