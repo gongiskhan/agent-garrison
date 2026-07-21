@@ -1,0 +1,24 @@
+name: dogfood-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm: []
+x-garrison:
+  composition:
+    id: active
+    name: Dogfood Operative
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 5
+        max_spend_per_day: 25
+        max_tool_calls_per_tick: 30
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections: {}
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+      soul: .garrison/prompts/soul.md

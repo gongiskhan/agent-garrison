@@ -3,29 +3,44 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
+    - path: ../../fittings/seed/agent-sdk-runtime
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
+    - path: ../../fittings/seed/dispatcher
+    - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/file-browser
+    - path: ../../fittings/seed/garrison-assistant
+    - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/local-voice
-    - path: ../../fittings/seed/model-router
-    - path: ../../fittings/seed/modes
+    - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/orchestrator
+    - path: ../../fittings/seed/outpost-tailscale-host
+    - path: ../../fittings/seed/ports-default
+    - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
+    - path: ../../fittings/seed/snapshots-default
+    - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
 x-garrison:
   composition:
+    schema: 4
     id: default
     name: Dogfood Operative
     global_config:
@@ -41,7 +56,7 @@ x-garrison:
         log_sink: runner
     selections:
       orchestrator:
-        - id: model-router
+        - id: orchestrator
           config:
             port: 7087
             bind_host: 127.0.0.1
@@ -58,7 +73,7 @@ x-garrison:
             gateway_url: ''
         - id: local-voice
           config:
-            port: 7090
+            port: 7094
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             kokoro_speed: 1
@@ -74,7 +89,7 @@ x-garrison:
             python_bin: ''
         - id: jarvis-os
           config:
-            port: 7092
+            port: 7097
             bind_host: 127.0.0.1
             gateway_url: ''
             tls_cert: ''
@@ -91,11 +106,40 @@ x-garrison:
           config:
             port: 4777
             bind_host: 127.0.0.1
+            compact_enabled: true
+            compact_threshold_pct: 60
+        - id: mcp-gateway
+          config: {}
+        - id: dispatcher
+          config:
+            dispatch_provider: ollama-local
+            dispatch_shape: ollama
+            dispatch_model: qwen2.5:3b
       runtimes:
+        - id: claude-code-runtime
+          config: {}
+        - id: garrison-call
+          config: {}
         - id: codex-runtime
           config: {}
         - id: gemini-runtime
           config: {}
+        - id: opencode-runtime
+          config: {}
+        - id: agent-sdk-runtime
+          config:
+            provider: ollama-local
+            model: ''
+            promptMode: full
+            maxTurns: 12
+      design:
+        - id: taste
+          config: {}
+      building:
+        - id: drill
+          config:
+            port: 7096
+            bind_host: 127.0.0.1
       memory:
         - id: basic-memory
           config:
@@ -103,7 +147,7 @@ x-garrison:
             memory_dir: Memory
             project_name: main
             capture_enabled: true
-            register_codex_gemini: true
+            register_codex_gemini: false
       observability:
         - id: monitor-default
           config:
@@ -117,7 +161,7 @@ x-garrison:
             bind_host: 127.0.0.1
         - id: improver
           config:
-            port: 7088
+            port: 7093
             bind_host: 127.0.0.1
             cron: 30 3 * * *
             vault_dir: ~/ObsidianVault
@@ -125,13 +169,25 @@ x-garrison:
             checkpoint_retention_days: 14
             dream_model: haiku
         - id: scheduler
-          config: {}
+          config:
+            jobs_file: ~/.garrison/scheduler-jobs.json
+            log_file: ~/.garrison/scheduler.log
+            health_port: 7099
         - id: kanban-loop
           config:
+            port: 7089
+            bind_host: 127.0.0.1
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
+            tick_cron: '*/2 * * * *'
+            review_cron: 0 8 * * 1
+            review_stall_hours: 2
       sessions:
+        - id: garrison-assistant
+          config:
+            port: 7095
+            bind_host: 127.0.0.1
         - id: dev-env
           config:
             port: 7086
@@ -145,9 +201,14 @@ x-garrison:
           config:
             cron: 0 4 * * *
             vault_dir: ~/ObsidianVault
+        - id: snapshots-default
+          config:
+            projects_root: ~/dev
       surfaces:
         - id: screen-share-default
-          config: {}
+          config:
+            port: 7079
+            bind_host: 127.0.0.1
         - id: browser-default
           config:
             port: 7084
@@ -156,15 +217,423 @@ x-garrison:
             viewport_height: 1200
             jpeg_quality: 70
             every_nth_frame: 1
-      modes:
-        - id: modes
+        - id: ports-default
           config:
-            briefs_path: ./briefs/
-            default_mode: gary
+            port: 7088
+            bind_host: 127.0.0.1
+            scan_interval_ms: 5000
+        - id: power-default
+          config:
+            port: 7092
+            bind_host: 127.0.0.1
+            idle_minutes: 30
+            load_threshold: 1
+        - id: outpost-tailscale-host
+          config:
+            port: 7082
+            bind_host: 127.0.0.1
+            outpost_host_url: http://127.0.0.1:3702
+      modes:
+        - id: identity-gary
+          config:
+            user_name: the user
       connectors:
+        - id: deepgram-voice
+          config:
+            port: 7085
+            bind_host: 127.0.0.1
+            stt_model: nova-2
+            tts_model: aura-asteria-en
         - id: trello
           config:
             board_id: vl1Z8KFH
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md
+    duties:
+      - id: code
+        title: Code
+        description: 'Write or change code: features, fixes, refactors.'
+        levels:
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
+            cell:
+              target: sdk-haiku
+              effort: low
+          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
+            cell:
+              target: cc-sonnet
+              effort: medium
+          - description: >-
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
+              security-sensitive or multi-subsystem work
+            cell:
+              target: cc-opus
+              effort: high
+      - id: other
+        title: Other
+        description: Anything that fits no other duty.
+        levels:
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+            cell:
+              target: sdk-haiku
+              effort: low
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+            cell:
+              target: cc-sonnet
+              effort: medium
+      - id: research
+        title: Research
+        description: 'Find things out: look up, survey, investigate.'
+        levels:
+          - description: 'lookup: a fact check or a single-source answer'
+            cell:
+              target: sdk-haiku
+              effort: low
+          - description: 'focused: survey a topic or compare a few options, with sources'
+            cell:
+              target: cc-sonnet
+              effort: medium
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: discuss
+        title: Discuss
+        description: Talk a problem through and write a brief when the thinking settles.
+        levels:
+          - description: >-
+              level 1: quick discussion - talk a focused question or tradeoff through
+              in prose, then write the brief when the thinking settles.
+            cell:
+              target: cc-sonnet
+              effort: medium
+      - id: plan
+        title: Plan
+        description: Design an implementation plan before building.
+        levels:
+          - description: 'design the implementation plan for the work at hand: explore, decide, write the plan'
+            cell:
+              target: fable
+              effort: high
+      - id: implement
+        title: Implement
+        description: Execute a planned change end to end.
+        context_hold: true
+        levels:
+          - description: 'carry a planned change end to end: code, verify, evidence'
+            cell:
+              target: opus
+              effort: high
+      - id: review
+        title: Review
+        description: Review a change for correctness and quality.
+        levels:
+          - description: 'light: sanity-pass a small, low-risk diff'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'standard: review a focused diff for correctness and style'
+            cell:
+              target: cc-sonnet
+              effort: medium
+          - description: 'deep: review a large or risky change; hunt for real defects, not nits'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: test
+        title: Test
+        description: Exercise a change with tests.
+        levels:
+          - description: 'smoke: run the existing suite and confirm it stays green'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'standard: run and extend the tests that cover the change'
+            cell:
+              target: cc-sonnet
+              effort: medium
+          - description: 'thorough: build out missing coverage, e2e included'
+            cell:
+              target: cc-sonnet
+              effort: high
+      - id: image
+        title: Image
+        description: Create or edit images.
+        levels:
+          - description: generate or edit an image
+            cell:
+              target: sec-gemini
+      - id: video
+        title: Video
+        description: Create or edit videos.
+        levels:
+          - description: generate or edit a video
+            cell:
+              target: sec-gemini
+      - id: writing
+        title: Writing
+        description: 'Write prose: notes, docs, posts, specs.'
+        levels:
+          - description: 'short-form: a note, a summary, an announcement, a doc tweak'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'long-form: a document, a spec, a post with structure and polish'
+            cell:
+              target: cc-sonnet
+              effort: medium
+      - id: ops
+        title: Ops
+        description: 'Operate the system: run, restart, configure, deploy.'
+        levels:
+          - description: 'routine: restart a service, check a status, run a known command'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'careful: config changes, migrations, anything with blast radius'
+            cell:
+              target: cc-sonnet
+              effort: high
+      - id: drill
+        title: Drill
+        description: >-
+          Plan-driven, page-level QA: author or update the Drill Book for
+          changed pages, gate for approval (configurable), then run the plan
+          (vision or graduated e2e) per selected viewport and report
+          findings. One duty, two internal stages (plan, then run) with a
+          gate between (R7). Replaces the Walkthrough evidence job and the
+          separate Validate phase (D8); absorbs Adversarial Test as a second,
+          blind, vision-forced run (R12).
+        gate: explicit
+        levels:
+          - description: >-
+              standard drill pass: plan/update the plan for changed pages,
+              gate for approval, then run and report findings.
+            cell:
+              target: cc-sonnet
+              effort: medium
+      - id: adversarial-review
+        title: Adversarial Review
+        description: Independent cross-model review that tries to refute the change.
+        levels:
+          - description: 'standard: an independent cross-model pass over the change'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'deep: decorrelated scrutiny of a risky or security-adjacent change'
+            cell:
+              target: sol
+              effort: high
+      # PARKED (D3/D8/F8, BRIEF-DRILL-V1): not deleted, deselected below.
+      # Absorbed by drill's blind second run (R12) — a fresh-context,
+      # vision-forced, cache-bypassed pass over the same plan.
+      - id: adversarial-test
+        title: Adversarial Test
+        description: Independent cross-model attempt to break the change.
+        levels:
+          - description: 'standard: an independent attempt to break the change'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'deep: sustained adversarial testing of a critical path'
+            cell:
+              target: sol
+              effort: high
+      - id: ux-qa
+        title: UX QA
+        description: Walk the UI like a picky end user and flag what looks off.
+        levels:
+          - description: 'spot-check: a quick pass over the changed surface'
+            cell:
+              target: fable
+              effort: low
+          - description: 'full pass: a pixel-level UX audit of the whole flow'
+            cell:
+              target: fable
+              effort: high
+      # PARKED (D3/D8/F2, BRIEF-DRILL-V1): not deleted, deselected below.
+      # Its evidence job is subsumed by drill's per-step evidence capture
+      # (engine delta 7) plus automations-grown video recording (roadmap).
+      - id: walkthrough
+        title: Walkthrough
+        description: Record a self-verified evidence walkthrough (video) of a working flow.
+        levels:
+          - description: record and self-verify an evidence walkthrough of a working flow
+            cell:
+              target: opus
+              effort: high
+      # PARKED (D8, BRIEF-DRILL-V1) — already unselected before this change;
+      # drill run verdicts + feedback ARE the validation now.
+      - id: validate
+        title: Validate
+        description: Run the validation pipeline over the work.
+        levels:
+          - description: run the validation gates over the current work
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: codex-checkpoint
+        title: Codex Checkpoint
+        description: Run the decorrelated codex checkpoint over the run.
+        levels:
+          - description: run the cross-model codex checkpoint
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: report
+        title: Report
+        description: Compose and deliver the run report.
+        levels:
+          - description: compose and deliver the end-of-run report
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: probe-question
+        title: Probe Question
+        description: Answer a health-probe question with one short reply.
+        levels:
+          - description: answer a routing probe with a single short reply
+            cell:
+              target: sdk-ollama-probe
+              effort: low
+    selected_duties:
+      - code
+      - other
+      - research
+      - discuss
+      - plan
+      - implement
+      - review
+      - drill
+      - test
+      - image
+      - video
+      - writing
+      - ops
+      - adversarial-review
+      - ux-qa
+      - probe-question
+      - dispatch
+      # PARKED, not deleted (D3/D8/F2/F8, BRIEF-DRILL-V1): adversarial-test
+      # and walkthrough — see their duties: entries above for why.
+      # - adversarial-test
+      # - walkthrough
+    targets:
+      - id: dispatch-fast
+        runtime: garrison-call
+        model: qwen2.5:3b
+        provider: ollama-local
+        params:
+          type: single-shot
+      - id: cc-haiku
+        runtime: claude-code
+        model: haiku
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+      - id: cc-ollama-qwen
+        runtime: claude-code
+        model: qwen2.5-coder
+        provider: ollama-local
+        params:
+          type: runtime-target
+      - id: cc-ollama-deepseek
+        runtime: claude-code
+        model: deepseek-coder-v2
+        provider: ollama-local
+        params:
+          type: runtime-target
+      - id: sec-gemini
+        runtime: gemini
+        model: gemini-2.5-flash
+        params:
+          type: secondary
+      - id: sec-codex
+        runtime: codex
+        model: gpt-5-codex
+        params:
+          type: secondary
+      - id: classifier
+        runtime: claude-code
+        model: haiku
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+          pinned: true
+      - id: sdk-ollama-chat
+        runtime: agent-sdk
+        model: qwen3:0.6b
+        provider: ollama-local
+        params:
+          type: runtime-target
+          promptMode: lean
+      - id: sdk-ollama-build
+        runtime: agent-sdk
+        model: qwen2.5-coder:7b
+        provider: ollama-local
+        params:
+          type: runtime-target
+          promptMode: lean
+          maxTurns: 2
+          leanPrompt: >-
+            You output JavaScript source code ONLY, as a single fenced code block. Example request:
+            "a function add that sums two numbers". Example reply (this exact shape, nothing else):
+
+            ```js
+
+            export function add(a, b) {
+              return a + b;
+            }
+
+            ```
+
+            Rules: reply with ONLY one ```js fenced block containing the implementation. Never
+            output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
+            tool. No prose before or after. No imports unless explicitly requested.
+      - id: cc-opus
+        runtime: claude-code
+        model: opus
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+      - id: cc-sonnet
+        runtime: claude-code
+        model: sonnet
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+      - id: sdk-haiku
+        runtime: agent-sdk
+        model: claude-haiku-4-5
+        provider: anthropic
+        params:
+          type: runtime-target
+          authMode: api-key
+      - id: sdk-ollama-probe
+        runtime: agent-sdk
+        model: qwen2.5:3b
+        provider: ollama-local
+        params:
+          type: runtime-target
+          promptMode: lean
+      - id: sol
+        runtime: codex
+        model: gpt-5.6-sol
+        provider: anthropic
+        params:
+          type: secondary
+          authMode: api-key
+      - id: fable
+        runtime: claude-code
+        model: claude-fable-5
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+          authMode: subscription
+      - id: opus
+        runtime: claude-code
+        model: claude-opus-4.8
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+          authMode: subscription

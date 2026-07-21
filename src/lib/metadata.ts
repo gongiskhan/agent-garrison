@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   capabilityKinds,
+  dutyEfforts,
   facultyIds,
   fittingShapes,
   uiPlacements,
@@ -102,6 +103,159 @@ const connectorSpecSchema = z.object({
   oauth: connectorOAuthSchema.optional()
 });
 
+// Duty sub-block (MARATHON-V3 D2/D3/D4): one spec per kind:duty provision
+// (provision name === duty id). A level is leaf (cell) XOR composite
+// (sequence) — declaring both or neither is a parse error. Levels are stored
+// flat; no inheritance in the data model.
+const dutyLevelCellSchema = z
+  .object({
+    skill: z.string().min(1).optional(),
+    target: z.string().min(1).optional(),
+    effort: z.enum(dutyEfforts).optional()
+  })
+  .strict();
+
+const dutySequenceEntrySchema = z
+  .object({
+    duty: z.string().min(1),
+    level: z.number().int().min(1).optional()
+  })
+  .strict();
+
+const dutyLevelSchema = z
+  .object({
+    description: z.string().min(1, "each duty level needs a one-line description"),
+    cell: dutyLevelCellSchema.optional(),
+    sequence: z.array(dutySequenceEntrySchema).min(1).optional()
+  })
+  .strict()
+  .superRefine((level, ctx) => {
+    if ((level.cell === undefined) === (level.sequence === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "a duty level is either a cell (leaf) or a sequence (composite) — exactly one"
+      });
+    }
+  });
+
+const dutySchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .regex(/^[a-z][a-z0-9-]*$/, "duty id must be kebab-case"),
+    title: z.string().min(1),
+    description: z.string().min(1),
+    levels: z.array(dutyLevelSchema).min(1, "a duty declares at least one level"),
+    // S1b compact-controller hold (optional): a turn running this duty defers
+    // compaction to the next duty boundary. Additive; absent = no hold.
+    context_hold: z.boolean().optional(),
+    // S3d (D9b) duty gate (optional): `explicit` holds the card on this duty until
+    // an explicit human go (Move / steering), instead of auto-advancing on the
+    // verdict. Additive; absent = pass-through.
+    gate: z.enum(["explicit"]).optional()
+  })
+  .strict();
+
+// D3 (GARRISON-RUNTIMES-V1): a runtime Fitting declares HOW a provider override
+// (base URL / auth credential / model) is applied to its engine — env vars for
+// claude-code, a config-file table for codex/gemini. The composer's target
+// editor adapts to this declaration; a runtime with no mechanism is still a
+// routing target, just without provider overrides. Strict: an unknown key here
+// is a manifest bug and fails the parse loudly rather than being dropped.
+const providerMechanismSchema = z
+  .discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("env"),
+        base_url_env: z.string().min(1).optional(),
+        auth_env: z.string().min(1).optional(),
+        model_arg: z.string().min(1).optional(),
+        model_env: z.string().min(1).optional(),
+        notes: z.string().optional()
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("config-file"),
+        config_file: z
+          .string({ required_error: "provider_mechanism type 'config-file' requires config_file and config_format" })
+          .min(1),
+        config_format: z.enum(["json", "toml"], {
+          required_error: "provider_mechanism type 'config-file' requires config_file and config_format"
+        }),
+        config_key: z.string().min(1).optional(),
+        model_key: z.string().min(1).optional(),
+        notes: z.string().optional()
+      })
+      .strict()
+  ])
+  .superRefine((m, context) => {
+    if (m.type === "env" && !m.base_url_env && !m.auth_env && !m.model_arg && !m.model_env) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "provider_mechanism type 'env' declares none of base_url_env/auth_env/model_arg/model_env — declare at least one or omit the block"
+      });
+    }
+  });
+
+const quartersSettingsFileSchema = z
+  .object({
+    path: z.string().min(1),
+    format: z.enum(["json", "toml"]),
+    label: z.string().min(1).optional()
+  })
+  .strict();
+
+// D5: the Quarters descriptor a runtime Fitting ships. tier "deep" maps to a
+// registered deep implementation by id (claude-code today); tier "generic"
+// drives the descriptor-rendered generic surface and therefore must say where
+// the runtime's native config lives. Strict for the same loudness reason.
+const quartersMcpConfigSchema = z
+  .object({
+    path: z.string().min(1),
+    format: z.enum(["json", "toml"]),
+    key: z.string().min(1).optional()
+  })
+  .strict();
+
+const quartersDescriptorIdSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/, "quarters_descriptor id must be kebab-case");
+
+const quartersDescriptorSchema = z.discriminatedUnion("tier", [
+  z
+    .object({
+      tier: z.literal("deep"),
+      id: quartersDescriptorIdSchema,
+      home_dir: z.string().min(1).optional(),
+      settings_files: z.array(quartersSettingsFileSchema).optional(),
+      context_file: z.string().min(1).optional(),
+      mcp_config: quartersMcpConfigSchema.optional(),
+      log_paths: z.array(z.string().min(1)).optional(),
+      categories: z.array(z.string().min(1)).optional()
+    })
+    .strict(),
+  z
+    .object({
+      tier: z.literal("generic"),
+      id: quartersDescriptorIdSchema,
+      home_dir: z
+        .string({
+          required_error:
+            "quarters_descriptor tier 'generic' requires home_dir (the runtime's native config directory)"
+        })
+        .min(1),
+      settings_files: z.array(quartersSettingsFileSchema).optional(),
+      context_file: z.string().min(1).optional(),
+      mcp_config: quartersMcpConfigSchema.optional(),
+      log_paths: z.array(z.string().min(1)).optional(),
+      categories: z.array(z.string().min(1)).optional()
+    })
+    .strict()
+]);
+
 const spawnConfigSchema = z.object({
   preset: z.enum(["claude_code", "none"]).default("claude_code"),
   allowed_tools: z.array(z.string()).optional(),
@@ -110,6 +264,74 @@ const spawnConfigSchema = z.object({
   base_path: z.string().optional(),
   mcp: z.array(z.string()).optional()
 });
+
+// WS6 (D8): the in-app TOUR descriptor — a runnable SUBSET of the .walkthrough
+// storyboard schema (the same beat/action/assert/selector vocabulary), executed
+// DOM-side by the tour engine (src/components/tours) rather than by Playwright.
+// The `selector` field uses the SAME mini-language as storyboards; the resolver
+// lives in src/lib/tour-selector.ts. A tour ships either inline as
+// x-garrison.ui.tours[] or as a tours/*.json file beside the fitting.
+const tourActionSchema = z
+  .object({
+    // The engine performs this on the step's resolved element in DEMO mode.
+    // navigate is the exception — it drives the router with `path`, no element.
+    type: z.enum(["click", "fill", "select", "navigate"]),
+    value: z.string().optional(),
+    path: z.string().optional()
+  })
+  .strict();
+
+const tourAssertSchema = z
+  .object({
+    selector: z.string().min(1).optional(),
+    text: z.string().optional(),
+    state: z.enum(["visible", "enabled", "disabled", "checked", "expanded"]).optional(),
+    // url gates on the current pathname (startsWith) — the natural assert for a
+    // GUIDED step whose action navigates to another route.
+    url: z.string().min(1).optional()
+  })
+  .strict()
+  .refine((assert) => Boolean(assert.selector) || Boolean(assert.url), {
+    message: "tour assert requires either a selector or a url"
+  });
+
+const tourStepSchema = z
+  .object({
+    id: z.string().min(1),
+    caption: z.string().min(1),
+    selector: z.string().min(1),
+    action: tourActionSchema.optional(),
+    assert: tourAssertSchema.optional(),
+    spotlight: z.boolean().optional(),
+    // Shell state the step's target needs to exist. "sidebar-expanded":
+    // the target lives in the expanded sidebar (e.g. the footer's
+    // composition switcher), which unmounts while the sidebar is collapsed;
+    // the tour engine expands it before resolving the selector.
+    requires: z.enum(["sidebar-expanded"]).optional()
+  })
+  .strict();
+
+export const tourDescriptorSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .regex(/^[a-z][a-z0-9-]*$/, "tour name must be kebab-case"),
+    title: z.string().min(1),
+    route: z.string().min(1),
+    // fitting is derived from the owning fitting id when a tour is discovered;
+    // authors may omit it in inline/beside-fitting descriptors.
+    fitting: z.string().min(1).optional(),
+    // Default player when no ?mode= override is present. Absent → guided.
+    mode: z.enum(["demo", "guided"]).optional(),
+    steps: z.array(tourStepSchema).min(1, "a tour needs at least one step")
+  })
+  .strict();
+
+export type TourAction = z.infer<typeof tourActionSchema>;
+export type TourAssert = z.infer<typeof tourAssertSchema>;
+export type TourStep = z.infer<typeof tourStepSchema>;
+export type TourDescriptor = z.infer<typeof tourDescriptorSchema>;
 
 export const garrisonMetadataSchema = z.object({
   faculty: z.enum(facultyIds),
@@ -156,7 +378,11 @@ export const garrisonMetadataSchema = z.object({
             chrome: z.enum(["default", "full-bleed"]).optional()
           })
         )
-        .min(1, "ui.views must contain at least one view")
+        .min(1, "ui.views must contain at least one view"),
+      // WS6: optional in-app tours declared inline on the fitting. Additive —
+      // existing manifests without it are unaffected; the tours registry also
+      // discovers tours/*.json shipped beside the fitting.
+      tours: z.array(tourDescriptorSchema).optional()
     })
     .optional(),
   tasks: z
@@ -170,8 +396,55 @@ export const garrisonMetadataSchema = z.object({
   default_port: z.number().int().positive().optional(),
   lifecycle: z.enum(["operative-bound", "detached"]).optional(),
   connector: connectorSpecSchema.optional(),
-  secret_scope: z.array(z.string().min(1)).optional()
-});
+  duties: z.array(dutySchema).optional(),
+  secret_scope: z.array(z.string().min(1)).optional(),
+  provider_mechanism: providerMechanismSchema.optional(),
+  quarters_descriptor: quartersDescriptorSchema.optional()
+})
+  // Duty cross-field rules live ON the schema (not only in
+  // parseGarrisonMetadata) so a direct schema user cannot parse an invalid
+  // duty manifest: every kind:duty provision needs a matching duties[] spec
+  // (provision name === duty id) and vice versa; no duplicate duty ids on
+  // either side. A duty without a spec is undispatchable, a spec without a
+  // provision is undiscoverable.
+  .superRefine((metadata, ctx) => {
+    const provided = metadata.provides.filter((p) => p.kind === "duty").map((p) => p.name);
+    const specs = (metadata.duties ?? []).map((d) => d.id);
+    for (const name of provided) {
+      if (!specs.includes(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["provides"],
+          message: `fitting provides duty "${name}" but declares no matching duties[] spec`
+        });
+      }
+    }
+    for (const id of specs) {
+      if (!provided.includes(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["duties"],
+          message: `duties[] declares "${id}" but no provides entry {kind: duty, name: ${id}} exists`
+        });
+      }
+    }
+    const dupeSpecs = specs.filter((id, i) => specs.indexOf(id) !== i);
+    if (dupeSpecs.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["duties"],
+        message: `duplicate duty ids in duties[]: ${[...new Set(dupeSpecs)].join(", ")}`
+      });
+    }
+    const dupeProvisions = provided.filter((name, i) => provided.indexOf(name) !== i);
+    if (dupeProvisions.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["provides"],
+        message: `duplicate duty provisions: ${[...new Set(dupeProvisions)].join(", ")}`
+      });
+    }
+  });
 
 // Legacy faculty names fold into the role faculties (the Quarters pivot). The
 // own-port residue keeps working — its Fittings just declare a role faculty + the
@@ -179,7 +452,7 @@ export const garrisonMetadataSchema = z.object({
 // are not aliased; their Fittings are de-listed from the library and never parsed.
 // (The `data-sources` alias + `data-source` kind were dropped 2026-06-26 —
 // Trello moved to the `trello` connector under the `connectors` faculty.)
-const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
+export const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
   terminal: "sessions",
   // screen-share / browser / outposts split out of sessions into the new
   // `surfaces` role (2026-06-18) — auxiliary own-port live viewers.
@@ -196,6 +469,7 @@ const FACULTY_ALIASES: Record<string, (typeof facultyIds)[number]> = {
 
 export function parseGarrisonMetadata(input: unknown): GarrisonMetadata {
   const normalized = normalizeDeprecations(input);
+  // Duty cross-field validation rides on the schema itself (superRefine above).
   const metadata = garrisonMetadataSchema.parse(normalized);
   validateFacultyCompatibility(metadata);
   return metadata;

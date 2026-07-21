@@ -20,16 +20,25 @@ dist/
 data/vault.json
 data/vault.json.bak-*
 compositions/*/.env
+compositions/*/local.yml
 compositions/*/.garrison/assembled-system-prompt.md
 compositions/*/.garrison/uploads/
 compositions/*/.garrison/decisions.jsonl
 compositions/*/.garrison/operative-session-id
+compositions/*/.garrison/orchestrator-session-id
 compositions/*/.garrison/routing.json
+compositions/*/.garrison/owner.json
+compositions/*/.garrison/routing.json.*.bak
+compositions/*/.garrison/souls/
+compositions/*/.garrison/switch-log.jsonl
+compositions/*/.garrison/run-evidence.json
+compositions/*/.garrison/mcp.json
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
 compositions/*/data/
 compositions/*/artifacts/
+.claude/settings.local.json
 .idea
 run-tab-fixed.png
 .DS_Store
@@ -45,6 +54,8 @@ public/phase-1-demo/.playwright-artifacts/
 .walkthrough/*.log
 .walkthrough/auth.json
 .next-build/
+.next-e2e/
+.next-prod/
 
 # CodeGraph / Serena local indexes (regenerated on demand)
 .codegraph/
@@ -64,3 +75,24 @@ scripts/voice-e2e/fixtures/
 
 # Stray Playwright run output (screenshots + npm/browser caches — large, regenerated)
 output/
+
+# Playwright ephemeral run output (report HTML, traces, last-run pointer),
+# regenerated on every test run. phase9-screenshots/ stays tracked (evidence).
+test-results/playwright-report/
+test-results/playwright-artifacts/
+test-results/.last-run.json
+
+# >>> autothing >>>
+# Evidence binaries + run liveness state (unversioned; sha256 in evidence-index).
+# Resume-critical small files (FLOW_PLAN.md, evidence-index.json, gate-status.json,
+# RUN_LOG.md, RUN_SPEC.md, LANDING.md) stay VERSIONED — never ignore the runs dir.
+docs/autothing/runs/**/*.cast
+docs/autothing/runs/**/*.webm
+docs/autothing/runs/**/*.mp4
+docs/autothing/runs/**/*.png
+docs/autothing/runs/**/status.json
+docs/autothing/runs/**/owner.lock.json
+# <<< autothing <<<
+
+# aborted drill-graduation e2e runs leave their temp playwright config behind
+.tmp-drill-graduation-pw-config-*.mjs

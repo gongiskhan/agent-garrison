@@ -60,8 +60,15 @@ export function normalizeAutomation(auto, { now } = {}) {
     description: auto.description ?? "",
     trigger: auto.trigger ?? { type: "manual" },
     inputs: Array.isArray(auto.inputs) ? auto.inputs : [],
+    // enabled/tags (engine delta 4): a disabled step is compiled but skipped at
+    // run time (tier "skipped"), never removed — so re-enabling needs no re-plan.
     steps: Array.isArray(auto.steps)
-      ? auto.steps.map((s, i) => ({ id: s.id ?? `step-${i + 1}`, ...s }))
+      ? auto.steps.map((s, i) => ({
+          id: s.id ?? `step-${i + 1}`,
+          ...s,
+          enabled: s.enabled !== false,
+          tags: Array.isArray(s.tags) ? s.tags : []
+        }))
       : [],
     createdAt: auto.createdAt ?? ts,
     updatedAt: ts

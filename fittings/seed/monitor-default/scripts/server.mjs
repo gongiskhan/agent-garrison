@@ -16,17 +16,22 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 
+import { collectVitals } from "./vitals.mjs";
+
 const HOME = os.homedir();
-const LOGS_ROOT = path.join(HOME, ".garrison", "logs");
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const LOGS_ROOT = path.join(GARRISON_HOME, "logs");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(GARRISON_HOME, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
-const SESSIONS_STATE_FILE = path.join(HOME, ".garrison", "sessions", "state.json");
+const SESSIONS_STATE_FILE = path.join(GARRISON_HOME, "sessions", "state.json");
 
 const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$)/i;
 const REDACTED = "***REDACTED***";
 
 function parseArgs(argv) {
-  const out = { port: Number(process.env.MONITOR_PORT || 7077), host: process.env.MONITOR_HOST || "127.0.0.1", parentPid: Number(process.env.GARRISON_PARENT_PID || 0), pollMs: Number(process.env.MONITOR_POLL_MS || 1000), retentionHours: Number(process.env.MONITOR_LOG_RETENTION_HOURS || 24) };
+  const out = { port: Number(process.env.GARRISON_MONITORDEFAULT_PORT || process.env.MONITOR_PORT || 27077), host: process.env.GARRISON_MONITORDEFAULT_BIND_HOST || process.env.MONITOR_HOST || "127.0.0.1", parentPid: Number(process.env.GARRISON_PARENT_PID || 0), pollMs: Number(process.env.MONITOR_POLL_MS || 1000), retentionHours: Number(process.env.MONITOR_LOG_RETENTION_HOURS || 24) };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") out.port = Number(argv[++i]);
@@ -156,6 +161,26 @@ let entities = new Map(); // pid -> entity record
 let knownPids = new Set();
 const sseSubscribers = new Set();
 
+// Latest system-vitals sample (CPU / memory / disks / network / garrison-*
+// systemd units). Refreshed on a slow cadence off the poll loop; broadcast in
+// the SSE snapshot and served at GET /api/vitals. Null until the first sample.
+let latestVitals = null;
+let vitalsSampling = false;
+
+// Refresh latestVitals without ever throwing into the poll loop. Guards against
+// overlapping samples (fsSize / networkStats can outlast one poll tick).
+async function sampleVitals() {
+  if (vitalsSampling) return;
+  vitalsSampling = true;
+  try {
+    latestVitals = await collectVitals();
+  } catch (err) {
+    console.error("[monitor] vitals error:", err?.message ?? err);
+  } finally {
+    vitalsSampling = false;
+  }
+}
+
 function metaForPid(pid) {
   const metaPath = path.join(LOGS_ROOT, String(pid), "meta.json");
   if (!existsSync(metaPath)) return null;
@@ -168,8 +193,8 @@ function metaForPid(pid) {
 
 // Read the Garrison session registry and build a map keyed on the claude
 // session UUID. Each entry's value carries the soul, tier, branch, and
-// worktree path — enough to badge a Monitor card with "engineer ·
-// sonnet · feat/x". Re-read on every poll; the file is small.
+// project path — enough to badge a Monitor card with "engineer ·
+// sonnet · main". Re-read on every poll; the file is small.
 function readGarrisonBindings() {
   if (!existsSync(SESSIONS_STATE_FILE)) return new Map();
   let raw;
@@ -182,7 +207,7 @@ function readGarrisonBindings() {
   for (const project of Object.values(raw?.projects ?? {})) {
     for (const session of Object.values(project?.sessions ?? {})) {
       const branch = session?.branch ?? null;
-      const worktreePath = session?.worktreePath ?? null;
+      const projectPath = session?.projectPath ?? session?.worktreePath ?? null;
       const title = session?.title ?? null;
       for (const binding of session?.bindings ?? []) {
         if (!binding?.sessionId) continue;
@@ -192,7 +217,7 @@ function readGarrisonBindings() {
           tierFlags: binding.tierFlags ?? [],
           mode: binding.mode ?? null,
           branch,
-          worktreePath,
+          projectPath,
           title,
           spawnedAt: binding.spawnedAt ?? null
         });
@@ -213,7 +238,7 @@ function extractSessionId(cmd) {
 
 function broadcastSnapshot() {
   if (sseSubscribers.size === 0) return;
-  const payload = `data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()] })}\n\n`;
+  const payload = `data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()], vitals: latestVitals })}\n\n`;
   for (const res of sseSubscribers) {
     try { res.write(payload); } catch {}
   }
@@ -263,7 +288,7 @@ async function poll(rootPid) {
       soul: garrison?.soul ?? null,
       tier: garrison?.tier ?? null,
       branch: garrison?.branch ?? null,
-      worktreePath: garrison?.worktreePath ?? null,
+      projectPath: garrison?.projectPath ?? null,
       title: garrison?.title ?? null,
       mode: garrison?.mode ?? null
     };
@@ -346,6 +371,10 @@ function handleEntities(req, res) {
   jsonRes(res, 200, { entities: [...entities.values()] });
 }
 
+function handleVitals(req, res) {
+  jsonRes(res, 200, latestVitals ?? { ts: null, cpu: null, mem: null, disks: [], net: null, units: [] });
+}
+
 function handleEntity(req, res, pid) {
   const e = entities.get(Number(pid));
   if (!e) {
@@ -360,7 +389,7 @@ function handleEntityStream(req, res) {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.write(`data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()] })}\n\n`);
+  res.write(`data: ${JSON.stringify({ kind: "snapshot", entities: [...entities.values()], vitals: latestVitals })}\n\n`);
   sseSubscribers.add(res);
   req.on("close", () => sseSubscribers.delete(res));
 }
@@ -463,18 +492,20 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[monitor] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
   }
-  return null;
 }
 
 async function writeStatusFile(opts) {
@@ -495,40 +526,48 @@ async function clearStatusFile() {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
 
-  const desiredPort = opts.port;
-  let actualPort = desiredPort;
-  const free = await findFreePort(desiredPort);
-  if (free === null) {
-    console.error(`[monitor] no free port found starting from ${desiredPort}`);
-    process.exit(1);
-  }
-  actualPort = free;
-  const liveOpts = { ...opts, port: actualPort };
+  assertStatusSlotFree();
+  const liveOpts = { ...opts };
 
   const server = http.createServer(async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
-      if (pathname === "/health") return handleHealth(req, res, liveOpts);
-      if (pathname === "/api/entities") return handleEntities(req, res);
-      if (pathname === "/api/entities/stream") return handleEntityStream(req, res);
+      if (pathname === "/health") return await handleHealth(req, res, liveOpts);
+      if (pathname === "/api/entities") return await handleEntities(req, res);
+      if (pathname === "/api/vitals") return await handleVitals(req, res);
+      if (pathname === "/api/entities/stream") return await handleEntityStream(req, res);
       const entityMatch = pathname.match(/^\/api\/entities\/(\d+)$/);
-      if (entityMatch) return handleEntity(req, res, entityMatch[1]);
+      if (entityMatch) return await handleEntity(req, res, entityMatch[1]);
       const logsMatch = pathname.match(/^\/api\/entities\/(\d+)\/logs$/);
-      if (logsMatch) return handleLogs(req, res, logsMatch[1], parsed.query);
-      return serveStatic(req, res, distDir);
+      if (logsMatch) return await handleLogs(req, res, logsMatch[1], parsed.query);
+      return await serveStatic(req, res, distDir);
     } catch (err) {
       console.error("[monitor] handler error:", err);
-      jsonRes(res, 500, { error: err.message });
+      if (!res.headersSent) jsonRes(res, 500, { error: err.message });
     }
   });
 
-  server.listen(actualPort, liveOpts.host, async () => {
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[monitor] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
+  server.listen(liveOpts.port, liveOpts.host, async () => {
     await writeStatusFile(liveOpts);
-    console.log(`[monitor] listening on http://${liveOpts.host}:${actualPort} (parent=${liveOpts.parentPid})`);
+    console.log(`[monitor] listening on http://${liveOpts.host}:${liveOpts.port} (parent=${liveOpts.parentPid})`);
   });
 
-  const tick = () => poll(liveOpts.parentPid).catch((err) => console.error("[monitor] poll error:", err.message));
+  // Sample vitals roughly every 5s, off the (default 1 Hz) poll cadence.
+  const vitalsEveryTicks = Math.max(1, Math.round(5000 / liveOpts.pollMs));
+  let tickCount = 0;
+  const tick = () => {
+    if (tickCount % vitalsEveryTicks === 0) sampleVitals();
+    tickCount++;
+    return poll(liveOpts.parentPid).catch((err) => console.error("[monitor] poll error:", err.message));
+  };
   tick();
   const pollHandle = setInterval(tick, liveOpts.pollMs);
 

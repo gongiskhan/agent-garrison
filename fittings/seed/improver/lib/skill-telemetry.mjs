@@ -96,7 +96,7 @@ export function scanSkillTelemetry({ projectsDir, now = null, caps = DEFAULT_CAP
   const root =
     projectsDir ||
     process.env.IMPROVER_PROJECTS_DIR ||
-    path.join(os.homedir(), ".claude", "projects");
+    path.join(process.env.GARRISON_CLAUDE_HOME || path.join(os.homedir(), ".claude"), "projects");
   const c = { ...DEFAULT_CAPS, ...(caps || {}) };
 
   const bySkill = {};

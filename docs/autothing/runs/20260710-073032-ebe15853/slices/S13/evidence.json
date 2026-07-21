@@ -1,0 +1,42 @@
+[
+  {
+    "beat": "ac1",
+    "criterionId": "AC-1",
+    "timestamp": 2.032,
+    "assert": "the Power UI renders state + all six busy-signal rows with live values; .signal-list contains 'Working sessions' and is highlighted",
+    "result": "pass",
+    "observed": "sticky POWER header + BUSY badge; six signals render live: Working sessions 1 working, In-flight cards 0 in flight, Presence heartbeat 2m ago, SSH sessions 0 active / 0 attached, Load average (1m) 0.85 (limit 1.00), Keep Awake off"
+  },
+  {
+    "beat": "ac2",
+    "criterionId": "AC-2",
+    "timestamp": 7.079,
+    "assert": "a seeded busy signal drives the box BUSY and the countdown is held; .hero contains 'Box is busy' with the BUSY badge shown, highlighted",
+    "result": "pass",
+    "observed": "the seeded working session blocks -> BUSY badge + hero 'Box is busy / a signal is holding it awake'; the countdown is held (not counting down) while a signal blocks, so self-suspend cannot fire"
+  },
+  {
+    "beat": "ac3",
+    "criterionId": "AC-3",
+    "timestamp": 12.239,
+    "assert": "tapping 1h activates Keep Awake; .keep-active contains 'until' with a Cancel button, highlighted",
+    "result": "pass",
+    "observed": "Keep Awake pinned to 'until 02:32 PM' with a Cancel button; safe because Keep Awake only BLOCKS suspension"
+  },
+  {
+    "beat": "ac4",
+    "criterionId": "AC-4",
+    "timestamp": 16.831,
+    "assert": "the page is genuinely usable at a 390x844 phone viewport; the full-width Suspend Now touch target is visible and highlighted",
+    "result": "pass",
+    "observed": "single-column full-width mobile layout at 390x844; Suspend Now is a large full-width touch target (min-height 48px) below the hero. Suspend Now is only HIGHLIGHTED, never clicked, so no suspend can be triggered on camera."
+  },
+  {
+    "beat": "_omission",
+    "criterionId": "SAFETY-NOTE",
+    "timestamp": null,
+    "assert": "Suspend Now action deliberately omitted from the video for box safety",
+    "result": "omitted",
+    "observed": "The manual-suspend confirm flow (two-tap 'Tap again to confirm') and the 10s warning + honest-fail suspend path in scripts/server.mjs runSuspend were NOT exercised on camera. The box stayed BUSY for the entire recording (idle countdown never reached zero) and the server ran HOME-sandboxed on a temp home; the suspend path is covered by the committed unit tests."
+  }
+]

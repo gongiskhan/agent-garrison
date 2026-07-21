@@ -6,11 +6,13 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
-import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, automationsDir } from "../lib/store.mjs";
-import { runAutomation } from "../lib/engine.mjs";
+import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, getMatrixRun, readStepEvidence, automationsDir } from "../lib/store.mjs";
+import { runAutomation, runAutomationMatrix } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
-import { buildAutomationDiscussUrl, buildDiscussParams } from "../lib/discuss.mjs";
+import { normalizeAutomation, validateAutomation } from "../lib/types.mjs";
+import { buildDiscussParams, freshAutomationSlug } from "../lib/discuss.mjs";
 import { ulid } from "../lib/ulid.mjs";
 import { readFile as readFileAsync } from "node:fs/promises";
 
@@ -19,7 +21,7 @@ import { readFile as readFileAsync } from "node:fs/promises";
 // catalog still lets the planner use api_call/local_command/browser steps.
 async function discoverCatalog() {
   try {
-    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
     const res = await fetch(`${base}/api/library`);
     if (!res.ok) return [];
     const data = await res.json();
@@ -89,7 +91,7 @@ function publishEvent(runId, event) {
 }
 
 const FITTING_ID = "automations";
-const DEFAULT_PORT = 7090;
+const DEFAULT_PORT = 27090;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -186,6 +188,81 @@ async function handle(req, res) {
       runPromise.catch((err) => publishEvent(runId, { type: "run_error", runId, error: err.message }));
       return send(res, 202, { runId });
     }
+    // Inline ephemeral run (engine delta 1): run a NOT-persisted automation body
+    // directly — no prior POST /api/automations required. Generic (no caller-
+    // specific naming); Drill (and anything else) passes contextTag to label the
+    // run on its record. Same {runId}/{run} + ?sync=1 shape as the saved-run route.
+    if (pathname === "/api/automations/run-inline" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.automation || !Array.isArray(body.automation.steps)) {
+        return send(res, 400, { error: "automation.steps (array) required" });
+      }
+      let automation;
+      try {
+        automation = normalizeAutomation({ id: body.automation.id ?? `inline-${ulid()}`, name: body.automation.name ?? "inline run", ...body.automation });
+        validateAutomation(automation);
+      } catch (err) {
+        return send(res, 400, { error: err.message });
+      }
+      const runId = ulid();
+      const runPromise = runAutomation({
+        automation,
+        inputs: body.inputs ?? {},
+        triggeredBy: body.triggeredBy ?? "inline",
+        runId,
+        contextTag: body.contextTag ?? null,
+        bypassCache: body.bypassCache === true,
+        viewport: body.viewport ?? null,
+        captureSession: typeof body.captureSession === "string" ? body.captureSession : null,
+        ephemeral: true,
+        emit: (ev) => publishEvent(runId, ev),
+        deps: { runSubAutomation: makeSubRunner(), waitForResume: waitForResumeFor(runId) }
+      }).finally(() => pendingResumes.delete(runId));
+      if (url.searchParams.get("sync") === "1") {
+        return send(res, 200, { run: await runPromise });
+      }
+      runPromise.catch((err) => publishEvent(runId, { type: "run_error", runId, error: err.message }));
+      return send(res, 202, { runId });
+    }
+    // Run matrix (engine delta 6): the SAME step set, once per named viewport,
+    // grouped. Steps can be inline (ephemeral) or reference a saved automation id.
+    if (pathname === "/api/automations/run-matrix" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      if (!Array.isArray(body.viewports) || body.viewports.length === 0) {
+        return send(res, 400, { error: "viewports (non-empty array) required" });
+      }
+      let automation;
+      if (body.automation) {
+        try {
+          automation = normalizeAutomation({ id: body.automation.id ?? `inline-${ulid()}`, name: body.automation.name ?? "matrix run", ...body.automation });
+          validateAutomation(automation);
+        } catch (err) {
+          return send(res, 400, { error: err.message });
+        }
+      } else if (body.automationId) {
+        automation = await getAutomation(body.automationId);
+        if (!automation) return send(res, 404, { error: "not found" });
+      } else {
+        return send(res, 400, { error: "automation or automationId required" });
+      }
+      const matrix = await runAutomationMatrix({
+        automation,
+        viewports: body.viewports,
+        inputs: body.inputs ?? {},
+        triggeredBy: body.triggeredBy ?? "inline",
+        contextTag: body.contextTag ?? null,
+        bypassCache: body.bypassCache === true,
+        ephemeral: !body.automationId,
+        emit: (ev) => publishEvent(ev.runId, ev),
+        deps: { runSubAutomation: makeSubRunner() }
+      });
+      return send(res, 200, { matrix });
+    }
+    const matrixGet = pathname.match(/^\/api\/runs\/matrix\/([^/]+)$/);
+    if (matrixGet && req.method === "GET") {
+      const rec = await getMatrixRun(decodeURIComponent(matrixGet[1]));
+      return rec ? send(res, 200, { matrix: rec }) : send(res, 404, { error: "not found" });
+    }
     // Live SSE stream of a run's events (replays buffered events first).
     const streamMatch = pathname.match(/^\/api\/runs\/([^/]+)\/stream$/);
     if (streamMatch && req.method === "GET") {
@@ -221,9 +298,15 @@ async function handle(req, res) {
       if (!channel.id) {
         return send(res, 409, { error: "no web channel installed/running — add a web-channel fitting" });
       }
-      const params = buildDiscussParams({ name });
+      // A new automation has no name yet — mint a FRESH unique slug so this click
+      // opens a brand-new Discuss conversation. Without it every click reuses the
+      // one thread key `automation-automation` and lands back on the previous
+      // (possibly failed) design instead of a fresh chat. A named automation keeps
+      // its stable slug so its Discuss reopens in place.
+      const slug = name ? undefined : freshAutomationSlug();
+      const params = buildDiscussParams({ name, slug });
       const qs = new URLSearchParams(params).toString();
-      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777").replace(/\/+$/, "");
+      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777").replace(/\/+$/, "");
       return send(res, 200, { fittingId: channel.id, params, url: `${base}/embed/${channel.id}?${qs}` });
     }
     // Plan an automation from a Discuss brief, routed through the Model Router.
@@ -262,6 +345,24 @@ async function handle(req, res) {
     }
     if (pathname === "/api/runs" && req.method === "GET") {
       return send(res, 200, { runs: await listRuns(url.searchParams.get("automationId") || undefined) });
+    }
+    const evidenceGet = pathname.match(/^\/api\/runs\/([^/]+)\/steps\/([^/]+)\/evidence$/);
+    if (evidenceGet && req.method === "GET") {
+      try {
+        const bytes = await readStepEvidence(
+          decodeURIComponent(evidenceGet[1]),
+          decodeURIComponent(evidenceGet[2])
+        );
+        if (!bytes) return send(res, 404, { error: "evidence not found" });
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Content-Length", String(bytes.length));
+        res.setHeader("Cache-Control", "no-store");
+        return res.end(bytes);
+      } catch (err) {
+        if (err.code === "EVIDENCE_OUTSIDE_RUN") return send(res, 403, { error: err.message });
+        throw err;
+      }
     }
     const runGet = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runGet && req.method === "GET") {
@@ -314,6 +415,22 @@ async function handle(req, res) {
   }
 }
 
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[automations] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
+}
+
 async function writeStatusFile(port, host) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(
@@ -352,26 +469,21 @@ export function createServer() {
   return http.createServer((req, res) => void handle(req, res));
 }
 
-// Bind to the first free port at/after `start` (the runner injects no port, so
-// the default is informational and the fitting self-selects, like kanban-loop).
-async function findFreePort(start, host) {
-  for (let port = start; port < start + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const probe = http.createServer();
-      probe.once("error", () => resolve(false));
-      probe.once("listening", () => probe.close(() => resolve(true)));
-      probe.listen(port, host);
-    });
-    if (free) return port;
-  }
-  return start;
-}
-
 export async function startServer() {
-  const host = process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
-  const desired = Number(process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
-  const port = await findFreePort(desired, host);
+  // Port precedence (house convention, same as improver/ports-default): the
+  // runner-projected composition config first (per-instance, e.g. main=7090
+  // vs codex=27090), then the legacy explicit env (tests), then the default.
+  const host = process.env.GARRISON_AUTOMATIONS_BIND_HOST || process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
+  const port = Number(process.env.GARRISON_AUTOMATIONS_PORT || process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
+  assertStatusSlotFree();
   const server = createServer();
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[automations] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => server.listen(port, host, resolve));
   await writeStatusFile(port, host);
   const shutdown = async () => {

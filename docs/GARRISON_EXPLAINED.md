@@ -1,5 +1,14 @@
 # Garrison, Explained
 
+> **STALE — pre-pivot narrative.** This document still describes 21 top-level
+> Faculties, `soul` and `artifact-store` capabilities, Soul Fittings
+> (`soul-engineer`, `personal-operative`) and a live `/armory` surface. All of
+> those were removed or folded: Faculties are roles (17), `/armory` redirects
+> to `/compose`, and Quarters is the `~/.claude` control surface. Kept for the
+> long-form explanation of intent; do not treat its inventories as current.
+> Start from [`../CLAUDE.md`](../CLAUDE.md) and
+> [`architecture.md`](./architecture.md).
+
 A single-document primer covering everything Garrison is, what it does, and how every moving piece fits together. Written for developers landing on the repo who want a mental model in one read.
 
 > Looking for the spec or the live roadmap? This document is the **conceptual onboarding**. The authoritative shape is in [SPEC.md](./SPEC.md); current phase status is in [GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md).
@@ -219,7 +228,7 @@ A **Faculty** is a slot in a composition. It has a name, a cardinality (`single`
 | 14 | `artifact-store` | single | Filesystem-backed storage for files Fittings produce. |
 | 15 | `sync` | single | Periodic mirroring (e.g. vault sync to outposts). |
 | 16 | `monitor` | single | Read-only visibility into spawned PIDs/ports/logs. |
-| 17 | `sessions` | single (own-port) | Claude Code dev environment — session tabs, terminals, worktrees, browser pane. |
+| 17 | `sessions` | single (own-port) | Claude Code dev environment — session tabs, terminals, browser pane. |
 | 18 | `screen-share` | single (own-port) | Screen-capture relay. |
 | 19 | `outposts` | single (own-port) | Multi-machine bridge to other Macs over Tailscale. |
 | 20 | `web-channel` | single (own-port) | Browser chat surface. |
@@ -389,7 +398,7 @@ These ship a React UI on their own HTTP port. The **human** opens them in a brow
 
 Examples:
 
-- `dev-env` — per-session Claude Code dev environment (Claude + shell PTYs, browser pane, worktree lifecycle).
+- `dev-env` — per-session Claude Code dev environment (Claude + shell PTYs, browser pane; sessions on the current branch).
 - `screen-share-default` — macOS screen-capture viewer.
 - `outpost-tailscale-host` — remote-Mac bridge management.
 - `web-channel-default` — mobile-friendly chat surface.
@@ -399,13 +408,13 @@ Examples:
 All tool-facing Fittings live under **own-port Faculties** (see [§5](#5-faculties--the-named-slots)) and follow the canonical pattern in [UI-FITTINGS.md](./UI-FITTINGS.md):
 
 ```
-        Garrison shell (Next.js, port 7777)
+        Garrison shell (Next.js, port 27777)
         ┌───────────────────────────────────┐
         │  sidebar:                         │
         │   ┌──────────────────────────┐    │
         │   │ Views                    │    │
-        │   │  • Dev Env   (7086) →────┼────┼──→ http://127.0.0.1:7086
-        │   │  • Monitor   (7077) →────┼────┼──→ http://127.0.0.1:7077
+        │   │  • Dev Env   (27086) →────┼────┼──→ http://127.0.0.1:27086
+        │   │  • Monitor   (27077) →────┼────┼──→ http://127.0.0.1:27077
         │   └──────────────────────────┘    │
         └───────────────────────────────────┘
 
@@ -572,9 +581,9 @@ The sidebar **Views** group in Garrison's chrome auto-populates per composition.
    │  Views ▼            │
    │   • Documents       │  ← embedded sidebar-surface (contract v2)
    │   • Artifact Store  │  ← embedded sidebar-surface (contract v2)
-   │   • Dev Env       ⤴ │  ← own-port link (port 7086)
-   │   • Monitor       ⤴ │  ← own-port link (port 7077)
-   │   • Browser       ⤴ │  ← own-port link (port 7084)
+   │   • Dev Env       ⤴ │  ← own-port link (port 27086)
+   │   • Monitor       ⤴ │  ← own-port link (port 27077)
+   │   • Browser       ⤴ │  ← own-port link (port 27084)
    └─────────────────────┘
 ```
 
@@ -619,9 +628,10 @@ The runner (`src/lib/runner.ts`) is the most important new piece in Garrison. It
    │     ├─ refuses silent success (no verify hook → hard failure)   │
    │     └─ verify failure marks the Operative broken                │
    │                                                                 │
-   │  5. start operative-bound own-port Fittings                     │
-   │     ├─ spawn each lifecycle: operative-bound Fitting            │
+   │  5. start eager-toggled own-port Fittings                       │
+   │     ├─ spawn only the operative-bound Fittings toggled eager    │
    │     ├─ they bind ports, write status files, serve /health       │
+   │     ├─ non-eager Fittings wait for a Views-UI start (on demand) │
    │     └─ detached Fittings are skipped (user manages them)        │
    │                                                                 │
    │  6. assemble the system prompt                                  │
@@ -726,7 +736,7 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 | Fitting | Faculty | What it does |
 |---|---|---|
 | `slack-channel` | channels | Inbound webhook channel. Receives Slack app_mention + DM events. |
-| `web-channel-default` | web-channel | Mobile-first browser chat surface. Own-port (7083). Proxies the gateway. |
+| `web-channel-default` | web-channel | Mobile-first browser chat surface. Own-port (27083). Proxies the gateway. |
 
 ### Doing stuff in the world
 
@@ -755,17 +765,17 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 
 | Fitting | Faculty | What it does |
 |---|---|---|
-| `outpost-tailscale-host` | outposts | Bridge for a Tailscale-connected remote Mac. Spawn processes, read files, manage worktrees via the Outpost Protocol. |
+| `outpost-tailscale-host` | outposts | Bridge for a Tailscale-connected remote Mac. Spawn processes, read files via the Outpost Protocol. |
 | `outpost-actions` | skills | Agent skill for invoking ops on remote outposts — run commands, read/write files. |
 
 ### Workbench (tool-facing, own-port)
 
 | Fitting | Faculty | Port | What it does |
 |---|---|---|---|
-| `dev-env` | sessions | 7086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, git worktree lifecycle, session dashboard. |
-| `screen-share-default` | screen-share | 7079 | macOS screen-capture — ~2fps JPEG polling for phone/remote access. |
-| `browser-default` | browser | 7084 | Headless Chromium with screencast, input, raw CDP, and DevTools reverse-proxy. |
-| `monitor-default` | monitor | 7077 | Read-only PID/port/log dashboard. |
+| `dev-env` | sessions | 27086 | Per-session Claude Code dev environment — Claude + shell PTYs, quick-prompt bar, live browser pane, current-branch sessions, session dashboard. |
+| `screen-share-default` | screen-share | 27079 | macOS screen-capture — ~2fps JPEG polling for phone/remote access. |
+| `browser-default` | browser | 27084 | Headless Chromium with screencast, input, raw CDP, and DevTools reverse-proxy. |
+| `monitor-default` | monitor | 27077 | Read-only PID/port/log dashboard. |
 
 The complete list of UI Fittings and the canonical own-port pattern they all follow: [UI-FITTINGS.md](./UI-FITTINGS.md). Long-form Fitting authoring guide: [FITTINGS.md](./FITTINGS.md).
 
@@ -845,7 +855,7 @@ The runner:
 2. Materialises `.env` (Slack signing secret, Trello API token).
 3. Runs each Fitting's `setup` hook — `basic-memory` ensures the `~/ObsidianVault` vault and its local SQLite index exist.
 4. Runs each Fitting's `verify` hook — all green.
-5. Starts the HTTP gateway on `127.0.0.1:4777`.
+5. Starts the HTTP gateway on `127.0.0.1:24777`.
 6. Assembles `assembled-system-prompt.md`:
 
 ```

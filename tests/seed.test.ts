@@ -26,7 +26,9 @@ const seedIds = [
   "monitor-default",
   "browser-default",
   "file-browser",
-  "garrison-orchestrator"
+  "garrison-orchestrator",
+  "taste",
+  "opencode-runtime"
 ] as const;
 
 interface RawManifest {
@@ -107,11 +109,11 @@ describe("seed Fittings", () => {
     }
   });
 
-  it("dev-env consolidates the dev-work surfaces under sessions on port 7086", async () => {
+  it("dev-env consolidates the dev-work surfaces under sessions on port 27086", async () => {
     const metadata = await loadSeed("dev-env");
     expect(metadata.faculty).toBe("sessions");
     expect(metadata.own_port).toBe(true);
-    expect(metadata.default_port).toBe(7086);
+    expect(metadata.default_port).toBe(27086);
     expect(metadata.provides).toEqual([{ kind: "dev-env", name: "dev-env" }]);
     expect(metadata.consumes).toContainEqual({ kind: "outpost", cardinality: "any" });
     expect(metadata.setup?.[0]?.command).toContain("install-hooks");
@@ -139,5 +141,27 @@ describe("seed Fittings", () => {
       );
     }
     expect(result.ok).toBe(true);
+  });
+
+  // Determinism ratchet (codex S3f2 finding): every fitting selected by the
+  // default composition MUST be registered in data/library.json — the runtime
+  // filters selections through the library (validateCompositionSelections throws
+  // "Unknown fitting"), so an unregistered selection is silently dropped and the
+  // composition never resolves. This catches the "new seed fitting created but
+  // not registered" gap for the whole run's new fittings, not just identity.
+  it("every fitting selected by the default composition is registered in the library", async () => {
+    const fs = await import("node:fs");
+    const yaml = await import("js-yaml");
+    const compManifest = yaml.load(
+      fs.readFileSync(path.resolve(__dirname, "..", "compositions", "default", "apm.yml"), "utf8")
+    ) as { "x-garrison"?: { composition?: { selections?: Record<string, Array<{ id: string }>> } } };
+    const library = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, "..", "data", "library.json"), "utf8")
+    ) as Array<{ id: string }>;
+    const registered = new Set(library.map((e) => e.id));
+    const selections = compManifest["x-garrison"]?.composition?.selections ?? {};
+    const selectedIds = Object.values(selections).flat().map((s) => s.id);
+    const missing = selectedIds.filter((id) => !registered.has(id));
+    expect(missing).toEqual([]);
   });
 });

@@ -90,24 +90,28 @@ function encodeContext(obj) {
 // James to analyse + ask clarifying questions, then write the brief to the SAME path
 // the board auto-links on Move-out-of-Discuss (briefRelPath), so the discussion result
 // becomes the card's downstream context. Pure (no node imports) → bundles into the UI.
-export function buildDiscussKickoff(card, { briefsPath = "./briefs/" } = {}) {
+export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
   const title = (typeof card?.title === "string" && card.title.trim()) ? card.title.trim() : "(untitled)";
   const project = card?.project ? String(card.project) : "(none assigned yet)";
   const desc = (typeof card?.description === "string" && card.description.trim())
     ? card.description.trim()
     : "(no description was provided — ask Goncalo what this card is about before going further)";
-  const briefPath = briefRelPath(card, { briefsPath });
+  // The EXACT card-owned brief path James must write to — absolute when the board
+  // supplies it (so his working dir is irrelevant), else a card-relative fallback.
+  const briefPath = briefAbsPath || (card?.id ? `cards/${card.id}/brief.md` : "brief.md");
   return [
-    `James, let's talk this work item through before it goes to planning.`,
+    `James, let's talk this work item through before it goes to planning. Match your effort to the work — a small change needs a light touch, not an interrogation.`,
     ``,
     `# Card: ${title}`,
     `Project: ${project}`,
     ``,
     desc,
     ``,
-    `Start the discussion now: think it through out loud, surface the key decisions, tradeoffs and risks, and ask me the clarifying questions you need answered before this is ready to build. Don't jump to code.`,
+    `Give me your read of it in a sentence or two, then ask me at least one real, clarifying question before we call it settled — even for a small, clear change there's usually something worth confirming (the exact wording, the scope, where it applies, or how we'll know it's done). Ask only what genuinely matters; don't manufacture a checklist. For an ambiguous or bigger item, surface the key decision and ask the few clarifying questions that actually block the build.`,
     ``,
-    `When the thinking has settled, write the brief to \`${briefPath}\` using the brief template (what this is, decisions, approach, open questions, acceptance) — that brief is the handoff the build reads, so capture what we decided. Begin with your analysis and your first questions.`
+    `IMPORTANT: do not write the brief on your first message — always give me a chance to answer first. Keep your replies short and direct — a few sentences, not an essay; don't narrate what you're looking at.`,
+    ``,
+    `Once we've talked it through and it's settled, write the brief to exactly this path \`${briefPath}\` (that absolute path — not a copy in the project) using the template (what this is, decisions, approach, open questions, acceptance), kept proportional to the work. That brief is the handoff the build reads. Begin with your read and your question(s).`
   ].join("\n");
 }
 
@@ -122,7 +126,14 @@ export function buildDiscussKickoff(card, { briefsPath = "./briefs/" } = {}) {
 // is /embed/web-channel-default. The board is opened embedded in Garrison
 // (/embed/kanban-loop), so this relative URL + target="_top" navigates Garrison
 // to the web channel. Override webChannelBase for a non-default web channel.
-export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-default", briefsPath = "./briefs/" } = {}) {
+export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-default", cardsAbsDir = null } = {}) {
+  const stem = briefStem(card);
+  // The card-owned brief's ABSOLUTE path: <cardsAbsDir>/<cardId>/brief.md. cardsAbsDir
+  // is the board's kanban-store cards dir (from /board/runtime). Deterministic + shared
+  // by James's write, the Brief editor, and the engine's build read.
+  const briefAbsPath = (cardsAbsDir && card?.id)
+    ? `${String(cardsAbsDir).replace(/\/+$/, "")}/${card.id}/brief.md`
+    : null;
   const context = {
     source: "kanban",
     cardId: card?.id ?? null,
@@ -131,19 +142,31 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
     // The description so a context-honoring channel/operative has it too (the kickoff
     // message carries it as well, for the gateway path that ignores body.context).
     description: card?.description ?? null,
-    briefsPath,
-    // CARD-UNIQUE stem (<cardId>-<slug>) so James writes briefs/<stem>.md and the
-    // board's Move-out-of-Discuss auto-link finds THIS card's brief, never another
-    // card's whose title kebabs to the same slug.
-    suggestedSlug: briefStem(card)
+    // Kept for backward-compat with any consumer reading a suggested stem.
+    suggestedSlug: stem,
+    // ABSOLUTE brief path for the web channel's Brief editor. Absent → no Brief editor.
+    ...(briefAbsPath ? { briefAbsPath } : {})
   };
   const encoded = encodeURIComponent(encodeContext(context));
-  // The auto-sent opening message (carries the description + the brief path). base64 +
-  // url-encoded so a long description survives the query string; the channel decodes it
+  // The auto-sent opening message (carries the description + the EXACT brief path). base64
+  // + url-encoded so a long description survives the query string; the channel decodes it
   // and hands it to the chat as initialMessage.
-  const kickoff = encodeURIComponent(encodeString(buildDiscussKickoff(card, { briefsPath })));
+  const kickoff = encodeURIComponent(encodeString(buildDiscussKickoff(card, { briefAbsPath })));
   const base = webChannelBase.replace(/\/+$/, "");
-  return `${base}?mode=james&context=${encoded}&kickoff=${kickoff}`;
+  // A STABLE thread key per card (`kanban-<cardId>`) + a human title, so the web
+  // channel persists this Discuss as its own session and REOPENING the card returns
+  // to the same conversation + history instead of starting blank. base64 + url-encoded
+  // so they survive the query string and the channel's round-trip decode unwraps them.
+  const parts = [`mode=james`, `context=${encoded}`, `kickoff=${kickoff}`];
+  if (card?.id) parts.push(`thread=${encodeURIComponent(encodeString(`kanban-${card.id}`))}`);
+  if (card?.title) parts.push(`title=${encodeURIComponent(encodeString(String(card.title)))}`);
+  // A prominent "Back to the board" target: the Garrison embed route for the kanban
+  // fitting. The web channel shows a Back button that navigates the TOP window here,
+  // so after settling the Discuss (and writing the brief) the user returns to the board
+  // in one click. base64 + url-encoded like the other params so the channel decodes it.
+  parts.push(`returnUrl=${encodeURIComponent(encodeString("/embed/kanban-loop"))}`);
+  parts.push(`returnLabel=${encodeURIComponent(encodeString("Board"))}`);
+  return `${base}?${parts.join("&")}`;
 }
 
 // Is `briefPath` a SAFE relative path CONTAINED UNDER briefsPath? It must be

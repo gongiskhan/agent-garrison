@@ -104,6 +104,11 @@ export class WarmPtySessionPool {
     const record = this.checkedOut.get(id);
     if (!record) return;
     this.checkedOut.delete(id);
+    // Evict: the caller has ALREADY torn the session down (e.g. a runtime adapter
+    // replacing the operative on respawn-resume). Forget the checkout WITHOUT a
+    // second dispose — avoids double-teardown for adapters whose teardown frees
+    // the underlying session, and stops shutdown() disposing a retired session.
+    if (opts.evict === true) return;
     record.turns += Number(opts.turns ?? 1);
     record.lastUsedAt = Date.now();
     if (

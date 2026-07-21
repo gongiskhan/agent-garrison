@@ -1,0 +1,24 @@
+id: kanban-view
+title: Kanban view
+path: /fitting/kanban-loop
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The embedded Kanban surface loads the visual workflow board rather than
+      raw JSON, and the board remains navigable and legible without destructive
+      overflow.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

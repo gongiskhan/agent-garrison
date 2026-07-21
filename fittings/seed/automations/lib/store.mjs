@@ -11,7 +11,8 @@ import { validateAutomation, normalizeAutomation } from "./types.mjs";
 import { ulid } from "./ulid.mjs";
 
 export function automationsDir() {
-  return process.env.GARRISON_AUTOMATIONS_DIR ?? path.join(os.homedir(), ".garrison", "automations");
+  const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+  return process.env.GARRISON_AUTOMATIONS_DIR ?? path.join(home, "automations");
 }
 
 function automationPath(id) {
@@ -117,6 +118,74 @@ export async function listRuns(automationId) {
     }
   }
   return out.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+}
+
+export function runEvidenceDir(runId) {
+  const safe = String(runId).replace(/[^A-Za-z0-9_-]/g, "");
+  if (!safe || safe !== String(runId)) throw new Error(`invalid run id: ${runId}`);
+  return path.join(runsDir(), safe, "evidence");
+}
+
+// Per-step evidence (engine delta 7, R13): a plain JPEG file with a filesystem
+// link, no artifact store. Atomic (temp-write + rename) so a reader never sees
+// a partial file. Returns the absolute path written.
+export async function writeStepEvidence(runId, stepIndex, base64Jpeg) {
+  const dir = runEvidenceDir(runId);
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, `step-${String(stepIndex).padStart(3, "0")}.jpg`);
+  const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
+  await fs.writeFile(tmp, Buffer.from(base64Jpeg, "base64"));
+  await fs.rename(tmp, file);
+  return file;
+}
+
+export async function readStepEvidence(runId, stepId) {
+  const run = await getRun(runId);
+  if (!run) return null;
+  const step = [...(run.steps ?? [])].reverse().find((candidate) => candidate.stepId === stepId);
+  if (!step?.evidencePath) return null;
+  let evidenceRoot;
+  let evidenceFile;
+  try {
+    evidenceRoot = await fs.realpath(runEvidenceDir(runId));
+    evidenceFile = await fs.realpath(step.evidencePath);
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  if (evidenceFile !== evidenceRoot && !evidenceFile.startsWith(evidenceRoot + path.sep)) {
+    const err = new Error("evidence path escapes the run evidence directory");
+    err.code = "EVIDENCE_OUTSIDE_RUN";
+    throw err;
+  }
+  return fs.readFile(evidenceFile);
+}
+
+function matrixPath(matrixId) {
+  const safe = String(matrixId).replace(/[^A-Za-z0-9_-]/g, "");
+  if (!safe || safe !== String(matrixId)) throw new Error(`invalid matrix id: ${matrixId}`);
+  return path.join(runsDir(), `matrix-${safe}.json`);
+}
+
+// Run-matrix summary (engine delta 6): grouped per-viewport results, atomic
+// write (temp + rename) — the individual per-viewport runs are still saved as
+// ordinary run records via saveRun.
+export async function saveMatrixRun(record) {
+  await fs.mkdir(runsDir(), { recursive: true });
+  const file = matrixPath(record.matrixId);
+  const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(record, null, 2), "utf8");
+  await fs.rename(tmp, file);
+  return record;
+}
+
+export async function getMatrixRun(matrixId) {
+  try {
+    return JSON.parse(await fs.readFile(matrixPath(matrixId), "utf8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
 }
 
 export async function saveBrief(slug, markdown) {

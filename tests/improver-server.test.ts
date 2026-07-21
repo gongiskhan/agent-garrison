@@ -153,3 +153,65 @@ describe("U3 — Improver review-queue server (live round-trip)", () => {
     expect(q.json.autonomy["memory-consolidation"].autonomy).toBe("auto");
   });
 });
+
+// S15/D38 regression (GARRISON-UNIFY-V1): the run-now path must run the
+// orchestrator-policy rule exactly like the nightly main() does - seeded run
+// outcomes produce a review-queued (NEVER auto-applied) policy proposal.
+describe("S15 - run-now runs the orchestrator-policy rule", () => {
+  let proc: ChildProcess | undefined;
+  let tmp: string;
+  let port: number;
+
+  beforeAll(async () => {
+    port = await freePort();
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "garrison-improver-pol-"));
+    const data = path.join(tmp, "improver-data");
+    const memory = path.join(tmp, "MEMORY.md");
+    const target = path.join(tmp, "knowledge-memory.md");
+    fs.mkdirSync(data, { recursive: true });
+    fs.writeFileSync(target, "# Knowledge memory\n", "utf8");
+    writeMemory(memory, 2);
+    // Seed run outcomes tripping the fail-ratio heuristic (2/3 failed test gates).
+    const runs = path.join(tmp, "runs");
+    for (let i = 1; i <= 3; i++) {
+      const dir = path.join(runs, "demo-proj", `r${i}`);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "evidence-index.json"),
+        JSON.stringify({ workKind: "full-feature", slices: [{ slice: "s1", gates: { test: { status: i === 3 ? "passed" : "failed" } } }] })
+      );
+    }
+    proc = spawn("node", [SERVER], {
+      env: {
+        ...process.env,
+        IMPROVER_PORT: String(port),
+        IMPROVER_HOST: "127.0.0.1",
+        IMPROVER_DATA: data,
+        IMPROVER_MEMORY: memory,
+        IMPROVER_TARGET: target,
+        GARRISON_HOME: tmp,
+        GARRISON_RUNS_DIR: runs
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    await waitHealth(port);
+  }, 20_000);
+
+  afterAll(() => {
+    try {
+      proc?.kill("SIGTERM");
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it("run-now queues an orchestrator-policy proposal from seeded outcomes, pending (not auto-applied)", async () => {
+    await api(port, "POST", "/api/run-now");
+    const q = await api(port, "GET", "/api/queue");
+    const pol = q.json.queue.filter((p: any) => p.rule === "orchestrator-policy");
+    expect(pol.length).toBeGreaterThanOrEqual(1);
+    expect(pol[0].status).toBe("pending");
+    expect(pol[0].claim).toContain("test");
+    expect(pol[0].applyVia).toContain("PUT /routing");
+  });
+});

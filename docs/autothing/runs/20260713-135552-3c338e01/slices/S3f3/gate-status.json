@@ -1,0 +1,46 @@
+{
+  "slice": "S3f3",
+  "kind": "api",
+  "commits": [
+    "0d5224c"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s3f3-impl",
+      "at": "2026-07-13T16:33:21Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T16:33:21Z",
+      "detail": "typecheck clean, validate-fitting 4/4 both"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T16:33:21Z",
+      "detail": "8 tests: parse, duty provision, skill ownership, validate pipeline"
+    },
+    "codexSliceReview": {
+      "status": "skipped",
+      "reason": "declarative-only (apm.yml + SKILL.md markdown, no executable code for codex to hunt invariants in)",
+      "at": "2026-07-13T16:33:21Z"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T16:44:20Z"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched",
+      "note": "live-fire execution at WS7"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending",
+      "note": "WS7 live-fire"
+    }
+  }
+}

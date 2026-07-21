@@ -15,6 +15,9 @@ export {
   parseEvents,
   emptyTurn,
   extractLocalCommandOutput,
+  extractAskUserQuestions,
+  contextTokensFrom,
+  compactionsFrom,
 } from "./jsonl.mjs";
 export {
   waitForCompletion,
@@ -24,7 +27,7 @@ export {
   findNewestJsonl,
   isCommandMessage,
 } from "./detection.mjs";
-export { waitForSessionReady, AuthTrapError } from "./readiness.mjs";
+export { waitForSessionReady, AuthTrapError, StartupExitError } from "./readiness.mjs";
 export { preTrustCwd } from "./trust.mjs";
 export {
   captureLines,
@@ -33,8 +36,10 @@ export {
   parseStatus,
   parsePermissionMode,
   isBusy,
+  isWorking,
   isPromptReady,
   turnStarted,
+  hasQueuedMessages,
   waitForTurnComplete,
 } from "./screen.mjs";
 export {
@@ -52,6 +57,6 @@ export { OperativePtySession, oneShotTurn, buildClaudeArgs } from "./session.mjs
 export { PtySessionManager } from "./session-manager.mjs";
 export { WarmPtySessionPool, measureIdleCost } from "./warm-pool.mjs";
 export { ClaudeCodeAdapter, runAdapterConformance, ADAPTER_METHODS } from "./runtime-adapter.mjs";
-export { delegate, validateTaskSpec, parseTaskSpec, validateDelegationResult, DelegationError } from "./runtime-bridge.mjs";
+export { delegate, validateTaskSpec, parseTaskSpec, validateDelegationResult, DelegationError, EMPTY_OUTPUT_PLACEHOLDER } from "./runtime-bridge.mjs";
 export { MultiRuntimePool } from "./multi-runtime-pool.mjs";
 export { claudeProjectDirForCwd, claudeProjectsDir, claudeGlobalConfigPath } from "./paths.mjs";

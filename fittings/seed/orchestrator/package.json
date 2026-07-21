@@ -1,0 +1,9 @@
+{
+  "name": "@garrison/orchestrator-fitting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node scripts/check-routing.mjs --check"
+  }
+}

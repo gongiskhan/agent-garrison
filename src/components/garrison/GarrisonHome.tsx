@@ -2,26 +2,46 @@
 
 import Link from "next/link";
 import clsx from "clsx";
+import { useEffect, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 import { RunConsole } from "@/components/run/RunPanel";
 import { faculties } from "@/lib/faculties";
+import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
+import styles from "./GarrisonHome.module.css";
 
 export function GarrisonHome() {
-  const { composition, runnerState, vaultNeedsPassword, runAction, busy } = useAppShell();
+  const {
+    composition,
+    runnerState,
+    vaultUnlocked,
+    vaultKeySource,
+    runAction,
+    busy,
+    error,
+    refreshAll
+  } = useAppShell();
 
   if (!composition) {
-    return (
-      <main>
-        <div className="page">
-          <div className="head">
-            <h1>Loading Agent Garrison…</h1>
-            <p className="ld">Reading the composition manifest.</p>
+    if (error) {
+      return (
+        <main>
+          <div className="page dash">
+            <section className={styles.bootstrapFailure} role="alert">
+              <span className={styles.eyebrow}>Command link unavailable</span>
+              <h1>Garrison could not read the active composition.</h1>
+              <p>{error}</p>
+              <button className="btn primary" onClick={() => void refreshAll()}>
+                Try the connection again
+              </button>
+            </section>
           </div>
-        </div>
-      </main>
-    );
+        </main>
+      );
+    }
+    return <PageSkeleton label="Loading Agent Garrison: reading the composition manifest" />;
   }
 
   const status = runnerState?.status ?? "idle";
@@ -44,48 +64,39 @@ export function GarrisonHome() {
         <b>Garrison</b>
       </div>
       <div className="page dash">
-        <div className="hero">
-          <div>
-            <div className="font-mono" style={{ color: "var(--mute)", letterSpacing: "0.16em", fontSize: 10.5, textTransform: "uppercase" }}>
+        <section className={styles.commandDeck}>
+          <div className={styles.commandCopy}>
+            <div className={styles.eyebrow}>
               {formatNowStamp()}
             </div>
-            <h1 className="font-display" style={{ fontWeight: 600, fontSize: 44, letterSpacing: "-0.014em", lineHeight: 1.02, margin: "6px 0 8px" }}>
+            <h1 className="font-display">
               {greeting}
             </h1>
-            <p className="font-display" style={{ fontSize: 17, lineHeight: 1.5, color: "var(--mute)", margin: 0, maxWidth: 540 }}>
+            <p>
               {operativeSummary(status, verifyTotal, verifyOk)}
             </p>
           </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-            <button className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
-              <span className="ic"><Play size={14} aria-hidden /></span>
-              {isRunning ? "Restart Operative" : "Run the Operative"}
-            </button>
-            {isRunning ? (
-              <button className="btn danger" onClick={() => void runAction("down")} disabled={Boolean(busy)}>
-                <span className="ic"><Square size={13} aria-hidden /></span>Stop
+          <div className={styles.commandControls}>
+            <div className={styles.commandReadout}>
+              <span>operative state</span>
+              <strong>{status}</strong>
+              <small>
+                {verifyTotal ? `${verifyOk}/${verifyTotal} verified` : "verification pending"}
+              </small>
+            </div>
+            <div className={styles.commandActions}>
+              <button data-testid="operative-run" className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
+                <span className="ic"><Play size={14} aria-hidden /></span>
+                {isRunning ? "Restart operative" : "Run operative"}
               </button>
-            ) : null}
-          </div>
-        </div>
-
-        <hr style={{ border: "none", borderTop: "1px solid var(--rule)", margin: "18px 0 22px" }} />
-
-        {vaultNeedsPassword ? (
-          <div className="banner warn">
-            <span className="glyph">!</span>
-            <div>
-              <h5>Vault is using the unsafe starter state</h5>
-              <p>
-                The vault opens without a password for bootstrap convenience. Set one before storing
-                API keys or other secrets.
-              </p>
-              <div className="actions">
-                <Link href="/vault">Set vault password →</Link>
-              </div>
+              {isRunning ? (
+                <button className="btn danger" onClick={() => void runAction("down")} disabled={Boolean(busy)}>
+                  <span className="ic"><Square size={13} aria-hidden /></span>Stop
+                </button>
+              ) : null}
             </div>
           </div>
-        ) : null}
+        </section>
 
         {orchestratorMissing ? (
           <div className="banner alarm">
@@ -103,44 +114,15 @@ export function GarrisonHome() {
           </div>
         ) : null}
 
-        <article
-          style={{
-            border: "1px solid var(--rule)",
-            background: "white"
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr auto",
-              alignItems: "center",
-              gap: 16,
-              padding: "18px 22px"
-            }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <h2
-                className="font-display"
-                style={{
-                  fontWeight: 600,
-                  fontSize: 22,
-                  letterSpacing: "-0.008em",
-                  margin: 0
-                }}
-              >
+        <article className={styles.operativeDossier}>
+          <div className={styles.dossierHead}>
+            <div>
+              <span className={styles.eyebrow}>Active composition</span>
+              <h2 className="font-display">
                 {composition.name}
               </h2>
-              <div
-                className="font-mono"
-                style={{
-                  fontSize: 11,
-                  color: "var(--mute)",
-                  marginTop: 4,
-                  letterSpacing: "0.04em",
-                  wordBreak: "break-all"
-                }}
-              >
-                composition · {composition.manifestPath}
+              <div className={styles.manifestPath}>
+                manifest · {composition.manifestPath}
               </div>
             </div>
             <span className={clsx("pill", isRunning && "live", statusToneClass(status))}>
@@ -176,19 +158,18 @@ export function GarrisonHome() {
           </div>
         </article>
 
-        <div className="dash-panels">
-          <Panel title="Quick actions" tight>
-            <Quick href="/compose" nm="Tune the composition" sm={`Add or change Fittings · ${faculties.length} stations`} />
+        <div className={styles.intelligenceGrid}>
+          <Panel title="Orders" tight feature>
+            <Quick href="/muster" nm="Muster the composition" sm={`Station or replace Fittings across ${faculties.length} Faculties`} />
             <Quick href="/quarters" nm="Quarters" sm="Skills, hooks, MCPs, settings" />
             <Quick
               href="/vault"
               nm="Vault"
-              sm={vaultNeedsPassword ? "Password not set" : "Secrets are encrypted"}
-              alarm={vaultNeedsPassword}
+              sm={`Secrets sealed by ${vaultKeySource || "the OS keychain"}`}
             />
           </Panel>
 
-          <Panel title="Composition · readiness">
+          <Panel title="Readiness">
             <ReadyRow label="Faculties stationed" value={`${stationed} / ${faculties.length}`} />
             <ReadyRow
               label="Capability wiring"
@@ -196,9 +177,9 @@ export function GarrisonHome() {
               tone={composition.capabilityIssues.length === 0 ? "ok" : "alarm"}
             />
             <ReadyRow
-              label="Vault password"
-              value={vaultNeedsPassword ? "not set" : "set"}
-              tone={vaultNeedsPassword ? "alarm" : "ok"}
+              label="Vault seal"
+              value={vaultUnlocked ? "ready" : "sealed"}
+              tone={vaultUnlocked ? "ok" : "default"}
             />
             <ReadyRow
               label="Verify hooks"
@@ -207,8 +188,10 @@ export function GarrisonHome() {
             />
           </Panel>
 
+          <BoardPanel />
+
           {composition.derivedTasks ? (
-            <Panel title={`Tasks · derived from ${prettySource(composition.derivedTasks.source)}`}>
+            <Panel title={`Tasks · ${prettySource(composition.derivedTasks.source)}`}>
               <div className="font-mono" style={{ color: "var(--mute)", fontSize: 11.5, marginBottom: 8 }}>
                 truth file · {composition.derivedTasks.truthFile}
               </div>
@@ -220,9 +203,13 @@ export function GarrisonHome() {
           ) : null}
         </div>
 
-        <hr style={{ border: "none", borderTop: "1px solid var(--rule)", margin: "26px 0 22px" }} />
-
-        <RunConsole />
+        <section className={styles.runtimeSection}>
+          <div className={styles.runtimeHeading}>
+            <span>Live field log</span>
+            <small>runner · local ring buffer</small>
+          </div>
+          <RunConsole />
+        </section>
       </div>
     </main>
   );
@@ -242,33 +229,21 @@ function Stat({
   mono?: boolean;
 }) {
   return (
-    <div style={{ padding: "14px 22px" }}>
-      <div
-        className="font-mono"
-        style={{
-          fontSize: 9.5,
-          letterSpacing: "0.16em",
-          textTransform: "uppercase",
-          color: "var(--mute)",
-          marginBottom: 4
-        }}
-      >
+    <div className={styles.stat}>
+      <div className={styles.statLabel}>
         {label}
       </div>
       <div
-        className={mono ? "font-mono" : "font-display"}
-        style={{
-          fontWeight: 600,
-          fontSize: mono ? 18 : 22,
-          color: tone === "ok" ? "var(--sage)" : "var(--ink)",
-          lineHeight: 1.1,
-          letterSpacing: mono ? 0 : "-0.005em"
-        }}
+        className={clsx(
+          styles.statValue,
+          mono ? "font-mono" : "font-display",
+          tone === "ok" && styles.statOk
+        )}
       >
         {value}
       </div>
       {sub ? (
-        <div className="font-mono" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
+        <div className={styles.statSub}>
           {sub}
         </div>
       ) : null}
@@ -276,34 +251,131 @@ function Stat({
   );
 }
 
+const ATTENTION_TITLES_SHOWN = 5;
+
+function BoardPanel() {
+  const [summary, setSummary] = useState<BoardSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/board/summary");
+        if (!res.ok) return;
+        const data = (await res.json()) as BoardSummary;
+        if (!cancelled) setSummary(data);
+      } catch {
+        // Keep the last known state; the panel stays quiet on a fetch failure.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // Loading and fetch-failure render the idle state — a dashboard panel
+  // should never show an error banner for a board that simply isn't there.
+  const active = summary && !summary.idle ? summary : null;
+  const shownTitles = active?.needsAttentionCards.slice(0, ATTENTION_TITLES_SHOWN) ?? [];
+  const extraTitles = (active?.needsAttentionCards.length ?? 0) - shownTitles.length;
+
+  return (
+    <Panel title="Board">
+      <div data-testid="board-panel">
+        {active ? (
+          <>
+            <ReadyRow
+              label="Running"
+              value={String(active.running)}
+              tone={active.running > 0 ? "ok" : "default"}
+            />
+            <ReadyRow
+              label="Needs attention"
+              value={String(active.needsAttention)}
+              tone={active.needsAttention > 0 ? "alarm" : "default"}
+            />
+            <ReadyRow label="Done" value={String(active.done)} />
+            {shownTitles.length > 0 ? (
+              <div style={{ marginTop: 10, borderTop: "1px solid var(--rule)", paddingTop: 8 }}>
+                {shownTitles.map((card) =>
+                  active.boardUrl ? (
+                    <a
+                      key={card.id}
+                      href={active.boardUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={card.reason ?? undefined}
+                      style={{
+                        display: "block",
+                        fontSize: 13,
+                        color: "var(--ink)",
+                        textDecoration: "underline",
+                        textDecorationColor: "var(--rule)",
+                        padding: "3px 0"
+                      }}
+                    >
+                      {card.title}
+                    </a>
+                  ) : (
+                    <span
+                      key={card.id}
+                      title={card.reason ?? undefined}
+                      style={{ display: "block", fontSize: 13, padding: "3px 0" }}
+                    >
+                      {card.title}
+                    </span>
+                  )
+                )}
+                {extraTitles > 0 ? (
+                  <div className="font-mono" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
+                    +{extraTitles} more
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div style={{ fontSize: 13, color: "var(--mute)" }}>
+            Board idle. Nothing running, nothing needing attention.
+            {summary && summary.done > 0 ? (
+              <div className="font-mono" style={{ fontSize: 10.5, marginTop: 6 }}>
+                {summary.done} done
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function Panel({
   title,
   children,
-  tight
+  tight,
+  feature
 }: {
   title: string;
   children: React.ReactNode;
   tight?: boolean;
+  feature?: boolean;
 }) {
   return (
-    <div style={{ border: "1px solid var(--rule)", background: "white", padding: tight ? 0 : "16px 18px" }}>
-      <h4
-        className="font-mono"
-        style={{
-          fontSize: 10,
-          letterSpacing: "0.16em",
-          textTransform: "uppercase",
-          color: "var(--brass)",
-          fontWeight: 500,
-          margin: tight ? 0 : "0 0 10px",
-          padding: tight ? "14px 18px 10px" : 0,
-          borderBottom: tight ? "1px solid var(--rule)" : undefined
-        }}
-      >
+    <section
+      className={clsx(
+        styles.panel,
+        tight && styles.panelTight,
+        feature && styles.panelFeature
+      )}
+    >
+      <h4 className={styles.panelTitle}>
         {title}
       </h4>
       {children}
-    </div>
+    </section>
   );
 }
 
@@ -321,24 +393,15 @@ function Quick({
   return (
     <Link
       href={href}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr auto",
-        alignItems: "center",
-        padding: "10px 18px",
-        borderBottom: "1px solid var(--rule)",
-        fontSize: 13,
-        textDecoration: "none",
-        color: "var(--ink)"
-      }}
+      className={styles.quick}
     >
       <div>
-        <div style={{ fontWeight: 500 }}>{nm}</div>
-        <div style={{ color: alarm ? "var(--alarm)" : "var(--mute)", fontSize: 12, marginTop: 2 }}>
+        <div className={styles.quickName}>{nm}</div>
+        <div className={clsx(styles.quickSummary, alarm && styles.quickAlarm)}>
           {sm}
         </div>
       </div>
-      <span className="font-mono" style={{ color: "var(--mute)" }}>
+      <span className={styles.quickArrow}>
         →
       </span>
     </Link>
@@ -355,28 +418,14 @@ function ReadyRow({
   tone?: "ok" | "alarm" | "default";
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 6,
-        fontSize: 13
-      }}
-    >
+    <div className={styles.readyRow}>
       <span>{label}</span>
       <span
-        className="font-mono"
-        style={{
-          fontWeight: 600,
-          fontSize: 12,
-          color:
-            tone === "ok"
-              ? "var(--sage)"
-              : tone === "alarm"
-              ? "var(--alarm)"
-              : "var(--ink)"
-        }}
+        className={clsx(
+          styles.readyValue,
+          tone === "ok" && styles.readyOk,
+          tone === "alarm" && styles.readyAlarm
+        )}
       >
         {value}
       </span>
@@ -399,14 +448,6 @@ function formatNowStamp(): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${days[d.getDay()]} · ${d.getDate()} ${months[d.getMonth()]} · ${hh}:${mm}`;
-}
-
-function shortTime(iso: string): string {
-  try {
-    return iso.split("T")[1]?.slice(0, 8).replace(/Z?$/, "Z") ?? iso;
-  } catch {
-    return iso;
-  }
 }
 
 function statusToneClass(status: RunnerState["status"] | string | undefined): string {
@@ -436,4 +477,11 @@ function operativeSummary(status: string, verifyTotal: number, verifyOk: number)
     return "Last run ended in failure. See the run console below for the runtime log.";
   }
   return "Operative is idle. Press Run to install Fittings, verify, and start it.";
+}
+function shortTime(iso: string): string {
+  try {
+    return iso.split("T")[1]?.slice(0, 8).replace(/Z?$/, "Z") ?? iso;
+  } catch {
+    return iso;
+  }
 }

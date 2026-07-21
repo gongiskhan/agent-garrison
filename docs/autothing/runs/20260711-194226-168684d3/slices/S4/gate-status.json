@@ -1,0 +1,64 @@
+{
+ "slice": "S4-gateway-primary",
+ "kind": "api",
+ "commits": [
+  "dba7857",
+  "e987666",
+  "fbf5d09",
+  "17d0aa8"
+ ],
+ "attempts": 2,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "full suite 1965/0; gateway suites incl. warm-seam + probe ratchet tests"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "semgrep+gitleaks clean"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec (isolated CODEX_HOME)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "2 confirmed on probe timeout path -> fixed e987666; re-verify raised the error/close race -> partially rebutted (single-settle semantics; spawn-failure has no child to reap), remediation text added fbf5d09"
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "fresh-context review-s4",
+   "actualModel": "claude-fable-5",
+   "detail": "3 minors: non-PTY slash-inject TypeError (D8 guard added 17d0aa8; full turn wiring deferred to S8 as the reviewer noted), engine casing (fixed), agent-sdk prompt read-timing divergence (recorded for S8)",
+   "evidence": {
+    "tsc": "0",
+    "vitest": "51/51 targeted"
+   }
+  },
+  "adversarialTest": {
+   "status": "skipped",
+   "reason": "kind-conditional (api; batched run-level pass)"
+  },
+  "design": {
+   "status": "skipped",
+   "reason": "kind-conditional (api)"
+  },
+  "walkthrough": {
+   "status": "skipped",
+   "reason": "kind-conditional (api; asciinema evidence)"
+  }
+ },
+ "evidence": {
+  "cast": "s4-gates.cast",
+  "castSha256": "9aeb10fef37d8b3934a0cb37720c4f5da7c130a27156134a726717159568ad3a",
+  "castBytes": 457
+ },
+ "sentinel": "PRIMARY-WIRED-OK",
+ "status": "passed"
+}

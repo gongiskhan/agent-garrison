@@ -1,0 +1,14 @@
+{
+  "slice": "S7", "title": "WS7 Improver Feedback Probe", "kind": "mixed", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T21:00:39Z", "evidence": "commits cb8ae27/a79d0dd/458bcc7/d9a112a — probe-question routed to local ollama target, policy recompiled (lead-built after impl-s7 stall)" },
+    "test": { "status": "passed", "at": "2026-07-12T21:00:39Z", "evidence": "probe suite 62/62 (improver-probe, probe-core, probe-feedback-rule, probe-hook, probe-question-policy, probe-local-target); typecheck 0; live local-model question generation; D26 record built" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T21:00:39Z", "evidence": "gitleaks clean; no new deps; the local-only fence proven (loopback host, never a remote endpoint)" },
+    "adversarialReview": { "status": "passed", "verdict": "self+tests", "at": "2026-07-12T21:00:39Z", "evidence": "the constraint (never Anthropic) is enforced by provider==ollama-local + the loopback fence test; probe suite is the functional review" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->rebutted", "actualModel": "gpt-5.5", "at": "2026-07-12T21:00:39Z", "evidence": "1 finding (localhost vs 127.0.0.1) rebutted as immaterial (both loopback; forcing the IP breaks 2 pre-existing tests) + STRENGTHENED the test to assert loopback-host AND never-remote — stronger than the ask; I1/I2/I3/I4 confirmed clean by codex" },
+    "adversarialTest": { "status": "passed", "at": "2026-07-12T21:00:39Z", "evidence": "live local-model probe question generated end-to-end (asciinema)" },
+    "design": { "status": "skipped", "reason": "no-ui (policy/routing config + probe)" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T21:00:39Z", "video": { "mode": "asciinema", "path": "docs/autothing/runs/20260712-173530-81e1c448/slices/S7/probe-revival.cast", "sha256": "5e899ecb71b956baa1bc1be2645f6bb2f3ce5a1eac3ab77542692cd26aef5342", "evidence": "6 FINDINGs + IMPROVER-PROBE OK: local target resolved, live local question generated, capture path, gating, 62/62 tests" } }
+  },
+  "sentinel": "IMPROVER-PROBE OK"
+}

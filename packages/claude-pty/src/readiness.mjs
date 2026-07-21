@@ -22,6 +22,10 @@ const AUTH_TRAP_PATTERNS = [
   /press enter to (login|continue|retry)/i,
   /invalid api key|authentication failed|please run .*login/i,
 ];
+const BYPASS_CONFIRM_PATTERN =
+  /accept all responsibility for actions taken while running in Bypass Permissions mode/i;
+const BYPASS_CONFIRM_TIMEOUT_MS = 5_000;
+const BYPASS_CONFIRM_ENTER_DELAY_MS = 150;
 
 // The TUI must be quiet for at least this long with a prompt visible before we
 // call it ready. Startup repaints are faster than this.
@@ -38,6 +42,14 @@ export class AuthTrapError extends Error {
   }
 }
 
+export class StartupExitError extends Error {
+  constructor(excerpt) {
+    super(`Claude exited during startup:\n${excerpt}`);
+    this.name = "StartupExitError";
+    this.excerpt = excerpt;
+  }
+}
+
 /**
  * Wait until the spawned session is ready for its first prompt. Resolves with
  * the JSONL transcript path if it was discovered (else null — the caller falls
@@ -45,7 +57,7 @@ export class AuthTrapError extends Error {
  * AuthTrapError if a login screen shows.
  *
  * @param {object} handle
- * @param {{projectDir: string, knownFiles: Set<string>, timeoutMs?: number, pollMs?: number}} opts
+ * @param {{projectDir: string, knownFiles: Set<string>, timeoutMs?: number, pollMs?: number, acceptBypassPermissions?: boolean}} opts
  * @returns {Promise<string|null>}
  */
 export async function waitForSessionReady(handle, opts) {
@@ -54,6 +66,7 @@ export async function waitForSessionReady(handle, opts) {
   const start = Date.now();
   let lastScreen = "";
   let stableSince = null;
+  let bypassConfirmStartedAt = null;
 
   return new Promise((resolve, reject) => {
     const check = setInterval(() => {
@@ -61,9 +74,54 @@ export async function waitForSessionReady(handle, opts) {
       const clean = stripAnsi(rows);
       const elapsed = Date.now() - start;
 
+      // `--dangerously-skip-permissions` presents a one-time confirmation in a
+      // fresh Claude config home. The user already selected bypassPermissions
+      // when spawning this session, so choose the explicit "Yes, I accept"
+      // option here. Without this, the readiness probe mistakes the stable
+      // confirmation dialog for the input box and the first routed command
+      // presses Enter on the default "No, exit", killing the operative.
+      if (BYPASS_CONFIRM_PATTERN.test(clean)) {
+        if (opts.acceptBypassPermissions !== true) {
+          clearInterval(check);
+          reject(new AuthTrapError(clean.slice(-300)));
+          return;
+        }
+        if (bypassConfirmStartedAt === null) {
+          bypassConfirmStartedAt = Date.now();
+          // The dialog opens on "1. No, exit"; move once to "2. Yes, I
+          // accept", then confirm in a separate PTY write so Enter is not
+          // swallowed as part of a paste.
+          handle.writeRaw("\x1b[B");
+          setTimeout(() => {
+            if (typeof handle.isAlive !== "function" || handle.isAlive()) {
+              handle.writeRaw("\r");
+            }
+          }, BYPASS_CONFIRM_ENTER_DELAY_MS);
+          lastScreen = "";
+          stableSince = null;
+        } else if (
+          Date.now() - bypassConfirmStartedAt >
+          Math.min(timeout, BYPASS_CONFIRM_TIMEOUT_MS)
+        ) {
+          clearInterval(check);
+          reject(new AuthTrapError(clean.slice(-300)));
+        }
+        return;
+      }
+
       if (AUTH_TRAP_PATTERNS.some((p) => p.test(clean))) {
         clearInterval(check);
         reject(new AuthTrapError(clean.slice(-300)));
+        return;
+      }
+
+      // The child died before ever becoming ready (e.g. `--resume <id>` for a
+      // session this machine doesn't have prints "No conversation found with
+      // session ID: …" and exits). Resolving on the timeout path here would
+      // hand the caller a corpse that reads as a ready session.
+      if (typeof handle.isAlive === "function" && !handle.isAlive()) {
+        clearInterval(check);
+        reject(new StartupExitError(clean.slice(-300)));
         return;
       }
 

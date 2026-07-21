@@ -1,0 +1,834 @@
+{
+  "activeProfile": "balanced",
+  "computeLadder": [
+    "cc-haiku-low",
+    "cc-sonnet-med",
+    "cc-opus-high"
+  ],
+  "continuations": [
+    {
+      "id": "cont-plan",
+      "then": [
+        {
+          "arg": "Implement this plan?",
+          "verb": "ask"
+        },
+        {
+          "arg": "cc-sonnet-med",
+          "verb": "route"
+        }
+      ],
+      "when": "plan"
+    },
+    {
+      "id": "cont-report",
+      "then": [
+        {
+          "verb": "store"
+        },
+        {
+          "arg": "Act on this report?",
+          "verb": "ask"
+        }
+      ],
+      "when": "report"
+    }
+  ],
+  "defaultWorkKind": null,
+  "discipline": {
+    "T0-trivial": {
+      "distribution": "none",
+      "evidence": "none",
+      "review": "none",
+      "testing": "none"
+    },
+    "T1-standard": {
+      "distribution": "none",
+      "evidence": "text",
+      "review": "self-review",
+      "testing": "tests"
+    },
+    "T2-deep": {
+      "distribution": "link",
+      "evidence": "video",
+      "review": "review-by:default",
+      "testing": "full-gates"
+    }
+  },
+  "exceptions": [
+    {
+      "id": "ex-build-schema",
+      "targetId": "cc-sonnet-med",
+      "when": "write or define a data model, schema, struct, type, or interface"
+    },
+    {
+      "id": "ex-build-helper",
+      "targetId": "cc-haiku-low",
+      "when": "a small, simple, quick, or trivial helper or utility function"
+    },
+    {
+      "id": "ex-build-core",
+      "targetId": "cc-opus-high",
+      "when": "implement a complex core algorithm or the main non-trivial logic"
+    },
+    {
+      "id": "ex-review",
+      "targetId": "cc-sonnet-med",
+      "when": "review code for correctness bugs or quality"
+    },
+    {
+      "id": "ex-fixes",
+      "targetId": "cc-sonnet-med",
+      "when": "implement, apply, or make code-review fixes"
+    },
+    {
+      "id": "ex-test",
+      "targetId": "cc-sonnet-med",
+      "when": "write tests or a test suite for code"
+    }
+  ],
+  "matrix": {
+    "adversarial-review": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "adversarial-test": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "code": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "claude-haiku-4-5",
+        "provider": "anthropic",
+        "rule": "cell:code/T0-trivial",
+        "runtime": "agent-sdk",
+        "targetId": "sdk-haiku-low",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "cell:code/T1-standard",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "cell:code/T2-deep",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      }
+    },
+    "codex-checkpoint": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "image": {
+      "T0-trivial": {
+        "effort": null,
+        "model": "gemini-2.5-flash",
+        "provider": null,
+        "rule": "row:image",
+        "runtime": "gemini",
+        "targetId": "sec-gemini",
+        "type": "secondary"
+      },
+      "T1-standard": {
+        "effort": null,
+        "model": "gemini-2.5-flash",
+        "provider": null,
+        "rule": "row:image",
+        "runtime": "gemini",
+        "targetId": "sec-gemini",
+        "type": "secondary"
+      },
+      "T2-deep": {
+        "effort": null,
+        "model": "gemini-2.5-flash",
+        "provider": null,
+        "rule": "row:image",
+        "runtime": "gemini",
+        "targetId": "sec-gemini",
+        "type": "secondary"
+      }
+    },
+    "implement": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "row:implement",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "row:implement",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "row:implement",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      }
+    },
+    "ops": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:ops",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:ops",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:ops",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "other": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "claude-haiku-4-5",
+        "provider": "anthropic",
+        "rule": "cell:other/T0-trivial",
+        "runtime": "agent-sdk",
+        "targetId": "sdk-haiku-low",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:other",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:other",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "plan": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "row:plan",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "row:plan",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "row:plan",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      }
+    },
+    "probe-question": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "qwen2.5:3b",
+        "provider": "ollama-local",
+        "rule": "row:probe-question",
+        "runtime": "agent-sdk",
+        "targetId": "sdk-ollama-probe",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "qwen2.5:3b",
+        "provider": "ollama-local",
+        "rule": "row:probe-question",
+        "runtime": "agent-sdk",
+        "targetId": "sdk-ollama-probe",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "qwen2.5:3b",
+        "provider": "ollama-local",
+        "rule": "row:probe-question",
+        "runtime": "agent-sdk",
+        "targetId": "sdk-ollama-probe",
+        "type": "runtime-target"
+      }
+    },
+    "report": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "research": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "claude-haiku-4-5",
+        "provider": "anthropic",
+        "rule": "cell:research/T0-trivial",
+        "runtime": "agent-sdk",
+        "targetId": "sdk-haiku-low",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:research",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "opus",
+        "provider": "anthropic-plan",
+        "rule": "cell:research/T2-deep",
+        "runtime": "claude-code",
+        "targetId": "cc-opus-high",
+        "type": "runtime-target"
+      }
+    },
+    "review": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:review",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:review",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:review",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "test": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:test",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:test",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:test",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "ux-qa": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "validate": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "video": {
+      "T0-trivial": {
+        "effort": null,
+        "model": "gemini-2.5-flash",
+        "provider": null,
+        "rule": "row:video",
+        "runtime": "gemini",
+        "targetId": "sec-gemini",
+        "type": "secondary"
+      },
+      "T1-standard": {
+        "effort": null,
+        "model": "gemini-2.5-flash",
+        "provider": null,
+        "rule": "row:video",
+        "runtime": "gemini",
+        "targetId": "sec-gemini",
+        "type": "secondary"
+      },
+      "T2-deep": {
+        "effort": null,
+        "model": "gemini-2.5-flash",
+        "provider": null,
+        "rule": "row:video",
+        "runtime": "gemini",
+        "targetId": "sec-gemini",
+        "type": "secondary"
+      }
+    },
+    "walkthrough": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "default",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    },
+    "writing": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:writing",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:writing",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "low",
+        "model": "sonnet",
+        "provider": "anthropic-plan",
+        "rule": "row:writing",
+        "runtime": "claude-code",
+        "targetId": "cc-sonnet-med",
+        "type": "runtime-target"
+      }
+    }
+  },
+  "phasePlans": {},
+  "phaseSkills": {
+    "bindings": {},
+    "overrides": {}
+  },
+  "phases": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report"
+  ],
+  "policyVersion": 2,
+  "preRoute": "on",
+  "primaryRuntime": "claude-code-runtime",
+  "projects": {},
+  "providers": [
+    {
+      "baseUrl": null,
+      "id": "anthropic-plan",
+      "kind": "anthropic-plan",
+      "notes": "Max OAuth, no base URL, no key"
+    },
+    {
+      "baseUrl": null,
+      "id": "anthropic",
+      "kind": "anthropic-plan",
+      "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
+    },
+    {
+      "baseUrl": "http://localhost:11434",
+      "dummyToken": "ollama",
+      "id": "ollama-local",
+      "kind": "local",
+      "notes": "local Ollama Anthropic-compatible endpoint"
+    },
+    {
+      "baseUrl": "https://api.deepseek.com/anthropic",
+      "id": "deepseek",
+      "kind": "cloud-oss",
+      "vaultKey": "DEEPSEEK_API_KEY"
+    },
+    {
+      "baseUrl": "https://api.z.ai/api/anthropic",
+      "id": "zai-glm",
+      "kind": "cloud-oss",
+      "vaultKey": "ZAI_API_KEY"
+    }
+  ],
+  "targets": {
+    "cc-haiku-low": {
+      "effort": "low",
+      "id": "cc-haiku-low",
+      "model": "haiku",
+      "provider": "anthropic-plan",
+      "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "cc-ollama-deepseek": {
+      "effort": "medium",
+      "id": "cc-ollama-deepseek",
+      "model": "deepseek-coder-v2",
+      "provider": "ollama-local",
+      "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "cc-ollama-qwen": {
+      "effort": "medium",
+      "id": "cc-ollama-qwen",
+      "model": "qwen2.5-coder",
+      "provider": "ollama-local",
+      "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "cc-opus-high": {
+      "_effortWas": "high",
+      "effort": "low",
+      "id": "cc-opus-high",
+      "model": "opus",
+      "provider": "anthropic-plan",
+      "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "cc-sonnet-med": {
+      "_effortWas": "medium",
+      "effort": "low",
+      "id": "cc-sonnet-med",
+      "model": "sonnet",
+      "provider": "anthropic-plan",
+      "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "classifier": {
+      "effort": "low",
+      "id": "classifier",
+      "model": "haiku",
+      "pinned": true,
+      "provider": "anthropic-plan",
+      "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "sdk-haiku-low": {
+      "authMode": "api-key",
+      "effort": "low",
+      "id": "sdk-haiku-low",
+      "model": "claude-haiku-4-5",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "sdk-ollama-build": {
+      "id": "sdk-ollama-build",
+      "leanPrompt": "You output JavaScript source code ONLY, as a single fenced code block. Example request: \"a function add that sums two numbers\". Example reply (this exact shape, nothing else):\n```js\nexport function add(a, b) {\n  return a + b;\n}\n```\nRules: reply with ONLY one ```js fenced block containing the implementation. Never output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a tool. No prose before or after. No imports unless explicitly requested.",
+      "maxTurns": 2,
+      "model": "qwen2.5-coder:7b",
+      "promptMode": "lean",
+      "provider": "ollama-local",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "sdk-ollama-chat": {
+      "id": "sdk-ollama-chat",
+      "model": "qwen3:0.6b",
+      "promptMode": "lean",
+      "provider": "ollama-local",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "sdk-ollama-probe": {
+      "effort": "low",
+      "id": "sdk-ollama-probe",
+      "model": "qwen2.5:3b",
+      "promptMode": "lean",
+      "provider": "ollama-local",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "sec-codex": {
+      "id": "sec-codex",
+      "model": "gpt-5-codex",
+      "runtime": "codex",
+      "type": "secondary"
+    },
+    "sec-gemini": {
+      "id": "sec-gemini",
+      "model": "gemini-2.5-flash",
+      "runtime": "gemini",
+      "type": "secondary"
+    }
+  },
+  "taskTypes": [
+    "code",
+    "other",
+    "research",
+    "plan",
+    "implement",
+    "review",
+    "test",
+    "image",
+    "video",
+    "writing",
+    "ops",
+    "adversarial-review",
+    "adversarial-test",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report",
+    "probe-question"
+  ],
+  "tierDefinitions": {
+    "T0-trivial": "A one-shot answer or a single mechanical edit: a rename, a typo, a fact lookup, a one-line config tweak. No multi-file reasoning, no design choices.",
+    "T1-standard": "Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused refactor, a normal review. Some reasoning across a few files; outcome is checkable by a test.",
+    "T2-deep": "High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear cause, a security-sensitive change, a multi-subsystem migration. Warrants the strongest model, full gates, and recorded evidence."
+  },
+  "tiers": [
+    "T0-trivial",
+    "T1-standard",
+    "T2-deep"
+  ],
+  "uxQa": {
+    "severityThreshold": "major"
+  },
+  "workKinds": {}
+}

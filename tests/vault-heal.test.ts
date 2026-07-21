@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +34,7 @@ import type { LibraryEntry } from "@/lib/types";
 // GARRISON_HOME tmp dir, fixture fittings inside the repo tree (start paths
 // must live under ROOT_DIR), fixture start scripts honour GARRISON_HOME. The
 // real deepgram-voice is never spawned (it writes to the real ~/.garrison and
-// binds 7085); the fixture proves env delivery by writing a probe env var to
+// binds 27085); the fixture proves env delivery by writing a probe env var to
 // a capture file.
 
 const PROBE_KEY = "HEAL_PROBE_KEY";
@@ -58,7 +66,7 @@ function fixtureStartMjs(fittingId: string, trapSigterm = false): string {
   process.exit(0);
 });`;
   return `
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const FITTING_ID = ${JSON.stringify(fittingId)};
@@ -72,7 +80,12 @@ const uiDir = path.join(home, "ui-fittings");
 mkdirSync(uiDir, { recursive: true });
 writeFileSync(
   path.join(uiDir, FITTING_ID + ".env-capture.json"),
-  JSON.stringify({ fittingId: FITTING_ID, pid: process.pid, probe: process.env.${PROBE_KEY} ?? null })
+  JSON.stringify({
+    fittingId: FITTING_ID,
+    pid: process.pid,
+    probe: process.env.${PROBE_KEY} ?? null,
+    internalTokenReady: existsSync(path.join(home, "internal-token"))
+  })
 );
 const statusFile = path.join(uiDir, FITTING_ID + ".json");
 writeFileSync(
@@ -251,6 +264,19 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
     expect(record.pid).toBe(pid);
     expect(record.secretsDelivered).toBe(false);
     expect(typeof record.startedAt).toBe("string");
+  });
+
+  it("mints the internal capability token before the child starts", async () => {
+    const tokenFile = path.join(sandbox, "internal-token");
+    expect(existsSync(tokenFile)).toBe(false);
+
+    await startRunning(plainEntry, {});
+    await waitFor(() => existsSync(captureFile(PLAIN_ID)), "plain fitting startup capture");
+
+    const capture = readJson<{ internalTokenReady: boolean }>(captureFile(PLAIN_ID));
+    expect(capture.internalTokenReady).toBe(true);
+    expect(readFileSync(tokenFile, "utf8").trim()).toMatch(/^[0-9a-f]{64}$/);
+    expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
   });
 
   it("writes secretsDelivered true when the env is non-empty, or when vault is not consumed", async () => {
@@ -449,8 +475,14 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
         expect(result.error).toMatch(/survived SIGTERM and SIGKILL/);
         expect(result.healed).toBeUndefined();
         expect(result.pid).toBeUndefined();
-        // No new child, and no record claiming the secrets arrived.
-        expect(existsSync(recordFile(VAULT_ID))).toBe(false);
+        // No new child, and the tracking files are KEPT: the process is still
+        // alive, and dropping them would convert it into an untracked orphan.
+        // The surviving record still says secretsDelivered:false, so it can
+        // never mask a future keyless run.
+        expect(existsSync(statusFile(VAULT_ID))).toBe(true);
+        expect(existsSync(recordFile(VAULT_ID))).toBe(true);
+        expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).secretsDelivered).toBe(false);
+        expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).pid).toBe(oldPid);
         expect(
           killSpy.mock.calls.filter(([pid, signal]) => pid === oldPid && signal === "SIGKILL")
         ).toHaveLength(1);

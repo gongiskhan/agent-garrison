@@ -3,7 +3,7 @@
 # Usage: codex-review-batch.sh <round> <slice> <base> <commit> "<acceptance>" [<slice> <base> <commit> "<acceptance>" ...]
 # Reviews each slice's own commit diff (base..commit) PLUS any uncommitted changes.
 set -uo pipefail
-cd /Users/ggomes/dev/garrison
+cd "$(dirname "$0")/../.."
 RUNDIR="docs/autothing/runs/20260622-143110-e93ec4b5"
 ASSETS="$HOME/.claude/skills/autothing/assets"
 ROUND="$1"; shift

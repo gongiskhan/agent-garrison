@@ -50,10 +50,18 @@ export function parseTaskSpec(raw) {
 }
 
 // Validate the bridge's RETURN value (short structured summary + artifact paths).
+// D19 (assumption 2): an EMPTY delegation is a FAILURE, not a success. The old
+// `summarize("")` fabricated the placeholder "(no output)" — a non-empty string
+// that slipped past a bare `.length` check and made a no-op delegation read as a
+// valid result. Both the empty/whitespace summary AND that historical placeholder
+// are now rejected here (defense in depth against a hand-built result), and
+// `delegate()` throws an explicit "empty-output" error before it ever gets here.
+export const EMPTY_OUTPUT_PLACEHOLDER = "(no output)";
 export function validateDelegationResult(result) {
   const errors = [];
   if (!result || typeof result !== "object") return ["result is not an object"];
-  if (typeof result.summary !== "string" || !result.summary.length) errors.push("missing `summary` string");
+  if (typeof result.summary !== "string" || !result.summary.trim()) errors.push("empty delegation output (no `summary`) — a delegation that produced nothing is a failure, not a valid result");
+  else if (result.summary.trim() === EMPTY_OUTPUT_PLACEHOLDER) errors.push(`delegation summary is the empty-output placeholder "${EMPTY_OUTPUT_PLACEHOLDER}" — the secondary returned nothing`);
   if (!Array.isArray(result.artifacts)) errors.push("`artifacts` must be an array of paths");
   return errors;
 }
@@ -112,10 +120,26 @@ export async function delegate(spec, deps, opts = {}) {
   }
 
   const fullOutput = resp?.text ?? "";
+  // D19 (assumption 2): empty/whitespace output is a FAILURE — the secondary ran
+  // but produced nothing. Fail loudly HERE (before writing an empty artifact or
+  // logging a fake "success") so a no-op delegation can never read as a valid
+  // result. Distinguishes "empty output" from a genuine result the same way the
+  // other guards distinguish their failure modes.
+  if (!String(fullOutput).trim()) {
+    throw new DelegationError(
+      "empty-output",
+      `delegation to ${adapter.id} produced no output — the secondary returned nothing, which is a failure (not a valid result)`,
+      { runtime: adapter.id, model: spec.model ?? null }
+    );
+  }
   const artifactPath = await writeArtifact("delegations", `${adapter.id}-${(now ? now() : "0").replace(/[:.]/g, "-")}.md`, fullOutput);
   const result = {
     summary: summarize(fullOutput),
-    artifacts: [artifactPath, ...(resp?.artifacts ?? [])]
+    artifacts: [artifactPath, ...(resp?.artifacts ?? [])],
+    // Preserve cumulative token usage when the adapter reports it (additive
+    // telemetry, S1a). Unknown fields are otherwise dropped here because the
+    // result is rebuilt from scratch; validateDelegationResult ignores extras.
+    ...(typeof resp?.usedTokens === "number" ? { usedTokens: resp.usedTokens } : {})
   };
   const resErrors = validateDelegationResult(result);
   if (resErrors.length) throw new DelegationError("invalid-result", resErrors.join("; "), { resErrors });
@@ -124,11 +148,24 @@ export async function delegate(spec, deps, opts = {}) {
     at: now ? now() : null,
     kind: "delegation",
     runtime: adapter.id,
-    task: spec.task.slice(0, 120),
+    // Redact secret/path-shaped content from the task before it is persisted to
+    // the decisions log (codex checkpoint finding): a task string can carry a
+    // provider key or an absolute home path. Strip those, then cap length.
+    task: redactForLog(spec.task),
     model: spec.model ?? null,
     artifacts: result.artifacts
   });
   return result;
+}
+
+// Redact secrets/paths from a free-text task before it lands in the durable
+// decisions log. Not a digest (the task summary stays legible), just a scrub.
+function redactForLog(task) {
+  return String(task ?? "")
+    .replace(/(\/home\/[^\s"']+|\/Users\/[^\s"']+|~\/[^\s"']+)/g, "[path]")
+    .replace(/\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/\b(sk|dg|pk)-[A-Za-z0-9._\-]{6,}/g, "[redacted]")
+    .slice(0, 120);
 }
 
 function renderTaskPrompt(spec) {
@@ -140,7 +177,11 @@ function renderTaskPrompt(spec) {
   return parts.join("\n");
 }
 
+// D19: NEVER fabricate a placeholder for empty input — an empty summary must stay
+// empty so validateDelegationResult can reject it. `delegate()` already fails loudly
+// on empty output before calling this, so this only ever shapes real content.
 function summarize(text, max = 600) {
   const trimmed = String(text).trim();
-  return trimmed.length > max ? trimmed.slice(0, max) + "…" : trimmed || "(no output)";
+  if (!trimmed) return "";
+  return trimmed.length > max ? trimmed.slice(0, max) + "…" : trimmed;
 }

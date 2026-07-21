@@ -1,0 +1,7 @@
+[Unit]
+Description=Agent Garrison restic retention prune
+
+[Service]
+Type=oneshot
+# __PRUNE_SCRIPT__ is substituted with the installed prune.sh path by setup.sh.
+ExecStart=/usr/bin/env bash __PRUNE_SCRIPT__

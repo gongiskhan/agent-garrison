@@ -73,7 +73,7 @@ export function parsePlan(text) {
 
 // Default invoke: route the planning prompt through the backend Model Router.
 async function defaultInvoke(prompt, { fetchImpl = globalThis.fetch } = {}) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
   const res = await fetchImpl(`${base}/api/automations/plan`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },

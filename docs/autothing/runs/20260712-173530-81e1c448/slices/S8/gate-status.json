@@ -1,0 +1,14 @@
+{
+  "slice": "S8", "title": "WS8 Improver learns from shadcn/improve", "kind": "mixed", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T21:22:19Z", "evidence": "4 patterns committed (9ce7df5) + hardening (907aaf3 + symlink fix); lead-built after impl-s8 stall" },
+    "test": { "status": "passed", "at": "2026-07-12T21:22:19Z", "evidence": "improver-shadcn-patterns 8/8 + all existing improver tests green; full suite 2142; UI rebuilt; typecheck 0" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T21:22:19Z", "evidence": "gitleaks clean; semgrep 0; no new deps; vet/reconcile read-only on cited files; citations realpath-contained" },
+    "adversarialReview": { "status": "passed", "verdict": "self+tests", "at": "2026-07-12T21:22:19Z", "evidence": "boundary (never edits artifacts) enforced by design + tests; live 4-pattern demo" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->fixed->resolved", "actualModel": "gpt-5.5", "at": "2026-07-12T21:22:19Z", "evidence": "2 findings (I2 corrupt-ledger silent-accept, I4 path traversal) → 907aaf3; I4 residual symlink → realpath fix → recheck resolved; I1/I3/I5 clean" },
+    "adversarialTest": { "status": "passed", "at": "2026-07-12T21:22:19Z", "evidence": "live demo: planted false-positive dropped, two-run rejection suppression, reconcile counts (asciinema)" },
+    "design": { "status": "passed", "at": "2026-07-12T21:22:19Z", "evidence": "evidence citations + confidence + reject-reason prompt on the existing ProposalCard; no emoji" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T21:22:19Z", "video": { "mode": "asciinema", "path": "docs/autothing/runs/20260712-173530-81e1c448/slices/S8/patterns-demo.cast", "sha256": "147533b97f06b35fd3c78b1c5d917a949fc2a40ae12fce579578f05f8311222a", "evidence": "4 FINDINGs: evidence+confidence, vet drops planted FP, rejection suppressed across 2 runs, reconcile verified/refreshed/retired" } }
+  },
+  "sentinel": "MARATHON-WS8 OK"
+}

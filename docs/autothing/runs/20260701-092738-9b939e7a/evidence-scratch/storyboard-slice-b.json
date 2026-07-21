@@ -1,0 +1,31 @@
+{
+  "title": "Improver review UI: reapply-failed status + Ecosystem tab",
+  "project": "agent-garrison",
+  "folder": "improver",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "segments": [
+    { "type": "title", "id": "intro", "text": "Improver review UI: reapply-failed + Ecosystem tab", "subtitle": "agent-garrison · improver Fitting", "duration": 2.6, "reflectFlag": true },
+    { "type": "browser", "id": "flow", "baseURL": "http://127.0.0.1:7198", "startPath": "/",
+      "beats": [
+        { "id": "queue-overview", "caption": "The review queue: one pending, one applied, one stuck after an ecosystem update",
+          "expectedScreen": "queue tab listing three proposal cards with PENDING, APPLIED, and REAPPLY-FAILED badges",
+          "assert": { "selector": "testid:status-stuck-1", "text": "REAPPLY-FAILED", "highlight": true }, "hold": 4000 },
+        { "id": "failure-reason", "caption": "The stuck entry shows WHY it could not be restored",
+          "expectedScreen": "the reapply-failed card showing the reapplyFailureReason text about a conflict",
+          "assert": { "selector": "testid:reapply-failure-stuck-1", "highlight": true }, "hold": 4000 },
+        { "id": "reject-stuck", "caption": "Approve stays disabled, but Reject is enabled - dismiss it",
+          "expectedScreen": "the stuck-1 card after clicking Reject, now showing a REJECTED badge",
+          "actions": [ { "type": "click", "selector": "testid:reject-stuck-1" } ],
+          "assert": { "selector": "testid:status-stuck-1", "text": "REJECTED", "highlight": true }, "hold": 4000 },
+        { "id": "autonomy-untouched", "caption": "Dismissing it did NOT change the rule's autonomy - still auto, streak 3/5, rejected 0",
+          "expectedScreen": "autonomy tab showing memory-consolidation as AUTO with rejected 0 and streak 3/5",
+          "actions": [ { "type": "click", "selector": "testid:tab-autonomy" } ],
+          "assert": { "selector": "testid:autonomy-memory-consolidation", "highlight": true }, "hold": 4500 },
+        { "id": "ecosystem-tab", "caption": "The Ecosystem tab: last ecosystem-update + reapply-sweep run status",
+          "expectedScreen": "ecosystem tab showing an Ecosystem update card (skipped) and a Reapply sweep card (1 failed)",
+          "actions": [ { "type": "click", "selector": "testid:tab-ecosystem" } ],
+          "assert": { "selector": "testid:reapply-sweep-card", "highlight": true }, "hold": 4500 }
+      ] },
+    { "type": "title", "id": "outro", "text": "Observability + a safe dismiss path for stuck reapply failures", "subtitle": "docs/autothing/runs/20260701-092738-9b939e7a", "duration": 2.2 }
+  ]
+}

@@ -1,0 +1,6 @@
+[
+ {"beat":"ac1","criterionId":"S3-AC1","timestamp":1.43,"assert":".menu visible+highlighted","result":"pass"},
+ {"beat":"ac2","criterionId":"S3-AC2","timestamp":7.06,"assert":".sessions-panel visible, grouped by project root paths","result":"pass"},
+ {"beat":"ac3","criterionId":"S3-AC3","timestamp":9.65,"assert":".ports-table visible, labels fitting/process/unknown only","result":"pass"},
+ {"beat":"ac4","criterionId":"S3-AC4","timestamp":17.25,"assert":"GARRISON UNITS section visible, entities carry projectPath","result":"pass"}
+]

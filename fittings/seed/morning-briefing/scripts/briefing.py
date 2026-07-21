@@ -70,7 +70,7 @@ def gateway_url() -> str:
     if explicit:
         return explicit.rstrip("/")
     host = os.environ.get("GARRISON_GATEWAY_HOST", "127.0.0.1")
-    port = os.environ.get("GARRISON_GATEWAY_PORT", "4777")
+    port = os.environ.get("GARRISON_GATEWAY_PORT", "24777")
     return f"http://{host}:{port}"
 
 

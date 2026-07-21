@@ -11,14 +11,14 @@ It is a first-class, selectable peer of the other Runtime-Faculty fittings
 - **Provides** the `runtime` capability named `claude-code`.
 - Is the default value for a composition's **primary runtime** (the runtime that
   runs the orchestrator). See `GlobalConfig.primary_runtime`.
-- Registers as a **model-router `runtime: claude-code` target**, so the
+- Registers as a **orchestrator `runtime: claude-code` target**, so the
   orchestrator can route individual turns to it at a chosen model + effort.
 
 ## Provider overrides
 
 Pick a `provider` to run the **same** Claude Code engine against a different
 inference backend. Provider/base-url/vault-key resolution reuses the
-model-router `PROVIDERS` registry (`fittings/seed/model-router/lib/stage-b.mjs`):
+orchestrator `PROVIDERS` registry (`fittings/seed/orchestrator/lib/stage-b.mjs`):
 
 | provider        | base URL                          | auth |
 |-----------------|-----------------------------------|------|

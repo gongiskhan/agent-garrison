@@ -1,5 +1,5 @@
 // Voice client for the rich chat — talks ONLY to same-origin proxy routes that
-// the host server exposes, never to the deepgram-voice fitting (7085) directly
+// the host server exposes, never to the deepgram-voice fitting (27085) directly
 // (that would be cross-origin / CORS). The dev-env server adds:
 //   GET  <base>/voice/health  -> { available, url?, keyConfigured? }
 //   POST <base>/voice/tts     -> { text, format? } in, audio bytes out

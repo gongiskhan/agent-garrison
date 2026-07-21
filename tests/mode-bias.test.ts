@@ -1,11 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 // @ts-ignore — pure .mjs core typed by routing-core.d.mts
-import { biasRole, modeBiasFor } from "../fittings/seed/model-router/lib/routing-core.mjs";
-
-const ROOT = join(__dirname, "..");
-const MODES = JSON.parse(readFileSync(join(ROOT, "fittings/seed/modes/modes.json"), "utf8"));
+import { biasRole, modeBiasFor } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+// The multi-face `modes` seed fitting was retired (S3f2b); its routing-bias config
+// lives on as a synthetic fixture so the still-live biasRole/modeBiasFor stay covered.
+import { MODES_FIXTURE as MODES } from "./helpers/modes-fixture";
 
 describe("mode bias (s1e)", () => {
   it("biasRole: Joe floors at expert, James floors at standard, Gary leans standard->fast (keeps expert)", () => {

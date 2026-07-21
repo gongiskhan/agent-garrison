@@ -37,16 +37,19 @@ Open Garrison's **Vault** tab and add:
 - `SLACK_BOT_TOKEN` → the `xoxb-...` token from step 2.
 - `SLACK_SIGNING_SECRET` → the secret from step 3.
 
-The Fitting's setup hook checks both are present before verify.
+The Fitting's setup hook reports a readiness warning while either value is
+missing, but it does not block the rest of the composition (for example, a Web
+channel remains usable). Slack stays inactive until both values exist. Starting
+the Slack adapter without them fails immediately with a clear error.
 
 ## 5. Expose the adapter to Slack
 
 Slack's Events API needs to reach the local adapter (default port
-9512) over HTTPS. Easiest options:
+29512) over HTTPS. Easiest options:
 
 - **Cloudflare Tunnel** (recommended for v1):
   ```sh
-  cloudflared tunnel --url http://127.0.0.1:9512
+  cloudflared tunnel --url http://127.0.0.1:29512
   ```
   Cloudflare prints a public `https://<random>.trycloudflare.com`
   URL.
@@ -86,7 +89,7 @@ Or DM the bot directly. The reply lands threaded under your message.
 - **401 bad signature** — system clock drift. The adapter rejects
   requests older than 5 minutes.
 - **No reply** — check the gateway is up (`curl
-  http://127.0.0.1:4777/health` returns `ok`).
+  http://127.0.0.1:24777/health` returns `ok`).
 - **Reply takes minutes** — long tool-using turns can; the gateway
   serializes turns through its `inflight` chain, so concurrent
   Slack messages will queue.

@@ -1,1 +1,0 @@
-{"verdict":"approve","summary":"Re-review found the board-level lost-update closed: `handlePatchList` now routes through `saveBoardCAS`, which performs load/rev-check/mutate/save inside `withBoardLock`, and the shared `withFileLock` implementation still serializes same-process and cross-process contenders while releasing the lock on all exits.","findings":[]}

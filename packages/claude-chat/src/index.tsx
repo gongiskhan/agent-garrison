@@ -1,8 +1,10 @@
-export { ClaudeChat, buildSendMeta } from "./ClaudeChat";
-export type { ClaudeChatProps, ChatFeatures, ChatSendMeta } from "./ClaudeChat";
+export { ClaudeChat, buildSendMeta, QuestionBlock } from "./ClaudeChat";
+export type { ClaudeChatProps, ChatFeatures, ChatSendMeta, ComposerAdornmentApi } from "./ClaudeChat";
 export { createHttpTransport } from "./transport";
 export { createVoiceClient } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";
+export { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
+export type { SanitizedReply, AssistantRouteMeta } from "./sanitize";
 export {
   getChatMode,
   setChatMode,
@@ -16,4 +18,8 @@ export type {
   ClaudeStatus,
   PermissionMode,
   SlashCommand,
+  ToolQuestion,
+  ToolQuestionOption,
+  QuestionAnswer,
+  RouteAttribution,
 } from "./transport";

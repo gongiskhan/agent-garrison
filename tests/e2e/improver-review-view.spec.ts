@@ -109,7 +109,14 @@ test("Improver review queue: run-now → approve (evidence) → reject → auton
   await expect(page.getByTestId("status-memory-consolidation-2")).toHaveText("applied", { timeout: 5000 });
   await expect(page.getByTestId("evidence-memory-consolidation-2")).toBeVisible();
 
-  // reject the pre-seeded proposal → rejected
+  // Reject records a reason in the suppression ledger. Playwright dismisses
+  // unhandled prompts, which intentionally cancels the action, so exercise the
+  // confirmation contract explicitly.
+  page.once("dialog", async (dialog) => {
+    expect(dialog.type()).toBe("prompt");
+    expect(dialog.message()).toMatch(/reason for rejecting/i);
+    await dialog.accept("Already covered by the existing editing workflow.");
+  });
   await page.getByTestId("reject-skill-suggest-1").click();
   await expect(page.getByTestId("status-skill-suggest-1")).toHaveText("rejected", { timeout: 5000 });
 

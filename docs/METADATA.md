@@ -36,11 +36,13 @@ x-garrison:
 ```
 
 > **Note (post-Quarters-pivot):** this example uses the legacy `faculty:
-> classifier` and `provides: agent-skill`, both retired in the 2026-06-07 pivot
-> but still accepted as deprecation aliases (with a `console.warn`). A skill like
-> a tier classifier is now a Quarters **platform primitive** (a `type: skill`
-> package compiled by APM), not a capability provider. See the live faculty/kind
-> lists below.
+> classifier` and `provides: agent-skill`, both retired in the 2026-06-07 pivot.
+> Neither is aliased: `classifier` is not in `metadata.ts` `FACULTY_ALIASES` and
+> `agent-skill` is not a live capability kind, so this manifest no longer parses
+> (it is kept as a historical illustration of the block's shape only). A skill
+> like a tier classifier is now a Quarters **platform primitive** (a
+> `type: skill` package compiled by APM), not a capability provider. See the
+> live faculty/kind lists below.
 
 ## Schema
 
@@ -48,7 +50,7 @@ Top-level `x-garrison` fields:
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `faculty` | enum | yes | One of the 14 explicit Faculty ids. Tasks is derived and must not be declared by a Fitting. |
+| `faculty` | enum | yes | One of the 17 explicit Faculty ids (see the list below). Tasks is derived and must not be declared by a Fitting. |
 | `cardinality_hint` | enum | yes | `single` or `multi`. Validated against the Faculty definition. |
 | `component_shape` | enum | yes | One of Garrison's closed Fitting shapes. (Field name retained from earlier naming for back-compat.) |
 | `platforms` | string array | yes | `all`, `claude-code`, `codex`, or future platform ids. v1 accepts only `all` and `claude-code` at compose time. |
@@ -61,6 +63,13 @@ Top-level `x-garrison` fields:
 | `verify` | object | yes | Runtime verification command and expected output. |
 | `ui` | object | no | Optional trusted React extension metadata. |
 | `tasks` | object | no | Optional declaration that this Fitting backs the derived Tasks surface. |
+| `own_port` | boolean | no | The Fitting serves its own UI/backend on its own HTTP port and registers at runtime via `~/.garrison/ui-fittings/<id>.json`. |
+| `default_port` | integer | no | Informational default port for an own-port Fitting; the runtime status file is authoritative. |
+| `lifecycle` | enum | no | Own-port Fittings only: `operative-bound` (default; stopped with the operative at `down`, auto-started at `up` only when eager-toggled — otherwise on demand from Views) or `detached` (user-managed). |
+| `connector` | object | no | Connector Fittings only (`kind: connector`): auth method, action catalog, optional triggers. See the connector schema below. |
+| `secret_scope` | string array | no | The named Vault secrets this Fitting may read; the Vault delivers only these to the Fitting's process. |
+| `provider_mechanism` | object | no | Runtime Fittings only (GARRISON-RUNTIMES-V1 D3): HOW a provider override (base URL / auth credential / model) applies to this engine. Discriminated on `type`: `env` (any of `base_url_env`, `auth_env`, `model_arg`, `model_env` — at least one) or `config-file` (`config_file` + `config_format` [`json`\|`toml`] required; optional `config_key`, `model_key`). Strict: unknown keys fail the parse. A runtime without one is still a routing target, just without provider overrides. |
+| `quarters_descriptor` | object | no | Runtime Fittings only (D5): which Quarters surface configures this engine. `tier: deep` + `id` maps to a REGISTERED implementation (`claude-code` → the existing full surface, untouched). `tier: generic` renders the descriptor-driven tier and requires `home_dir`; optional `settings_files[{path,format,label?}]`, `context_file`, `mcp_config{path,format,key?}`, `log_paths[]`, `categories[]`. Strict; generic file I/O serves ONLY the declared files. |
 
 ### Back-compat aliases
 
@@ -68,17 +77,28 @@ The parser accepts these deprecated forms for one minor version. Both
 emit a `console.warn`:
 
 - `primitive:` (rewritten to `faculty:`).
-- `faculty: testing-framework` (rewritten to `faculty: skills`).
+- The aliased legacy faculty names below (each rewritten to its role).
 
-Faculty ids (the 6 roles, post-2026-06-07 Quarters pivot):
+Faculty ids (9 core roles + 7 optional capability faculties + `connectors`,
+enforced by `facultyIds` in `src/lib/types.ts`):
 
-`orchestrator`, `channels`, `gateway`, `memory`, `observability`, `sessions`.
+`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
+`sessions`, `surfaces`, `modes`, `knowledge`, `research`, `building`,
+`code-intelligence`, `design`, `browser-qa`, `coordination`, `connectors`.
 
-The legacy flat-Faculty ids (`heartbeat`, `scheduler`, `data-sources`,
-`knowledge-base`, `automations`, `skills`, `classifier`, `soul`, …) are accepted
-as deprecation aliases by `metadata.ts normalizeDeprecations` and fold into the
-roles above; Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans are now
-Quarters platform primitives, not Faculties.
+Aliased legacy faculty ids (folded into roles by
+`metadata.ts normalizeDeprecations`, with a `console.warn`): `terminal`,
+`worktree-management`, `session-view`, `testing-framework` (all four fold into
+`sessions`); `screen-share`, `outposts`, `browser` (fold into `surfaces`);
+`web-channel`, `voice` (fold into `channels`); `monitor` (folds into
+`observability`).
+
+NOT aliased: the parked pre-pivot faculty ids (`heartbeat`, `scheduler`,
+`data-sources`, `knowledge-base`, `automations`, `skills`, `classifier`,
+`soul`, …). Their Fittings are de-listed from `data/library.json` and never
+parsed; the parser rejects these ids outright.
+Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans are Quarters platform
+primitives, not Faculties.
 
 Fitting shapes:
 
@@ -100,7 +120,7 @@ Capability provision schema (`provides[]`):
 
 | Field | Type | Required | Notes |
 |---|---:|---:|---|
-| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `connector`, `automation-runner`, `runtime`, `channel`, `vault`, `artifact-store`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view`. (Dropped in the Quarters pivot: `soul`, `agent-skill`, `mcp-gateway`; `data-source` dropped 2026-06-26 — superseded by `connector`; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty — a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view` — all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port` — never declare it under `provides`. |
+| `kind` | enum | yes | One of: `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `duty`, `identity`, `view`. (`duty` added 2026-07-13, MARATHON-V3 D2: a unit of work with per-duty levels, provided by a Fitting owning a skill; the provision `name` is the duty id and must match a `duties[]` spec — see the duty schema below. Dropped in the Quarters pivot: `soul`, `agent-skill`; `mcp-gateway` was dropped there too and re-added 2026-07-10 for soul-mode `talk_to`; `data-source` dropped 2026-06-26, superseded by `connector`; `artifact-store` dropped, the file-browser Fitting is the artifact surface; `automation-runner` was dropped then re-added 2026-06-13 for the scheduler + Improver; `runtime` added 2026-06-14 for the BRIEF v4 Runtime faculty; `modes` added 2026-06-22 for the modes Fitting (Gary/Joe/James identity layer); `connector` added 2026-06-26 for the Connectors faculty, a connected service with a callable action catalog + Vault-sealed auth, more general than `data-source`. Dropped in the 2026-06-11 Dev Env consolidation: `terminal-session`, `worktree`, `session-view`, all three collapsed into `dev-env`.) `view` is consume-only in manifests: the resolver derives provisions (`<fittingId>:<viewId>`) from `ui.views[]`/`own_port`, never declared under `provides`. |
 | `name` | string | yes | Disambiguator. Other Fittings can match by `kind` alone or by `kind:name`. |
 
 Capability consumption schema (`consumes[]`):
@@ -174,6 +194,29 @@ Connector schema (`connector`, for Fittings that provide `kind: connector`):
 this Fitting is permitted to read. This is what makes per-connector scoping real —
 vault materialization delivers ONLY these named secrets to the Fitting's process,
 replacing the historical all-or-nothing delivery to any `kind: vault` consumer.
+
+Duty schema (`duties[]`, for Fittings that provide `kind: duty` — one spec per
+provision, spec `id` === provision `name`; MARATHON-V3 D2/D3/D4):
+
+| Field | Type | Required | Notes |
+|---|---:|---:|---|
+| `id` | string | yes | Kebab-case duty id (the provision name). |
+| `title` | string | yes | Display title. |
+| `description` | string | yes | Verb-shaped ("develop a change end to end"). |
+| `levels` | array | yes | 1..n levels, 1-based. Each level: `description` (one line, Dispatcher-readable) plus EXACTLY ONE of `cell` or `sequence`. |
+
+Level `cell` (leaf): `skill` (optional — the skill this duty owns via the
+Quarters ownership tag), `target` (optional — an engine-identity target id;
+effort is NOT part of target identity), `effort` (optional — one of `low`,
+`medium`, `high`, `xhigh`, `max`). Automation-shaped levels may leave `target`
+and `effort` empty.
+
+Level `sequence` (composite): ordered entries `{duty, level?}` — each entry
+runs at the parent's level by default with an optional per-entry `level`
+override (1-based). The duty graph must be a DAG; sequence references, level
+ranges, and cycles are validated by the Resolver (`src/lib/resolver.ts`).
+Levels are stored FLAT — no inheritance in the data model (the editor offers
+copy-from-below + a diff line instead).
 
 Tasks schema:
 

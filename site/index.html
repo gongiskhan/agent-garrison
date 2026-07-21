@@ -1,0 +1,1208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Garrison: the structured base for your AI development setup</title>
+<meta name="description" content="Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code setup." />
+<link rel="icon" href="brand/icon-512.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<style>
+  /* Tokens sampled from the Garrison app (src/app/globals.css) + icon-512.png */
+  :root {
+    --paper: #fbf8f1;
+    --paper-2: #f4ede0;
+    --paper-3: #ece2cc;
+    --ink: #18211c;
+    --ink-2: #2a342e;
+    --forest: #1f3026;      /* the app's themeColor */
+    --forest-deep: #141f18; /* icon edge fade */
+    --sage: #2f4a3a;
+    --sage-2: #3d6249;
+    --sage-soft: #eaf1e7;
+    --brass: #b4862a;
+    --brass-2: #d8a82e;
+    --wheat: #e9dcb0;       /* picket body, sampled from icon-512 */
+    --wheat-2: #dbc892;
+    --rule: #d6cdba;
+    --mute: #66695f;
+    --alarm: #9b362d;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-wrap: pretty;
+  }
+  ::selection { background: rgba(216, 168, 46, 0.3); }
+  :focus-visible { outline: 2px solid var(--brass-2); outline-offset: 2px; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- top bar ---------- */
+  .top {
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 22px 24px;
+    color: var(--wheat);
+  }
+  .top .mark {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--wheat-2);
+    text-decoration: none;
+  }
+  .lang {
+    display: inline-flex;
+    border: 1px solid rgba(233, 220, 176, 0.4);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+  .lang button {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--wheat-2);
+    font: inherit;
+    padding: 5px 12px;
+    cursor: pointer;
+    opacity: 0.6;
+  }
+  .lang button.on { background: var(--brass-2); color: var(--forest-deep); opacity: 1; font-weight: 600; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    background:
+      radial-gradient(120% 90% at 50% 0%, var(--forest) 0%, var(--forest-deep) 78%);
+    color: var(--paper);
+    padding: 130px 0 0;
+    overflow: hidden;
+  }
+  .hero .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 200px;
+    gap: 48px;
+    align-items: center;
+    padding-bottom: 84px;
+  }
+  @media (max-width: 780px) {
+    .hero .wrap { grid-template-columns: 1fr; }
+    .hero .logo { order: -1; }
+  }
+  .hero .logo img {
+    width: 168px;
+    height: 168px;
+    border: 1px solid rgba(233, 220, 176, 0.25);
+  }
+  .entry { font-family: var(--serif); }
+  .entry .headword {
+    font-size: clamp(44px, 7vw, 76px);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.02;
+    margin: 0 0 10px;
+    color: var(--paper);
+  }
+  .entry .gram {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--wheat-2);
+    letter-spacing: 0.02em;
+    margin: 0 0 26px;
+  }
+  .entry .gram i { font-family: var(--serif); font-size: 15px; }
+  .entry .classic {
+    font-style: italic;
+    font-size: 19px;
+    color: rgba(251, 248, 241, 0.78);
+    max-width: 560px;
+    margin: 0 0 22px;
+    border-left: 2px solid var(--brass);
+    padding-left: 18px;
+  }
+  .entry .gloss {
+    font-size: 18.5px;
+    line-height: 1.65;
+    max-width: 640px;
+    margin: 0;
+    color: rgba(251, 248, 241, 0.92);
+  }
+  .entry .gloss b { color: var(--wheat); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  section { padding: 96px 0; }
+  @media (max-width: 700px) { section { padding: 64px 0; } }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin: 0 0 18px;
+  }
+  h2.big {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(26px, 4vw, 40px);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    max-width: 900px;
+    margin: 0 0 22px;
+  }
+  .differentiator {
+    font-family: var(--serif);
+    font-size: 19px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 760px;
+    margin: 0;
+  }
+
+  /* personas */
+  .personas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 40px;
+  }
+  .persona { background: white; padding: 30px 28px 34px; }
+  .persona h3 {
+    font-family: var(--serif);
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--brass);
+    margin: 0 0 12px;
+  }
+  .persona p { margin: 0; font-size: 15px; color: var(--ink-2); }
+
+  /* ---------- standing orders ---------- */
+  .orders {
+    background: radial-gradient(140% 100% at 50% 0%, var(--forest) 0%, var(--forest-deep) 85%);
+    color: var(--paper);
+  }
+  .orders .kicker { color: var(--brass-2); }
+  .orders h2.big { color: var(--paper); }
+  .orders .lede { color: rgba(251, 248, 241, 0.7); font-family: var(--serif); font-size: 17px; max-width: 620px; }
+  .order-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+    gap: 28px;
+    margin-top: 54px;
+  }
+  .order {
+    border: 1px solid rgba(233, 220, 176, 0.16);
+    background: rgba(20, 31, 24, 0.55);
+    padding: 26px 26px 30px;
+  }
+  .order .num {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.26em;
+    color: var(--brass-2);
+    margin: 0 0 16px;
+  }
+  .order svg { width: 100%; height: auto; margin-bottom: 20px; }
+  .order h3 {
+    font-family: var(--serif);
+    font-size: 21.5px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--wheat);
+  }
+  .order p { margin: 0; font-size: 14.5px; line-height: 1.6; color: rgba(251, 248, 241, 0.75); }
+  .order p .aside { display: block; margin-top: 8px; font-size: 13px; color: rgba(233, 220, 176, 0.6); }
+
+  /* SVG idiom */
+  .o-line { stroke: var(--brass-2); stroke-width: 1.6; fill: none; }
+  .o-line.soft { stroke: rgba(233, 220, 176, 0.45); }
+  .o-line.wheat { stroke: var(--wheat-2); }
+  .o-fill { fill: rgba(233, 220, 176, 0.1); }
+  .o-label { font-family: var(--mono); font-size: 11px; fill: var(--wheat-2); }
+  .o-label.dim { fill: rgba(233, 220, 176, 0.55); font-size: 10px; }
+  .o-label.dark { fill: var(--forest-deep); font-weight: 600; }
+  .o-bad { stroke: var(--alarm); stroke-width: 1.8; fill: none; }
+
+  /* ---------- the fittings ---------- */
+  .fittings .lede { font-family: var(--serif); font-size: 17px; color: var(--mute); max-width: 620px; margin: 0; }
+  .fitting {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: 56px;
+    align-items: center;
+    margin-top: 80px;
+  }
+  .fitting.flip .fitting-panel { order: 1; }
+  @media (max-width: 900px) {
+    .fitting { grid-template-columns: 1fr; gap: 28px; margin-top: 64px; }
+    .fitting.flip .fitting-panel { order: 0; }
+  }
+  .fitting-panel {
+    background: radial-gradient(130% 110% at 50% 0%, var(--forest) 0%, var(--forest-deep) 92%);
+    border: 1px solid var(--rule);
+    padding: 24px;
+  }
+  .fitting-panel svg { width: 100%; height: auto; display: block; }
+  .fitting-panel.tall { max-width: 360px; justify-self: center; width: 100%; }
+  .fitting .fname {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin: 0 0 14px;
+  }
+  .fitting h3 {
+    font-family: var(--serif);
+    font-size: clamp(24px, 3.2vw, 30px);
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 0 0 18px;
+    max-width: 20ch;
+  }
+  .fitting ul { list-style: none; margin: 0; padding: 0; }
+  .fitting li {
+    position: relative;
+    padding: 0 0 0 22px;
+    margin: 0 0 12px;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 62ch;
+  }
+  .fitting li:last-child { margin-bottom: 0; }
+  .fitting li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 7px;
+    height: 7px;
+    background: var(--brass);
+  }
+  .fitting li b { color: var(--ink); font-weight: 600; }
+  .fitting-panel .pulse {
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: fp-pulse 2.6s ease-out infinite;
+  }
+  .fitting-panel .pulse.p2 { animation-delay: 1.3s; }
+  .fitting-panel .blink { animation: fp-blink 1.2s steps(2, start) infinite; }
+  @keyframes fp-pulse {
+    0% { opacity: 0.7; transform: scale(0.8); }
+    70% { opacity: 0; transform: scale(1.3); }
+    100% { opacity: 0; }
+  }
+  @keyframes fp-blink { to { visibility: hidden; } }
+  @media (prefers-reduced-motion: reduce) {
+    .fitting-panel .pulse, .fitting-panel .blink { animation: none; }
+  }
+
+  /* ---------- running today ---------- */
+  .features .lede { font-family: var(--serif); font-size: 17px; color: var(--mute); max-width: 620px; }
+  .shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+    gap: 28px;
+    margin-top: 48px;
+  }
+  .shot { border: 1px solid var(--rule); background: white; }
+  .shot img { width: 100%; border-bottom: 1px solid var(--rule); aspect-ratio: 16/9; object-fit: cover; object-position: top left; }
+  .shot .cap { padding: 16px 20px 20px; }
+  .shot h3 { font-family: var(--serif); font-size: 19px; font-weight: 600; margin: 0 0 6px; }
+  .shot p { margin: 0; font-size: 13.5px; color: var(--mute); line-height: 1.55; }
+  .plains {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 28px;
+  }
+  .plain { background: var(--sage-soft); padding: 22px 22px 24px; }
+  .plain h3 { font-family: var(--serif); font-size: 17px; font-weight: 600; margin: 0 0 6px; }
+  .plain p { margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.55; }
+  .plain .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--brass);
+    border: 1px solid var(--brass);
+    padding: 2px 7px;
+    margin-bottom: 10px;
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    background: var(--forest-deep);
+    color: rgba(251, 248, 241, 0.75);
+    padding: 54px 0 60px;
+  }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; justify-content: space-between; }
+  footer .fm { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; }
+  footer a { color: var(--wheat-2); text-decoration: none; border-bottom: 1px solid rgba(233, 220, 176, 0.35); }
+  footer a:hover { border-bottom-color: var(--brass-2); }
+  footer .lang button { color: var(--wheat-2); }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO: the definition ============ -->
+<header class="hero">
+  <div class="top">
+    <a class="mark" href="#">Garrison</a>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" class="on">EN</button>
+      <button type="button" data-lang="pt">PT</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="entry">
+      <h1 class="headword" data-i18n="hero.headword">gar·ri·son</h1>
+      <p class="gram" data-i18n-html="hero.gram">/&#712;&#609;ar&#618;s&#601;n/ &nbsp;&middot;&nbsp; <i>noun</i> &nbsp;&middot;&nbsp; [O.Fr. <i>garison</i>, “defence, provision”; cf. L. <i>praesidium</i>]</p>
+      <p class="classic" data-i18n="hero.classic">A fortified post where a body of troops is stationed to hold and defend it.</p>
+      <p class="gloss" data-i18n-html="hero.gloss">In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed: <b>faculties</b> (capability slots) filled by swappable <b>fittings</b>, an <b>Orchestrator</b> directing, all quartered over your own Claude Code setup in the <b>Quarters</b>.</p>
+    </div>
+    <div class="logo"><img src="brand/icon-512.png" alt="Garrison: a wheat palisade fence on deep forest green" data-i18n-alt="alt.logo" width="168" height="168" /></div>
+  </div>
+</header>
+
+<!-- ============ WHAT GARRISON IS ============ -->
+<section class="what">
+  <div class="wrap">
+    <p class="kicker" data-i18n="what.kicker">01 &middot; The base</p>
+    <h2 class="big" data-i18n="what.line">The structured base for your whole AI development setup.</h2>
+    <p class="differentiator" data-i18n="what.diff">Every tool, model, runtime, skill, and setting in one place, swappable in a click. Try anything new without rebuilding your workflow; assemble agent systems like Hermes or OpenClaw, reined in and transparent. Platform, CLI, and model agnostic.</p>
+  </div>
+</section>
+
+<!-- ============ PERSONAS ============ -->
+<section class="who" style="padding-top: 0;">
+  <div class="wrap">
+    <p class="kicker" data-i18n="who.kicker">02 &middot; The ranks</p>
+    <h2 class="big" data-i18n="who.header">Who Garrison is for.</h2>
+    <div class="personas">
+      <div class="persona">
+        <h3 data-i18n="who.dev.h">developers</h3>
+        <p data-i18n="who.dev.p">Switch models, runtimes, effort, and skills per task; build whole new profiles and flows. Experiment fast, keep the workflow you have.</p>
+      </div>
+      <div class="persona">
+        <h3 data-i18n="who.builder.h">builders</h3>
+        <p data-i18n="who.builder.p">Assemble reliable agents from vetted parts: pick a fitting from a plain description and let the assistant wire it up.</p>
+      </div>
+      <div class="persona">
+        <h3 data-i18n="who.user.h">end-users</h3>
+        <p data-i18n="who.user.p">Run a personal operative on your own machine: memory, scheduling, tasks, and actions. An assistant that is yours, not a black box.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============ STANDING ORDERS ============ -->
+<section class="orders">
+  <div class="wrap">
+    <p class="kicker" data-i18n="orders.kicker">03 &middot; The charter</p>
+    <h2 class="big" data-i18n="orders.header">Standing Orders</h2>
+    <p class="lede" data-i18n="orders.lede">Ten articles the garrison follows without question.</p>
+
+    <div class="order-grid">
+
+      <!-- I. model-agnostic -->
+      <article class="order">
+        <p class="num">I</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A task routed by the orchestrator to one of several runtimes and models">
+          <rect x="18" y="128" width="64" height="34" class="o-line soft o-fill"/>
+          <text x="50" y="149" text-anchor="middle" class="o-label dim">task</text>
+          <path d="M84 145 H150" class="o-line wheat" marker-end="none"/>
+          <rect x="152" y="112" width="132" height="66" class="o-line" fill="rgba(216,168,46,0.08)"/>
+          <text x="218" y="140" text-anchor="middle" class="o-label" style="letter-spacing:2px">ORCHESTRATOR</text>
+          <text x="218" y="160" text-anchor="middle" class="o-label dim">single entry point</text>
+          <path d="M284 128 C340 90 380 56 416 46" class="o-line soft"/>
+          <path d="M284 138 C340 122 380 102 416 96" class="o-line" stroke-width="2.2"/>
+          <path d="M284 150 C340 152 380 148 416 146" class="o-line soft"/>
+          <path d="M284 160 C340 182 380 192 416 196" class="o-line soft"/>
+          <path d="M284 170 C340 214 380 236 416 246" class="o-line soft"/>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="418" y="30" width="124" height="30" class="o-line soft"/><text x="428" y="49" class="o-label dim">Claude Code &middot; Opus</text>
+            <rect x="418" y="80" width="124" height="30" class="o-line wheat" fill="rgba(233,220,176,0.12)"/><text x="428" y="99" class="o-label">Codex &middot; GPT</text>
+            <rect x="418" y="130" width="124" height="30" class="o-line soft"/><text x="428" y="149" class="o-label dim">Gemini CLI &middot; Gemini</text>
+            <rect x="418" y="180" width="124" height="30" class="o-line soft"/><text x="428" y="199" class="o-label dim">opencode &middot; GLM</text>
+            <rect x="418" y="230" width="124" height="30" class="o-line soft"/><text x="428" y="249" class="o-label dim">Agent SDK &middot; DeepSeek</text>
+          </g>
+          <rect x="330" y="96" width="54" height="18" fill="#d8a82e"/>
+          <text x="357" y="109" text-anchor="middle" class="o-label dark" font-size="10">skill</text>
+          <g transform="translate(60,232)">
+            <path d="M0 30 A38 38 0 0 1 76 30" class="o-line soft"/>
+            <line x1="38" y1="30" x2="62" y2="8" class="o-line" stroke-width="2.2"/>
+            <text x="-6" y="48" class="o-label dim">fast</text>
+            <text x="24" y="-6" class="o-label dim">standard</text>
+            <text x="72" y="48" class="o-label">expert</text>
+          </g>
+        </svg>
+        <h3 data-i18n="o1.h">Operatives are model-agnostic.</h3>
+        <p data-i18n="o1.p">The Orchestrator, the operative's single entry point, routes each task to the right runtime, model, effort, and skills.</p>
+      </article>
+
+      <!-- II. secure -->
+      <article class="order">
+        <p class="num">II</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A fitting package scanned under a review lens inside a shield, with a Vault-sealed secret below">
+          <path d="M280 12 L488 52 V168 C488 232 396 272 280 290 C164 272 72 232 72 168 V52 Z" class="o-line soft"/>
+          <rect x="106" y="86" width="74" height="52" class="o-line wheat o-fill"/>
+          <text x="143" y="112" text-anchor="middle" class="o-label">apm.yml</text>
+          <text x="143" y="128" text-anchor="middle" class="o-label dim">fitting</text>
+          <path d="M182 112 H252 M300 112 H364" class="o-line soft"/>
+          <circle cx="276" cy="108" r="26" class="o-line"/>
+          <line x1="294" y1="126" x2="312" y2="144" class="o-line"/>
+          <path d="M266 108 l7 8 l14 -16" class="o-line wheat" stroke-width="2.2"/>
+          <text x="276" y="152" text-anchor="middle" class="o-label dim">scanned</text>
+          <rect x="366" y="86" width="88" height="52" class="o-line" fill="rgba(216,168,46,0.1)"/>
+          <text x="410" y="108" text-anchor="middle" class="o-label">stationed</text>
+          <circle cx="410" cy="122" r="4" fill="#d8a82e"/>
+          <g transform="translate(170,186)">
+            <rect x="0" y="16" width="46" height="34" class="o-line wheat o-fill"/>
+            <path d="M8 16 V8 a15 15 0 0 1 30 0 V16" class="o-line wheat"/>
+            <rect x="62" y="20" width="190" height="26" class="o-line soft"/>
+            <text x="72" y="37" class="o-label" font-size="10">Vault-sealed &middot; AES-256-GCM</text>
+            <rect x="62" y="56" width="130" height="26" class="o-line soft" stroke-dasharray="4 3"/>
+            <text x="74" y="73" class="o-label dim">never logged</text>
+          </g>
+        </svg>
+        <h3 data-i18n="o2.h">Operatives are secure.</h3>
+        <p data-i18n-html="o2.p">Every fitting is a scanned, vetted APM package; secrets are Vault-sealed with AES-256-GCM and never logged.<span class="aside">APM is Microsoft's package manager for agent parts: npm, but for skills, access, and memory.</span></p>
+      </article>
+
+      <!-- III. opinionated but flexible -->
+      <article class="order">
+        <p class="num">III</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A faculty slot holding two fitting chips, one selected, a cursor toggling the other">
+          <rect x="80" y="70" width="400" height="160" class="o-line soft" stroke-dasharray="6 5"/>
+          <text x="100" y="56" class="o-label dim">faculty slot</text>
+          <rect x="116" y="108" width="150" height="84" class="o-line wheat" fill="rgba(233,220,176,0.14)"/>
+          <text x="191" y="146" text-anchor="middle" class="o-label">fitting A</text>
+          <circle cx="191" cy="168" r="7" class="o-line wheat"/><circle cx="191" cy="168" r="3.4" fill="#d8a82e"/>
+          <rect x="124" y="100" width="60" height="16" fill="#d8a82e"/>
+          <text x="154" y="112" text-anchor="middle" class="o-label dark" font-size="9">default</text>
+          <rect x="296" y="108" width="150" height="84" class="o-line soft"/>
+          <text x="371" y="146" text-anchor="middle" class="o-label dim">fitting B</text>
+          <circle cx="371" cy="168" r="7" class="o-line soft"/>
+          <path d="M388 196 v26 l6 -7 l5 11 l7 -3 l-5 -11 l9 -1 Z" fill="#e9dcb0" stroke="#141f18" stroke-width="1"/>
+        </svg>
+        <h3 data-i18n="o3.h">Opinionated, but completely flexible.</h3>
+        <p data-i18n="o3.p">Garrison ships the defaults of daily AI development; swapping a fitting is one click.</p>
+      </article>
+
+      <!-- IV. transparent -->
+      <article class="order">
+        <p class="num">IV</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A timestamped action log beside a config card with a plain description, under an open eye">
+          <g transform="translate(60,70)">
+            <rect x="0" y="0" width="220" height="160" class="o-line soft"/>
+            <g class="o-label dim" font-size="10">
+              <text x="14" y="28">09:14:02  read  apm.yml</text>
+              <text x="14" y="52">09:14:03  verify  20/20 pass</text>
+              <text x="14" y="76">09:14:09  route  codex &middot; fast</text>
+              <text x="14" y="100">09:14:31  write  report.md</text>
+              <text x="14" y="124">09:15:00  notify  slack</text>
+            </g>
+            <line x1="8" y1="36" x2="212" y2="36" class="o-line soft" opacity="0.3"/>
+            <line x1="8" y1="60" x2="212" y2="60" class="o-line soft" opacity="0.3"/>
+            <line x1="8" y1="84" x2="212" y2="84" class="o-line soft" opacity="0.3"/>
+            <line x1="8" y1="108" x2="212" y2="108" class="o-line soft" opacity="0.3"/>
+          </g>
+          <g transform="translate(300,40)">
+            <path d="M0 26 C34 -8 106 -8 140 26 C106 60 34 60 0 26 Z" class="o-line wheat"/>
+            <circle cx="70" cy="26" r="14" class="o-line wheat"/>
+            <circle cx="70" cy="26" r="5" fill="#d8a82e"/>
+          </g>
+          <g transform="translate(310,120)">
+            <rect x="0" y="0" width="190" height="110" class="o-line" fill="rgba(216,168,46,0.06)"/>
+            <text x="14" y="26" class="o-label">memory &middot; basic-memory</text>
+            <line x1="14" y1="44" x2="176" y2="44" class="o-line soft" opacity="0.5"/>
+            <g class="o-label dim" font-size="10">
+              <text x="14" y="64">what it does, in plain</text>
+              <text x="14" y="80">words, and how to</text>
+              <text x="14" y="96">configure it.</text>
+            </g>
+          </g>
+        </svg>
+        <h3 data-i18n="o4.h">Everything is transparent and observable.</h3>
+        <p data-i18n="o4.p">Every action is logged and visible; every faculty, fitting, and setting carries a plain description.</p>
+      </article>
+
+      <!-- V. faculty contract -->
+      <article class="order">
+        <p class="num">V</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A Python part and a Node part plugging into the same faculty-contract socket">
+          <rect x="60" y="100" width="130" height="90" class="o-line soft o-fill"/>
+          <text x="125" y="140" text-anchor="middle" class="o-label">python</text>
+          <text x="125" y="158" text-anchor="middle" class="o-label dim">any shape</text>
+          <path d="M190 130 h30 v10 h-30 M190 160 h30 v-10 h-30" class="o-line wheat"/>
+          <rect x="370" y="100" width="130" height="90" class="o-line soft o-fill"/>
+          <text x="435" y="140" text-anchor="middle" class="o-label">node</text>
+          <text x="435" y="158" text-anchor="middle" class="o-label dim">any runtime</text>
+          <path d="M370 130 h-30 v10 h30 M370 160 h-30 v-10 h30" class="o-line wheat"/>
+          <rect x="238" y="92" width="84" height="106" class="o-line" fill="rgba(216,168,46,0.1)"/>
+          <path d="M238 130 h-18 M238 160 h-18 M322 130 h18 M322 160 h18" class="o-line"/>
+          <text x="280" y="128" text-anchor="middle" class="o-label" font-size="10">faculty</text>
+          <text x="280" y="144" text-anchor="middle" class="o-label" font-size="10">contract</text>
+          <path d="M262 168 l10 8 l26 -14" class="o-line wheat" stroke-width="2.2"/>
+          <text x="280" y="230" text-anchor="middle" class="o-label dim">one socket, any part that honours it</text>
+        </svg>
+        <h3 data-i18n="o5.h">Every fitting fulfils a faculty contract.</h3>
+        <p data-i18n="o5.p">One contract lets parts in any language or runtime fill the same slot; the operative never asks how a part was built.</p>
+      </article>
+
+      <!-- VI. compose, don't own -->
+      <article class="order">
+        <p class="num">VI</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A thin Garrison layer arranging blocks over an intact ~/.claude base; a crossed-out layer that swallows the base">
+          <g transform="translate(60,40)">
+            <rect x="0" y="0" width="300" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="150" y="20" text-anchor="middle" class="o-label">Garrison &middot; arranges</text>
+            <rect x="18" y="48" width="60" height="34" class="o-line wheat o-fill"/>
+            <rect x="94" y="48" width="60" height="34" class="o-line wheat o-fill"/>
+            <rect x="170" y="48" width="60" height="34" class="o-line wheat o-fill"/>
+            <rect x="246" y="48" width="36" height="34" class="o-line soft"/>
+            <rect x="0" y="98" width="300" height="60" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
+            <text x="150" y="134" text-anchor="middle" class="o-label">~/.claude &middot; whole and visible</text>
+          </g>
+          <g transform="translate(410,80)">
+            <rect x="0" y="0" width="100" height="86" class="o-line soft"/>
+            <rect x="20" y="16" width="60" height="24" class="o-line soft"/>
+            <rect x="20" y="50" width="60" height="20" class="o-line soft" stroke-dasharray="3 3"/>
+            <line x1="-8" y1="-8" x2="108" y2="94" class="o-bad"/>
+            <line x1="108" y1="-8" x2="-8" y2="94" class="o-bad"/>
+            <text x="50" y="104" text-anchor="middle" class="o-label dim" font-size="9">layer swallows</text>
+            <text x="50" y="118" text-anchor="middle" class="o-label dim" font-size="9">the base</text>
+          </g>
+        </svg>
+        <h3 data-i18n="o6.h">Compose, don't own.</h3>
+        <p data-i18n="o6.p">Garrison arranges your real ~/.claude; it never replaces your tools or traps you in a runtime of its own.</p>
+      </article>
+
+      <!-- VII. local-first -->
+      <article class="order">
+        <p class="num">VII</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="The palisade drawn as a perimeter around a machine holding data, keys and memory; a cloud outside with no arrow crossing in">
+          <g fill="#dbc892">
+            <path d="M70 240 V150 l8 -14 l8 14 v90 Z"/><path d="M100 240 V150 l8 -14 l8 14 v90 Z"/>
+            <path d="M130 240 V150 l8 -14 l8 14 v90 Z"/><path d="M160 240 V150 l8 -14 l8 14 v90 Z"/>
+            <path d="M310 240 V150 l8 -14 l8 14 v90 Z"/><path d="M340 240 V150 l8 -14 l8 14 v90 Z"/>
+            <path d="M370 240 V150 l8 -14 l8 14 v90 Z"/><path d="M400 240 V150 l8 -14 l8 14 v90 Z"/>
+          </g>
+          <rect x="66" y="178" width="352" height="10" fill="#b4862a"/>
+          <g transform="translate(206,120)">
+            <rect x="0" y="20" width="72" height="52" class="o-line wheat o-fill"/>
+            <rect x="10" y="30" width="52" height="24" class="o-line soft"/>
+            <text x="36" y="102" text-anchor="middle" class="o-label dim" font-size="9">data &middot; keys &middot; memory</text>
+          </g>
+          <g transform="translate(430,44)">
+            <path d="M22 34 a16 16 0 0 1 30 -8 a13 13 0 0 1 18 12 a11 11 0 0 1 -4 22 H14 a14 14 0 0 1 8 -26 Z" class="o-line soft"/>
+            <path d="M20 74 L-22 108" class="o-line soft" stroke-dasharray="5 4"/>
+            <line x1="-14" y1="88" x2="8" y2="112" class="o-bad"/>
+            <line x1="8" y1="88" x2="-14" y2="112" class="o-bad"/>
+          </g>
+        </svg>
+        <h3 data-i18n="o7.h">Local-first. Your machine, your data, your keys.</h3>
+        <p data-i18n="o7.p">Operatives run on your hardware; secrets, memory, and logs stay with you.</p>
+      </article>
+
+      <!-- VIII. self-improving -->
+      <article class="order">
+        <p class="num">VIII</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="Sessions feeding a loop of skills, routing and memory, each ticking up a level">
+          <g class="o-label dim" font-size="10">
+            <text x="40" y="120">session</text><text x="40" y="150">session</text><text x="40" y="180">session</text>
+          </g>
+          <path d="M100 116 C150 116 175 147 230 150 M100 146 H230 M100 176 C150 176 175 153 230 150" class="o-line soft"/>
+          <path d="M367.4 66 A92 92 0 0 1 421.5 159.6" class="o-line wheat"/>
+          <path d="M0 -5 L9 0 L0 5 Z" transform="translate(421.5,159.6) rotate(96)" fill="#dbc892"/>
+          <path d="M384.1 224.4 A92 92 0 0 1 275.9 224.4" class="o-line wheat"/>
+          <path d="M0 -5 L9 0 L0 5 Z" transform="translate(275.9,224.4) rotate(216)" fill="#dbc892"/>
+          <path d="M238.5 159.6 A92 92 0 0 1 275.9 75.6" class="o-line wheat"/>
+          <path d="M0 -5 L8 0 L0 5 Z" transform="translate(275.9,75.6) rotate(-36)" fill="#dbc892"/>
+          <g>
+            <rect x="288" y="43" width="84" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="330" y="63" text-anchor="middle" class="o-label">skills</text>
+            <text x="376" y="40" class="o-label" fill="#d8a82e" font-size="10">+1</text>
+            <rect x="368" y="181" width="84" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="410" y="201" text-anchor="middle" class="o-label">routing</text>
+            <text x="456" y="178" class="o-label" fill="#d8a82e" font-size="10">+1</text>
+            <rect x="208" y="181" width="84" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
+            <text x="250" y="201" text-anchor="middle" class="o-label">memory</text>
+            <text x="296" y="178" class="o-label" fill="#d8a82e" font-size="10">+1</text>
+          </g>
+        </svg>
+        <h3 data-i18n="o8.h">The system improves itself.</h3>
+        <p data-i18n="o8.p">The Improver reads every session, sharpening your skills, routing, and memory with use.</p>
+      </article>
+
+      <!-- IX. plan before build -->
+      <article class="order">
+        <p class="num">IX</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="Board lanes flowing discuss, plan, implement, with a plan document acting as a gate">
+          <rect x="50" y="70" width="130" height="160" class="o-line soft"/>
+          <text x="115" y="94" text-anchor="middle" class="o-label">discuss</text>
+          <rect x="66" y="110" width="98" height="26" class="o-line soft o-fill"/>
+          <rect x="66" y="146" width="98" height="26" class="o-line soft o-fill"/>
+          <path d="M180 150 H210" class="o-line wheat"/>
+          <rect x="212" y="70" width="130" height="160" class="o-line soft"/>
+          <text x="277" y="94" text-anchor="middle" class="o-label">plan</text>
+          <g transform="translate(247,116)">
+            <path d="M0 0 h44 l16 16 v52 h-60 Z" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
+            <path d="M44 0 v16 h16" class="o-line wheat"/>
+            <line x1="10" y1="30" x2="50" y2="30" class="o-line soft"/>
+            <line x1="10" y1="44" x2="50" y2="44" class="o-line soft"/>
+            <line x1="10" y1="58" x2="38" y2="58" class="o-line soft"/>
+          </g>
+          <path d="M342 150 H370" class="o-line wheat"/>
+          <rect x="368" y="64" width="10" height="172" fill="#b4862a"/>
+          <text x="373" y="52" text-anchor="middle" class="o-label" font-size="10">gate</text>
+          <rect x="392" y="70" width="130" height="160" class="o-line soft"/>
+          <text x="457" y="94" text-anchor="middle" class="o-label">implement</text>
+          <rect x="408" y="110" width="98" height="26" class="o-line soft o-fill"/>
+        </svg>
+        <h3 data-i18n="o9.h">Plan before you build.</h3>
+        <p data-i18n="o9.p">On the Kanban Loop a plan gates every build, so nothing runs off on its own.</p>
+      </article>
+
+      <!-- X. open -->
+      <article class="order">
+        <p class="num">X</p>
+        <svg viewBox="0 0 560 300" role="img" aria-label="An open padlock, visible source lines, and a broken chain">
+          <g transform="translate(96,86)">
+            <rect x="0" y="34" width="76" height="60" class="o-line wheat o-fill"/>
+            <path d="M14 34 V20 a24 24 0 0 1 48 0" class="o-line wheat"/>
+            <circle cx="38" cy="60" r="7" class="o-line wheat"/>
+            <line x1="38" y1="66" x2="38" y2="80" class="o-line wheat"/>
+            <text x="38" y="118" text-anchor="middle" class="o-label dim">open</text>
+          </g>
+          <g transform="translate(240,80)">
+            <rect x="0" y="0" width="180" height="130" class="o-line soft"/>
+            <g class="o-label dim" font-size="10">
+              <text x="14" y="28">export function up() {</text>
+              <text x="26" y="50">install(); verify();</text>
+              <text x="26" y="72">assemble(); spawn();</text>
+              <text x="14" y="94">}</text>
+            </g>
+            <text x="14" y="118" class="o-label" font-size="10">auditable end to end</text>
+          </g>
+          <g transform="translate(472,112)">
+            <rect x="-14" y="-34" width="28" height="44" rx="14" class="o-line wheat"/>
+            <rect x="-14" y="24" width="28" height="44" rx="14" class="o-line soft"/>
+            <line x1="-7" y1="10" x2="7" y2="24" class="o-bad"/>
+            <line x1="7" y1="10" x2="-7" y2="24" class="o-bad"/>
+          </g>
+          <text x="472" y="210" text-anchor="middle" class="o-label dim">no lock-in</text>
+        </svg>
+        <h3 data-i18n="o10.h">Open by default.</h3>
+        <p data-i18n="o10.p">MIT-licensed, auditable end to end, no lock-in.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE FITTINGS ============ -->
+<section class="fittings">
+  <div class="wrap">
+    <p class="kicker" data-i18n="fit.kicker">04 &middot; The fittings</p>
+    <h2 class="big" data-i18n="fit.header">Three flagship fittings.</h2>
+    <p class="lede" data-i18n="fit.lede">The panels are illustrative. The bullets are what runs today.</p>
+
+    <!-- Web Channel -->
+    <div class="fitting">
+      <div class="fitting-panel tall">
+        <svg viewBox="0 0 340 560" role="img" aria-label="A mobile chat frame: a message starting with the mode name Joe, a reply card with a collapsed detail chip and a read-aloud glyph, and a mic with pulsing silence-detection rings">
+          <rect x="10" y="8" width="320" height="544" class="o-line soft"/>
+          <text x="170" y="38" text-anchor="middle" class="o-label" style="letter-spacing:3px">WEB CHANNEL</text>
+          <line x1="10" y1="56" x2="330" y2="56" class="o-line soft" opacity="0.5"/>
+          <rect x="26" y="74" width="58" height="26" class="o-line soft"/>
+          <text x="55" y="91" text-anchor="middle" class="o-label dim">Gary</text>
+          <rect x="94" y="74" width="50" height="26" class="o-line wheat" fill="rgba(233,220,176,0.14)"/>
+          <text x="119" y="91" text-anchor="middle" class="o-label">Joe</text>
+          <rect x="154" y="74" width="64" height="26" class="o-line soft"/>
+          <text x="186" y="91" text-anchor="middle" class="o-label dim">James</text>
+          <rect x="110" y="128" width="204" height="40" class="o-line wheat" fill="rgba(233,220,176,0.12)"/>
+          <text x="124" y="152" class="o-label" font-size="10"><tspan fill="#d8a82e">Joe:</tspan> fix the flaky test</text>
+          <rect x="26" y="184" width="250" height="168" class="o-line soft" fill="rgba(233,220,176,0.05)"/>
+          <text x="40" y="210" class="o-label">plan &middot; 3 steps</text>
+          <line x1="40" y1="222" x2="262" y2="222" class="o-line soft" opacity="0.4"/>
+          <g class="o-line soft" opacity="0.35">
+            <line x1="40" y1="240" x2="250" y2="240"/>
+            <line x1="40" y1="256" x2="230" y2="256"/>
+            <line x1="40" y1="272" x2="240" y2="272"/>
+            <line x1="40" y1="288" x2="180" y2="288"/>
+          </g>
+          <rect x="40" y="306" width="84" height="26" class="o-line soft" stroke-dasharray="4 3"/>
+          <text x="52" y="323" class="o-label dim">detail +</text>
+          <path d="M228 314 h10 l12 -10 v26 l-12 -10 h-10 Z" class="o-line wheat"/>
+          <path d="M256 312 a10 10 0 0 1 0 12 M262 307 a17 17 0 0 1 0 22" class="o-line wheat"/>
+          <text x="248" y="372" text-anchor="middle" class="o-label dim" font-size="9">read aloud</text>
+          <rect x="140" y="398" width="174" height="36" class="o-line soft"/>
+          <text x="154" y="420" class="o-label dim" font-size="10"><tspan fill="#d8a82e">Gary:</tspan> plan my day</text>
+          <rect x="26" y="468" width="288" height="58" class="o-line soft"/>
+          <line x1="40" y1="497" x2="200" y2="497" class="o-line soft" opacity="0.35"/>
+          <circle cx="282" cy="497" r="19" class="o-line soft pulse" stroke-dasharray="3 3"/>
+          <circle cx="282" cy="497" r="19" class="o-line soft pulse p2" stroke-dasharray="3 3"/>
+          <circle cx="282" cy="497" r="13" class="o-line wheat"/>
+          <rect x="278" y="489" width="8" height="11" rx="4" fill="#dbc892"/>
+          <path d="M275 496 a7 7 0 0 0 14 0 M282 503 v4" class="o-line wheat"/>
+          <text x="272" y="542" text-anchor="middle" class="o-label dim" font-size="9">silence detection</text>
+        </svg>
+      </div>
+      <div class="fitting-copy">
+        <p class="fname" data-i18n="fit.wc.name">Web Channel</p>
+        <h3 data-i18n="fit.wc.h">One chat, three hats.</h3>
+        <ul>
+          <li data-i18n-html="fit.wc.b1">Mobile-first chat over your operative. Start a message with a name to switch hats: <b>Gary</b>, <b>Joe</b>, or <b>James</b>.</li>
+          <li data-i18n-html="fit.wc.b2"><b>Gary</b> is the personal assistant. Knows your memories, your work, your personal life. Manages and schedules tasks and puts it all together.</li>
+          <li data-i18n-html="fit.wc.b3"><b>Joe</b> is the software developer and automations expert. Works your projects folder: plans, executes, runs autonomous flows, and leaves evidence with links to videos you can watch from the phone after being away.</li>
+          <li data-i18n-html="fit.wc.b4"><b>James</b> is the product manager and architect. Knows your projects and products, discusses new features with you until you are satisfied, and produces the documents Joe then builds from.</li>
+          <li data-i18n-html="fit.wc.b5">Voice in, voice out, at no cost: local STT and TTS with silence detection. Talk to it interactively; have replies and documents read aloud.</li>
+          <li data-i18n-html="fit.wc.b6">Shows what is relevant, not the raw session. Drill into detail only when you want it.</li>
+          <li data-i18n-html="fit.wc.b7">Enable or disable parts of the flow through Orchestrator rules.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Kanban Loop -->
+    <div class="fitting flip">
+      <div class="fitting-panel">
+        <svg viewBox="0 0 560 330" role="img" aria-label="A kanban board with eleven lanes from Backlog to Needs Attention, a brass rule marking the autonomous lanes, and an open card with log, screenshot and video evidence chips">
+          <g class="o-label dim" font-size="7.5" text-anchor="middle">
+            <text x="38" y="38">Backlog</text><text x="86" y="38">To Do</text><text x="134" y="38">Discuss</text>
+            <text x="182" y="38">Plan</text><text x="230" y="38">Impl.</text><text x="278" y="38">Review</text>
+            <text x="326" y="38">Adv.</text><text x="374" y="38">Test</text><text x="422" y="38">Walk.</text>
+            <text x="470" y="38">Done</text><text x="518" y="38">Attn</text>
+          </g>
+          <g class="o-line soft" fill="rgba(233,220,176,0.03)">
+            <rect x="16" y="44" width="44" height="150"/><rect x="64" y="44" width="44" height="150"/>
+            <rect x="112" y="44" width="44" height="150"/><rect x="160" y="44" width="44" height="150"/>
+            <rect x="208" y="44" width="44" height="150"/><rect x="256" y="44" width="44" height="150"/>
+            <rect x="304" y="44" width="44" height="150"/><rect x="352" y="44" width="44" height="150"/>
+            <rect x="400" y="44" width="44" height="150"/><rect x="448" y="44" width="44" height="150"/>
+            <rect x="496" y="44" width="44" height="150"/>
+          </g>
+          <g class="o-line soft o-fill">
+            <rect x="20" y="52" width="36" height="18"/><rect x="20" y="76" width="36" height="18"/><rect x="20" y="100" width="36" height="18"/>
+            <rect x="68" y="52" width="36" height="18"/><rect x="68" y="76" width="36" height="18"/>
+            <rect x="116" y="52" width="36" height="18"/>
+            <rect x="164" y="52" width="36" height="18"/>
+            <rect x="212" y="76" width="36" height="18"/>
+            <rect x="260" y="52" width="36" height="18"/>
+            <rect x="308" y="52" width="36" height="18"/>
+            <rect x="356" y="52" width="36" height="18"/>
+            <rect x="404" y="52" width="36" height="18"/>
+            <rect x="452" y="52" width="36" height="18"/><rect x="452" y="76" width="36" height="18"/>
+          </g>
+          <rect x="212" y="52" width="36" height="18" class="o-line wheat" fill="rgba(233,220,176,0.14)"/>
+          <rect x="500" y="52" width="36" height="18" class="o-bad"/>
+          <path d="M160 206 H444" stroke="#d8a82e" stroke-width="2"/>
+          <text x="452" y="210" class="o-label dim" font-size="9">autonomous</text>
+          <path d="M230 98 V228" class="o-line soft" stroke-dasharray="3 3"/>
+          <rect x="150" y="228" width="270" height="84" class="o-line wheat" fill="rgba(233,220,176,0.07)"/>
+          <text x="164" y="250" class="o-label" font-size="10">ship login fix &middot; Implement</text>
+          <g class="o-line soft">
+            <rect x="164" y="262" width="44" height="22"/>
+            <rect x="216" y="262" width="50" height="22"/>
+            <rect x="274" y="262" width="54" height="22"/>
+          </g>
+          <g class="o-label dim" font-size="9" text-anchor="middle">
+            <text x="186" y="277">log</text><text x="241" y="277">shot</text><text x="301" y="277">video</text>
+          </g>
+          <text x="374" y="280" text-anchor="middle" fill="#dbc892" font-family="JetBrains Mono, monospace" font-size="13">{ }</text>
+          <text x="374" y="300" text-anchor="middle" class="o-label dim" font-size="8">editor</text>
+        </svg>
+      </div>
+      <div class="fitting-copy">
+        <p class="fname" data-i18n="fit.kl.name">Kanban Loop</p>
+        <h3 data-i18n="fit.kl.h">Autonomous development you can watch from your phone.</h3>
+        <ul>
+          <li data-i18n-html="fit.kl.b1">One board for everything: dev tasks, personal tasks, manual work. The visual face of the AutoThink skill that ships in the seed composition.</li>
+          <li data-i18n-html="fit.kl.b2"><b>Discuss</b> with James on the card and produce the brief. Or skip straight from To Do to Plan and let it run fully autonomous.</li>
+          <li data-i18n-html="fit.kl.b3"><b>Plan</b> uses your instincts, collected by the Improver from your sessions and memories. Over time plans come out the way you would have written them, without intervention.</li>
+          <li data-i18n-html="fit.kl.b4"><b>Implement</b> with evidence for everything: logs linked from the card, viewable in the interface, editable in a built-in Monaco editor, screenshots where relevant.</li>
+          <li data-i18n-html="fit.kl.b5"><b>Review</b> includes a security audit. Then <b>adversarial review</b>. Then automated tests, e2e tests written from them, then adversarial tests. Evidence collected at every stage, linked on the card.</li>
+          <li data-i18n-html="fit.kl.b6"><b>Walkthrough</b> produces videos of what was done, in the browser and over highlighted logs, verifiable end to end. Good enough to hand to someone as a demo.</li>
+          <li data-i18n-html="fit.kl.b7">Mobile-first. Follow development from your phone with every link and every piece of evidence. Tailscale is detected and recommended for easy access from anywhere.</li>
+          <li data-i18n-html="fit.kl.b8"><b>Done</b> is where you judge the work. Not good? Drag the card back to any stage. Blocked work self-heals when possible, otherwise it lands in <b>Needs Attention</b>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Dev Env -->
+    <div class="fitting">
+      <div class="fitting-panel">
+        <svg viewBox="0 0 560 360" role="img" aria-label="Three panes: a session list with worktree badges, stacked terminal panes, and a browser pane tied to the session by a CDP chip">
+          <rect x="16" y="16" width="132" height="328" class="o-line soft"/>
+          <text x="28" y="40" class="o-label dim" font-size="9">sessions</text>
+          <rect x="24" y="54" width="116" height="34" class="o-line wheat" fill="rgba(233,220,176,0.12)"/>
+          <circle cx="36" cy="71" r="3" fill="#d8a82e"/>
+          <text x="46" y="75" class="o-label" font-size="10">main</text>
+          <rect x="24" y="96" width="116" height="34" class="o-line soft"/>
+          <rect x="32" y="106" width="22" height="14" class="o-line soft"/>
+          <text x="43" y="116" text-anchor="middle" class="o-label dim" font-size="8">wt</text>
+          <text x="62" y="117" class="o-label dim" font-size="10">login</text>
+          <rect x="24" y="138" width="116" height="34" class="o-line soft"/>
+          <rect x="32" y="148" width="22" height="14" class="o-line soft"/>
+          <text x="43" y="158" text-anchor="middle" class="o-label dim" font-size="8">wt</text>
+          <text x="62" y="159" class="o-label dim" font-size="10">api</text>
+          <rect x="24" y="180" width="116" height="34" class="o-line soft" stroke-dasharray="4 3"/>
+          <text x="82" y="201" text-anchor="middle" class="o-label dim">+ new</text>
+          <rect x="164" y="16" width="196" height="150" class="o-line soft" fill="rgba(20,31,24,0.5)"/>
+          <text x="176" y="34" class="o-label dim" font-size="9">claude &middot; main</text>
+          <line x1="164" y1="42" x2="360" y2="42" class="o-line soft" opacity="0.5"/>
+          <text x="176" y="62" class="o-label" font-size="10">$ claude</text>
+          <g class="o-line soft" opacity="0.35">
+            <line x1="176" y1="76" x2="330" y2="76"/>
+            <line x1="176" y1="90" x2="300" y2="90"/>
+            <line x1="176" y1="104" x2="320" y2="104"/>
+          </g>
+          <rect x="176" y="112" width="7" height="12" fill="#dbc892" class="blink"/>
+          <rect x="164" y="182" width="196" height="162" class="o-line soft" fill="rgba(20,31,24,0.5)"/>
+          <text x="176" y="200" class="o-label dim" font-size="9">shell &middot; tmux</text>
+          <line x1="164" y1="208" x2="360" y2="208" class="o-line soft" opacity="0.5"/>
+          <text x="176" y="228" class="o-label dim" font-size="10">$ npm test</text>
+          <g class="o-line soft" opacity="0.35">
+            <line x1="176" y1="242" x2="320" y2="242"/>
+            <line x1="176" y1="256" x2="290" y2="256"/>
+          </g>
+          <text x="176" y="330" class="o-label dim" font-size="9">tmux &middot; survives reboots</text>
+          <rect x="376" y="16" width="168" height="328" class="o-line soft"/>
+          <rect x="384" y="24" width="152" height="20" class="o-line soft"/>
+          <text x="392" y="38" class="o-label dim" font-size="9">localhost:3000</text>
+          <rect x="384" y="56" width="152" height="64" class="o-line soft o-fill"/>
+          <rect x="384" y="180" width="72" height="40" class="o-line soft"/>
+          <rect x="464" y="180" width="72" height="40" class="o-line soft"/>
+          <g class="o-line soft" opacity="0.35">
+            <line x1="384" y1="236" x2="536" y2="236"/>
+            <line x1="384" y1="250" x2="510" y2="250"/>
+            <line x1="384" y1="264" x2="524" y2="264"/>
+          </g>
+          <text x="460" y="330" text-anchor="middle" class="o-label dim" font-size="9">sees what you see</text>
+          <path d="M360 146 H430" class="o-line wheat" stroke-dasharray="3 3"/>
+          <rect x="338" y="136" width="60" height="20" fill="#d8a82e"/>
+          <text x="368" y="150" text-anchor="middle" class="o-label dark" font-size="10">CDP</text>
+        </svg>
+      </div>
+      <div class="fitting-copy">
+        <p class="fname" data-i18n="fit.de.name">Dev Env</p>
+        <h3 data-i18n="fit.de.h">Your sessions, your browser, your terminals. One pane of glass.</h3>
+        <ul>
+          <li data-i18n-html="fit.de.b1">See every Claude Code session (or other runtime) that is running. Start sessions on main or in worktrees.</li>
+          <li data-i18n-html="fit.de.b2">Parallel sessions do not trample each other: the seed composition's coordination tools handle it, on main or across worktrees.</li>
+          <li data-i18n-html="fit.de.b3">Per session, choose plain Claude Code or the Garrison Orchestrator. The model router picks effort, model, and runtime per task by rule.</li>
+          <li data-i18n-html="fit.de.b4">Runtimes today: Claude Code on a warm pool of PTY sessions, Agent SDK, Codex, Gemini CLI, and any runtime you add.</li>
+          <li data-i18n-html="fit.de.b5">A browser pane wired to the session over CDP. The session sees what you see and can drive it. No screenshots, no leaving the environment.</li>
+          <li data-i18n-html="fit.de.b6">Open more terminals and arrange them as panes. tmux-backed persistent sessions survive a reboot and can be revived, with full session history.</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ RUNNING TODAY ============ -->
+<section class="features" style="padding-top: 0;">
+  <div class="wrap">
+    <p class="kicker" data-i18n="run.kicker">05 &middot; The state of the art</p>
+    <h2 class="big" data-i18n="run.header">Running today.</h2>
+    <p class="lede" data-i18n="run.lede">Real screenshots from a live base, not a roadmap.</p>
+
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <img src="brand/composition.png" alt="The Garrison composition grid" data-i18n-alt="alt.comp" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.comp.h">Composition</h3><p data-i18n="run.comp.p">The whole operative on one grid: every faculty and fitting, verify hooks green before it runs.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <img src="brand/quarters.png" alt="The Quarters view over ~/.claude" data-i18n-alt="alt.quarters" loading="lazy" />
+        <figcaption class="cap"><h3 data-i18n="run.quarters.h">Quarters</h3><p data-i18n="run.quarters.p">Your real ~/.claude, every artifact by name, owned or loose, always visible.</p></figcaption>
+      </figure>
+    </div>
+
+    <p class="kicker" style="margin-top:56px" data-i18n="run.also">Also live</p>
+    <div class="plains" style="margin-top:0">
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.router.h">Orchestrator / Model Router</h3><p data-i18n="run.router.p">Classifies each task, then picks runtime, model, effort, and skill by rule: expert, standard, fast.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.improver.h">Improver</h3><p data-i18n="run.improver.p">Reads every session and consolidates overnight, as sleep consolidates a day. Skills, routing, and memory drift toward how you would have done it.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.memory.h">Memory (Obsidian)</h3><p data-i18n="run.memory.p">An Obsidian vault, graph-linked, shared across machines, runtimes, and agents.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.auto.h">Automations engine</h3><p data-i18n="run.auto.p">Scheduled and triggered jobs, cron-simple.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.voice.h">Voice</h3><p data-i18n="run.voice.p">Local or Deepgram: push-to-talk in, read-aloud out.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.vault.h">Vault</h3><p data-i18n="run.vault.p">AES-256-GCM under your keychain, scoped, never logged.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <p class="fm" data-i18n-html="foot.left">Garrison &middot; open source &middot; <a href="https://github.com/gongiskhan/agent-garrison">GitHub</a> &middot; MIT licence</p>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" class="on">EN</button>
+      <button type="button" data-lang="pt">PT</button>
+    </div>
+  </div>
+</footer>
+
+<script>
+// One dictionary, two languages. EN is the default; the choice lives in a JS
+// variable only (this file must stay a portable single page).
+var LANG = "en";
+var STRINGS = {
+  en: {
+    "hero.headword": "gar·ri·son",
+    "hero.gram": "/ˈɡarɪsən/  ·  <i>noun</i>  ·  [O.Fr. <i>garison</i>, “defence, provision”; cf. L. <i>praesidium</i>]",
+    "hero.classic": "A fortified post where a body of troops is stationed to hold and defend it.",
+    "hero.gloss": "In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed: <b>faculties</b> (capability slots) filled by swappable <b>fittings</b>, an <b>Orchestrator</b> directing, all quartered over your own Claude Code setup in the <b>Quarters</b>.",
+    "what.kicker": "01 · The base",
+    "what.line": "The structured base for your whole AI development setup.",
+    "what.diff": "Every tool, model, runtime, skill, and setting in one place, swappable in a click. Try anything new without rebuilding your workflow; assemble agent systems like Hermes or OpenClaw, reined in and transparent. Platform, CLI, and model agnostic.",
+    "who.kicker": "02 · The ranks",
+    "who.header": "Who Garrison is for.",
+    "who.dev.h": "developers",
+    "who.dev.p": "Switch models, runtimes, effort, and skills per task; build whole new profiles and flows. Experiment fast, keep the workflow you have.",
+    "who.builder.h": "builders",
+    "who.builder.p": "Assemble reliable agents from vetted parts: pick a fitting from a plain description and let the assistant wire it up.",
+    "who.user.h": "end-users",
+    "who.user.p": "Run a personal operative on your own machine: memory, scheduling, tasks, and actions. An assistant that is yours, not a black box.",
+    "orders.kicker": "03 · The charter",
+    "orders.header": "Standing Orders",
+    "orders.lede": "Ten articles the garrison follows without question.",
+    "o1.h": "Operatives are model-agnostic.",
+    "o1.p": "The Orchestrator, the operative's single entry point, routes each task to the right runtime, model, effort, and skills.",
+    "o2.h": "Operatives are secure.",
+    "o2.p": "Every fitting is a scanned, vetted APM package; secrets are Vault-sealed with AES-256-GCM and never logged.<span class=\"aside\">APM is Microsoft's package manager for agent parts: npm, but for skills, access, and memory.</span>",
+    "o3.h": "Opinionated, but completely flexible.",
+    "o3.p": "Garrison ships the defaults of daily AI development; swapping a fitting is one click.",
+    "o4.h": "Everything is transparent and observable.",
+    "o4.p": "Every action is logged and visible; every faculty, fitting, and setting carries a plain description.",
+    "o5.h": "Every fitting fulfils a faculty contract.",
+    "o5.p": "One contract lets parts in any language or runtime fill the same slot; the operative never asks how a part was built.",
+    "o6.h": "Compose, don't own.",
+    "o6.p": "Garrison arranges your real ~/.claude; it never replaces your tools or traps you in a runtime of its own.",
+    "o7.h": "Local-first. Your machine, your data, your keys.",
+    "o7.p": "Operatives run on your hardware; secrets, memory, and logs stay with you.",
+    "o8.h": "The system improves itself.",
+    "o8.p": "The Improver reads every session, sharpening your skills, routing, and memory with use.",
+    "o9.h": "Plan before you build.",
+    "o9.p": "On the Kanban Loop a plan gates every build, so nothing runs off on its own.",
+    "o10.h": "Open by default.",
+    "o10.p": "MIT-licensed, auditable end to end, no lock-in.",
+    "fit.kicker": "04 · The fittings",
+    "fit.header": "Three flagship fittings.",
+    "fit.lede": "The panels are illustrative. The bullets are what runs today.",
+    "fit.wc.name": "Web Channel",
+    "fit.wc.h": "One chat, three hats.",
+    "fit.wc.b1": "Mobile-first chat over your operative. Start a message with a name to switch hats: <b>Gary</b>, <b>Joe</b>, or <b>James</b>.",
+    "fit.wc.b2": "<b>Gary</b> is the personal assistant. Knows your memories, your work, your personal life. Manages and schedules tasks and puts it all together.",
+    "fit.wc.b3": "<b>Joe</b> is the software developer and automations expert. Works your projects folder: plans, executes, runs autonomous flows, and leaves evidence with links to videos you can watch from the phone after being away.",
+    "fit.wc.b4": "<b>James</b> is the product manager and architect. Knows your projects and products, discusses new features with you until you are satisfied, and produces the documents Joe then builds from.",
+    "fit.wc.b5": "Voice in, voice out, at no cost: local STT and TTS with silence detection. Talk to it interactively; have replies and documents read aloud.",
+    "fit.wc.b6": "Shows what is relevant, not the raw session. Drill into detail only when you want it.",
+    "fit.wc.b7": "Enable or disable parts of the flow through Orchestrator rules.",
+    "fit.kl.name": "Kanban Loop",
+    "fit.kl.h": "Autonomous development you can watch from your phone.",
+    "fit.kl.b1": "One board for everything: dev tasks, personal tasks, manual work. The visual face of the AutoThink skill that ships in the seed composition.",
+    "fit.kl.b2": "<b>Discuss</b> with James on the card and produce the brief. Or skip straight from To Do to Plan and let it run fully autonomous.",
+    "fit.kl.b3": "<b>Plan</b> uses your instincts, collected by the Improver from your sessions and memories. Over time plans come out the way you would have written them, without intervention.",
+    "fit.kl.b4": "<b>Implement</b> with evidence for everything: logs linked from the card, viewable in the interface, editable in a built-in Monaco editor, screenshots where relevant.",
+    "fit.kl.b5": "<b>Review</b> includes a security audit. Then <b>adversarial review</b>. Then automated tests, e2e tests written from them, then adversarial tests. Evidence collected at every stage, linked on the card.",
+    "fit.kl.b6": "<b>Walkthrough</b> produces videos of what was done, in the browser and over highlighted logs, verifiable end to end. Good enough to hand to someone as a demo.",
+    "fit.kl.b7": "Mobile-first. Follow development from your phone with every link and every piece of evidence. Tailscale is detected and recommended for easy access from anywhere.",
+    "fit.kl.b8": "<b>Done</b> is where you judge the work. Not good? Drag the card back to any stage. Blocked work self-heals when possible, otherwise it lands in <b>Needs Attention</b>.",
+    "fit.de.name": "Dev Env",
+    "fit.de.h": "Your sessions, your browser, your terminals. One pane of glass.",
+    "fit.de.b1": "See every Claude Code session (or other runtime) that is running. Start sessions on main or in worktrees.",
+    "fit.de.b2": "Parallel sessions do not trample each other: the seed composition's coordination tools handle it, on main or across worktrees.",
+    "fit.de.b3": "Per session, choose plain Claude Code or the Garrison Orchestrator. The model router picks effort, model, and runtime per task by rule.",
+    "fit.de.b4": "Runtimes today: Claude Code on a warm pool of PTY sessions, Agent SDK, Codex, Gemini CLI, and any runtime you add.",
+    "fit.de.b5": "A browser pane wired to the session over CDP. The session sees what you see and can drive it. No screenshots, no leaving the environment.",
+    "fit.de.b6": "Open more terminals and arrange them as panes. tmux-backed persistent sessions survive a reboot and can be revived, with full session history.",
+    "run.kicker": "05 · The state of the art",
+    "run.header": "Running today.",
+    "run.lede": "Real screenshots from a live base, not a roadmap.",
+    "run.comp.h": "Composition",
+    "run.comp.p": "The whole operative on one grid: every faculty and fitting, verify hooks green before it runs.",
+    "run.quarters.h": "Quarters",
+    "run.quarters.p": "Your real ~/.claude, every artifact by name, owned or loose, always visible.",
+    "run.also": "Also live",
+    "run.router.h": "Orchestrator / Model Router",
+    "run.router.p": "Classifies each task, then picks runtime, model, effort, and skill by rule: expert, standard, fast.",
+    "run.improver.h": "Improver",
+    "run.improver.p": "Reads every session and consolidates overnight, as sleep consolidates a day. Skills, routing, and memory drift toward how you would have done it.",
+    "run.memory.h": "Memory (Obsidian)",
+    "run.memory.p": "An Obsidian vault, graph-linked, shared across machines, runtimes, and agents.",
+    "run.auto.h": "Automations engine",
+    "run.auto.p": "Scheduled and triggered jobs, cron-simple.",
+    "run.voice.h": "Voice",
+    "run.voice.p": "Local or Deepgram: push-to-talk in, read-aloud out.",
+    "run.vault.h": "Vault",
+    "run.vault.p": "AES-256-GCM under your keychain, scoped, never logged.",
+    "meta.title": "Garrison: the structured base for your AI development setup",
+    "meta.desc": "Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code setup.",
+    "aria.lang": "Language",
+    "alt.logo": "Garrison: a wheat palisade fence on deep forest green",
+    "alt.comp": "The Garrison composition grid",
+    "alt.quarters": "The Quarters view over ~/.claude",
+    "foot.left": "Garrison · open source · <a href=\"https://github.com/gongiskhan/agent-garrison\">GitHub</a> · MIT licence"
+  },
+  pt: {
+    "hero.headword": "guar·ni·ção",
+    "hero.gram": "/ɡwɐɾniˈsɐ̃w̃/  ·  <i>substantivo</i>  ·  [do fr. ant. <i>garison</i>, “defesa, provisão”; cf. lat. <i>praesidium</i>]",
+    "hero.classic": "Posto fortificado onde uma força se encontra estacionada para o defender.",
+    "hero.gloss": "No Garrison: a base local onde os teus <b>operatives</b> (agentes de IA que configuras) ficam estacionados: <b>faculties</b> (slots de capacidade) preenchidas por <b>fittings</b> substituíveis, um <b>Orchestrator</b> a dirigir, tudo aquartelado sobre a tua configuração do Claude Code, nos <b>Quarters</b>.",
+    "what.kicker": "01 · A base",
+    "what.line": "A base estruturada para toda a tua configuração de desenvolvimento com IA.",
+    "what.diff": "Todas as ferramentas, modelos, runtimes, skills e definições num só lugar, substituíveis com um clique. Experimenta o que surge sem reconstruir o teu fluxo de trabalho; monta sistemas de agentes como o Hermes ou o OpenClaw, de rédea curta e com transparência. Agnóstico à plataforma, à CLI e ao modelo.",
+    "who.kicker": "02 · As fileiras",
+    "who.header": "Para quem é o Garrison.",
+    "who.dev.h": "programadores",
+    "who.dev.p": "Troca modelos, runtimes, esforço e skills por tarefa; constrói perfis e fluxos novos. Experimenta depressa, mantém o fluxo que já tens.",
+    "who.builder.h": "builders",
+    "who.builder.p": "Monta agentes fiáveis a partir de peças validadas: escolhe um fitting a partir de uma descrição simples e deixa o assistente ligar tudo.",
+    "who.user.h": "utilizadores finais",
+    "who.user.p": "Corre um operative pessoal na tua própria máquina: memória, agendamento, tarefas e ações. Um assistente que é teu, não uma caixa negra.",
+    "orders.kicker": "03 · O foral",
+    "orders.header": "Standing Orders",
+    "orders.lede": "Dez artigos que a guarnição segue sem questionar.",
+    "o1.h": "Os operatives são agnósticos ao modelo.",
+    "o1.p": "O Orchestrator, o ponto de entrada único do operative, encaminha cada tarefa para as skills, o modelo, o esforço e o runtime certos.",
+    "o2.h": "Os operatives são seguros.",
+    "o2.p": "Cada fitting é um pacote APM analisado e validado; os segredos são selados no Vault com AES-256-GCM e nunca registados.<span class=\"aside\">O APM é o gestor de pacotes da Microsoft para peças de agentes: npm, mas para skills, acessos e memória.</span>",
+    "o3.h": "Com opções assumidas, mas totalmente flexível.",
+    "o3.p": "O Garrison traz as escolhas por defeito do desenvolvimento diário com IA; trocar um fitting é um clique.",
+    "o4.h": "Tudo é transparente e observável.",
+    "o4.p": "Cada ação é registada e visível; cada faculty, fitting e definição traz uma descrição simples.",
+    "o5.h": "Cada fitting cumpre o contrato de uma faculty.",
+    "o5.p": "Um único contrato deixa peças em qualquer linguagem ou runtime preencher o mesmo slot; o operative nunca pergunta como uma peça foi construída.",
+    "o6.h": "Compor, não possuir.",
+    "o6.p": "O Garrison organiza o teu ~/.claude real; nunca substitui as tuas ferramentas nem te prende a um runtime próprio.",
+    "o7.h": "Local em primeiro lugar. A tua máquina, os teus dados, as tuas chaves.",
+    "o7.p": "Os operatives correm no teu hardware; os segredos, a memória e os registos ficam contigo.",
+    "o8.h": "O sistema melhora-se a si próprio.",
+    "o8.p": "O Improver lê cada sessão e afina as tuas skills, o encaminhamento e a memória com o uso.",
+    "o9.h": "Planear antes de construir.",
+    "o9.p": "No Kanban Loop, cada build passa primeiro por um plano, para que nada avance sozinho.",
+    "o10.h": "Aberto por definição.",
+    "o10.p": "Licença MIT, auditável de ponta a ponta, sem aprisionamento.",
+    "fit.kicker": "04 · Os fittings",
+    "fit.header": "Três fittings de referência.",
+    "fit.lede": "Os painéis são ilustrativos. As listas dizem o que corre hoje.",
+    "fit.wc.name": "Web Channel",
+    "fit.wc.h": "Um chat, três chapéus.",
+    "fit.wc.b1": "Chat mobile-first sobre o teu operative. Começa a mensagem com um nome para trocar de chapéu: <b>Gary</b>, <b>Joe</b> ou <b>James</b>.",
+    "fit.wc.b2": "O <b>Gary</b> é o assistente pessoal. Conhece as tuas memórias, o teu trabalho, a tua vida pessoal. Gere e agenda tarefas e junta tudo.",
+    "fit.wc.b3": "O <b>Joe</b> é o programador e especialista em automações. Trabalha a tua pasta de projetos: planeia, executa, corre fluxos autónomos e deixa provas com links para vídeos que podes ver no telemóvel quando voltares.",
+    "fit.wc.b4": "O <b>James</b> é o gestor de produto e arquiteto. Conhece os teus projetos e produtos, discute funcionalidades novas contigo até ficares satisfeito, e produz os documentos a partir dos quais o Joe constrói.",
+    "fit.wc.b5": "Entrada e saída por voz, sem custo: STT e TTS locais com deteção de silêncio. Fala com ele interativamente; ouve respostas e documentos em voz alta.",
+    "fit.wc.b6": "Mostra o que é relevante, não a sessão em bruto. Entra no detalhe só quando quiseres.",
+    "fit.wc.b7": "Ativa ou desativa partes do fluxo com regras do Orchestrator.",
+    "fit.kl.name": "Kanban Loop",
+    "fit.kl.h": "Desenvolvimento autónomo que acompanhas do telemóvel.",
+    "fit.kl.b1": "Um quadro para tudo: tarefas de dev, tarefas pessoais, trabalho manual. A face visível da skill AutoThink que vem na composição seed.",
+    "fit.kl.b2": "<b>Discuss</b>: fala com o James no cartão e produz o brief. Ou salta de To Do para Plan e deixa-o correr de forma totalmente autónoma.",
+    "fit.kl.b3": "<b>Plan</b> usa os teus instintos, recolhidos pelo Improver das tuas sessões e memórias. Com o tempo os planos saem como tu os terias escrito, sem intervenção.",
+    "fit.kl.b4": "<b>Implement</b> com provas de tudo: logs ligados ao cartão, visíveis na interface, editáveis num editor Monaco integrado, capturas de ecrã onde for relevante.",
+    "fit.kl.b5": "<b>Review</b> inclui uma auditoria de segurança. Depois <b>revisão adversarial</b>. Depois testes automatizados, testes e2e escritos a partir deles, depois testes adversariais. Provas recolhidas em cada fase, ligadas ao cartão.",
+    "fit.kl.b6": "<b>Walkthrough</b> produz vídeos do que foi feito, no browser e sobre logs realçados, verificáveis de ponta a ponta. Suficientemente bons para entregar como demo.",
+    "fit.kl.b7": "Mobile-first. Acompanha o desenvolvimento do telemóvel com todos os links e todas as provas. O Tailscale é detetado e recomendado para acesso fácil de qualquer lugar.",
+    "fit.kl.b8": "<b>Done</b> é onde julgas o trabalho. Não presta? Arrasta o cartão de volta para qualquer fase. O trabalho bloqueado cura-se sozinho quando possível; caso contrário cai em <b>Needs Attention</b>.",
+    "fit.de.name": "Dev Env",
+    "fit.de.h": "As tuas sessões, o teu browser, os teus terminais. Um só painel.",
+    "fit.de.b1": "Vê cada sessão do Claude Code (ou de outro runtime) que está a correr. Inicia sessões na main ou em worktrees.",
+    "fit.de.b2": "Sessões paralelas não se atropelam: as ferramentas de coordenação da composição seed tratam disso, na main ou entre worktrees.",
+    "fit.de.b3": "Por sessão, escolhe Claude Code simples ou o Garrison Orchestrator. O model router escolhe esforço, modelo e runtime por tarefa, por regra.",
+    "fit.de.b4": "Runtimes hoje: Claude Code numa warm pool de sessões PTY, Agent SDK, Codex, Gemini CLI, e qualquer runtime que adiciones.",
+    "fit.de.b5": "Um painel de browser ligado à sessão por CDP. A sessão vê o que tu vês e consegue controlá-lo. Sem capturas de ecrã, sem sair do ambiente.",
+    "fit.de.b6": "Abre mais terminais e organiza-os como painéis. Sessões persistentes com tmux sobrevivem a um reboot e podem ser retomadas, com o histórico completo.",
+    "run.kicker": "05 · O estado da arte",
+    "run.header": "A funcionar hoje.",
+    "run.lede": "Capturas reais de uma base em funcionamento, não um roadmap.",
+    "run.comp.h": "Composição",
+    "run.comp.p": "Todo o operative numa grelha: cada faculty e fitting, verify hooks verdes antes de arrancar.",
+    "run.quarters.h": "Quarters",
+    "run.quarters.p": "O teu ~/.claude real, cada artefacto pelo nome, gerido ou solto, sempre visível.",
+    "run.also": "Também a funcionar",
+    "run.router.h": "Orchestrator / Model Router",
+    "run.router.p": "Classifica cada tarefa e escolhe runtime, modelo, esforço e skill por regra: expert, standard, fast.",
+    "run.improver.h": "Improver",
+    "run.improver.p": "Lê cada sessão e consolida durante a noite, como o sono consolida um dia. Skills, encaminhamento e memória aproximam-se de como tu o terias feito.",
+    "run.memory.h": "Memória (Obsidian)",
+    "run.memory.p": "Um vault Obsidian, ligado em grafo, partilhado entre máquinas, runtimes e agentes.",
+    "run.auto.h": "Motor de automações",
+    "run.auto.p": "Tarefas agendadas ou acionadas por gatilhos, simples como o cron.",
+    "run.voice.h": "Voz",
+    "run.voice.p": "Local ou Deepgram: push-to-talk para falar, leitura em voz alta na resposta.",
+    "run.vault.h": "Vault",
+    "run.vault.p": "AES-256-GCM sob o teu keychain; segredos com âmbito limitado, nunca registados.",
+    "meta.title": "Garrison: a base estruturada para o teu desenvolvimento com IA",
+    "meta.desc": "O Garrison é a base local onde os teus operatives de IA ficam estacionados: faculties preenchidas por fittings substituíveis, um Orchestrator a dirigir, tudo aquartelado sobre a tua própria configuração do Claude Code.",
+    "aria.lang": "Idioma",
+    "alt.logo": "Garrison: uma paliçada de madeira clara sobre verde-floresta escuro",
+    "alt.comp": "A grelha de composição do Garrison",
+    "alt.quarters": "A vista Quarters sobre o ~/.claude",
+    "foot.left": "Garrison · código aberto · <a href=\"https://github.com/gongiskhan/agent-garrison\">GitHub</a> · licença MIT"
+  }
+};
+
+function applyLang(lang) {
+  LANG = lang;
+  document.documentElement.lang = lang === "pt" ? "pt-PT" : "en";
+  var dict = STRINGS[lang];
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n");
+    if (dict[key] != null) el.textContent = dict[key];
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-html");
+    if (dict[key] != null) el.innerHTML = dict[key];
+  });
+  document.querySelectorAll("[data-i18n-alt]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-alt");
+    if (dict[key] != null) el.setAttribute("alt", dict[key]);
+  });
+  document.title = dict["meta.title"];
+  var metaDesc = document.querySelector("meta[name='description']");
+  if (metaDesc) metaDesc.setAttribute("content", dict["meta.desc"]);
+  document.querySelectorAll(".lang").forEach(function (el) {
+    el.setAttribute("aria-label", dict["aria.lang"]);
+  });
+  document.querySelectorAll(".lang button").forEach(function (b) {
+    b.classList.toggle("on", b.getAttribute("data-lang") === lang);
+  });
+}
+document.querySelectorAll(".lang button").forEach(function (b) {
+  b.addEventListener("click", function () { applyLang(b.getAttribute("data-lang")); });
+});
+</script>
+</body>
+</html>

@@ -13,7 +13,7 @@ import { readFile, writeFile, readdir, stat, lstat, mkdir, realpath, rename, ope
 import { constants as FS } from "node:fs";
 
 const FITTING_ID = "file-browser";
-const DEFAULT_PORT = 7091;
+const DEFAULT_PORT = 27091;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -23,6 +23,9 @@ function expandHome(p) {
   return p && p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
 }
 const ROOT = path.resolve(expandHome(process.env.GARRISON_FILEBROWSER_ROOT || path.join(GARRISON_DIR, "files")));
+// First-level namespace folders seeded on boot (mkdir -p, never overwritten).
+// This is the shared artifact workspace: the Operative writes here, the user reads here.
+const NAMESPACES = ["documents", "recordings", "runs", "uploads"];
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024; // 2 MB cap for in-browser editing
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]);
@@ -150,11 +153,13 @@ async function handleReadFile(res, rel) {
   }
 }
 
-async function handleWriteFile(res, rel, content) {
+async function handleWriteFile(res, rel, content, encoding) {
   const abs = resolveInRoot(rel);
   await assertWriteInRoot(abs);
   if (typeof content !== "string") return send(res, 400, { error: "content must be a string" });
-  if (Buffer.byteLength(content, "utf8") > MAX_TEXT_BYTES) return send(res, 413, { error: "content too large" });
+  const data = encoding === "base64" ? Buffer.from(content, "base64") : content;
+  const bytes = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data, "utf8");
+  if (bytes > MAX_TEXT_BYTES) return send(res, 413, { error: "content too large" });
   const dir = path.dirname(abs);
   await mkdir(dir, { recursive: true });
   // Write to a temp file in the (realpath-validated) parent, then rename into
@@ -163,13 +168,22 @@ async function handleWriteFile(res, rel, content) {
   // write outside the root.
   const tmp = path.join(dir, `.garrison-fb-tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   try {
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, data);
     await rename(tmp, abs);
   } catch (err) {
     await unlink(tmp).catch(() => {});
     throw err;
   }
   send(res, 200, { ok: true, path: rel });
+}
+
+async function handleMkdir(res, rel) {
+  const clean = String(rel ?? "").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!clean) return send(res, 400, { error: "path required" });
+  const abs = resolveInRoot(clean);
+  await assertWriteInRoot(abs);
+  await mkdir(abs, { recursive: true });
+  send(res, 200, { ok: true, path: clean });
 }
 
 async function handle(req, res) {
@@ -190,7 +204,11 @@ async function handle(req, res) {
     if (pathname === "/api/file" && req.method === "GET") return await handleReadFile(res, url.searchParams.get("path") || "");
     if (pathname === "/api/file" && req.method === "PUT") {
       const body = await readJsonBody(req);
-      return await handleWriteFile(res, body.path, body.content);
+      return await handleWriteFile(res, body.path, body.content, body.encoding);
+    }
+    if (pathname === "/api/mkdir" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      return await handleMkdir(res, body.path);
     }
     // Static UI.
     if (req.method === "GET") {
@@ -224,33 +242,61 @@ async function writeStatusFile(port, host) {
   );
 }
 
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return Boolean(err && err.code === "EPERM");
+  }
+}
+
+// The status file is the single source of truth for the canonical instance.
+// Never steal the slot from a live sibling: leave the file (and its shutdown
+// unlink) alone when the tracked pid is alive and is not this process.
+async function claimStatusFile(port, host) {
+  try {
+    const tracked = JSON.parse(await readFile(STATUS_FILE, "utf8"));
+    const pid = Number(tracked?.pid);
+    if (pid !== process.pid && pidAlive(pid)) {
+      console.error(`[file-browser] ${STATUS_FILE} tracks live pid ${pid}; refusing to overwrite it (this instance runs untracked)`);
+      return false;
+    }
+  } catch { /* absent or unreadable status file is claimable */ }
+  await writeStatusFile(port, host);
+  return true;
+}
+
 export function createServer() {
   return http.createServer((req, res) => void handle(req, res));
 }
 
-async function findFreePort(start, host) {
-  for (let port = start; port < start + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const probe = http.createServer();
-      probe.once("error", () => resolve(false));
-      probe.once("listening", () => probe.close(() => resolve(true)));
-      probe.listen(port, host);
-    });
-    if (free) return port;
-  }
-  return start;
-}
-
 export async function startServer() {
-  const host = process.env.FILEBROWSER_UI_HOST || "127.0.0.1";
-  const desired = Number(process.env.FILEBROWSER_UI_PORT || DEFAULT_PORT);
+  const host = process.env.GARRISON_FILEBROWSER_BIND_HOST || process.env.FILEBROWSER_UI_HOST || "127.0.0.1";
+  const port = Number(process.env.GARRISON_FILEBROWSER_PORT || process.env.FILEBROWSER_UI_PORT || DEFAULT_PORT);
   await mkdir(ROOT, { recursive: true }).catch(() => {});
-  const port = await findFreePort(desired, host);
+  for (const ns of NAMESPACES) await mkdir(path.join(ROOT, ns), { recursive: true }).catch(() => {});
   const server = createServer();
-  await new Promise((resolve) => server.listen(port, host, resolve));
-  await writeStatusFile(port, host);
+  // Bind the configured port only - no auto-shift. A busy port is a lifecycle
+  // conflict the runner must surface, not a signal to silently split brain.
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+  } catch (err) {
+    if (err && err.code === "EADDRINUSE") {
+      throw new Error(`port ${port} is already in use; refusing to auto-shift (free the port or change FILEBROWSER_UI_PORT)`);
+    }
+    throw err;
+  }
+  const ownsStatusFile = await claimStatusFile(port, host);
   const shutdown = async () => {
-    try { await unlink(STATUS_FILE); } catch {}
+    if (ownsStatusFile) { try { await unlink(STATUS_FILE); } catch {} }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000);
   };

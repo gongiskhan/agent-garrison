@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Source_Serif_4, JetBrains_Mono } from "next/font/google";
+import { Barlow, Source_Serif_4, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/chrome/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/chrome/ServiceWorkerRegistrar";
 
-const inter = Inter({
+const barlow = Barlow({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
@@ -35,6 +35,11 @@ export const metadata: Metadata = {
     title: "Garrison",
     statusBarStyle: "black-translucent"
   },
+  other: {
+    // `appleWebApp.capable` only emits the apple-prefixed tag; Chrome warns
+    // that it is deprecated in favour of the standard name and wants both.
+    "mobile-web-app-capable": "yes"
+  },
   icons: {
     icon: [
       { url: "/icons/icon.svg", type: "image/svg+xml" },
@@ -48,7 +53,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1f3026",
+  themeColor: "#172019",
   width: "device-width",
   initialScale: 1
 };
@@ -57,7 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${sourceSerif.variable} ${jetBrainsMono.variable}`}
+      className={`${barlow.variable} ${sourceSerif.variable} ${jetBrainsMono.variable}`}
     >
       <body>
         <AppShell>{children}</AppShell>

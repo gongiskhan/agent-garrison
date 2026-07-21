@@ -45,7 +45,7 @@ export default function DocumentRead({ params }: FittingViewProps) {
           <div style={{ fontSize: 20, fontWeight: 600 }}>
             {doc.meta.title || doc.meta.filename}
           </div>
-          <div className="font-mono" style={{ fontSize: 11, color: "var(--mute)" }}>
+          <div className="font-mono" style={{ fontSize: 11, color: "var(--ink-mute)" }}>
             updated {formatTime(doc.meta.updated ?? doc.meta.created)}
           </div>
         </div>

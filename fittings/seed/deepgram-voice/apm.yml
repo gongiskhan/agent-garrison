@@ -1,6 +1,6 @@
 name: deepgram-voice
 version: 0.1.0
-description: Voice Fitting (channels role, own-port). Stand-alone server on port 7085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
+description: Voice Fitting (channels role, own-port). Stand-alone server on port 27085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
 target: claude
 type: hybrid
 includes: auto
@@ -8,7 +8,7 @@ x-garrison:
   faculty: connectors
   cardinality_hint: single
   own_port: true
-  default_port: 7085
+  default_port: 27085
   component_shape: plugin
   platforms:
     - all
@@ -16,8 +16,8 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7085
-      description: HTTP port the voice server binds to. Falls back to the next free port if busy.
+      default: 27085
+      description: HTTP port the voice server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
       default: 127.0.0.1
@@ -86,5 +86,20 @@ x-garrison:
                                              pass 1000-20000 to override). utterance_end
                                              fires after that much silence — use it to
                                              auto-finalize/send hands-free.
+      WS   /tts-stream?sample_rate=<n>     - streaming read-aloud (Aura-2). Send text
+                                             token-by-token so audio starts before the
+                                             full reply exists. Send JSON control frames:
+                                             {type:"speak", text} | {type:"flush"}
+                                             | {type:"clear"} (barge-in) | {type:"close"}.
+                                             Receive: {type:"ready", sampleRate} then raw
+                                             linear16 PCM audio as BINARY frames, plus
+                                             {type:"flushed"} | {type:"cleared"}
+                                             | {type:"metadata", data} | {type:"error"}.
+                                             sample_rate = output PCM rate in Hz
+                                             (8000-48000; defaults to 24000, Aura-2 native).
     The Deepgram API key stays on the host (read from the vault as DEEPGRAM_API_KEY);
-    callers never see it. When the key is missing, /stt and /tts return HTTP 503.
+    callers never see it. When the key is missing, /stt, /tts, and the /stream +
+    /tts-stream WebSockets all refuse (HTTP 503 / an {type:"error"} frame then close).
+    Per-stage latency is logged as JSON lines (evt:"voice-latency") on stdout:
+    stage audio_in / first_interim / utterance_end (STT) and tts_text_in /
+    tts_first_audio (TTS), each with a session id and epoch-ms ts.

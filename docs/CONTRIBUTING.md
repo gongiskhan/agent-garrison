@@ -6,9 +6,10 @@ The Honesty Test (§3) is the single most useful gate.
 ## What we want most
 
 A new **Fitting** that fills a Faculty slot for a real Claude Code use
-case is the most valuable contribution. The Garrison repo itself ships
-only the six seed Fittings; everything else lives in its own repo and
-is listed in the Fittings Registry.
+case is the most valuable contribution. The Garrison repo ships a large
+set of seed Fittings under `fittings/seed/` (~62 as of 2026-07); new
+Fittings should live in their own repo and be listed in the Fittings
+Registry rather than added to the seed tree.
 
 A Fitting is a directory containing:
 

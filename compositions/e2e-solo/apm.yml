@@ -1,0 +1,25 @@
+name: e2e-solo
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/claude-code-runtime
+x-garrison:
+  composition:
+    id: e2e-solo
+    name: E2E solo-runtime fixture
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 10
+        max_spend_per_day: 250
+        max_tool_calls_per_tick: 300
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      runtimes:
+        - id: claude-code-runtime
+          config: {}

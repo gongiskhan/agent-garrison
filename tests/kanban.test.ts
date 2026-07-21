@@ -1,4 +1,17 @@
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
+
 import { mkdtempSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +20,9 @@ import { ulid } from "../fittings/seed/kanban-loop/lib/ulid.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, saveCard, saveCardCAS, deriveMembership, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { parseNextList, buildCardPrompt, classificationFor, processCard, processBatch, getList, validNextFor, triggerFor, isInteractive, mintRunFields, resolveBacklogInference, groupCardsByProject, parseBatchVerdicts } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { parseNextList, buildCardPrompt, classificationFor, processCard, processBatch, getList, validNextFor, triggerFor, isInteractive, mintRunFields, resolveBacklogInference, groupCardsByProject, parseBatchVerdicts, routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+// @ts-ignore — pure .mjs
+import { routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
@@ -15,14 +30,14 @@ const board = {
   version: 2,
   lists: [
     {
-      id: "implement", title: "Implement", kind: "agent", trigger: "immediate", skill: "autothing-implement",
+      id: "implement", title: "Implement", kind: "agent", trigger: "immediate", skill: "garrison-implement",
       taskType: "code", tier: "T2-deep", executePrompt: "Implement it.", routerPrompt: "Choose next.",
       validNext: ["review"]
     },
     { id: "review", title: "Review", kind: "agent", trigger: "immediate", validNext: ["adversarial-review", "implement"] },
     { id: "todo", title: "To Do", kind: "manual", trigger: "manual", validNext: ["implement"] },
     {
-      id: "test", title: "Test", kind: "agent", trigger: "scheduler-beat", batched: true, skill: "autothing-test",
+      id: "test", title: "Test", kind: "agent", trigger: "scheduler-beat", batched: true, skill: "garrison-test",
       taskType: "code", tier: "T1-standard",
       executePrompt: "Test it.", routerPrompt: "verdict per card.",
       validNext: ["adversarial-test", "implement"]
@@ -88,6 +103,31 @@ describe("kanban CAS (s5 cross-model gate — lost-update guard)", () => {
     expect((await loadCard(root, c.id)).title).toBe("A");
   });
 
+  it("a stale-echo reply (route token for a DIFFERENT target) reverts like transport, never parks", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    // The gateway resolved opus for this turn, but the reply text carries the
+    // PREVIOUS turn's [route: fable] - the PTY extraction wedge. Must revert
+    // the acquire (retriable) instead of parking for missing gate evidence.
+    const runFn = async () => ({
+      reply: "Plan complete blah\n[route: fable | rule: duty:plan/L1 | profile: balanced]\n\nreview",
+      route: { targetId: "opus", runtime: "claude-code", model: "claude-opus-4.8", tier: "T1-standard" }
+    });
+    const { card: after, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
+    expect(outcome.status).toBe("deferred");
+    expect(after.list).toBe("implement");
+    expect(after.status).not.toBe("needs-attention");
+    expect(after.iterations).toBe(0); // un-consumed, retries next tick
+    expect(after.lastDispatchError?.message).toMatch(/stale reply echo/);
+    // An HONORED reply (token matches the resolved target) still advances.
+    const okFn = async () => ({
+      reply: "Implemented.\n[route: opus | rule: duty:implement/L1 | profile: balanced]\n\nreview",
+      route: { targetId: "opus", runtime: "claude-code", model: "claude-opus-4.8", tier: "T1-standard" }
+    });
+    const again = await processCard({ root, board, card: after, runFn: okFn, cap: 10 });
+    expect(again.card.list).toBe("review");
+  });
+
   it("processCard increments rev and a re-run with the STALE card skips on conflict", async () => {
     const root = tmp();
     const card = await createCard(root, { title: "T", list: "implement" });
@@ -130,7 +170,7 @@ describe("kanban CAS (s5 cross-model gate — lost-update guard)", () => {
     expect(skipped.length).toBe(1);
     const disk = await loadCard(root, card.id);
     expect(typeof disk.runId).toBe("string");
-    expect(disk.runDir).toBe(`docs/autothing/runs/${disk.runId}`);
+    expect(disk.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", disk.runId)); // S6: absolute, evidence home
     expect(disk.iterations).toBe(1); // ran once, not twice
   });
 });
@@ -144,14 +184,46 @@ describe("kanban engine — parse + prompt + classification", () => {
     expect(parseNextList("", ["review"])).toBeNull();
   });
 
-  it("buildCardPrompt: goal-mode prepends /goal + acceptance and injects validNext ids", () => {
+  it("buildCardPrompt: goal-mode leads with runtime-neutral acceptance and injects validNext ids", () => {
     const list = getList(board, "implement");
     const vn = validNextFor(board, "implement");
     const g = buildCardPrompt({ list, card: { goalMode: true, acceptance: "ACC" }, validNext: vn });
-    expect(g.startsWith("/goal ACC")).toBe(true);
+    expect(g.startsWith("# Goal acceptance (bounded by the card iteration cap)\nACC")).toBe(true);
+    expect(g).not.toContain("/goal");
     expect(g).toContain("review");
     expect(g).toContain("Implement it.");
-    expect(buildCardPrompt({ list, card: { goalMode: false }, validNext: vn })).not.toContain("/goal");
+    expect(buildCardPrompt({ list, card: { goalMode: false }, validNext: vn })).not.toContain("Goal acceptance");
+  });
+
+  it("buildCardPrompt: a >4,000-character goal-mode phase remains a normal routed prompt", () => {
+    const list = getList(seedBoard(), "plan");
+    const acceptance = "machine-checkable acceptance ".repeat(180);
+    const runDir = "/tmp/garrison-runs/01LONGGOALPROMPT";
+    const prompt = buildCardPrompt({
+      list,
+      card: {
+        id: "01LONGGOALCARD000000000000",
+        runId: "01LONGGOALRUN0000000000000",
+        runDir,
+        title: "Plan a bounded feature",
+        project: "example-project",
+        description: "Keep the normal phase, gate, and coordination contract.",
+        goalMode: true,
+        acceptance
+      },
+      validNext: ["implement"],
+      skill: "garrison-plan",
+      phase: "plan",
+      coordinationEnabled: true
+    });
+
+    expect(prompt.length).toBeGreaterThan(4_000);
+    expect(prompt.startsWith("# Goal acceptance (bounded by the card iteration cap)\n")).toBe(true);
+    expect(prompt).not.toContain("/goal");
+    expect(prompt).toContain(`Run directory (write all per-run artifacts here): ${runDir}`);
+    expect(prompt).toContain(`${runDir}/gate-status.plan.json`);
+    expect(prompt).toContain(`${runDir}/touch-set.json`);
+    expect(prompt).toContain("EXACTLY one of: implement");
   });
 
   it("buildCardPrompt threads the card's runDir + sliceId into the prompt as literal text (FINDING 4/10)", () => {
@@ -165,9 +237,9 @@ describe("kanban engine — parse + prompt + classification", () => {
     expect(buildCardPrompt({ list, card: {}, validNext: vn })).not.toContain("Run directory");
   });
 
-  it("classificationFor returns the list's explicit {taskType,tier} (§10)", () => {
-    expect(classificationFor(getList(board, "implement"))).toEqual({ taskType: "code", tier: "T2-deep" });
-    expect(classificationFor(getList(board, "review"))).toEqual({ taskType: "other", tier: "T1-standard" });
+  it("classificationFor derives from the list's PHASE (D15 — per-list pins are dead)", () => {
+    expect(classificationFor(getList(board, "implement"))).toEqual({ taskType: "implement", tier: "T1-standard" });
+    expect(classificationFor(getList(board, "review"))).toEqual({ taskType: "review", tier: "T1-standard" });
   });
 });
 
@@ -188,7 +260,7 @@ describe("kanban engine — triggers + runId minting", () => {
   it("mintRunFields mints once (idempotent) with a project-relative runDir", () => {
     const m = mintRunFields({ runId: null, runDir: null }, () => 1234);
     expect(m.runId).toHaveLength(26);
-    expect(m.runDir).toBe(`docs/autothing/runs/${m.runId}`);
+    expect(m.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", m.runId)); // S6: absolute
     // already minted → null (no re-mint)
     expect(mintRunFields({ runId: "X", runDir: "docs/autothing/runs/X" })).toBeNull();
   });
@@ -201,7 +273,7 @@ describe("kanban engine — triggers + runId minting", () => {
     const { card: updated, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
     expect(outcome.status).toBe("moved");
     expect(updated.runId).toHaveLength(26);
-    expect(updated.runDir).toBe(`docs/autothing/runs/${updated.runId}`);
+    expect(updated.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", updated.runId));
     // the runDir reached the execute-prompt as literal text
     expect(seen).toContain(updated.runDir);
     // a second entry does NOT re-mint
@@ -275,6 +347,70 @@ describe("kanban engine — transitions (FINDING 5)", () => {
     const manual = await createCard(root, { title: "M", list: "todo" });
     const skipped = await processCard({ root, board, card: manual, runFn: async () => ({ reply: "implement" }) });
     expect(skipped.outcome.status).toBe("skipped");
+  });
+
+  it("stamps per-phase route attribution onto the routed event when the gateway reports a route", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    // A fake runFn returning the SAME { reply, route } shape gatewayRunFn now returns
+    // (route folded from the gateway's `done` event by routeFromDone).
+    const runFn = async () => ({
+      reply: "wrote code\nreview",
+      route: { targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", effort: "high", effortApplied: true, taskType: "code", tier: "T2-deep", ruleId: "r1", profile: "p", honored: true }
+    });
+    const { card: updated, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
+    expect(outcome.status).toBe("moved");
+    const routed = (updated.events ?? []).filter((e: any) => e.kind === "routed").pop();
+    expect(routed).toBeTruthy();
+    // The route object carries the requested/applied effort evidence alongside
+    // the {targetId, runtime, provider, model, tier} stamp
+    // (+ the engine's own phase name for the card-front chip).
+    expect(routed.route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", phase: "implement" });
+    // The human message carries the compact "· runtime/model (tier · effort)"
+    // suffix from the updated route attribution.
+    expect(routed.message).toContain("· claude-code/opus (T2-deep · high)");
+  });
+
+  it("adds NO route to the routed event in souls mode (runFn returns no route)", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "T", list: "implement" });
+    // Souls mode: gatewayRunFn returns { reply, route: null } — never a stamp, never noise.
+    const runFn = async () => ({ reply: "wrote code\nreview", route: null });
+    const { card: updated } = await processCard({ root, board, card, runFn, cap: 10 });
+    const routed = (updated.events ?? []).filter((e: any) => e.kind === "routed").pop();
+    expect(routed).toBeTruthy();
+    expect(routed.route).toBeUndefined();
+    expect(routed.message).not.toContain("·");
+  });
+});
+
+describe("kanban route attribution — routeStamp / routeFromDone (per-phase D-attrib)", () => {
+  it("routeFromDone folds a routed `done` payload; null in souls mode", () => {
+    expect(routeFromDone({ reply: "x" })).toBeNull();
+    expect(routeFromDone(null)).toBeNull();
+    const r = routeFromDone({ reply: "x", route: "claude-code", runtime: "claude-code", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", honored: true });
+    expect(r).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", honored: true });
+    // Requested-vs-applied truth must retain false (unsupported), never coerce it
+    // to null/true while crossing the SSE boundary.
+    expect(routeFromDone({ route: "gemini", effort: "high", effortApplied: false })).toMatchObject({
+      targetId: "gemini",
+      effort: "high",
+      effortApplied: false,
+    });
+  });
+
+  it("routeStamp builds the compact stamp + human suffix, and no-ops on empty metadata", () => {
+    const { route, suffix } = routeStamp({ targetId: "claude-code", runtime: "claude-code", provider: "anthropic", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep" }, "plan");
+    expect(route).toMatchObject({ targetId: "claude-code", runtime: "claude-code", model: "opus", effort: "high", effortApplied: true, tier: "T2-deep", phase: "plan" });
+    expect(suffix).toBe(" · claude-code/opus (T2-deep · high)");
+    expect(routeStamp({ targetId: "gemini", runtime: "gemini", effort: "high", effortApplied: false }, "image").route).toMatchObject({
+      effort: "high",
+      effortApplied: false,
+      phase: "image",
+    });
+    // No metadata → no stamp, no suffix (never fail a run for want of attribution).
+    expect(routeStamp(null, "plan")).toEqual({ route: null, suffix: "" });
+    expect(routeStamp({ targetId: null, runtime: null, provider: null, model: null, tier: null }, "plan")).toEqual({ route: null, suffix: "" });
   });
 });
 
@@ -389,6 +525,41 @@ describe("kanban engine — Test batching (FINDING 7)", () => {
     expect(byId[ok.id].status).toBe("needs-attention");
     expect(byId[ok.id].reason).toBe("no-exact-match");
   });
+
+  it("processBatch DEFERS (reverts acquires) on a transport failure instead of parking the group", async () => {
+    const root = tmp();
+    const a = await createCard(root, { title: "A", list: "test", project: "p1" });
+    const batchRunFn = async () => {
+      const err: any = new Error("gateway unreachable: fetch failed");
+      err.transport = true;
+      throw err;
+    };
+    const all = await loadAllCards(root);
+    const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10 });
+    expect(outcomes[0].status).toBe("deferred");
+    expect(outcomes[0].reason).toBe("gateway-unavailable");
+    const after = await loadCard(root, a.id);
+    expect(after.list).toBe("test"); // left in place
+    expect(after.status).toBe(a.status ?? "ok"); // acquire reverted
+    expect(after.iterations).toBe(a.iterations || 0); // iteration un-consumed
+    expect(after.lastDispatchError?.reason).toBe("gateway-unavailable");
+  });
+
+  it("processBatch nudges ONCE when the batch reply has zero verdicts, then advances on the nudge's lines", async () => {
+    const root = tmp();
+    const a = await createCard(root, { title: "A", list: "test", project: "p1" });
+    const calls: string[] = [];
+    const batchRunFn = async ({ cards, nudge }: { cards: any[]; nudge?: string }) => {
+      calls.push(nudge ? "nudge" : "batch");
+      if (!nudge) return { reply: "All green, wrapping up the batch now." }; // narration, no verdict lines
+      return { reply: cards.map((x) => `${x.id} adversarial-test`).join("\n") };
+    };
+    const all = await loadAllCards(root);
+    const { outcomes } = await processBatch({ root, board, listId: "test", cards: all, batchRunFn, cap: 10 });
+    expect(calls).toEqual(["batch", "nudge"]);
+    expect(outcomes[0].to).toBe("adversarial-test");
+    expect((await loadCard(root, a.id)).list).toBe("adversarial-test");
+  });
 });
 
 describe("kanban seed board (FINDING 2 — full pipeline)", () => {
@@ -411,33 +582,24 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     expect(triggerFor(byId.backlog)).toBe("manual");
   });
 
-  it("each agent list has the right skill, classification, and validNext (the authoritative table)", () => {
-    expect(classificationFor(byId.plan)).toEqual({ taskType: "code", tier: "T2-deep" });
-    expect(byId.plan.skill).toBe("autothing-plan");
+  it("each agent list maps to a PHASE and validNext only (D15 — no per-list pins)", () => {
+    // The list IS the phase; skill/model/effort resolve from the compiled policy.
+    for (const id of ["plan", "implement", "review", "adversarial-review", "test", "adversarial-test", "walkthrough", "validate"]) {
+      expect(byId[id].phase).toBe(id);
+      expect(byId[id].skill).toBeUndefined();
+      expect(byId[id].taskType).toBeUndefined();
+      expect(byId[id].tier).toBeUndefined();
+      expect(byId[id].mode).toBeUndefined();
+    }
+    expect(classificationFor(byId.plan)).toEqual({ taskType: "plan", tier: "T1-standard" });
     expect(byId.plan.validNext).toEqual(["implement"]);
-
-    expect(byId.implement.skill).toBe("autothing-implement");
     expect(byId.implement.validNext).toEqual(["review"]);
-
-    expect(byId.review.skill).toBe("autothing-review");
-    expect(classificationFor(byId.review)).toEqual({ taskType: "review", tier: "T1-standard" });
     expect(byId.review.validNext).toEqual(["adversarial-review", "implement"]);
-
-    expect(byId["adversarial-review"].skill).toBe("autothing-adversarial-review");
     expect(byId["adversarial-review"].validNext).toEqual(["test", "implement"]);
-
-    expect(byId.test.skill).toBe("autothing-test");
     expect(byId.test.batched).toBe(true);
     expect(byId.test.validNext).toEqual(["adversarial-test", "implement"]);
-
-    expect(byId["adversarial-test"].skill).toBe("autothing-adversarial-test");
     expect(byId["adversarial-test"].validNext).toEqual(["walkthrough", "implement"]);
-
-    expect(byId.walkthrough.skill).toBe("autothing-walkthrough");
     expect(byId.walkthrough.validNext).toEqual(["validate", "implement"]);
-
-    expect(byId.validate.skill).toBe("autothing-validate");
-    expect(classificationFor(byId.validate)).toEqual({ taskType: "ops", tier: "T1-standard" });
     expect(byId.validate.validNext).toEqual(["done", "implement"]);
   });
 
@@ -446,7 +608,8 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     expect(byId.todo.validNext).toEqual(["discuss", "plan"]);
     expect(byId.discuss.kind).toBe("agent-interactive");
     expect(isInteractive(byId.discuss)).toBe(true);
-    expect(byId.discuss.mode).toBe("james");
+    // D15: per-list mode is dead — the gateway resolves the face.
+    expect(byId.discuss.mode).toBeUndefined();
     expect(byId.discuss.validNext).toEqual(["plan"]);
     expect(byId.done.terminal).toBe(true);
     expect(byId.done.validNext).toEqual([]);
@@ -480,8 +643,8 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "kanban-pipe-cwd-"));
     const runFn = async ({ card: c }: { card: any }) => {
       if (c.list === "walkthrough") {
-        mkdirSync(join(cwd, c.runDir, "evidence"), { recursive: true });
-        writeFileSync(join(cwd, c.runDir, "evidence", "evidence.md"), "# evidence\nstub\n");
+        mkdirSync(join(c.runDir, "evidence"), { recursive: true }); // S6: runDir absolute
+        writeFileSync(join(c.runDir, "evidence", "evidence.md"), "# evidence\nstub\n");
       }
       return { reply: passReply[c.list] };
     };

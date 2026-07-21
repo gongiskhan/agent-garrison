@@ -9,7 +9,7 @@
 // browser the HTTPS tailnet URL when reached over Tailscale.
 //
 // Idempotent: skips any local port already served. Deterministic serve port =
-// 8400 + (localPort % 1000) (e.g. 7086 -> 8486), bumped on collision.
+// 8400 + (localPort % 1000) (e.g. 27086 -> 8486), bumped on collision.
 //
 // Usage:  node scripts/tailnet-serve-views.mjs [--dry-run]
 
@@ -67,7 +67,8 @@ function existingMappings(status) {
 }
 
 function ownPortViews() {
-  const dir = path.join(os.homedir(), ".garrison", "ui-fittings");
+  const garrisonHome = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+  const dir = path.join(garrisonHome, "ui-fittings");
   let files = [];
   try {
     files = readdirSync(dir).filter((n) => n.endsWith(".json") && !n.includes(path.sep));
@@ -92,6 +93,11 @@ function ownPortViews() {
     .sort((a, b) => a.port - b.port);
 }
 
+// Serve port = 8400 + (localPort mod 1000). Note this deliberately IGNORES the
+// profile offset, so prod's 8086 and dev's 7086 would both want 8486 — they
+// alias by construction. That is safe only because the tailnet fronts PROD
+// ALONE (see the guard in main()): the always-on address must never resolve to
+// a dev server, or an in-progress edit takes the tailnet down.
 function pickServePort(localPort, used) {
   let p = 8400 + (localPort % 1000);
   while (used.has(p) || p === 8443 || p === 8444 || p === 8445 || p === 443) p += 1;
@@ -99,6 +105,20 @@ function pickServePort(localPort, used) {
 }
 
 function main() {
+  // HARD RULE: only the prod instance is exposed on the tailnet. Running this
+  // from a dev/codex shell would map THAT instance's ports onto the always-on
+  // address and silently hand tailnet users a dev server.
+  const profile = (process.env.GARRISON_INSTANCE_ID || "").trim();
+  if (profile && profile !== "prod" && !process.argv.includes("--force")) {
+    console.error(
+      `Refusing to publish the '${profile}' instance to the tailnet — only prod is served.\n` +
+        `Run this from a prod shell:  bash scripts/garrison-instance.sh prod env\n` +
+        `(override with --force only if you know why)`
+    );
+    process.exitCode = 2;
+    return;
+  }
+
   const status = serveStatus();
   const { byLocal, usedServePorts } = existingMappings(status);
   const views = ownPortViews();

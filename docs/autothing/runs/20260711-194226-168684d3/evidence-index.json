@@ -1,0 +1,157 @@
+{
+ "runId": "20260711-194226-168684d3",
+ "brief": "GARRISON-RUNTIMES-V1",
+ "profile": "build",
+ "gatesConfig": {
+  "test": true,
+  "adversarialReview": true,
+  "adversarialTest": true,
+  "codexSliceReview": true,
+  "design": true,
+  "walkthrough": true,
+  "deliberateRed": true,
+  "mutation": true,
+  "report": true,
+  "foundation": true,
+  "codexCheckpoint": true,
+  "askQuestions": false
+ },
+ "slices": {
+  "S1-claude-code-runtime-fitting": {
+   "status": "passed",
+   "kind": "api",
+   "sentinel": "RUNTIME-CC-FIT-OK",
+   "commits": [
+    "ea871d7",
+    "fa7e46c"
+   ],
+   "cast": "slices/S1/s1-gates.cast"
+  },
+  "S2-providers-policy": {
+   "status": "passed",
+   "kind": "api",
+   "sentinel": "PROVIDERS-POLICY-OK",
+   "commits": [
+    "c79627d",
+    "7e19e34",
+    "ef59f8e"
+   ],
+   "cast": "slices/S2/s2-gates.cast"
+  },
+  "S3-primary-select-composer": {
+   "status": "passed",
+   "kind": "mixed",
+   "sentinel": "PRIMARY-SELECT-OK",
+   "commits": [
+    "ef59f8e",
+    "ec6e30d",
+    "3732dfe",
+    "9cac6dc",
+    "39e8427",
+    "0b1640b"
+   ],
+   "video": "slices/S3/evidence/s3-walkthrough.mp4",
+   "videoSha256": "3c9b5a573d06d8199af256e0bcd6f319b053edb15c2c249cb116c8094fbf757c",
+   "videoBytes": 1641514,
+   "galleryUrl": "http://100.88.165.46:8099/"
+  },
+  "S4-gateway-primary": {
+   "status": "passed",
+   "kind": "api",
+   "sentinel": "PRIMARY-WIRED-OK",
+   "commits": [
+    "dba7857",
+    "e987666",
+    "fbf5d09",
+    "17d0aa8"
+   ],
+   "cast": "slices/S4/s4-gates.cast"
+  },
+  "S5-quarters-descriptor": {
+   "status": "passed",
+   "kind": "mixed",
+   "sentinel": "QUARTERS-DESCRIPTOR-OK",
+   "commits": [
+    "64df023",
+    "549340f",
+    "184cac0",
+    "eff8393"
+   ],
+   "video": "(shared) runtimes-v1/2026-07-11_23-00-01/final.mp4",
+   "videoSha256": "bd8ac85fefe19abff3f0e4af05f23831200e2ee39bac4904adffe9ec466fd581",
+   "videoBytes": 1924721
+  },
+  "S6-codex-gemini-descriptors": {
+   "status": "passed",
+   "kind": "api",
+   "sentinel": "QUARTERS-CODEX-GEMINI-OK",
+   "commits": [
+    "0fcf2a0"
+   ],
+   "note": "manifests+tests landed; render-verify pends S5 generic tier"
+  },
+  "S7-quarters-sections": {
+   "status": "passed",
+   "kind": "ui",
+   "sentinel": "QUARTERS-SECTIONS-OK",
+   "commits": [
+    "1d60a68",
+    "9872333 (review round)",
+    "9c72a34"
+   ],
+   "videoSha256": "bd8ac85fefe19abff3f0e4af05f23831200e2ee39bac4904adffe9ec466fd581",
+   "videoBytes": 1924721
+  },
+  "S8-projection-per-primary": {
+   "status": "passed",
+   "kind": "api",
+   "sentinel": "PROJECTION-PRIMARY-OK",
+   "commits": [
+    "3c9d625",
+    "184cac0",
+    "273168a",
+    "9872333 (review round)"
+   ]
+  }
+ },
+ "globalGate": {
+  "status": "passed",
+  "decidedAt": "2026-07-11T22:18:32Z",
+  "profile": "build",
+  "buildableRemaining": 0,
+  "videos": "2/2 verified",
+  "gatesDisabled": "none",
+  "modelFallbacks": 0,
+  "securityReview": "clean (built-in, direct-read; identification sub-task hung \u2014 session agent-notification anomaly)",
+  "codexCheckpoint": "clean (gpt-5.5 high, run-level, 0 findings)",
+  "runLevel": {
+   "deliberateRed": "passed",
+   "mutation": "8/8 killed",
+   "batchedApiAdvtest": "pass 23/23",
+   "build": "passed (isolated)"
+  },
+  "summary": "All 8 slices passed full-bar. Runtime agnosticism shipped: claude-code-runtime Fitting + providers-as-policy + selectable primaryRuntime + descriptor-driven Quarters, with the Claude Code deep surface unchanged. tsc 0, lint 0, 1972 tests pass, both run-level security passes clean.",
+  "landing": "LANDING.md",
+  "runLog": "../../RUN_LOG.md"
+ },
+ "runLog": "../../RUN_LOG.md",
+ "runSpec": "RUN_SPEC.md",
+ "runLevel": {
+  "deliberateRed": {
+   "status": "passed",
+   "detail": "containment guard neutered -> exactly its 2 tests red -> restored green"
+  },
+  "mutation": {
+   "status": "passed",
+   "detail": "8/8 hand-authored mutants killed, 0 survivors"
+  },
+  "batchedApiAdversarialTest": {
+   "verdict": "pass",
+   "detail": "4 surfaces, 23/23 probes (advtest-api)"
+  },
+  "build": {
+   "status": "passed",
+   "detail": "isolated hardlink-clone next build green"
+  }
+ }
+}

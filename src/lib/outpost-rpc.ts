@@ -1,7 +1,14 @@
 import { homedir } from "node:os";
 import path from "node:path";
 
-export const OUTPOST_HOST = "http://127.0.0.1:3702";
+// Profile-shifted like every other port (dev 3702 / prod 4702 / codex 23702).
+// This was a hardcoded 23702 with no env override, so the prod and dev apps
+// both issued their outpost RPCs at the CODEX outpost host. The Python helpers
+// (outpost-actions, vault-sync) already derived this from GARRISON_OUTPOST_PORT;
+// this is the TS side catching up.
+export const OUTPOST_HOST = `http://127.0.0.1:${
+  process.env.GARRISON_OUTPOST_PORT?.trim() || String(3702 + Number(process.env.GARRISON_PORT_OFFSET ?? 0))
+}`;
 
 export function expandHome(p: string): string {
   if (p.startsWith("~/") || p === "~") return path.join(homedir(), p.slice(2));

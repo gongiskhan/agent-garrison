@@ -20,7 +20,8 @@ export function projectDirForCwd(cwd) {
 }
 
 export function jsonlPath(cwd, sessionId) {
-  return path.join(os.homedir(), ".claude", "projects", projectDirForCwd(cwd), `${sessionId}.jsonl`);
+  const claudeHome = process.env.GARRISON_CLAUDE_HOME || path.join(os.homedir(), ".claude");
+  return path.join(claudeHome, "projects", projectDirForCwd(cwd), `${sessionId}.jsonl`);
 }
 
 export class JsonlWatcher {

@@ -1,0 +1,44 @@
+{
+  "slice": "model-coherence",
+  "title": "Faculty/fitting/capability model + terminology coherence (code, docs, seed metadata, LICENSE)",
+  "updatedAt": "2026-07-02T00:18:00+01:00",
+  "phase": "done",
+  "status": "passed",
+  "kind": "mixed",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run", "exit": 0, "at": "2026-07-02T00:00:00+01:00", "summary": "1410 passed / 12 skipped, incl. new tests/model-docs-parity.test.ts (7 tests); fixed a real SIGTERM startup race in scheduler.mjs surfaced by suite flake (3x stable after fix)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-07-02T00:00:00+01:00", "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "at": "2026-07-01T23:46:00+01:00", "summary": "clean" },
+    "build": { "cmd": "NEXT_DIST_DIR=.next-build npx next build", "exit": 0, "at": "2026-07-01T23:48:00+01:00", "summary": "isolated dist dir; BUILD_ID present; live dev server untouched" },
+    "review": { "verdict": "findings-fixed", "by": "claude inline (agent fan-out declined by operator this session)", "at": "2026-07-01T23:55:00+01:00", "summary": "1 finding fixed (em dash in newly-authored connector prose, user convention); scheduler fix + parity test verified sound; no code consumes the restructured docs" },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "low",
+      "at": "2026-07-02T00:02:00+01:00",
+      "lastReport": "docs/autothing/runs/20260701-225923-9ece946d/slices/model-coherence-codex-review-r2.json",
+      "overrides": [],
+      "notes": "Round 1: 3 findings. (2) CLAUDE.md testing-framework->skills alias claim - REAL, fixed. (3) METADATA.md 'still accepted as deprecation aliases' note on classifier/agent-skill - REAL, fixed. (1) 'test does not enforce exact parity' - partially applied: FACULTY_ALIASES exported + alias-invariant and parked-id-claim assertions added; exact-set prose parity rebutted as brittle, containment already enforced by tests/docs-consistency.test.ts. Round 2: clean approve."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-07-02T00:05:00+01:00",
+      "report": "docs/autothing/runs/20260701-225923-9ece946d/slices/model-coherence-codex-pwtest.json",
+      "notes": "Non-UI slice: Codex independently extracted facultyIds/capabilityKinds/FACULTY_ALIASES via its own node script, cross-checked all four docs, verified MIT LICENSE + package.json, ran the parity test (exit 0), and confirmed the SIGTERM handler ordering. All acceptance points held."
+    },
+    "designAudit": { "verdict": "skipped", "reason": "non-UI slice (docs + server-side handler reorder)" },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-07-02T00:15:00+01:00",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/coherence/2026-07-02_00-06-03/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/coherence/2026-07-02_00-06-03"
+    }
+  },
+  "blockers": [],
+  "notes": "Docs (CAPABILITIES/METADATA/CLAUDE.md) brought to parity with types.ts+metadata.ts; MIT LICENSE added (DECISIONS.md 2026-07-01, operator-revertable); 19 unregistered legacy seed dirs deliberately left parked (DECISIONS.md); scheduler SIGTERM startup race fixed."
+}

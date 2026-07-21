@@ -20,7 +20,7 @@ Coupling between UI Fittings would re-introduce the problem composability solves
 
 Each UI Fitting has three pieces:
 
-1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `7077`. Optionally add `lifecycle: detached` to opt out of the operative-bound default — without it, Garrison's runner starts and stops the Fitting alongside the operative's `up` / `down` lifecycle (it reads the PID from the status file when stopping; it never grep's `lsof`). Use `detached` for Fittings the user expects to manage out-of-band (long-running watchers, etc.).
+1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `27077`. Optionally add `lifecycle: detached` to opt out of the operative-bound default — without it, the Fitting stops with the operative's `down` (the runner reads the PID from the status file when stopping; it never grep's `lsof`) and boots with `up` only when toggled eager; otherwise it starts on demand from the Views UI, which hands it the running composition's env (gateway URL, composition id, selection config, vault) via `operativeEnvForFitting`. Use `detached` for Fittings the user expects to manage out-of-band (long-running watchers, etc.).
 2. **Server.** At startup, the Fitting tries to bind the declared port. If the port is taken, it falls back via the next-free-port helper. The actual chosen port is written to a status file:
 
    ```
@@ -32,8 +32,8 @@ Each UI Fitting has three pieces:
    ```json
    {
      "fittingId": "monitor",
-     "port": 7077,
-     "url": "http://127.0.0.1:7077",
+     "port": 27077,
+     "url": "http://127.0.0.1:27077",
      "pid": 12345,
      "startedAt": "2026-05-16T10:30:00.000Z"
    }
@@ -97,13 +97,13 @@ It writes `dist/index.html`, `dist/<name>.bundle.js`, `dist/<name>.css`. No `nod
 
 ## Reference implementations
 
-- **`monitor-default`** (this milestone). Port 7077. Serves a React card-grid + drill-down + SSE log tail.
+- **`monitor-default`** (this milestone). Port 27077. Serves a React card-grid + drill-down + SSE log tail.
 - The pattern generalises to documents-viewer and any other UI-bearing Fitting.
 
 ## Anti-patterns
 
 - **Importing another Fitting's React components.** Don't. The whole point of the URL-link pattern is that UI Fittings can be written in different frameworks, restarted independently, and uninstalled cleanly.
-- **Storing the port in the consumer's source.** Don't hardcode `7077` anywhere; read the status file every time.
+- **Storing the port in the consumer's source.** Don't hardcode `27077` anywhere; read the status file every time.
 - **Sharing state across Fittings.** Don't push events from one Fitting's UI into another's. If you find yourself needing a shared store, that's a sign one Fitting wants to consume a non-UI capability the other provides — declare it as a `provides`/`consumes` pair in `x-garrison`, not as a UI cross-call.
 - **Long-lived status files.** Clean up on `SIGTERM` and `SIGINT`. A stale file pointing at a dead URL is worse than no file.
 

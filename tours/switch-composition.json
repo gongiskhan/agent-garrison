@@ -1,0 +1,16 @@
+{
+  "name": "switch-composition",
+  "title": "Switch the active composition",
+  "route": "/",
+  "fitting": "shell",
+  "mode": "guided",
+  "steps": [
+    {
+      "id": "switcher",
+      "caption": "This is the composition switcher, at the bottom of the sidebar menu. Pick another composition and Garrison runs a clean down then up to make it the active Operative.",
+      "selector": "raw-css:#composition-switcher",
+      "spotlight": true,
+      "requires": "sidebar-expanded"
+    }
+  ]
+}

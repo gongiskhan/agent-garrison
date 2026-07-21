@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Kanban Loop own-port server (V1b, port 7089). Serves the responsive,
+// Kanban Loop own-port server (V1b, port 27089). Serves the responsive,
 // phone-first board UI (dist/) and a small REST surface over lib/board.mjs +
 // lib/engine.mjs. It NEVER duplicates artifacts: a card stores POINTERS
 // (runId/runDir/sliceId/sessionIds/briefPath/videoUrl) and this server resolves
@@ -10,7 +10,7 @@
 // operative is raw node-pty, NOT tmux-attachable, so there is no attach path —
 // see the v4 wireframe §4 / the board-ui brief).
 //
-// Scaffolding (findFreePort, status-file registration under
+// Scaffolding (strict configured-port bind, status-file registration under
 // ~/.garrison/ui-fittings/<id>.json, CORS, static dist/ serve, graceful
 // shutdown) follows the dev-env / web-channel own-port precedent. The pure
 // request helpers (buildBoardView, resolveCardLinks, the path-confinement guard,
@@ -18,7 +18,7 @@
 // them without a live socket.
 
 import { createReadStream, existsSync, statSync, accessSync, realpathSync, readFileSync, readdirSync, constants as fsConstants } from "node:fs";
-import { mkdir, readFile, unlink, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile, rm, appendFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -34,32 +34,68 @@ import {
   saveCardCAS,
   deleteCard,
   deriveMembership,
-  appendCardLog
+  appendCardLog,
+  latestCardLogNumber,
+  cardBriefFile,
+  cardBriefRel,
+  atomicWriteJSON
 } from "../lib/board.mjs";
+// S3a: the lifecycle event router — the server emits `created` after a card is made.
+import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
+import { readOriginRecord, readOriginEventsSince } from "../lib/origins.mjs";
+// S3c: steering sidecars (steering.md guidance + steering.json revisit directive).
+import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringApplied, readSteeringDirective, isEarlierPhase } from "../lib/steering.mjs";
 import {
   getList,
   validNextFor,
   processCard,
   processChain,
   processBatch,
+  recoverInterruptedRuns,
   triggerFor,
   isInteractive,
+  isGatedDiscuss,
   withEvent,
   replySnippet,
-  reapOrphanedRuns
+  reapOrphanedRuns,
+  parkFields,
+  ATTENTION_LIST
 } from "../lib/engine.mjs";
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
-import { gatewayRunFn, inferenceRunFn } from "../lib/gateway-client.mjs";
-import { inferProject } from "../lib/infer-project.mjs";
+import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
+import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
+import { loadPolicy, railForCard, railIsManualOnly } from "../lib/policy.mjs";
+import {
+  readTouchSet,
+  coordinationConfig,
+  coordinationAvailability,
+  serializeGate,
+  repoPathForProject,
+  removeCardIntents,
+  releaseLeases
+} from "../lib/coordination.mjs";
+import { prepareRevert, executeRevert } from "../lib/fences.mjs";
 import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
+// WS2: the artifact-ref vocabulary lives in lib/links.mjs (shared with the handoff
+// packet generator). Re-exported below so existing importers (tests) keep working.
+import {
+  resolveArtifactRef as resolveArtifactRefCore,
+  isValidSliceId,
+  isSafeEvidenceName,
+  isEvidenceImage,
+  enumerateArtifactRefs
+} from "../lib/links.mjs";
+export { isValidSliceId, isSafeEvidenceName, isEvidenceImage };
 
 const FITTING_ID = "kanban-loop";
-const DEFAULT_PORT = 7089;
+const DEFAULT_PORT = 27089;
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 
 // The working directory Kanban runs operatives in. runDir pointers are
@@ -90,10 +126,8 @@ export function buildBoardView(board, cards) {
       kind: list.kind || "manual",
       trigger: triggerFor(list),
       interactive: Boolean(isInteractive(list)),
-      skill: list.skill ?? null,
-      taskType: list.taskType ?? null,
-      tier: list.tier ?? null,
-      mode: list.mode ?? null,
+      // D15: phase only — skill/taskType/tier/mode live in the compiled policy.
+      phase: list.phase ?? (list.kind === "agent" ? list.id : null),
       terminal: Boolean(list.terminal),
       notifyOnEntry: Boolean(list.notifyOnEntry),
       validNext: Array.isArray(list.validNext) ? list.validNext : [],
@@ -109,6 +143,10 @@ export function buildBoardView(board, cards) {
 // goalMode, status — plus the pointer set (so the UI can show Open without a
 // second fetch). It is a projection, not a copy of any artifact body.
 export function cardSummary(card) {
+  // The card's LATEST commit fence (S2, Q5) — the board shows only the most recent
+  // one as a subtle chip; the full chain lives on the card, not in this projection.
+  const fenceList = Array.isArray(card.fences) ? card.fences : [];
+  const lastFence = fenceList.length ? fenceList[fenceList.length - 1] : null;
   return {
     id: card.id,
     title: card.title ?? "(untitled)",
@@ -124,11 +162,66 @@ export function cardSummary(card) {
     sessionIds: Array.isArray(card.sessionIds) ? card.sessionIds : [],
     briefPath: card.briefPath ?? null,
     videoUrl: card.videoUrl ?? null,
+    // S4 (D2/D17): the run-policy fields — the work kind naming the rail, the
+    // per-card phase toggles (OFF phases render as dimmed chips: honesty), the
+    // tier, and who registered the run.
+    workKind: card.workKind ?? null,
+    phases: card.phases ?? null,
+    tier: card.tier ?? null,
+    origin: card.origin ?? null,
+    outpost: card.outpost ?? null,
+    // D15 (S4a): the card's resolved-model journey — its duty + level and the
+    // cached ordered leaf phase lists it visits (skipping the rest).
+    duty: card.duty ?? null,
+    level: card.level ?? null,
+    sequence: Array.isArray(card.sequence) ? card.sequence : null,
+    // WS2 (D7): the predecessor card id this card continues (null for a fresh card).
+    continues: card.continues ?? null,
+    // S3a (D8): the card's origin id ("web:<threadId>" | "skill:..." | "board").
+    origin_id: card.origin_id ?? null,
+    // S3d (D9b): the dispatcher's specification-clarity verdict - "needs-discuss"
+    // means the card ran (or is running) the Discuss duty before plan.
+    clarity: card.clarity ?? null,
+    // S3d (D9b, review R3): true when the card is HELD on Discuss by an explicit gate,
+    // awaiting a human go (a Move, or an affirmative reply the gateway routes as a move).
+    discussHeld: card.discussHeld === true,
+    // D19: a quick card is a trivial-plan task the gateway ran inline and
+    // auto-advanced to Done. The Done column groups these under a collapsed
+    // "quick tasks" strip, and they are never engine-owned (operator-touchable).
+    quick: Boolean(card.quick),
     // The last dispatch failure (set by engine.processCard on transport defer
     // or run-failed, and by handlePatchCard when an auto-dispatch can't reach
     // the gateway). The UI renders a clear badge + Retry button when this is
     // non-null. A successful dispatch clears it back to null.
     lastDispatchError: card.lastDispatchError ?? null,
+    // Coordination (GARRISON-FLOW-V2 S1): when this card is deferred behind an
+    // overlapping same-project run, waitingOn carries the blocker + why + until;
+    // stabilityAt marks its own first-review stability point; planCompletedAt is
+    // the total-order key; blocking lists the cards waiting on THIS one. The UI
+    // renders a waiting callout + chips (amber, distinct from the parked red).
+    waitingOn: card.waitingOn ?? null,
+    stabilityAt: card.stabilityAt ?? null,
+    planCompletedAt: card.planCompletedAt ?? null,
+    blocking: Array.isArray(card.blocking) ? card.blocking : [],
+    // Coordination (GARRISON-FLOW-V2 S2): the LATEST fence (phase + short-able sha +
+    // when) for a card whose runs committed touch-set fences, and the abandonment
+    // prepared-revert descriptor thinned for the UI — its state (prepared | applied |
+    // conflict), the commit COUNT, up to 20 short shas + the conflictRisk count for the
+    // detail's commit list, and when it was prepared. The board front shows the count +
+    // a Confirm-revert button; the detail lists the shas. The full descriptor lives on
+    // the card + in <runDir>/coordination/prepared-revert.json, never in this projection.
+    fences: lastFence ? { phase: lastFence.phase ?? null, sha: lastFence.sha ?? null, at: lastFence.at ?? null } : null,
+    preparedRevert: card.preparedRevert
+      ? {
+          state: card.preparedRevert.state ?? "prepared",
+          commits: Array.isArray(card.preparedRevert.commits) ? card.preparedRevert.commits.length : 0,
+          commitShas: (Array.isArray(card.preparedRevert.commits) ? card.preparedRevert.commits : [])
+            .slice(0, 20)
+            .map((s) => String(s).slice(0, 10)),
+          conflictRisk: Array.isArray(card.preparedRevert.conflictRisk) ? card.preparedRevert.conflictRisk.length : 0,
+          preparedAt: card.preparedRevert.preparedAt ?? null
+        }
+      : null,
     // Why a card is parked + where it came from (set by the engine when it moves a
     // card to the needs-attention column). The UI shows the reason on the card.
     attentionReason: card.attentionReason ?? null,
@@ -143,6 +236,12 @@ export function cardSummary(card) {
     description: typeof card.description === "string" ? card.description : "",
     lastReply: card.lastReply ?? null,
     lastEvent: lastEventOf(card),
+    // Per-phase runtime/model attribution for the card front: the most recent routed
+    // event's route stamp ({ targetId, runtime, provider, model, effort,
+    // effortApplied, tier, phase }), or
+    // null when no turn has routed yet / souls mode. The board renders a small
+    // "<phase> @ <model>" chip from it.
+    lastRoute: lastRouteOf(card),
     eventCount: Array.isArray(card.events) ? card.events.length : 0,
     runningSince: card.runningSince ?? null,
     // Project-inference state for a no-project card: running | done | none | skipped |
@@ -159,12 +258,24 @@ function lastEventOf(card) {
   return ev.length ? ev[ev.length - 1] : null;
 }
 
+// The most recent routed event's route stamp (or null) — the card front's per-phase
+// attribution chip reads from it. Scans BACK through the timeline because a later
+// fence / coordination event can sit on top of the routed one, so lastEventOf alone
+// would miss it.
+function lastRouteOf(card) {
+  const ev = Array.isArray(card.events) ? card.events : [];
+  for (let i = ev.length - 1; i >= 0; i--) {
+    if (ev[i] && ev[i].route && typeof ev[i].route === "object") return ev[i].route;
+  }
+  return null;
+}
+
 // The last few non-empty lines of a running card's current iteration log — the live
 // "tail" the card front shows so you can see the operative WORKING without opening
 // Watch. Best-effort + bounded: a missing/short log just yields "".
 function liveTailFor(root, card, maxLines = 3, maxChars = 240) {
   try {
-    const n = card.iterations ?? 0;
+    const n = latestCardLogNumber(root, card);
     if (!n || card.status !== "running") return "";
     const f = path.join(root, "cards", card.id, `log-${n}.md`);
     if (!isReadableFile(f)) return "";
@@ -187,12 +298,20 @@ function liveTailFor(root, card, maxLines = 3, maxChars = 240) {
 // ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl). `root` defaults to the
 // kanban board root (where cards/<id>/log-N.md live); `cwd` is the project root
 // the run + transcript resolve against.
-// The roots an artifact path may live under: the project root (plan/gate/brief),
-// the board root (per-card logs), and the Claude Code projects dir (session
-// transcripts). A served path must be inside ONE of these — the read side
-// (handleArtifact) re-confines against the SAME set.
+// The roots an artifact path may live under: the project root (legacy
+// plan/gate paths), the board root (per-card logs), the Claude Code projects
+// dir (session transcripts), and the evidence home ~/.garrison/runs (S6/D19 —
+// where run directories live now). A served path must be inside ONE of these —
+// the read side (handleArtifact) re-confines against the SAME set.
+export function runsHomeDir() {
+  return (
+    process.env.GARRISON_RUNS_DIR ||
+    path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "runs")
+  );
+}
+
 export function allowedRoots(cwd = projectRoot(), root = kanbanRoot()) {
-  return [cwd, root, claudeProjectsDir()];
+  return [cwd, root, claudeProjectsDir(), runsHomeDir()];
 }
 
 export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot() } = {}) {
@@ -202,6 +321,10 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
     plan: null,
     brief: null,
     gateMarkers: null,
+    // Root-level durable gate records (`gate-status.<phase>.json` and the
+    // aggregate `gate-status.json`). These are the actual phase evidence used
+    // by D9 and exist independently of the legacy slice marker below.
+    gates: [],
     evidenceIndex: null,
     // The always-on evidence bundle (<runDir>/evidence/): screenshots + an evidence.md
     // log the pipeline produces even when the heavy walkthrough VIDEO is size-skipped.
@@ -216,6 +339,30 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
     links.plan = mk("plan");
     links.evidenceIndex = mk("evidenceIndex");
     if (card.sliceId) links.gateMarkers = mk("gateMarkers");
+    const runRoot = confinePath(path.resolve(cwd, card.runDir), roots);
+    if (runRoot && existsSync(runRoot)) {
+      let gateNames = [];
+      try {
+        gateNames = readdirSync(runRoot, { withFileTypes: true })
+          .filter((d) => d.isFile() && /^gate-status(?:\.[A-Za-z0-9_-]+)?\.json$/.test(d.name))
+          .map((d) => d.name)
+          .sort();
+      } catch { gateNames = []; }
+      const phaseOrder = new Map((Array.isArray(card.sequence) ? card.sequence : [])
+        .map((phase, i) => [String(phase), i]));
+      gateNames.sort((a, b) => {
+        // Put concrete phase evidence first in the card's configured workflow
+        // order; keep the aggregate gate-status.json after the sidecars.
+        if (a === "gate-status.json") return b === "gate-status.json" ? 0 : 1;
+        if (b === "gate-status.json") return -1;
+        const ap = a.slice("gate-status.".length, -".json".length);
+        const bp = b.slice("gate-status.".length, -".json".length);
+        const ai = phaseOrder.has(ap) ? phaseOrder.get(ap) : Number.MAX_SAFE_INTEGER;
+        const bi = phaseOrder.has(bp) ? phaseOrder.get(bp) : Number.MAX_SAFE_INTEGER;
+        return ai - bi || ap.localeCompare(bp);
+      });
+      links.gates = gateNames.map((name) => mk(`gate:${name}`));
+    }
     // List the evidence dir (confined first), newest meaningful order: images before the
     // log so the visual proof leads. A missing dir / read error just yields no evidence.
     const evDir = confinePath(path.resolve(cwd, card.runDir, "evidence"), roots);
@@ -231,7 +378,10 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
       }
     }
   }
-  if (card.briefPath) links.brief = mk("brief");
+  // The card-owned brief (<root>/cards/<id>/brief.md) is deterministic — surface the
+  // link whenever the file exists, even while the card is still in Discuss (so it's
+  // viewable/editable during the discussion, not only after Move-out links it).
+  if (card.briefPath || isReadableFile(cardBriefFile(root, card.id))) links.brief = mk("brief");
   // The Claude Code transcript per run: ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
   const sids = Array.isArray(card.sessionIds) ? card.sessionIds : [];
   sids.forEach((sessionId, i) => {
@@ -244,51 +394,37 @@ export function resolveCardLinks(card, { root = kanbanRoot(), cwd = projectRoot(
   }
   // The card's own per-iteration logs (cards/<id>/log-N.md) — what Watch shows
   // when nothing is live.
-  for (let n = 1; n <= (card.iterations ?? 0); n++) {
-    links.logs.push({ n, ...mk(`log:${n}`) });
+  const latestLog = latestCardLogNumber(root, card);
+  for (let n = 1; n <= latestLog; n++) {
+    links.logs.push({
+      n,
+      ...serveRef(card.id, `log:${n}`, path.join(root, "cards", card.id, `log-${n}.md`), roots)
+    });
   }
   return links;
 }
 
-// resolveArtifactRef — the READ side. Given a card and an OPAQUE ref token, derive
-// the absolute path from the card's OWN stored pointers (NEVER from client input),
-// or null for an unknown/out-of-range ref. handleArtifact then confines + serves
-// it, so a client (which only ever names a card id + a fixed ref token) can read
-// ONLY the specific files THIS card points to — not an arbitrary absolute path.
+// Server-facing compatibility projection over the shared links vocabulary. Keep
+// the newer shared resolver as the default, while retaining the board's existing
+// plan.md fallback, phase-gate refs, and monotonic log ordinals.
 export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = projectRoot() } = {}) {
   if (!card || typeof ref !== "string") return null;
-  if (ref === "plan") return card.runDir ? path.resolve(cwd, card.runDir, "FLOW_PLAN.md") : null;
-  // Card-scoped: each card mints its own runId, so the per-run evidence index lives
-  // under THIS card's run dir — not the shared project-global docs/autothing one.
-  if (ref === "evidenceIndex") return card.runDir ? path.resolve(cwd, card.runDir, "evidence-index.json") : null;
-  if (ref === "gateMarkers") {
-    // sliceId is client-editable → reject any value with separators/`..` so the
-    // read stays inside THIS card's run dir (a bad sliceId yields no ref).
-    return card.runDir && isValidSliceId(card.sliceId)
-      ? path.resolve(cwd, card.runDir, "slices", card.sliceId, "gate-status.json")
+  if (ref === "plan") {
+    if (!card.runDir) return null;
+    const canonical = path.resolve(cwd, card.runDir, "FLOW_PLAN.md");
+    const fallback = path.resolve(cwd, card.runDir, "plan.md");
+    return isReadableFile(canonical) || !isReadableFile(fallback) ? canonical : fallback;
+  }
+  const gate = ref.match(/^gate:(gate-status(?:\.[A-Za-z0-9_-]+)?\.json)$/);
+  if (gate) return card.runDir ? path.resolve(cwd, card.runDir, gate[1]) : null;
+  const log = ref.match(/^log:(\d+)$/);
+  if (log) {
+    const n = Number(log[1]);
+    return n >= 1 && n <= latestCardLogNumber(root, card)
+      ? path.join(root, "cards", card.id, `log-${n}.md`)
       : null;
   }
-  if (ref === "brief") return card.briefPath ? path.resolve(cwd, card.briefPath) : null;
-  // evidence:<filename> → <runDir>/evidence/<filename>. The name is guarded
-  // (isSafeEvidenceName: no separators, no `..`, no leading dot) so the read stays inside
-  // THIS card's evidence dir; handleArtifact re-confines the resolved path as well.
-  const em = ref.match(/^evidence:(.+)$/);
-  if (em) {
-    return card.runDir && isSafeEvidenceName(em[1])
-      ? path.resolve(cwd, card.runDir, "evidence", em[1])
-      : null;
-  }
-  const sm = ref.match(/^session:(\d+)$/);
-  if (sm) {
-    const sid = (Array.isArray(card.sessionIds) ? card.sessionIds : [])[Number(sm[1])];
-    return sid ? path.join(claudeProjectDirForCwd(cwd), `${sid}.jsonl`) : null;
-  }
-  const lm = ref.match(/^log:(\d+)$/);
-  if (lm) {
-    const n = Number(lm[1]);
-    return n >= 1 && n <= (card.iterations ?? 0) ? path.join(root, "cards", card.id, `log-${n}.md`) : null;
-  }
-  return null;
+  return resolveArtifactRefCore(card, ref, { root, cwd });
 }
 
 // One artifact pointer: { kind:"serve", ref, path:<abs>, url:"/cards/<id>/artifact?ref=…",
@@ -359,31 +495,8 @@ export function isValidCardId(id) {
   return typeof id === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
 }
 
-// A slice id is client-editable (PATCH) and flows into the gate-marker path
-// (<runDir>/slices/<sliceId>/gate-status.json), so it MUST NOT contain path
-// separators or `..`. Restrict to a safe filename grammar — a `/` or `..` would
-// otherwise steer the read to another run's (or any) gate-status.json file.
-export function isValidSliceId(s) {
-  return typeof s === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(s) && s !== "." && s !== "..";
-}
-
-// An evidence file name (under <runDir>/evidence/) flows into a served path, so it MUST
-// be a plain filename — no separators, no `..`, no leading dot. The first-char class
-// rejects ".", "..", and ".hidden"; the body allows only filename-safe chars, so a `/`
-// or `\` can never appear. Belt-and-suspenders: confinePath re-checks the resolved path.
-export function isSafeEvidenceName(s) {
-  return typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(s) && !s.includes("..");
-}
-
-// The image extensions the Evidence section renders inline as a thumbnail (everything
-// else — e.g. evidence.md / a .txt log — is surfaced as a link). SVG is deliberately
-// EXCLUDED: an SVG can carry script, and serving it as a navigable image/svg+xml
-// document on the board origin is a stored-XSS vector — evidence SVGs are served as an
-// inert download instead (see handleArtifact), so they never render inline.
-const EVIDENCE_IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
-export function isEvidenceImage(name) {
-  return EVIDENCE_IMAGE_EXT.has(path.extname(String(name || "")).toLowerCase());
-}
+// isValidSliceId / isSafeEvidenceName / isEvidenceImage moved to lib/links.mjs
+// (shared with the handoff generator) and imported/re-exported at the top.
 
 // A list id is client-editable (PATCH /lists/:listId) and flows into a board
 // lookup, so it MUST be a clean kebab token — no path separators or `..`. The
@@ -392,20 +505,6 @@ export function isEvidenceImage(name) {
 // before it reaches applyListConfig.
 export function isValidListId(s) {
   return typeof s === "string" && /^[a-z0-9][a-z0-9-]*$/i.test(s) && s.length <= 64;
-}
-
-// A single-line free-string field (taskType, tier): reject newlines and path
-// separators so a value can't carry traversal/injection into a downstream prompt
-// or path. Empty/whitespace collapses to null.
-function cleanScalarField(v) {
-  if (v == null) return { value: null };
-  if (typeof v !== "string") return { error: "must be a string or null" };
-  const s = v.trim();
-  if (!s) return { value: null };
-  if (/[\n\r\t/\\]/.test(s) || s.includes("..")) {
-    return { error: "must not contain newlines, path separators or .." };
-  }
-  return { value: s };
 }
 
 // A cron field for a scheduler-beat list (the schedule the beat fires on) or null.
@@ -424,20 +523,6 @@ function cleanCronField(v) {
   return { value: s };
 }
 
-// A skill name token: a clean skill id (e.g. autothing-plan, plugin:skill) or
-// null. No whitespace / separators / `..` — it is forwarded to the gateway as a
-// skill hint and must not carry traversal or shell-ish junk.
-function cleanSkillField(v) {
-  if (v == null) return { value: null };
-  if (typeof v !== "string") return { error: "skill must be a string or null" };
-  const s = v.trim();
-  if (!s) return { value: null };
-  if (!/^[a-z0-9][a-z0-9:-]*$/i.test(s)) {
-    return { error: "skill must be a clean skill-name token" };
-  }
-  return { value: s };
-}
-
 // A multi-line prompt field (executePrompt / routerPrompt): any string is fine
 // (these are sent verbatim to the operative as instructions); only the type is
 // checked. Empty collapses to "".
@@ -447,9 +532,8 @@ function cleanPromptField(v) {
   return { value: v };
 }
 
-// The triggers a list may carry (engine.triggerFor honors these). Editing is
-// restricted to this set so a typo can't silently turn an agent list into a
-// never-firing column.
+// A list's trigger is restricted to this set so a typo can't silently turn an
+// agent list into a never-firing column.
 const VALID_TRIGGERS = new Set(["immediate", "manual", "scheduler-beat"]);
 
 // The fields a MANUAL / terminal list (kind "manual") may edit — it has no
@@ -457,7 +541,7 @@ const VALID_TRIGGERS = new Set(["immediate", "manual", "scheduler-beat"]);
 const MANUAL_EDITABLE = new Set(["title", "validNext"]);
 // The agent-only fields a manual list must NEVER accept (rejected with a clear
 // error rather than silently ignored, so the UI can't half-configure a column).
-const AGENT_ONLY_FIELDS = ["skill", "executePrompt", "routerPrompt", "trigger", "beatCron", "mode", "taskType", "tier"];
+const AGENT_ONLY_FIELDS = ["executePrompt", "routerPrompt", "trigger", "beatCron"];
 
 // applyListConfig — the pure list-config updater. Reads `listId` from `board`,
 // applies ONLY the editable fields PRESENT in `patch`, validates each, and
@@ -467,11 +551,11 @@ const AGENT_ONLY_FIELDS = ["skill", "executePrompt", "routerPrompt", "trigger", 
 //   - manual: only title + validNext (agent-only fields are REJECTED).
 //   - agent-interactive (Discuss): editable like an agent list but interactive
 //     stays true and mode is kept (its trigger stays manual unless explicitly set).
-//   - agent: title, skill, executePrompt, routerPrompt, validNext, trigger,
-//     mode, taskType, tier.
-// validNext must be a subset of the board's existing list ids; trigger must be a
-// known trigger; taskType/tier reject newlines + path separators; skill must be
-// a clean token or null.
+//   - agent: title, executePrompt, routerPrompt, validNext, trigger, beatCron.
+// D15: skill/taskType/tier/mode are NO LONGER per-list settings — resolution
+// comes from the compiled Orchestrator policy; the patch REJECTS those keys.
+// validNext must be a subset of the board's existing list ids; trigger must be
+// a known trigger.
 export function applyListConfig(board, listId, patch) {
   if (!board || !Array.isArray(board.lists)) return { error: "invalid board" };
   if (!isValidListId(listId)) return { error: "invalid list id" };
@@ -515,10 +599,14 @@ export function applyListConfig(board, listId, patch) {
     next.validNext = [...new Set(vn)];
   }
 
-  if ("skill" in patch) {
-    const r = cleanSkillField(patch.skill);
-    if (r.error) return { error: `skill: ${r.error}` };
-    next.skill = r.value;
+  // D15: per-list skill/taskType/tier/mode config is DEAD — resolution comes
+  // from the compiled Orchestrator policy. Reject the keys outright (a clear
+  // error beats a silently-dropped field); the composer view is where routing
+  // is configured now.
+  for (const dead of ["skill", "taskType", "tier", "mode"]) {
+    if (dead in patch) {
+      return { error: `'${dead}' is no longer a per-list setting — resolution comes from the compiled Orchestrator policy (edit it in the Orchestrator composer view)` };
+    }
   }
 
   if ("executePrompt" in patch) {
@@ -544,24 +632,6 @@ export function applyListConfig(board, listId, patch) {
     const r = cleanCronField(patch.beatCron);
     if (r.error) return { error: `beatCron: ${r.error}` };
     next.beatCron = r.value;
-  }
-
-  if ("mode" in patch) {
-    const r = cleanScalarField(patch.mode);
-    if (r.error) return { error: `mode: ${r.error}` };
-    next.mode = r.value;
-  }
-
-  if ("taskType" in patch) {
-    const r = cleanScalarField(patch.taskType);
-    if (r.error) return { error: `taskType: ${r.error}` };
-    next.taskType = r.value;
-  }
-
-  if ("tier" in patch) {
-    const r = cleanScalarField(patch.tier);
-    if (r.error) return { error: `tier: ${r.error}` };
-    next.tier = r.value;
   }
 
   // Structure never changes: pin id/order/kind back to the on-board values even
@@ -597,6 +667,22 @@ export function isReadableFile(p) {
 export function shouldAutoDispatch(board, listId) {
   const l = getList(board, listId);
   return !!l && l.kind === "agent" && !isInteractive(l) && triggerFor(l) === "immediate";
+}
+
+// Is a card LIVE — occupying its project's serialize slot / counting as an overlap
+// candidate? Mirrors coordination.mjs's isLiveCard (which is module-private there):
+// a card is live when it is running, waiting behind another card, or has a minted
+// runDir on a non-terminal list. Kept byte-aligned with that predicate so the
+// board's create-time provisional check agrees with the engine's overlap scan.
+function isCardLive(board, c) {
+  if (!c) return false;
+  if (c.waitingOn) return true;
+  if (c.status === "running") return true;
+  if (c.runDir) {
+    const list = getList(board, c.list);
+    if (!(list && (list.terminal || c.list === "done"))) return true;
+  }
+  return false;
 }
 
 // Is the gateway actually up? PING it before dispatching so a Move/Start while no
@@ -652,6 +738,124 @@ async function readBody(req, limit = 1024 * 1024) {
 
 // ─────────────────────────── REST handlers
 
+// GET /cards[?origin_id=…] (S3b): the flat card list, optionally filtered to one
+// origin. Most-recent-first (by created). cardSummary already carries origin_id.
+async function handleListCards(req, res, opts, query) {
+  const originId = typeof query?.origin_id === "string" && query.origin_id ? query.origin_id : null;
+  let cards = await loadAllCards(opts.root);
+  if (originId) cards = cards.filter((c) => (c.origin_id ?? null) === originId);
+  cards.sort((a, b) => String(b.created || "").localeCompare(String(a.created || "")));
+  jsonRes(res, 200, { cards: cards.map(cardSummary) });
+}
+
+// GET /origins/:originId (S3e) - the origin record (transport, address, thread), or
+// 404 when the origin has no record yet. The id is sanitised to a safe filename by
+// safeOriginId (origins.mjs), so an encoded path cannot traverse out of the store.
+async function handleGetOrigin(req, res, opts, originId) {
+  const record = readOriginRecord(opts.root, originId);
+  if (!record) return jsonRes(res, 404, { error: `no origin record: ${originId}` });
+  return jsonRes(res, 200, { origin: record });
+}
+
+// GET /origins/:originId/events?since=<ISO|line-offset> (S3e) - the PULL delivery a
+// skill/terminal session polls: the durable lifecycle events (created/needs-input/
+// blocked/failed/finished/duty-summary/steering) written by S3a for EVERY transport,
+// capped to the last 200. `since` is a line offset (integer) or an ISO timestamp;
+// `total` is the full line count so the caller polls incrementally with since=total.
+async function handleGetOriginEvents(req, res, opts, originId, query) {
+  const since = typeof query?.since === "string" && query.since ? query.since : null;
+  const { events, total } = readOriginEventsSince(opts.root, originId, since);
+  return jsonRes(res, 200, { origin_id: originId, events, total, nextSince: String(total) });
+}
+
+// GET /cards/:id/handoff (S3b) — the WS2 handoff packet (completionSummary,
+// decisions, files, evidence manifest, chain), or 404 when none exists yet.
+async function handleGetHandoff(req, res, opts, id) {
+  const file = path.join(opts.root, "cards", id, "handoff.json");
+  if (!isReadableFile(file)) return jsonRes(res, 404, { error: "no handoff for this card" });
+  try {
+    return jsonRes(res, 200, { handoff: JSON.parse(readFileSync(file, "utf8")) });
+  } catch {
+    return jsonRes(res, 404, { error: "handoff unreadable" });
+  }
+}
+
+// POST /cards/:id/steer {message, action, revisitDuty?, reason?, viaTurn?} (S3c):
+// write the steering sidecars, record a timeline + origin event, and — when the
+// card is NOT running and the action is revisit — apply the re-stage immediately.
+async function handleSteerCard(req, res, opts, id) {
+  const body = (await readBody(req)) || {};
+  const message = typeof body.message === "string" ? body.message : "";
+  const action = typeof body.action === "string" ? body.action : "";
+  if (!STEER_ACTIONS.includes(action)) return jsonRes(res, 400, { error: "action must be absorb | revisit | acknowledge" });
+  let card;
+  try {
+    card = await loadCard(opts.root, id);
+  } catch {
+    return jsonRes(res, 404, { error: "no such card" });
+  }
+  card.id = id;
+  const at = new Date().toISOString();
+  const revisitDuty = typeof body.revisitDuty === "string" && body.revisitDuty ? body.revisitDuty : null;
+  const reason = typeof body.reason === "string" ? body.reason : null;
+  // Go-back invariant: a revisit must target an EARLIER phase in the card's sequence
+  // — reject a direct POST that would march the card FORWARD past gates.
+  if (action === "revisit") {
+    if (!revisitDuty) return jsonRes(res, 400, { error: "revisit requires revisitDuty" });
+    if (!isEarlierPhase(card, revisitDuty)) {
+      return jsonRes(res, 400, { error: `revisitDuty "${revisitDuty}" is not an earlier phase in the card's sequence` });
+    }
+  }
+
+  // (a) steering.md — always (the absorb guidance the prompt folds in).
+  appendSteeringMd(opts.root, id, { at, action, message });
+  // (b) steering.json — the pending revisit directive.
+  if (action === "revisit" && revisitDuty) {
+    writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
+  }
+  // (c) timeline event (engine-context, rev-safe reload+retry; non-fatal).
+  await updateCard(opts.root, id, (c) => ({
+    ...c,
+    events: withEvent(c, { at, kind: "steering", message: `Steering: ${action}${revisitDuty ? ` → ${revisitDuty}` : ""}`, detail: reason || null })
+  })).catch(() => null);
+  // (d) an idle card with a revisit directive re-stages IMMEDIATELY.
+  let applied = false;
+  if (action === "revisit" && revisitDuty && card.status !== "running") {
+    const board = await loadBoard(opts.root);
+    if (getList(board, revisitDuty)) {
+      const moved = await updateCard(opts.root, id, (c) => ({
+        ...c,
+        list: revisitDuty,
+        status: "ok",
+        runningSince: null,
+        events: withEvent(c, { at: new Date().toISOString(), kind: "steering-restage", message: `Re-staged to ${revisitDuty} (steering)` })
+      }));
+      if (moved) {
+        applied = true;
+        markSteeringApplied(opts.root, id);
+      }
+    }
+  }
+  // The short confirmation, recorded to the origin event log (web-delivered unless
+  // the gateway turn already delivered it — detail.viaTurn).
+  const confirmation =
+    action === "absorb"
+      ? `Noted — folded into the current ${card.list} work.`
+      : action === "revisit"
+        ? applied
+          ? `Going back to ${revisitDuty} to include that.`
+          : `Going back to ${revisitDuty} at the next duty boundary.`
+        : "Noted.";
+  try {
+    const fresh = await loadCard(opts.root, id).catch(() => card);
+    fresh.id = id;
+    routeOriginEvent(opts.root, null, fresh, { kind: "steering", message: confirmation, detail: { action, revisitDuty, viaTurn: body.viaTurn === true, applied } });
+  } catch {
+    /* origin routing is best-effort */
+  }
+  jsonRes(res, 200, { ok: true, action, revisitDuty, applied });
+}
+
 async function handleBoard(req, res, opts) {
   const root = opts.root;
   const board = await loadBoard(root);
@@ -663,10 +867,18 @@ async function handleBoard(req, res, opts) {
   // (usually 0–1), so the cost is negligible. Both the per-list and the flat card
   // projections are separate objects, so patch both.
   const tails = {};
+  const steeringPending = {};
   for (const c of cards) {
     if (c.status === "running") tails[c.id] = liveTailFor(root, c);
+    // S3c: a cheap sidecar check (existsSync-gated) so the board renders a steering
+    // chip while a revisit directive is pending (unapplied).
+    if (readSteeringDirective(root, c.id)) steeringPending[c.id] = true;
   }
-  const patch = (cs) => { if (cs && tails[cs.id]) cs.liveTail = tails[cs.id]; };
+  const patch = (cs) => {
+    if (!cs) return;
+    if (tails[cs.id]) cs.liveTail = tails[cs.id];
+    if (steeringPending[cs.id]) cs.steeringPending = true;
+  };
   for (const l of view.lists) l.cards.forEach(patch);
   view.cards.forEach(patch);
   jsonRes(res, 200, view);
@@ -791,14 +1003,111 @@ async function handleCreateCard(req, res, opts) {
   const rawTitle = typeof body.title === "string" ? body.title.trim() : "";
   const title = rawTitle || deriveTitle(description);
   if (!title) return jsonRes(res, 400, { error: "give the card a title or a description to infer one from" });
+  const suppliedProject = typeof body.project === "string" && body.project.trim() ? body.project.trim() : null;
+  const explicitWorkspace = suppliedProject ? null : explicitWorkspaceFromCard({ title, description });
   const card = await createCard(opts.root, {
     title,
     description,
-    project: typeof body.project === "string" && body.project.trim() ? body.project.trim() : null,
+    project: suppliedProject || explicitWorkspace,
     list: "backlog",
     goalMode: body.goalMode === true,
-    acceptance: typeof body.acceptance === "string" ? body.acceptance : null
+    acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
+    // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
+    // phase toggles merged over it, the tier (direct field or the D8 payload's
+    // classification), and the origin of the registration.
+    workKind: typeof body.workKind === "string" ? body.workKind : null,
+    phases: body.phases && typeof body.phases === "object" ? body.phases : null,
+    tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
+    origin: typeof body.origin === "string" ? body.origin : null,
+    // Where the task came from ({channel, threadId}) — createCard validates the
+    // shape; the engine posts the card's outcome back to that thread.
+    originChannel: body.originChannel && typeof body.originChannel === "object" ? body.originChannel : null,
+    // S4b door-1 persistence (D15 acceptance 9): the gateway's resolved
+    // (duty, level, sequence) must survive the server boundary, or a
+    // channel-entered card walks the default pipeline instead of its duty's
+    // resolved sequence. createCard validates each field's shape.
+    duty: typeof body.duty === "string" && body.duty.trim() ? body.duty.trim() : null,
+    level: Number.isInteger(body.level) ? body.level : null,
+    sequence:
+      Array.isArray(body.sequence) && body.sequence.every((item) => typeof item === "string")
+        ? body.sequence
+        : null,
+    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null,
+    // WS2 (D7): a continuation card references its predecessor by ULID. createCard
+    // shape-validates it and stamps origin "continuation" when no origin is given.
+    continues: typeof body.continues === "string" ? body.continues : null,
+    // S3a (D8): an explicit origin_id (else createCard derives it from originChannel/origin).
+    origin_id: typeof body.origin_id === "string" ? body.origin_id : null,
+    // S3d (D9b): a board/API/gateway caller can pass the clarity verdict; a
+    // needs-discuss card is dispatched through the Discuss duty first. createCard
+    // normalises anything but "needs-discuss" to null. NOTE: a card is CREATED on
+    // backlog (title/project inference); the clarity is stamped now, but the card only
+    // REACHES Discuss when its creator moves it there (the gateway carding does this via
+    // targetList "discuss"; a bare API client must issue the follow-up move itself).
+    clarity: typeof body.clarity === "string" ? body.clarity : null
   });
+  // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
+  // createCard's field set is frozen, so stamp it via updateCard right after create.
+  if (body.quick === true) {
+    const q = await updateCard(opts.root, card.id, (c) => ({ ...c, quick: true }));
+    if (q) Object.assign(card, q);
+  }
+  // Drill Evidence v0.1: an origin may hand the card its run-evidence video
+  // link at create time — the field already exists on the card (the
+  // Walkthrough list sets it for build runs); same stamp-after-create shape.
+  if (typeof body.videoUrl === "string" && /^https?:\/\//i.test(body.videoUrl)) {
+    const v = await updateCard(opts.root, card.id, (c) => ({ ...c, videoUrl: body.videoUrl }));
+    if (v) Object.assign(card, v);
+  }
+  // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
+  // origin record + appends to its event log; web origins also get a thread ack).
+  routeOriginEvent(opts.root, null, card, { kind: "created", message: createdMessage(card) });
+  if (explicitWorkspace) {
+    const scoped = await updateCard(opts.root, card.id, (c) => ({
+      ...c,
+      inferState: "done",
+      events: withEvent(c, inferEvent(
+        "inference",
+        `Detected explicit workspace: ${explicitWorkspace}`,
+        "Taken directly from the task text before dispatch; model-based project inference was not used."
+      ))
+    }));
+    if (scoped) Object.assign(card, scoped);
+  }
+  // Coordination (GARRISON-FLOW-V2 S1, Q2 point 1): when coordination is active and
+  // this project already has other LIVE cards, record an honest provisional note.
+  // A fresh card has no touch-set yet (its runDir is minted on first plan dispatch),
+  // so the real overlap is only computed when its Plan completes and writes
+  // touch-set.json — until then we do NOT guess, we just flag the contention.
+  if (card.project) {
+    try {
+      const policy = loadPolicy();
+      const coord = coordinationConfig(policy);
+      if (coord.enabled && policy?.coordination) {
+        const board = await loadBoard(opts.root);
+        const all = await loadAllCards(opts.root);
+        const livePeers = all.filter(
+          (c) => c.id !== card.id && (c.project || null) === (card.project || null) && isCardLive(board, c)
+        );
+        if (livePeers.length > 0 && !readTouchSet(card.runDir)) {
+          const updated = await updateCard(opts.root, card.id, (c) => ({
+            ...c,
+            events: withEvent(c, {
+              at: new Date().toISOString(),
+              kind: "coordination",
+              message:
+                `Provisional - ${livePeers.length} other live card(s) on ${card.project}; ` +
+                `overlap computed when Plan completes and writes its touch-set`
+            })
+          }));
+          if (updated) Object.assign(card, updated);
+        }
+      }
+    } catch (err) {
+      // Provisional coordination is best-effort visibility — never fail a create over it.
+      console.error(`[kanban-loop] provisional coordination for ${card.id}:`, err?.message || err);
+    }
+  }
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
   if (!card.project) {
@@ -821,6 +1130,92 @@ async function handleInferProject(req, res, opts, id) {
   jsonRes(res, 200, { card: cardSummary({ ...card, inferState: "running" }), inferring: true });
 }
 
+// An engine-context request (the run engine's own moves, the gateway's D8 card
+// registration) carries the x-garrison-engine header; everything else is a
+// manual/human request subject to the D16 locks.
+export function isEngineRequest(req) {
+  return typeof req.headers["x-garrison-engine"] === "string" && req.headers["x-garrison-engine"].length > 0;
+}
+
+// `x-garrison-engine` marks a privileged engine-context mutation; it does NOT
+// by itself say who owns progression. Most engine callers self-drive (the
+// garrison doorway uses advanceCardPhase; quick gateway cards run inline), so
+// their move must suppress the board's background chain. A significant gateway
+// registration explicitly hands progression to the board with this second,
+// orthogonal intent header.
+export function requestsAutoDispatch(req) {
+  return req.headers["x-garrison-dispatch"] === "auto";
+}
+
+// Strictly normalize the gateway's settled quick-turn route evidence before it
+// reaches card.json. This is accepted only on an engine-context PATCH below.
+// Strings are capped so a malformed local caller cannot inflate the timeline.
+export function quickRouteEvent(raw, at = new Date().toISOString()) {
+  if (!raw || typeof raw !== "object") return null;
+  const text = (value, max = 160) =>
+    typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  const targetId = text(raw.targetId);
+  const runtime = text(raw.runtime);
+  const provider = text(raw.provider);
+  const model = text(raw.model);
+  const effort = text(raw.effort, 40);
+  const effortApplied = typeof raw.effortApplied === "boolean" ? raw.effortApplied : null;
+  const tier = text(raw.tier, 40);
+  const phase = text(raw.phase, 80);
+  if (
+    targetId == null && runtime == null && provider == null && model == null &&
+    effort == null && effortApplied == null && tier == null
+  ) {
+    return null;
+  }
+  const route = { targetId, runtime, provider, model, effort, effortApplied, tier, phase };
+  const idPart = [runtime || provider, model].filter(Boolean).join("/");
+  let suffix = idPart ? ` · ${idPart}` : "";
+  if (tier) suffix += suffix ? ` (${tier})` : ` · (${tier})`;
+  return {
+    at,
+    kind: "routed",
+    message: `Quick task completed${suffix}`,
+    detail: replySnippet(typeof raw.reply === "string" ? raw.reply : "") || null,
+    route
+  };
+}
+
+// The field patch applied when a card is un-parked (moved OUT of
+// needs-attention). Clears the park reason + prior dispatch error and resets
+// the iteration count so the re-run isn't instantly re-capped. D19
+// context-keeping retry: when the card carries retryKeepsContext (set by the
+// engine on an empty-output park), the phase runDir + its iteration logs are
+// PRESERVED so the re-entered phase resumes with prior context; the flag is
+// then consumed (cleared). Pure + exported so the recovery contract is
+// unit-tested (S1b review finding: the flag was written but read nowhere).
+export function unparkRecoveryFields(card) {
+  const patch = {
+    attentionReason: null,
+    parkedFrom: null,
+    lastDispatchError: null,
+    iterations: 0
+  };
+  if (card.retryKeepsContext) {
+    patch.runDir = card.runDir ?? null;
+    patch.retryKeepsContext = false;
+  }
+  return patch;
+}
+
+// D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
+// rejects manual moves and edits on them. needs-attention is the one human
+// touchpoint on the autonomous side; interactive + manual lists stay editable.
+export function isEngineOwned(board, card) {
+  // D19: a quick card is never engine-run — the gateway ran it inline and parked
+  // it on an agent list only transiently (Implement → Done). The locked-list rules
+  // apply ONLY to engine-owned cards mid-run, so a quick card stays operator-editable
+  // wherever it sits.
+  if (card.quick === true) return false;
+  const list = getList(board, card.list);
+  return Boolean(list && list.kind === "agent" && !isInteractive(list));
+}
+
 // PATCH /cards/:id — manual gate: Move to a list and/or set editable fields
 // (project, goalMode, sliceId, acceptance). CAS against the card's rev so a
 // concurrent tick is never silently overwritten. A Move target must be a real
@@ -833,6 +1228,15 @@ async function handlePatchCard(req, res, opts, id) {
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id — the write must never use a tampered on-disk id
   const board = await loadBoard(root);
+  // D16 lock: a card on an autonomous list is engine-owned — manual moves and
+  // edits are rejected in the API (the UI hides the controls too). The engine
+  // and the gateway's registration flow pass x-garrison-engine.
+  if (isEngineOwned(board, card) && !isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "engine-owned",
+      message: `Card is on the autonomous list "${card.list}" — it is engine-owned (D16). Wait for the run, or resolve it from needs-attention if it parks.`
+    });
+  }
   const next = { ...card };
   if (typeof body.list === "string") {
     if (!getList(board, body.list)) return jsonRes(res, 400, { error: `unknown list: ${body.list}` });
@@ -850,15 +1254,16 @@ async function handlePatchCard(req, res, opts, id) {
         message: recovered ? `Recovered: moved ${fromTitle} → ${toTitle}` : `Moved ${fromTitle} → ${toTitle}`
       });
     }
-    // Recovery: moving a card OUT of the needs-attention column is a fresh retry —
-    // clear the park reason + the prior dispatch error and reset the iteration count
-    // so a re-run isn't instantly re-capped (otherwise an iteration-cap park would
-    // re-park on the very next run).
+    // Recovery: moving a card OUT of the needs-attention column is a fresh retry.
     if (card.list === "needs-attention" && body.list !== "needs-attention") {
-      next.attentionReason = null;
-      next.parkedFrom = null;
-      next.lastDispatchError = null;
-      next.iterations = 0;
+      Object.assign(next, unparkRecoveryFields(card));
+      if (card.retryKeepsContext) {
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "retry-keeps-context",
+          message: "Retry preserves prior context (phase runDir + iteration logs kept)"
+        });
+      }
     }
     // Auto-link a Discuss brief: when a card LEAVES the interactive Discuss list,
     // look for the brief James was asked to write (briefs/<slug>.md — the
@@ -868,12 +1273,11 @@ async function handlePatchCard(req, res, opts, id) {
     // brief shows on the card without a manual POST /cards/:id/brief.
     const fromList = getList(board, card.list);
     if (body.list !== card.list && fromList && isInteractive(fromList) && !next.briefPath) {
-      const briefsPath = opts.briefsPath || process.env.KANBAN_BRIEFS_PATH || "./briefs/";
-      const rel = briefRelPath(card, { briefsPath });
-      // briefSlug sanitises the title to kebab, so `rel` is traversal-free by
-      // construction; confine + existence-check before linking.
-      const abs = confinePath(path.resolve(projectRoot(), rel), [projectRoot()]);
-      if (abs && isReadableFile(abs)) next.briefPath = rel;
+      // The brief is card-owned + deterministic (<root>/cards/<id>/brief.md). If James
+      // wrote it during Discuss, mark it on the card (a root-relative pointer) so the
+      // card shows a brief link and the engine folds it into the build.
+      const abs = cardBriefFile(kanbanRoot(), card.id);
+      if (isReadableFile(abs)) next.briefPath = cardBriefRel(card.id);
     }
   }
   if (typeof body.project === "string") next.project = body.project.trim() || null;
@@ -884,6 +1288,13 @@ async function handlePatchCard(req, res, opts, id) {
     next.sliceId = s || null;
   }
   if (typeof body.acceptance === "string") next.acceptance = body.acceptance;
+  if (isEngineRequest(req) && body.routeEvidence) {
+    const event = quickRouteEvent(body.routeEvidence);
+    if (event) {
+      next.events = withEvent(next, event);
+      if (event.detail) next.lastReply = event.detail;
+    }
+  }
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
   const result = await saveCardCAS(root, next, expectedRev);
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
@@ -892,17 +1303,63 @@ async function handlePatchCard(req, res, opts, id) {
   // list, dispatch its run now (fire-and-forget — the run goes through the gateway in
   // the background, the card flips to `running` and is watchable; the PATCH returns at
   // once). A manual / interactive (Discuss) / scheduler-beat (Test) target just moves.
-  // Only auto-dispatch when the card actually CHANGES list — a PATCH that carries
-  // the current list (a field edit, or a no-op move) must not re-run an agent list
-  // and clobber a card that's already running there.
-  const autoDispatch = typeof body.list === "string" && body.list !== card.list && shouldAutoDispatch(board, body.list);
+  //
+  // Only when the card actually CHANGES list: a PATCH that carries the current list
+  // (a field edit, or a no-op re-drop onto the same column) must not re-run an agent
+  // list and clobber a card that is already running there.
+  //
+  // BUT an ENGINE request (x-garrison-engine: the garrison doorway positioning the
+  // card, then driving it in-session via advanceCardPhase) must NOT also fire a
+  // background processChain — that double-drives the card (background flow races the
+  // in-session driver → invalid-verdict/park). The header now genuinely suppresses
+  // auto-dispatch, matching the doorway's intent + engine.mjs's own claim (rev2-s567 S5-2).
+  // S3d (D9b): a clarity-GATED card moved onto the interactive Discuss list IS
+  // dispatched (the discuss duty runs a scope-Q&A session → brief → plan). This is
+  // the intended run, so it fires even for an engine-header move (the gateway's
+  // carding move carries x-garrison-engine) - unlike a normal engine move, which the
+  // doorway drives itself. A James-mode discuss card (no gate marker) still just
+  // moves (shouldAutoDispatch is false for the interactive list).
+  const listChanged = typeof body.list === "string" && body.list !== card.list;
+  const movedToGatedDiscuss =
+    listChanged && isGatedDiscuss(result.card, getList(board, body.list));
+  // An engine-context request suppresses the background chain UNLESS it explicitly
+  // hands progression to the board. The garrison doorway omits that intent because
+  // it drives in-session via advanceCardPhase; quick gateway cards omit it because
+  // they run inline. Significant gateway registrations include it because they
+  // return after registration and otherwise leave the card stranded until a tick or
+  // manual Run press.
+  const callerOwnsProgression = isEngineRequest(req) && !requestsAutoDispatch(req);
+  const autoDispatch =
+    movedToGatedDiscuss ||
+    (listChanged && shouldAutoDispatch(board, body.list) && !callerOwnsProgression);
   if (autoDispatch && opts.gatewayUrl) {
+    // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does
+    // before dispatching: a card deferred behind an overlapping run does NOT
+    // auto-dispatch on move; and when coordination's substrate is degraded, the
+    // serialize gate lets only the oldest live card per project proceed. Both leave
+    // the card on its (already-moved) list, to be released/retried by a later tick.
+    if (result.card.waitingOn) {
+      const w = result.card.waitingOn;
+      return jsonRes(res, 200, {
+        card: cardSummary(result.card),
+        dispatched: false,
+        note: `waiting on ${w.cardTitle || w.cardId} (${w.until}) — will dispatch when released`
+      });
+    }
+    const coordCfg = coordinationConfig(loadPolicy());
+    if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
+      const allCards = await loadAllCards(root);
+      const gate = serializeGate(allCards, result.card, board);
+      if (!gate.allowed) {
+        return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: false, note: gate.reason });
+      }
+    }
     if (await gatewayReachable(opts.gatewayUrl)) {
       // processChain runs the AUTOMATED FLOW: this list, then the next immediate
       // agent list, and so on (Plan → Implement → Review → …) without waiting for a
       // Start press or the next tick. Fire-and-forget — the card flips to running and
       // is watchable; the PATCH returns at once.
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
+      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
         .catch((err) => console.error(`[kanban-loop] auto-dispatch on move failed for ${id}:`, err?.message || err));
       return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: true });
     }
@@ -932,7 +1389,7 @@ async function handlePatchCard(req, res, opts, id) {
 //   - the card's own dir (cards/<id>/: card.json + every log-<n>.md) — always;
 //   - the run directory it produced (docs/autothing/runs/<runId>/: the plan + gate
 //     scratch) — only the card's OWN minted ULID runId, confined under the project's
-//     runs dir so it can never delete an unrelated/timestamped autothing run;
+//     runs dir so it can never delete an unrelated/timestamped garrison run;
 //   - its Discuss brief (card.briefPath) — confined under the briefs dir.
 // What is NEVER deleted: the Claude Code session transcripts (shared ~/.claude), the
 // external walkthrough video, and any code the operative committed to the repo (that
@@ -944,19 +1401,39 @@ async function handleDeleteCard(req, res, opts, id) {
   try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id
+  // D16: an engine-owned card (on an autonomous list) cannot be deleted
+  // mid-run — resolve it via needs-attention first.
+  const boardForLock = await loadBoard(opts.root);
+  if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "engine-owned",
+      message: `Card is on the autonomous list "${card.list}" — engine-owned (D16). Let the run finish or resolve it from needs-attention, then delete.`
+    });
+  }
   const removed = [];
 
   // 1. The card's own directory (always).
   if (await deleteCard(opts.root, id)) removed.push(`cards/${id}`);
 
-  // 2. The run directory it produced — only the card's own ULID runId, confined.
+  // 2. The run directory it produced — only the card's own ULID runId, confined
+  // to the evidence home (~/.garrison/runs/, D19). Legacy repo-relative runDirs
+  // (pre-S6 cards) are ALSO handled, confined to the old docs/autothing/runs.
   if (card.runId && isValidCardId(card.runId)) {
-    const runsRoot = path.resolve(projectRoot(), "docs", "autothing", "runs");
-    const candidate = path.resolve(runsRoot, card.runId);
-    const confined = confinePath(candidate, [runsRoot]);
-    if (confined && existsSync(confined)) {
-      try { await rm(confined, { recursive: true, force: true }); removed.push(`docs/autothing/runs/${card.runId}`); }
-      catch { /* best-effort */ }
+    const runsHome = process.env.GARRISON_RUNS_DIR
+      || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "runs");
+    const legacyRoot = path.resolve(projectRoot(), "docs", "autothing", "runs");
+    const candidates = [];
+    if (typeof card.runDir === "string" && path.isAbsolute(card.runDir)) {
+      const confined = confinePath(path.resolve(card.runDir), [runsHome]);
+      if (confined) candidates.push({ abs: confined, label: card.runDir });
+    }
+    const legacy = confinePath(path.resolve(legacyRoot, card.runId), [legacyRoot]);
+    if (legacy) candidates.push({ abs: legacy, label: `docs/autothing/runs/${card.runId}` });
+    for (const c of candidates) {
+      if (existsSync(c.abs)) {
+        try { await rm(c.abs, { recursive: true, force: true }); removed.push(c.label); }
+        catch { /* best-effort */ }
+      }
     }
   }
 
@@ -972,6 +1449,166 @@ async function handleDeleteCard(req, res, opts, id) {
   }
 
   jsonRes(res, 200, { ok: true, deleted: id, removed });
+}
+
+// Where a card's prepared-revert descriptor is persisted durably (S2, Q7): a sibling
+// of the run's other coordination evidence. atomicWriteJSON mkdir -p's the dir, so a
+// runDir without a coordination/ subdir yet is fine.
+function preparedRevertFile(runDir) {
+  return path.join(runDir, "coordination", "prepared-revert.json");
+}
+
+// POST /cards/:id/abandon — abandonment revert (S2, Q7, D8). A HUMAN-ONLY action:
+// the run engine's own moves carry x-garrison-engine and are rejected (the engine
+// never abandons a card; a person decides to). It builds a PREPARED (not applied)
+// revert descriptor from the card's trailer-attributed commits, persists it durably +
+// onto the card, releases the card's coordination holds (ledger intents + exclusive
+// leases), and PARKS the card in needs-attention with the abandoned flag set. Setting
+// `abandoned` is what releases any terminal-waiters on the next engine reevaluation
+// (reevaluateWaiting treats an abandoned blocker as gone) and frees the card's
+// serialize-gate slot — the revert itself is NEVER applied here (that is the separate,
+// explicitly-confirmed /revert step).
+async function handleAbandonCard(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin abandon rejected" });
+  if (isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "human-only",
+      message: "Abandonment is a human decision — the run engine never abandons a card. Abandon it from needs-attention in the UI."
+    });
+  }
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id; // pin to the validated route id
+  const board = await loadBoard(root);
+  const repoPath = repoPathForProject(card.project, board);
+  const at = new Date().toISOString();
+
+  // Build the prepared-revert descriptor (read-only on git). An unresolvable repo
+  // yields an honest empty descriptor (0 commits) so abandonment still parks the card.
+  const descriptor = prepareRevert({ repoPath, card }) || {
+    cardId: id,
+    project: card.project ?? null,
+    repoPath: repoPath ?? null,
+    commits: [],
+    preparedAt: at,
+    conflictRisk: [],
+    state: "prepared"
+  };
+
+  // Persist the descriptor durably as run evidence (best-effort — the card copy below
+  // is the authoritative one the UI and /revert read).
+  if (card.runDir) {
+    try { await atomicWriteJSON(preparedRevertFile(card.runDir), descriptor); }
+    catch { /* evidence best-effort */ }
+  }
+
+  // Release the card's outward coordination holds. Both are safe on a null repo.
+  try { removeCardIntents({ repoPath, cardId: id }); } catch { /* best-effort */ }
+  try { releaseLeases({ repoPath, cardId: id }); } catch { /* best-effort */ }
+
+  const n = descriptor.commits.length;
+  const reason = `Abandoned - prepared revert of ${n} commit${n === 1 ? "" : "s"} ready; confirm to apply`;
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    // Park it in needs-attention (a real list move). Preserve an existing parkedFrom
+    // when the card was ALREADY parked (don't overwrite it with needs-attention).
+    ...parkFields(c, c.list === ATTENTION_LIST ? undefined : c.list, reason),
+    abandoned: true,
+    preparedRevert: descriptor,
+    // An abandoned card is no longer waiting on anyone — drop its own wait if it had one.
+    waitingOn: null,
+    events: withEvent(c, {
+      at,
+      kind: "coordination",
+      message: `Abandoned by request - prepared revert of ${n} commit(s) ready to apply`,
+      detail: descriptor.commits.length ? descriptor.commits.map((s) => String(s).slice(0, 10)).join("\n") : null
+    })
+  }));
+  if (!updated) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(card) });
+  return jsonRes(res, 200, { card: cardSummary(updated), preparedRevert: cardSummary(updated).preparedRevert });
+}
+
+// POST /cards/:id/revert — apply a card's prepared revert (S2, Q7, D8). Requires an
+// EXPLICIT { confirm: true } body — anything else is a 400 (the revert is NEVER
+// auto-applied). Runs only when a descriptor in state "prepared" exists; a
+// non-prepared descriptor (already applied, or a prior conflict) is a 409 (the lib
+// never retries a revert silently). On success the descriptor flips to "applied" +
+// the revert commits land (carrying Garrison-Card / Garrison-Revert trailers) and the
+// card stays parked for the user to archive; on ANY conflict executeRevert aborts
+// cleanly (nothing half-applied) and we persist state "conflict" + a 409.
+async function handleRevertCard(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin revert rejected" });
+  const body = (await readBody(req)) || {};
+  if (body.confirm !== true) {
+    return jsonRes(res, 400, { error: "revert requires an explicit { confirm: true } — it is never auto-applied" });
+  }
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id; // pin to the validated route id
+  const pr = card.preparedRevert;
+  if (!pr) return jsonRes(res, 400, { error: "no prepared revert — abandon the card first to prepare one" });
+  if (pr.state !== "prepared") {
+    return jsonRes(res, 409, { error: `revert is not in a confirmable state (state: ${pr.state})`, card: cardSummary(card) });
+  }
+
+  const at = new Date().toISOString();
+  const result = executeRevert({ repoPath: pr.repoPath, cardId: id, commits: pr.commits });
+
+  if (result.state === "conflict") {
+    const next = { ...pr, state: "conflict", conflictAt: at, conflictSha: result.sha ?? null, error: result.error ?? null };
+    if (card.runDir) { try { await atomicWriteJSON(preparedRevertFile(card.runDir), next); } catch { /* best-effort */ } }
+    const updated = await updateCard(root, id, (c) => ({
+      ...c,
+      preparedRevert: next,
+      // Refresh the parked reason so the callout stops saying "confirm to apply".
+      attentionReason: "Revert hit a conflict - aborted cleanly; resolve manually",
+      events: withEvent(c, {
+        at,
+        kind: "coordination",
+        message: `Revert conflicted${result.sha ? ` at ${String(result.sha).slice(0, 10)}` : ""} - aborted cleanly, nothing applied`,
+        detail: result.error ?? null
+      })
+    }));
+    const finalCard = updated ?? card;
+    return jsonRes(res, 409, {
+      error: "revert conflicted - aborted cleanly, nothing was applied",
+      card: cardSummary(finalCard),
+      preparedRevert: cardSummary(finalCard).preparedRevert
+    });
+  }
+
+  // applied (or noop: no attributed commits — trivially done, recorded honestly)
+  const revertCommits = Array.isArray(result.revertCommits) ? result.revertCommits : [];
+  const next = { ...pr, state: "applied", appliedAt: at, revertCommits };
+  if (card.runDir) { try { await atomicWriteJSON(preparedRevertFile(card.runDir), next); } catch { /* best-effort */ } }
+  const message = result.state === "noop"
+    ? "Revert confirmed - no attributed commits to revert, nothing to apply"
+    : `Revert applied - ${revertCommits.length} revert commit(s) landed`;
+  // Refresh the parked reason so the callout stops saying "confirm to apply".
+  const attentionReason = result.state === "noop"
+    ? "Revert confirmed - no commits to revert"
+    : `Revert applied - ${revertCommits.length} commit${revertCommits.length === 1 ? "" : "s"} reverted`;
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    preparedRevert: next,
+    attentionReason,
+    events: withEvent(c, {
+      at,
+      kind: "coordination",
+      message,
+      detail: revertCommits.length ? revertCommits.map((s) => String(s).slice(0, 10)).join("\n") : null
+    })
+  }));
+  const finalCard = updated ?? card;
+  return jsonRes(res, 200, {
+    card: cardSummary(finalCard),
+    preparedRevert: cardSummary(finalCard).preparedRevert,
+    reverted: revertCommits
+  });
 }
 
 // POST /cards/:id/brief — record the James-mode Discuss brief PATH onto the card
@@ -1016,39 +1653,86 @@ async function handleStartCard(req, res, opts, id) {
   const list = getList(board, card.list);
   if (!list) return jsonRes(res, 400, { error: `card on unknown list: ${card.list}` });
 
+  // Coordination override (GARRISON-FLOW-V2 S1, Q4): a manual Start on a card that
+  // is WAITING behind an overlapping run is a DELIBERATE escape hatch. Clear the
+  // wait (recording it honestly on the timeline) before dispatching — there is no
+  // separate override endpoint; the button press IS the override.
+  if (card.waitingOn) {
+    const w = card.waitingOn;
+    const cleared = await updateCard(root, id, (c) => (c.waitingOn ? ({
+      ...c,
+      waitingOn: null,
+      events: withEvent(c, {
+        at: new Date().toISOString(),
+        kind: "coordination",
+        message: `Wait overridden manually (was waiting on ${w.cardTitle || w.cardId})`,
+        detail: w.reason || null
+      })
+    }) : null));
+    if (cleared) { card = cleared; card.id = id; }
+  }
+
   // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
   // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
-  // a Start cannot skip the brief-to-disk hand-off.
-  if (isInteractive(list)) {
+  // a Start cannot skip the brief-to-disk hand-off. EXCEPTION (S3d): a clarity-gated
+  // discuss card runs the discuss duty as a real session, so Start dispatches it
+  // like any agent list; a James-mode discuss card (no gate marker) stays manual.
+  if (isInteractive(list) && !isGatedDiscuss(card, list)) {
     return jsonRes(res, 400, {
       error: "interactive list (Discuss) advances by manual Move, not Start — open the web chat, then Move when ready"
     });
   }
 
-  // Manual column: Start just advances to the first valid next (the "move a card
-  // out of a manual column" path — Backlog/To Do/Done/needs-attention).
-  if (list.kind !== "agent") {
-    const targets = validNextFor(board, card.list);
-    if (!targets.length) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
-    const recover = card.list === "needs-attention"
-      ? { attentionReason: null, parkedFrom: null, lastDispatchError: null, iterations: 0 }
-      : {};
+  // Manual columns normally advance to their first valid edge. Needs-attention
+  // instead resumes its still-valid parkedFrom phase, preserving the failed
+  // phase's run context. A gated Discuss card falls through to agent dispatch.
+  if (list.kind !== "agent" && !isGatedDiscuss(card, list)) {
+    // A manual-only rail (empty phase plan — the personal/channel kinds, or a
+    // card with every phase toggled off) never advances INTO the dev pipeline:
+    // its journey is the manual head/tail, so Advance targets the manual
+    // subset of the list's exits, or Done when the pipeline was the only exit.
+    // parkedFrom resume is skipped too — there is no phase context to preserve.
+    const manualOnly = railIsManualOnly(railForCard(loadPolicy(), card));
+    let targets = validNextFor(board, card.list);
+    if (manualOnly) {
+      const manual = targets.filter((t) => getList(board, t)?.kind === "manual");
+      targets = manual.length ? manual : ["done"];
+    }
+    const parkedTarget =
+      !manualOnly &&
+      card.list === ATTENTION_LIST &&
+      typeof card.parkedFrom === "string" &&
+      card.parkedFrom !== ATTENTION_LIST &&
+      getList(board, card.parkedFrom)
+        ? card.parkedFrom
+        : null;
+    const target = parkedTarget ?? targets[0];
+    if (!target) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
+    const recovering = card.list === ATTENTION_LIST;
+    const recover = recovering ? unparkRecoveryFields(card) : {};
     const fromTitle = list.title || card.list;
-    const toTitle = getList(board, targets[0])?.title || targets[0];
-    const advanceEvent = withEvent(card, {
+    const toTitle = getList(board, target)?.title || target;
+    let events = withEvent(card, {
       at: new Date().toISOString(),
-      kind: card.list === "needs-attention" ? "recovered" : "moved",
-      message: card.list === "needs-attention" ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
+      kind: recovering ? "recovered" : "moved",
+      message: recovering ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
     });
-    const next = { ...card, list: targets[0], status: "ok", events: advanceEvent, ...recover };
+    if (recovering && card.retryKeepsContext) {
+      events = withEvent({ events }, {
+        at: new Date().toISOString(),
+        kind: "retry-keeps-context",
+        message: "Retry preserves prior context (phase runDir + iteration logs kept)"
+      });
+    }
+    const next = { ...card, list: target, status: "ok", events, ...recover };
     const result = await saveCardCAS(root, next, card.rev ?? 0);
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
     // If we advanced onto an immediate agent list, kick the automated flow.
-    if (shouldAutoDispatch(board, targets[0]) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd })
+    if (shouldAutoDispatch(board, target) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
+      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
         .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
     }
-    return jsonRes(res, 200, { card: cardSummary(result.card), advanced: targets[0] });
+    return jsonRes(res, 200, { card: cardSummary(result.card), advanced: target });
   }
 
   // Agent list: dispatch through the engine. Requires a LIVE gateway — PING it first
@@ -1057,6 +1741,18 @@ async function handleStartCard(req, res, opts, id) {
   const gatewayUrl = opts.gatewayUrl;
   if (!gatewayUrl || !(await gatewayReachable(gatewayUrl))) {
     return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before dispatching an agent list" });
+  }
+  // Coordination serialize gate (GARRISON-FLOW-V2 S1, Q8): when coordination is
+  // enabled but its substrate is degraded, only the oldest live card per project may
+  // dispatch — the same choke the tick applies. A waiting card already had its wait
+  // cleared above (Start is the override), so this only guards the degraded fallback.
+  {
+    const coordCfg = coordinationConfig(loadPolicy());
+    if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
+      const allCards = await loadAllCards(root);
+      const gate = serializeGate(allCards, card, board);
+      if (!gate.allowed) return jsonRes(res, 409, { error: gate.reason, card: cardSummary(card) });
+    }
   }
   const cap = opts.cap;
 
@@ -1069,7 +1765,7 @@ async function handleStartCard(req, res, opts, id) {
     const all = await loadAllCards(root);
     const projectKey = card.project || "(no-project)";
     const projectCards = all.filter((c) => c.list === card.list && (c.project || "(no-project)") === projectKey);
-    void processBatch({ root, board, listId: card.list, cards: projectCards, batchRunFn: batchGatewayRunFn(gatewayUrl), cap })
+    void processBatch({ root, board, listId: card.list, cards: projectCards, batchRunFn: batchGatewayRunFn(gatewayUrl), cap, cwd: opts.cwd })
       .catch((err) => console.error(`[kanban-loop] start/batch failed for ${id}:`, err?.message || err));
     return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true, batched: true });
   }
@@ -1078,7 +1774,7 @@ async function handleStartCard(req, res, opts, id) {
   // the HTTP response on it). The card flips to running and is watchable; the response
   // returns at once. This is the manual Run / Retry path (the UI shows it on any agent
   // list card that isn't already running; immediate agent lists also auto-run on entry).
-  void processChain({ root, board, card, runFn: gatewayRunFn(gatewayUrl), cap, cwd: opts.cwd })
+  void processChain({ root, board, card, runFn: gatewayRunFn(gatewayUrl), cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(gatewayUrl) })
     .catch((err) => console.error(`[kanban-loop] start/chain failed for ${id}:`, err?.message || err));
   jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true });
 }
@@ -1088,7 +1784,7 @@ async function handleStartCard(req, res, opts, id) {
 // transient gateway failure must REVERT a card, not park it).
 
 // GET /cards/:id/watch — SSE. For a LIVE run (card.status === "running") it tails
-// the latest log-<iterations>.md as it grows; otherwise it sends the linked
+// the latest monotonic log-N.md as it grows; otherwise it sends the linked
 // static logs once and closes. There is NO tmux attach — the pooled gateway
 // operative is raw node-pty (v4 wireframe §4 + the board-ui non-negotiable):
 // Watch is the card's log via SSE for a live run, the web chat for an
@@ -1110,8 +1806,8 @@ async function handleWatchCard(req, res, opts, id) {
     try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
   };
 
-  const live = card.status === "running" && (card.iterations ?? 0) > 0;
-  const n = card.iterations ?? 0;
+  const n = latestCardLogNumber(root, card);
+  const live = card.status === "running" && n > 0;
   const logFile = path.join(root, "cards", id, `log-${n}.md`);
 
   if (!live) {
@@ -1173,6 +1869,48 @@ async function handleWatchCard(req, res, opts, id) {
   if (!ended) timer = setInterval(pump, 1000);
 }
 
+// GET /operative/screen - SSE proxy of the gateway's /screen/stream (the
+// operative PTY's rendered terminal). The board UI stays same-origin; a
+// gateway that is down or has no live session surfaces as mode {live:false}
+// rather than an error, so the Watch sheet can say so calmly.
+async function handleOperativeScreen(req, res, opts) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const send = (event, data) => {
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
+  };
+  if (!opts.gatewayUrl) {
+    send("mode", { live: false, reason: "no gateway configured" });
+    return res.end();
+  }
+  const abort = new AbortController();
+  req.on("close", () => abort.abort());
+  let upstream;
+  try {
+    upstream = await fetch(`${opts.gatewayUrl}/screen/stream`, { signal: abort.signal });
+  } catch {
+    send("mode", { live: false, reason: "gateway unreachable" });
+    return res.end();
+  }
+  if (!upstream.ok || !upstream.body) {
+    send("mode", { live: false, reason: `gateway ${upstream.status}` });
+    return res.end();
+  }
+  try {
+    // Pipe the SSE bytes through verbatim - the gateway already speaks the
+    // event framing the board's EventSource expects.
+    for await (const chunk of upstream.body) {
+      res.write(chunk);
+    }
+  } catch {
+    /* upstream ended or client left */
+  }
+  try { res.end(); } catch {}
+}
+
 // GET /cards/:id/artifact?ref=<refToken> — read-only serve of a card's linked
 // artifact (plan / gate markers / brief / transcript / log). The client names a
 // card id + an OPAQUE ref token; the server re-derives the absolute path from the
@@ -1192,6 +1930,12 @@ async function handleArtifact(req, res, opts, cardId, ref) {
   const confined = confinePath(absPath, allowedRoots(opts.cwd, opts.root));
   if (!confined) return jsonRes(res, 403, { error: "path outside allowed roots" });
   if (!isReadableFile(confined)) return jsonRes(res, 404, { error: "not a readable file" });
+  // WS2 (WS5 evidence dependency): append the fetch to the card's append-only fetch
+  // log. Fire-and-forget — a log-write failure must never affect the artifact serve.
+  void appendFile(
+    path.join(opts.root, "cards", cardId, "fetch-log.jsonl"),
+    JSON.stringify({ at: new Date().toISOString(), ref, ua: req.headers?.["user-agent"] || null }) + "\n"
+  ).catch(() => {});
   const ext = path.extname(confined).toLowerCase();
   const ct = {
     ".md": "text/markdown; charset=utf-8",
@@ -1226,6 +1970,55 @@ async function handleArtifact(req, res, opts, cardId, ref) {
   createReadStream(confined).pipe(res);
 }
 
+// Which artifact refs are EDITABLE (text the user authored/owns): the card-owned brief,
+// the plan, and the per-card iteration logs. Machine-generated JSON (gate markers,
+// evidence index), evidence files, session transcripts, and the video stay read-only.
+function isEditableArtifactRef(ref) {
+  return ref === "brief" || ref === "plan" || /^log:\d+$/.test(ref);
+}
+
+// PUT /cards/:id/artifact?ref=<ref> — write an editable text artifact. Confined to the
+// SAME allowed roots as the read side; only .md/.txt editable refs are accepted. Writing
+// the brief also marks it on the card (a pointer) so the link + build pick it up.
+async function handleArtifactWrite(req, res, opts, cardId, ref) {
+  if (typeof ref !== "string" || !isEditableArtifactRef(ref)) {
+    return jsonRes(res, 400, { error: "this artifact is not editable" });
+  }
+  let card;
+  try { card = await loadCard(opts.root, cardId); }
+  catch { return jsonRes(res, 404, { error: "no such card" }); }
+  card.id = cardId;
+  // D16: editing an engine-owned card's plan/brief/log mid-run is a manual edit
+  // — rejected like PATCH (rev-s4 finding #4). Start/Infer stay human-usable by
+  // design (they delegate to the engine); artifact WRITES change run inputs.
+  const boardForLock = await loadBoard(opts.root);
+  if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
+    return jsonRes(res, 403, {
+      error: "engine-owned",
+      message: `Card is on the autonomous list "${card.list}" — its run inputs are engine-owned (D16). Edit from needs-attention if it parks.`
+    });
+  }
+  const absPath = resolveArtifactRef(card, ref, { root: opts.root, cwd: opts.cwd });
+  if (!absPath) return jsonRes(res, 400, { error: "unknown or out-of-range artifact ref" });
+  const confined = confinePath(absPath, allowedRoots(opts.cwd, opts.root));
+  if (!confined) return jsonRes(res, 403, { error: "path outside allowed roots" });
+  const ext = path.extname(confined).toLowerCase();
+  if (ext !== ".md" && ext !== ".txt") return jsonRes(res, 400, { error: "only .md/.txt artifacts are editable" });
+  const body = (await readBody(req)) || {};
+  const content = typeof body.content === "string" ? body.content : "";
+  if (content.length > 512 * 1024) return jsonRes(res, 413, { error: "artifact too large (512 KB cap)" });
+  try {
+    await mkdir(path.dirname(confined), { recursive: true });
+    await writeFile(confined, content, "utf8");
+    if (ref === "brief" && !card.briefPath) {
+      try { await saveCardCAS(opts.root, { ...card, briefPath: cardBriefRel(cardId) }, card.rev ?? 0); } catch { /* best-effort marker */ }
+    }
+    jsonRes(res, 200, { ok: true, ref });
+  } catch (err) {
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
 // GET /lists — the list defs (config) for the list-config UI. Same shape the
 // board view already exposes per list (skill / trigger / prompts / validNext /
 // mode / taskType / tier / kind / interactive), but without the cards, so the
@@ -1247,12 +2040,11 @@ async function handleGetLists(req, res, opts) {
       beatCron: l.beatCron ?? null,
       interactive: Boolean(isInteractive(l)),
       terminal: Boolean(l.terminal),
-      skill: l.skill ?? null,
+      // D15: a list maps to a phase name and nothing else; skill/taskType/
+      // tier/mode resolve from the compiled Orchestrator policy.
+      phase: l.phase ?? (l.kind === "agent" ? l.id : null),
       executePrompt: l.executePrompt ?? "",
       routerPrompt: l.routerPrompt ?? "",
-      mode: l.mode ?? null,
-      taskType: l.taskType ?? null,
-      tier: l.tier ?? null,
       validNext: Array.isArray(l.validNext) ? l.validNext : []
     }));
   jsonRes(res, 200, { version: board.version ?? 2, rev: boardRev, lists });
@@ -1363,11 +2155,16 @@ export async function readWebChannelStatus(statusDir = STATUS_ROOT) {
 
 async function handleBoardRuntime(req, res, opts) {
   const channel = await readWebChannelStatus();
+  // Absolute kanban-store cards dir, so the board can hand the web channel an absolute,
+  // card-owned briefAbsPath (<cardsAbsDir>/<cardId>/brief.md) for the Brief editor — the
+  // same file James writes and the engine reads. Deterministic; no project-dir guessing.
+  const cardsAbsDir = path.join(kanbanRoot(), "cards");
   jsonRes(res, 200, {
     webChannelEmbedId: channel.id,
     webChannelUrl: channel.url,
     gatewayBaseUrl: opts.gatewayUrl || null,
-    noGateway: !opts.gatewayUrl
+    noGateway: !opts.gatewayUrl,
+    cardsAbsDir
   });
 }
 
@@ -1395,18 +2192,20 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[kanban-loop] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
   }
-  return null;
 }
 
 async function writeStatusFile(opts) {
@@ -1417,8 +2216,11 @@ async function writeStatusFile(opts) {
     url: `http://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
     pid: process.pid,
     startedAt: new Date().toISOString(),
-    route: "/board",
-    views: [{ id: "board", title: "Kanban", route: "/board" }]
+    // "/" serves the visual board UI; "/board" is the JSON API. The status
+    // file's route is what Garrison EMBEDS for the sidebar View - pointing it
+    // at /board rendered raw JSON in the Views pane (dogfood finding).
+    route: "/",
+    views: [{ id: "board", title: "Kanban", route: "/" }]
   }, null, 2));
 }
 
@@ -1428,16 +2230,19 @@ async function clearStatusFile() {
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.KANBAN_UI_PORT || DEFAULT_PORT),
-    host: process.env.KANBAN_UI_HOST || "127.0.0.1",
+    // Port precedence (house convention, same as improver/ports-default):
+    // runner-projected composition config first (per-instance, e.g. main=7089
+    // vs codex=27089), then the legacy explicit env (tests), then the default.
+    port: Number(process.env.GARRISON_KANBANLOOP_PORT || process.env.KANBAN_UI_PORT || DEFAULT_PORT),
+    host: process.env.GARRISON_KANBANLOOP_BIND_HOST || process.env.KANBAN_UI_HOST || "127.0.0.1",
     root: kanbanRoot(),
     cwd: projectRoot(),
     // Default to the gateway's conventional URL (like the web channel) so the board can
     // dispatch agent-list runs even when GARRISON_GATEWAY_URL isn't explicitly injected.
-    // The runner injects the live URL; this default covers the common :4777 gateway.
+    // The runner injects the live URL; this default covers the common :24777 gateway.
     gatewayUrl:
       process.env.GARRISON_GATEWAY_URL ||
-      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`,
+      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`,
     cap: Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10)
   };
   for (let i = 0; i < argv.length; i++) {
@@ -1469,13 +2274,33 @@ export function makeRequestHandler(opts, distDir) {
         return jsonRes(res, 403, { error: "cross-origin mutation rejected" });
       }
 
-      if (pathname === "/health") return handleHealth(req, res, opts);
+      if (pathname === "/health") return await handleHealth(req, res, opts);
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
-      if (pathname === "/projects" && method === "GET") return handleProjects(req, res);
-      if (pathname === "/skills" && method === "GET") return handleSkills(req, res);
+      // GET /policy — read-only passthrough of the compiled Orchestrator policy
+      // (work kinds, phase plans, skill bindings) so the card-create UI can
+      // offer work kinds + per-card phase toggles (D17). 404 when Garrison has
+      // not compiled one yet; the UI degrades to plain creation.
+      if (pathname === "/policy" && method === "GET") {
+        const policy = loadPolicy();
+        if (!policy) return jsonRes(res, 404, { error: "no compiled policy (start Garrison / the Orchestrator fitting)" });
+        return jsonRes(res, 200, {
+          workKinds: policy.workKinds || {},
+          phasePlans: policy.phasePlans || {},
+          defaultWorkKind: policy.defaultWorkKind || null,
+          phases: policy.phases || [],
+          phaseSkills: policy.phaseSkills || { bindings: {}, overrides: {} }
+        });
+      }
+      if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
+      if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
+      // Same-origin SSE proxy of the gateway's live operative terminal screen
+      // (Watch's Terminal tab). Proxied rather than CORS-opened: the board
+      // deliberately serves and fetches everything on this one port.
+      if (pathname === "/operative/screen" && method === "GET") return await handleOperativeScreen(req, res, opts);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
+      if (pathname === "/cards" && method === "GET") return await handleListCards(req, res, opts, parsed.query);
 
       // PATCH /lists/:listId — configure a list. Validate the id (clean kebab,
       // no traversal) before it reaches the board.
@@ -1486,19 +2311,34 @@ export function makeRequestHandler(opts, distDir) {
         return await handlePatchList(req, res, opts, listId);
       }
 
+      // GET /origins/:originId[/events] (S3e) - the durable per-origin event log +
+      // record, for PULL delivery (skill/terminal sessions poll_origin_events). The id
+      // is sanitised by safeOriginId before it touches the store (no traversal).
+      const originMatch = pathname.match(/^\/origins\/([^/]+)(\/events)?$/);
+      if (originMatch && method === "GET") {
+        const originId = decodeURIComponent(originMatch[1]);
+        if (originMatch[2] === "/events") return await handleGetOriginEvents(req, res, opts, originId, parsed.query);
+        return await handleGetOrigin(req, res, opts, originId);
+      }
+
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
         if (!isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
+        if (sub === "/artifact" && method === "PUT") return await handleArtifactWrite(req, res, opts, id, parsed.query.ref);
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
+        if (sub === "/abandon" && method === "POST") return await handleAbandonCard(req, res, opts, id);
+        if (sub === "/revert" && method === "POST") return await handleRevertCard(req, res, opts, id);
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);
         if (sub === "/infer-project" && method === "POST") return await handleInferProject(req, res, opts, id);
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);
+        if (sub === "/handoff" && method === "GET") return await handleGetHandoff(req, res, opts, id);
+        if (sub === "/steer" && method === "POST") return await handleSteerCard(req, res, opts, id);
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);
@@ -1514,25 +2354,47 @@ export function makeRequestHandler(opts, distDir) {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[kanban-loop] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
-  if (free !== opts.port) {
-    console.warn(`[kanban-loop] requested port ${opts.port} busy — using ${free}`);
+  assertStatusSlotFree();
+  const liveOpts = { ...opts };
+
+  // Recover cards stranded "running" by a mid-run restart — their dispatch died
+  // with the previous process, so nothing will ever finish or revert them. Two
+  // passes, stalest first: a card whose runningSince is older than ORPHAN_RUNNING_MS
+  // was already orphaned BEFORE this restart, so it is parked into needs-attention
+  // (genuinely stuck work, out of the pipeline and visible) rather than left in place
+  // with a Retry affordance nobody pressed. Everything still running after that pass
+  // is a run this restart really did interrupt, and gets the gentler clear-and-retry.
+  try {
+    const reaped = await reapOrphanedRuns(liveOpts.root);
+    if (reaped.length) {
+      console.log(`[kanban-loop] parked ${reaped.length} orphaned running card(s): ${reaped.join(", ")}`);
+    }
+  } catch (err) {
+    console.error("[kanban-loop] orphaned-run reaper failed:", err?.message || err);
+  }
+  try {
+    const recovered = await recoverInterruptedRuns(liveOpts.root);
+    if (recovered.length) {
+      console.log(`[kanban-loop] recovered ${recovered.length} interrupted run(s): ${recovered.join(", ")}`);
+    }
+  } catch (err) {
+    console.error("[kanban-loop] interrupted-run recovery failed:", err?.message || err);
   }
 
   const server = http.createServer(makeRequestHandler(liveOpts, distDir));
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[kanban-loop] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
 
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
       console.log(`[kanban-loop] board UI on http://${liveOpts.host}:${liveOpts.port}`);
       if (!liveOpts.gatewayUrl) console.warn("[kanban-loop] no GARRISON_GATEWAY_URL — Start on agent lists is disabled");
-      // Recover any card stranded in "running" by a prior crash (best-effort).
-      try {
-        const reaped = await reapOrphanedRuns(kanbanRoot());
-        if (reaped.length) console.log(`[kanban-loop] reaped ${reaped.length} orphaned running card(s): ${reaped.join(", ")}`);
-      } catch (e) { console.warn("[kanban-loop] orphan reaper failed:", e?.message || e); }
       resolve();
     });
   });

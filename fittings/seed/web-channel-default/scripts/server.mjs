@@ -9,14 +9,15 @@
 // LAN bind: default 127.0.0.1 (mirrors CLAUDE.md "talks only to localhost").
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync, realpathSync } from "node:fs";
+import { mkdir, readFile, unlink, writeFile, appendFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
+import { listThreads, getThread, ensureThread, appendMessages, deleteThread } from "./threads.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -43,8 +44,11 @@ const CHANNEL_ID = "web";
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.WEB_CHANNEL_PORT || 7083),
-    host: process.env.WEB_CHANNEL_HOST || "127.0.0.1",
+    // Port precedence (house convention, same as improver/ports-default):
+    // runner-projected composition config first (per-instance, e.g. main=7083
+    // vs codex=27083), then the legacy explicit env (tests), then the default.
+    port: Number(process.env.GARRISON_WEBCHANNELDEFAULT_PORT || process.env.WEB_CHANNEL_PORT || 27083),
+    host: process.env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST || process.env.WEB_CHANNEL_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
     tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
     tlsKey: process.env.WEB_CHANNEL_TLS_KEY || ""
@@ -59,7 +63,7 @@ function parseArgs(argv) {
   }
   if (!out.gatewayUrl) {
     const h = process.env.GARRISON_GATEWAY_HOST || "127.0.0.1";
-    const p = process.env.GARRISON_GATEWAY_PORT || "4777";
+    const p = process.env.GARRISON_GATEWAY_PORT || "24777";
     out.gatewayUrl = `http://${h}:${p}`;
   }
   return out;
@@ -215,11 +219,17 @@ async function handleVoiceProxy(req, res, subpath) {
   upstream.end(body);
 }
 
-// Pure passthrough relay: browser WS ⇄ voice Fitting /stream WS. Binary (PCM)
-// and text (control + transcript events) are forwarded verbatim in both
-// directions; frames sent before the upstream opens are buffered briefly.
-function relayVoiceStream(client, voiceHttpUrl, search) {
-  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + "/stream" + (search || "");
+// Pure passthrough relay: browser WS ⇄ a voice Fitting WS endpoint (STT /stream
+// or read-aloud /tts-stream). Binary (PCM audio) and text (control + transcript
+// events) are forwarded verbatim in both directions; frames sent before the
+// upstream opens are buffered briefly. All Deepgram logic — and the API key —
+// stay on the voice Fitting; this hop only shuttles frames.
+// Cap on frames buffered before the upstream voice socket opens (codex S6a
+// finding: an unbounded relay buffer is a memory-DoS if the upstream stalls).
+const MAX_RELAY_PENDING = 256;
+
+function relayVoiceStream(client, voiceHttpUrl, search, subpath = "/stream") {
+  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + subpath + (search || "");
   const upstream = new WebSocket(upstreamUrl);
   const pending = [];
 
@@ -235,7 +245,11 @@ function relayVoiceStream(client, voiceHttpUrl, search) {
 
   client.on("message", (data, isBinary) => {
     if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-    else pending.push({ data, isBinary });
+    else if (pending.length >= MAX_RELAY_PENDING) {
+      // Pre-open buffer overflow — upstream stalled; tear both legs down.
+      try { client.close(); } catch {}
+      try { upstream.close(); } catch {}
+    } else pending.push({ data, isBinary });
   });
   client.on("close", () => { try { upstream.close(); } catch {} });
   client.on("error", () => { try { upstream.close(); } catch {} });
@@ -300,6 +314,93 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
   });
   req.on("close", () => {
     try { upstream.destroy(); } catch {}
+  });
+  if (upstreamBody !== undefined) {
+    upstream.write(upstreamBody);
+  }
+  upstream.end();
+}
+
+// SSE proxy for POST /api/chat with SERVER-SIDE turn persistence. Differs from
+// pipeUpstreamSse in two deliberate ways:
+//   1. It watches the upstream stream for the `done` event and tees the exchange
+//      (user message + settled reply) into the thread store, so the transcript
+//      survives navigation/tab-close mid-turn.
+//   2. It does NOT propagate client-close to the gateway request - the turn runs
+//      to `done` server-side so the reply is persisted and the task is never
+//      orphaned invisibly. Writes to a gone client are simply skipped.
+function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessage } = {}) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  let clientGone = false;
+  req.on("close", () => { clientGone = true; });
+  req.on("error", () => { clientGone = true; });
+  res.on("error", () => { clientGone = true; });
+  const clientWrite = (chunk) => {
+    if (clientGone || res.writableEnded || res.destroyed) return;
+    try { res.write(chunk); } catch { clientGone = true; }
+  };
+  const clientEnd = () => {
+    if (res.writableEnded || res.destroyed) return;
+    try { res.end(); } catch { /* gone */ }
+  };
+
+  let persisted = false;
+  const persistDone = (reply) => {
+    if (persisted || !threadId) return;
+    persisted = true;
+    const messages = [{ role: "user", text: userMessage }];
+    if (typeof reply === "string" && reply.trim()) messages.push({ role: "assistant", text: reply });
+    appendMessages(threadId, messages).catch((err) => {
+      console.error(`[web-channel] failed to persist turn into thread ${threadId}: ${err.message}`);
+    });
+  };
+  // Scan the upstream SSE frames for the `done` event (same block parse as the
+  // browser client). The gateway JSON-stringifies each payload on one data line.
+  let scanBuf = "";
+  const scanForDone = (chunk) => {
+    scanBuf += chunk.toString("utf8");
+    let idx;
+    while ((idx = scanBuf.indexOf("\n\n")) !== -1) {
+      const block = scanBuf.slice(0, idx);
+      scanBuf = scanBuf.slice(idx + 2);
+      let name = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (name !== "done") continue;
+      let payload = {};
+      try { payload = data ? JSON.parse(data) : {}; } catch { /* ignore */ }
+      persistDone(payload?.reply);
+    }
+  };
+
+  const upstream = http.request(upstreamOpts, (up) => {
+    if (up.statusCode && up.statusCode >= 400) {
+      clientWrite(`event: error\ndata: ${JSON.stringify({ error: `upstream ${up.statusCode}` })}\n\n`);
+      up.resume();
+      clientEnd();
+      return;
+    }
+    up.on("data", (chunk) => {
+      scanForDone(chunk);
+      clientWrite(chunk);
+    });
+    up.on("end", () => clientEnd());
+    up.on("error", (err) => {
+      clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+      clientEnd();
+    });
+  });
+  upstream.on("error", (err) => {
+    clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+    clientEnd();
   });
   if (upstreamBody !== undefined) {
     upstream.write(upstreamBody);
@@ -383,6 +484,81 @@ async function readJsonBody(req, limit = 256 * 1024) {
   });
 }
 
+// ── Brief documents (view + edit the Discuss brief in the channel) ───────────
+// The web channel edits the markdown brief a Discuss session produces. The brief's
+// ABSOLUTE path is handed in by the host (Kanban / Automations) via the Discuss
+// context (briefAbsPath) — the channel never derives it. Direct file access is safe
+// here because it is CONFINED: a path is accepted only if, after normalising +
+// expanding "~", it is absolute, ends in ".md", contains no "..", lives inside a
+// directory literally named "briefs", AND its deepest existing ancestor realpaths
+// under the user's home dir (blocks symlink escape + any out-of-home write). This is
+// a local, single-user app (localhost only), so "*.md under ~/**/briefs/" is the
+// whole attack surface a tampered context could reach.
+export function resolveBriefPath(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  let p = raw.trim();
+  if (p === "~") p = os.homedir();
+  else if (p.startsWith("~/")) p = path.join(os.homedir(), p.slice(2));
+  if (!path.isAbsolute(p)) return null;
+  const norm = path.normalize(p);
+  if (!norm.toLowerCase().endsWith(".md")) return null;
+  const segs = norm.split(path.sep);
+  if (segs.includes("..")) return null;
+  // Accept either a file inside a "briefs/" dir (project / automation briefs) OR any
+  // file under the Garrison store ~/.garrison/ (the card-owned kanban brief at
+  // ~/.garrison/kanban-loop/cards/<id>/brief.md).
+  const garrisonStore = (process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison")) + path.sep;
+  const inBriefsDir = path.dirname(norm).split(path.sep).includes("briefs");
+  const inGarrisonStore = norm.startsWith(garrisonStore);
+  if (!inBriefsDir && !inGarrisonStore) return null;
+  // Realpath the deepest EXISTING ancestor (the brief file itself may not exist yet)
+  // and require it under the real home dir.
+  let anc = path.dirname(norm);
+  while (!existsSync(anc) && path.dirname(anc) !== anc) anc = path.dirname(anc);
+  let realAnc;
+  let realHome;
+  try {
+    realAnc = realpathSync(anc);
+    realHome = realpathSync(os.homedir());
+  } catch {
+    return null;
+  }
+  if (realAnc !== realHome && !realAnc.startsWith(realHome + path.sep)) return null;
+  return norm;
+}
+
+async function handleBriefGet(res, rawPath) {
+  const p = resolveBriefPath(rawPath);
+  if (!p) return jsonRes(res, 400, { error: "invalid or out-of-bounds brief path" });
+  try {
+    const content = await readFile(p, "utf8");
+    jsonRes(res, 200, { exists: true, path: p, content });
+  } catch (err) {
+    if (err.code === "ENOENT") return jsonRes(res, 200, { exists: false, path: p, content: "" });
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
+async function handleBriefPut(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const p = resolveBriefPath(body?.path);
+  if (!p) return jsonRes(res, 400, { error: "invalid or out-of-bounds brief path" });
+  const content = typeof body?.content === "string" ? body.content : "";
+  if (content.length > 512 * 1024) return jsonRes(res, 413, { error: "brief too large (512 KB cap)" });
+  try {
+    await mkdir(path.dirname(p), { recursive: true });
+    await writeFile(p, content, "utf8");
+    jsonRes(res, 200, { ok: true, path: p });
+  } catch (err) {
+    jsonRes(res, 500, { error: err.message });
+  }
+}
+
 // Build the gateway /chat/stream body from a channel request. GENERIC by
 // design: a fitting hands this channel an OPAQUE `context` blob and a `mode`
 // string and the channel forwards them verbatim — it never inspects or
@@ -395,11 +571,135 @@ async function readJsonBody(req, limit = 256 * 1024) {
 //   - context present          → adds `context` (forwarded untouched)
 //   - mode present (non-empty) → adds `mode`
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, mode } = {}) {
+export function buildGatewayChatBody({ message, context, mode, classification, sessionId } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
   if (typeof mode === "string" && mode.trim()) body.mode = mode.trim();
+  // D19: the conversation's thread id, forwarded as the gateway's session key so a
+  // multi-turn thread attaches to ONE card instead of registering a duplicate per
+  // turn. Absent → the gateway falls back to the channel name.
+  if (typeof sessionId === "string" && sessionId.trim()) body.sessionId = sessionId.trim();
+  // Forward an explicit routing hint (the interactive Discuss path sends
+  // { taskType, tier: "T0-trivial" } to keep extended thinking OFF — thinking on a
+  // "design a process" prompt trips Anthropic's usage-policy classifier). The gateway
+  // validates it (routeHintsFromBody); a malformed hint is simply ignored there.
+  if (classification && typeof classification === "object") body.classification = classification;
   return body;
+}
+
+// ─────────────────────────── S3b: materialized-turn context assembly (D8)
+//
+// A web thread is an ORIGIN, not a session: nothing runs and nothing holds context
+// between messages. Each user message MATERIALIZES a turn — the server assembles a
+// BOUNDED deterministic context block (recent thread window + this thread's board
+// cards + a fetch-on-demand trailer) and sends it as body.context, so the gateway
+// answers with assembled context instead of a standing accumulating session.
+
+const CTX_CAP = 6000; // hard cap on assembled context (chars)
+const THREAD_WINDOW = 12; // most recent thread messages
+const MSG_CLIP = 500; // per-message clip
+const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
+
+function boardBaseUrl() {
+  try {
+    // Resolve at CALL time (not from the frozen STATUS_ROOT const): the kanban board
+    // may come up after the web channel, and a sandbox sets GARRISON_HOME late.
+    const s = JSON.parse(readFileSync(path.join(garrisonDir(), "ui-fittings", "kanban-loop.json"), "utf8"));
+    return s.url || (s.port ? `http://127.0.0.1:${s.port}` : null);
+  } catch {
+    return null;
+  }
+}
+
+// A done card's one-liner: prefer its handoff completionSummary, else lastReply/title.
+async function doneOneLiner(base, c) {
+  try {
+    const r = await fetch(`${base}/cards/${encodeURIComponent(c.id)}/handoff`, { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      const { handoff } = await r.json();
+      const s = typeof handoff?.completionSummary === "string" ? handoff.completionSummary : "";
+      if (s.trim()) return `${c.id} ${c.title} — done: ${clip(s.trim(), 120)}`;
+    }
+  } catch {
+    /* fall back below */
+  }
+  const fallback = typeof c.lastReply === "string" && c.lastReply.trim() ? c.lastReply.trim() : c.title || "";
+  return `${c.id} ${c.title} — done: ${clip(String(fallback), 120)}`;
+}
+
+// Assemble the block, then truncate DETERMINISTICALLY under the cap: drop oldest
+// thread messages first, then done one-liners (active cards — the working state —
+// are never dropped).
+function buildContextBlock(threadMsgs, activeLines, doneLines, trailer, cap) {
+  const msgs = threadMsgs.slice();
+  const dones = doneLines.slice();
+  const render = () => {
+    const parts = [];
+    if (msgs.length) parts.push("## Recent conversation\n" + msgs.join("\n"));
+    if (activeLines.length) parts.push("## Active cards from this thread\n" + activeLines.join("\n"));
+    if (dones.length) parts.push("## Completed cards from this thread\n" + dones.join("\n"));
+    parts.push(trailer);
+    return parts.join("\n\n");
+  };
+  let out = render();
+  while (out.length > cap && msgs.length) {
+    msgs.shift();
+    out = render();
+  }
+  while (out.length > cap && dones.length) {
+    dones.pop();
+    out = render();
+  }
+  if (out.length > cap) out = out.slice(0, cap);
+  return out;
+}
+
+export async function assembleMaterializedContext(threadId) {
+  const telemetry = { threadId: threadId ?? null, assembledChars: 0, messages: 0, activeCards: 0, doneCards: 0 };
+  if (!threadId) return { context: null, telemetry };
+  let threadMsgs = [];
+  try {
+    const thread = await getThread(threadId);
+    const msgs = Array.isArray(thread?.messages) ? thread.messages : [];
+    threadMsgs = msgs.slice(-THREAD_WINDOW).map((m) => `${m.role}: ${clip(String(m.text ?? ""), MSG_CLIP)}`);
+  } catch {
+    /* no thread yet */
+  }
+  const activeLines = [];
+  const doneLines = [];
+  const base = boardBaseUrl();
+  if (base) {
+    try {
+      const r = await fetch(`${base}/cards?origin_id=${encodeURIComponent(`web:${threadId}`)}`, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) {
+        const { cards } = await r.json();
+        for (const c of Array.isArray(cards) ? cards : []) {
+          if (c.list === "done") doneLines.push(await doneOneLiner(base, c));
+          else if (c.list !== "needs-attention") activeLines.push(`${c.id} ${c.title} — ${c.list} (${clip(String(c.lastReply ?? ""), 150)})`);
+        }
+      }
+    } catch {
+      /* board down — assemble from the thread window alone */
+    }
+  }
+  telemetry.messages = threadMsgs.length;
+  telemetry.activeCards = activeLines.length;
+  telemetry.doneCards = doneLines.length;
+  const trailer = "Deeper detail for any card is available on demand via fetch_evidence(card_id, ref) — pull, do not assume.";
+  const context = buildContextBlock(threadMsgs, activeLines, doneLines, trailer, CTX_CAP);
+  telemetry.assembledChars = context.length;
+  return { context, telemetry };
+}
+
+// Acceptance-7 evidence: one line per materialized turn proving bounded context.
+async function appendMaterializedTurn(telemetry) {
+  try {
+    const dir = path.join(garrisonDir(), "web-channel");
+    await mkdir(dir, { recursive: true });
+    await appendFile(path.join(dir, "materialized-turns.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...telemetry }) + "\n");
+  } catch {
+    /* telemetry is best-effort */
+  }
 }
 
 async function handleChat(req, res, opts) {
@@ -415,12 +715,20 @@ async function handleChat(req, res, opts) {
     jsonRes(res, 400, { error: "message is required" });
     return;
   }
-  // Forward the opaque context + mode through to the gateway untouched.
+  // The client's thread id (never forwarded to the gateway) - the exchange is
+  // persisted into it server-side when the upstream `done` event arrives.
+  const threadId = typeof body?.thread === "string" && body.thread.trim() ? body.thread.trim() : null;
+  // S3b: MATERIALIZE the turn — assemble bounded deterministic context from this
+  // thread's history + board cards, and record the bounded-context telemetry. Falls
+  // back to any client-supplied context when there is no thread id.
+  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId);
+  void appendMaterializedTurn(telemetry);
+  // Forward the assembled context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
-    buildGatewayChatBody({ message, context: body?.context, mode: body?.mode })
+    buildGatewayChatBody({ message, context: assembledContext ?? body?.context, mode: body?.mode, classification: body?.classification, sessionId: threadId })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
-  pipeUpstreamSse(req, res, {
+  pipeChatSse(req, res, {
     method: "POST",
     hostname: target.hostname,
     port: target.port,
@@ -430,7 +738,103 @@ async function handleChat(req, res, opts) {
       "Content-Length": Buffer.byteLength(payload),
       Accept: "text/event-stream"
     }
-  }, payload);
+  }, payload, { threadId, userMessage: message });
+}
+
+// Answer an AskUserQuestion picker (a tapped option label / free text / dismiss).
+// Buffers the JSON and forwards to the gateway's POST /chat/answer, which drives
+// the live TUI picker. Same shape as handleClaudeProxy but on the /chat path.
+async function handleChatAnswer(req, res, opts) {
+  let payload;
+  try {
+    payload = JSON.stringify(await readJsonBody(req));
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const target = new URL("/chat/answer", opts.gatewayUrl);
+  const upstream = http.request(
+    {
+      method: "POST",
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        Accept: "application/json"
+      }
+    },
+    (up) => {
+      res.statusCode = up.statusCode || 502;
+      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (err) => {
+    try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
+  });
+  upstream.write(payload);
+  upstream.end();
+}
+
+// ── Conversation threads (session list + history) ──────────────────────────
+// Generic, opaque-keyed transcript organizer over the one rolling operative. The
+// server persists each completed exchange itself (handleChat tees the upstream
+// `done` event into the thread the client named) and lists/serves prior threads
+// so the UI can show a session list and move between conversations.
+async function handleThreadsList(res) {
+  jsonRes(res, 200, { threads: await listThreads() });
+}
+
+async function handleThreadCreate(req, res) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  const thread = await ensureThread({
+    id: typeof body?.id === "string" ? body.id : undefined,
+    title: typeof body?.title === "string" ? body.title : undefined,
+    source: typeof body?.source === "string" ? body.source : undefined,
+    mode: typeof body?.mode === "string" ? body.mode : undefined,
+    context: body?.context,
+  });
+  jsonRes(res, 200, { thread });
+}
+
+async function handleThreadGet(res, id) {
+  const thread = await getThread(id);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found" });
+  jsonRes(res, 200, { thread });
+}
+
+async function handleThreadAppend(req, res, id) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  try {
+    jsonRes(res, 200, { thread: await appendMessages(id, body?.messages) });
+  } catch (err) {
+    jsonRes(res, 400, { error: err.message });
+  }
+}
+
+async function handleThreadDelete(res, id) {
+  const ok = await deleteThread(id);
+  jsonRes(res, ok ? 200 : 404, { ok });
+}
+
+// Route /api/threads, /api/threads/:id, /api/threads/:id/messages. Returns true
+// when it handled the request.
+function routeThreads(req, res, pathname, method) {
+  if (pathname === "/api/threads" && method === "GET") { void handleThreadsList(res); return true; }
+  if (pathname === "/api/threads" && method === "POST") { void handleThreadCreate(req, res); return true; }
+  if (pathname.startsWith("/api/threads/")) {
+    const parts = pathname.slice("/api/threads/".length).split("/").filter(Boolean).map((p) => {
+      try { return decodeURIComponent(p); } catch { return p; }
+    });
+    const id = parts[0];
+    if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
+    if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "messages" && method === "POST") { void handleThreadAppend(req, res, id); return true; }
+  }
+  return false;
 }
 
 function serveStatic(req, res, distDir) {
@@ -442,46 +846,65 @@ function serveStatic(req, res, distDir) {
     res.end("forbidden");
     return;
   }
+  const ext = path.extname(filePath).toLowerCase();
   if (!existsSync(filePath)) {
-    const indexFallback = path.join(distDir, "index.html");
-    if (existsSync(indexFallback)) {
-      const data = readFileSync(indexFallback);
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/html");
-      res.end(data);
-      return;
+    // SPA fallback is for NAVIGATIONS only (extension-less routes). An asset-like
+    // path with an extension (e.g. /sw.js, /manifest.json, /icons/icon-192.png)
+    // that is missing must 404 — serving index.html for it as text/html would
+    // break service-worker registration, manifest parsing, and icon loads.
+    if (!ext) {
+      const indexFallback = path.join(distDir, "index.html");
+      if (existsSync(indexFallback)) {
+        const data = readFileSync(indexFallback);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/html");
+        res.end(data);
+        return;
+      }
     }
     res.statusCode = 404;
     res.setHeader("Content-Type", "text/plain");
-    res.end("web-channel: dist/ not built yet — run `node ui/build.mjs` in the Fitting directory.");
+    res.end("web-channel: not found (dist/ built? run `node ui/build.mjs` in the Fitting directory).");
     return;
   }
-  const ext = path.extname(filePath).toLowerCase();
   const ctMap = {
     ".html": "text/html",
     ".js": "application/javascript",
     ".css": "text/css",
     ".json": "application/json",
     ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".webmanifest": "application/manifest+json",
     ".map": "application/json"
   };
+  // The web app manifest is served with its precise type so Chrome/Android accept
+  // it (application/json also works, but this is the spec-correct MIME).
+  const contentType = path.basename(filePath) === "manifest.json"
+    ? "application/manifest+json"
+    : (ctMap[ext] ?? "application/octet-stream");
   res.statusCode = 200;
-  res.setHeader("Content-Type", ctMap[ext] ?? "application/octet-stream");
+  res.setHeader("Content-Type", contentType);
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort, host) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, host);
-    });
-    if (free) return port;
+// True when `pid` names a live process (EPERM still means alive, just not ours).
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
   }
-  return null;
+}
+
+async function readStatusFile() {
+  try {
+    return JSON.parse(await readFile(STATUS_FILE, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function writeStatusFile(opts) {
@@ -502,9 +925,15 @@ async function clearStatusFile() {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
 
-  const free = await findFreePort(opts.port, opts.host);
-  if (free === null) {
-    console.error(`[web-channel] no free port found starting from ${opts.port}`);
+  // Port discipline: never overwrite a status file whose pid is a LIVE other
+  // process - a second spawn must fail loudly instead of silently stealing the
+  // tracking slot and orphaning the first instance (the two-generations bug).
+  const existing = await readStatusFile();
+  if (existing && Number.isInteger(existing.pid) && existing.pid !== process.pid && pidAlive(existing.pid)) {
+    console.error(
+      `[web-channel] refusing to start: ${STATUS_FILE} tracks a live instance ` +
+      `(pid ${existing.pid}, ${existing.url ?? `port ${existing.port}`}) - stop it first`
+    );
     process.exit(1);
   }
   // Optional TLS so mobile browsers get a secure context (getUserMedia / mic
@@ -520,7 +949,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       tls = null;
     }
   }
-  const liveOpts = { ...opts, port: free, scheme: tls ? "https" : "http" };
+  const liveOpts = { ...opts, scheme: tls ? "https" : "http" };
 
   const requestHandler = async (req, res) => {
     try {
@@ -528,13 +957,35 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
+      // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
+      // same-origin; relay to the Power fitting via its status file. Power
+      // absent → 204 silently (advisory).
+      if (pathname === "/power-heartbeat" && method === "POST") {
+        try {
+          const statusFile = path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "ui-fittings", "power-default.json");
+          const st = JSON.parse(readFileSync(statusFile, "utf8"));
+          const base = st.url || `http://127.0.0.1:${st.port}`;
+          await fetch(`${base}/presence`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source: "web-channel" }),
+            signal: AbortSignal.timeout(1500)
+          });
+        } catch { /* advisory */ }
+        res.statusCode = 204;
+        return res.end();
+      }
       if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice/health" && method === "GET") return handleVoiceHealth(res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
+      if (pathname === "/api/chat/answer" && method === "POST") return handleChatAnswer(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
+      if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
+      if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
+      if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method)) return;
       if (pathname === "/api/claude/stream" && method === "GET") return handleClaudeStream(req, res, liveOpts);
       if (pathname === "/api/claude/status" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "status", "GET");
       if (pathname === "/api/claude/commands" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "commands", "GET");
@@ -542,6 +993,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/claude/keys" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "keys", "POST");
       if (pathname === "/api/claude/mode" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "mode", "POST");
       if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
+      if (pathname === "/api/claude/answer" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "answer", "POST");
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;
@@ -557,14 +1009,20 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     ? https.createServer(tls, requestHandler)
     : http.createServer(requestHandler);
 
-  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting /stream.
-  // No parsing — all Deepgram logic stays in the voice Fitting; the key never
-  // reaches the browser. The page connects to /api/voice/stream (wss when this
-  // server is TLS), and we forward the query (sample_rate) verbatim.
+  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting.
+  // /api/voice/stream → the Fitting's STT /stream; /api/voice/tts-stream → its
+  // read-aloud /tts-stream. No parsing — all Deepgram logic stays in the voice
+  // Fitting; the key never reaches the browser. The page connects with wss when
+  // this server is TLS, and we forward the query (sample_rate, etc.) verbatim.
+  const VOICE_WS_ROUTES = {
+    "/api/voice/stream": "/stream",
+    "/api/voice/tts-stream": "/tts-stream"
+  };
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url || "/", true);
-    if (parsed.pathname !== "/api/voice/stream") {
+    const subpath = VOICE_WS_ROUTES[parsed.pathname || ""];
+    if (!subpath) {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
@@ -575,7 +1033,19 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || ""));
+    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || "", subpath));
+  });
+
+  // Bind the CONFIGURED port only - no findFreePort auto-shift. A busy port is a
+  // hard, loud failure so the runner surfaces the conflict instead of the server
+  // silently splitting brain across two ports.
+  server.on("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[web-channel] port ${liveOpts.port} on ${liveOpts.host} is already in use - refusing to auto-shift; free the port or change the configured port`);
+    } else {
+      console.error(`[web-channel] server error: ${err.message}`);
+    }
+    process.exit(1);
   });
 
   server.listen(liveOpts.port, liveOpts.host, async () => {

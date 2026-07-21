@@ -1,0 +1,292 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { CloneError, cloneDrift, cloneFitting, readCloneProvenance } from "@/lib/clone";
+import { FittingFileError, createFile, writeFile } from "@/lib/fitting-files";
+import { getLibraryEntry, readRawLibrary } from "@/lib/library";
+import { readYamlFile } from "@/lib/yaml";
+import { ROOT_DIR } from "@/lib/paths";
+
+// clone.test.ts owns the ONLY test writes to data/library.json. It snapshots the
+// registry once, and after each test restores that snapshot and deletes any
+// temp clone dirs it created — so a failed assertion, or a parallel test file
+// reading the registry, never sees a leftover clone. writeRawLibrary is atomic,
+// so a concurrent reader never catches a torn file mid-write either.
+
+const LOCAL_DIR = path.join(ROOT_DIR, "fittings", "local");
+const LIBRARY_PATH = path.join(ROOT_DIR, "data", "library.json");
+const SOURCE_ID = "taste"; // small, stable seed skill Fitting
+
+let librarySnapshot: string;
+const createdIds: string[] = [];
+
+// Clone into an explicit temp id and remember it for cleanup.
+async function cloneTemp(sourceId: string, newId: string) {
+  createdIds.push(newId);
+  return cloneFitting(sourceId, { newId });
+}
+
+beforeAll(async () => {
+  librarySnapshot = await fs.readFile(LIBRARY_PATH, "utf8");
+});
+
+afterEach(async () => {
+  // Restore ATOMICALLY (temp + rename): parallel test files read the registry
+  // (readLibrary in the muster model/standing paths), and a plain truncate-and-
+  // write here hands them an empty/partial JSON file mid-restore.
+  const tmp = `${LIBRARY_PATH}.tmp-${process.pid}`;
+  await fs.writeFile(tmp, librarySnapshot, "utf8");
+  await fs.rename(tmp, LIBRARY_PATH);
+  while (createdIds.length) {
+    const id = createdIds.pop()!;
+    await fs.rm(path.join(LOCAL_DIR, id), { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+describe("cloneFitting", () => {
+  it("copies the source tree, writes provenance, and appends a resolvable library entry", async () => {
+    const entry = await cloneTemp(SOURCE_ID, "s3ct-copy");
+
+    // The returned entry is a first-class, resolved LibraryEntry.
+    expect(entry.id).toBe("s3ct-copy");
+    expect(entry.localPath).toBe("fittings/local/s3ct-copy");
+    expect(entry.repo).toBe("local:fittings/local/s3ct-copy");
+    expect(entry.cloned_from).toBe("taste@0.1.0");
+    // Metadata is derived from the copied apm.yml, so the clone lands in the
+    // same Faculty as its source and is selectable exactly like any Fitting.
+    expect(entry.faculty).toBe("design");
+    expect(entry.metadata.component_shape).toBe("skill");
+
+    // Authored content came across, including the `.apm/` skill files.
+    const cloneRoot = path.join(LOCAL_DIR, "s3ct-copy");
+    for (const rel of [
+      "apm.yml",
+      "LICENSE",
+      ".apm/skills/design-taste-frontend/SKILL.md",
+      ".apm/skills/redesign-existing-projects/SKILL.md"
+    ]) {
+      await expect(fs.access(path.join(cloneRoot, rel))).resolves.toBeUndefined();
+    }
+
+    // The manifest is re-keyed to the new id and its _local/ verify path is
+    // repointed, so it installs/verifies as its own APM package.
+    const manifest = await readYamlFile<{ name?: string; "x-garrison"?: { verify?: { command?: string } } }>(
+      path.join(cloneRoot, "apm.yml")
+    );
+    expect(manifest?.name).toBe("s3ct-copy");
+    expect(manifest?.["x-garrison"]?.verify?.command).toContain("_local/s3ct-copy/");
+    expect(manifest?.["x-garrison"]?.verify?.command).not.toContain("_local/taste/");
+
+    // Provenance file records the pin + a non-empty per-file baseline.
+    const prov = await readCloneProvenance("s3ct-copy");
+    expect(prov?.cloned_from).toBe("taste@0.1.0");
+    expect(typeof prov?.clonedAt).toBe("string");
+    expect(Object.keys(prov?.files ?? {}).length).toBeGreaterThan(0);
+    // clone.json is provenance, never part of the drift baseline.
+    expect(prov?.files["clone.json"]).toBeUndefined();
+
+    // Registry entry is well-formed and resolveLibraryEntry loads it.
+    const raw = (await readRawLibrary()).find((e) => e.id === "s3ct-copy");
+    expect(raw).toMatchObject({
+      id: "s3ct-copy",
+      repo: "local:fittings/local/s3ct-copy",
+      localPath: "fittings/local/s3ct-copy",
+      cloned_from: "taste@0.1.0"
+    });
+    const resolved = await getLibraryEntry("s3ct-copy");
+    expect(resolved?.id).toBe("s3ct-copy");
+    expect(resolved?.faculty).toBe("design");
+  });
+
+  it("defaults the new id to <source>-copy, then increments, and refuses a duplicate", async () => {
+    // basic-memory keeps this independent of the committed taste-copy demo clone,
+    // whose `-copy` slot is permanently taken.
+    const first = await cloneFitting("basic-memory"); // no explicit id
+    createdIds.push(first.id);
+    expect(first.id).toBe("basic-memory-copy");
+
+    const second = await cloneFitting("basic-memory"); // -copy taken -> -copy-2
+    createdIds.push(second.id);
+    expect(second.id).toBe("basic-memory-copy-2");
+
+    await expect(
+      cloneFitting("basic-memory", { newId: "basic-memory-copy" })
+    ).rejects.toBeInstanceOf(CloneError);
+  });
+
+  it("rejects an unknown source", async () => {
+    await expect(cloneFitting("does-not-exist")).rejects.toBeInstanceOf(CloneError);
+  });
+});
+
+describe("cloneDrift", () => {
+  it("is clean for an untouched clone and drifts on a local edit", async () => {
+    await cloneTemp(SOURCE_ID, "s3ct-drift");
+
+    const before = await cloneDrift("s3ct-drift");
+    expect(before.drifted).toEqual([]);
+    expect(before.clean).toContain("apm.yml");
+    expect(before.clean.length).toBeGreaterThan(0);
+
+    // Edit an existing baseline file directly on disk.
+    const licensePath = path.join(LOCAL_DIR, "s3ct-drift", "LICENSE");
+    await fs.appendFile(licensePath, "\n// local change\n", "utf8");
+
+    const after = await cloneDrift("s3ct-drift");
+    expect(after.drifted).toContain("LICENSE");
+    expect(after.clean).not.toContain("LICENSE");
+  });
+
+  it("404s (throws CloneError) for a Fitting that is not a clone", async () => {
+    await expect(cloneDrift(SOURCE_ID)).rejects.toBeInstanceOf(CloneError);
+    expect(await readCloneProvenance(SOURCE_ID)).toBeNull();
+  });
+});
+
+describe("createFile", () => {
+  it("creates a new file (mkdir -p parent) and it reads back as drift", async () => {
+    await cloneTemp(SOURCE_ID, "s3ct-create");
+
+    const result = await createFile("s3ct-create", "notes/hello.md", "hi");
+    expect(result.path).toBe("notes/hello.md");
+    expect(result.size).toBe(2);
+
+    const onDisk = await fs.readFile(path.join(LOCAL_DIR, "s3ct-create", "notes/hello.md"), "utf8");
+    expect(onDisk).toBe("hi");
+
+    // A brand-new file is not in the baseline, so clone-status flags it.
+    const drift = await cloneDrift("s3ct-create");
+    expect(drift.drifted).toContain("notes/hello.md");
+  });
+
+  it("refuses to overwrite an existing file", async () => {
+    await cloneTemp(SOURCE_ID, "s3ct-exists");
+    await createFile("s3ct-exists", "notes/x.md", "one");
+    await expect(createFile("s3ct-exists", "notes/x.md", "two")).rejects.toMatchObject({
+      status: 409
+    });
+    // The overwrite endpoint's contract is unchanged: the original content stays.
+    const onDisk = await fs.readFile(path.join(LOCAL_DIR, "s3ct-exists", "notes/x.md"), "utf8");
+    expect(onDisk).toBe("one");
+  });
+
+  it("rejects a path that escapes the fitting directory", async () => {
+    await cloneTemp(SOURCE_ID, "s3ct-escape");
+    await expect(createFile("s3ct-escape", "../escape.md", "x")).rejects.toMatchObject({
+      status: 400
+    });
+    await expect(fs.access(path.join(LOCAL_DIR, "escape.md"))).rejects.toBeTruthy();
+  });
+
+  it("rejects a blocked path segment", async () => {
+    await cloneTemp(SOURCE_ID, "s3ct-blocked");
+    await expect(createFile("s3ct-blocked", ".git/config", "x")).rejects.toMatchObject({
+      status: 400
+    });
+    await expect(createFile("s3ct-blocked", ".apm/skills/evil/SKILL.md", "x")).rejects.toBeInstanceOf(
+      FittingFileError
+    );
+  });
+});
+
+describe("codex hardening — symlink safety + write serialization", () => {
+  it("createFile refuses to write through a symlinked directory that escapes the root", async () => {
+    const clone = await cloneTemp(SOURCE_ID, "s3ct-symdir");
+    const cloneRoot = path.join(LOCAL_DIR, clone.id);
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-outside-"));
+    try {
+      // A crafted clone could carry `out -> /somewhere/outside`.
+      await fs.symlink(outside, path.join(cloneRoot, "out"), "dir");
+      await expect(createFile(clone.id, "out/pwn.md", "x")).rejects.toMatchObject({ status: 400 });
+      // The write never escaped.
+      await expect(fs.access(path.join(outside, "pwn.md"))).rejects.toBeTruthy();
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("writeFile refuses to overwrite through a symlink that escapes the root", async () => {
+    const clone = await cloneTemp(SOURCE_ID, "s3ct-symfile");
+    const cloneRoot = path.join(LOCAL_DIR, clone.id);
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-outside-"));
+    try {
+      const outsideFile = path.join(outside, "secret.txt");
+      await fs.writeFile(outsideFile, "ORIGINAL", "utf8");
+      await fs.symlink(outsideFile, path.join(cloneRoot, "link.txt"), "file");
+      await expect(writeFile(clone.id, "link.txt", "HACKED")).rejects.toMatchObject({ status: 400 });
+      expect(await fs.readFile(outsideFile, "utf8")).toBe("ORIGINAL");
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("clones symlinked source content as real, independent bytes (dereference)", async () => {
+    const src = await cloneTemp(SOURCE_ID, "s3ct-derefsrc");
+    const srcRoot = path.join(LOCAL_DIR, src.id);
+    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "TARGET BYTES", "utf8");
+    await fs.symlink("real-target.txt", path.join(srcRoot, "linked.txt"), "file");
+
+    const clone = await cloneTemp(src.id, "s3ct-derefclone");
+    const cloneLinked = path.join(LOCAL_DIR, clone.id, "linked.txt");
+
+    // In the clone it is a REAL file, not a symlink, carrying the target's bytes.
+    const stat = await fs.lstat(cloneLinked);
+    expect(stat.isSymbolicLink()).toBe(false);
+    expect(stat.isFile()).toBe(true);
+    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+
+    // Independent: mutating the upstream target does not change the clone.
+    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "MOVED ON", "utf8");
+    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+  });
+
+  it("refuses to clone a source carrying a symlink that escapes its root (dereference exfil)", async () => {
+    // codex-checkpoint finding 4: with dereference:true a source `secret ->
+    // /etc/...` would copy off-root host bytes INTO the clone. Reject up front.
+    const src = await cloneTemp(SOURCE_ID, "s3ct-escsrc");
+    const srcRoot = path.join(LOCAL_DIR, src.id);
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-escape-"));
+    try {
+      await fs.writeFile(path.join(outside, "host-secret.txt"), "SECRET", "utf8");
+      await fs.symlink(path.join(outside, "host-secret.txt"), path.join(srcRoot, "secret.txt"), "file");
+      await expect(cloneFitting(src.id, { newId: "s3ct-escclone" })).rejects.toMatchObject({ status: 400 });
+      // No half-made clone dir survives the rejection.
+      await expect(fs.access(path.join(LOCAL_DIR, "s3ct-escclone"))).rejects.toBeTruthy();
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes concurrent library appends so no entry is lost", async () => {
+    const ids = ["s3ct-conc-a", "s3ct-conc-b"];
+    for (const id of ids) createdIds.push(id);
+    await Promise.all([
+      cloneFitting(SOURCE_ID, { newId: ids[0] }),
+      cloneFitting(SOURCE_ID, { newId: ids[1] })
+    ]);
+    const raw = await readRawLibrary();
+    expect(raw.find((e) => e.id === "s3ct-conc-a"), "first concurrent clone survived").toBeTruthy();
+    expect(raw.find((e) => e.id === "s3ct-conc-b"), "second concurrent clone survived").toBeTruthy();
+  });
+});
+
+describe("copy independence", () => {
+  it("an edit to the upstream source never changes the clone", async () => {
+    // A mutable source: clone taste once to get a fixture we can freely edit
+    // without touching the hash-pinned seed.
+    const source = await cloneTemp(SOURCE_ID, "s3ct-src");
+    const clone = await cloneTemp(source.id, "s3ct-fromsrc");
+
+    const cloneLicense = path.join(LOCAL_DIR, clone.id, "LICENSE");
+    const original = await fs.readFile(cloneLicense, "utf8");
+
+    // Mutate the upstream fixture AFTER the clone was made.
+    await fs.writeFile(path.join(LOCAL_DIR, source.id, "LICENSE"), "UPSTREAM MOVED ON", "utf8");
+
+    // The clone is a byte copy on its own inode — unaffected.
+    expect(await fs.readFile(cloneLicense, "utf8")).toBe(original);
+    const drift = await cloneDrift(clone.id);
+    expect(drift.drifted).not.toContain("LICENSE");
+  });
+});

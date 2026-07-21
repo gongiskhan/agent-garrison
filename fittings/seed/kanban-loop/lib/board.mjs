@@ -4,13 +4,18 @@
 //   cards/<ulid>/log-N.md  — per-session logs (written by the engine)
 // List membership is DERIVED by scanning cards (brief §3) — never stored on disk.
 // Every mutation is read-immediately-before-write + atomic (temp file then rename).
-import { promises as fs } from "node:fs";
+import { promises as fs, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
+import { routeTerminalTransition } from "./notify-origin.mjs";
+import { generateHandoffIfDone } from "./handoff.mjs";
+import { deriveOriginId } from "./origins.mjs";
+import { markSteeringApplied } from "./steering.mjs";
 
 export function kanbanRoot() {
-  return process.env.GARRISON_KANBAN_DIR || path.join(os.homedir(), ".garrison", "kanban-loop");
+  const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+  return process.env.GARRISON_KANBAN_DIR || path.join(home, "kanban-loop");
 }
 
 // Atomic JSON write: write a unique temp file, then rename over the target so a
@@ -26,8 +31,31 @@ async function readJSON(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
+// One-shot board migration (D15): v2 boards carried per-list skill/taskType/
+// tier/mode pins — the dead config GARRISON-UNIFY-V1 deletes. Strip them,
+// stamp each agent list's phase (its id), bump to v3. Idempotent; unknown
+// fields survive.
+export function migrateBoard(board) {
+  if (!board || typeof board !== "object") return board;
+  if ((board.version || 0) >= 3) return board;
+  const lists = (board.lists || []).map((l) => {
+    const { skill, taskType, tier, mode, ...rest } = l;
+    if (rest.kind === "agent" && !rest.phase) rest.phase = rest.id;
+    return rest;
+  });
+  return { ...board, version: 3, lists };
+}
+
 export async function loadBoard(root = kanbanRoot()) {
-  return readJSON(path.join(root, "board.json"));
+  const board = await readJSON(path.join(root, "board.json"));
+  // v2→v3 migration on read, persisted back so it runs once; a fresh board is
+  // already v3.
+  if (board && (board.version || 0) < 3) {
+    const migrated = migrateBoard(board);
+    await saveBoard(migrated, root);
+    return migrated;
+  }
+  return board;
 }
 
 export async function saveBoard(board, root = kanbanRoot()) {
@@ -36,8 +64,33 @@ export async function saveBoard(board, root = kanbanRoot()) {
 
 const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, at = new Date().toISOString() }) {
+// The card-owned Discuss brief: a markdown file next to the card's card.json. This is
+// the DETERMINISTIC, card-scoped brief location — James writes it here (told the absolute
+// path in the Discuss kickoff), the web-channel Brief editor reads/writes it, and the
+// engine folds it into the build prompt. Decoupled from any project working dir, so the
+// three never disagree on where the brief lives.
+export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
+export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
+
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
+  // WS2 (D7): a continuation card references its predecessor by ULID. When set and
+  // no explicit origin was given, the card's origin is "continuation".
+  const validContinues = typeof continues === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(continues) ? continues : null;
+  // A continuation INHERITS the predecessor's duty journey when the creator did
+  // not pick one: a bare successor would fall back to the legacy board validNext
+  // and wander lists the predecessor never meant to visit. Server-side so every
+  // creation door (Continue button, create_continuation tool, gateway) gets it.
+  if (validContinues && !duty && !sequence) {
+    try {
+      const prev = JSON.parse(await fs.readFile(cardFile(root, validContinues), "utf8"));
+      duty = prev.duty ?? null;
+      level = prev.level ?? null;
+      sequence = Array.isArray(prev.sequence) && prev.sequence.length ? [...prev.sequence] : null;
+    } catch {
+      /* unknown predecessor - the successor stays bare */
+    }
+  }
   const card = {
     id,
     title: title ?? "(untitled)",
@@ -50,6 +103,41 @@ export async function createCard(root, { title, description = "", project = null
     cost: null,
     goalMode: Boolean(goalMode),
     acceptance,
+    // ── run-policy fields (S4: D2/D8/D17) ─────────────────────────────────
+    // workKind names the policy work kind whose phase plan is this card's
+    // rail; phases is the per-card toggle map merged OVER the plan (an OFF
+    // phase renders off, never hidden); tier rides classification (the phase
+    // is the task type); origin records who registered the run.
+    workKind: typeof workKind === "string" && workKind ? workKind : null,
+    phases: phases && typeof phases === "object" ? phases : null,
+    tier: typeof tier === "string" && tier ? tier : null,
+    origin: typeof origin === "string" && origin ? origin : validContinues ? "continuation" : null,
+    // WS2 (D7): predecessor card id for a continuation (null for a fresh card). The
+    // engine reads the predecessor's handoff.json into the successor's prompt.
+    continues: validContinues,
+    // The originating channel thread ({channel, threadId}) — where the engine
+    // posts this card's outcome (done / needs-attention) back to. Absent for
+    // board-created cards.
+    originChannel:
+      originChannel && typeof originChannel === "object" && typeof originChannel.channel === "string" && typeof originChannel.threadId === "string"
+        ? { channel: originChannel.channel, threadId: originChannel.threadId }
+        : null,
+    // ── resolved-model flow (D15, S4a) ────────────────────────────────────
+    // The card's duty + level (its journey through the board): its resolved
+    // sequence (resolver.resolveSequence) is the ordered leaf phase lists it
+    // visits — a card visits EXACTLY its sequence and skips the rest. `sequence`
+    // caches those leaf ids so the engine advances along it without re-resolving;
+    // absent (a legacy card) → the engine uses the board's static validNext.
+    duty: typeof duty === "string" && duty ? duty : null,
+    level: Number.isInteger(level) ? level : null,
+    sequence: Array.isArray(sequence) && sequence.every((s) => typeof s === "string") ? sequence : null,
+    // S3d (D9b): the dispatcher's specification-clarity verdict. A "needs-discuss"
+    // card is dispatched through the Discuss duty first (the engine's gated-discuss
+    // exemption keys on this); anything else is null (a clear card runs straight).
+    clarity: clarity === "needs-discuss" ? "needs-discuss" : null,
+    // D27: single-outpost affinity — the run engine dispatches this card's
+    // phase sessions to the named outpost; offline → needs-attention.
+    outpost: typeof outpost === "string" && outpost ? outpost : null,
     // ── execution visibility ──────────────────────────────────────────────
     // The card's activity timeline (engine.withEvent appends to it on every
     // transition); the last operative reply snippet (shown on the card front);
@@ -58,6 +146,10 @@ export async function createCard(root, { title, description = "", project = null
     events: [{ at, kind: "created", message: project ? `Created in ${list} (project ${project})` : `Created in ${list} — no project yet` }],
     lastReply: null,
     runningSince: null,
+    // Monotonic high-water mark for cards/<id>/log-N.md. Unlike `iterations`
+    // (the convergence-cap counter), this never resets when a human retries a
+    // needs-attention card, so a fresh attempt cannot overwrite an older log.
+    logIndex: 0,
     // V1b pointer fields (FINDING 10 — the card stores POINTERS, never inlined
     // document bodies). runId/runDir are minted lazily on the card's first
     // agent-list entry (FINDING 4); the rest are filled by the skills/surfaces as
@@ -69,9 +161,32 @@ export async function createCard(root, { title, description = "", project = null
     sessionIds: [],     // Claude Code transcript ids for each run (pointers)
     briefPath: null,    // James-mode brief produced in Discuss (under briefs_path)
     videoUrl: null,     // walkthrough gallery link (set by the Walkthrough list)
+    // ── coordination fields (GARRISON-FLOW-V2 S1, Q4) ──────────────────────
+    // Same-branch multi-run coordination. waitingOn holds the wait descriptor
+    // when the engine defers a plan-completed card behind an overlapping run
+    // (the card SITS in Plan, gate evidence already written, until the blocker
+    // reaches its release point); stabilityAt marks the card's first-review
+    // stability point (overlapping medium waiters may start); planCompletedAt
+    // is the total-order key for ordering overlapping runs; blocking is the
+    // best-effort list of cards waiting on THIS card (UI convenience). New
+    // keys, so a pre-coordination card simply reads them as undefined.
+    waitingOn: null,
+    stabilityAt: null,
+    planCompletedAt: null,
+    blocking: [],
+    // S2 (Q5/Q7): git fence anchors this run has committed ({phase, sha, at,
+    // empty}) and a prepared-revert descriptor after abandonment. New keys; a
+    // pre-S2 card reads them as undefined.
+    fences: [],
+    preparedRevert: null,
     created: at,
     updated: at
   };
+  // S3a (D8): every card carries an origin_id — an explicit one wins, else derive
+  // from originChannel/origin (web:<threadId> | skill:unknown | board). originChannel
+  // is kept in sync for back-compat (notify-origin's web delivery reads it).
+  card.origin_id =
+    typeof explicitOriginId === "string" && explicitOriginId ? explicitOriginId : deriveOriginId(card);
   await atomicWriteJSON(cardFile(root, id), card);
   return card;
 }
@@ -211,8 +326,51 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     }
     const next = { ...card, rev: expectedRev + 1, updated: at };
     await atomicWriteJSON(cardFile(root, card.id), next);
+    // Feedback to the originating channel on a terminal transition (done /
+    // needs-attention). saveCardCAS is the one write path every mover uses
+    // (engine, server PATCH, batch), so the edge fires exactly once per
+    // outcome. Fire-and-forget — never delays or fails the write.
+    // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
+    // a finished | blocked | failed event — appends to the origin's durable event log
+    // for ALL transports, and posts the (legacy) web text to the originating thread.
+    routeTerminalTransition(root, disk, next);
+    // WS2 handoff packet: on the done edge, compose + write cards/<id>/handoff.json
+    // (deferred to the next tick, fully guarded — never blocks or fails this write).
+    generateHandoffIfDone(root, disk, next);
+    // S3c: a card reaching a terminal list strands any unapplied revisit directive
+    // (the boundary guard early-returns before it) — clear it so the chip resolves and
+    // it can never fire on a reopened card. No-op when there is no pending directive.
+    if ((next.list === "done" || next.list === "needs-attention") && (disk?.list ?? null) !== next.list) {
+      markSteeringApplied(root, next.id, "obsolete-terminal");
+    }
     return { ok: true, card: next };
   });
+}
+
+// Read-immediately, mutate, CAS-write a card by id — retrying a few times when a
+// concurrent write bumps the rev under us. `mutate(card)` returns the next card (or a
+// falsy value to leave it unchanged). Used for CROSS-CARD event writes (a card writing
+// a coordination/blocking event onto ANOTHER card it does not "own" the read of): the
+// engine's per-card processing has the running card's rev, but a blocker card must be
+// read-then-CAS-written independently. Returns the written card, the unchanged card, or
+// null on repeated conflict / missing card. (This is the same shape as the board
+// server's private updateCard helper; kept here so the engine + coordination lib can
+// reuse it without depending on the server.)
+export async function updateCardCAS(root, id, mutate, tries = 6) {
+  for (let i = 0; i < tries; i++) {
+    let card;
+    try {
+      card = await loadCard(root, id);
+    } catch {
+      return null; // no such card
+    }
+    card.id = id;
+    const next = mutate(card);
+    if (!next) return card; // mutate opted out — nothing to write
+    const res = await saveCardCAS(root, next, card.rev ?? 0);
+    if (res.ok) return res.card;
+  }
+  return null; // lost the CAS race `tries` times
 }
 
 export async function listCardIds(root = kanbanRoot()) {
@@ -268,6 +426,25 @@ export async function appendCardLog(root, id, n, text) {
   return file;
 }
 
+// Latest durable per-card log ordinal. The on-card high-water mark closes the
+// small acquire→first-write window for live Watch, while the disk scan keeps
+// pre-logIndex cards (including already-reset cards with iterations:0) readable
+// and ensures their next run appends after every existing log.
+export function latestCardLogNumber(root, card) {
+  const number = (value) => Number.isSafeInteger(value) && value > 0 ? value : 0;
+  let latest = Math.max(number(card?.logIndex), number(card?.iterations));
+  try {
+    for (const entry of readdirSync(path.join(root, "cards", card.id), { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const match = entry.name.match(/^log-(\d+)\.md$/);
+      if (match) latest = Math.max(latest, number(Number(match[1])));
+    }
+  } catch {
+    // A brand-new/legacy card directory may not exist yet; card fields suffice.
+  }
+  return latest;
+}
+
 // Overwrite a card's iteration log atomically (temp + rename). Used for the LIVE
 // stream: the engine rewrites log-<n>.md with the operative's growing reply as
 // chunks arrive (so Watch shows progress), then once more with the clean final
@@ -275,12 +452,22 @@ export async function appendCardLog(root, id, n, text) {
 export async function writeCardLog(root, id, n, text) {
   const file = path.join(root, "cards", id, `log-${n}.md`);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  // Unique temp per CALL (not per process): the engine fires writeCardLog on every
-  // streamed chunk without awaiting, so many writes race on the same log-<n>.md.
-  // A shared temp name lets two concurrent writes interleave into a torn file (the
-  // very thing the temp+rename was meant to prevent). Mirror atomicWriteJSON.
+  // Unique temp per CALL, not per process: a PID-only temp name aliases every
+  // live-stream rewrite from this process. The engine fires writeCardLog on every
+  // streamed chunk without awaiting, so many writes race on the same log-<n>.md;
+  // a shared temp path lets them interleave into a torn file, and when an onChunk
+  // write overlaps the authoritative final write, the first rename consumes that
+  // shared path and the other writer fails ENOENT.
+  // Give every attempt its own path; ordering is handled by the engine's
+  // per-turn write queue, while this also makes direct concurrent callers safe.
   const tmp = `${file}.${process.pid}.${ulid()}.tmp`;
-  await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
-  await fs.rename(tmp, file);
+  try {
+    await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
+    await fs.rename(tmp, file);
+  } finally {
+    // rename removes the temp on success; force cleanup covers a failed write
+    // or rename without obscuring the original error.
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
   return file;
 }

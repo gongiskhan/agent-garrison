@@ -156,7 +156,7 @@ describe("Agent vs Dev display tier (2026-06-24)", () => {
 
 describe("sessions split (2026-06-18)", () => {
   it("moves the runtime engines out of sessions into runtimes", async () => {
-    for (const id of ["agent-sdk-runtime", "codex-runtime", "gemini-runtime"]) {
+    for (const id of ["agent-sdk-runtime", "codex-runtime", "gemini-runtime", "opencode-runtime"]) {
       expect(await seedFaculty(id), id).toBe("runtimes");
     }
   });

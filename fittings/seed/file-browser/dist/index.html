@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#273126" />
 <title>Files</title>
 <style>
   :root { --paper:#faf8f3; --ink:#1c1b17; --rule:#e3ddcf; --mute:#8a8474; --sage:#3f7d53; --brass:#9a7b2e; --accent:#2f6b8f; --mono: ui-monospace, "JetBrains Mono", Menlo, monospace; }
@@ -31,9 +32,92 @@
   #md img { max-width:100%; }
   #img { flex:1; display:flex; align-items:center; justify-content:center; padding:16px; }
   #img img { max-width:100%; max-height:100%; }
-  .empty { color:var(--mute); padding:24px; text-align:center; }
+  .empty { color:var(--mute); padding:24px; text-align:center; font-size:14px; }
+  .actions { display:flex; gap:8px; padding:10px 16px; border-bottom:1px solid var(--rule); }
+  .actions .btn { font-size:12px; min-height:34px; padding:6px 12px; }
+  .empty-root { padding:36px 24px; text-align:center; color:var(--mute); max-width:520px; margin:0 auto; }
+  .empty-root h2 { color:var(--ink); font-size:16px; font-weight:600; margin:0 0 10px; }
+  .empty-root p { font-size:14px; line-height:1.55; margin:0 0 10px; }
+  .empty-root .path { font-family:var(--mono); font-size:12px; color:var(--accent); word-break:break-all; }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:9px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
   .toast.show { opacity:1; }
+
+  /* Fortress operations-room refit */
+  :root {
+    --paper:#f2ecdf;--paper-2:#e8dfcf;--ink:#202820;--rule:#cec2ab;--rule-strong:#a99b82;
+    --mute:#575b52;--sage:#526f58;--brass:#b1954e;--accent:#6f6338;--alarm:#963f35;
+    --sans:Avenir,"Avenir Next","Barlow","Segoe UI",sans-serif;
+    --serif:Iowan Old Style,"Source Serif 4","Palatino Linotype",Georgia,serif;
+    --mono:"SFMono-Regular","Cascadia Code",Consolas,monospace;
+  }
+  html { background:#182019; }
+  html, body {
+    background:
+      linear-gradient(rgba(42,55,44,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(42,55,44,.035) 1px,transparent 1px),
+      var(--paper);
+    background-size:30px 30px;
+    font-family:var(--sans);
+  }
+  header {
+    min-height:56px;padding:10px 18px;border-bottom-color:#59665a;
+    background:linear-gradient(90deg,rgba(177,149,78,.11),transparent 36%),#273126;
+    color:#f5f0e6;box-shadow:0 10px 28px rgba(20,26,21,.14)
+  }
+  header h1 { font:650 17px/1.15 var(--serif);letter-spacing:-.012em; }
+  .crumbs { color:#b7beb2;font:11px/1.3 var(--mono); }
+  .crumbs a { color:#d2ba78; }
+  .wrap { height:calc(100% - 56px); }
+  .actions { padding:11px 16px;background:#e5dccb;border-bottom-color:var(--rule-strong); }
+  .row {
+    width:100%;appearance:none;text-align:left;color:var(--ink);background:rgba(248,244,235,.82);
+    border:0;border-bottom:1px solid var(--rule);border-left:3px solid transparent;border-radius:0;
+    font-family:var(--sans);transition:background .12s,border-color .12s
+  }
+  .row:hover { background:#e7decd;border-left-color:var(--brass); }
+  .row:active { background:#ddd2bd;transform:translateY(1px); }
+  .row .ic { color:#6f6338; }
+  .row.dir { font-weight:650; }
+  .vbar { min-height:58px;padding:9px 14px;background:#e5dccb;border-bottom-color:var(--rule-strong); }
+  .vbar .name { font:11px/1.3 var(--mono);letter-spacing:.035em; }
+  .btn { min-height:40px;border-color:var(--rule-strong);border-radius:2px;background:#f8f4eb;font-family:var(--sans); }
+  .btn:hover:not(:disabled) { border-color:var(--brass);background:#eee6d7; }
+  .btn:active:not(:disabled) { transform:translateY(1px); }
+  .btn.primary { background:#6f6338;color:#fffaf0;border-color:#6f6338; }
+  #edit {
+    padding:20px;background:#f8f4eb;color:var(--ink);font:13px/1.6 var(--mono);
+    background-image:linear-gradient(rgba(42,55,44,.035) 1px,transparent 1px);
+    background-size:100% 26px
+  }
+  #md { background:#f8f4eb; }
+  #img { background:#ded4c0; }
+  #img img { box-shadow:0 18px 42px rgba(20,26,21,.2); }
+  .empty,.empty-root {
+    max-width:560px;margin:8vh auto;padding:30px;border-top:1px solid var(--rule-strong);
+    border-bottom:1px solid var(--rule);font:16px/1.55 var(--serif)
+  }
+  .empty-root h2 { font:650 21px/1.2 var(--serif);letter-spacing:-.012em; }
+  .empty-root .path { display:block;padding:8px 10px;background:#e2d8c5;border:1px solid var(--rule);color:#5c522f; }
+  .toast {
+    bottom:18px;border:1px solid #657166;border-left:3px solid var(--brass);border-radius:2px;
+    background:#273126;color:#f5f0e6;box-shadow:0 18px 42px rgba(20,26,21,.28)
+  }
+  :is(button,a,textarea,[tabindex]):focus-visible { outline:2px solid var(--brass);outline-offset:2px; }
+
+  /* Scrollbars — near-invisible until needed: thin bars, transparent tracks, a
+     faint ink thumb. Dark surfaces (header crumbs) flip to a faint paper thumb. */
+  :root { --sb-thumb: rgba(32, 40, 32, 0.16); --sb-thumb-hover: rgba(32, 40, 32, 0.34); }
+  * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 2px solid transparent; background-clip: padding-box; }
+  *::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  header { --sb-thumb: rgba(245, 240, 230, 0.2); --sb-thumb-hover: rgba(245, 240, 230, 0.4); }
+
+  @media(pointer:coarse){button,.row,.btn{min-height:44px}}
+  @media(max-width:620px){header{padding-left:14px;padding-right:14px}.row{padding-left:13px;padding-right:13px}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
 </head>
 <body>
@@ -56,12 +140,14 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<input type="file" id="uploadInput" style="display:none" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let cwd = "";        // current dir (rel)
 let openFile = null; // {path, kind}
 let showingMd = false;
+let rootAbs = "";    // absolute workspace root, from /api/health
 
 function toast(m) { const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1600); }
 
@@ -79,6 +165,70 @@ function renderCrumbs() {
   }
 }
 
+function actionsRow() {
+  const bar = document.createElement("div"); bar.className = "actions";
+  const nf = document.createElement("button"); nf.type = "button"; nf.className = "btn"; nf.textContent = "New folder"; nf.onclick = newFolder;
+  const up = document.createElement("button"); up.type = "button"; up.className = "btn"; up.textContent = "Upload"; up.onclick = () => $("uploadInput").click();
+  bar.append(nf, up);
+  return bar;
+}
+
+function simpleEmpty() {
+  const d = document.createElement("div"); d.className = "empty"; d.textContent = "Empty folder.";
+  return d;
+}
+
+function rootEmpty() {
+  const d = document.createElement("div"); d.className = "empty-root";
+  const h = document.createElement("h2"); h.textContent = "Operative file workspace";
+  const p1 = document.createElement("p");
+  p1.textContent = "Documents, recordings and run outputs the Operative produces land here, sorted into folders like documents/ and runs/. Nothing has been produced yet.";
+  const rp = document.createElement("p"); rp.className = "path"; rp.textContent = rootAbs || "~/.garrison/files";
+  const p2 = document.createElement("p"); p2.textContent = "Use New folder or Upload above to add your own files.";
+  d.append(h, p1, rp, p2);
+  return d;
+}
+
+async function newFolder() {
+  const name = (prompt("Folder name") || "").trim();
+  if (!name) return;
+  try {
+    const r = await (await fetch("/api/mkdir", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ path: cwd ? cwd + "/" + name : name }) })).json();
+    if (r.error) throw new Error(r.error);
+    openDir(cwd);
+  } catch (e) { toast("Create failed: " + e.message); }
+}
+
+const TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|x-sh|x-yaml))/;
+const TEXT_EXT = /\.(md|markdown|txt|json|yml|yaml|js|mjs|cjs|ts|tsx|css|html|csv|log|sh|py|toml|xml|svg)$/i;
+function isTextUpload(file) { return TEXT_TYPES.test(file.type || "") || TEXT_EXT.test(file.name); }
+
+$("uploadInput").onchange = async () => {
+  const file = $("uploadInput").files[0];
+  $("uploadInput").value = "";
+  if (!file) return;
+  if (file.size > 2 * 1048576) return toast("Upload failed: file exceeds the 2 MB cap");
+  const rel = cwd ? cwd + "/" + file.name : file.name;
+  try {
+    let body;
+    if (isTextUpload(file)) {
+      body = { path: rel, content: await file.text() };
+    } else {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(new Error("could not read file"));
+        fr.readAsDataURL(file);
+      });
+      body = { path: rel, content: String(dataUrl).split(",")[1] || "", encoding: "base64" };
+    }
+    const r = await (await fetch("/api/file", { method:"PUT", headers:{"content-type":"application/json"}, body: JSON.stringify(body) })).json();
+    if (r.error) throw new Error(r.error);
+    toast("Uploaded " + file.name);
+    openDir(cwd);
+  } catch (e) { toast("Upload failed: " + e.message); }
+};
+
 async function openDir(rel) {
   cwd = rel; openFile = null;
   $("viewer").classList.remove("open");
@@ -88,9 +238,10 @@ async function openDir(rel) {
     const data = await (await fetch("/api/tree?path=" + encodeURIComponent(rel))).json();
     if (data.error) throw new Error(data.error);
     list.innerHTML = "";
-    if (!data.items.length) { list.innerHTML = '<div class="empty">Empty folder.</div>'; return; }
+    list.appendChild(actionsRow());
+    if (!data.items.length) { list.appendChild(rel ? simpleEmpty() : rootEmpty()); return; }
     for (const it of data.items) {
-      const row = document.createElement("div"); row.className = "row " + it.type;
+      const row = document.createElement("button"); row.type = "button"; row.className = "row " + it.type;
       const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = it.type === "dir" ? "▸" : "·";
       const nm = document.createElement("span"); nm.textContent = it.name;
       row.append(ic, nm);
@@ -134,7 +285,7 @@ function renderMd() {
     const frame = document.createElement("iframe");
     frame.setAttribute("sandbox", "");
     frame.style.cssText = "width:100%;height:100%;border:0;background:#fff";
-    frame.srcdoc = '<!doctype html><meta charset="utf-8"><style>body{font-family:system-ui;padding:14px;line-height:1.55;color:#1c1b17}img{max-width:100%}pre{background:#f4f1e8;padding:10px;overflow-x:auto}</style>' + body;
+    frame.srcdoc = '<!doctype html><meta charset="utf-8"><style>body{font-family:Iowan Old Style,Georgia,serif;padding:22px;line-height:1.65;color:#202820;background:#f8f4eb}img{max-width:100%}pre{font-family:ui-monospace,monospace;background:#141b16;color:#dce4d9;padding:12px;overflow-x:auto;border:1px solid #344137}code{font-family:ui-monospace,monospace}:root{--sb-thumb:rgba(32,40,32,.16);--sb-thumb-hover:rgba(32,40,32,.34)}*{scrollbar-width:thin;scrollbar-color:var(--sb-thumb) transparent}::-webkit-scrollbar{width:8px;height:8px;background:transparent}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--sb-thumb);border:2px solid transparent;background-clip:padding-box}*::-webkit-scrollbar-thumb:hover{background-color:var(--sb-thumb-hover)}::-webkit-scrollbar-corner{background:transparent}pre{--sb-thumb:rgba(220,228,217,.2);--sb-thumb-hover:rgba(220,228,217,.4)}</style>' + body;
     md.appendChild(frame);
     md.style.display = "block"; edit.style.display = "none"; $("toggleMd").textContent = "Edit";
   } else {
@@ -154,7 +305,10 @@ $("save").onclick = async () => {
   } catch (e) { toast("Save failed: " + e.message); } finally { $("save").disabled = false; }
 };
 
-openDir("");
+(async () => {
+  try { rootAbs = (await (await fetch("/api/health")).json()).root || ""; } catch { /* header only */ }
+  openDir("");
+})();
 </script>
 </body>
 </html>

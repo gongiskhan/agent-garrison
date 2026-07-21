@@ -1,0 +1,12 @@
+{
+  "_note": "Goal-loop hook fragment (D13). Merged into ~/.claude/settings.json by the garrison installer. The hook paths resolve against the installed garrison skill dir. Additive across the autothing->garrison transition (RUN_SPEC A5): the garrison hooks honor both sentinel homes and a legacy autothing entry is left in place until pruned.",
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "bash \"$HOME/.claude/skills/garrison/hooks/garrison-goal-sessionstart.sh\"", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "bash \"$HOME/.claude/skills/garrison/hooks/garrison-goal-stop.sh\"", "timeout": 10 } ] }
+    ]
+  },
+  "env": { "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "5000" }
+}

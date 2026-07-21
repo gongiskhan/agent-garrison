@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectorView } from "@/lib/connectors-view";
 import type { VaultAuditEntry } from "@/lib/vault-audit";
+import styles from "./ConnectorsPanel.module.css";
 
 interface ConnectorsResponse {
   connectors: ConnectorView[];
@@ -28,10 +29,12 @@ const inputStyle: React.CSSProperties = {
   width: "100%",
   fontFamily: "var(--font-mono)",
   fontSize: 12,
-  padding: "7px 9px",
+  padding: "10px 11px",
   border: "1px solid var(--rule)",
-  borderRadius: 6,
-  marginTop: 4
+  borderRadius: 0,
+  marginTop: 5,
+  background: "var(--surface-strong)",
+  color: "var(--ink)"
 };
 
 export function ConnectorsPanel() {
@@ -161,14 +164,16 @@ export function ConnectorsPanel() {
         <b>Connectors</b> · Vault-sealed
       </div>
       <div className="page">
-        <div className="head">
-          <h1>Connectors</h1>
-          <p className="ld">
-            Every connector and its credential state. Secrets are <strong>Vault-sealed</strong> — held
-            AES-256-GCM-encrypted under a keychain master key, materialised just-in-time and scoped to the single
-            connector that declared them. Values never appear here or in any log.
+        <header className={styles.header}>
+          <div>
+            <span className={styles.eyebrow}>External lines</span>
+            <h1>Connectors</h1>
+          </div>
+          <p>
+            Authenticated routes beyond localhost. The Vault releases only the
+            credentials each connector declared, only when that route runs.
           </p>
-        </div>
+        </header>
 
         {error && <div className="banner alarm">Could not load connectors: {error}</div>}
         {data?.vault?.locked && (
@@ -182,39 +187,42 @@ export function ConnectorsPanel() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 18, marginTop: 8 }}>
+        <div className={styles.connectorGrid}>
           {(data?.connectors ?? []).map((c) => (
-            <section key={c.id} style={{ border: "1px solid var(--rule)", background: "#fff", borderRadius: 8, padding: "18px 20px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <h2 style={{ margin: 0, fontSize: 18 }}>{c.name}</h2>
+            <section key={c.id} className={styles.connectorCard}>
+              <div className={styles.cardTop}>
+                <div>
+                  <span className={styles.cardIndex}>{String((data?.connectors ?? []).indexOf(c) + 1).padStart(2, "0")}</span>
+                  <h2>{c.name}</h2>
+                </div>
                 {c.statusKnown ? (
-                  <span title={c.sealed ? "Credentials present and valid" : "Credentials missing or invalid"} style={{ fontSize: 11, fontWeight: 600, color: sealColor(c.sealed), border: `1px solid ${sealColor(c.sealed)}`, borderRadius: 99, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                  <span className={styles.seal} title={c.sealed ? "Credentials present and valid" : "Credentials missing or invalid"} style={{ color: sealColor(c.sealed), borderColor: sealColor(c.sealed) }}>
                     {c.sealed ? "Vault-sealed" : "Not sealed"}
                   </span>
                 ) : (
-                  <span title="Unlock the Vault to read credential status" style={{ fontSize: 11, fontWeight: 600, color: "var(--mute)", border: "1px solid var(--rule)", borderRadius: 99, padding: "2px 9px", whiteSpace: "nowrap" }}>
+                  <span className={styles.seal} title="Unlock the Vault to read credential status">
                     Status unknown
                   </span>
                 )}
               </div>
 
-              <p style={{ color: "var(--mute)", fontSize: 13, margin: "8px 0 12px" }}>{c.summary}</p>
+              <p className={styles.summary}>{c.summary}</p>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 11, marginBottom: 12 }}>
-                <span style={{ border: "1px solid var(--rule)", borderRadius: 4, padding: "2px 7px" }}>{AUTH_LABEL[c.auth]}</span>
-                <span style={{ border: "1px solid var(--rule)", borderRadius: 4, padding: "2px 7px" }}>{c.actionCount} action{c.actionCount === 1 ? "" : "s"}</span>
+              <div className={styles.facts}>
+                <span>{AUTH_LABEL[c.auth]}</span>
+                <span>{c.actionCount} action{c.actionCount === 1 ? "" : "s"}</span>
                 {c.mutatingActionCount > 0 && (
-                  <span title="actions that write/modify external state" style={{ border: "1px solid var(--brass)", color: "var(--brass)", borderRadius: 4, padding: "2px 7px" }}>{c.mutatingActionCount} mutating</span>
+                  <span className={styles.mutating} title="actions that write or modify external state">{c.mutatingActionCount} mutating</span>
                 )}
-                {c.hasTriggers && <span style={{ border: "1px solid var(--rule)", borderRadius: 4, padding: "2px 7px" }}>triggers</span>}
+                {c.hasTriggers && <span>triggers</span>}
               </div>
 
               {c.statusKnown && c.auth === "api_key" && c.secrets.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: "var(--mute)", marginBottom: 4 }}>Scoped secrets</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div className={styles.scope}>
+                  <div className={styles.scopeLabel}>Scoped secrets</div>
+                  <div className={styles.scopeValues}>
                     {c.secrets.map((s) => (
-                      <span key={s.name} title={s.present ? "present in vault" : "missing — click Connect"} style={{ fontFamily: "var(--font-mono)", fontSize: 11, border: `1px solid ${s.present ? "var(--sage)" : "var(--alarm)"}`, color: s.present ? "var(--ink)" : "var(--alarm)", borderRadius: 4, padding: "2px 7px" }}>
+                      <span key={s.name} title={s.present ? "present in vault" : "missing — click Connect"} style={{ borderColor: s.present ? "var(--sage)" : "var(--alarm)", color: s.present ? "var(--ink)" : "var(--alarm)" }}>
                         {s.present ? "● " : "○ "}{s.name}
                       </span>
                     ))}
@@ -223,7 +231,7 @@ export function ConnectorsPanel() {
               )}
 
               {c.statusKnown && c.auth === "oauth2" && (
-                <div style={{ fontSize: 12, color: oauthColor(c.oauth?.status), marginBottom: 8 }}>
+                <div className={styles.oauth} style={{ color: oauthColor(c.oauth?.status) }}>
                   OAuth: {c.oauth?.status ?? "not connected"}
                   {c.oauth?.expiresAt ? ` · expires ${new Date(c.oauth.expiresAt).toLocaleString()}` : ""}
                 </div>
@@ -231,7 +239,7 @@ export function ConnectorsPanel() {
 
               {/* Connect / revoke actions */}
               {c.auth !== "none" && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className={styles.cardActions}>
                   <button className="btn small" onClick={() => startConnect(c)}>
                     {c.sealed ? "Reconnect" : "Connect"}
                   </button>
@@ -245,7 +253,7 @@ export function ConnectorsPanel() {
 
               {/* Inline connect form */}
               {openConnect === c.id && (
-                <div style={{ marginTop: 12, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
+                <div className={styles.connectForm}>
                   {c.auth === "api_key" && (
                     <ConnectFields
                       labels={c.secrets.map((s) => s.name)}
@@ -306,25 +314,34 @@ export function ConnectorsPanel() {
               )}
             </section>
           ))}
-          {data && data.connectors.length === 0 && <div style={{ color: "var(--mute)" }}>No connectors installed yet.</div>}
+          {data && data.connectors.length === 0 && (
+            <div className={styles.empty}>
+              <span aria-hidden>⌁</span>
+              <strong>No connectors stationed</strong>
+              <p>Add connector Fittings to the active composition to open an external line.</p>
+            </div>
+          )}
         </div>
 
-        <div className="head" style={{ marginTop: 36 }}>
-          <h1 style={{ fontSize: 20 }}>Vault access log</h1>
-          <p className="ld">Every secret delivery, read, refresh, revoke, and denial — by name, never value.</p>
+        <div className={styles.logHead}>
+          <div>
+            <span className={styles.eyebrow}>Custody ledger</span>
+            <h2>Vault access log</h2>
+          </div>
+          <p>Secret delivery, refresh, revoke, and denial—recorded by name, never by value.</p>
         </div>
-        <section style={{ border: "1px solid var(--rule)", background: "#fff", borderRadius: 8, overflow: "hidden" }}>
-          {audit.length === 0 && <div style={{ padding: 16, color: "var(--mute)" }}>No access recorded yet.</div>}
+        <section className={styles.audit}>
+          {audit.length === 0 && <div className={styles.auditEmpty}>No access recorded yet.</div>}
           {audit.map((e, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "150px 90px 1fr 80px", gap: 10, padding: "7px 14px", borderTop: i ? "1px solid var(--rule)" : "none", fontSize: 12, fontFamily: "var(--font-mono)" }}>
-              <span style={{ color: "var(--mute)" }}>{new Date(e.ts).toLocaleString()}</span>
-              <span>{e.connector}</span>
-              <span style={{ color: "var(--mute)" }}>
+            <div key={i} className={styles.auditRow}>
+              <span>{new Date(e.ts).toLocaleString()}</span>
+              <strong>{e.connector}</strong>
+              <span>
                 {e.action}
                 {e.secrets?.length ? ` [${e.secrets.join(", ")}]` : ""}
                 {e.detail ? ` — ${e.detail}` : ""}
               </span>
-              <span style={{ color: e.outcome === "ok" ? "var(--sage)" : "var(--alarm)", textAlign: "right" }}>{e.outcome}</span>
+              <b style={{ color: e.outcome === "ok" ? "var(--sage)" : "var(--alarm)" }}>{e.outcome}</b>
             </div>
           ))}
         </section>

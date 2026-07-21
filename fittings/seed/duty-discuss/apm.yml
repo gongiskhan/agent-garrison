@@ -1,0 +1,57 @@
+name: duty-discuss
+version: 0.1.0
+description: >-
+  The Discuss duty — talk a problem through in prose like a calm whiteboard
+  conversation, and when the thinking settles into something reusable, write a
+  brief to disk. Owns the duty-discuss skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f2): it PROVIDES exactly one duty and OWNS the
+  # skill that executes it. `building` (Software Building) is the home — it
+  # accepts the `skill` shape and is multi, so the duty Fittings coexist.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `discuss` duty and owns the duty-discuss skill. Think a problem
+    through out loud like a calm whiteboard conversation; when the thinking
+    settles into something reusable, write a brief to disk and hand it off.
+    Prose-first, at most one brief per turn.
+  provides:
+    - kind: duty
+      name: discuss
+  consumes: []
+  duties:
+    - id: discuss
+      title: Discuss
+      description: Talk a problem through and write a brief when the thinking settles.
+      levels:
+        - description: >-
+            level 1: quick discussion — talk a focused question or tradeoff
+            through in prose, no brief unless the thinking settles.
+          cell:
+            skill: duty-discuss
+            target: cc-sonnet
+            effort: medium
+        - description: >-
+            level 2: deep architecture discussion producing a durable written
+            brief the develop/implement duties consume.
+          cell:
+            skill: duty-discuss
+            target: cc-opus
+            effort: high
+  verify:
+    command: test -f apm_modules/_local/duty-discuss/.apm/skills/duty-discuss/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `discuss` duty owns the duty-discuss skill. Bind it to think a problem
+    through in prose before committing to a build: level 1 is a quick talk-through,
+    level 2 goes deep on architecture and writes a durable brief to disk that the
+    develop/implement duties consume. The brief is the handoff; at most one brief
+    per turn. The default level targets an agentic runtime; the composition may
+    override the (target, effort) cell.

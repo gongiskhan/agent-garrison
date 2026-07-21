@@ -19,7 +19,11 @@ const args = new Set(process.argv.slice(2));
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const distIndex = path.resolve(here, "..", "dist", "index.html");
 const promptFile = path.resolve(here, "..", "prompts", "browser-pane.md");
-const stateFile = path.join(os.homedir(), ".garrison", "sessions", "state.json");
+const stateFile = path.join(
+  process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"),
+  "sessions",
+  "state.json"
+);
 
 if (!existsSync(distIndex)) {
   console.error(`[probe] dist not built: ${distIndex}`);

@@ -22,7 +22,12 @@ export async function POST(request: NextRequest) {
       throw new Error(`No ${kind} source is available for ${entry.name}`);
     }
 
-    const child = spawn("open", [target], { detached: true, stdio: "ignore" });
+    // Headless-gap fix (GARRISON-UNIFY-V1 S16/E11): `open` is macOS-only —
+    // mirror browser-default's platform switch so Linux uses xdg-open and
+    // Windows `cmd /c start` instead of silently no-opping.
+    const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+    const args = process.platform === "win32" ? ["/c", "start", "", target] : [target];
+    const child = spawn(opener, args, { detached: true, stdio: "ignore" });
     child.unref();
     return NextResponse.json({ opened: target });
   } catch (error) {

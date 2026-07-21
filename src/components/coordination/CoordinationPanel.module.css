@@ -1,0 +1,114 @@
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.6fr);
+  gap: 2rem;
+  align-items: end;
+  padding: 1.1rem 0 1.5rem;
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.header h1 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+}
+
+.header p {
+  margin: 0;
+  color: var(--mute);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.7rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.verdict {
+  position: relative;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-top: 1.5rem;
+  padding: 1.35rem 1.5rem;
+  overflow: hidden;
+  border: 1px solid;
+  border-left-width: 4px;
+}
+
+.verdict::after {
+  content: "COORD";
+  position: absolute;
+  right: 1rem;
+  bottom: -0.45em;
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(1.5rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.08em;
+  opacity: 0.035;
+  pointer-events: none;
+}
+
+.coordGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.card {
+  min-width: 0;
+  margin: 0;
+  border-top: 2px solid var(--ink) !important;
+  box-shadow: 0 0.9rem 2.6rem rgba(27, 38, 30, 0.055);
+}
+
+.planning,
+.sessions,
+.heartbeat {
+  grid-column: span 2;
+}
+
+.stateStamp {
+  margin: 1rem 0 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 760px) {
+  .header,
+  .coordGrid {
+    grid-template-columns: 1fr;
+  }
+
+  /* The narrow-width override used to RAISE the title to ~52px; the base rule
+     is now already utility-scale, so this only keeps the stacked spacing. */
+  .header h1 {
+    margin-bottom: 1rem;
+  }
+
+  .planning,
+  .sessions,
+  .heartbeat {
+    grid-column: auto;
+  }
+
+  .verdict {
+    flex-wrap: wrap;
+  }
+
+  .verdict :global(.btn) {
+    width: 100%;
+    justify-content: center;
+  }
+}

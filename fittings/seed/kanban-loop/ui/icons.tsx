@@ -1,5 +1,6 @@
 // Inline SVG icons — no emoji in the UI (project rule). Each is a 14x14
-// stroke-only glyph that inherits currentColor.
+// stroke-only glyph that inherits currentColor. Stroke 1.75 matches Garrison's
+// refined sidebar/chrome icon weight (src/app/globals.css nav.tabs .ic svg).
 import type { JSX } from "react";
 
 const base = {
@@ -8,10 +9,25 @@ const base = {
   viewBox: "0 0 24 24",
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 2,
+  strokeWidth: 1.75,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const
 };
+
+// The board brand-mark: three kanban columns, each carrying a card — a nod to
+// Garrison's vertical-bar portcullis brand. Sharp, stroke-only, currentColor.
+export function BoardMark(): JSX.Element {
+  return (
+    <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round">
+      <rect x="2.5" y="3.5" width="5" height="17" />
+      <rect x="9.5" y="3.5" width="5" height="17" />
+      <rect x="16.5" y="3.5" width="5" height="17" />
+      <line x1="2.5" y1="8.5" x2="7.5" y2="8.5" />
+      <line x1="9.5" y1="8.5" x2="14.5" y2="8.5" />
+      <line x1="16.5" y1="8.5" x2="21.5" y2="8.5" />
+    </svg>
+  );
+}
 
 export function PlayIcon(): JSX.Element {
   return <svg {...base}><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none" /></svg>;

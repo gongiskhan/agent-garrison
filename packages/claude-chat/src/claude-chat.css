@@ -148,6 +148,46 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* ── AskUserQuestion → tappable option buttons (D28) ── */
+.cc-question {
+  margin-top: 10px; padding: 12px; border: 1px solid var(--cc-border-strong);
+  background: var(--cc-bg-elev); border-radius: 10px;
+}
+.cc-question-title { font-size: 14px; font-weight: 600; color: var(--cc-fg); }
+.cc-question-sub { margin-top: 3px; font-size: 12px; color: var(--cc-fg-dim); }
+.cc-question-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.cc-question-opt {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left;
+  min-height: 44px; padding: 9px 12px; width: 100%;
+  border: 1px solid var(--cc-border-strong); border-radius: 8px;
+  background: var(--cc-bg); color: var(--cc-fg); cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.cc-question-opt:hover:not(:disabled) { border-color: var(--cc-accent); }
+.cc-question-opt:disabled { cursor: default; opacity: 0.72; }
+.cc-question-opt-chosen { border-color: var(--cc-accent); background: var(--cc-user-bg); color: var(--cc-user-fg); opacity: 1; }
+.cc-question-opt-label { font-size: 14px; font-weight: 550; }
+.cc-question-opt-desc { font-size: 12px; color: var(--cc-fg-dim); }
+.cc-question-opt-chosen .cc-question-opt-desc { color: var(--cc-user-fg); opacity: 0.85; }
+.cc-question-other {
+  min-height: 44px; padding: 9px 12px; width: 100%;
+  border: 1px dashed var(--cc-border-strong); border-radius: 8px;
+  background: transparent; color: var(--cc-fg-dim); cursor: pointer; font-size: 13px;
+}
+.cc-question-other:hover { border-color: var(--cc-accent); color: var(--cc-fg); }
+.cc-question-otherrow { display: flex; gap: 8px; margin-top: 8px; }
+.cc-question-otherinput {
+  flex: 1; min-height: 44px; padding: 8px 12px;
+  border: 1px solid var(--cc-border-strong); border-radius: 8px;
+  background: var(--cc-bg); color: var(--cc-fg); font-size: 14px;
+}
+.cc-question-othersend {
+  min-height: 44px; padding: 8px 16px; border: none; border-radius: 8px;
+  background: var(--cc-accent); color: var(--cc-accent-fg); cursor: pointer; font-size: 14px;
+}
+.cc-question-othersend:disabled { opacity: 0.5; cursor: default; }
+.cc-question-answer { margin-top: 10px; }
+
 /* ── Rich code block (custom marked renderer): header + highlighted body ── */
 .cc-codeblock { margin: 0 0 10px; border: 1px solid var(--cc-code-border); border-radius: 8px; overflow: hidden; }
 .cc-codehead {
@@ -201,6 +241,23 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   color: var(--cc-fg-dim); cursor: pointer; padding: 3px 7px; line-height: 0;
 }
 .cc-speak:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+/* The message currently being read aloud — its button is the play/pause control. */
+.cc-speak-active { color: var(--cc-accent); border-color: var(--cc-accent); }
+
+/* Subtle routing chip — replaces the inline "[route: …]" badge the model emits.
+   Quiet by default, pushed to the right of the action row; the full route/rule/
+   profile is in the title tooltip. */
+.cc-routechip {
+  margin-left: auto; font-size: 10px; letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--cc-fg-dim); background: var(--cc-bg-sunk); border: 1px solid var(--cc-border);
+  border-radius: 999px; padding: 1px 8px; cursor: default; white-space: nowrap;
+}
+.cc-routechip:hover { color: var(--cc-fg); border-color: var(--cc-border-strong); }
+/* Enriched chip (structured runtime attribution, e.g. "agent-sdk/claude-haiku-4-5
+   · T0-trivial") — longer than the model-family label, so cap its width and
+   ellipsize rather than let it overflow the action row on narrow screens. The
+   full route/rule/profile stays in the title tooltip. */
+.cc-routechip-rich { max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 
 .cc-raw {
   background: var(--cc-bg-sunk); border: 1px solid var(--cc-border); border-radius: 8px; color: var(--cc-fg-dim);
@@ -247,6 +304,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 @keyframes cc-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
 .cc-chip-pulse { animation: cc-pulse 1.1s ease-in-out infinite; }
 
+/* ── Read-aloud playback transport (pause / resume / stop) ──
+   Mounted only while a read is running, so it never sits dead in the toolbar. */
+.cc-playback { display: inline-flex; align-items: center; gap: 4px; }
+@keyframes cc-spin { to { transform: rotate(360deg); } }
+.cc-playback-spin, .cc-mic-spin {
+  width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+  border: 1.5px solid currentColor; border-top-color: transparent;
+  animation: cc-spin 0.7s linear infinite;
+}
+.cc-mic-spin { width: 13px; height: 13px; }
+
 .cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 .cc-composerrow { display: flex; gap: 8px; align-items: flex-end; }
 .cc-input {
@@ -270,6 +338,22 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-mic:disabled { opacity: 0.4; cursor: not-allowed; }
 .cc-mic-rec { border-color: #f85149; color: #f85149; }
 .cc-mic-dot { width: 12px; height: 12px; border-radius: 50%; background: #f85149; display: inline-block; animation: cc-pulse 1s ease-in-out infinite; }
+.cc-mic-busy { color: var(--cc-accent); border-color: var(--cc-accent); }
+
+/* ── Voice failure strip (mic blocked, STT failed, playback blocked) ──
+   A blocked mic used to be a dead button; the reason now shows here. */
+.cc-voiceerr {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  padding: 5px 8px; border: 1px solid var(--cc-danger-border); border-radius: 6px;
+  background: color-mix(in srgb, var(--cc-danger-bg) 12%, transparent);
+  color: var(--cc-fg); font-size: 12px; line-height: 1.35;
+}
+.cc-voiceerr-msg { flex: 1; min-width: 0; }
+.cc-voiceerr-x {
+  flex-shrink: 0; background: transparent; border: 0; color: var(--cc-fg-dim);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.cc-voiceerr-x:hover { color: var(--cc-fg); }
 
 .cc-slashmenu {
   position: absolute; left: 8px; right: 8px; bottom: calc(100% - 2px);
@@ -291,4 +375,320 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 @media (min-width: 760px) {
   .cc-slashmenu { left: 8px; right: auto; min-width: 420px; max-width: 560px; }
+}
+
+/* ==========================================================================
+   Fortress operations-room refit
+
+   This shared layer keeps the chat mechanics neutral while giving both hosts
+   the same Garrison materials: olive command chrome, warm dossier surfaces,
+   brass instrumentation, and square, tactile controls.
+   ========================================================================== */
+.cc-root {
+  --cc-bg: #18211c;
+  --cc-bg-elev: #232d27;
+  --cc-bg-sunk: #111713;
+  --cc-fg: #f1eadc;
+  --cc-fg-dim: #b3b7aa;
+  --cc-fg-faint: #858d82;
+  --cc-border: #334039;
+  --cc-border-strong: #526057;
+  --cc-accent: #b79a52;
+  --cc-accent-fg: #171b17;
+  --cc-user-bg: #35483b;
+  --cc-user-fg: #f7f1e5;
+  --cc-code-bg: #0e1410;
+  --cc-code-border: #334039;
+  --cc-slash-active: #354138;
+  --cc-danger-bg: #873b32;
+  --cc-danger-border: #b45d50;
+  --cc-sans: Avenir, "Avenir Next", "Barlow", "Segoe UI", sans-serif;
+  --cc-serif: Iowan Old Style, "Source Serif 4", "Palatino Linotype", Georgia, serif;
+  --cc-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  font: 14px/1.55 var(--cc-sans);
+  letter-spacing: 0.002em;
+}
+
+.cc-root[data-theme="light"] {
+  --cc-bg: #f2ecdf;
+  --cc-bg-elev: #e9e0cf;
+  --cc-bg-sunk: #ded3bd;
+  --cc-fg: #202820;
+  --cc-fg-dim: #62685e;
+  --cc-fg-faint: #83877d;
+  --cc-border: #cec3ad;
+  --cc-border-strong: #ada087;
+  --cc-accent: #6f6338;
+  --cc-accent-fg: #fffaf0;
+  --cc-user-bg: #dce7d9;
+  --cc-user-fg: #202820;
+  --cc-code-bg: #172019;
+  --cc-code-border: #304137;
+  --cc-slash-active: #ddd2bc;
+  --cc-danger-bg: #963f35;
+  --cc-danger-border: #963f35;
+}
+
+.cc-root button,
+.cc-root textarea,
+.cc-root input {
+  font-family: var(--cc-sans);
+}
+
+.cc-header {
+  min-height: 52px;
+  padding: 10px 14px;
+  background:
+    linear-gradient(90deg, rgba(183,154,82,.09), transparent 32%),
+    #273126;
+  border-bottom-color: #556254;
+  color: #f6efe1;
+}
+
+.cc-title {
+  font-family: var(--cc-serif);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -.015em;
+}
+
+.cc-model,
+.cc-ctx {
+  color: #b6bdaf;
+  font: 10px/1.3 var(--cc-mono);
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+
+.cc-conn {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: #87a982;
+  box-shadow: 0 0 0 3px rgba(135,169,130,.14);
+}
+
+.cc-conn-reconnecting { background: #c09a4e; }
+.cc-conn-closed { background: #c35d50; }
+
+.cc-rawtoggle,
+.cc-mode,
+.cc-chip,
+.cc-send,
+.cc-stop,
+.cc-mic,
+.cc-question-opt,
+.cc-question-other,
+.cc-question-otherinput,
+.cc-question-othersend,
+.cc-codecopy,
+.cc-msgcopy,
+.cc-speak,
+.cc-voiceerr-x,
+.cc-slashitem {
+  border-radius: 2px;
+}
+
+.cc-rawtoggle {
+  background: rgba(255,255,255,.03);
+  border-color: #59665a;
+  color: #d5d8ce;
+  font: 10px/1.2 var(--cc-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.cc-rawtoggle:hover {
+  color: #fffaf0;
+  background: rgba(183,154,82,.14);
+  border-color: #b79a52;
+}
+
+.cc-theme {
+  border-radius: 2px;
+  border-color: #59665a;
+}
+
+.cc-theme button {
+  min-width: 30px;
+  background: transparent;
+  border-color: #59665a;
+  color: #b6bdaf;
+}
+
+.cc-theme button.cc-theme-active {
+  background: #b79a52;
+  color: #171b17;
+}
+
+.cc-scroll {
+  background-image:
+    linear-gradient(rgba(56,67,57,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56,67,57,.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.cc-empty {
+  width: min(100%, 460px);
+  margin: 18vh auto 0;
+  padding: 28px 24px;
+  border-top: 1px solid var(--cc-border-strong);
+  border-bottom: 1px solid var(--cc-border);
+  color: var(--cc-fg-dim);
+  font-family: var(--cc-serif);
+  font-size: 16px;
+}
+
+.cc-user {
+  border: 1px solid color-mix(in srgb, var(--cc-border-strong) 70%, transparent);
+  border-radius: 2px 2px 2px 10px;
+  box-shadow: 0 8px 24px rgba(17,23,19,.08);
+}
+
+.cc-assistant {
+  max-width: 82ch;
+}
+
+.cc-md {
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+.cc-md h1,
+.cc-md h2,
+.cc-md h3 {
+  font-family: var(--cc-serif);
+  letter-spacing: -.015em;
+}
+
+.cc-md code,
+.cc-md pre,
+.cc-codeblock pre,
+.cc-codelang,
+.cc-raw,
+.cc-statusstrip,
+.cc-tool-label,
+.cc-working-hint,
+.cc-routechip,
+.cc-slashname {
+  font-family: var(--cc-mono);
+}
+
+.cc-working,
+.cc-question,
+.cc-codeblock,
+.cc-raw,
+.cc-slashmenu {
+  border-radius: 2px;
+  box-shadow: 0 14px 36px rgba(16,21,17,.12);
+}
+
+.cc-routechip,
+.cc-badge {
+  border-radius: 2px;
+  letter-spacing: .07em;
+}
+
+.cc-statusstrip,
+.cc-modes,
+.cc-toolbar {
+  border-top-color: var(--cc-border);
+}
+
+.cc-modes,
+.cc-toolbar {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  background: var(--cc-bg-elev);
+}
+
+.cc-mode,
+.cc-chip {
+  min-height: 30px;
+  background: transparent;
+  font: 10px/1.2 var(--cc-mono);
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.cc-root[data-theme="light"] .cc-mode,
+.cc-root[data-theme="light"] .cc-chip,
+.cc-root[data-theme="light"] .cc-rawtoggle {
+  background: transparent;
+}
+
+.cc-mode:hover:not(:disabled),
+.cc-chip:hover:not(:disabled) {
+  color: var(--cc-fg);
+  border-color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 9%, transparent);
+}
+
+.cc-root[data-theme="light"] .cc-mode-active,
+.cc-root[data-theme="light"] .cc-chip-active,
+.cc-mode-active,
+.cc-chip-active {
+  background: var(--cc-accent);
+  border-color: var(--cc-accent);
+  color: var(--cc-accent-fg);
+}
+
+.cc-composer {
+  padding: 10px;
+  background: var(--cc-bg-elev);
+  box-shadow: 0 -12px 28px rgba(16,21,17,.06);
+}
+
+.cc-input {
+  min-height: 44px;
+  border-radius: 2px;
+  font: 14px/1.45 var(--cc-sans);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+}
+
+.cc-input:focus {
+  border-color: var(--cc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 18%, transparent);
+}
+
+.cc-send,
+.cc-stop,
+.cc-mic {
+  min-height: 44px;
+}
+
+.cc-send {
+  background: var(--cc-accent);
+  border-color: var(--cc-accent);
+  color: var(--cc-accent-fg);
+}
+
+.cc-send:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.cc-root :is(button, textarea, input):focus-visible {
+  outline: 2px solid #cfb66f;
+  outline-offset: 2px;
+}
+
+.cc-root :is(button, textarea, input):active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+@media (pointer: coarse) {
+  .cc-root :is(button, .cc-chip, .cc-mode, .cc-rawtoggle) {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-root *,
+  .cc-root *::before,
+  .cc-root *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
 }

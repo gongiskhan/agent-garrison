@@ -1,0 +1,14 @@
+{
+  "slice": "S2a1+S2a2", "title": "WS2a gateway abstraction (classifier/resume/Stage-B via RuntimeAdapter) + non-Claude primary smoke", "kind": "api", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T19:05:36Z", "evidence": "commits 9f44143 (mechanisms) + a968d5e (gated live smoke + resolvePrimaryAdapter provider fix) + e2113e8 (codex-finding fix)" },
+    "test": { "status": "passed", "at": "2026-07-12T19:05:36Z", "evidence": "full suite 2019 passed/14 skipped; 8 unit tests failing-before/passing-after; gated live smoke GARRISON_INTEGRATION=1 passed twice (38.6s, 44.3s) — real ollama reply, classifier-fallback log, adapter-moves switch, no route-switch-skipped" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T19:05:36Z", "evidence": "gitleaks clean on all three commits; semgrep 0 on touched files; no new deps" },
+    "adversarialReview": { "status": "passed", "verdict": "approve", "at": "2026-07-12T19:05:36Z", "evidence": "slices/S2a1/review.md — reviewer re-ran full suite + live smoke itself; 4 probed failure modes cleared" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->fixed->resolved", "actualModel": "gpt-5.5", "at": "2026-07-12T19:05:36Z", "evidence": "I3 real (checkout leak/double-teardown) → e2113e8 → recheck VERDICT: resolved; I4 rebutted (test-injection seam, grep-verified no production caller, doc comment added)" },
+    "adversarialTest": { "status": "skipped", "reason": "kind-conditional (api; covered by run-level batch)" },
+    "design": { "status": "skipped", "reason": "kind-conditional (api)" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T19:05:36Z", "video": { "mode": "asciinema", "path": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2a1/live-smoke.cast", "sha256": "b2f00c22ca73f84c2b2d3c5d704b1cc566958e457ea6832bc6fb4f5cc1a72ef6", "bytes": 1551917, "evidence": "live integration run captured end-to-end, 1 passed 44.27s" } }
+  },
+  "sentinel": "MARATHON-WS2A OK"
+}

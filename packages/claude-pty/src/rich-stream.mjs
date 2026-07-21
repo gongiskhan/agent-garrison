@@ -10,7 +10,7 @@
 // Event types (SSE `event:` names):
 //   hello       { mode, status, busy, assistant, screen }
 //   assistant   { text }                 full current reply (client replaces)
-//   status      { rows, mode, contextPct, model }
+//   status      { rows, mode, contextPct, peakContextPct, model }
 //   turn        { active }               busy<->idle transitions
 //   screen      { lines }                full ANSI-stripped viewport (raw view)
 //   error       { message }
@@ -57,18 +57,24 @@ export function openRichStream(handle, res, opts = {}) {
   let lastBusy = null;
   let lastScreenKey = null;
 
+  // Optional session-lifetime peak feed: the caller passes notePeak(pct) → peak.
+  // The gateway wires it to the operative session so the live poll keeps the peak
+  // current; dev-env passes nothing (peakContextPct stays null). Additive.
+  const notePeak = typeof opts.notePeak === "function" ? opts.notePeak : null;
+
   const snapshot = () => {
     const status = parseStatus(handle);
+    const peakContextPct = notePeak ? notePeak(status.contextPct) : null;
     const busy = isBusy(handle);
     const assistant = extractLatestAssistant(handle);
     const lines = captureLines(handle).filter((l) => l.trim().length > 0);
-    return { status, busy, assistant, lines };
+    return { status, peakContextPct, busy, assistant, lines };
   };
 
   const s0 = snapshot();
   sse(res, "hello", {
     mode: s0.status.mode,
-    status: { rows: s0.status.rows, mode: s0.status.mode, contextPct: s0.status.contextPct, model: s0.status.model },
+    status: { rows: s0.status.rows, mode: s0.status.mode, contextPct: s0.status.contextPct, peakContextPct: s0.peakContextPct, model: s0.status.model },
     busy: s0.busy,
     assistant: s0.assistant,
     screen: s0.lines,
@@ -108,6 +114,7 @@ export function openRichStream(handle, res, opts = {}) {
         rows: s.status.rows,
         mode: s.status.mode,
         contextPct: s.status.contextPct,
+        peakContextPct: s.peakContextPct,
         model: s.status.model,
       });
     }
@@ -131,13 +138,17 @@ export function openRichStream(handle, res, opts = {}) {
   return stop;
 }
 
-/** A one-shot rich status snapshot for GET /claude/status. */
-export function richStatus(handle) {
+/** A one-shot rich status snapshot for GET /claude/status. `opts.notePeak(pct)`
+ *  (optional) folds this sample into the caller's session-lifetime peak and
+ *  returns it; without it peakContextPct is null (additive, dev-env unaffected). */
+export function richStatus(handle, opts = {}) {
   const status = parseStatus(handle);
+  const peakContextPct = typeof opts.notePeak === "function" ? opts.notePeak(status.contextPct) : null;
   return {
     mode: status.mode,
     rows: status.rows,
     contextPct: status.contextPct,
+    peakContextPct,
     model: status.model,
     busy: isBusy(handle),
   };

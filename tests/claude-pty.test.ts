@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -75,6 +75,31 @@ describe("claude-pty: jsonl", () => {
     expect(r.newOffset).toBe(Buffer.byteLength(full, "utf8"));
   });
 
+  it("readJsonlFrom does not leak a file descriptor when the read throws (F4)", async () => {
+    const { readJsonlFrom } = await import(PKG);
+    // openSync(dir) succeeds on Linux but readSync(dir-fd) throws EISDIR — the
+    // exact "throws AFTER openSync" path. Without the finally the fd leaked on
+    // every call, and the 400ms watcher hammers this. Assert the open-fd count is
+    // stable across many calls (a leak would grow it ~1:1).
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cpty-fdleak-"));
+    const countFds = () => {
+      try {
+        return fs.readdirSync("/proc/self/fd").length;
+      } catch {
+        return -1; // non-Linux — skip the numeric assertion below
+      }
+    };
+    // The call must be safe (returns empty, never throws) regardless of platform.
+    expect(readJsonlFrom(dir, 0)).toEqual({ events: [], newOffset: 0 });
+    const before = countFds();
+    for (let i = 0; i < 200; i++) readJsonlFrom(dir, 0);
+    const after = countFds();
+    if (before !== -1 && after !== -1) {
+      // Generous slack for unrelated fd churn; a leak would be ~+200.
+      expect(after).toBeLessThanOrEqual(before + 15);
+    }
+  });
+
   it("extractLocalCommandOutput pulls slash-command stdout", async () => {
     const { extractLocalCommandOutput } = await import(PKG);
     const events = [
@@ -131,6 +156,65 @@ describe("claude-pty: screen parsing", () => {
     expect(reply).not.toContain("14%");
   });
 
+  // Extended thinking (@high effort) prints "Thought for Ns" BETWEEN the user echo
+  // and the reply. It ends in "for Ns", colliding with the SPINNER_DONE stop — which
+  // made extractReply return empty for every thinking turn (the real Discuss bug).
+  const THINKING_SCREEN = [
+    "❯ Think hard about why the sky is blue, then answer in one sentence.",
+    "  Thought for 2s",
+    "⏺ Sunlight scatters off air molecules via Rayleigh scattering,",
+    "  which favors short wavelengths.",
+    "  So the sky looks blue.",
+    "✻ Sautéed for 13s",
+    "────────────────────────────────────────────────────────────────────",
+    "❯ ",
+    "  default | main | 18% | Sonnet 4.6@high | 14 files",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+  ];
+
+  it("extractReply returns the reply on an @high thinking turn (skips the 'Thought for Ns' summary)", async () => {
+    const { extractReply } = await import(PKG);
+    const reply = extractReply(fakeHandle(THINKING_SCREEN), "Think hard about why the sky is blue, then answer in one sentence.");
+    expect(reply).toContain("Rayleigh scattering");
+    expect(reply).toContain("So the sky looks blue.");
+    expect(reply).not.toBe("");
+    expect(reply).not.toContain("Thought for");
+    expect(reply).not.toContain("Sautéed");
+  });
+
+  // EXPANDED thinking: the TUI prints the thinking body under a "⎿" tree marker
+  // (between the summary and the reply). This is the real Discuss bug — the thinking
+  // text leaked into and smushed against the scraped reply ("…concise brief.Brief
+  // written to…"). extractReply must skip the "Thinking…" summary AND the ⎿ block.
+  const EXPANDED_THINKING_SCREEN = [
+    "❯ 1. sounds better 2. all three 3 ignore 4. use ekoa-deploy",
+    "✻ Thinking…",
+    "⎿  The user answered my clarifying questions tersely. Now I need to write the brief.",
+    "   Let me write a concise brief.",
+    "⏺ Brief written to briefs/01KW-on-the-ekoa-website.md. Ready for build.",
+    "✻ Baked for 6s",
+    "────────────────────────────────────────────────────────────────────",
+    "❯ ",
+    "  ekoa | 4% | Haiku 4.5",
+  ];
+
+  it("extractReply skips an EXPANDED thinking block (⎿ …) and returns only the reply", async () => {
+    const { extractReply } = await import(PKG);
+    const reply = extractReply(fakeHandle(EXPANDED_THINKING_SCREEN), "1. sounds better 2. all three 3 ignore 4. use ekoa-deploy");
+    expect(reply).toBe("Brief written to briefs/01KW-on-the-ekoa-website.md. Ready for build.");
+    expect(reply).not.toContain("The user answered");
+    expect(reply).not.toContain("Let me write a concise brief");
+    expect(reply).not.toContain("Thinking");
+  });
+
+  it("isWorking matches the real high-effort spinner regardless of glyph (✽ / ✢) via the ellipsis", async () => {
+    const { isWorking } = await import(PKG);
+    expect(isWorking(fakeHandle(["✽ Infusing… (2s · thinking with high effort)", "❯ "]))).toBe(true);
+    expect(isWorking(fakeHandle(["✢ Infusing… (3s · ↓ 121 tokens · thinking with high effort)", "❯ "]))).toBe(true);
+    // The "Thought for Ns" summary and the done line are NOT working.
+    expect(isWorking(fakeHandle(THINKING_SCREEN))).toBe(false);
+  });
+
   it("parseStatus extracts mode, context %, model and raw rows", async () => {
     const { parseStatus } = await import(PKG);
     const s = parseStatus(fakeHandle(SCREEN));
@@ -156,11 +240,73 @@ describe("claude-pty: screen parsing", () => {
     expect(isBusy(fakeHandle(SCREEN))).toBe(false);
   });
 
+  it("isWorking covers the extended-thinking spinner (no 'esc to interrupt') and excludes the done line", async () => {
+    const { isWorking, isBusy } = await import(PKG);
+    // Normal generation: the interrupt hint is present.
+    const generating = ["⏺ ...", "✻ Cooking… (esc to interrupt · 4s)", "❯ "];
+    expect(isWorking(fakeHandle(generating))).toBe(true);
+    // Extended thinking: a spinner glyph + live progress counter, but NO interrupt
+    // hint — isBusy misses it, isWorking must catch it (this is the empty-reply bug).
+    const thinking = ["✻ Thinking… (12s · ↑ 2.1k tokens)", "❯ "];
+    expect(isBusy(fakeHandle(thinking))).toBe(false);
+    expect(isWorking(fakeHandle(thinking))).toBe(true);
+    // A completed turn (assistant block + "Baked for 3s" done line, idle prompt) is
+    // NOT working — otherwise a finished turn would never settle.
+    expect(isWorking(fakeHandle(SCREEN))).toBe(false);
+    // Reply prose that merely contains a parenthetical must not read as working.
+    const prose = ["⏺ It finished in (3s) total.", "✻ Baked for 3s", "❯ "];
+    expect(isWorking(fakeHandle(prose))).toBe(false);
+  });
+
   it("turnStarted true when an assistant marker / spinner / done indicator is present", async () => {
     const { turnStarted } = await import(PKG);
     expect(turnStarted(fakeHandle(SCREEN))).toBe(true);
     const fresh = ["╭─ Claude Code ─╮", "❯ Try \"how do I...\"", "  myproj | 5% | Sonnet"];
     expect(turnStarted(fakeHandle(fresh))).toBe(false);
+  });
+
+  it("settles a completed model turn when the next message is already being typed", async () => {
+    const { waitForTurnComplete } = await import(PKG);
+    vi.useFakeTimers();
+    try {
+      let rows = ["⏺ Inspecting…", "✻ Cooking… (esc to interrupt · 1s)", "❯ "];
+      const handle = {
+        term: {
+          buffer: {
+            active: {
+              get length() {
+                return rows.length;
+              },
+              getLine(index: number) {
+                const text = rows[index] ?? "";
+                return { translateToString: () => text };
+              },
+            },
+          },
+        },
+      };
+      const resultPromise = waitForTurnComplete(handle, {
+        startTs: Date.now(),
+        timeoutMs: 10_000,
+        settleMs: 700,
+        requireWork: true,
+      });
+      await vi.advanceTimersByTimeAsync(400);
+      rows = [
+        "❯ verify the page",
+        "⏺ The page is correct.",
+        "✻ Baked for 3s",
+        "────────────────────────────────────────",
+        "❯ check the other viewports too",
+      ];
+      await vi.advanceTimersByTimeAsync(1_500);
+      await expect(resultPromise).resolves.toMatchObject({
+        signal: "done",
+        sawWork: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // dev-env runs claude inside a shell PTY, so the mirror screen carries the
@@ -272,5 +418,136 @@ describe("claude-pty: warm pool", () => {
     expect(pool.status().available).toBeLessThanOrEqual(2);
     pool.shutdown();
     expect(sessions.some((s) => s.disposed)).toBe(true);
+  });
+});
+
+describe("claude-pty: liveness after child exit", () => {
+  function fakePtyImpl() {
+    const dataHandlers: Array<(d: string) => void> = [];
+    const exitHandlers: Array<(ev: { exitCode: number }) => void> = [];
+    const pty = {
+      pid: 4242,
+      onData(h: (d: string) => void) { dataHandlers.push(h); return { dispose() {} }; },
+      onExit(h: (ev: { exitCode: number }) => void) { exitHandlers.push(h); return { dispose() {} }; },
+      write(_d: string) {},
+      resize(_c: number, _r: number) {},
+      kill() {},
+      emitData(d: string) { for (const h of dataHandlers.slice()) h(d); },
+      emitExit(code: number) { for (const h of exitHandlers.slice()) h({ exitCode: code }); },
+    };
+    return { impl: () => pty, pty };
+  }
+
+  it("spawnClaudePty handle reports dead after the child exits", async () => {
+    const { spawnClaudePty } = await import(PKG);
+    const { impl, pty } = fakePtyImpl();
+    const handle = spawnClaudePty("claude", [], { spawnImpl: impl, cwd: os.tmpdir() });
+    expect(handle.isAlive()).toBe(true);
+    pty.emitExit(0);
+    expect(handle.isAlive()).toBe(false);
+    expect(handle.exitCode()).toBe(0);
+  });
+
+  it("waitForSessionReady rejects with StartupExitError when the child dies during startup", async () => {
+    const { spawnClaudePty, waitForSessionReady, StartupExitError } = await import(PKG);
+    const { impl, pty } = fakePtyImpl();
+    const handle = spawnClaudePty("claude", [], { spawnImpl: impl, cwd: os.tmpdir() });
+    pty.emitData("No conversation found with session ID: dead-beef\r\n");
+    const ready = waitForSessionReady(handle, {
+      projectDir: os.tmpdir(),
+      knownFiles: new Set<string>(),
+      timeoutMs: 5000,
+      pollMs: 20,
+    });
+    setTimeout(() => pty.emitExit(0), 30);
+    await expect(ready).rejects.toBeInstanceOf(StartupExitError);
+    await expect(ready).rejects.toThrow(/no conversation found/i);
+  });
+
+  it("accepts the one-time bypass-permissions confirmation before declaring readiness", async () => {
+    vi.useFakeTimers();
+    let rows = [
+      "By proceeding, you accept all responsibility for actions taken while running in Bypass Permissions mode.",
+      "❯ 1. No, exit",
+      "  2. Yes, I accept",
+      "Enter to confirm · Esc to cancel",
+    ];
+    const writes: string[] = [];
+    const handle = {
+      term: {
+        buffer: {
+          active: {
+            get length() {
+              return rows.length;
+            },
+            get cursorY() {
+              return rows.length - 1;
+            },
+            cursorX: 0,
+            getLine(i: number) {
+              const text = rows[i] ?? "";
+              return { translateToString: () => text };
+            },
+          },
+        },
+      },
+      isAlive: () => true,
+      writeRaw(bytes: string) {
+        writes.push(bytes);
+        if (bytes === "\r") {
+          rows = [
+            "────────────────────────────────────────",
+            "❯ Try \"how do I log an error?\"",
+            "────────────────────────────────────────",
+            "⏵⏵ bypass permissions on",
+          ];
+        }
+      },
+    };
+
+    try {
+      const { waitForSessionReady } = await import(PKG);
+      const ready = waitForSessionReady(handle, {
+        projectDir: os.tmpdir(),
+        knownFiles: new Set<string>(),
+        timeoutMs: 10_000,
+        pollMs: 20,
+        acceptBypassPermissions: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(writes).toEqual(["\x1b[B", "\r"]);
+      await vi.advanceTimersByTimeAsync(4_000);
+      await expect(ready).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runTurn fails fast on a dead handle instead of retrying for 30s", async () => {
+    const { OperativePtySession } = await import(PKG);
+    const deadHandle = {
+      isAlive: () => false,
+      exitCode: () => 0,
+      async sendInput(_t: string) {},
+      writeRaw(_b: string) {},
+    };
+    const session = new OperativePtySession({
+      handle: deadHandle,
+      compositionDir: os.tmpdir(),
+      claudeSessionId: "x",
+    });
+    const started = Date.now();
+    await expect(session.runTurn({ message: "hello" })).rejects.toThrow(/claude process exited/i);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+});
+
+describe("claude-pty: queued-message detection", () => {
+  it("hasQueuedMessages detects the TUI's queued hint", async () => {
+    const { hasQueuedMessages } = await import(PKG);
+    expect(hasQueuedMessages(fakeHandle(["❯ Press up to edit queued messages"]))).toBe(true);
+    expect(hasQueuedMessages(fakeHandle(["2 queued messages"]))).toBe(true);
+    expect(hasQueuedMessages(fakeHandle(["❯ ", "  default | main | 8%"]))).toBe(false);
   });
 });

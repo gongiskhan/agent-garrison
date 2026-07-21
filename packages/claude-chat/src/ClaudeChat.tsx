@@ -15,7 +15,7 @@ import sql from "highlight.js/lib/languages/sql";
 import rust from "highlight.js/lib/languages/rust";
 import go from "highlight.js/lib/languages/go";
 import diff from "highlight.js/lib/languages/diff";
-import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, SlashCommand } from "./transport";
+import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, RouteAttribution, SlashCommand, ToolQuestion } from "./transport";
 import {
   getChatMode,
   resolvedChatScheme,
@@ -24,6 +24,7 @@ import {
   type ChatThemeMode,
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
+import { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
 
 // A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
 // process-wide `marked` singleton: the chat-specific link/code renderers
@@ -93,7 +94,7 @@ function isSafeHref(url: string): boolean {
 //      Operative emits is a real, clickable link, never shown raw.
 //   2. http(s) links open in a new tab (rel=noopener) so following a produced
 //      document doesn't tear down the live chat.
-//   3. UNSAFE schemes (javascript:/data:/…) are NOT linkified — the text is kept,
+//   3. UNSAFE schemes (javascript:/data:/…) are NOT linkified - the text is kept,
 //      the dangerous href is dropped. href/title are HTML-attribute-escaped.
 // Additive: only the <a> attributes change; link text/structure is untouched, so
 // dev-env's existing rendering is unaffected (and safer).
@@ -166,19 +167,118 @@ interface Turn {
   user: string;
   assistant: string;
   streaming: boolean;
+  /** Hide the user bubble for this turn (e.g. a host kickoff that primes the operative
+   *  but shouldn't be shown as a chat message - the reply still renders normally). */
+  hideUser?: boolean;
+  /** An AskUserQuestion the operative raised during this turn (D28). Rendered as
+   *  tappable option buttons; answered via transport.answerQuestion. Only the first
+   *  question is answerable (the TUI picker is one widget). */
+  question?: { toolUseId: string; questions: ToolQuestion[] };
+  /** The label/text the user chose for `question` (set on tap; disables the buttons
+   *  and renders as the user's message). */
+  answered?: string;
+  /** True while the answer POST is in flight (buttons show a pending state). */
+  answering?: boolean;
+  /** Structured runtime attribution for this turn's reply (gateway `done`
+   *  payload → transport `route` event). The enriched routing chip prefers this
+   *  over the model-emitted "[route: …]" text badge lifted into the reply. */
+  route?: RouteAttribution;
+}
+
+// AskUserQuestion picker → tappable option buttons (D28). Pure + exported so the
+// render contract (one button per option, disabled-after-answer, no emoji,
+// 44px targets via .cc-question-opt) is unit-testable without a DOM. Only the
+// first question of a multi-question tool call is rendered/answerable.
+export function QuestionBlock({
+  q,
+  answered,
+  answering,
+  onSelect,
+  onOther,
+}: {
+  q: ToolQuestion;
+  answered?: string;
+  answering?: boolean;
+  onSelect: (label: string) => void;
+  onOther: (text: string) => void;
+}) {
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const locked = Boolean(answered) || Boolean(answering);
+  const title = q.header?.trim() || q.question?.trim() || "Choose an option";
+  const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title;
+  return (
+    <div className="cc-question" role="group" aria-label={title}>
+      <div className="cc-question-title">{title}</div>
+      {showSub && <div className="cc-question-sub">{q.question}</div>}
+      <div className="cc-question-opts">
+        {q.options.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            className={`cc-question-opt${answered === o.label ? " cc-question-opt-chosen" : ""}`}
+            disabled={locked}
+            aria-pressed={answered === o.label}
+            onClick={() => onSelect(o.label)}
+          >
+            <span className="cc-question-opt-label">{o.label}</span>
+            {o.description && <span className="cc-question-opt-desc">{o.description}</span>}
+          </button>
+        ))}
+        {!locked && !otherOpen && (
+          <button type="button" className="cc-question-other" onClick={() => setOtherOpen(true)}>
+            Other...
+          </button>
+        )}
+      </div>
+      {!locked && otherOpen && (
+        <div className="cc-question-otherrow">
+          <input
+            className="cc-question-otherinput"
+            value={otherText}
+            placeholder="Type your answer"
+            autoFocus
+            onChange={(e) => setOtherText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && otherText.trim()) {
+                e.preventDefault();
+                onOther(otherText.trim());
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="cc-question-othersend"
+            disabled={!otherText.trim()}
+            onClick={() => otherText.trim() && onOther(otherText.trim())}
+          >
+            Send
+          </button>
+        </div>
+      )}
+      {answered && <div className="cc-user cc-question-answer">{answered}</div>}
+    </div>
+  );
 }
 
 // ── Toolbar feature flags (all default OFF so web-channel is unaffected) ──
 // dev-env opts in via <ClaudeChat features={{ model, effort, theme, voice }} />.
 export interface ChatFeatures {
-  /** Model selector (Opus/Sonnet/Haiku) — switches the live session via /model. */
+  /** Model selector (Opus/Sonnet/Haiku) - switches the live session via /model. */
   model?: boolean;
-  /** Effort/thinking-level selector — prepends a thinking directive to the next message. */
+  /** Effort/thinking-level selector - prepends a thinking directive to the next message. */
   effort?: boolean;
   /** Light/dark/system theme toggle for the chat surface. */
   theme?: boolean;
   /** Read-aloud + push-to-talk via the host's same-origin /voice proxy. */
   voice?: boolean;
+  /**
+   * Autonomous toggle (GARRISON-UNIFY-V1 D21) - a toolbar chip; when pressed,
+   * every send carries meta.autonomous = true (the explicit D8 marker); the
+   * gateway registers significant work as a run card and replies with the
+   * card link. Default OFF; only the web channel opts in.
+   */
+  autonomous?: boolean;
 }
 
 // Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
@@ -217,7 +317,7 @@ const MODE_LABELS: Record<PermissionMode, string> = {
   acceptEdits: "Accept Edits",
   plan: "Plan",
   bypassPermissions: "Bypass",
-  unknown: "—",
+  unknown: "-",
 };
 const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
 
@@ -271,13 +371,15 @@ const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }
 ];
 
 // Optional per-send metadata a host fitting can attach to every turn. GENERIC
-// by design: `context` is an OPAQUE blob and `mode` an opaque string — this
+// by design: `context` is an OPAQUE blob and `mode` an opaque string - this
 // component never inspects either. A transport that wants them reads a second
 // `meta` argument on sendMessage; transports that don't (createHttpTransport)
 // ignore it, so default behavior is byte-for-byte unchanged.
 export interface ChatSendMeta {
   context?: unknown;
   mode?: string;
+  /** D21/D8: the explicit autonomous marker (the toolbar chip). */
+  autonomous?: boolean;
 }
 type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
 
@@ -285,31 +387,55 @@ type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
 // current opaque context/mode, or return undefined when BOTH are absent so a
 // context-unaware transport is invoked with exactly one argument (its previous
 // behavior). Exported for hermetic unit testing of the threading contract.
-export function buildSendMeta(context: unknown, mode: string | undefined): ChatSendMeta | undefined {
+export function buildSendMeta(context: unknown, mode: string | undefined, autonomous?: boolean): ChatSendMeta | undefined {
   const hasContext = context !== undefined && context !== null;
   const hasMode = typeof mode === "string" && mode.trim().length > 0;
-  if (!hasContext && !hasMode) return undefined;
+  const hasAutonomous = autonomous === true;
+  if (!hasContext && !hasMode && !hasAutonomous) return undefined;
   const meta: ChatSendMeta = {};
   if (hasContext) meta.context = context;
   if (hasMode) meta.mode = (mode as string).trim();
+  if (hasAutonomous) meta.autonomous = true;
   return meta;
+}
+
+/**
+ * Live handles a composer adornment can use to DRIVE the chat (not rebuild it).
+ * Passed only to the FUNCTION form of `composerAdornment`; the plain-ReactNode
+ * form never sees it, so existing callers are unaffected. Used by the web
+ * channel's voice conversation controls (S6b) to submit a transcribed utterance
+ * as a real turn and read each settled reply aloud.
+ */
+export interface ComposerAdornmentApi {
+  /** Submit `text` as a real chat turn (renders the user bubble, streams the reply). */
+  send: (text: string) => void;
+  /** True while a turn is in flight. */
+  busy: boolean;
+  /** The latest SETTLED assistant reply, or null while streaming/empty. Its `id`
+   *  changes once per completed turn, so an adornment can react to each reply. */
+  lastReply: { id: string; text: string } | null;
 }
 
 export interface ClaudeChatProps {
   transport: ChatTransport;
-  /** Optional slot rendered at the left of the composer (e.g. voice controls). */
-  composerAdornment?: React.ReactNode;
+  /**
+   * Optional slot rendered at the left of the composer (e.g. voice controls).
+   * Accepts a plain node OR a function that receives {@link ComposerAdornmentApi}
+   * so the adornment can send turns / observe replies. Function form is additive -
+   * the node form behaves exactly as before.
+   */
+  composerAdornment?: React.ReactNode | ((api: ComposerAdornmentApi) => React.ReactNode);
   /** Optional title shown in the header. */
   title?: string;
   /**
-   * Opt-in toolbar features. ALL DEFAULT OFF — omitting this prop (as
+   * Opt-in toolbar features. ALL DEFAULT OFF - omitting this prop (as
    * web-channel does) yields exactly the previous chat. dev-env passes
    * { model, effort, theme, voice }.
    */
   features?: ChatFeatures;
   /**
    * OPAQUE context a host fitting hands the chat (a card, a Dev Env session, …).
-   * This component does NOT interpret it — it is threaded verbatim to the
+   * This component does NOT interpret it - it is threaded verbatim to the
    * transport's send as `meta.context`. Absent → exactly the previous behavior.
    */
   context?: unknown;
@@ -319,17 +445,46 @@ export interface ClaudeChatProps {
    */
   mode?: string;
   /**
-   * An opening message to AUTO-SEND once, on mount, as if the user had typed it —
+   * An opening message to AUTO-SEND once, on mount, as if the user had typed it -
    * so a host can have the operative start proactively (e.g. Kanban Discuss seeds
    * a "James, analyse this card…" kickoff). Absent → exactly the previous behavior
    * (the chat waits for the user). Sent exactly once per mount.
    */
   initialMessage?: string;
+  /**
+   * When set with `initialMessage`, the auto-sent opening message primes the operative
+   * but its user bubble is NOT shown - the transcript starts with the operative's reply.
+   * Used by Discuss so the user sees James's question, not the instruction prompt.
+   */
+  initialMessageHidden?: boolean;
+  /**
+   * Prior transcript to seed the view on mount (a persisted conversation thread).
+   * Each entry is one completed exchange; `hideUser` hides that exchange's user bubble
+   * (a reopened Discuss hides its first turn - the kickoff). Absent → the chat starts
+   * empty (exactly the previous behavior). A host that supports multiple threads
+   * re-mounts the component with a fresh `key` + the selected thread's history to switch.
+   */
+  initialHistory?: { user: string; assistant: string; hideUser?: boolean }[];
+  /**
+   * Fires once per turn when its assistant reply has fully settled (non-empty),
+   * so a host can PERSIST the exchange into a thread store. Absent → nothing is
+   * persisted (previous behavior). Never fires for an empty/aborted turn.
+   */
+  onTurnComplete?: (exchange: { user: string; assistant: string }) => void;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete }: ClaudeChatProps) {
   const feat = features ?? {};
-  const [turns, setTurns] = useState<Turn[]>([]);
+  // Seed from a persisted thread's transcript when the host provides one. Computed
+  // once per mount (switching threads re-mounts with a fresh key). Kept in a memo
+  // so persistedRef below can mark the LAST seeded turn as already-persisted - else
+  // the persist effect would re-append the restored history on every open.
+  const seededTurns = useMemo<Turn[]>(
+    () => (initialHistory ?? []).map((h) => ({ id: nextId(), user: h.user, assistant: h.assistant, streaming: false, hideUser: h.hideUser })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [turns, setTurns] = useState<Turn[]>(seededTurns);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
   const [busy, setBusy] = useState(false);
   const [conn, setConn] = useState<"open" | "closed" | "reconnecting">("reconnecting");
@@ -338,6 +493,11 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [input, setInput] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
+  // D21: the Autonomous toggle (feature-gated; default off). A ref mirrors the
+  // state so the send callback reads the CURRENT value without re-binding.
+  const [autonomousOn, setAutonomousOn] = useState(false);
+  const autonomousRef = useRef(false);
+  useEffect(() => { autonomousRef.current = autonomousOn; }, [autonomousOn]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -378,12 +538,24 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ available: false });
   const [readAloud, setReadAloud] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  // Playback state for read-aloud. `speaking` stays true for the whole playback
+  // SESSION (including while paused) so the transport controls remain mounted;
+  // `paused` distinguishes the two. `loading` covers the TTS round-trip, which
+  // can take seconds - without it the button looks dead after the click.
   const [speaking, setSpeaking] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  /** Turn id currently being read aloud (null = none / auto-read of the last turn). */
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  /** Last voice failure, surfaced to the user instead of being swallowed. */
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recBusyRef = useRef(false);
   const voiceMountedRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
   const lastSpokenRef = useRef<string>("");
 
   useEffect(() => {
@@ -452,9 +624,14 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   }, []);
 
   // Reflect the latest assistant text into the most recent turn's assistant slot.
+  // A reply arriving with NO local transcript (this client mounted or reloaded
+  // while a turn was already running server-side) is REBOUND to a fresh turn
+  // instead of dropped, so a reconnecting client picks the stream back up.
   const applyAssistant = useCallback((text: string) => {
     setTurns((prev) => {
-      if (prev.length === 0) return prev;
+      if (prev.length === 0) {
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true }];
+      }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
       const copy = prev.slice();
@@ -466,11 +643,24 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   useEffect(() => {
     const off = transport.connect((ev: ChatEvent) => {
       switch (ev.type) {
-        case "hello":
+        case "hello": {
           setStatus(ev.status);
           setBusy(ev.busy);
           setScreen(ev.screen ?? []);
+          // Rebind a reloaded client: when the operative already has a reply on
+          // screen (possibly still streaming) and this client has no transcript,
+          // seed a turn from the hello snapshot instead of showing an empty chat.
+          const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
+          if (helloAssistant.trim()) {
+            const stillStreaming = ev.busy;
+            setTurns((prev) =>
+              prev.length > 0
+                ? prev
+                : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true }]
+            );
+          }
           break;
+        }
         case "assistant":
           applyAssistant(ev.text);
           break;
@@ -486,6 +676,32 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         case "screen":
           setScreen(ev.lines);
           break;
+        case "tool": {
+          // Attach an AskUserQuestion to the current (streaming) turn → tappable
+          // option buttons. Ignore other tools and malformed payloads.
+          if (ev.name !== "AskUserQuestion" || !Array.isArray(ev.questions) || ev.questions.length === 0) break;
+          setTurns((prev) => {
+            if (prev.length === 0) return prev;
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            copy[copy.length - 1] = { ...last, question: { toolUseId: ev.tool_use_id, questions: ev.questions } };
+            return copy;
+          });
+          break;
+        }
+        case "route": {
+          // Attach the settled turn's runtime attribution to the current turn
+          // (same last-turn attach as `tool`). Rendered as an enriched routing chip.
+          const { type: _type, ...attribution } = ev;
+          setTurns((prev) => {
+            if (prev.length === 0) return prev;
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            copy[copy.length - 1] = { ...last, route: attribution };
+            return copy;
+          });
+          break;
+        }
         case "connection":
           setConn(ev.state);
           break;
@@ -543,20 +759,20 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   modeRef.current = mode;
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, opts?: { hideUser?: boolean }) => {
       const t = text.trim();
       if (!t) return;
       // Effort directive (Think / Think hard / Ultrathink) is prepended to the
-      // wire text only — the transcript shows what the user actually typed.
+      // wire text only - the transcript shows what the user actually typed.
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}\n\n${t}` : t;
-      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true }]);
+      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
       setBusy(true);
       pinnedRef.current = true;
       // Pass opaque context/mode as an optional second arg ONLY when present, so
       // a context-unaware transport (createHttpTransport) is called exactly as
       // before. The transport decides whether to read `meta`.
-      const meta = buildSendMeta(contextRef.current, modeRef.current);
+      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined);
       const sendFn = transport.sendMessage as ContextAwareSend;
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
       p.catch(() => {});
@@ -565,7 +781,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     [transport, effortOn]
   );
 
-  // Auto-send the opening message ONCE on mount, when a host provided one — so the
+  // Auto-send the opening message ONCE on mount, when a host provided one - so the
   // operative can start proactively (Kanban Discuss seeds a "James, analyse this
   // card…" kickoff). A ref guards against React's double-invoke (StrictMode) and a
   // changing `send` identity, so it fires exactly once per mount.
@@ -575,7 +791,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     const msg = (initialMessage ?? "").trim();
     if (!msg) return;
     kickedRef.current = true;
-    send(msg);
+    send(msg, { hideUser: initialMessageHidden });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMessage]);
 
@@ -601,63 +817,164 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
 
   // Copy the most recent assistant response to the clipboard.
   const copyLast = useCallback(async () => {
-    const last = [...turns].reverse().find((t) => t.assistant.trim());
+    const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
     if (!last) return;
+    const cleanText = sanitizeAssistantText(last.assistant).text;
     // Only flash "Copied" when the write actually succeeded (writeClipboard
     // resolves false on a missing API or a rejected write).
-    if (await writeClipboard(last.assistant)) {
+    if (await writeClipboard(cleanText)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     }
   }, [turns]);
 
-  // ── Voice: speak a single message's text via the /voice/tts proxy. ──
+  // ── Voice: speak a message's text via the /voice/tts proxy. Playback is a
+  // real transport (play / pause / resume / stop), not a fire-and-forget: a
+  // long reply read aloud has to be pausable. One <audio> at a time - starting a
+  // new read tears the previous one down (and revokes its object URL). ──
+  const teardownAudio = useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.onended = null;
+      a.onerror = null;
+      try { a.pause(); } catch { /* already detached */ }
+    }
+    audioRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
+
   const speak = useCallback(
-    async (text: string) => {
+    async (text: string, turnId?: string) => {
       if (!voiceClient || !text.trim()) return;
+      teardownAudio();
+      setVoiceError(null);
+      setTtsLoading(true);
+      setSpeaking(true);
+      setPaused(false);
+      setSpeakingId(turnId ?? null);
       try {
-        setSpeaking(true);
         const blob = await voiceClient.tts(text);
+        if (!voiceMountedRef.current) return;
         const urlObj = URL.createObjectURL(blob);
-        if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+        audioUrlRef.current = urlObj;
         const audio = new Audio(urlObj);
         audioRef.current = audio;
-        audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
-        audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(urlObj); };
+        const finish = () => {
+          if (audioRef.current !== audio) return; // superseded by a newer read
+          teardownAudio();
+          setSpeaking(false);
+          setPaused(false);
+          setSpeakingId(null);
+        };
+        audio.onended = finish;
+        audio.onerror = () => { setVoiceError("Playback failed"); finish(); };
         await audio.play();
-      } catch {
+        setTtsLoading(false);
+      } catch (err) {
+        setTtsLoading(false);
         setSpeaking(false);
+        setPaused(false);
+        setSpeakingId(null);
+        teardownAudio();
+        // An autoplay block (no user gesture) and an upstream TTS failure are
+        // different problems - say which one happened rather than going quiet.
+        const name = (err as { name?: string } | null)?.name;
+        setVoiceError(
+          name === "NotAllowedError"
+            ? "Playback blocked by the browser - press Read aloud again"
+            : `Read-aloud failed: ${(err as Error)?.message ?? "unknown error"}`.slice(0, 120)
+        );
       }
     },
-    [voiceClient]
+    [voiceClient, teardownAudio]
   );
 
   const stopSpeaking = useCallback(() => {
-    if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+    teardownAudio();
     setSpeaking(false);
+    setPaused(false);
+    setTtsLoading(false);
+    setSpeakingId(null);
+  }, [teardownAudio]);
+
+  // Pause / resume the current read-aloud. No-op before the audio element
+  // exists (still fetching the TTS) - the button shows a loading state then.
+  const togglePause = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) {
+      a.play().then(() => setPaused(false)).catch(() => setPaused(true));
+    } else {
+      a.pause();
+      setPaused(true);
+    }
   }, []);
+
+  // Persist each COMPLETED exchange into the host's thread store (when wired).
+  // Mirrors the read-aloud settle gate: fire once per turn, only after the
+  // assistant reply has fully landed and is non-empty (never for an empty/aborted
+  // turn). The id guard makes it idempotent across the streaming re-renders.
+  // Seeded from the LAST restored turn's id so the persist effect never re-appends
+  // history that was loaded from the store (which would duplicate on every open).
+  const persistedRef = useRef<string>(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
+  const onTurnCompleteRef = useRef(onTurnComplete);
+  onTurnCompleteRef.current = onTurnComplete;
 
   // Auto-read each new COMPLETED assistant turn when read-aloud is on.
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  // The latest SETTLED reply, exposed to a function-form composerAdornment (S6b
+  // voice) so it can read replies aloud. Null while streaming/empty; `id` changes
+  // once per completed turn.
+  const settledReply = useMemo<ComposerAdornmentApi["lastReply"]>(() => {
+    if (!latestAssistant || latestAssistant.streaming) return null;
+    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    return text ? { id: latestAssistant.id, text } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
+  useEffect(() => {
+    const cb = onTurnCompleteRef.current;
+    if (!cb || !latestAssistant || latestAssistant.streaming) return;
+    const assistant = latestAssistant.assistant.trim();
+    if (!assistant) return;
+    if (persistedRef.current === latestAssistant.id) return;
+    persistedRef.current = latestAssistant.id;
+    cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
   useEffect(() => {
     if (!readAloud || !voiceUsable || !latestAssistant) return;
     if (latestAssistant.streaming) return;
-    const text = latestAssistant.assistant.trim();
+    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
-    void speak(text);
-  }, [readAloud, voiceUsable, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+    void speak(text, latestAssistant.id);
+  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
 
   // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
   // and drop the transcript into the composer for review/edit. ──
   const startRecording = useCallback(async () => {
-    // recBusyRef is a SYNCHRONOUS guard set before the await — the `recording`
+    // recBusyRef is a SYNCHRONOUS guard set before the await - the `recording`
     // state flips only after getUserMedia resolves, so two rapid clicks would
     // otherwise both pass and the second would orphan the first recorder/stream
     // (leaking a live mic). The ref stays set through the active recording and
     // clears on stop / bail / error.
     if (!voiceClient || recBusyRef.current) return;
+    // getUserMedia exists only in a secure context (https / localhost). Over a
+    // plain-http LAN origin `navigator.mediaDevices` is undefined and the old
+    // code threw a TypeError into an empty catch - the button did nothing, with
+    // no explanation. Say so instead.
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Microphone needs a secure context (https or localhost)");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setVoiceError("This browser has no MediaRecorder - recording is unavailable");
+      return;
+    }
     recBusyRef.current = true;
+    setVoiceError(null);
     try {
       // Explicit constraints: clean the mic before it reaches whisper — echo
       // cancellation, noise suppression, and auto gain lift accuracy on real
@@ -673,7 +990,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         }
       });
       if (!voiceMountedRef.current) {
-        // Unmounted while the permission prompt was pending — release the mic
+        // Unmounted while the permission prompt was pending - release the mic
         // and bail before constructing/starting the recorder.
         stream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
         recBusyRef.current = false;
@@ -687,26 +1004,48 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         recBusyRef.current = false;
-        if (!voiceMountedRef.current) return; // unmounted — don't touch state/network
+        if (!voiceMountedRef.current) return; // unmounted - don't touch state/network
         setRecording(false);
         const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-        if (!blob.size) return;
+        if (!blob.size) {
+          setVoiceError("Nothing was recorded - check the microphone input");
+          return;
+        }
+        setTranscribing(true);
         try {
           const transcript = await voiceClient.stt(blob);
-          if (transcript) {
+          if (!voiceMountedRef.current) return;
+          if (transcript.trim()) {
             setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
             taRef.current?.focus();
+          } else {
+            setVoiceError("No speech detected in the recording");
           }
-        } catch {
-          /* stt failed — leave composer untouched */
+        } catch (err) {
+          if (voiceMountedRef.current) {
+            setVoiceError(`Transcription failed: ${(err as Error)?.message ?? "unknown error"}`.slice(0, 140));
+          }
+        } finally {
+          if (voiceMountedRef.current) setTranscribing(false);
         }
       };
       recorderRef.current = rec;
       rec.start();
       setRecording(true);
-    } catch {
+    } catch (err) {
       recBusyRef.current = false;
       setRecording(false);
+      // The failure that actually bit us: an iframe without `allow="microphone"`
+      // rejects getUserMedia with NotAllowedError before any prompt is shown, so
+      // the click looked like a dead button. Name the cause.
+      const name = (err as { name?: string } | null)?.name;
+      setVoiceError(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Microphone blocked - allow mic access for this page (and reload)"
+          : name === "NotFoundError"
+            ? "No microphone found on this device"
+            : `Microphone error: ${(err as Error)?.message ?? "unknown"}`.slice(0, 140)
+      );
     }
   }, [voiceClient]);
 
@@ -726,6 +1065,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
       if (rec && rec.state !== "inactive") { try { rec.stop(); } catch {} }
       streamRef.current?.getTracks().forEach((t) => { try { t.stop(); } catch {} });
       streamRef.current = null;
+      // Kill any in-flight read-aloud too - a pane swap must not leave audio
+      // playing into a view the user has left (and must not leak the blob URL).
+      const a = audioRef.current;
+      if (a) { a.onended = null; a.onerror = null; try { a.pause(); } catch {} }
+      audioRef.current = null;
+      if (audioUrlRef.current) { URL.revokeObjectURL(audioUrlRef.current); audioUrlRef.current = null; }
     };
   }, []);
 
@@ -790,6 +1135,25 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     [transport]
   );
 
+  // Answer an AskUserQuestion for a turn (a tapped option label or free text). The
+  // chosen value renders as the user's message and the buttons disable; the gateway
+  // drives the live TUI picker and the reply continues streaming into the same turn.
+  const answerQuestion = useCallback(
+    (turnId: string, toolUseId: string, choice: { label?: string; text?: string }) => {
+      const chosen = choice.label ?? choice.text ?? "";
+      setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answered: chosen, answering: true } : t)));
+      const fn = transport.answerQuestion;
+      if (!fn) {
+        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answering: false } : t)));
+        return;
+      }
+      Promise.resolve(fn.call(transport, { toolUseId, ...choice }))
+        .catch(() => {})
+        .finally(() => setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answering: false } : t))));
+    },
+    [transport]
+  );
+
   return (
     <div className="cc-root" data-theme={themeOn ? scheme : undefined}>
       <header className="cc-header">
@@ -824,17 +1188,33 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         {turns.length === 0 && (
           <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
         )}
-        {turns.map((t) => (
+        {turns.map((t) => {
+          // Clean the scraped reply for display: drop TUI noise (tool-activity
+          // counters, thinking blocks) and lift the router status badge out of the
+          // prose into a compact chip. Cheap + pure, so per-render is fine.
+          const clean = sanitizeAssistantText(t.assistant);
+          // Prefer the STRUCTURED runtime attribution the gateway sends on the
+          // settled turn (runtime/model/tier); fall back to the model-emitted
+          // "[route: …]" text badge lifted into clean.meta when it is absent.
+          const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
+          const metaLabel = routeChipLabel(clean.meta);
+          const metaTitle = clean.meta.route
+            ? `routed via ${clean.meta.route}${clean.meta.rule ? ` · rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` · ${clean.meta.profile} profile` : ""}`
+            : undefined;
+          const routeLabel = structuredChip?.label ?? metaLabel;
+          const routeTitle = structuredChip ? structuredChip.title : metaTitle;
+          return (
           <div className="cc-turn" key={t.id}>
-            <div className="cc-user">{t.user}</div>
-            {(t.assistant || t.streaming) && (
+            {!t.hideUser && <div className="cc-user">{t.user}</div>}
+            {(clean.text || t.streaming || t.question) && (
               <div className="cc-assistant">
-                <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(t.assistant || "") as string }} />
-                {/* Streaming cursor once tokens are arriving. */}
-                {t.streaming && t.assistant && <span className="cc-cursor" aria-hidden="true" />}
-                {/* Rich "working" indicator before the first token: animated dots
-                    + label + live elapsed + (PTY) activity hint. */}
-                {t.streaming && !t.assistant && (
+                <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(clean.text || "") as string }} />
+                {/* Streaming cursor once prose is arriving. */}
+                {t.streaming && clean.text && <span className="cc-cursor" aria-hidden="true" />}
+                {/* Rich "working" indicator before any prose lands (while James is
+                    only doing tool activity, clean.text is empty → show this, not the
+                    raw scrape): animated dots + label + live elapsed + activity hint. */}
+                {t.streaming && !clean.text && (
                   <div className="cc-working" role="status" aria-live="polite">
                     <span className="cc-working-dots"><i /><i /><i /></span>
                     <span className="cc-working-label">Working</span>
@@ -842,37 +1222,84 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                     {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
                   </div>
                 )}
-                {/* Per-message actions: copy (always) + read-aloud (voice). */}
-                {t.assistant.trim() && !t.streaming && (
+                {/* AskUserQuestion → tappable option buttons (D28). Renders the first
+                    question of the tool call; answered via the answer path. */}
+                {t.question && t.question.questions[0] && (
+                  <QuestionBlock
+                    q={t.question.questions[0]}
+                    answered={t.answered}
+                    answering={t.answering}
+                    onSelect={(label) => answerQuestion(t.id, t.question!.toolUseId, { label })}
+                    onOther={(text) => answerQuestion(t.id, t.question!.toolUseId, { text })}
+                  />
+                )}
+                {/* Per-message actions: copy (always) + read-aloud (voice) + a subtle
+                    routing chip (replaces the inline "[route: …]" badge). */}
+                {clean.text.trim() && !t.streaming && (
                   <div className="cc-msgactions">
                     <button
                       type="button"
                       className="cc-msgcopy"
                       title="Copy this response"
-                      onClick={() => copyMsg(t.id, t.assistant)}
+                      onClick={() => copyMsg(t.id, clean.text)}
                     >
                       {copiedId === t.id ? "Copied" : "Copy"}
                     </button>
-                    {feat.voice && voiceUsable && (
-                      <button
-                        type="button"
-                        className="cc-speak"
-                        title="Read this response aloud"
-                        aria-label="Read this response aloud"
-                        onClick={() => void speak(t.assistant)}
+                    {feat.voice && voiceUsable && (() => {
+                      // The same button is play / pause / resume for THIS message:
+                      // once it is the one being read, clicking toggles playback
+                      // rather than restarting the whole reply from the top.
+                      const isThis = speakingId === t.id;
+                      const playing = isThis && !paused && !ttsLoading;
+                      const label = !isThis
+                        ? "Read this response aloud"
+                        : ttsLoading
+                          ? "Preparing audio"
+                          : paused
+                            ? "Resume reading"
+                            : "Pause reading";
+                      return (
+                        <button
+                          type="button"
+                          className={`cc-speak${isThis ? " cc-speak-active" : ""}`}
+                          title={label}
+                          aria-label={label}
+                          aria-pressed={isThis}
+                          onClick={() => (isThis ? togglePause() : void speak(clean.text, t.id))}
+                        >
+                          {playing ? (
+                            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                              <rect x="4" y="3" width="3" height="10" fill="currentColor" />
+                              <rect x="9" y="3" width="3" height="10" fill="currentColor" />
+                            </svg>
+                          ) : isThis && paused ? (
+                            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M5 3l8 5-8 5z" fill="currentColor" />
+                            </svg>
+                          ) : (
+                            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
+                              <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })()}
+                    {routeLabel && (
+                      <span
+                        className={`cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`}
+                        title={routeTitle}
                       >
-                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-                          <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
-                          <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                        </svg>
-                      </button>
+                        {routeLabel}
+                      </span>
                     )}
                   </div>
                 )}
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         {showRaw && (
           <pre className="cc-raw">{screen.join("\n")}</pre>
         )}
@@ -882,21 +1309,26 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         {status.rows.length > 0 ? status.rows.map((r, i) => <div key={i} className="cc-statusrow">{r}</div>) : <div className="cc-statusrow cc-dim">no status</div>}
       </div>
 
-      <div className="cc-modes">
-        {SWITCHABLE.map((m) => (
-          <button
-            key={m}
-            className={`cc-mode ${status.mode === m ? "cc-mode-active" : ""}`}
-            disabled={status.mode === "unknown"}
-            onClick={() => onSetMode(m)}
-            title={`Switch to ${MODE_LABELS[m]} mode`}
-          >
-            {MODE_LABELS[m]}
-          </button>
-        ))}
-      </div>
+      {/* Permission modes only exist when the transport actually reports one (a
+          live PTY). On the orchestrator transport `mode` stays "unknown", and the
+          row rendered four permanently-disabled buttons - dead chrome eating a
+          strip of the composer area. No mode, no row. */}
+      {status.mode !== "unknown" && (
+        <div className="cc-modes">
+          {SWITCHABLE.map((m) => (
+            <button
+              key={m}
+              className={`cc-mode ${status.mode === m ? "cc-mode-active" : ""}`}
+              onClick={() => onSetMode(m)}
+              title={`Switch to ${MODE_LABELS[m]} mode`}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {(feat.model || feat.effort || feat.voice) && (
+      {(feat.model || feat.effort || feat.voice || feat.autonomous) && (
         <div className="cc-toolbar">
           {feat.model && (
             <div className="cc-tool-group" role="group" aria-label="Model">
@@ -934,6 +1366,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             </div>
           )}
           <span className="cc-tool-spacer" />
+          {feat.autonomous && (
+            <button
+              type="button"
+              className={`cc-chip ${autonomousOn ? "cc-chip-active" : ""}`}
+              aria-pressed={autonomousOn}
+              title={autonomousOn
+                ? "Autonomous ON: sends register a run card on the board; the reply carries the card link"
+                : "Autonomous OFF: messages run interactively. Turn on to register the work as an autonomous run card"}
+              onClick={() => setAutonomousOn((v) => !v)}
+            >
+              Autonomous
+            </button>
+          )}
           <button
             type="button"
             className="cc-chip"
@@ -954,12 +1399,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           {feat.voice && (
             <button
               type="button"
-              className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking ? "cc-chip-pulse" : ""}`}
+              className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking && !paused ? "cc-chip-pulse" : ""}`}
               disabled={!voiceUsable}
               aria-pressed={readAloud}
               title={
                 voiceUsable
-                  ? speaking ? "Speaking — click to stop auto-read" : "Read each new response aloud"
+                  ? readAloud ? "Auto-read is on - click to turn it off" : "Read each new response aloud"
                   : "Voice fitting not running"
               }
               onClick={() => {
@@ -976,6 +1421,48 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
               </svg>
               Read aloud
             </button>
+          )}
+          {/* Playback transport - only while a read-aloud is actually running, so
+              the toolbar doesn't carry dead controls. Pause/Resume is the control
+              a long reply needs; Stop ends the read without turning auto-read off. */}
+          {feat.voice && voiceUsable && (speaking || ttsLoading) && (
+            <div className="cc-playback" role="group" aria-label="Read-aloud playback">
+              <button
+                type="button"
+                className={`cc-chip ${paused ? "" : "cc-chip-active"}`}
+                disabled={ttsLoading}
+                title={ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading"}
+                onClick={togglePause}
+              >
+                {ttsLoading ? (
+                  <>
+                    <span className="cc-playback-spin" aria-hidden="true" />
+                    Preparing
+                  </>
+                ) : paused ? (
+                  <>
+                    <svg className="cc-ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M5 3l8 5-8 5z" fill="currentColor" />
+                    </svg>
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <svg className="cc-ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <rect x="4" y="3" width="3" height="10" fill="currentColor" />
+                      <rect x="9" y="3" width="3" height="10" fill="currentColor" />
+                    </svg>
+                    Pause
+                  </>
+                )}
+              </button>
+              <button type="button" className="cc-chip" title="Stop reading" onClick={stopSpeaking}>
+                <svg className="cc-ico" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="3.5" y="3.5" width="9" height="9" fill="currentColor" />
+                </svg>
+                Stop
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -996,22 +1483,43 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             ))}
           </div>
         )}
+        {feat.voice && voiceError && (
+          <div className="cc-voiceerr" role="status">
+            <span className="cc-voiceerr-msg">{voiceError}</span>
+            <button
+              type="button"
+              className="cc-voiceerr-x"
+              aria-label="Dismiss voice error"
+              onClick={() => setVoiceError(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div className="cc-composerrow">
-          {composerAdornment}
+          {typeof composerAdornment === "function"
+            ? composerAdornment({ send: (text: string) => send(text), busy, lastReply: settledReply })
+            : composerAdornment}
           {feat.voice && (
             <button
               type="button"
-              className={`cc-mic ${recording ? "cc-mic-rec" : ""}`}
-              disabled={!voiceUsable}
+              className={`cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`}
+              disabled={!voiceUsable || transcribing}
               aria-pressed={recording}
               title={
-                voiceUsable
-                  ? recording ? "Stop recording and transcribe" : "Talk — record then transcribe into the composer"
-                  : "Voice fitting not running"
+                !voiceUsable
+                  ? "Voice fitting not running"
+                  : transcribing
+                    ? "Transcribing…"
+                    : recording
+                      ? "Stop recording and transcribe"
+                      : "Talk - record then transcribe into the composer"
               }
               onClick={() => (recording ? stopRecording() : void startRecording())}
             >
-              {recording ? (
+              {transcribing ? (
+                <span className="cc-mic-spin" aria-hidden="true" />
+              ) : recording ? (
                 <span className="cc-mic-dot" aria-hidden="true" />
               ) : (
                 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">

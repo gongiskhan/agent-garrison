@@ -14,7 +14,9 @@ import path from "node:path";
 import url from "node:url";
 
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "screen-share-default.json");
 const SCREENSHOT_PATH = "/tmp/garrison-screen-latest.jpg";
 const LOCK_PATH = "/tmp/garrison-screen-running.lock";
@@ -33,7 +35,7 @@ const state = {
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.SCREEN_SHARE_PORT || 7079),
+    port: Number(process.env.GARRISON_SCREENSHAREDEFAULT_PORT || process.env.SCREEN_SHARE_PORT || 27079),
     host: process.env.SCREEN_SHARE_HOST || "127.0.0.1",
     intervalMs: Number(process.env.SCREEN_SHARE_INTERVAL_MS || 1000)
   };
@@ -195,18 +197,20 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[screen-share] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
   }
-  return null;
 }
 
 async function writeStatusFile(opts) {
@@ -230,12 +234,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
 
-  const free = await findFreePort(opts.port);
-  if (free === null) {
-    console.error(`[screen-share] no free port from ${opts.port}`);
-    process.exit(1);
-  }
-  const liveOpts = { ...opts, port: free };
+  assertStatusSlotFree();
+  const liveOpts = { ...opts };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -253,6 +253,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[screen-share] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);

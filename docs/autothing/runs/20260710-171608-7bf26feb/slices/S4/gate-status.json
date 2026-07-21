@@ -1,0 +1,51 @@
+{
+  "slice": "S4",
+  "kind": "api",
+  "implement": {
+    "status": "passed",
+    "at": "2026-07-10T22:05:55Z"
+  },
+  "securityWall": {
+    "gitleaks": 0,
+    "semgrep": 0,
+    "at": "2026-07-10T22:05:55Z"
+  },
+  "test": {
+    "status": "passed",
+    "exit": 0,
+    "summary": "typecheck 0; 1714 tests; security-optin.test.ts committed; scratch repo validated",
+    "at": "2026-07-10T22:05:55Z"
+  },
+  "fence": {
+    "sha": "ec83cd7",
+    "at": "2026-07-10T22:05:55Z"
+  },
+  "codexSliceReview": {
+    "status": "degraded",
+    "reason": "codex-unavailable",
+    "at": "2026-07-10T22:05:55Z"
+  },
+  "designAudit": {
+    "status": "skipped",
+    "reason": "kind-conditional"
+  },
+  "adversarialTest": {
+    "status": "deferred-to-batched-run-level",
+    "reason": "kind-conditional (api)",
+    "at": "2026-07-10T22:05:55Z"
+  },
+  "adversarialReview": {
+    "verdict": "approve",
+    "by": "fresh-context claude-fable-5",
+    "at": "2026-07-10T22:45:53Z",
+    "findings": "F1 contract fixed in 51519b5; F2 deployment note recorded"
+  },
+  "video": {
+    "status": "verified",
+    "mode": "evidence",
+    "verifiedAt": "2026-07-10T22:45:53Z",
+    "sha256_16": "ec4bf3a104bcab1f",
+    "evidence": "evidence.json",
+    "path": "/home/ggomes/.walkthrough/runs/agent-garrison/flow-v2/s4-generic-flow/2026-07-10_23-44-08/final.mp4"
+  }
+}

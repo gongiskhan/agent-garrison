@@ -54,16 +54,21 @@ class FakeAgentSdkAdapter {
   id = "agent-sdk";
   spawned: any[] = [];
   turns: string[] = [];
+  response: any = { text: "The capital of France is Paris.", toolUses: [], stoppedReason: null };
   async spawn(cfg: any) {
     this.spawned.push(cfg);
-    return { alive: true, harness: { promptMode: cfg.promptMode }, fence: { state: "non-anthropic (fenced — no Anthropic billing)" }, sessionId: "agent-sdk-sess", config: cfg };
+    return { alive: true, harness: { promptMode: cfg.promptMode }, sessionId: "agent-sdk-sess", config: cfg };
   }
   async awaitReady() {}
   async sendTurn(_s: any, text: string) {
     this.turns.push(text);
   }
   async awaitResponse() {
-    return { text: "The capital of France is Paris.", toolUses: [], stoppedReason: null };
+    return this.response;
+  }
+  async setEffort(s: any, effort: string) {
+    s.effort = effort;
+    s.effortApplied = true;
   }
   async teardown(s: any) {
     s.alive = false;
@@ -169,6 +174,75 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
       expect(gw.isAgentSdkTarget(pre.route)).toBe(false);
       const decisions = readDecisions(decisionsFile);
       expect(decisions[0]).toMatchObject({ runtime: "claude-code", provider: "anthropic-plan" });
+    } finally {
+      gw.shutdown();
+    }
+  });
+
+  it("an Agent SDK target left at runtime defaults gets the full harness and 12 turns", async () => {
+    const { gw, agentSdk } = await bootGateway();
+    try {
+      await gw.runAgentSdkTurn(
+        {
+          targetId: "sdk-default",
+          target: {
+            id: "sdk-default",
+            type: "runtime-target",
+            runtime: "agent-sdk",
+            provider: "anthropic",
+            model: "claude-haiku-4-5",
+          },
+        },
+        "inspect the project and make the bounded change",
+      );
+
+      expect(agentSdk.spawned[0]).toMatchObject({
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+        promptMode: "full",
+        maxTurns: 12,
+      });
+    } finally {
+      gw.shutdown();
+    }
+  });
+
+  it("returns a max-turn stop with the exact executed route/model/effort evidence intact", async () => {
+    const { gw, agentSdk } = await bootGateway();
+    try {
+      agentSdk.response = {
+        text: "Plan and gate written.",
+        toolUses: [{ id: "gate", name: "Write" }],
+        stoppedReason: "max_turns"
+      };
+      const result = await gw.runAgentSdkTurn(
+        {
+          targetId: "sdk-sonnet-full",
+          target: {
+            id: "sdk-sonnet-full",
+            type: "runtime-target",
+            runtime: "agent-sdk",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            effort: "medium",
+            promptMode: "full",
+            maxTurns: 24
+          }
+        },
+        "write the durable Plan gate"
+      );
+
+      expect(result).toMatchObject({
+        reply: "Plan and gate written.",
+        route: "sdk-sonnet-full",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        effort: "medium",
+        effortApplied: true,
+        stoppedReason: "max_turns"
+      });
+      expect(agentSdk.spawned[0]).toMatchObject({ maxTurns: 24, effort: "medium" });
     } finally {
       gw.shutdown();
     }

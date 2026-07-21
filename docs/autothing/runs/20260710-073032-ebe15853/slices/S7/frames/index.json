@@ -1,0 +1,51 @@
+{
+  "video": "/home/ggomes/.walkthrough/runs/agent-garrison/surfaces/2026-07-10_12-24-49/final.mp4",
+  "beats": [
+    {
+      "id": "ac1",
+      "t": 3.619,
+      "frame": "frames/beat-00-ac1.png",
+      "expectCaption": "AC-1 - new session defaults to orchestrated (Joe)",
+      "expectScreen": "the Dev Env 'New session' modal open, with an 'Orchestrator' dropdown whose selected value reads 'Joe - dev (default)'",
+      "expectFailure": false,
+      "extracted": true
+    },
+    {
+      "id": "ac2",
+      "t": 10.767,
+      "frame": "frames/beat-01-ac2.png",
+      "expectCaption": "AC-2 - modes gary / joe / james offered by name",
+      "expectScreen": "session-request.ts MODE_OPTIONS listing value 'joe' (Joe - dev), 'gary' (Gary - assistant), 'james' (James - product / architect), plus 'plain'; DEFAULT_MODE = 'joe'",
+      "expectFailure": false,
+      "extracted": true
+    },
+    {
+      "id": "ac3",
+      "t": 15.165,
+      "frame": "frames/beat-02-ac3.png",
+      "expectCaption": "AC-3 - plain escape hatch, labeled for debugging Garrison itself",
+      "expectScreen": "the Orchestrator dropdown now showing the plain option label 'Plain claude, for debugging Garrison itself (unorchestrated, logged)'",
+      "expectFailure": false,
+      "extracted": true
+    },
+    {
+      "id": "ac4",
+      "t": 23.233,
+      "frame": "frames/beat-03-ac4.png",
+      "expectCaption": "AC-4 - selecting plain yields request { plain: true }",
+      "expectScreen": "JSON output of buildSessionRequest: the plain case is { \"path\": \"/x\", \"plain\": true }; the default and joe cases carry no plain flag",
+      "expectFailure": false,
+      "extracted": true
+    },
+    {
+      "id": "ac5",
+      "t": 26.233,
+      "frame": "frames/beat-04-ac5.png",
+      "expectCaption": "AC-5 - server logs plain-session use",
+      "expectScreen": "server.mjs handleCreateSession: when body.plain is true it logs '[dev-env] PLAIN session requested ... (unorchestrated escape hatch, D22)'",
+      "expectFailure": false,
+      "extracted": true
+    }
+  ],
+  "interval": []
+}

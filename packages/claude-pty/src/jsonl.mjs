@@ -29,16 +29,17 @@ export function jsonlFileSize(path) {
  */
 export function readJsonlFrom(filePath, offset) {
   if (!existsSync(filePath)) return { events: [], newOffset: offset };
+  // fd is closed in `finally` so a throw AFTER openSync (fstatSync / Buffer.alloc /
+  // readSync on e.g. a directory or a racing truncation) never leaks it — the
+  // 400ms AskUserQuestion watcher calls this on every tick, so a leak would
+  // exhaust fds fast.
+  let fd;
   try {
-    const fd = openSync(filePath, "r");
+    fd = openSync(filePath, "r");
     const size = fstatSync(fd).size;
-    if (size <= offset) {
-      closeSync(fd);
-      return { events: [], newOffset: offset };
-    }
+    if (size <= offset) return { events: [], newOffset: offset };
     const buf = Buffer.alloc(size - offset);
     readSync(fd, buf, 0, size - offset, offset);
-    closeSync(fd);
     const raw = buf.toString("utf8");
     // Only consume up to the last newline so a partial trailing record
     // (mid-write) is re-read next poll rather than dropped.
@@ -57,6 +58,14 @@ export function readJsonlFrom(filePath, offset) {
     return { events, newOffset };
   } catch {
     return { events: [], newOffset: offset };
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // already closed / invalid fd — nothing to release
+      }
+    }
   }
 }
 
@@ -95,6 +104,10 @@ export function parseEvents(events) {
   const toolUses = [];
   const toolResults = [];
   const systemEvents = [];
+  // Per-assistant-event token usage, in file order. The LAST entry is the best
+  // estimate of tokens-in-context (see contextTokensFrom). Kept additively — the
+  // donor and the pre-2026-07 parser dropped `usage` entirely.
+  const assistantUsages = [];
   let turnDurationMs = null;
   let stopHookSeen = false;
   let model = null;
@@ -109,6 +122,15 @@ export function parseEvents(events) {
       } else if (sub === "stop_hook_summary") {
         stopHookSeen = true;
         systemEvents.push({ subtype: sub });
+      } else if (sub === "compact_boundary") {
+        // A context compaction happened. Carry the whole compactMetadata block
+        // (trigger / preTokens / postTokens / durationMs / …) plus the line's
+        // timestamp so compactionsFrom can reconstruct the ordered history.
+        systemEvents.push({
+          subtype: sub,
+          compactMetadata: ev.compactMetadata ?? null,
+          timestamp: typeof ev.timestamp === "string" ? ev.timestamp : null,
+        });
       } else if (sub) {
         systemEvents.push({ subtype: sub, ...localCommandFields(ev) });
       }
@@ -131,6 +153,8 @@ export function parseEvents(events) {
     } else if (evType === "assistant") {
       const msg = ev.message;
       if (msg?.model && model === null) model = msg.model;
+      const usage = normalizeUsage(msg?.usage);
+      if (usage) assistantUsages.push(usage);
       if (Array.isArray(msg?.content)) {
         for (const part of msg.content) {
           if (part?.type === "text" && typeof part.text === "string") {
@@ -156,10 +180,137 @@ export function parseEvents(events) {
     toolUses,
     toolResults,
     systemEvents,
+    assistantUsages,
     turnDurationMs,
     stopHookSeen,
     model,
   };
+}
+
+const USAGE_FIELDS = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"];
+
+/**
+ * Normalise an assistant event's `usage` block to the four token counters, or
+ * null when none are present. Once any counter exists the shape is complete
+ * (missing fields default to 0), so callers can sum without null-guards.
+ */
+function normalizeUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  if (!USAGE_FIELDS.some((k) => typeof usage[k] === "number")) return null;
+  const n = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    input_tokens: n(usage.input_tokens),
+    cache_creation_input_tokens: n(usage.cache_creation_input_tokens),
+    cache_read_input_tokens: n(usage.cache_read_input_tokens),
+    output_tokens: n(usage.output_tokens),
+  };
+}
+
+/** Per-assistant-event usage blocks (file order) collected from raw events. */
+function assistantUsagesFrom(events) {
+  const out = [];
+  for (const ev of events) {
+    if (ev?.type !== "assistant") continue;
+    const u = normalizeUsage(ev.message?.usage);
+    if (u) out.push(u);
+  }
+  return out;
+}
+
+/**
+ * Estimate tokens-in-context from the LAST assistant event's usage: the sum of
+ * input + cache-creation + cache-read (the statusline's numerator; output tokens
+ * are excluded as they are not yet part of the input context). Accepts raw JSONL
+ * events or an already-parsed turn record. Returns null when no usage is known.
+ */
+export function contextTokensFrom(eventsOrTurn) {
+  const usages = Array.isArray(eventsOrTurn)
+    ? assistantUsagesFrom(eventsOrTurn)
+    : Array.isArray(eventsOrTurn?.assistantUsages)
+      ? eventsOrTurn.assistantUsages
+      : [];
+  if (usages.length === 0) return null;
+  const last = usages[usages.length - 1];
+  if (!last) return null;
+  return (last.input_tokens ?? 0) + (last.cache_creation_input_tokens ?? 0) + (last.cache_read_input_tokens ?? 0);
+}
+
+/**
+ * Ordered list of compaction records from `compact_boundary` system events, each
+ * { trigger, preTokens, postTokens, durationMs, at }. Accepts raw JSONL events or
+ * a parsed turn record (whose systemEvents carry compactMetadata + timestamp).
+ */
+export function compactionsFrom(eventsOrTurn) {
+  const boundaries = Array.isArray(eventsOrTurn)
+    ? eventsOrTurn
+        .filter((e) => e?.type === "system" && e?.subtype === "compact_boundary")
+        .map((e) => ({ compactMetadata: e.compactMetadata ?? null, timestamp: typeof e.timestamp === "string" ? e.timestamp : null }))
+    : Array.isArray(eventsOrTurn?.systemEvents)
+      ? eventsOrTurn.systemEvents.filter((s) => s?.subtype === "compact_boundary")
+      : [];
+  const out = [];
+  for (const b of boundaries) {
+    const m = b.compactMetadata ?? {};
+    out.push({
+      trigger: typeof m.trigger === "string" ? m.trigger : null,
+      preTokens: typeof m.preTokens === "number" ? m.preTokens : null,
+      postTokens: typeof m.postTokens === "number" ? m.postTokens : null,
+      durationMs: typeof m.durationMs === "number" ? m.durationMs : null,
+      at: b.timestamp ?? null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Extract AskUserQuestion tool_use payloads from either raw JSONL events or a
+ * parsed turn. Returns one entry per AskUserQuestion tool_use, in file order:
+ *   { tool_use_id, name: "AskUserQuestion", questions: [{ question, header,
+ *     options: [{ label, description }], multiSelect }] }
+ *
+ * The option `label`s are load-bearing: the channel renders them as tappable
+ * buttons and the answer path maps a tapped label back to its option INDEX to
+ * drive the TUI picker (see fittings/seed/http-gateway/scripts/lib/ask-question.mjs).
+ * Malformed / partial inputs are skipped defensively - a mid-write JSONL line
+ * can carry a half-serialised object.
+ */
+export function extractAskUserQuestions(eventsOrTurn) {
+  const toolUses = Array.isArray(eventsOrTurn)
+    ? parseEvents(eventsOrTurn).toolUses
+    : Array.isArray(eventsOrTurn?.toolUses)
+      ? eventsOrTurn.toolUses
+      : [];
+  const out = [];
+  for (const tu of toolUses) {
+    if (tu?.name !== "AskUserQuestion") continue;
+    const rawQuestions = Array.isArray(tu.input?.questions) ? tu.input.questions : [];
+    const questions = rawQuestions.map(normalizeQuestion).filter(Boolean);
+    if (questions.length === 0) continue;
+    out.push({
+      tool_use_id: typeof tu.tool_use_id === "string" ? tu.tool_use_id : null,
+      name: "AskUserQuestion",
+      questions,
+    });
+  }
+  return out;
+}
+
+function normalizeQuestion(q) {
+  if (!q || typeof q !== "object") return null;
+  const question = typeof q.question === "string" ? q.question : "";
+  const header = typeof q.header === "string" ? q.header : "";
+  const options = (Array.isArray(q.options) ? q.options : [])
+    .map((o) =>
+      o && typeof o === "object"
+        ? {
+            label: typeof o.label === "string" ? o.label : String(o.label ?? ""),
+            description: typeof o.description === "string" ? o.description : "",
+          }
+        : { label: String(o ?? ""), description: "" }
+    )
+    .filter((o) => o.label.length > 0);
+  if (!question && options.length === 0) return null;
+  return { question, header, options, multiSelect: q.multiSelect === true };
 }
 
 function localCommandFields(ev) {

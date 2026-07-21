@@ -1,0 +1,14 @@
+[
+ {
+  "beat": "s7-collapsed",
+  "criterionId": "S7 all-collapsed multi-runtime index",
+  "assert": "functional assert / highlight.match",
+  "result": "pass"
+ },
+ {
+  "beat": "s7-expand",
+  "criterionId": "S7 deep grid unchanged inside",
+  "assert": "functional assert / highlight.match",
+  "result": "pass"
+ }
+]

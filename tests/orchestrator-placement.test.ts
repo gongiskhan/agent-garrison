@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { placeOrchestratedSession, resolvePlacementMode, safeComposition, resolvePlacementPaths } from "../src/lib/orchestrator-placement";
+// The `modes` seed fitting was retired (S3f2b); placeOrchestratedSession is still-live
+// code, so it is driven against a synthetic modes fixture instead of the removed seed.
+import { writeModesFixture } from "./helpers/modes-fixture";
 
 const ROOT = join(__dirname, "..");
-const MODES_DIR = join(ROOT, "fittings/seed/modes");
-const RCONF = join(ROOT, "fittings/seed/model-router/config/routing.seed.json");
+const MODES_DIR = writeModesFixture(mkdtempSync(join(tmpdir(), "place-modes-fx-")));
+const RCONF = join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
 const NAMES = ["gary", "joe", "james"];
 const CH = { "dev-env": "joe", slack: "gary", web: "gary" };
 
@@ -37,6 +40,65 @@ describe("orchestrator placement (s3a)", () => {
     const text = readFileSync(r!.promptPath, "utf8");
     expect(text).toContain("thoughtful person speaks"); // shared voice
     expect(text).toContain("Joe, how the operative writes"); // joe stance
+  });
+
+  it("PlacementResult carries the resolved target attribution (targetId/runtime/provider)", async () => {
+    const r = await place("dev-env");
+    expect(r).not.toBeNull();
+    // balanced computeLadder[expert] → cc-opus-high (runtime claude-code / provider anthropic-plan)
+    expect(r!.targetId).toBe("cc-opus-high");
+    expect(r!.runtime).toBe("claude-code");
+    expect(r!.provider).toBe("anthropic-plan");
+  });
+
+  it("appends a placement decision row with the mirrored shape when decisionsPath is set", async () => {
+    const decisionsPath = join(mkdtempSync(join(tmpdir(), "decisions-")), ".garrison", "decisions.jsonl");
+    const r = await placeOrchestratedSession({
+      channel: "dev-env",
+      mode: "james",
+      modesDir: MODES_DIR,
+      routingConfigPath: RCONF,
+      outDir: mkdtempSync(join(tmpdir(), "place-")),
+      decisionsPath
+    });
+    expect(r).not.toBeNull();
+    // the helper creates the parent .garrison dir on demand
+    expect(existsSync(decisionsPath)).toBe(true);
+    const lines = readFileSync(decisionsPath, "utf8").trim().split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const rec = JSON.parse(lines[0]);
+    // field names mirror the orchestrator fitting's decisionRecord + the placement extras
+    expect(rec).toMatchObject({
+      taskType: "dev-env-session",
+      tier: null, // placement is mode-based, never tier-classified
+      ruleId: null, // no routing rule matched — the mode bias picked the role
+      role: r!.role,
+      targetId: r!.targetId,
+      profile: "balanced",
+      via: "placement",
+      runtime: r!.runtime,
+      provider: r!.provider,
+      model: r!.model,
+      channel: "dev-env",
+      mode: "james"
+    });
+    expect(typeof rec.at).toBe("string");
+    expect(Date.parse(rec.at)).not.toBeNaN();
+    expect(rec.promptDigest).toBeNull();
+  });
+
+  it("writes NO decision row when placement falls back bare (no modes fitting)", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "nomodes-"));
+    const decisionsPath = join(mkdtempSync(join(tmpdir(), "decisions-bare-")), ".garrison", "decisions.jsonl");
+    const r = await placeOrchestratedSession({
+      channel: "dev-env",
+      modesDir: empty, // no modes.json → placement returns null before the telemetry point
+      routingConfigPath: RCONF,
+      outDir: empty,
+      decisionsPath
+    });
+    expect(r).toBeNull();
+    expect(existsSync(decisionsPath)).toBe(false); // bare fallback stays silent — no row
   });
 
   it("slack and web channels place Gary", async () => {

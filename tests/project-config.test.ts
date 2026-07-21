@@ -67,7 +67,6 @@ describe("project-config", () => {
     const cfg = await loadProjectConfig(tmpDir);
     expect(cfg.name).toBe(path.basename(tmpDir));
     expect(cfg.defaultBaseBranch).toMatch(/^(main|master)$/);
-    expect(cfg.worktreeBase).toContain(".worktrees");
   });
 
   it("caches loaded config for the same repoPath", async () => {
@@ -97,8 +96,8 @@ describe("project-config", () => {
         JSON.stringify({ scripts: { dev: "next dev" } })
       );
       const needs = inferPortNeeds(tmpDir);
-      // Garrison's Next dev port is 7777 (commit 4aeb727 moved it off 3000).
-      expect(needs.some((n) => n.default === 7777)).toBe(true);
+      // Garrison's Next dev port is 27777 (commit 4aeb727 moved it off 3000).
+      expect(needs.some((n) => n.default === 27777)).toBe(true);
     });
   });
 

@@ -1,0 +1,14 @@
+{
+  "slice": "S0", "title": "WS0 run governor", "kind": "api", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T18:00:21Z", "evidence": "~/.garrison/marathon/governor.mjs (D2: outside repo, uncommitted by design)" },
+    "test": { "status": "passed", "at": "2026-07-12T18:00:21Z", "evidence": "real check (12.5%, resets 19:00Z) + banner matcher 3/3 (93% weekly soft, 5-hour hard w/ reset, negative) + simulated MARATHON-PAUSED/MARATHON-RESUMED pair; re-runnable: node governor.mjs check|match|wait-if-needed" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T18:00:21Z", "evidence": "no repo diff; governor reads-only ccusage JSON + ledger appends" },
+    "adversarialReview": { "status": "skipped", "reason": "no-repo-diff (single-run tooling outside repo per brief D2)" },
+    "codexSliceReview": { "status": "skipped", "reason": "no-repo-diff (single-run tooling outside repo per brief D2)" },
+    "adversarialTest": { "status": "skipped", "reason": "kind-conditional (api; covered by run-level batch)" },
+    "design": { "status": "skipped", "reason": "kind-conditional (api)" },
+    "walkthrough": { "status": "skipped", "reason": "no-repo-diff; transcript + ledger are the evidence per brief WS0 proof spec" }
+  },
+  "sentinel": "MARATHON-WS0 OK"
+}

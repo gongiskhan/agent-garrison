@@ -1,0 +1,5 @@
+$ gh repo view gongiskhan/claude-share --json isArchived
+{"isArchived":true}
+$ git push origin HEAD   # from a claude-share clone
+remote: This repository was archived so it is read-only.
+fatal: unable to access '.../claude-share.git/': The requested URL returned error: 403

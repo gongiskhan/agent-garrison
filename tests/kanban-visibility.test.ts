@@ -7,6 +7,19 @@
 // distinguished (empty vs no-match vs moved) with honest reasons + the operative's
 // actual reply; every transition appends a timeline event; and project inference parses.
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
+
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +30,7 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { parseInferredProject, buildInferencePrompt, inferProject } from "../fittings/seed/kanban-loop/lib/infer-project.mjs";
+import { parseInferredProject, buildInferencePrompt, inferProject, explicitWorkspaceFromCard } from "../fittings/seed/kanban-loop/lib/infer-project.mjs";
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-vis-"));
@@ -33,6 +46,18 @@ describe("V1d buildCardPrompt — the operative is TOLD what the card is", () =>
     expect(p).toContain("site word change");
     expect(p).toContain("Automatizar");
     expect(p).toContain("ekoa");
+  });
+  it("explains the safe touch-set form for an external workspace", () => {
+    const p = buildCardPrompt({
+      list: planList,
+      card: { id: "C", runId: "R", runDir: "/tmp/run", title: "external", project: "garrison" },
+      validNext: ["implement"],
+      phase: "plan",
+      coordinationEnabled: true
+    });
+    expect(p).toContain("filesystem:/absolute/workspace");
+    expect(p).toContain("Never put absolute paths");
+    expect(p).toContain("rewrite the existing touch-set.json");
   });
 
   it("a no-project card asks the operative to INFER the project", () => {
@@ -186,6 +211,14 @@ describe("V1d withEvent / replySnippet", () => {
 });
 
 describe("V1d project inference — parse + injected runFn", () => {
+  it("takes an explicitly named absolute workspace directly from the task", () => {
+    expect(explicitWorkspaceFromCard({
+      title: "Build a cache",
+      description: "Implement the package in /tmp/cache-proof. Run its tests."
+    })).toBe("/tmp/cache-proof");
+    expect(explicitWorkspaceFromCard({ title: "Document https://example.test/tmp/cache" })).toBeNull();
+    expect(explicitWorkspaceFromCard({ description: "Mention /tmp/cache as an incidental example" })).toBeNull();
+  });
   it("parseInferredProject accepts a clean slug, rejects NONE / uncertainty / junk", () => {
     expect(parseInferredProject("ekoa")).toBe("ekoa");
     expect(parseInferredProject("blah\nproject: my-repo")).toBe("my-repo");

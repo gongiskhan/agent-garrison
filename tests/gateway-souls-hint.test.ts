@@ -19,7 +19,7 @@ import {
 
 const SEED_CONFIG = JSON.parse(
   readFileSync(
-    path.resolve(__dirname, "../fittings/seed/model-router/config/routing.seed.json"),
+    path.resolve(__dirname, "../fittings/seed/orchestrator/config/routing.seed.json"),
     "utf8",
   ),
 );
@@ -29,7 +29,7 @@ const SEED_CONFIG = JSON.parse(
 // fitting's routing-core — so the test exercises the real resolution.
 const routingCore = await import(
   pathToFileURL(
-    path.resolve(__dirname, "../fittings/seed/model-router/lib/routing-core.mjs"),
+    path.resolve(__dirname, "../fittings/seed/orchestrator/lib/routing-core.mjs"),
   ).href
 );
 const { resolveRoute } = routingCore as { resolveRoute: (c: any, p: any, cl: any) => any };

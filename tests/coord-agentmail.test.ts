@@ -36,9 +36,9 @@ afterEach(() => rmSync(sb, { recursive: true, force: true }));
 
 describe("coord-agentmail register-mcp", () => {
   it("registers the http MCP server pointing at /mcp", () => {
-    runRegister(["add", "8765"]);
+    runRegister(["add", "28765"]);
     const cj = readCj();
-    expect(cj.mcpServers?.["coord-agentmail"]).toEqual({ type: "http", url: "http://127.0.0.1:8765/mcp" });
+    expect(cj.mcpServers?.["coord-agentmail"]).toEqual({ type: "http", url: "http://127.0.0.1:28765/mcp" });
   });
 
   it("honors a custom port", () => {
@@ -48,7 +48,7 @@ describe("coord-agentmail register-mcp", () => {
 
   it("preserves existing mcpServers + unrelated keys", () => {
     writeFileSync(cjPath, JSON.stringify({ mcpServers: { other: { command: "x" } }, projects: { a: 1 } }));
-    runRegister(["add", "8765"]);
+    runRegister(["add", "28765"]);
     const cj = readCj();
     expect((cj.mcpServers as Record<string, unknown>).other).toEqual({ command: "x" });
     expect((cj.mcpServers as Record<string, unknown>)["coord-agentmail"]).toBeDefined();
@@ -66,7 +66,7 @@ describe("coord-agentmail register-mcp", () => {
   it("never clobbers a corrupt ~/.claude.json — aborts, leaves bytes untouched", () => {
     const corrupt = "{ not json :: ";
     writeFileSync(cjPath, corrupt);
-    expect(() => runRegister(["add", "8765"])).toThrow();
+    expect(() => runRegister(["add", "28765"])).toThrow();
     expect(readFileSync(cjPath, "utf8")).toBe(corrupt);
   });
 });

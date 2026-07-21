@@ -1,7 +1,9 @@
 import path from "node:path";
+import { readActiveConfig } from "./active-composition";
 import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
-import { listCompositions } from "./compositions";
+import { readComposition } from "./compositions";
 import { isOwnPortFitting } from "./faculties";
+import { appPort, applyPortOffsetToConfig } from "./instance-profile";
 import { readLibrary } from "./library";
 import { ownPortConfigEnv, startOwnPortFitting, vaultEnvForEntry } from "./own-port-lifecycle";
 import type { LibraryEntry } from "./types";
@@ -102,39 +104,15 @@ export interface EagerBootSummary {
 export interface EagerBootOptions {
   // Tests inject a fixture library; production resolves the real one.
   library?: LibraryEntry[];
-  // Per-fitting selected config, keyed by fitting id, projected into the spawn
-  // env so an eager-booted own-port fitting reads its apm.yml config (e.g.
-  // local-voice's whisper_model/stt_engine) instead of falling back to server
-  // defaults. Tests inject a map; production scans all compositions.
-  configById?: Map<string, Record<string, unknown>>;
-}
-
-// Build a fitting-id → selected-config map by scanning every composition, so
-// eager boot (which is composition-agnostic) can still project each fitting's
-// config. When more than one composition selects the same fitting, later keys
-// win per-field; in practice the voice/own-port config agrees across
-// compositions, so the merge is deterministic and correct. Best-effort: a read
-// failure yields an empty map (eager boot then spawns on server defaults, the
-// prior behavior) rather than aborting the boot.
-// Exported for the manual restart route, which must project the same apm.yml
-// config into the respawn (a restart that silently drops WHISPER_MODEL et al.
-// boots the fitting on server defaults).
-export async function resolveConfigById(): Promise<Map<string, Record<string, unknown>>> {
-  const configById = new Map<string, Record<string, unknown>>();
-  try {
-    const compositions = await listCompositions();
-    for (const composition of compositions) {
-      for (const items of Object.values(composition.selections)) {
-        for (const item of items ?? []) {
-          const prev = configById.get(item.id) ?? {};
-          configById.set(item.id, { ...prev, ...((item.config ?? {}) as Record<string, unknown>) });
-        }
-      }
-    }
-  } catch {
-    // ignore — fall back to an empty map (server defaults)
-  }
-  return configById;
+  // Runner-projected env for this boot wave (GARRISON_GATEWAY_URL,
+  // GARRISON_COMPOSITION_ID), so an eager respawn during `up` carries the same
+  // env as startOperativeBoundFittings instead of running gatewayless.
+  extraEnv?: Record<string, string>;
+  // Per-fitting env override - the EXACT env the runner just used for its
+  // operative-bound starts (vault + projected config + tracked keys). Sharing
+  // it keeps the env fingerprints identical across both callers, so the eager
+  // pass can never heal-restart a fitting the runner started moments earlier.
+  extraEnvById?: Record<string, Record<string, string>>;
 }
 
 // The server-boot sequence (called from src/instrumentation.ts).
@@ -148,6 +126,43 @@ export async function resolveConfigById(): Promise<Map<string, Record<string, un
 // to start. Eager boot can only warm the instance index (listInstanceIds);
 // the actual state restore happens in the browser when the view opens, and it
 // does so regardless of this toggle. That asymmetry is honest, not a gap.
+// The active composition's per-fitting config, profile-shifted and projected
+// into spawn env — the SAME projection startOperativeBoundFittings applies.
+//
+// Without this the detached server-boot child spawned own-port fittings with
+// vault env only, so each one fell back to its HARDCODED seed default (the
+// 27xxx codex family). On a single-instance box that merely looked odd; with
+// prod and dev running side by side it is fatal — prod's eager fittings bound
+// codex's ports and answered for the wrong instance. Best-effort: a composition
+// that cannot be read must not stop the boot, it just yields no projection.
+async function compositionEnvById(): Promise<{
+  byId: Record<string, Record<string, string>>;
+  compositionId: string | null;
+}> {
+  try {
+    const compositionId = (await readActiveConfig()).active_composition || "default";
+    const composition = await readComposition(compositionId);
+    const byId: Record<string, Record<string, string>> = {};
+    for (const items of Object.values(composition.selections)) {
+      for (const item of items ?? []) {
+        const config = applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>);
+        byId[item.id] = {
+          ...ownPortConfigEnv(item.id, config),
+          GARRISON_COMPOSITION_ID: compositionId,
+          GARRISON_COMPOSITION_DIR: composition.directory,
+          GARRISON_BASE_URL: `http://127.0.0.1:${
+            process.env.GARRISON_APP_PORT?.trim() || process.env.PORT?.trim() || String(appPort())
+          }`
+        };
+      }
+    }
+    return { byId, compositionId };
+  } catch (error) {
+    console.warn("[garrison] eager-boot: composition config projection unavailable:", error);
+    return { byId: {}, compositionId: null };
+  }
+}
+
 export async function runEagerBoot(options: EagerBootOptions = {}): Promise<EagerBootSummary> {
   const summary: EagerBootSummary = { booted: [], warmed: [], skipped: [], failed: [] };
   const prefs = await readEagerBootPrefs();
@@ -158,11 +173,11 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
   }
   const library = options.library ?? (await readLibrary());
   const byId = new Map(library.map((entry) => [entry.id, entry]));
-  // Config projected into own-port spawns so eager boot honors apm.yml config
-  // (see resolveConfigById). Config keys are NOT in TRACKED_ENV_KEYS, so adding
-  // this env never perturbs the env-drift heal decision — it only changes what a
-  // fresh spawn receives.
-  const configById = options.configById ?? (await resolveConfigById());
+  // Only the server-boot path needs this: a runner-driven wave already passes
+  // the richer extraEnvById it just built, and recomputing would risk a
+  // fingerprint mismatch and a needless heal-restart.
+  const projected =
+    options.extraEnvById || options.extraEnv ? { byId: {} as Record<string, Record<string, string>> } : await compositionEnvById();
   for (const fittingId of eagerIds) {
     const entry = byId.get(fittingId);
     if (!entry) {
@@ -171,13 +186,23 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
       continue;
     }
     if (isOwnPortFitting(entry)) {
-      // Config first so vault/GARRISON_* keys always win on collision (mirrors
-      // the runner's startOperativeBoundFittings ordering).
-      const extraEnv = {
-        ...ownPortConfigEnv(configById.get(fittingId) ?? {}),
-        ...(await vaultEnvForEntry(entry))
+      // Runner-driven boots (a provided extraEnv/extraEnvById) know the full
+      // desired env, so they may heal on env drift; the detached server-boot
+      // child knows only the vault and must never strip a richer env from an
+      // already-running fitting.
+      const runnerEnv = options.extraEnvById?.[fittingId] ?? options.extraEnv;
+      const spawnEnv = {
+        ...(await vaultEnvForEntry(entry)),
+        // Composition config (profile-shifted ports) for the server-boot path;
+        // empty when the runner supplied its own env.
+        ...(projected.byId[fittingId] ?? {}),
+        ...(runnerEnv ?? {})
       };
-      const result = await startOwnPortFitting(entry, extraEnv);
+      const result = await startOwnPortFitting(
+        entry,
+        spawnEnv,
+        runnerEnv === undefined ? {} : { healOnEnvDrift: true }
+      );
       if (!result.ok) {
         const error = result.error ?? "start failed";
         summary.failed.push({ id: fittingId, error });
@@ -187,8 +212,9 @@ export async function runEagerBoot(options: EagerBootOptions = {}): Promise<Eage
         console.log(`[garrison] eager-boot: skipped ${fittingId} (already running)`);
       } else if (result.healed) {
         summary.booted.push(fittingId);
+        const reason = result.healReason === "env-drift" ? "a changed env value" : "vault secrets";
         console.log(
-          `[garrison] eager-boot: restarted ${fittingId} with vault secrets${result.pid ? ` (pid ${result.pid})` : ""}`
+          `[garrison] eager-boot: restarted ${fittingId} with ${reason}${result.pid ? ` (pid ${result.pid})` : ""}`
         );
       } else {
         summary.booted.push(fittingId);

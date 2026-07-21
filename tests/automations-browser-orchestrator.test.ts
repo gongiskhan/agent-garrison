@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fingerprintFromParts, fingerprintKey } from "../fittings/seed/automations/lib/fingerprint.mjs";
-import { lookupActionCache, writeActionCache, evictAction } from "../fittings/seed/automations/lib/cache.mjs";
+import { lookupActionCache, writeActionCache, evictAction, lookupAssertionCache, writeAssertionCache } from "../fittings/seed/automations/lib/cache.mjs";
 import { runBrowserStep } from "../fittings/seed/automations/lib/browser-orchestrator.mjs";
 
 // F2 — the cache->vision->execute orchestration. Pure tier logic with injected
@@ -58,6 +58,21 @@ describe("tier orchestration (F2)", () => {
     expect(navigated).toBe("https://x");
   });
 
+  it("does not send a Browser infrastructure failure into the fixer", async () => {
+    const outage = Object.assign(new Error("Browser request failed: connection refused"), {
+      failure: { class: "infrastructure", code: "browser-unavailable" },
+      recoverable: false
+    });
+    await expect(runBrowserStep({
+      automationId: "a",
+      step: { id: "s1", type: "navigate", url: "https://x" },
+      deps: { navigate: async () => { throw outage; } }
+    })).rejects.toMatchObject({
+      recoverable: false,
+      failure: { class: "infrastructure", code: "browser-unavailable" }
+    });
+  });
+
   it("browser cache-miss -> vision, executes, writes cache; next run is a cache hit", async () => {
     let visionCalls = 0;
     const deps = {
@@ -100,8 +115,118 @@ describe("tier orchestration (F2)", () => {
     expect(r.tier).toBe("vision");
   });
 
+  it("the vision-discovered assertion is surfaced on the result too, not just written to the cache (needed by graduation)", async () => {
+    const deps = {
+      observe: async () => obsFor(),
+      verifyViaVision: async () => ({ passed: true, reasoning: "ok", assertion: { kind: "visible", testId: "answer" } })
+    };
+    const r = await runBrowserStep({ automationId: "auto4b", step: { id: "s1", type: "verify" }, deps });
+    expect(r.assertion).toEqual({ kind: "visible", testId: "answer" });
+  });
+
+  it("a recovered (stale-cache) verify also surfaces the freshly re-discovered assertion", async () => {
+    const fp = fingerprintFromParts(obsFor());
+    await writeAssertionCache({ automationId: "auto4c", stepId: "s1", fingerprint: fp, assertion: { kind: "visible", testId: "stale-id" } });
+    const deps = {
+      observe: async () => obsFor(),
+      executeAssertion: async () => false, // the stale cached assertion fails
+      verifyViaVision: async () => ({ passed: true, reasoning: "ok", assertion: { kind: "visible", testId: "fresh-id" } })
+    };
+    const r = await runBrowserStep({ automationId: "auto4c", step: { id: "s1", type: "verify" }, deps });
+    expect(r.tier).toBe("recovered");
+    expect(r.assertion).toEqual({ kind: "visible", testId: "fresh-id" });
+  });
+
   it("verify throws a recoverable error when vision fails", async () => {
     const deps = { observe: async () => obsFor(), verifyViaVision: async () => ({ passed: false, reasoning: "not sent" }) };
     await expect(runBrowserStep({ automationId: "a", step: { id: "s1", type: "verify" }, deps })).rejects.toMatchObject({ recoverable: true });
+  });
+
+  it("evidence: a resolved step's screenshot passes through untouched on the result", async () => {
+    const deps = {
+      observe: async () => obsFor({ screenshotB64: "AAAA" }),
+      resolveViaVision: async () => ({ kind: "click", role: "button", name: "Export" }),
+      executeAction: async () => {}
+    };
+    const r = await runBrowserStep({ automationId: "auto-ev", step: { id: "s1", type: "browser", description: "click" }, deps });
+    expect(r.evidence).toEqual({ screenshotB64: "AAAA" });
+  });
+
+  it("marks evidence with an unexpected visible timeout as unsafe for a state reference", async () => {
+    const deps = {
+      observe: async () => obsFor({
+        screenshotB64: "AAAA",
+        a11y: [
+          { role: "heading", name: "Registo" },
+          { role: "StaticText", name: "Request timed out after 120000ms" },
+          { role: "StaticText", name: "Sem entradas no registo." }
+        ]
+      }),
+      verifyViaVision: async () => ({ passed: true, reasoning: "empty state is visible" })
+    };
+    const r = await runBrowserStep({
+      automationId: "auto-contaminated-state",
+      step: { id: "empty", type: "verify", description: "The empty-state message is visible" },
+      deps,
+      bypassCache: true
+    });
+
+    expect(r.referenceWarnings).toEqual([
+      { code: "visible-timeout", text: "Request timed out after 120000ms" }
+    ]);
+  });
+
+  it("does not reject an error that is itself the expected state", async () => {
+    const deps = {
+      observe: async () => obsFor({
+        screenshotB64: "AAAA",
+        a11y: [{ role: "alert", name: "Invalid credentials" }]
+      }),
+      verifyViaVision: async () => ({ passed: true, reasoning: "expected error is visible" })
+    };
+    const r = await runBrowserStep({
+      automationId: "auto-expected-error-state",
+      step: { id: "invalid", type: "verify", description: "Submitting the wrong password shows Invalid credentials" },
+      deps,
+      bypassCache: true
+    });
+
+    expect(r.referenceWarnings).toBeUndefined();
+  });
+});
+
+describe("bypassCache (delta 2, R12 blind adversarial pass)", () => {
+  it("browser step: never reads or writes the action cache when bypassCache=true", async () => {
+    const fp = fingerprintFromParts(obsFor());
+    await writeActionCache({ automationId: "auto-bp", stepId: "s1", fingerprint: fp, action: { kind: "click", name: "Cached" } });
+    let visionCalls = 0;
+    const deps = {
+      observe: async () => obsFor(),
+      resolveViaVision: async () => { visionCalls++; return { kind: "click", name: "Fresh" }; },
+      executeAction: async () => {}
+    };
+    const r = await runBrowserStep({ automationId: "auto-bp", step: { id: "s1", type: "browser", description: "click" }, deps, bypassCache: true });
+    expect(r.tier).toBe("vision"); // never "cached" despite a cache entry existing
+    expect(visionCalls).toBe(1);
+    expect(r.action).toMatchObject({ name: "Fresh" });
+    // the pre-existing cache entry is untouched (still "Cached", not overwritten with "Fresh")
+    expect((await lookupActionCache("auto-bp", "s1", fp)).action).toMatchObject({ name: "Cached" });
+  });
+
+  it("verify step: ignores a cachedAssertion and never writes the assertion cache when bypassCache=true", async () => {
+    const deps = {
+      observe: async () => obsFor(),
+      executeAssertion: async () => { throw new Error("should never be called — cache is bypassed"); },
+      verifyViaVision: async () => ({ passed: true, reasoning: "ok", assertion: { kind: "text-visible", text: "sent" } })
+    };
+    const r = await runBrowserStep({
+      automationId: "auto-bp2",
+      step: { id: "s1", type: "verify", cachedAssertion: { kind: "text-visible", text: "sent" } },
+      deps,
+      bypassCache: true
+    });
+    expect(r.tier).toBe("vision");
+    const fp = fingerprintFromParts(obsFor());
+    expect(await lookupAssertionCache("auto-bp2", "s1", fp)).toBeNull();
   });
 });

@@ -1,0 +1,315 @@
+{
+  "activeProfile": "balanced",
+  "pool": {
+    "classifierModel": "haiku",
+    "enabled": true,
+    "idleTimeoutMs": 1800000,
+    "maxSessions": 8,
+    "maxTurns": 50,
+    "size": 3,
+    "slashInjection": "unknown"
+  },
+  "profiles": [
+    {
+      "continuations": [
+        {
+          "id": "store-memory",
+          "instruction": "Store durable facts only when the user asks for persistence or the fact changes future behavior.",
+          "verb": "store",
+          "when": "A route produces reusable project or preference knowledge."
+        },
+        {
+          "id": "ask-ambiguity",
+          "instruction": "Ask one concise clarifying question only when route choice or execution would otherwise be materially unsafe.",
+          "verb": "ask",
+          "when": "The request is ambiguous and no conservative route is safe."
+        },
+        {
+          "id": "route-delegation",
+          "instruction": "Route provider-skill work with an explicit provider model; never let provider scripts silently choose a model.",
+          "verb": "route",
+          "when": "The resolved target type is skill or workflow."
+        },
+        {
+          "id": "notify-completion",
+          "instruction": "Notify through the configured distribution channel only after gates and evidence requirements are satisfied.",
+          "verb": "notify",
+          "when": "The discipline distribution setting is not none."
+        }
+      ],
+      "defaultTarget": "native-sonnet-medium",
+      "discipline": {
+        "T0-trivial": {
+          "distribution": "none",
+          "evidence": "none",
+          "review": "none",
+          "testing": "none"
+        },
+        "T1-standard": {
+          "distribution": "none",
+          "evidence": "text",
+          "review": "self-review",
+          "testing": "tests"
+        },
+        "T2-deep": {
+          "distribution": "link",
+          "evidence": "video",
+          "review": "review-by:native-opus-high",
+          "testing": "full-gates"
+        }
+      },
+      "exceptions": [
+        {
+          "description": "Security-sensitive reviews get the strongest native route.",
+          "id": "exception-security-review",
+          "promptIncludes": "security",
+          "target": "native-opus-high",
+          "taskType": "review"
+        },
+        {
+          "description": "Automation vision/verify/judge calls are image-classified but are JUDGMENTS grounded in a parked screenshot - they need a native Claude session with file Read, never the image-generation provider skill. Caller asserts matchedException automation-vision(-<contextTag>); contextKind matches the route-side resolver.",
+          "id": "automation-vision",
+          "contextKind": "automation-vision",
+          "target": "native-sonnet-medium"
+        },
+        {
+          "description": "Drill run vision/judge calls (contextTag drill).",
+          "id": "automation-vision-drill",
+          "contextKind": "automation-vision:drill",
+          "target": "native-sonnet-medium"
+        },
+        {
+          "description": "Blind adversarial Drill pass on a stronger model (R12).",
+          "id": "automation-vision-drill-adversarial",
+          "contextKind": "automation-vision:drill-adversarial",
+          "target": "native-opus-high"
+        },
+        {
+          "description": "Image generation/editing delegates to the provider skill exemplar.",
+          "id": "exception-image-provider",
+          "target": "skill-gemini-cli",
+          "taskType": "image"
+        },
+        {
+          "description": "Nightly consolidation goes through the workflow target.",
+          "id": "exception-memory-workflow",
+          "promptIncludes": "memory consolidation",
+          "target": "workflow-memory-consolidation"
+        }
+      ],
+      "id": "balanced",
+      "label": "Balanced",
+      "matrix": {
+        "code": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "native-sonnet-medium",
+          "T2-deep": "native-opus-high"
+        },
+        "ops": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "native-sonnet-medium",
+          "T2-deep": "native-opus-high"
+        },
+        "other": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "native-sonnet-medium",
+          "T2-deep": "native-opus-high"
+        },
+        "research": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "skill-gemini-api",
+          "T2-deep": "skill-gemini-api"
+        },
+        "review": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "native-sonnet-medium",
+          "T2-deep": "native-opus-high"
+        },
+        "video": {
+          "T0-trivial": "native-sonnet-medium",
+          "T1-standard": "workflow-memory-consolidation",
+          "T2-deep": "workflow-memory-consolidation"
+        },
+        "writing": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "native-sonnet-medium",
+          "T2-deep": "native-opus-high"
+        }
+      }
+    },
+    {
+      "continuations": [
+        {
+          "id": "economy-notify",
+          "instruction": "Notify only with text evidence unless an explicit workflow asks for richer evidence.",
+          "verb": "notify",
+          "when": "Economy profile routes a standard task."
+        }
+      ],
+      "defaultTarget": "native-haiku-low",
+      "discipline": {
+        "T0-trivial": {
+          "distribution": "none",
+          "evidence": "none",
+          "review": "none",
+          "testing": "none"
+        },
+        "T1-standard": {
+          "distribution": "none",
+          "evidence": "text",
+          "review": "self-review",
+          "testing": "tests"
+        },
+        "T2-deep": {
+          "distribution": "link",
+          "evidence": "table",
+          "review": "self-review",
+          "testing": "full-gates"
+        }
+      },
+      "exceptions": [
+        {
+          "id": "economy-deep-code",
+          "target": "native-sonnet-medium",
+          "taskType": "code",
+          "tier": "T2-deep"
+        }
+      ],
+      "id": "economy",
+      "inherits": "balanced",
+      "label": "Economy",
+      "matrix": {
+        "code": {
+          "T0-trivial": "native-haiku-low",
+          "T1-standard": "native-haiku-low"
+        },
+        "research": {
+          "T1-standard": "native-haiku-low",
+          "T2-deep": "skill-gemini-cli"
+        },
+        "review": {
+          "T1-standard": "native-haiku-low"
+        }
+      }
+    },
+    {
+      "continuations": [
+        {
+          "id": "premium-video-evidence",
+          "instruction": "Prefer video or gate-status evidence for deep premium routes.",
+          "verb": "store",
+          "when": "A premium T2 route completes."
+        }
+      ],
+      "defaultTarget": "native-opus-high",
+      "discipline": {
+        "T0-trivial": {
+          "distribution": "none",
+          "evidence": "text",
+          "review": "self-review",
+          "testing": "tests"
+        },
+        "T1-standard": {
+          "distribution": "none",
+          "evidence": "table",
+          "review": "self-review",
+          "testing": "tests"
+        },
+        "T2-deep": {
+          "distribution": "link",
+          "evidence": "video",
+          "review": "review-by:native-opus-high",
+          "testing": "full-gates"
+        }
+      },
+      "exceptions": [],
+      "id": "premium",
+      "inherits": "balanced",
+      "label": "Premium",
+      "matrix": {
+        "code": {
+          "T0-trivial": "native-sonnet-medium",
+          "T1-standard": "native-opus-high",
+          "T2-deep": "native-opus-high"
+        },
+        "review": {
+          "T0-trivial": "native-sonnet-medium",
+          "T1-standard": "native-opus-high",
+          "T2-deep": "native-opus-high"
+        }
+      }
+    }
+  ],
+  "targets": [
+    {
+      "description": "Lowest-cost native route for small tasks and classification-adjacent work.",
+      "effort": "low",
+      "enabled": true,
+      "id": "native-haiku-low",
+      "label": "Claude Haiku low",
+      "model": "haiku",
+      "type": "native-model"
+    },
+    {
+      "description": "Default native route for ordinary coding, writing, and operations.",
+      "effort": "medium",
+      "enabled": true,
+      "id": "native-sonnet-medium",
+      "label": "Claude Sonnet medium",
+      "model": "sonnet",
+      "type": "native-model"
+    },
+    {
+      "description": "Deep native route for migrations, architecture, and security-sensitive work.",
+      "effort": "high",
+      "enabled": true,
+      "id": "native-opus-high",
+      "label": "Claude Opus high",
+      "model": "opus",
+      "type": "native-model"
+    },
+    {
+      "description": "Provider skill exemplar using Gemini CLI.",
+      "enabled": true,
+      "id": "skill-gemini-cli",
+      "label": "Gemini CLI",
+      "providerModel": "gemini-2.5-pro",
+      "skill": "gemini-cli",
+      "type": "skill"
+    },
+    {
+      "description": "Provider skill exemplar using Gemini API.",
+      "enabled": true,
+      "id": "skill-gemini-api",
+      "label": "Gemini API",
+      "providerModel": "gemini-2.5-flash",
+      "skill": "gemini-api",
+      "type": "skill"
+    },
+    {
+      "description": "Provider skill exemplar using Codex CLI.",
+      "enabled": true,
+      "id": "skill-codex-cli",
+      "label": "Codex CLI",
+      "providerModel": "gpt-5.4",
+      "skill": "codex-cli",
+      "type": "skill"
+    },
+    {
+      "description": "Seed workflow target for nightly memory consolidation.",
+      "enabled": true,
+      "id": "workflow-memory-consolidation",
+      "label": "Memory consolidation workflow",
+      "type": "workflow",
+      "workflow": "memory-consolidation"
+    },
+    {
+      "description": "Local Ollama routing target placeholder.",
+      "enabled": false,
+      "id": "ollama-local",
+      "label": "Ollama local",
+      "type": "ollama"
+    }
+  ],
+  "version": 1
+}

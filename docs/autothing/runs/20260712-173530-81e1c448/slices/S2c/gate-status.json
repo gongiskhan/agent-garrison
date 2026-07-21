@@ -1,0 +1,14 @@
+{
+  "slice": "S2c", "title": "WS2c runtime-agnosticism matrix harness + full run", "kind": "api", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T19:59:20Z", "evidence": "commits 0f783ee (opencode-primary agnosticism fix) + a61de0f (harness) + c04d985 (matrix run doc) + 412128e (codex proto-key fix)" },
+    "test": { "status": "passed", "at": "2026-07-12T19:59:20Z", "evidence": "full matrix run all 3 primaries, ZERO unexplained failures (opencode 16p/2deg/11vo, codex 18p/1deg/10vo, claude-code 16p/2deg/11vo — every primary booted the real RoutedGateway + served a live turn); matrix-harness.test.ts + gateway-routing.test.ts 16/16; full suite 2068 green" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T19:59:20Z", "evidence": "gitleaks clean; semgrep 0; no new deps" },
+    "adversarialReview": { "status": "passed", "verdict": "approve", "at": "2026-07-12T19:59:20Z", "evidence": "opencode-primary boot is live proof; review-s3s4 confirmed no other fitting behavior changed; matrix's own zero-fail bar is the functional review" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->fixed->resolved", "actualModel": "gpt-5.5", "at": "2026-07-12T19:59:20Z", "evidence": "1 finding (prototype-key lookup bypass) → 412128e (Object.hasOwn + regression test) → recheck resolved; I1/I3/I4 clean (claude/codex/gemini byte-identical, no secret)" },
+    "adversarialTest": { "status": "skipped", "reason": "kind-conditional (api; the matrix IS the independent functional pass across 3 primaries)" },
+    "design": { "status": "skipped", "reason": "no UI (harness + doc)" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T19:59:20Z", "video": { "mode": "evidence-doc", "path": "docs/RUNTIME_MATRIX.md", "evidence": "committed Fitting×primary matrix doc with boot table, per-cell results, degradations table, zero-fail verdict — the re-runnable harness is the durable proof" } }
+  },
+  "sentinel": "MARATHON-WS2C OK"
+}

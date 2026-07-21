@@ -7,7 +7,7 @@
 
 // The tiny inference prompt. Deliberately constrained — one short slug or NONE, no
 // prose — so the parse is robust and the turn is fast (it must not tie up the
-// operative the way a real autothing-* turn does).
+// operative the way a real garrison-* turn does).
 export function buildInferencePrompt(card, knownProjects = []) {
   const known = knownProjects.length
     ? `\nProjects already in use (prefer one of these if it fits): ${knownProjects.join(", ")}.`
@@ -23,6 +23,30 @@ export function buildInferencePrompt(card, knownProjects = []) {
   ]
     .filter((l) => l !== "")
     .join("\n");
+}
+
+// Deterministic scope beats probabilistic slug inference. When the user literally
+// says the work belongs in/under an absolute POSIX workspace, preserve that exact
+// path as the card project even when it does not exist yet (a create task commonly
+// names a directory the operative is about to make). Context words keep URLs,
+// command flags, and incidental example paths from being promoted accidentally.
+// The returned path is carried by the user's own text; an LLM is never allowed to
+// invent an arbitrary absolute scope.
+export function explicitWorkspaceFromCard(card) {
+  const text = [card?.title, card?.description]
+    .filter((v) => typeof v === "string" && v.trim())
+    .join("\n");
+  const re = /(?:^|[\s(])(?:in|under|inside|within|at|workspace(?:\s+at)?|directory|folder|repo(?:sitory)?)\s+(`?)(\/[^\s`'\"<>()[\]{}]+)\1/gi;
+  let match;
+  while ((match = re.exec(text))) {
+    let candidate = match[2].replace(/[.,;:!?]+$/g, "").replace(/\/+$/g, "");
+    if (!candidate || candidate === "/" || candidate.includes("/../") || candidate.endsWith("/..")) continue;
+    // Avoid promoting URL path fragments from phrases such as "at https://...".
+    const prefix = text.slice(Math.max(0, match.index - 12), match.index + match[0].indexOf(candidate));
+    if (/https?:\s*$/i.test(prefix)) continue;
+    return candidate;
+  }
+  return null;
 }
 
 // A clean project slug, and the tokens that mean "no confident answer".

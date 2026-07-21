@@ -39,7 +39,9 @@ choice.
 
 ```bash
 npm install                                            # one-time (postinstall fixes node-pty perms)
-npm start                                              # next dev + outpost host, concurrently
+npm run dev                                            # DEV instance (7xxx, ~/.garrison-dev)
+npm run prod:redeploy                                  # build + restart prod, operative, fittings
+npm run prod:start                                     # PROD instance by hand (normally systemd)
 npm run typecheck                                      # tsc --noEmit
 npm test                                               # vitest run
 npm test -- tests/runner-setup.test.ts                 # single test file
@@ -57,10 +59,10 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. There are **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
+- **Faculty** — a **role** slot in a composition. **17 in total** (`facultyIds` in `src/lib/types.ts`): **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
-- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). The runner starts operative-bound own-port Fittings during `up` and stops them during `down` by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
+- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). During `up` the runner auto-starts ONLY the eager-toggled own-port Fittings; non-eager ones start on demand from the Views UI (`/api/fittings/[id]/start`, which injects the running composition's env — gateway URL, composition id, selection config, vault — via `operativeEnvForFitting`). `down` still stops every running operative-bound Fitting by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
 - **Armory** — `/armory`, the Fitting registry browser.
 - **Fitting** — the concrete component installed into a slot.
 - **Operative** — the composed, running agent (the user's real Claude Code session post-pivot).
@@ -68,8 +70,13 @@ validators land in the runtime SDK milestone.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
 Legacy aliases the parser still accepts (with deprecation warnings):
-`primitive:` → `faculty:`; `faculty: testing-framework` →
-`faculty: skills`. The React directory `src/components/` keeps the
+`primitive:` → `faculty:`; the aliased legacy faculty names in
+`metadata.ts` `FACULTY_ALIASES` (e.g. `faculty: testing-framework` →
+`faculty: sessions`, `faculty: monitor` → `faculty: observability`).
+Parked pre-pivot faculty ids (`skills`, `classifier`, `soul`,
+`knowledge-base`, …) are NOT aliased; their Fittings are de-listed from
+the library and the parser rejects those ids.
+The React directory `src/components/` keeps the
 word "component" because there it means React component, not
 Garrison Fitting.
 
@@ -103,9 +110,8 @@ src/lib/             Backend runtime (flat, no sub-packages):
                        atomic-write.ts     safe 0600-preserving writes
                        hooks-crud.ts       hooks read/write
                        mcp-writer.ts       MCP config write-through
-                       trenches/           worktree + session management
+                       trenches/           outpost stream helpers
                        validation/         four-check pipeline
-                       worktree/           git worktree CRUD helpers
 src/components/      React UI (Compose, Run, Vault, Chrome,
                      Quarters panels, fitting-views registry + status hook,
                      armory, garrison home).
@@ -151,12 +157,13 @@ Context, Plans — is now a **Quarters platform primitive** surfaced over the re
 
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
-flag: `dev-env` (7086), `screen-share` (7079), `outposts` (7082),
-`monitor` (7077), `web-channel` (7083), `browser` (7084), `voice` (7085).
-The Dev Env Fitting folds the former terminal/worktree-management/session-view
-into one tabbed surface: every Claude Code session is a tab holding a Claude
-PTY + shell PTY (left) and the live browser pane (right), with worktree / PR
-/ commit-and-push actions in the menu.
+flag: `dev-env` (27086), `screen-share` (27079), `outposts` (27082),
+`monitor` (27077), `web-channel` (27083), `browser` (27084), `voice` (27085).
+The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
+holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
+PR / commit-and-push actions on the current branch in the menu. Sessions run in
+the project repo root on the current branch - Garrison spins up no per-task
+branches.
 
 ### Quarters engine
 
@@ -190,10 +197,16 @@ Orchestrator uses to **discover installed Fittings without
 hardcoding** — no Garrison code change is needed when a new Fitting
 is added.
 
-Current kinds (per `capabilityKinds` in `src/lib/types.ts`): `orchestrator`,
-`memory-store`, `data-source`, `channel`, `vault`, `artifact-store`,
-`dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `view` (derived by
-the resolver from `ui.views[]` / `own_port`, never declared in `provides`).
+Current kinds — **17**, per `capabilityKinds` in `src/lib/types.ts`:
+`orchestrator`, `modes`, `identity`, `memory-store`, `automation-runner`,
+`connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`,
+`screen-share`, `outpost`, `monitor`, `voice`, `duty`, `view` (`view` is
+derived by the resolver from `ui.views[]` / `own_port`, never declared in
+`provides`). `modes` is **superseded (2026-07-13, MARATHON-V3 D7) by
+`identity`** — no seed Fitting provides `modes`; the persona Fitting is
+`identity-gary`, and `duty` carries the per-duty behaviour. Dropped:
+`data-source` (2026-06-26, superseded by `connector`) and `artifact-store`
+(the file-browser Fitting is the artifact surface).
 
 ### The runner (`src/lib/runner.ts`)
 
@@ -266,6 +279,98 @@ the decision log and old references).
 **Always read [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
 for live status before planning new work** — stage state drifts faster
 than this file.
+
+## Instances, ports, and deploying (HARD RULES)
+
+Garrison runs as **profiled instances out of this one checkout**. The tailnet
+address `https://dev-madrid.tail31efa.ts.net` is **always-on PROD** and must
+never serve a dev process.
+
+**One committed port map, one offset per profile.** The compositions carry a
+single port map (the 7xxx family). Every instance is that map plus a fixed
+offset, defined once in `src/lib/instance-profile.ts` and mirrored in
+`scripts/garrison-instance.sh`:
+
+| profile | offset | app | gateway | outpost | fittings | scheduler | home |
+|---|---|---|---|---|---|---|---|
+| dev | 0 | 7777 | 4777 | 3702 | 70xx | 7099 | `~/.garrison-dev` |
+| **prod** | **+1000** | **8777** | **5777** | **4702** | **80xx** | **8099** | `~/.garrison` + real `~/.claude` |
+| codex | +20000 | 27777 | 24777 | 23702 | 270xx | 27099 | `~/.garrison-codex` |
+
+- **HARD RULE — never hardcode a port.** Ports come from the composition,
+  shifted by `profilePort()` / `applyPortOffsetToConfig()`. A literal `7777`,
+  `4777`, `24777` or `27xxx` in new code is a bug: it pins one instance and
+  silently sends the other instance's traffic there. `tests/instance-isolation.test.ts`
+  pins the launcher and the TS module against each other.
+- **HARD RULE — prod and dev never share a port, a `GARRISON_HOME`, or a
+  Claude config dir.** Only prod owns the real `~/.claude`; a dev instance
+  pointing there would edit the user's live Claude Code config.
+- **HARD RULE — one instance per composition working tree.** The launcher
+  isolates ports, `GARRISON_HOME` and the Claude config dir, but
+  `COMPOSITIONS_DIR` is checkout-relative, so all three profiles resolve the
+  SAME `compositions/<id>/`. A second instance's `up` would run `apm install`
+  and every setup hook inside the tree the first instance's operative is
+  executing from, overwrite its materialised `.env` from a different vault, and
+  its `down` would wipe that `.env` away. `up()` therefore claims the tree via
+  `.garrison/owner.json` (`src/lib/composition-owner.ts`) and refuses when
+  another **profile** holds it; `down()` releases. Keyed on profile, not pid, so
+  restarts and redeploys re-enter freely. If you need two instances at once,
+  point them at **different compositions**.
+- **HARD RULE — the user's browser is almost never on the Garrison machine.**
+  Garrison runs everything on the box it is installed on, but it is *used* from
+  other machines and mobile over the HTTPS tailnet address
+  (`https://dev-madrid.tail31efa.ts.net:<serve-port>`). So no server — shell or
+  fitting — may hand the client an absolute machine-local URL
+  (`http://localhost:…`, `http://127.0.0.1:…`, or a `GARRISON_*_URL` /
+  `ui-fittings/*.json` value) for use as an iframe/img/link/fetch/WS target:
+  remotely it is unreachable AND mixed content (a silently blank pane).
+  Client-delivered URLs must be **relative** (same-origin), or a
+  **loopback + tailnet pair** the client resolves by page host. Shell pattern:
+  `src/lib/tailnet-serve.ts` + `resolveViewUrl`
+  (`src/components/fitting-views/browser-view-url.ts`); fitting-local pattern:
+  `fittings/seed/drill/lib/tailnet-serve.mjs` + `resolveEmbedUrl`
+  (`drill/ui/main.tsx`). Server-to-server loopback calls on the box are fine.
+  Every new client-facing surface must be verified from a non-localhost origin
+  before it ships.
+- **HARD RULE — a new own-port view must be published to the tailnet.** Its port
+  needs a `tailscale serve` mapping or the embedded view is a blank pane over
+  HTTPS (a plain-HTTP frame is blocked as mixed content).
+  `npm run prod:redeploy` runs `scripts/tailnet-serve-views.mjs` for this;
+  never hand an HTTPS page an `http://` URL.
+- **HARD RULE — only prod is published to the tailnet.**
+  `scripts/tailnet-serve-views.mjs` refuses to run from a non-prod shell. The
+  serve-port formula aliases prod's 80xx onto dev's 70xx, so publishing dev
+  would hand tailnet users a dev server.
+- **Never start an instance by hand.** Always
+  `bash scripts/garrison-instance.sh <prod|dev|codex> <start|build|env>` (or
+  `npm run dev` / `npm run prod:start`). A bare `next dev` inherits whatever
+  home and port the shell happens to carry.
+- Prod serves a **built** artifact from `.next-prod`; dev's `next dev` uses
+  `.next`. Keep them apart — a shared dist dir breaks the dev server's dynamic
+  routes.
+
+### Deploying — HARD RULE: commit is not landed until prod is redeployed
+
+Committed code changes nothing a user can see: prod serves a build, and the
+operative plus own-port fittings are long-lived processes still holding the OLD
+code in memory. Restarting the app server alone leaves a half-updated system.
+
+**After committing/pushing a significant change, run:**
+
+```bash
+npm run prod:redeploy        # scripts/garrison-redeploy.sh
+```
+
+which does, in order: `prod build` → `down` (operative + fittings on the old
+code) → `systemctl --user restart garrison-prod` → wait for `:8777` → `up`
+(operative + eager fittings on the new code). A failed build stops the deploy
+with the last good build still serving.
+
+Prod is the systemd user unit **`garrison-prod.service`** (`Restart=always`,
+`WantedBy=default.target`, user lingering on) — that is what makes it always-on
+across reboots and logouts. Do **not** add a second scheduler unit: prod's
+launcher already runs the scheduler on 8099 against `~/.garrison`, and a
+standalone unit on the same jobs file double-fires every scheduled job.
 
 ## Permissions
 

@@ -1,0 +1,3344 @@
+Reading prompt from stdin...
+OpenAI Codex v0.144.1
+--------
+workdir: /home/ggomes/dev/garrison
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019f5869-ddfc-7623-8f4d-0d441c515c27
+--------
+user
+Final cross-model correctness+security checkpoint on a finished run in agent-garrison. Per-slice reviews already ran; report ONLY real surviving defects (a concrete input/state producing a wrong result, crash, hang, data loss, or containment escape). No style/speculation. Read these files in full and reason about edge cases:
+
+1. src/lib/clone.ts and src/lib/fitting-files.ts - Fitting clone into fittings/local + createFile. Check: symlink escape, path traversal on the new-file name, TOCTOU, partial-clone leaving a half-written registry entry.
+2. src/lib/composition-switch.ts and src/lib/active-composition.ts - active_composition pointer + switch. Check: external-pointer injection, switching to a non-existent/unresolvable composition, race between down and re-resolve.
+3. fittings/seed/improver/lib/shadcn-patterns.mjs - evidenceHolds/vetProposals/recordRejection/reconcile. Check: citation file:line path traversal, corrupt rejection-ledger handling, realpath containment.
+4. fittings/seed/garrison-assistant/lib/index-store.mjs - buildIndex/answer. Check: symlink following while indexing, unbounded read, prototype pollution from indexed content.
+
+For each REAL defect: file:line, the concrete failing input, the wrong outcome, confidence HIGH/MED/LOW. If nothing real: print exactly "NO REAL DEFECTS FOUND". Be terse.
+
+codex
+I’ll inspect the project guidance first, then read the requested files in full and focus only on concrete surviving correctness or security defects.
+exec
+/usr/bin/zsh -lc "sed -n '1,240p' CLAUDE.md" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+The full v1 spec lives at [`docs/SPEC.md`](./docs/SPEC.md) (the former
+`AGENTS.md`). The live phased status lives at
+[`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md). All other
+docs are under [`docs/`](./docs/) — drill in as needed.
+
+## What this project is
+
+Agent Garrison is a **local web app that composes and runs autonomous
+Claude Code setups**. The composed agent is called an **Operative**.
+You compose an Operative by stationing **Fittings** (APM-packaged git
+repos) into **Faculty** slots, save the result as an APM manifest
+(`apm.yml` with an `x-garrison` block), and hit Run. Garrison shells
+out to Microsoft APM for install/audit/lockfile, materialises secrets
+from a local AES-256-GCM vault, assembles the orchestrator system prompt,
+and spawns Claude Code via the Anthropic Agent SDK in-process.
+
+> **2026-06-07 Quarters pivot (largely shipped).** Garrison is now a
+> transparent **control plane over the user's real `~/.claude`**: APM is
+> the single package writer; the owned/loose/parked state model and 6 roles
+> (down from the prior flat-Faculty list) are live; the Orchestrator prompt
+> is assembled (soul + orchestrator + `{{capabilities}}`/`{{routing}}`) and
+> handed to the gateway at launch. The `projectOrchestrator` rules-file
+> projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but
+> not yet wired into `up()` — RC3 dormant. The
+> hosted-session launcher (RC4) is **not yet wired**, so the runner still
+> spawns a process via `spawnGateway`/`spawnClaude`. See
+> [`docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md).
+
+Positioning: **open-source, local-first, single-user, no auth, talks
+only to `localhost`**. v1 targets Claude Code. The Honesty Test in
+[`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md) §3 gates every design
+choice.
+
+## Commands
+
+```bash
+npm install                                            # one-time (postinstall fixes node-pty perms)
+npm start                                              # next dev + outpost host, concurrently
+npm run typecheck                                      # tsc --noEmit
+npm test                                               # vitest run
+npm test -- tests/runner-setup.test.ts                 # single test file
+npm run check:integration                              # live SDK + composition smoke
+npm run test:integration                               # GARRISON_INTEGRATION=1 vitest run on orchestrator-integration
+npm run refresh:prompts                                # regenerate default Orchestrator/Soul prompts
+tsx scripts/validate-fitting.ts fittings/seed/<id>     # four-check validation pipeline
+```
+
+The validation pipeline is four checks: **architecture** (real),
+**security** (placeholder pattern scanner), **prompt-injection**
+(placeholder pattern scanner), **quality** (real). AI-driven
+validators land in the runtime SDK milestone.
+
+## Terminology — don't drift
+
+- **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
+- **Faculty** — a **role** slot in a composition. There are **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
+- **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
+- **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
+- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). During `up` the runner auto-starts ONLY the eager-toggled own-port Fittings; non-eager ones start on demand from the Views UI (`/api/fittings/[id]/start`, which injects the running composition's env — gateway URL, composition id, selection config, vault — via `operativeEnvForFitting`). `down` still stops every running operative-bound Fitting by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
+- **Armory** — `/armory`, the Fitting registry browser.
+- **Fitting** — the concrete component installed into a slot.
+- **Operative** — the composed, running agent (the user's real Claude Code session post-pivot).
+- **Channel** — the way external surfaces (Slack, Web Channel) reach the Operative through the gateway. Garrison does not ship a built-in chat surface.
+- **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
+
+Legacy aliases the parser still accepts (with deprecation warnings):
+`primitive:` → `faculty:`; the aliased legacy faculty names in
+`metadata.ts` `FACULTY_ALIASES` (e.g. `faculty: testing-framework` →
+`faculty: sessions`, `faculty: monitor` → `faculty: observability`).
+Parked pre-pivot faculty ids (`skills`, `classifier`, `soul`,
+`knowledge-base`, …) are NOT aliased; their Fittings are de-listed from
+the library and the parser rejects those ids.
+The React directory `src/components/` keeps the
+word "component" because there it means React component, not
+Garrison Fitting.
+
+YAML field names don't churn for cosmetic gain.
+`x-garrison.component_shape` and `cardinality_hint` stay even though
+their TypeScript counterparts have been renamed.
+
+## High-level architecture
+
+```
+src/app/             Next.js routes — Compose, Run, Vault, Armory,
+                     Quarters (/quarters/[type]), /fitting/<id>/...
+                     per-Fitting overview + views. API under src/app/api/.
+src/lib/             Backend runtime (flat, no sub-packages):
+                       runner.ts           lifecycle (up/down/dev)
+                       capabilities.ts     provides/consumes resolver
+                       metadata.ts         x-garrison parser + validator
+                       vault.ts            AES-256-GCM secret store
+                       artifact-store.ts   namespaced filesystem store
+                       fitting-views.ts    UI contract v2 router
+                       quarters.ts         Quarters index (10 categories)
+                       quarters-detail.ts  per-type detail reads
+                       global-composition.ts  symlink-confined global comp
+                       primitive-state.ts  owned/loose/parked classifier
+                       claude-scan.ts      ~/.claude disk reader
+                       reconcile.ts        APM write-through + echo suppression
+                       state-transitions.ts promote/park/unpark + orphan cleanup
+                       orchestrator-projection.ts  rules-file + append-system-prompt
+                       provenance.ts       _garrison tag tracking
+                       apm-exec.ts         injectable ApmRunner
+                       atomic-write.ts     safe 0600-preserving writes
+                       hooks-crud.ts       hooks read/write
+                       mcp-writer.ts       MCP config write-through
+                       trenches/           outpost stream helpers
+                       validation/         four-check pipeline
+src/components/      React UI (Compose, Run, Vault, Chrome,
+                     Quarters panels, fitting-views registry + status hook,
+                     armory, garrison home).
+packages/claude-pty/ PTY substrate — drives the interactive Claude Code TUI
+                     under node-pty + @xterm/headless. Warm pool, rich
+                     streaming, xterm screen reader. Used by dev-env Fitting
+                     and web-channel. Entry: src/index.mjs.
+packages/claude-chat/ Chat client built on claude-pty.
+compositions/<id>/   apm.yml = source of truth per composition.
+                     Filesystem is authoritative; no JSON shadow.
+fittings/seed/       Local APM seed Fittings. Each is a self-contained APM
+                     package; new ones ship as their own git repos.
+data/library.json    Curated Fittings Registry.
+data/vault.json      Encrypted secrets, file mode 0600.
+scripts/             validate-fitting.ts, integration-check.mjs,
+                     refresh-default-prompts.ts, spike/.
+tests/               Vitest suite — runner, capabilities, metadata,
+                     fitting-view-resolver, validation, seeds, etc.
+```
+
+The visible shell surfaces are **Garrison · Composition · Vault ·
+Quarters**, plus the collapsible sidebar **Quarters** and **Views** groups
+(Views auto-populated per composition) and per-Fitting routes under
+`/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
+merged into the Garrison dashboard** (the home route; `/run` redirects to
+`/`) and the **Armory folded into Composition** (Fitting discovery is the
+cross-Faculty search box on `/compose`; `/armory` redirects there). There is
+no built-in Chat surface. Operative interaction goes through Channel
+Fittings; observability is the runtime log on the dashboard plus per-Fitting
+logs under `/fitting/<id>`.
+
+### Faculties — 9 roles (Quarters pivot + 2026-06-18 sessions split + 2026-06-22 modes)
+
+Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
+`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
+`sessions`, `surfaces`, `modes`. The 2026-06-18 split carved the overloaded `sessions`
+role into three: `sessions` keeps the Dev Env surface + artifact store,
+`runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini),
+and `surfaces` holds the auxiliary own-port viewers (screen-share / browser /
+outpost). Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings,
+Context, Plans — is now a **Quarters platform primitive** surfaced over the real
+`~/.claude`, not a Faculty.
+
+**Own-port runtime residue** — survives at runtime under
+`sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
+flag: `dev-env` (7086), `screen-share` (7079), `outposts` (7082),
+`monitor` (7077), `web-channel` (7083), `browser` (7084), `voice` (7085).
+The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
+holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
+PR / commit-and-push actions on the current branch in the menu. Sessions run in
+the project repo root on the current branch - Garrison spins up no per-task
+branches.
+
+### Quarters engine
+
+`src/lib/global-composition.ts` — the symlink-confined global composition at
+`~/.garrison/global-composition/` with `.claude` → symlink to `~/.claude`.
+`apm install` writes through the link into the real `~/.claude`.
+
+State model: **owned** (in `apm.yml` + `apm.lock.yaml`), **loose** (on disk,
+not in lock), **parked** (off-disk under `~/.garrison/parked/`). APM is the
+single writer for package files; Garrison owns orphan-cleanup on park.
+
+`reconcile.ts` — importer with hash-compare echo suppression (only writes
+when content actually changes). `state-transitions.ts` — promote/park/unpark
+with orphan cleanup.
+
+`orchestrator-projection.ts` — `buildOrchestratorInstructions` (soul +
+orchestrator + `{{capabilities}}` fold) + `projectOrchestrator` (APM
+instructions primitive → `~/.claude/rules/garrison-orchestrator.md`;
+**implemented but not called by `up()` — RC3 dormant**) +
+`orchestratorAppendSystemPrompt` (per-launch fallback via
+`--append-system-prompt`). At runtime `up()` assembles the prompt and hands it
+to the gateway (`GARRISON_SYSTEM_PROMPT_PATH` / souls config), not the rules
+file.
+
+### Capabilities
+
+Fittings declare `provides` / `consumes` in `x-garrison`. The
+resolver in `src/lib/capabilities.ts` enforces cardinality (`one`,
+`optional-one`, `any`). The `any` literal is the mechanism the
+Orchestrator uses to **discover installed Fittings without
+hardcoding** — no Garrison code change is needed when a new Fitting
+is added.
+
+Current kinds (per `capabilityKinds` in `src/lib/types.ts`): `orchestrator`,
+`modes`, `memory-store`, `automation-runner`, `connector`, `runtime`,
+`channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`,
+`view` (derived by the resolver from `ui.views[]` / `own_port`, never declared
+in `provides`). Dropped: `data-source` (2026-06-26, superseded by `connector`)
+and `artifact-store` (the file-browser Fitting is the artifact surface).
+
+### The runner (`src/lib/runner.ts`)
+
+`up` order:
+
+1. `apm install` (live log streamed to the Run tab via SSE).
+2. `materializeEnv` from the vault into the composition directory.
+3. For each Fitting with `x-garrison.setup`: run the setup command in the
+   Fitting's installed dir. Non-zero exit aborts `up`.
+4. For each Fitting: run `x-garrison.verify`. No verify hook = hard failure.
+5. Assemble the system prompt: soul + orchestrator + `{{capabilities}}` (each
+   provider's `for_consumers` markdown indented under its capability line,
+   falls back to `summary`). Write `assembled-system-prompt.md`.
+   (The `projectOrchestrator` rules-file projection exists but is **not**
+   called here yet — RC3 dormant.)
+6. Spawn the Operative via the Anthropic Agent SDK in-process.
+   Auth uses the user's Max account; no API key billing.
+
+Two principles bake in:
+
+- **Process survives tab close.** Closing the browser does not kill running
+  Operatives. Ring buffer per Operative replays on reopen.
+- **Verify-step discipline.** Every Fitting declares a verify hook; the runner
+  never claims success without it.
+
+`dev(composition)` is `up` plus a chokidar watcher on local-path deps;
+file changes trigger `apm install` + restart.
+
+**Setup vs verify**: setup is side-effect-causing prep (clones, `uv sync`,
+host-config writes); verify is read-only. Don't mix.
+
+### UI contract v2 (Phase 3)
+
+Fittings declare N views in `x-garrison.ui.views[]`. Each view has an `id`,
+a `placement` (`faculty-tab` | `sidebar-surface`), an `entry` path, and a
+`route` fragment. The view registry at
+`src/components/fitting-views/registry.tsx` is **static** in v2.
+
+exec
+/usr/bin/zsh -lc "pwd && rg --files -g 'CLAUDE.md' -g 'src/lib/clone.ts' -g 'src/lib/fitting-files.ts' -g 'src/lib/composition-switch.ts' -g 'src/lib/active-composition.ts' -g 'fittings/seed/improver/lib/shadcn-patterns.mjs' -g 'fittings/seed/garrison-assistant/lib/index-store.mjs'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+/home/ggomes/dev/garrison
+CLAUDE.md
+fittings/seed/garrison-assistant/lib/index-store.mjs
+fittings/seed/improver/lib/shadcn-patterns.mjs
+src/lib/composition-switch.ts
+src/lib/active-composition.ts
+src/lib/fitting-files.ts
+src/lib/clone.ts
+
+codex
+I’ve got the project context. Now I’m reading the six implementation files with line numbers so the final report can point only to reproducible defects, if any.
+exec
+/usr/bin/zsh -lc 'nl -ba src/lib/clone.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import fs from "node:fs/promises";
+     2	import path from "node:path";
+     3	import { createHash } from "node:crypto";
+     4	import { ROOT_DIR } from "./paths";
+     5	import { pathExists } from "./fs-utils";
+     6	import {
+     7	  appendRawLibraryEntry,
+     8	  getLibraryEntry,
+     9	  readLibrary,
+    10	  readRawLibrary,
+    11	  type RawLibraryEntry
+    12	} from "./library";
+    13	import { readYamlFile, writeYamlFile } from "./yaml";
+    14	import type { LibraryEntry } from "./types";
+    15	
+    16	// S3 — Clone and edit Fittings.
+    17	//
+    18	// A clone is a full, independent copy of a source Fitting under a `local`
+    19	// namespace (`fittings/local/<id>`), registered as a first-class library entry.
+    20	// It is meant to DIVERGE from upstream: the upstream is pinned once in the
+    21	// copy's clone.json and never auto-updated, and every local edit reads as drift
+    22	// from that clone-time baseline. Nothing here ever writes back to the source.
+    23	
+    24	const LOCAL_FITTINGS_SUBDIR = "fittings/local";
+    25	const CLONE_MANIFEST = "clone.json";
+    26	
+    27	// Build/VCS artifacts — never authored content, so never copied.
+    28	//
+    29	// NOTE: `.apm` is intentionally NOT skipped. For skill/hook Fittings the
+    30	// authored primitive content lives under `.apm/` (e.g. `taste` ships its
+    31	// SKILL.md files at `.apm/skills/<name>/SKILL.md`); dropping it would produce a
+    32	// broken clone whose verify hook fails. `apm_modules` (the install output) is
+    33	// the artifact that gets skipped, not `.apm` (the source).
+    34	const COPY_SKIP = new Set(["node_modules", "apm_modules", ".git", ".DS_Store"]);
+    35	
+    36	// A clone id becomes both a directory name and a library id, so it is
+    37	// constrained to a filesystem- and slug-safe shape (no path separators, no
+    38	// leading dot).
+    39	const CLONE_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+    40	
+    41	export class CloneError extends Error {
+    42	  status: number;
+    43	  constructor(status: number, message: string) {
+    44	    super(message);
+    45	    this.status = status;
+    46	    this.name = "CloneError";
+    47	  }
+    48	}
+    49	
+    50	// The upstream pin + per-file drift baseline, written into each clone's copy.
+    51	export interface CloneProvenance {
+    52	  // "<sourceId>@<version>" — the upstream this was copied from.
+    53	  cloned_from: string;
+    54	  clonedAt: string;
+    55	  // relPath (posix) -> sha256 at clone time. The drift baseline.
+    56	  files: Record<string, string>;
+    57	}
+    58	
+    59	export interface CloneDrift {
+    60	  drifted: string[];
+    61	  clean: string[];
+    62	}
+    63	
+    64	function sha256(buf: Buffer): string {
+    65	  return createHash("sha256").update(buf).digest("hex");
+    66	}
+    67	
+    68	// Every file under `root` as posix relative paths, skipping COPY_SKIP dirs and
+    69	// the clone.json provenance file itself (provenance is not fitting content).
+    70	async function walkFiles(root: string, rel = ""): Promise<string[]> {
+    71	  const dirents = await fs.readdir(path.join(root, rel), { withFileTypes: true });
+    72	  const out: string[] = [];
+    73	  for (const dirent of dirents) {
+    74	    if (COPY_SKIP.has(dirent.name)) continue;
+    75	    const childRel = rel ? `${rel}/${dirent.name}` : dirent.name;
+    76	    if (childRel === CLONE_MANIFEST) continue;
+    77	    if (dirent.isDirectory()) {
+    78	      out.push(...(await walkFiles(root, childRel)));
+    79	    } else if (dirent.isFile()) {
+    80	      out.push(childRel);
+    81	    }
+    82	  }
+    83	  return out;
+    84	}
+    85	
+    86	async function hashTree(root: string): Promise<Record<string, string>> {
+    87	  const files = await walkFiles(root);
+    88	  const out: Record<string, string> = {};
+    89	  for (const rel of files) {
+    90	    out[rel] = sha256(await fs.readFile(path.join(root, rel)));
+    91	  }
+    92	  return out;
+    93	}
+    94	
+    95	async function cloneIdTaken(id: string): Promise<boolean> {
+    96	  const entries = await readRawLibrary();
+    97	  if (entries.some((entry) => entry.id === id)) return true;
+    98	  return pathExists(path.join(ROOT_DIR, LOCAL_FITTINGS_SUBDIR, id));
+    99	}
+   100	
+   101	async function resolveNewId(sourceId: string, requested?: string): Promise<string> {
+   102	  if (requested !== undefined) {
+   103	    if (!CLONE_ID_RE.test(requested)) {
+   104	      throw new CloneError(400, `Invalid clone id "${requested}" (use lowercase letters, digits, ., -, _)`);
+   105	    }
+   106	    if (await cloneIdTaken(requested)) {
+   107	      throw new CloneError(409, `A Fitting with id "${requested}" already exists`);
+   108	    }
+   109	    return requested;
+   110	  }
+   111	  const base = `${sourceId}-copy`;
+   112	  if (!(await cloneIdTaken(base))) return base;
+   113	  for (let n = 2; n < 1000; n++) {
+   114	    const candidate = `${base}-${n}`;
+   115	    if (!(await cloneIdTaken(candidate))) return candidate;
+   116	  }
+   117	  throw new CloneError(409, `Could not find a free clone id for "${sourceId}"`);
+   118	}
+   119	
+   120	// Re-key a copied manifest as an independent APM package: rewrite any
+   121	// `_local/<oldName>` reference (e.g. the verify path, which APM materialises at
+   122	// `apm_modules/_local/<name>/`) to the new id. Applied to every string value.
+   123	function repointLocalRefs<T>(value: T, oldName: string, newName: string): T {
+   124	  if (typeof value === "string") {
+   125	    return value.split(`_local/${oldName}`).join(`_local/${newName}`) as unknown as T;
+   126	  }
+   127	  if (Array.isArray(value)) {
+   128	    return value.map((item) => repointLocalRefs(item, oldName, newName)) as unknown as T;
+   129	  }
+   130	  if (value && typeof value === "object") {
+   131	    const out: Record<string, unknown> = {};
+   132	    for (const [key, val] of Object.entries(value)) {
+   133	      out[key] = repointLocalRefs(val, oldName, newName);
+   134	    }
+   135	    return out as T;
+   136	  }
+   137	  return value;
+   138	}
+   139	
+   140	export async function cloneFitting(
+   141	  sourceId: string,
+   142	  opts: { newId?: string } = {}
+   143	): Promise<LibraryEntry> {
+   144	  const source = await getLibraryEntry(sourceId);
+   145	  if (!source) throw new CloneError(404, `Unknown fitting: ${sourceId}`);
+   146	  if (!source.localPath) {
+   147	    throw new CloneError(400, `Fitting ${sourceId} is not local — nothing to clone`);
+   148	  }
+   149	  const srcAbs = path.resolve(ROOT_DIR, source.localPath);
+   150	
+   151	  const newId = await resolveNewId(sourceId, opts.newId);
+   152	  const destRel = `${LOCAL_FITTINGS_SUBDIR}/${newId}`;
+   153	  const destAbs = path.join(ROOT_DIR, LOCAL_FITTINGS_SUBDIR, newId);
+   154	
+   155	  await fs.mkdir(path.dirname(destAbs), { recursive: true });
+   156	  try {
+   157	    // Recursive copy; the filter skips build/VCS artifacts (a skipped directory
+   158	    // takes its whole subtree with it). Authored `.apm/` content is preserved.
+   159	    // dereference: true copies symlink TARGETS as real bytes, so the clone is
+   160	    // genuinely independent — a later upstream edit can't change what the clone
+   161	    // reads through a shared link.
+   162	    await fs.cp(srcAbs, destAbs, {
+   163	      recursive: true,
+   164	      dereference: true,
+   165	      filter: (src) => !COPY_SKIP.has(path.basename(src))
+   166	    });
+   167	
+   168	    // Re-key the copied manifest so it installs/verifies as its own package.
+   169	    const manifestPath = path.join(destAbs, "apm.yml");
+   170	    const manifest = (await readYamlFile<Record<string, unknown>>(manifestPath)) ?? {};
+   171	    const oldName = typeof manifest.name === "string" ? manifest.name : sourceId;
+   172	    const version = typeof manifest.version === "string" ? manifest.version : "0.1.0";
+   173	    const rewritten = repointLocalRefs(manifest, oldName, newId);
+   174	    rewritten.name = newId;
+   175	    await writeYamlFile(manifestPath, rewritten);
+   176	
+   177	    const clonedFrom = `${sourceId}@${version}`;
+   178	
+   179	    // Snapshot the drift baseline AFTER the re-key writes so the clone starts
+   180	    // clean; any later user edit then reads as divergence from upstream.
+   181	    const provenance: CloneProvenance = {
+   182	      cloned_from: clonedFrom,
+   183	      clonedAt: new Date().toISOString(),
+   184	      files: await hashTree(destAbs)
+   185	    };
+   186	    await fs.writeFile(
+   187	      path.join(destAbs, CLONE_MANIFEST),
+   188	      `${JSON.stringify(provenance, null, 2)}\n`,
+   189	      "utf8"
+   190	    );
+   191	
+   192	    const rawEntry: RawLibraryEntry = {
+   193	      id: newId,
+   194	      name: `${source.name} (copy)`,
+   195	      repo: `local:${destRel}`,
+   196	      localPath: destRel,
+   197	      summary: source.summary,
+   198	      platforms: source.platforms,
+   199	      ratings: {},
+   200	      cloned_from: clonedFrom
+   201	    };
+   202	    await appendRawLibraryEntry(rawEntry);
+   203	  } catch (error) {
+   204	    // Leave no half-made clone behind if any step after the copy fails.
+   205	    await fs.rm(destAbs, { recursive: true, force: true }).catch(() => {});
+   206	    throw error;
+   207	  }
+   208	
+   209	  const resolved = (await readLibrary()).find((entry) => entry.id === newId);
+   210	  if (!resolved) {
+   211	    throw new CloneError(500, `Clone ${newId} was created but did not resolve from the library`);
+   212	  }
+   213	  return resolved;
+   214	}
+   215	
+   216	export async function readCloneProvenance(id: string): Promise<CloneProvenance | null> {
+   217	  const entry = await getLibraryEntry(id);
+   218	  if (!entry?.localPath) return null;
+   219	  const provPath = path.join(ROOT_DIR, entry.localPath, CLONE_MANIFEST);
+   220	  try {
+   221	    const parsed = JSON.parse(await fs.readFile(provPath, "utf8"));
+   222	    if (
+   223	      parsed &&
+   224	      typeof parsed === "object" &&
+   225	      typeof parsed.cloned_from === "string" &&
+   226	      parsed.files &&
+   227	      typeof parsed.files === "object"
+   228	    ) {
+   229	      return parsed as CloneProvenance;
+   230	    }
+   231	    return null;
+   232	  } catch {
+   233	    return null;
+   234	  }
+   235	}
+   236	
+   237	// Compare each of the clone's current files against the clone-time baseline.
+   238	// A local edit, a newly-created file, or a deleted file all read as drift —
+   239	// this is the CORRECT, expected signal: a clone is meant to diverge.
+   240	export async function cloneDrift(id: string): Promise<CloneDrift> {
+   241	  const entry = await getLibraryEntry(id);
+   242	  if (!entry?.localPath) throw new CloneError(404, `Unknown or non-local fitting: ${id}`);
+   243	  const provenance = await readCloneProvenance(id);
+   244	  if (!provenance) throw new CloneError(404, `Fitting ${id} is not a clone`);
+   245	
+   246	  const root = path.resolve(ROOT_DIR, entry.localPath);
+   247	  const current = await hashTree(root);
+   248	  const drifted: string[] = [];
+   249	  const clean: string[] = [];
+   250	  const seen = new Set<string>();
+   251	
+   252	  for (const [rel, hash] of Object.entries(current)) {
+   253	    seen.add(rel);
+   254	    const baseline = provenance.files[rel];
+   255	    if (baseline === undefined || baseline !== hash) drifted.push(rel);
+   256	    else clean.push(rel);
+   257	  }
+   258	  for (const rel of Object.keys(provenance.files)) {
+   259	    if (!seen.has(rel)) drifted.push(rel); // present at clone time, now removed
+   260	  }
+   261	
+   262	  drifted.sort();
+   263	  clean.sort();
+   264	  return { drifted, clean };
+   265	}
+
+exec
+/usr/bin/zsh -lc 'nl -ba src/lib/fitting-files.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import fs from "node:fs/promises";
+     2	import path from "node:path";
+     3	import { ROOT_DIR } from "./paths";
+     4	import { getLibraryEntry } from "./library";
+     5	import type { LibraryEntry } from "./types";
+     6	
+     7	const HIDDEN_NAMES = new Set(["node_modules", "apm_modules", ".git", ".DS_Store"]);
+     8	const BLOCKED_SEGMENTS = new Set(["node_modules", "apm_modules", ".git", ".apm"]);
+     9	const MAX_READ_BYTES = 1_048_576;
+    10	
+    11	export interface FittingFilesError {
+    12	  status: number;
+    13	  message: string;
+    14	}
+    15	
+    16	export interface DirectoryEntry {
+    17	  name: string;
+    18	  type: "file" | "dir";
+    19	  size?: number;
+    20	}
+    21	
+    22	export interface DirectoryListing {
+    23	  path: string;
+    24	  entries: DirectoryEntry[];
+    25	}
+    26	
+    27	export interface FileContents {
+    28	  path: string;
+    29	  content: string;
+    30	  encoding: "utf8" | "base64";
+    31	  size: number;
+    32	}
+    33	
+    34	export class FittingFileError extends Error {
+    35	  status: number;
+    36	  constructor(status: number, message: string) {
+    37	    super(message);
+    38	    this.status = status;
+    39	  }
+    40	}
+    41	
+    42	export async function resolveLocalFitting(id: string): Promise<{ entry: LibraryEntry; root: string }> {
+    43	  const entry = await getLibraryEntry(id);
+    44	  if (!entry) {
+    45	    throw new FittingFileError(404, `Unknown fitting: ${id}`);
+    46	  }
+    47	  if (!entry.localPath) {
+    48	    throw new FittingFileError(404, `Fitting ${id} is not local`);
+    49	  }
+    50	  const root = path.resolve(ROOT_DIR, entry.localPath);
+    51	  return { entry, root };
+    52	}
+    53	
+    54	function safeResolve(root: string, userPath: string): string {
+    55	  const normalized = (userPath ?? "").replace(/^\/+/, "");
+    56	  const joined = path.resolve(root, normalized);
+    57	  if (joined !== root && !joined.startsWith(`${root}${path.sep}`)) {
+    58	    throw new FittingFileError(400, "Path escapes the fitting directory");
+    59	  }
+    60	  return joined;
+    61	}
+    62	
+    63	function rejectBlockedSegments(root: string, target: string): void {
+    64	  const relative = path.relative(root, target);
+    65	  if (relative === "") return;
+    66	  const segments = relative.split(path.sep);
+    67	  for (const segment of segments) {
+    68	    if (BLOCKED_SEGMENTS.has(segment)) {
+    69	      throw new FittingFileError(400, `Path includes a blocked segment: ${segment}`);
+    70	    }
+    71	  }
+    72	}
+    73	
+    74	// safeResolve is LEXICAL only, so a real symlink INSIDE the fitting (e.g.
+    75	// `out -> /tmp/outside`, which a crafted source could carry) would let a
+    76	// lexically-contained path write THROUGH the link to outside the root. Resolve
+    77	// the realpath of the deepest EXISTING ancestor of the target and require it to
+    78	// stay within the realpath'd root. The not-yet-existing tail is created later as
+    79	// real dirs (mkdir never traverses a symlink it just made), so only the existing
+    80	// ancestor chain can smuggle in a symlink — and realpath collapses that chain.
+    81	async function assertNoSymlinkEscape(root: string, target: string): Promise<void> {
+    82	  const realRoot = await fs.realpath(root);
+    83	  let ancestor = target;
+    84	  for (;;) {
+    85	    let real: string;
+    86	    try {
+    87	      real = await fs.realpath(ancestor);
+    88	    } catch (error) {
+    89	      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    90	        const parent = path.dirname(ancestor);
+    91	        if (parent === ancestor) return; // hit fs root without an existing symlink
+    92	        ancestor = parent;
+    93	        continue;
+    94	      }
+    95	      throw error;
+    96	    }
+    97	    if (real !== realRoot && !real.startsWith(`${realRoot}${path.sep}`)) {
+    98	      throw new FittingFileError(400, "Path escapes the fitting directory (symlinked ancestor)");
+    99	    }
+   100	    return;
+   101	  }
+   102	}
+   103	
+   104	export async function listDirectory(id: string, userPath = ""): Promise<DirectoryListing> {
+   105	  const { root } = await resolveLocalFitting(id);
+   106	  const target = safeResolve(root, userPath);
+   107	
+   108	  let stat;
+   109	  try {
+   110	    stat = await fs.stat(target);
+   111	  } catch {
+   112	    throw new FittingFileError(404, "Directory not found");
+   113	  }
+   114	  if (!stat.isDirectory()) {
+   115	    throw new FittingFileError(400, "Path is not a directory");
+   116	  }
+   117	
+   118	  const dirents = await fs.readdir(target, { withFileTypes: true });
+   119	  const entries: DirectoryEntry[] = [];
+   120	  for (const dirent of dirents) {
+   121	    if (HIDDEN_NAMES.has(dirent.name)) continue;
+   122	    if (dirent.isDirectory()) {
+   123	      entries.push({ name: dirent.name, type: "dir" });
+   124	    } else if (dirent.isFile()) {
+   125	      let size: number | undefined;
+   126	      try {
+   127	        const fileStat = await fs.stat(path.join(target, dirent.name));
+   128	        size = fileStat.size;
+   129	      } catch {
+   130	        size = undefined;
+   131	      }
+   132	      entries.push({ name: dirent.name, type: "file", size });
+   133	    }
+   134	  }
+   135	  entries.sort((a, b) => {
+   136	    if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+   137	    return a.name.localeCompare(b.name);
+   138	  });
+   139	
+   140	  return { path: path.relative(root, target).split(path.sep).join("/"), entries };
+   141	}
+   142	
+   143	function isLikelyUtf8(buffer: Buffer): boolean {
+   144	  // Treat anything with NUL bytes as binary; otherwise round-trip via utf8.
+   145	  for (let i = 0; i < buffer.length; i++) {
+   146	    if (buffer[i] === 0) return false;
+   147	  }
+   148	  const text = buffer.toString("utf8");
+   149	  return Buffer.byteLength(text, "utf8") === buffer.length;
+   150	}
+   151	
+   152	export async function readFile(id: string, userPath: string): Promise<FileContents> {
+   153	  if (!userPath) {
+   154	    throw new FittingFileError(400, "path is required");
+   155	  }
+   156	  const { root } = await resolveLocalFitting(id);
+   157	  const target = safeResolve(root, userPath);
+   158	
+   159	  let stat;
+   160	  try {
+   161	    stat = await fs.stat(target);
+   162	  } catch {
+   163	    throw new FittingFileError(404, "File not found");
+   164	  }
+   165	  if (!stat.isFile()) {
+   166	    throw new FittingFileError(400, "Path is not a file");
+   167	  }
+   168	  if (stat.size > MAX_READ_BYTES) {
+   169	    throw new FittingFileError(413, `File is larger than ${MAX_READ_BYTES} bytes`);
+   170	  }
+   171	
+   172	  const buffer = await fs.readFile(target);
+   173	  const relative = path.relative(root, target).split(path.sep).join("/");
+   174	  if (isLikelyUtf8(buffer)) {
+   175	    return { path: relative, content: buffer.toString("utf8"), encoding: "utf8", size: stat.size };
+   176	  }
+   177	  return { path: relative, content: buffer.toString("base64"), encoding: "base64", size: stat.size };
+   178	}
+   179	
+   180	export async function writeFile(id: string, userPath: string, content: string): Promise<{ path: string; size: number }> {
+   181	  if (!userPath) {
+   182	    throw new FittingFileError(400, "path is required");
+   183	  }
+   184	  if (typeof content !== "string") {
+   185	    throw new FittingFileError(400, "content must be a string");
+   186	  }
+   187	  const { root } = await resolveLocalFitting(id);
+   188	  const target = safeResolve(root, userPath);
+   189	  rejectBlockedSegments(root, target);
+   190	  await assertNoSymlinkEscape(root, target);
+   191	
+   192	  let existing;
+   193	  try {
+   194	    existing = await fs.stat(target);
+   195	  } catch {
+   196	    throw new FittingFileError(404, "File does not exist (this endpoint does not create new files)");
+   197	  }
+   198	  if (!existing.isFile()) {
+   199	    throw new FittingFileError(400, "Path is not a file");
+   200	  }
+   201	
+   202	  await fs.writeFile(target, content, "utf8");
+   203	  const after = await fs.stat(target);
+   204	  const relative = path.relative(root, target).split(path.sep).join("/");
+   205	  return { path: relative, size: after.size };
+   206	}
+   207	
+   208	// Create a NEW file inside a fitting (the counterpart to the overwrite-only
+   209	// writeFile). Same path-escape + blocked-segment guards, but it REQUIRES the
+   210	// target not already exist and creates any missing parent directories within
+   211	// the fitting root. Editing an existing file still goes through writeFile.
+   212	export async function createFile(
+   213	  id: string,
+   214	  userPath: string,
+   215	  content: string
+   216	): Promise<{ path: string; size: number }> {
+   217	  if (!userPath) {
+   218	    throw new FittingFileError(400, "path is required");
+   219	  }
+   220	  if (typeof content !== "string") {
+   221	    throw new FittingFileError(400, "content must be a string");
+   222	  }
+   223	  const { root } = await resolveLocalFitting(id);
+   224	  const target = safeResolve(root, userPath);
+   225	  if (target === root) {
+   226	    throw new FittingFileError(400, "path is required");
+   227	  }
+   228	  rejectBlockedSegments(root, target);
+   229	  await assertNoSymlinkEscape(root, target);
+   230	
+   231	  let existing;
+   232	  try {
+   233	    existing = await fs.lstat(target);
+   234	  } catch {
+   235	    existing = null;
+   236	  }
+   237	  if (existing) {
+   238	    throw new FittingFileError(409, "File already exists (use the overwrite endpoint to edit it)");
+   239	  }
+   240	
+   241	  await fs.mkdir(path.dirname(target), { recursive: true });
+   242	  await fs.writeFile(target, content, "utf8");
+   243	  const after = await fs.stat(target);
+   244	  const relative = path.relative(root, target).split(path.sep).join("/");
+   245	  return { path: relative, size: after.size };
+   246	}
+
+exec
+/usr/bin/zsh -lc 'nl -ba src/lib/composition-switch.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { computeCapabilityResolution, selectedLibraryEntries } from "./compositions";
+     2	import { readYamlFile } from "./yaml";
+     3	import {
+     4	  getActiveComposition,
+     5	  setActiveComposition,
+     6	  resolveCompositionPointer,
+     7	  type ResolvedComposition
+     8	} from "./active-composition";
+     9	import type { CapabilityIssue, FittingSelectionMap } from "./types";
+    10	
+    11	// Composition switching (WS4 / D6): a clean down -> re-resolve -> up, where the
+    12	// re-resolve happens FIRST and blocks the whole switch with a readable message
+    13	// before any state changes. One active composition at a time.
+    14	
+    15	export interface SwitchResult {
+    16	  ok: boolean;
+    17	  error?: string;
+    18	  id?: string;
+    19	}
+    20	
+    21	export interface SwitchDeps {
+    22	  resolveTarget: (pointer: string) => Promise<TargetResolution>;
+    23	  getActive: () => Promise<string>;
+    24	  setActive: (pointer: string) => Promise<void>;
+    25	  up: (compositionId: string) => Promise<unknown>;
+    26	  down: (compositionId: string) => Promise<unknown>;
+    27	}
+    28	
+    29	export interface TargetResolution {
+    30	  resolved: ResolvedComposition;
+    31	  issues: CapabilityIssue[];
+    32	}
+    33	
+    34	// Read a target composition's manifest and run the capability resolver over its
+    35	// selections WITHOUT installing or running anything. Throws when the manifest is
+    36	// missing/unreadable so the caller can surface a readable block message.
+    37	export async function resolveTargetComposition(pointer: string): Promise<TargetResolution> {
+    38	  const resolved = resolveCompositionPointer(pointer);
+    39	  const manifest = await readYamlFile<{
+    40	    "x-garrison"?: { composition?: { selections?: FittingSelectionMap } };
+    41	  }>(resolved.manifestPath);
+    42	  if (!manifest) {
+    43	    throw new Error(`composition manifest not found or unreadable at ${resolved.manifestPath}`);
+    44	  }
+    45	  const selections = manifest["x-garrison"]?.composition?.selections ?? {};
+    46	  const entries = await selectedLibraryEntries(selections);
+    47	  const { issues } = computeCapabilityResolution(entries);
+    48	  return { resolved, issues };
+    49	}
+    50	
+    51	export function formatResolverError(target: string, issues: CapabilityIssue[]): string {
+    52	  const lines = issues.map(
+    53	    (issue) => `  - ${issue.kind}${issue.name ? `:${issue.name}` : ""} (${issue.code}): ${issue.message}`
+    54	  );
+    55	  return `Cannot switch to "${target}" - capability resolution failed:\n${lines.join("\n")}`;
+    56	}
+    57	
+    58	// The real dependency set. up/down are lazy-imported so the heavy runner module
+    59	// (chokidar, spawn helpers, gateway logic) is only loaded when a switch actually
+    60	// runs - unit tests inject fakes and never touch the runner.
+    61	const defaultDeps: SwitchDeps = {
+    62	  resolveTarget: resolveTargetComposition,
+    63	  getActive: getActiveComposition,
+    64	  setActive: setActiveComposition,
+    65	  up: async (id) => (await import("./runner")).up(id),
+    66	  down: async (id) => (await import("./runner")).down(id)
+    67	};
+    68	
+    69	// Switch the active composition. Order (D6):
+    70	//   1. RESOLVE the target first. On any resolver error, return {ok:false} and
+    71	//      DO NOT touch running state or the pointer.
+    72	//   2. down() the current active composition.
+    73	//   3. set the pointer.
+    74	//   4. up() the new composition.
+    75	export async function switchComposition(
+    76	  target: string,
+    77	  overrides: Partial<SwitchDeps> = {}
+    78	): Promise<SwitchResult> {
+    79	  const deps: SwitchDeps = { ...defaultDeps, ...overrides };
+    80	  const pointer = (target ?? "").trim();
+    81	  if (pointer.length === 0) {
+    82	    return { ok: false, error: "no target composition given" };
+    83	  }
+    84	
+    85	  // External pointers are NOT runnable in v1. The runner resolves a composition
+    86	  // by id under compositions/, so an external apm.yml path would either fail to
+    87	  // run (no matching in-repo dir) or, worse, SILENTLY run a DIFFERENT in-repo
+    88	  // composition whose directory name collides with the external basename (and
+    89	  // record that in-repo composition's hash in run-evidence). Reject explicitly,
+    90	  // before touching any state, rather than running the wrong thing. Computed from
+    91	  // the pointer string itself (not the injectable resolver) so the guard cannot
+    92	  // be bypassed. The id-or-inside-compositions-path pointer contract is unchanged.
+    93	  if (resolveCompositionPointer(pointer).external) {
+    94	    return {
+    95	      ok: false,
+    96	      error: `Cannot switch to "${pointer}" - external composition paths are not runnable in v1. Copy it under compositions/<id>/apm.yml first, then switch by id.`
+    97	    };
+    98	  }
+    99	
+   100	  // 1. RESOLVE FIRST — nothing has changed yet.
+   101	  let resolution: TargetResolution;
+   102	  try {
+   103	    resolution = await deps.resolveTarget(pointer);
+   104	  } catch (err) {
+   105	    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+   106	  }
+   107	  if (resolution.issues.length > 0) {
+   108	    return { ok: false, error: formatResolverError(pointer, resolution.issues) };
+   109	  }
+   110	
+   111	  // 2. down the current active composition.
+   112	  const currentPointer = await deps.getActive();
+   113	  const currentId = resolveCompositionPointer(currentPointer).id;
+   114	  try {
+   115	    await deps.down(currentId);
+   116	  } catch (err) {
+   117	    // Surface the stop failure but leave the pointer on the current composition
+   118	    // rather than flipping it while the old operative is half-torn-down.
+   119	    return {
+   120	      ok: false,
+   121	      error: `failed to stop current composition "${currentId}": ${err instanceof Error ? err.message : String(err)}`
+   122	    };
+   123	  }
+   124	
+   125	  // 3. set the pointer.
+   126	  await deps.setActive(pointer);
+   127	
+   128	  // 4. up the new composition.
+   129	  try {
+   130	    await deps.up(resolution.resolved.id);
+   131	  } catch (err) {
+   132	    return {
+   133	      ok: false,
+   134	      id: resolution.resolved.id,
+   135	      error: `switched the pointer to "${resolution.resolved.id}" but starting it failed: ${err instanceof Error ? err.message : String(err)}`
+   136	    };
+   137	  }
+   138	
+   139	  return { ok: true, id: resolution.resolved.id };
+   140	}
+
+exec
+/usr/bin/zsh -lc 'nl -ba src/lib/active-composition.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import fs from "node:fs/promises";
+     2	import path from "node:path";
+     3	import { garrisonDir } from "./claude-home";
+     4	import { writeJsonAtomic } from "./atomic-write";
+     5	import { COMPOSITIONS_DIR } from "./paths";
+     6	import {
+     7	  DEFAULT_COMPOSITION_ID,
+     8	  getCompositionDirectory,
+     9	  getCompositionManifestPath
+    10	} from "./compositions";
+    11	
+    12	// The persisted active-composition pointer (WS4 / D6).
+    13	//
+    14	// Before this, "active" was a runtime heuristic (AppShell picked the running
+    15	// composition, else the first by sorted name). It now lives in
+    16	// ~/.garrison/config.json as a durable pointer so a switch survives reloads and
+    17	// a CLI can drive it. The pointer accepts BOTH a composition id (resolved under
+    18	// compositions/) AND a filesystem path to an apm.yml (or a dir containing one),
+    19	// per D6's "pointing at a different apm.yml".
+    20	//
+    21	// NOTE: this lives in active-composition.ts rather than garrison-config.ts
+    22	// because that module name is already taken by the unrelated ~/.garrison/
+    23	// config.yml url-scheme feature. Keeping the two concerns in separate modules
+    24	// avoids mixing a YAML url-scheme store with this JSON pointer store.
+    25	
+    26	export interface ActiveCompositionConfig {
+    27	  active_composition: string;
+    28	}
+    29	
+    30	export function activeCompositionConfigPath(): string {
+    31	  return path.join(garrisonDir(), "config.json");
+    32	}
+    33	
+    34	// Read the config, defaulting a missing/blank/corrupt file to the default
+    35	// composition pointer. Never throws — an unreadable config must not brick the
+    36	// app's ability to pick a composition.
+    37	export async function readActiveConfig(): Promise<ActiveCompositionConfig> {
+    38	  try {
+    39	    const raw = await fs.readFile(activeCompositionConfigPath(), "utf8");
+    40	    const parsed = JSON.parse(raw) as Partial<ActiveCompositionConfig>;
+    41	    const active =
+    42	      typeof parsed.active_composition === "string" && parsed.active_composition.trim().length > 0
+    43	        ? parsed.active_composition.trim()
+    44	        : DEFAULT_COMPOSITION_ID;
+    45	    return { active_composition: active };
+    46	  } catch {
+    47	    return { active_composition: DEFAULT_COMPOSITION_ID };
+    48	  }
+    49	}
+    50	
+    51	export async function getActiveComposition(): Promise<string> {
+    52	  return (await readActiveConfig()).active_composition;
+    53	}
+    54	
+    55	// Persist the active-composition pointer with an atomic write (temp-file+rename
+    56	// so a concurrent reader never catches a torn file). Preserves any other keys
+    57	// already present in the config document.
+    58	export async function setActiveComposition(idOrPath: string): Promise<void> {
+    59	  const value = (idOrPath ?? "").trim();
+    60	  if (value.length === 0) {
+    61	    throw new Error("active composition pointer cannot be empty");
+    62	  }
+    63	  let existing: Record<string, unknown> = {};
+    64	  try {
+    65	    const raw = await fs.readFile(activeCompositionConfigPath(), "utf8");
+    66	    const parsed = JSON.parse(raw);
+    67	    if (parsed && typeof parsed === "object") existing = parsed as Record<string, unknown>;
+    68	  } catch {
+    69	    existing = {};
+    70	  }
+    71	  await writeJsonAtomic(activeCompositionConfigPath(), { ...existing, active_composition: value });
+    72	}
+    73	
+    74	export interface ResolvedComposition {
+    75	  id: string;
+    76	  dir: string;
+    77	  manifestPath: string;
+    78	  // true when the pointer is a filesystem path OUTSIDE compositions/. The runner
+    79	  // resolves a composition by id under compositions/, so an external pointer can
+    80	  // only be run when its own directory basename also happens to name a
+    81	  // compositions/ entry. Callers surface this so the limitation is never silent.
+    82	  external: boolean;
+    83	}
+    84	
+    85	// Map a pointer to its resolved {id, dir, manifestPath}. A plain id (no path
+    86	// separator, not absolute, no .yml/.yaml suffix) resolves under compositions/;
+    87	// anything else is treated as a filesystem path to an apm.yml or a directory
+    88	// containing one. A path that lands on a DIRECT child of compositions/ is folded
+    89	// back to that child's id so the existing id-based runner path drives it.
+    90	export function resolveCompositionPointer(pointer: string): ResolvedComposition {
+    91	  const value = (pointer ?? "").trim() || DEFAULT_COMPOSITION_ID;
+    92	  const looksLikePath =
+    93	    value.includes("/") || value.includes(path.sep) || path.isAbsolute(value) || /\.ya?ml$/i.test(value);
+    94	
+    95	  if (!looksLikePath) {
+    96	    return {
+    97	      id: value,
+    98	      dir: getCompositionDirectory(value),
+    99	      manifestPath: getCompositionManifestPath(value),
+   100	      external: false
+   101	    };
+   102	  }
+   103	
+   104	  const abs = path.resolve(value);
+   105	  const isManifestFile = /\.ya?ml$/i.test(abs);
+   106	  const dir = isManifestFile ? path.dirname(abs) : abs;
+   107	  const manifestPath = isManifestFile ? abs : path.join(dir, "apm.yml");
+   108	
+   109	  const rel = path.relative(COMPOSITIONS_DIR, dir);
+   110	  const insideCompositions =
+   111	    rel.length > 0 && !rel.startsWith("..") && !path.isAbsolute(rel) && !rel.includes(path.sep);
+   112	
+   113	  return {
+   114	    id: insideCompositions ? rel : path.basename(dir),
+   115	    dir,
+   116	    manifestPath,
+   117	    external: !insideCompositions
+   118	  };
+   119	}
+   120	
+   121	// Convenience: the currently-active pointer, resolved.
+   122	export async function resolveActiveComposition(): Promise<ResolvedComposition> {
+   123	  return resolveCompositionPointer(await getActiveComposition());
+   124	}
+
+codex
+I’ve finished the clone/file-edit and active-composition files. The main thing I’m checking now is whether any lexical containment checks are followed by filesystem operations that can be raced, and whether “resolved first” truly remains valid after `down()`.
+exec
+/usr/bin/zsh -lc 'nl -ba fittings/seed/improver/lib/shadcn-patterns.mjs' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	// shadcn-patterns.mjs — the four patterns adopted from shadcn/improve (WS8/D10):
+     2	// evidence discipline (schema, in review-queue.mjs), the VET pass, the REJECTION
+     3	// LEDGER (reason + suppression), and RECONCILE (verify/refresh/retire). Pure
+     4	// helpers + small file-backed stores; the server + rules wire them in. The
+     5	// Improver never edits artifacts here — vet/reconcile only read cited locations
+     6	// and mutate the queue/ledger.
+     7	import { createHash } from "node:crypto";
+     8	import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, realpathSync } from "node:fs";
+     9	import os from "node:os";
+    10	import path from "node:path";
+    11	
+    12	export function improverDataDir() {
+    13	  return process.env.IMPROVER_DATA || path.join(os.homedir(), ".garrison", "improver");
+    14	}
+    15	function rejectionLedgerPath() {
+    16	  return path.join(improverDataDir(), "rejection-ledger.json");
+    17	}
+    18	
+    19	// ── evidence citation reading ────────────────────────────────────────────────
+    20	// A proposal's evidence is [{file, line, snippet?}]. reads the cited line and
+    21	// returns whether it still holds. `repoRoot` anchors relative file paths.
+    22	export function evidenceHolds(citation, repoRoot) {
+    23	  if (!citation || typeof citation.file !== "string") return true; // nothing to check
+    24	  const root = path.resolve(repoRoot || process.cwd());
+    25	  const abs = path.resolve(root, citation.file);
+    26	  // I4 containment: a citation may only point INSIDE the repo. An absolute or
+    27	  // ../-escaping path (e.g. "/etc/passwd", "../../.ssh/id_rsa") must NOT be read
+    28	  // — the vet/reconcile read would otherwise be an existence/snippet oracle for
+    29	  // arbitrary files. An out-of-root citation reads as "evidence does not hold",
+    30	  // which SAFELY drops the proposal (a false claim can't cite outside the repo).
+    31	  if (abs !== root && !abs.startsWith(root + path.sep)) return false;
+    32	  if (!existsSync(abs)) return false; // the cited file is gone → stale
+    33	  // Lexical containment is not enough: a SYMLINK inside the repo whose target is
+    34	  // outside would pass the prefix check but read the outside file. Realpath the
+    35	  // target and re-assert containment against the realpath'd root.
+    36	  let realRoot, realAbs;
+    37	  try {
+    38	    realRoot = realpathSync(root);
+    39	    realAbs = realpathSync(abs);
+    40	  } catch {
+    41	    return false;
+    42	  }
+    43	  if (realAbs !== realRoot && !realAbs.startsWith(realRoot + path.sep)) return false;
+    44	  let text;
+    45	  try { text = readFileSync(abs, "utf8"); } catch { return false; }
+    46	  const lines = text.split("\n");
+    47	  const ln = Number(citation.line);
+    48	  const hasLine = Number.isFinite(ln) && ln >= 1 && ln <= lines.length;
+    49	  if (citation.snippet) {
+    50	    // a claimed snippet is the strongest check. With a line, confirm it near
+    51	    // that line (± a small window for drift); without a usable line, the snippet
+    52	    // must appear somewhere in the file.
+    53	    if (hasLine) {
+    54	      const lo = Math.max(0, ln - 3), hi = Math.min(lines.length, ln + 2);
+    55	      return lines.slice(lo, hi).some((l) => l.includes(citation.snippet));
+    56	    }
+    57	    return text.includes(citation.snippet);
+    58	  }
+    59	  // no snippet: a claimed-but-invalid line is stale; a valid line or a bare
+    60	  // (file-only) citation for a file that exists holds.
+    61	  if (citation.line !== undefined) return hasLine;
+    62	  return true;
+    63	}
+    64	
+    65	export function proposalEvidenceHolds(proposal, repoRoot) {
+    66	  const ev = proposal?.citations;
+    67	  if (ev === undefined || ev === null) return true; // no evidence to vet (legacy)
+    68	  const list = Array.isArray(ev) ? ev : [ev];
+    69	  const citations = list.filter((c) => c && typeof c.file === "string");
+    70	  if (!citations.length) return true;
+    71	  return citations.every((c) => evidenceHolds(c, repoRoot));
+    72	}
+    73	
+    74	// ── pattern 2: VET pass ──────────────────────────────────────────────────────
+    75	// Re-read every cited location; DROP proposals whose evidence no longer holds.
+    76	// Returns { kept, dropped }. `log` receives one line per drop.
+    77	export function vetProposals(proposals, { repoRoot, log } = {}) {
+    78	  const kept = [], dropped = [];
+    79	  for (const p of proposals || []) {
+    80	    if (proposalEvidenceHolds(p, repoRoot)) {
+    81	      kept.push(p);
+    82	    } else {
+    83	      dropped.push(p);
+    84	      const first = (Array.isArray(p.citations) ? p.citations : [p.citations]).find((c) => c && c.file);
+    85	      const where = first ? `${first.file}:${first.line}` : "unknown";
+    86	      (log || console.error)(`vet: dropped ${p.id} — evidence stale at ${where}`);
+    87	    }
+    88	  }
+    89	  return { kept, dropped };
+    90	}
+    91	
+    92	// ── pattern 3: REJECTION LEDGER ──────────────────────────────────────────────
+    93	// A stable signature for "the same finding": rule + targetClass + a normalized
+    94	// claim (so a re-run that phrases the claim identically is suppressed).
+    95	export function proposalSignature(p) {
+    96	  const norm = String(p?.claim ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+    97	  const raw = `${p?.rule ?? ""} ${p?.targetClass ?? ""} ${norm}`;
+    98	  return createHash("sha256").update(raw).digest("hex").slice(0, 24);
+    99	}
+   100	
+   101	export function loadRejectionLedger() {
+   102	  const f = rejectionLedgerPath();
+   103	  if (!existsSync(f)) return { rejections: [] };
+   104	  let parsed;
+   105	  try {
+   106	    parsed = JSON.parse(readFileSync(f, "utf8"));
+   107	  } catch {
+   108	    // a corrupt (unparseable) ledger must NOT silently suppress nothing OR
+   109	    // clobber — refuse loudly.
+   110	    throw new Error(`rejection-ledger.json exists but is not valid JSON — refusing to use/overwrite it: ${f}`);
+   111	  }
+   112	  // a STRUCTURALLY wrong ledger ({"rejections":"oops"}, an array, …) is just as
+   113	  // dangerous as unparseable: treating it as empty would silently un-suppress
+   114	  // every prior rejection and then clobber the file. Refuse it too.
+   115	  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.rejections)) {
+   116	    throw new Error(`rejection-ledger.json is not a {rejections:[...]} object — refusing to use/overwrite it: ${f}`);
+   117	  }
+   118	  return parsed;
+   119	}
+   120	
+   121	function saveRejectionLedger(ledger) {
+   122	  const f = rejectionLedgerPath();
+   123	  mkdirSync(path.dirname(f), { recursive: true });
+   124	  const tmp = `${f}.tmp-${process.pid}`;
+   125	  writeFileSync(tmp, JSON.stringify(ledger, null, 2), "utf8");
+   126	  renameSync(tmp, f);
+   127	}
+   128	
+   129	// Record a rejection (idempotent by signature). Returns the updated ledger.
+   130	export function recordRejection(proposal, reason, at) {
+   131	  const ledger = loadRejectionLedger();
+   132	  const sig = proposalSignature(proposal);
+   133	  if (!ledger.rejections.some((r) => r.signature === sig)) {
+   134	    ledger.rejections.push({ signature: sig, id: proposal.id, rule: proposal.rule, targetClass: proposal.targetClass, reason: reason ?? null, at: at ?? null });
+   135	    saveRejectionLedger(ledger);
+   136	  }
+   137	  return ledger;
+   138	}
+   139	
+   140	export function isSuppressed(proposal, ledger) {
+   141	  const l = ledger ?? loadRejectionLedger();
+   142	  const sig = proposalSignature(proposal);
+   143	  return l.rejections.some((r) => r.signature === sig);
+   144	}
+   145	
+   146	// Filter a batch of fresh proposals against the ledger — a previously-rejected
+   147	// finding does not reappear. `log` receives one line per suppression.
+   148	export function suppressRejected(proposals, { ledger, log } = {}) {
+   149	  const l = ledger ?? loadRejectionLedger();
+   150	  const kept = [], suppressed = [];
+   151	  for (const p of proposals || []) {
+   152	    if (isSuppressed(p, l)) {
+   153	      suppressed.push(p);
+   154	      (log || (() => {}))(`suppress: ${p.id} — matches a prior rejection (not re-enqueued)`);
+   155	    } else {
+   156	      kept.push(p);
+   157	    }
+   158	  }
+   159	  return { kept, suppressed };
+   160	}
+   161	
+   162	// ── pattern 4: RECONCILE ─────────────────────────────────────────────────────
+   163	// Verify applied proposals still hold, refresh drifted pending ones, retire
+   164	// stale pending ones. Returns { verified, refreshed, retired, queue } and prints
+   165	// a summary via `log`. Non-destructive to applied history — retire only touches
+   166	// PENDING entries; verify/refresh annotate.
+   167	export function reconcile(queue, { repoRoot, ttlDays = 30, now, log } = {}) {
+   168	  const emit = log || console.log;
+   169	  const nowMs = now ? Date.parse(now) : (typeof now === "number" ? now : 0);
+   170	  let verified = 0, refreshed = 0, retired = 0;
+   171	  const out = (queue || []).map((p) => {
+   172	    if (p.status === "applied") {
+   173	      const holds = proposalEvidenceHolds(p, repoRoot);
+   174	      verified++;
+   175	      return { ...p, reconcile: { checkedAt: now ?? null, evidenceHolds: holds } };
+   176	    }
+   177	    if (p.status === "pending") {
+   178	      const holds = proposalEvidenceHolds(p, repoRoot);
+   179	      const ageMs = p.at && nowMs ? nowMs - Date.parse(p.at) : 0;
+   180	      const stale = !holds || (ttlDays > 0 && ageMs > ttlDays * 86400_000);
+   181	      if (stale) {
+   182	        retired++;
+   183	        return { ...p, status: "retired", retiredAt: now ?? null, retiredReason: !holds ? "evidence gone" : `pending > ${ttlDays}d` };
+   184	      }
+   185	      refreshed++;
+   186	      return { ...p, reconcile: { checkedAt: now ?? null, evidenceHolds: true } };
+   187	    }
+   188	    return p;
+   189	  });
+   190	  emit(`reconcile: verified ${verified} applied · refreshed ${refreshed} pending · retired ${retired} stale`);
+   191	  return { verified, refreshed, retired, queue: out };
+   192	}
+
+exec
+/usr/bin/zsh -lc 'nl -ba fittings/seed/garrison-assistant/lib/index-store.mjs' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	// index-store.mjs — the Answer-mode grounding index. Builds a section-level
+     2	// keyword index over docs/*.md plus every installed Fitting's SKILL.md /
+     3	// instructions / apm.yml summary, and answers a question by retrieving the
+     4	// best-matching sections WITH their source paths. No embeddings, no network —
+     5	// deterministic keyword+section retrieval so Answer is cheap, offline, and
+     6	// re-indexable on composition change.
+     7	import { readdirSync, readFileSync, statSync, lstatSync, existsSync } from "node:fs";
+     8	import path from "node:path";
+     9	
+    10	// Skip symlinks entirely (I2 containment): a symlink inside docs/ or a Fitting
+    11	// could point at an out-of-repo file (e.g. ~/.ssh/config) and leak it into a
+    12	// grounded answer. lstat does not follow the link, so a symlink is never
+    13	// indexed. Returns true when the entry is a real (non-symlink) path.
+    14	function isRealPath(abs) {
+    15	  try {
+    16	    return !lstatSync(abs).isSymbolicLink();
+    17	  } catch {
+    18	    return false;
+    19	  }
+    20	}
+    21	
+    22	const STOP = new Set([
+    23	  "the","a","an","of","to","in","is","it","and","or","for","on","with","as",
+    24	  "how","do","i","what","does","can","are","that","this","by","from","at","be",
+    25	  "you","your","its","use","using","when","where","which","not","no","yes"
+    26	]);
+    27	
+    28	export function tokenize(text) {
+    29	  return String(text || "")
+    30	    .toLowerCase()
+    31	    .replace(/[^a-z0-9]+/g, " ")
+    32	    .split(" ")
+    33	    .filter((w) => w.length > 2 && !STOP.has(w));
+    34	}
+    35	
+    36	// Split a markdown doc into (heading, body) sections.
+    37	function sectionsOf(markdown) {
+    38	  const lines = String(markdown).split("\n");
+    39	  const sections = [];
+    40	  let heading = "(intro)";
+    41	  let buf = [];
+    42	  const flush = () => {
+    43	    const body = buf.join("\n").trim();
+    44	    if (body || heading !== "(intro)") sections.push({ heading, body });
+    45	    buf = [];
+    46	  };
+    47	  for (const line of lines) {
+    48	    const m = /^#{1,4}\s+(.*)$/.exec(line);
+    49	    if (m) {
+    50	      flush();
+    51	      heading = m[1].trim();
+    52	    } else {
+    53	      buf.push(line);
+    54	    }
+    55	  }
+    56	  flush();
+    57	  return sections;
+    58	}
+    59	
+    60	function walkMarkdown(dir, out, repoRoot) {
+    61	  if (!existsSync(dir)) return;
+    62	  for (const name of readdirSync(dir)) {
+    63	    // Skip build/vendor dirs and the ephemeral autothing run logs — the latter
+    64	    // are transient per-run evidence, not durable docs, and would drown grounded
+    65	    // answers in run-specific noise (and bloat the index).
+    66	    if (name === "node_modules" || name === ".git" || name === "apm_modules" || name === "autothing") continue;
+    67	    const abs = path.join(dir, name);
+    68	    if (!isRealPath(abs)) continue; // never follow a symlink out of the repo
+    69	    let st;
+    70	    try { st = statSync(abs); } catch { continue; }
+    71	    if (st.isDirectory()) walkMarkdown(abs, out, repoRoot);
+    72	    else if (name.endsWith(".md")) out.push(path.relative(repoRoot, abs));
+    73	  }
+    74	}
+    75	
+    76	// Build the index. `repoRoot` anchors source paths; `docsRoot` is the docs dir;
+    77	// `fittingsDir` is scanned for SKILL.md / instructions / apm.yml summaries.
+    78	export function buildIndex({ repoRoot, docsRoot = "docs", fittingsDir = "fittings/seed" } = {}) {
+    79	  const root = repoRoot || process.cwd();
+    80	  const records = []; // { source, heading, body, tokens: Set }
+    81	  const add = (source, heading, body) => {
+    82	    const toks = new Set(tokenize(`${heading} ${body}`));
+    83	    if (toks.size) records.push({ source, heading, body: body.slice(0, 1200), tokens: toks });
+    84	  };
+    85	
+    86	  // 1. docs/*.md
+    87	  const docFiles = [];
+    88	  walkMarkdown(path.join(root, docsRoot), docFiles, root);
+    89	  for (const rel of docFiles) {
+    90	    const md = readFileSync(path.join(root, rel), "utf8");
+    91	    for (const s of sectionsOf(md)) add(rel, s.heading, s.body);
+    92	  }
+    93	
+    94	  // 2. each installed Fitting's SKILL.md / instructions / apm.yml summary
+    95	  const fdir = path.join(root, fittingsDir);
+    96	  if (existsSync(fdir)) {
+    97	    for (const id of readdirSync(fdir)) {
+    98	      const fpath = path.join(fdir, id);
+    99	      let st; try { st = statSync(fpath); } catch { continue; }
+   100	      if (!st.isDirectory()) continue;
+   101	      if (!isRealPath(fpath)) continue; // skip a symlinked fitting dir
+   102	      // apm.yml summary
+   103	      const apm = path.join(fpath, "apm.yml");
+   104	      if (existsSync(apm) && isRealPath(apm)) {
+   105	        const y = readFileSync(apm, "utf8");
+   106	        const sm = /summary:\s*([\s\S]*?)(?:\n\s{2}\w|\n\w)/.exec(y);
+   107	        add(`${fittingsDir}/${id}/apm.yml`, `${id} (Fitting)`, sm ? sm[1] : y.slice(0, 600));
+   108	      }
+   109	      // any SKILL.md under the fitting
+   110	      const skills = [];
+   111	      walkMarkdown(fpath, skills, root);
+   112	      for (const rel of skills) {
+   113	        if (!/SKILL\.md$|instructions|README/i.test(rel)) continue;
+   114	        const md = readFileSync(path.join(root, rel), "utf8");
+   115	        for (const s of sectionsOf(md)) add(rel, `${id}: ${s.heading}`, s.body);
+   116	      }
+   117	    }
+   118	  }
+   119	  return { records, builtAt: null, size: records.length };
+   120	}
+   121	
+   122	// Answer a question: score each section by token overlap, return the best
+   123	// sections + their sources. Deterministic; no network.
+   124	export function answer(index, question, { topK = 3 } = {}) {
+   125	  const qToks = tokenize(question);
+   126	  if (!qToks.length) return { answer: "Ask a question about Garrison.", sources: [], hits: [] };
+   127	  const scored = index.records
+   128	    .map((r) => {
+   129	      let score = 0;
+   130	      for (const t of qToks) if (r.tokens.has(t)) score += 1;
+   131	      // small boost when the heading itself matches
+   132	      const headToks = new Set(tokenize(r.heading));
+   133	      for (const t of qToks) if (headToks.has(t)) score += 1.5;
+   134	      return { r, score };
+   135	    })
+   136	    .filter((x) => x.score > 0)
+   137	    .sort((a, b) => b.score - a.score)
+   138	    .slice(0, topK);
+   139	
+   140	  if (!scored.length) {
+   141	    return { answer: `No indexed material matched "${question}".`, sources: [], hits: [] };
+   142	  }
+   143	  const sources = [...new Set(scored.map((x) => x.r.source))];
+   144	  const body = scored
+   145	    .map((x) => `## ${x.r.heading}\n${x.r.body.trim()}`)
+   146	    .join("\n\n");
+   147	  return {
+   148	    answer: `${body}\n\n— Grounded in: ${sources.join(", ")}`,
+   149	    sources,
+   150	    hits: scored.map((x) => ({ source: x.r.source, heading: x.r.heading, score: x.score }))
+   151	  };
+   152	}
+
+exec
+/usr/bin/zsh -lc 'rg -n "appendRawLibraryEntry|writeJsonAtomic|function writeJsonAtomic|export async function writeJsonAtomic|readRawLibrary|data/library" src/lib data tests' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+tests/claude-code-runtime.test.ts:61:    expect(entry, "claude-code-runtime should be in data/library.json").toBeTruthy();
+tests/claude-code-runtime.test.ts:69:      expect(ids.has(peer), `${peer} should be a selectable runtime in data/library.json`).toBe(true);
+tests/orchestrator-autonomy.test.ts:129:    const lib = JSON.parse(readFileSync(path.join(ROOT, "data/library.json"), "utf8"));
+tests/ea2-followups.test.ts:6:import { writeFileAtomic, writeJsonAtomic } from "@/lib/atomic-write";
+tests/ea2-followups.test.ts:43:    await writeJsonAtomic(p, { a: 1 });
+tests/ea2-followups.test.ts:47:  it("writeJsonAtomic honors an explicit 0600 on a new file", async () => {
+tests/ea2-followups.test.ts:49:    await writeJsonAtomic(p, { k: "v" }, { mode: 0o600 });
+tests/seed.test.ts:12:// data/library.json — they carry the dropped capability kinds and no longer
+tests/atomic-write.test.ts:5:import { writeFileAtomic, writeJsonAtomic, readFileTolerant } from "@/lib/atomic-write";
+tests/atomic-write.test.ts:69:  it("writeJsonAtomic pretty-prints with a trailing newline", async () => {
+tests/atomic-write.test.ts:71:    await writeJsonAtomic(target, { b: 2, a: 1 });
+src/lib/library.ts:27:export async function readRawLibrary(): Promise<RawLibraryEntry[]> {
+src/lib/library.ts:61:export async function appendRawLibraryEntry(entry: RawLibraryEntry): Promise<void> {
+src/lib/library.ts:63:    const entries = await readRawLibrary();
+src/lib/library.ts:73:  const entries = await readRawLibrary();
+src/lib/eager-boot.ts:2:import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+src/lib/eager-boot.ts:83:  await writeJsonAtomic(eagerBootPrefsPath(), prefs);
+src/lib/vault.ts:6:import { writeFileAtomic, writeJsonAtomic } from "./atomic-write";
+src/lib/vault.ts:404:  await writeJsonAtomic(vaultFilePath(), encrypted, { mode: 0o600 });
+tests/souls-assembly.test.ts:145:    // library browser (data/library.json) because its manifest declares capability
+src/lib/active-composition.ts:4:import { writeJsonAtomic } from "./atomic-write";
+src/lib/active-composition.ts:71:  await writeJsonAtomic(activeCompositionConfigPath(), { ...existing, active_composition: value });
+src/lib/clone.ts:7:  appendRawLibraryEntry,
+src/lib/clone.ts:10:  readRawLibrary,
+src/lib/clone.ts:96:  const entries = await readRawLibrary();
+src/lib/clone.ts:202:    await appendRawLibraryEntry(rawEntry);
+src/lib/parked-config.ts:3:import { writeJsonAtomic, readFileTolerant } from "./atomic-write";
+src/lib/parked-config.ts:46:  await writeJsonAtomic(parkedMcpPath(), map);
+src/lib/parked-config.ts:55:  await writeJsonAtomic(parkedHooksPath(), entries);
+src/lib/view-state.ts:3:import { writeJsonAtomic, readFileTolerant } from "./atomic-write";
+src/lib/view-state.ts:137:  await writeJsonAtomic(file, envelope);
+src/lib/atomic-write.ts:113:export async function writeJsonAtomic(
+src/lib/mcp-writer.ts:3:import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+src/lib/mcp-writer.ts:72:  await writeJsonAtomic(mcpPath(home), doc);
+src/lib/run-evidence.ts:4:import { writeJsonAtomic } from "./atomic-write";
+src/lib/run-evidence.ts:68:  await writeJsonAtomic(runEvidencePath(args.compositionDir), next);
+src/lib/plugin-writer.ts:4:import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+src/lib/plugin-writer.ts:76:  await writeJsonAtomic(manifestPath(home), { ...manifest, plugins: nextPlugins });
+src/lib/provenance.ts:3:import { writeJsonAtomic } from "./atomic-write";
+src/lib/provenance.ts:41:  await writeJsonAtomic(provenanceLedgerPath(), ledger);
+src/lib/promoted-overrides.ts:11:import { writeJsonAtomic, readFileTolerant } from "./atomic-write";
+src/lib/promoted-overrides.ts:56:  await writeJsonAtomic(promotedOverridesPath(), { setup } satisfies OverridesFile, { mode: 0o600 });
+tests/clone.test.ts:7:import { getLibraryEntry, readRawLibrary } from "@/lib/library";
+tests/clone.test.ts:11:// clone.test.ts owns the ONLY test writes to data/library.json. It snapshots the
+tests/clone.test.ts:85:    const raw = (await readRawLibrary()).find((e) => e.id === "s3ct-copy");
+tests/clone.test.ts:246:    const raw = await readRawLibrary();
+
+codex
+The two seed helpers include explicit symlink and ledger guards. I’m checking nearby library/atomic-write code now because clone correctness depends on whether registry writes are atomic and whether failed reads/writes can leave persistent metadata.
+exec
+/usr/bin/zsh -lc 'nl -ba src/lib/library.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import fs from "node:fs/promises";
+     2	import path from "node:path";
+     3	import { LIBRARY_PATH, ROOT_DIR } from "./paths";
+     4	import { parseGarrisonMetadata } from "./metadata";
+     5	import { writeFileAtomic } from "./atomic-write";
+     6	import type { LibraryEntry } from "./types";
+     7	import { readYamlFile } from "./yaml";
+     8	
+     9	export interface RawLibraryEntry {
+    10	  id: string;
+    11	  name: string;
+    12	  repo: string;
+    13	  localPath?: string;
+    14	  summary: string;
+    15	  platforms: string[];
+    16	  ratings?: LibraryEntry["ratings"];
+    17	  // Set on clones (S3): "<sourceId>@<version>" — the upstream this was copied
+    18	  // from. Carried through to the resolved LibraryEntry so the composer/editor
+    19	  // can mark it and read its clone.json drift baseline.
+    20	  cloned_from?: string;
+    21	}
+    22	
+    23	interface RawManifest {
+    24	  "x-garrison"?: unknown;
+    25	}
+    26	
+    27	export async function readRawLibrary(): Promise<RawLibraryEntry[]> {
+    28	  const raw = await fs.readFile(LIBRARY_PATH, "utf8");
+    29	  return JSON.parse(raw) as RawLibraryEntry[];
+    30	}
+    31	
+    32	export async function writeRawLibrary(entries: RawLibraryEntry[]): Promise<void> {
+    33	  // Match the existing on-disk style byte-for-byte: 1-space indent, non-ASCII
+    34	  // escaped to \uXXXX, no trailing newline. Keeps an append (e.g. a clone) to a
+    35	  // one-line diff instead of reformatting the whole registry.
+    36	  const json = JSON.stringify(entries, null, 1).replace(
+    37	    /[^\x00-\x7f]/g,
+    38	    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
+    39	  );
+    40	  // Atomic (temp + rename) so a concurrent reader never catches a torn file.
+    41	  await writeFileAtomic(LIBRARY_PATH, json);
+    42	}
+    43	
+    44	// Serialize read-modify-write of the registry. writeRawLibrary is atomic, so a
+    45	// reader never sees a torn file, but two concurrent appends could each read the
+    46	// pre-write registry and the second rename would drop the first's entry (lost
+    47	// update). This in-process queue makes each append's read+write one critical
+    48	// section. (Single-process app; a cross-process guard would need a file lock.)
+    49	let libraryWriteQueue: Promise<unknown> = Promise.resolve();
+    50	function withLibraryWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    51	  const run = libraryWriteQueue.then(fn, fn);
+    52	  libraryWriteQueue = run.then(
+    53	    () => undefined,
+    54	    () => undefined
+    55	  );
+    56	  return run;
+    57	}
+    58	
+    59	// Append a new entry (idempotent by id — a duplicate id throws so a clone can
+    60	// never silently overwrite an existing registry entry).
+    61	export async function appendRawLibraryEntry(entry: RawLibraryEntry): Promise<void> {
+    62	  return withLibraryWriteLock(async () => {
+    63	    const entries = await readRawLibrary();
+    64	    if (entries.some((e) => e.id === entry.id)) {
+    65	      throw new Error(`Library already has an entry with id ${entry.id}`);
+    66	    }
+    67	    entries.push(entry);
+    68	    await writeRawLibrary(entries);
+    69	  });
+    70	}
+    71	
+    72	export async function readLibrary(): Promise<LibraryEntry[]> {
+    73	  const entries = await readRawLibrary();
+    74	  const resolved = await Promise.all(entries.map(resolveLibraryEntry));
+    75	  return resolved.sort((left, right) => left.id.localeCompare(right.id));
+    76	}
+    77	
+    78	export async function getLibraryEntry(id: string): Promise<LibraryEntry | undefined> {
+    79	  const entries = await readLibrary();
+    80	  return entries.find((entry) => entry.id === id);
+    81	}
+    82	
+    83	async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry> {
+    84	  const manifestPath = entry.localPath
+    85	    ? path.join(ROOT_DIR, entry.localPath, "apm.yml")
+    86	    : undefined;
+    87	  if (!manifestPath) {
+    88	    throw new Error(`Library entry ${entry.id} does not have a localPath in v1 bootstrap mode`);
+    89	  }
+    90	  const manifest = await readYamlFile<RawManifest>(manifestPath);
+    91	  const metadata = parseGarrisonMetadata(manifest?.["x-garrison"]);
+    92	  return {
+    93	    ...entry,
+    94	    faculty: metadata.faculty,
+    95	    platforms: entry.platforms,
+    96	    ratings: entry.ratings ?? {},
+    97	    metadata,
+    98	    cloned_from: entry.cloned_from
+    99	  };
+   100	}
+
+exec
+/usr/bin/zsh -lc "nl -ba tests/clone.test.ts | sed -n '1,320p'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import fs from "node:fs/promises";
+     2	import os from "node:os";
+     3	import path from "node:path";
+     4	import { afterEach, beforeAll, describe, expect, it } from "vitest";
+     5	import { CloneError, cloneDrift, cloneFitting, readCloneProvenance } from "@/lib/clone";
+     6	import { FittingFileError, createFile, writeFile } from "@/lib/fitting-files";
+     7	import { getLibraryEntry, readRawLibrary } from "@/lib/library";
+     8	import { readYamlFile } from "@/lib/yaml";
+     9	import { ROOT_DIR } from "@/lib/paths";
+    10	
+    11	// clone.test.ts owns the ONLY test writes to data/library.json. It snapshots the
+    12	// registry once, and after each test restores that snapshot and deletes any
+    13	// temp clone dirs it created — so a failed assertion, or a parallel test file
+    14	// reading the registry, never sees a leftover clone. writeRawLibrary is atomic,
+    15	// so a concurrent reader never catches a torn file mid-write either.
+    16	
+    17	const LOCAL_DIR = path.join(ROOT_DIR, "fittings", "local");
+    18	const LIBRARY_PATH = path.join(ROOT_DIR, "data", "library.json");
+    19	const SOURCE_ID = "taste"; // small, stable seed skill Fitting
+    20	
+    21	let librarySnapshot: string;
+    22	const createdIds: string[] = [];
+    23	
+    24	// Clone into an explicit temp id and remember it for cleanup.
+    25	async function cloneTemp(sourceId: string, newId: string) {
+    26	  createdIds.push(newId);
+    27	  return cloneFitting(sourceId, { newId });
+    28	}
+    29	
+    30	beforeAll(async () => {
+    31	  librarySnapshot = await fs.readFile(LIBRARY_PATH, "utf8");
+    32	});
+    33	
+    34	afterEach(async () => {
+    35	  await fs.writeFile(LIBRARY_PATH, librarySnapshot, "utf8");
+    36	  while (createdIds.length) {
+    37	    const id = createdIds.pop()!;
+    38	    await fs.rm(path.join(LOCAL_DIR, id), { recursive: true, force: true }).catch(() => {});
+    39	  }
+    40	});
+    41	
+    42	describe("cloneFitting", () => {
+    43	  it("copies the source tree, writes provenance, and appends a resolvable library entry", async () => {
+    44	    const entry = await cloneTemp(SOURCE_ID, "s3ct-copy");
+    45	
+    46	    // The returned entry is a first-class, resolved LibraryEntry.
+    47	    expect(entry.id).toBe("s3ct-copy");
+    48	    expect(entry.localPath).toBe("fittings/local/s3ct-copy");
+    49	    expect(entry.repo).toBe("local:fittings/local/s3ct-copy");
+    50	    expect(entry.cloned_from).toBe("taste@0.1.0");
+    51	    // Metadata is derived from the copied apm.yml, so the clone lands in the
+    52	    // same Faculty as its source and is selectable exactly like any Fitting.
+    53	    expect(entry.faculty).toBe("design");
+    54	    expect(entry.metadata.component_shape).toBe("skill");
+    55	
+    56	    // Authored content came across, including the `.apm/` skill files.
+    57	    const cloneRoot = path.join(LOCAL_DIR, "s3ct-copy");
+    58	    for (const rel of [
+    59	      "apm.yml",
+    60	      "LICENSE",
+    61	      ".apm/skills/design-taste-frontend/SKILL.md",
+    62	      ".apm/skills/redesign-existing-projects/SKILL.md"
+    63	    ]) {
+    64	      await expect(fs.access(path.join(cloneRoot, rel))).resolves.toBeUndefined();
+    65	    }
+    66	
+    67	    // The manifest is re-keyed to the new id and its _local/ verify path is
+    68	    // repointed, so it installs/verifies as its own APM package.
+    69	    const manifest = await readYamlFile<{ name?: string; "x-garrison"?: { verify?: { command?: string } } }>(
+    70	      path.join(cloneRoot, "apm.yml")
+    71	    );
+    72	    expect(manifest?.name).toBe("s3ct-copy");
+    73	    expect(manifest?.["x-garrison"]?.verify?.command).toContain("_local/s3ct-copy/");
+    74	    expect(manifest?.["x-garrison"]?.verify?.command).not.toContain("_local/taste/");
+    75	
+    76	    // Provenance file records the pin + a non-empty per-file baseline.
+    77	    const prov = await readCloneProvenance("s3ct-copy");
+    78	    expect(prov?.cloned_from).toBe("taste@0.1.0");
+    79	    expect(typeof prov?.clonedAt).toBe("string");
+    80	    expect(Object.keys(prov?.files ?? {}).length).toBeGreaterThan(0);
+    81	    // clone.json is provenance, never part of the drift baseline.
+    82	    expect(prov?.files["clone.json"]).toBeUndefined();
+    83	
+    84	    // Registry entry is well-formed and resolveLibraryEntry loads it.
+    85	    const raw = (await readRawLibrary()).find((e) => e.id === "s3ct-copy");
+    86	    expect(raw).toMatchObject({
+    87	      id: "s3ct-copy",
+    88	      repo: "local:fittings/local/s3ct-copy",
+    89	      localPath: "fittings/local/s3ct-copy",
+    90	      cloned_from: "taste@0.1.0"
+    91	    });
+    92	    const resolved = await getLibraryEntry("s3ct-copy");
+    93	    expect(resolved?.id).toBe("s3ct-copy");
+    94	    expect(resolved?.faculty).toBe("design");
+    95	  });
+    96	
+    97	  it("defaults the new id to <source>-copy, then increments, and refuses a duplicate", async () => {
+    98	    // basic-memory keeps this independent of the committed taste-copy demo clone,
+    99	    // whose `-copy` slot is permanently taken.
+   100	    const first = await cloneFitting("basic-memory"); // no explicit id
+   101	    createdIds.push(first.id);
+   102	    expect(first.id).toBe("basic-memory-copy");
+   103	
+   104	    const second = await cloneFitting("basic-memory"); // -copy taken -> -copy-2
+   105	    createdIds.push(second.id);
+   106	    expect(second.id).toBe("basic-memory-copy-2");
+   107	
+   108	    await expect(
+   109	      cloneFitting("basic-memory", { newId: "basic-memory-copy" })
+   110	    ).rejects.toBeInstanceOf(CloneError);
+   111	  });
+   112	
+   113	  it("rejects an unknown source", async () => {
+   114	    await expect(cloneFitting("does-not-exist")).rejects.toBeInstanceOf(CloneError);
+   115	  });
+   116	});
+   117	
+   118	describe("cloneDrift", () => {
+   119	  it("is clean for an untouched clone and drifts on a local edit", async () => {
+   120	    await cloneTemp(SOURCE_ID, "s3ct-drift");
+   121	
+   122	    const before = await cloneDrift("s3ct-drift");
+   123	    expect(before.drifted).toEqual([]);
+   124	    expect(before.clean).toContain("apm.yml");
+   125	    expect(before.clean.length).toBeGreaterThan(0);
+   126	
+   127	    // Edit an existing baseline file directly on disk.
+   128	    const licensePath = path.join(LOCAL_DIR, "s3ct-drift", "LICENSE");
+   129	    await fs.appendFile(licensePath, "\n// local change\n", "utf8");
+   130	
+   131	    const after = await cloneDrift("s3ct-drift");
+   132	    expect(after.drifted).toContain("LICENSE");
+   133	    expect(after.clean).not.toContain("LICENSE");
+   134	  });
+   135	
+   136	  it("404s (throws CloneError) for a Fitting that is not a clone", async () => {
+   137	    await expect(cloneDrift(SOURCE_ID)).rejects.toBeInstanceOf(CloneError);
+   138	    expect(await readCloneProvenance(SOURCE_ID)).toBeNull();
+   139	  });
+   140	});
+   141	
+   142	describe("createFile", () => {
+   143	  it("creates a new file (mkdir -p parent) and it reads back as drift", async () => {
+   144	    await cloneTemp(SOURCE_ID, "s3ct-create");
+   145	
+   146	    const result = await createFile("s3ct-create", "notes/hello.md", "hi");
+   147	    expect(result.path).toBe("notes/hello.md");
+   148	    expect(result.size).toBe(2);
+   149	
+   150	    const onDisk = await fs.readFile(path.join(LOCAL_DIR, "s3ct-create", "notes/hello.md"), "utf8");
+   151	    expect(onDisk).toBe("hi");
+   152	
+   153	    // A brand-new file is not in the baseline, so clone-status flags it.
+   154	    const drift = await cloneDrift("s3ct-create");
+   155	    expect(drift.drifted).toContain("notes/hello.md");
+   156	  });
+   157	
+   158	  it("refuses to overwrite an existing file", async () => {
+   159	    await cloneTemp(SOURCE_ID, "s3ct-exists");
+   160	    await createFile("s3ct-exists", "notes/x.md", "one");
+   161	    await expect(createFile("s3ct-exists", "notes/x.md", "two")).rejects.toMatchObject({
+   162	      status: 409
+   163	    });
+   164	    // The overwrite endpoint's contract is unchanged: the original content stays.
+   165	    const onDisk = await fs.readFile(path.join(LOCAL_DIR, "s3ct-exists", "notes/x.md"), "utf8");
+   166	    expect(onDisk).toBe("one");
+   167	  });
+   168	
+   169	  it("rejects a path that escapes the fitting directory", async () => {
+   170	    await cloneTemp(SOURCE_ID, "s3ct-escape");
+   171	    await expect(createFile("s3ct-escape", "../escape.md", "x")).rejects.toMatchObject({
+   172	      status: 400
+   173	    });
+   174	    await expect(fs.access(path.join(LOCAL_DIR, "escape.md"))).rejects.toBeTruthy();
+   175	  });
+   176	
+   177	  it("rejects a blocked path segment", async () => {
+   178	    await cloneTemp(SOURCE_ID, "s3ct-blocked");
+   179	    await expect(createFile("s3ct-blocked", ".git/config", "x")).rejects.toMatchObject({
+   180	      status: 400
+   181	    });
+   182	    await expect(createFile("s3ct-blocked", ".apm/skills/evil/SKILL.md", "x")).rejects.toBeInstanceOf(
+   183	      FittingFileError
+   184	    );
+   185	  });
+   186	});
+   187	
+   188	describe("codex hardening — symlink safety + write serialization", () => {
+   189	  it("createFile refuses to write through a symlinked directory that escapes the root", async () => {
+   190	    const clone = await cloneTemp(SOURCE_ID, "s3ct-symdir");
+   191	    const cloneRoot = path.join(LOCAL_DIR, clone.id);
+   192	    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-outside-"));
+   193	    try {
+   194	      // A crafted clone could carry `out -> /somewhere/outside`.
+   195	      await fs.symlink(outside, path.join(cloneRoot, "out"), "dir");
+   196	      await expect(createFile(clone.id, "out/pwn.md", "x")).rejects.toMatchObject({ status: 400 });
+   197	      // The write never escaped.
+   198	      await expect(fs.access(path.join(outside, "pwn.md"))).rejects.toBeTruthy();
+   199	    } finally {
+   200	      await fs.rm(outside, { recursive: true, force: true });
+   201	    }
+   202	  });
+   203	
+   204	  it("writeFile refuses to overwrite through a symlink that escapes the root", async () => {
+   205	    const clone = await cloneTemp(SOURCE_ID, "s3ct-symfile");
+   206	    const cloneRoot = path.join(LOCAL_DIR, clone.id);
+   207	    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "s3ct-outside-"));
+   208	    try {
+   209	      const outsideFile = path.join(outside, "secret.txt");
+   210	      await fs.writeFile(outsideFile, "ORIGINAL", "utf8");
+   211	      await fs.symlink(outsideFile, path.join(cloneRoot, "link.txt"), "file");
+   212	      await expect(writeFile(clone.id, "link.txt", "HACKED")).rejects.toMatchObject({ status: 400 });
+   213	      expect(await fs.readFile(outsideFile, "utf8")).toBe("ORIGINAL");
+   214	    } finally {
+   215	      await fs.rm(outside, { recursive: true, force: true });
+   216	    }
+   217	  });
+   218	
+   219	  it("clones symlinked source content as real, independent bytes (dereference)", async () => {
+   220	    const src = await cloneTemp(SOURCE_ID, "s3ct-derefsrc");
+   221	    const srcRoot = path.join(LOCAL_DIR, src.id);
+   222	    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "TARGET BYTES", "utf8");
+   223	    await fs.symlink("real-target.txt", path.join(srcRoot, "linked.txt"), "file");
+   224	
+   225	    const clone = await cloneTemp(src.id, "s3ct-derefclone");
+   226	    const cloneLinked = path.join(LOCAL_DIR, clone.id, "linked.txt");
+   227	
+   228	    // In the clone it is a REAL file, not a symlink, carrying the target's bytes.
+   229	    const stat = await fs.lstat(cloneLinked);
+   230	    expect(stat.isSymbolicLink()).toBe(false);
+   231	    expect(stat.isFile()).toBe(true);
+   232	    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+   233	
+   234	    // Independent: mutating the upstream target does not change the clone.
+   235	    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "MOVED ON", "utf8");
+   236	    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+   237	  });
+   238	
+   239	  it("serializes concurrent library appends so no entry is lost", async () => {
+   240	    const ids = ["s3ct-conc-a", "s3ct-conc-b"];
+   241	    for (const id of ids) createdIds.push(id);
+   242	    await Promise.all([
+   243	      cloneFitting(SOURCE_ID, { newId: ids[0] }),
+   244	      cloneFitting(SOURCE_ID, { newId: ids[1] })
+   245	    ]);
+   246	    const raw = await readRawLibrary();
+   247	    expect(raw.find((e) => e.id === "s3ct-conc-a"), "first concurrent clone survived").toBeTruthy();
+   248	    expect(raw.find((e) => e.id === "s3ct-conc-b"), "second concurrent clone survived").toBeTruthy();
+   249	  });
+   250	});
+   251	
+   252	describe("copy independence", () => {
+   253	  it("an edit to the upstream source never changes the clone", async () => {
+   254	    // A mutable source: clone taste once to get a fixture we can freely edit
+   255	    // without touching the hash-pinned seed.
+   256	    const source = await cloneTemp(SOURCE_ID, "s3ct-src");
+   257	    const clone = await cloneTemp(source.id, "s3ct-fromsrc");
+   258	
+   259	    const cloneLicense = path.join(LOCAL_DIR, clone.id, "LICENSE");
+   260	    const original = await fs.readFile(cloneLicense, "utf8");
+   261	
+   262	    // Mutate the upstream fixture AFTER the clone was made.
+   263	    await fs.writeFile(path.join(LOCAL_DIR, source.id, "LICENSE"), "UPSTREAM MOVED ON", "utf8");
+   264	
+   265	    // The clone is a byte copy on its own inode — unaffected.
+   266	    expect(await fs.readFile(cloneLicense, "utf8")).toBe(original);
+   267	    const drift = await cloneDrift(clone.id);
+   268	    expect(drift.drifted).not.toContain("LICENSE");
+   269	  });
+   270	});
+
+exec
+/usr/bin/zsh -lc 'nl -ba src/lib/atomic-write.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import fs from "node:fs/promises";
+     2	import path from "node:path";
+     3	import crypto from "node:crypto";
+     4	
+     5	// Crash-safe, torn-read-safe file writes for the host-config surface.
+     6	//
+     7	// Garrison writes ~/.claude files immediately (no save buttons) and a narrow
+     8	// watcher may read settings.json the instant a write lands. A naive
+     9	// fs.writeFile truncates-then-writes, so a concurrent reader can catch an empty
+    10	// or partial file, and a crash mid-write loses the old contents. These helpers
+    11	// remove both hazards.
+    12	
+    13	export interface AtomicWriteOpts {
+    14	  encoding?: BufferEncoding;
+    15	  mode?: number;
+    16	  // Optimistic-concurrency guard. When set, the destination is re-read at the
+    17	  // TIGHTEST possible point — immediately before the rename — and if its current
+    18	  // content differs from `priorContent` the write is aborted (CasMismatchError,
+    19	  // temp file cleaned up) rather than clobbering a concurrent writer's change.
+    20	  // `priorContent: null` expects the file to be absent. This shrinks the
+    21	  // lost-update window for a shared file (e.g. ~/.claude.json, which a running
+    22	  // Claude Code rewrites) to the single read→rename syscall gap.
+    23	  cas?: { priorContent: string | null };
+    24	}
+    25	
+    26	export class CasMismatchError extends Error {
+    27	  constructor(message: string) {
+    28	    super(message);
+    29	    this.name = "CasMismatchError";
+    30	  }
+    31	}
+    32	
+    33	// Write `data` to `absPath` atomically: write a sibling temp file on the SAME
+    34	// filesystem as the (symlink-resolved) destination, fsync it, then rename over
+    35	// the target. rename(2) is atomic within a filesystem — a concurrent reader sees
+    36	// either the old complete file or the new complete file, never a torn one, and a
+    37	// crash leaves the previous file intact. Writing through a symlinked directory
+    38	// deploys into the real target (matching APM's verified `.claude` symlink
+    39	// write-through) while leaving the link itself intact.
+    40	export async function writeFileAtomic(
+    41	  absPath: string,
+    42	  data: string | Buffer,
+    43	  opts: AtomicWriteOpts = {}
+    44	): Promise<void> {
+    45	  const dir = path.dirname(absPath);
+    46	  await fs.mkdir(dir, { recursive: true });
+    47	  // Resolve symlinks in the directory so the temp file lands on the same device
+    48	  // as the final file — a cross-device rename would fail with EXDEV.
+    49	  const realDir = await fs.realpath(dir);
+    50	  const base = path.basename(absPath);
+    51	  const finalPath = path.join(realDir, base);
+    52	  const tmpPath = path.join(
+    53	    realDir,
+    54	    `.${base}.garrison-tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`
+    55	  );
+    56	
+    57	  // Mode resolution (EA2 fix): a temp-file+rename loses the destination's
+    58	  // permissions, which would WIDEN a 0600 secret file (e.g. vault.json) to 0644
+    59	  // on every autosave. So: an explicit opts.mode wins; otherwise preserve the
+    60	  // existing target's mode; otherwise fall back to 0644 for a brand-new file.
+    61	  // When a mode is determined (explicit or preserved) we fchmod after creating
+    62	  // the temp file so the result is EXACT regardless of the process umask.
+    63	  let exactMode: number | undefined = opts.mode;
+    64	  if (exactMode === undefined) {
+    65	    try {
+    66	      const st = await fs.stat(finalPath);
+    67	      exactMode = st.mode & 0o777;
+    68	    } catch {
+    69	      exactMode = undefined; // new file: take the open() default below (respects umask)
+    70	    }
+    71	  }
+    72	
+    73	  const fh = await fs.open(tmpPath, "w", exactMode ?? 0o644);
+    74	  try {
+    75	    await fh.writeFile(data, { encoding: opts.encoding ?? "utf8" });
+    76	    if (exactMode !== undefined) await fh.chmod(exactMode); // defeat umask -> exact perms
+    77	    await fh.sync();
+    78	  } finally {
+    79	    await fh.close();
+    80	  }
+    81	  // Optimistic-concurrency check at the tightest point: re-read the destination
+    82	  // immediately before the rename and abort if it changed since the caller read
+    83	  // it. This does NOT make the read→rename gap zero (a concurrent rename in that
+    84	  // microsecond window can still race), but it shrinks the lost-update window to
+    85	  // the minimum achievable without OS-level locking the other writer respects.
+    86	  if (opts.cas) {
+    87	    let current: string | null;
+    88	    try {
+    89	      current = await fs.readFile(finalPath, "utf8");
+    90	    } catch (err) {
+    91	      if ((err as NodeJS.ErrnoException).code === "ENOENT") current = null;
+    92	      else {
+    93	        await fs.rm(tmpPath, { force: true }).catch(() => {});
+    94	        throw err;
+    95	      }
+    96	    }
+    97	    if (current !== opts.cas.priorContent) {
+    98	      await fs.rm(tmpPath, { force: true }).catch(() => {});
+    99	      throw new CasMismatchError(`destination ${finalPath} changed since read — aborting to avoid a lost update`);
+   100	    }
+   101	  }
+   102	
+   103	  try {
+   104	    await fs.rename(tmpPath, finalPath);
+   105	  } catch (err) {
+   106	    await fs.rm(tmpPath, { force: true }).catch(() => {});
+   107	    throw err;
+   108	  }
+   109	}
+   110	
+   111	// Convenience: pretty-print + atomic-write a JSON document (trailing newline, the
+   112	// shape Claude Code itself writes).
+   113	export async function writeJsonAtomic(
+   114	  absPath: string,
+   115	  value: unknown,
+   116	  opts: AtomicWriteOpts = {}
+   117	): Promise<void> {
+   118	  await writeFileAtomic(absPath, `${JSON.stringify(value, null, 2)}\n`, opts);
+   119	}
+   120	
+   121	export interface TolerantReadResult {
+   122	  exists: boolean;
+   123	  text: string;
+   124	}
+   125	
+   126	export interface TolerantReadOpts {
+   127	  retries?: number;
+   128	  delayMs?: number;
+   129	  // Throw to signal the read is incomplete and should be retried — e.g. pass
+   130	  // `(t) => JSON.parse(t)` so a watcher that fires mid-write retries instead of
+   131	  // surfacing a truncated, unparseable read.
+   132	  validate?: (text: string) => void;
+   133	}
+   134	
+   135	const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+   136	
+   137	// Read a file that another writer may be replacing concurrently. ENOENT
+   138	// short-circuits to {exists:false}. On a read error or a `validate` failure,
+   139	// retry with linear backoff. After exhausting retries, return the last raw read
+   140	// if we got one (the bytes are real even if validation never passed), else
+   141	// rethrow.
+   142	export async function readFileTolerant(
+   143	  absPath: string,
+   144	  opts: TolerantReadOpts = {}
+   145	): Promise<TolerantReadResult> {
+   146	  const retries = opts.retries ?? 3;
+   147	  const delayMs = opts.delayMs ?? 15;
+   148	  let lastText: string | null = null;
+   149	  let lastErr: unknown = null;
+   150	  for (let attempt = 0; attempt <= retries; attempt++) {
+   151	    try {
+   152	      const text = await fs.readFile(absPath, "utf8");
+   153	      lastText = text;
+   154	      if (opts.validate) opts.validate(text); // throws -> retry
+   155	      return { exists: true, text };
+   156	    } catch (err) {
+   157	      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+   158	        return { exists: false, text: "" };
+   159	      }
+   160	      lastErr = err;
+   161	      if (attempt < retries) await sleep(delayMs * (attempt + 1));
+   162	    }
+   163	  }
+   164	  if (lastText !== null) return { exists: true, text: lastText };
+   165	  throw lastErr;
+   166	}
+
+exec
+/usr/bin/zsh -lc "rg -n \"createFile|writeFile\\(|readFile\\(|listDirectory|cloneFitting|switchComposition|resolveCompositionPointer|evidenceHolds|buildIndex|answer\\(\" tests src fittings -g '*.test.ts' -g '*.ts' -g '*.mjs'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+fittings/seed/coord-mcp/scripts/register-mcp.mjs:59:    const parsed = parseObjOrNull(await fsp.readFile(p, "utf8"));
+fittings/seed/coord-mcp/scripts/register-mcp.mjs:72:    await fsp.writeFile(p, JSON.stringify(root, null, 2));
+fittings/seed/coord-mcp/scripts/register-mcp.mjs:77:      await fsp.writeFile(p, JSON.stringify(root, null, 2));
+fittings/seed/improver/lib/reapply-sweep.mjs:44:    const parsed = JSON.parse(await readFile(queuePath, "utf8"));
+fittings/seed/improver/lib/reapply-sweep.mjs:56:    return { content: await readFile(targetFile, "utf8"), error: null };
+fittings/seed/improver/lib/snapshot.mjs:26:    content = await readFile(live, "utf8");
+fittings/seed/improver/lib/snapshot.mjs:33:  await writeFile(snapPath, content, "utf8");
+fittings/seed/improver/lib/snapshot.mjs:35:  await writeFile(
+fittings/seed/improver/lib/snapshot.mjs:51:  const snapContent = await readFile(snapPath, "utf8");
+fittings/seed/improver/lib/snapshot.mjs:54:  await writeFile(live, snapContent, "utf8");
+fittings/seed/improver/lib/snapshot.mjs:56:  const back = await readFile(live, "utf8");
+fittings/seed/improver/lib/snapshot.mjs:60:    const meta = JSON.parse(await readFile(path.join(dir, `${id}.meta.json`), "utf8"));
+tests/improver-nightly.test.ts:41:  await fs.writeFile(path.join(root, "docs", "GARRISON_ROADMAP.md"), "# Roadmap\n\n- TODO: review stale evidence.\n", "utf8");
+tests/improver-nightly.test.ts:42:  await fs.writeFile(path.join(root, "docs", "DECISIONS.md"), "# Decisions\n\n## Settled\n", "utf8");
+tests/improver-nightly.test.ts:43:  await fs.writeFile(path.join(root, "docs", "CLAUDE_CONFIG_PLANE_HANDOFF.md"), "# Handoff\n", "utf8");
+tests/improver-nightly.test.ts:44:  await fs.writeFile(path.join(root, "docs", "FLOW_PLAN.md"), "# Flow\n", "utf8");
+tests/improver-nightly.test.ts:45:  await fs.writeFile(path.join(root, "CLAUDE.md"), "# Claude\n", "utf8");
+tests/improver-nightly.test.ts:46:  await fs.writeFile(path.join(root, "docs", "autothing", "evidence-index.json"), "[]\n", "utf8");
+tests/improver-nightly.test.ts:47:  await fs.writeFile(path.join(root, "docs", "autothing", "evidence", "screen.png"), "png", "utf8");
+tests/improver-nightly.test.ts:48:  await fs.writeFile(path.join(root, "docs", "autothing", "slices", "S1", "gate-status.json"), "{}\n", "utf8");
+tests/improver-nightly.test.ts:49:  await fs.writeFile(path.join(root, "logs", "launchd-stdout.log"), "ok\nTOKEN_SECRET=abc\n", "utf8");
+tests/improver-nightly.test.ts:74:    await fs.writeFile(path.join(repoRoot, "data", "vault.json"), "{}", "utf8");
+tests/improver-nightly.test.ts:90:    expect(await fs.readFile(record.recordPath, "utf8")).toContain("\"vault-locked\"");
+tests/improver-nightly.test.ts:114:    const proposal = await fs.readFile(record.artifact.path, "utf8");
+tests/improver-nightly.test.ts:119:    const sidecar = JSON.parse(await fs.readFile(`${record.artifact.path}.meta.json`, "utf8"));
+fittings/seed/improver/lib/json-log.mjs:18:    const parsed = JSON.parse(await readFile(file, "utf8"));
+fittings/seed/improver/lib/json-log.mjs:30:    await writeFile(file, JSON.stringify(entries, null, 2) + "\n", "utf8");
+fittings/seed/coord-mcp/scripts/install-hook.mjs:59:  const settings = existed ? parseExistingOrThrow(await fsp.readFile(SETTINGS_PATH, "utf8")) : {};
+fittings/seed/coord-mcp/scripts/install-hook.mjs:70:  await fsp.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+fittings/seed/improver/lib/archive.mjs:18:    return JSON.parse(await readFile(file, "utf8"));
+fittings/seed/improver/lib/archive.mjs:26:  await writeFile(file, JSON.stringify(idx, null, 2) + "\n", "utf8");
+fittings/seed/improver/scripts/server.mjs:269:    const buf = await readFile(filePath);
+fittings/seed/improver/scripts/server.mjs:368:    await writeFile(
+fittings/seed/improver/lib/review-queue.mjs:16:    return JSON.parse(await readFile(file, "utf8"));
+fittings/seed/improver/lib/review-queue.mjs:24:  await writeFile(file, JSON.stringify(queue, null, 2) + "\n", "utf8");
+fittings/seed/improver/lib/review-queue.mjs:84:    return JSON.parse(await readFile(file, "utf8"));
+fittings/seed/improver/lib/review-queue.mjs:92:  await writeFile(file, JSON.stringify(state, null, 2) + "\n", "utf8");
+fittings/seed/improver/scripts/install-probe-hooks.mjs:66:  const originalText = existedBefore ? await fsp.readFile(SETTINGS_PATH, "utf8") : "";
+fittings/seed/improver/scripts/install-probe-hooks.mjs:68:    await fsp.writeFile(SNAPSHOT_PATH, originalText);
+fittings/seed/improver/scripts/install-probe-hooks.mjs:88:  await fsp.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+fittings/seed/improver/lib/apply-core.mjs:28:    content = await readFile(targetFile, "utf8");
+fittings/seed/improver/lib/apply-core.mjs:63:  await writeFile(plan.targetFile, plan.newContent, "utf8");
+fittings/seed/garrison-assistant/lib/index-store.mjs:78:export function buildIndex({ repoRoot, docsRoot = "docs", fittingsDir = "fittings/seed" } = {}) {
+fittings/seed/garrison-assistant/lib/index-store.mjs:124:export function answer(index, question, { topK = 3 } = {}) {
+fittings/seed/garrison-assistant/scripts/server.mjs:15:import { buildIndex, answer as answerFrom } from "../lib/index-store.mjs";
+fittings/seed/garrison-assistant/scripts/server.mjs:49:  if (!INDEX || force) INDEX = buildIndex({ repoRoot: repoRoot() });
+tests/documents-cli.test.ts:85:      await fs.readFile(path.join(namespaceDir, sidecarFiles[0]), "utf8")
+tests/artifact-store-cli.test.ts:75:      await fs.readFile(
+tests/artifact-store-cli.test.ts:173:    await fs.writeFile(
+tests/artifact-store-cli.test.ts:177:    await fs.writeFile(
+tests/runner-setup.test.ts:115:    await fs.writeFile(
+tests/runner-setup.test.ts:177:    await fs.writeFile(
+tests/runner-setup.test.ts:195:    await fs.writeFile(path.join(dir, ".garrison", "routing.json"), JSON.stringify({ version: 2, primaryRuntime: "  " }));
+fittings/seed/dev-env/scripts/uninstall-hooks.mjs:25:  const text = await fsp.readFile(SETTINGS_PATH, "utf8");
+fittings/seed/dev-env/scripts/uninstall-hooks.mjs:42:  await fsp.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+fittings/seed/dev-env/scripts/view-state.mjs:48:  await writeFile(tmp, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
+fittings/seed/dev-env/scripts/view-state.mjs:55:    const raw = await readFile(instanceFile(fittingId, instanceId), "utf8");
+tests/kanban-board-ui.test.ts:204:    await fs.writeFile(planPath, "# plan", "utf8");
+tests/kanban-board-ui.test.ts:332:    await fs.writeFile(f, "x", "utf8");
+fittings/seed/dev-env/scripts/install-hooks.mjs:76:  const originalText = existedBefore ? await fsp.readFile(SETTINGS_PATH, "utf8") : "";
+fittings/seed/dev-env/scripts/install-hooks.mjs:80:    await fsp.writeFile(SNAPSHOT_PATH, originalText);
+fittings/seed/dev-env/scripts/install-hooks.mjs:99:  await fsp.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+fittings/seed/dev-env/scripts/server.mjs:336:    const raw = await readFile(BROWSER_STATUS_FILE, "utf8");
+fittings/seed/dev-env/scripts/server.mjs:366:    const raw = await readFile(path.join(cwd, "app.port"), "utf8");
+fittings/seed/dev-env/scripts/server.mjs:843:  const raw = await readFile(VOICE_STATUS_FILE, "utf8");
+fittings/seed/dev-env/scripts/server.mjs:1002:  await writeFile(STATUS_FILE, JSON.stringify({
+fittings/seed/dev-env/scripts/state.mjs:230:  await writeFile(tmp, JSON.stringify(state, null, 2));
+fittings/seed/dev-env/scripts/state.mjs:871:    const raw = await readFile(DEV_ROOT_FILE, "utf8");
+fittings/seed/dev-env/scripts/state.mjs:880:  await writeFile(DEV_ROOT_FILE, String(value).trim() + "\n");
+tests/composition-switch.test.ts:11:  resolveCompositionPointer,
+tests/composition-switch.test.ts:16:  switchComposition,
+tests/composition-switch.test.ts:48:    const raw = await fs.readFile(activeCompositionConfigPath(), "utf8");
+tests/composition-switch.test.ts:54:    await fs.writeFile(
+tests/composition-switch.test.ts:60:    const parsed = JSON.parse(await fs.readFile(activeCompositionConfigPath(), "utf8"));
+tests/composition-switch.test.ts:71:    await fs.writeFile(activeCompositionConfigPath(), "not json at all", "utf8");
+tests/composition-switch.test.ts:76:describe("resolveCompositionPointer", () => {
+tests/composition-switch.test.ts:78:    const r = resolveCompositionPointer("router-v4");
+tests/composition-switch.test.ts:86:    const r = resolveCompositionPointer(path.join(COMPOSITIONS_DIR, "e2e-solo", "apm.yml"));
+tests/composition-switch.test.ts:92:    const r = resolveCompositionPointer("/tmp/somewhere/custom/apm.yml");
+tests/composition-switch.test.ts:100:    expect(resolveCompositionPointer("").id).toBe("default");
+tests/composition-switch.test.ts:104:describe("switchComposition — resolve-first discipline", () => {
+tests/composition-switch.test.ts:139:    const result = await switchComposition("bad", { ...deps, resolveTarget: badResolve });
+tests/composition-switch.test.ts:150:    const blocked = await switchComposition("bad", {
+tests/composition-switch.test.ts:168:    const result = await switchComposition("target", deps);
+tests/composition-switch.test.ts:175:    const result = await switchComposition("target", {
+tests/composition-switch.test.ts:188:describe("switchComposition — external pointers are not runnable (S4 codex finding)", () => {
+tests/composition-switch.test.ts:196:    await fs.writeFile(extManifest, "name: default\nversion: 9\n", "utf8");
+tests/composition-switch.test.ts:201:    const result = await switchComposition(extManifest, {
+tests/composition-switch.test.ts:228:    const result = await switchComposition("default", {
+tests/composition-switch.test.ts:266:    await fs.writeFile(p, body, "utf8");
+fittings/seed/file-browser/scripts/server.mjs:146:      const buf = await fh.readFile();
+fittings/seed/file-browser/scripts/server.mjs:150:    return send(res, 200, { path: rel, kind, encoding: "utf8", content: await fh.readFile("utf8") });
+fittings/seed/file-browser/scripts/server.mjs:171:    await writeFile(tmp, data);
+fittings/seed/file-browser/scripts/server.mjs:218:        const buf = await readFile(path.join(DIST, file));
+fittings/seed/file-browser/scripts/server.mjs:235:  await writeFile(
+fittings/seed/file-browser/scripts/server.mjs:260:    const tracked = JSON.parse(await readFile(STATUS_FILE, "utf8"));
+tests/scheduler-daemon.test.ts:128:        const content = await fs.readFile(env.LISTENER_LOG as string, "utf8");
+src/app/api/fittings/documents/[id]/route.ts:25:    const body = await fs.readFile(found.artifactPath, "utf8");
+src/app/api/fittings/documents/[id]/route.ts:46:    await fs.writeFile(found.artifactPath, payload.content, "utf8");
+src/app/api/fittings/documents/[id]/route.ts:51:    await fs.writeFile(
+fittings/seed/outpost-tailscale-host/scripts/server.mjs:331:  await writeFile(STATUS_FILE, JSON.stringify({
+fittings/seed/deepgram-voice/scripts/server.mjs:488:  await writeFile(
+fittings/seed/http-gateway/scripts/lib/jsonl-watcher.mjs:86:  const raw = await fsp.readFile(filePath, "utf8");
+fittings/seed/web-channel-default/scripts/threads.mjs:57:  await writeFile(tmp, JSON.stringify(obj, null, 2), "utf8");
+fittings/seed/web-channel-default/scripts/threads.mjs:82:async function readThreadFile(id) {
+fittings/seed/web-channel-default/scripts/threads.mjs:84:    const raw = await readFile(threadPath(id), "utf8");
+fittings/seed/web-channel-default/scripts/threads.mjs:106:    const thread = await readThreadFile(id);
+fittings/seed/web-channel-default/scripts/threads.mjs:117:  return readThreadFile(safe);
+fittings/seed/web-channel-default/scripts/threads.mjs:128:  const existing = await readThreadFile(safe);
+fittings/seed/web-channel-default/scripts/threads.mjs:161:  let thread = await readThreadFile(safe);
+fittings/seed/orchestrator/lib/routing-telemetry.mjs:70:    raw = await readFile(filePath, "utf8");
+fittings/seed/web-channel-default/scripts/server.mjs:507:    const content = await readFile(p, "utf8");
+fittings/seed/web-channel-default/scripts/server.mjs:528:    await writeFile(p, content, "utf8");
+fittings/seed/web-channel-default/scripts/server.mjs:743:    return JSON.parse(await readFile(STATUS_FILE, "utf8"));
+fittings/seed/web-channel-default/scripts/server.mjs:751:  await writeFile(STATUS_FILE, JSON.stringify({
+fittings/seed/http-gateway/scripts/lib/spawn-soul.mjs:380:  const contents = await fsp.readFile(sourcePath, "utf8");
+fittings/seed/http-gateway/scripts/lib/spawn-soul.mjs:381:  await fsp.writeFile(target, contents, "utf8");
+tests/hook-fitting-emission.test.ts:75:      await fsp.readFile(path.join(outDir, "imported-hook-sessionstart", "apm.yml"), "utf8")
+fittings/seed/http-gateway/scripts/gateway.mjs:288:  await fs.writeFile(filePath, JSON.stringify(cfg, null, 2), "utf8");
+fittings/seed/http-gateway/scripts/gateway.mjs:296:    const id = (await fs.readFile(filePath, "utf8")).trim();
+fittings/seed/http-gateway/scripts/gateway.mjs:305:  await fs.writeFile(filePath, id, "utf8");
+fittings/seed/http-gateway/scripts/gateway-pty.mjs:276:    await fs.writeFile(SESSION_ID_FILE, session?.getClaudeSessionId() ?? "continue", "utf8");
+fittings/seed/http-gateway/scripts/gateway-pty.mjs:712:  await fs.writeFile(target, buffer);
+fittings/seed/orchestrator/scripts/server.mjs:140:  await writeFile(tmp, bytes, "utf8");
+fittings/seed/orchestrator/scripts/server.mjs:154:  await writeFile(p, seed, "utf8");
+fittings/seed/orchestrator/scripts/server.mjs:183:  if (!existsSync(bak)) await writeFile(bak, JSON.stringify(parsed, null, 2) + "\n", "utf8");
+fittings/seed/orchestrator/scripts/server.mjs:187:  await writeFile(tmp, serialized, "utf8");
+fittings/seed/orchestrator/scripts/server.mjs:391:  await writeFile(cfgTmp, serialized, "utf8");
+fittings/seed/orchestrator/scripts/server.mjs:392:  await writeFile(polTmp, policyBytes, "utf8");
+fittings/seed/orchestrator/scripts/server.mjs:644:    const buf = await readFile(filePath);
+fittings/seed/orchestrator/scripts/server.mjs:733:    await writeFile(
+fittings/seed/orchestrator/scripts/check-routing.mjs:16:  const config = JSON.parse(await fs.readFile(CONFIG, "utf8"));
+tests/garrison-config.test.ts:26:  await fsp.writeFile(file, content);
+tests/primitive-files.test.ts:6:  createFilePrimitive,
+tests/primitive-files.test.ts:45:    const created = await createFilePrimitive("skill", "demo", "---\nname: demo\n---\n# demo\n");
+tests/primitive-files.test.ts:49:    const clobber = await createFilePrimitive("skill", "demo", "x");
+tests/primitive-files.test.ts:63:    await createFilePrimitive("command", "greet", "say hi");
+tests/primitive-files.test.ts:64:    await createFilePrimitive("rule", "style", "be terse");
+tests/primitive-files.test.ts:70:    expect((await createFilePrimitive("skill", "../escape", "x")).code).toBe("invalid");
+tests/primitive-files.test.ts:71:    expect((await createFilePrimitive("command", "a/b", "x")).code).toBe("invalid");
+tests/primitive-files.test.ts:76:    await createFilePrimitive("rule", "nl", "no newline");
+fittings/seed/orchestrator/provider-skills/provider-common.mjs:89:  await fs.writeFile(filePath, output, "utf8");
+fittings/seed/orchestrator/provider-skills/provider-common.mjs:100:  await fs.writeFile(`${filePath}.meta.json`, JSON.stringify(meta, null, 2), "utf8");
+tests/jsonl-watcher.test.ts:18:  await fsp.writeFile(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+tests/jsonl-watcher.test.ts:76:    await fsp.writeFile(
+fittings/seed/automations/lib/cache.mjs:21:    return JSON.parse(await fs.readFile(cacheFile(automationId), "utf8"));
+fittings/seed/automations/lib/cache.mjs:31:  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8");
+fittings/seed/automations/lib/store.mjs:37:      const raw = await fs.readFile(path.join(dir, file), "utf8");
+fittings/seed/automations/lib/store.mjs:49:    const raw = await fs.readFile(automationPath(id), "utf8");
+fittings/seed/automations/lib/store.mjs:63:  await fs.writeFile(automationPath(normalized.id), yaml.dump(normalized), "utf8");
+fittings/seed/automations/lib/store.mjs:89:  await fs.writeFile(runPath(record.id), JSON.stringify(record, null, 2), "utf8");
+fittings/seed/automations/lib/store.mjs:95:    return JSON.parse(await fs.readFile(runPath(runId), "utf8"));
+fittings/seed/automations/lib/store.mjs:113:      const rec = JSON.parse(await fs.readFile(path.join(runsDir(), file), "utf8"));
+fittings/seed/automations/lib/store.mjs:128:  await fs.writeFile(file, markdown, "utf8");
+tests/garrison-assistant.test.ts:28:    const { buildIndex, answer } = await importMjs("lib/index-store.mjs");
+tests/garrison-assistant.test.ts:29:    const index = buildIndex({ repoRoot: REPO_ROOT });
+tests/garrison-assistant.test.ts:38:      const a = answer(index, c.q);
+tests/garrison-assistant.test.ts:125:    const { buildIndex } = await importMjs("lib/index-store.mjs");
+tests/garrison-assistant.test.ts:136:    const index = buildIndex({ repoRoot: root });
+fittings/seed/automations/lib/command-shape.mjs:57:    const data = JSON.parse(await fs.readFile(approvedPath(), "utf8"));
+fittings/seed/automations/lib/command-shape.mjs:73:  await fs.writeFile(file, JSON.stringify({ shapes }, null, 2), "utf8");
+tests/runner-capabilities-block.test.ts:229:    const raw = await fs.readFile(
+tests/runner-capabilities-block.test.ts:246:      const raw = await fs.readFile(
+tests/ea2-followups.test.ts:30:    await fsp.writeFile(p, "old");
+tests/ea2-followups.test.ts:36:    expect(await fsp.readFile(p, "utf8")).toBe("new-contents");
+tests/ea2-followups.test.ts:41:    await fsp.writeFile(p, "x");
+tests/runner-prompt-substitution.test.ts:51:    const raw = await fs.readFile(ORCH_PROMPT, "utf8");
+tests/runner-prompt-substitution.test.ts:56:    const raw = await fs.readFile(ORCH_PROMPT, "utf8");
+tests/runner-prompt-substitution.test.ts:72:    const raw = await fs.readFile(ORCH_PROMPT, "utf8");
+tests/runner-prompt-substitution.test.ts:88:    const raw = await fs.readFile(ORCH_PROMPT, "utf8");
+tests/orchestrator-integration.test.ts:84:    const contents = await fs.readFile(promptPath, "utf8");
+tests/orchestrator-integration.test.ts:133:    const contents = await fs.readFile(memoryPath, "utf8");
+fittings/seed/automations/scripts/server.mjs:113:        const parsed = JSON.parse(await readFile(path.join(statusDir, name), "utf8"));
+fittings/seed/automations/scripts/server.mjs:304:        const body = await readFile(resolved, "utf8");
+fittings/seed/automations/scripts/server.mjs:311:          const index = await readFile(path.join(DIST, "index.html"), "utf8");
+fittings/seed/automations/scripts/server.mjs:342:  await writeFile(
+tests/improver-shadcn-patterns.test.ts:129:    const { evidenceHolds, proposalEvidenceHolds } = await patterns();
+tests/improver-shadcn-patterns.test.ts:130:    expect(evidenceHolds({ file: "/etc/passwd", line: 1 }, repoRoot)).toBe(false);
+tests/improver-shadcn-patterns.test.ts:131:    expect(evidenceHolds({ file: "../../../../etc/passwd", line: 1 }, repoRoot)).toBe(false);
+tests/improver-shadcn-patterns.test.ts:133:    expect(evidenceHolds({ file: "src/a.ts", line: 2, snippet: "readSecret" }, repoRoot)).toBe(true);
+tests/improver-shadcn-patterns.test.ts:139:    const { evidenceHolds } = await patterns();
+tests/improver-shadcn-patterns.test.ts:149:      expect(evidenceHolds({ file: "inside-link.txt", line: 1, snippet: "OUTSIDE_SECRET" }, repoRoot)).toBe(false);
+fittings/seed/coord-agentmail/scripts/start.mjs:158:  await fsp.writeFile(
+fittings/seed/coord-agentmail/scripts/register-mcp.mjs:63:    const parsed = parseObjOrNull(await fsp.readFile(p, "utf8"));
+fittings/seed/coord-agentmail/scripts/register-mcp.mjs:78:    await fsp.writeFile(p, JSON.stringify(root, null, 2));
+fittings/seed/coord-agentmail/scripts/register-mcp.mjs:83:      await fsp.writeFile(p, JSON.stringify(root, null, 2));
+fittings/seed/power-default/scripts/server.mjs:113:    return JSON.parse(await readFile(file, "utf8"));
+fittings/seed/power-default/scripts/server.mjs:131:  await writeFile(tmp, JSON.stringify(obj, null, 2), { mode: 0o600 });
+fittings/seed/power-default/scripts/server.mjs:172:    const raw = await readFile(LOG_FILE, "utf8");
+fittings/seed/power-default/scripts/server.mjs:678:  await writeFile(
+tests/fitting-files-api.test.ts:6:  listDirectory,
+tests/fitting-files-api.test.ts:19:    await fs.writeFile(TEMP_ABSOLUTE, "initial\n", "utf8");
+tests/fitting-files-api.test.ts:31:    const listing = await listDirectory("browser-default", "");
+tests/fitting-files-api.test.ts:43:    await expect(listDirectory("browser-default", "../etc")).rejects.toBeInstanceOf(FittingFileError);
+tests/fitting-files-api.test.ts:44:    await expect(listDirectory("browser-default", "../../../etc")).rejects.toMatchObject({ status: 400 });
+tests/fitting-files-api.test.ts:48:    const listing = await listDirectory(TEST_FITTING_ID, "");
+tests/fitting-files-api.test.ts:56:    const file = await readFile(TEST_FITTING_ID, "apm.yml");
+tests/fitting-files-api.test.ts:63:    await expect(readFile(TEST_FITTING_ID, "definitely-not-a-real-file.md")).rejects.toMatchObject({
+tests/fitting-files-api.test.ts:69:    await expect(readFile("not-a-real-fitting", "anything")).rejects.toMatchObject({ status: 404 });
+tests/fitting-files-api.test.ts:74:    const result = await writeFile(TEST_FITTING_ID, TEMP_RELATIVE, next);
+tests/fitting-files-api.test.ts:76:    const after = await readFile(TEST_FITTING_ID, TEMP_RELATIVE);
+tests/fitting-files-api.test.ts:82:      writeFile(TEST_FITTING_ID, ".does-not-exist.tmp", "no")
+tests/fitting-files-api.test.ts:87:    await expect(writeFile(TEST_FITTING_ID, "../escape.txt", "no")).rejects.toMatchObject({
+tests/fitting-files-api.test.ts:93:    await expect(writeFile(TEST_FITTING_ID, ".git/config", "no")).rejects.toMatchObject({
+tests/fitting-files-api.test.ts:97:      writeFile(TEST_FITTING_ID, "node_modules/something/index.js", "no")
+tests/spawn-tracked.test.ts:38:    const stdout = await fsp.readFile(result.stdoutPath, "utf8");
+tests/spawn-tracked.test.ts:39:    const stderr = await fsp.readFile(result.stderrPath, "utf8");
+tests/spawn-tracked.test.ts:40:    const meta: MetaJson = JSON.parse(await fsp.readFile(result.metaPath, "utf8"));
+tests/spawn-tracked.test.ts:67:    const stdout = await fsp.readFile(result.stdoutPath, "utf8");
+tests/spawn-tracked.test.ts:68:    const stderr = await fsp.readFile(result.stderrPath, "utf8");
+tests/spawn-tracked.test.ts:69:    const meta: MetaJson = JSON.parse(await fsp.readFile(result.metaPath, "utf8"));
+tests/spawn-tracked.test.ts:97:    const meta: MetaJson = JSON.parse(await fsp.readFile(result.metaPath, "utf8"));
+tests/clone.test.ts:5:import { CloneError, cloneDrift, cloneFitting, readCloneProvenance } from "@/lib/clone";
+tests/clone.test.ts:6:import { FittingFileError, createFile, writeFile } from "@/lib/fitting-files";
+tests/clone.test.ts:27:  return cloneFitting(sourceId, { newId });
+tests/clone.test.ts:31:  librarySnapshot = await fs.readFile(LIBRARY_PATH, "utf8");
+tests/clone.test.ts:35:  await fs.writeFile(LIBRARY_PATH, librarySnapshot, "utf8");
+tests/clone.test.ts:42:describe("cloneFitting", () => {
+tests/clone.test.ts:100:    const first = await cloneFitting("basic-memory"); // no explicit id
+tests/clone.test.ts:104:    const second = await cloneFitting("basic-memory"); // -copy taken -> -copy-2
+tests/clone.test.ts:109:      cloneFitting("basic-memory", { newId: "basic-memory-copy" })
+tests/clone.test.ts:114:    await expect(cloneFitting("does-not-exist")).rejects.toBeInstanceOf(CloneError);
+tests/clone.test.ts:142:describe("createFile", () => {
+tests/clone.test.ts:146:    const result = await createFile("s3ct-create", "notes/hello.md", "hi");
+tests/clone.test.ts:150:    const onDisk = await fs.readFile(path.join(LOCAL_DIR, "s3ct-create", "notes/hello.md"), "utf8");
+tests/clone.test.ts:160:    await createFile("s3ct-exists", "notes/x.md", "one");
+tests/clone.test.ts:161:    await expect(createFile("s3ct-exists", "notes/x.md", "two")).rejects.toMatchObject({
+tests/clone.test.ts:165:    const onDisk = await fs.readFile(path.join(LOCAL_DIR, "s3ct-exists", "notes/x.md"), "utf8");
+tests/clone.test.ts:171:    await expect(createFile("s3ct-escape", "../escape.md", "x")).rejects.toMatchObject({
+tests/clone.test.ts:179:    await expect(createFile("s3ct-blocked", ".git/config", "x")).rejects.toMatchObject({
+tests/clone.test.ts:182:    await expect(createFile("s3ct-blocked", ".apm/skills/evil/SKILL.md", "x")).rejects.toBeInstanceOf(
+tests/clone.test.ts:189:  it("createFile refuses to write through a symlinked directory that escapes the root", async () => {
+tests/clone.test.ts:196:      await expect(createFile(clone.id, "out/pwn.md", "x")).rejects.toMatchObject({ status: 400 });
+tests/clone.test.ts:210:      await fs.writeFile(outsideFile, "ORIGINAL", "utf8");
+tests/clone.test.ts:212:      await expect(writeFile(clone.id, "link.txt", "HACKED")).rejects.toMatchObject({ status: 400 });
+tests/clone.test.ts:213:      expect(await fs.readFile(outsideFile, "utf8")).toBe("ORIGINAL");
+tests/clone.test.ts:222:    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "TARGET BYTES", "utf8");
+tests/clone.test.ts:232:    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+tests/clone.test.ts:235:    await fs.writeFile(path.join(srcRoot, "real-target.txt"), "MOVED ON", "utf8");
+tests/clone.test.ts:236:    expect(await fs.readFile(cloneLinked, "utf8")).toBe("TARGET BYTES");
+tests/clone.test.ts:243:      cloneFitting(SOURCE_ID, { newId: ids[0] }),
+tests/clone.test.ts:244:      cloneFitting(SOURCE_ID, { newId: ids[1] })
+tests/clone.test.ts:260:    const original = await fs.readFile(cloneLicense, "utf8");
+tests/clone.test.ts:263:    await fs.writeFile(path.join(LOCAL_DIR, source.id, "LICENSE"), "UPSTREAM MOVED ON", "utf8");
+tests/clone.test.ts:266:    expect(await fs.readFile(cloneLicense, "utf8")).toBe(original);
+src/lib/library.ts:28:  const raw = await fs.readFile(LIBRARY_PATH, "utf8");
+src/lib/settings.ts:82:    const raw = await fs.readFile(lastSeenPath(), "utf8");
+src/lib/settings.ts:95:  await fs.writeFile(lastSeenPath(), `${JSON.stringify({ at, settings }, null, 2)}\n`, "utf8");
+src/lib/claude-settings-file.ts:64:    const bytes = await fs.readFile(p);
+src/lib/document-store.ts:52:        const raw = await fs.readFile(sidecarPath, "utf8");
+src/lib/document-store.ts:90:          await fs.readFile(sidecarPath, "utf8")
+fittings/seed/ports-default/scripts/server.mjs:109:      const raw = await readFile(path.join(STATUS_ROOT, entry.name), "utf8");
+fittings/seed/ports-default/scripts/server.mjs:349:  await writeFile(STATUS_FILE, JSON.stringify({
+src/lib/composition-switch.ts:6:  resolveCompositionPointer,
+src/lib/composition-switch.ts:38:  const resolved = resolveCompositionPointer(pointer);
+src/lib/composition-switch.ts:75:export async function switchComposition(
+src/lib/composition-switch.ts:93:  if (resolveCompositionPointer(pointer).external) {
+src/lib/composition-switch.ts:113:  const currentId = resolveCompositionPointer(currentPointer).id;
+src/lib/souls.ts:159:    modesJson = JSON.parse(await fs.readFile(path.join(modesDir, "modes.json"), "utf8"));
+src/lib/souls.ts:165:  const sharedVoice = await fs.readFile(
+src/lib/souls.ts:174:    const stance = await fs.readFile(path.join(modesDir, def.soulRef), "utf8");
+src/lib/souls.ts:177:    await fs.writeFile(promptPath, prompt, "utf8");
+src/lib/souls.ts:212:    baseOrchestrator = await fs.readFile(orchestratorPromptPath, "utf8");
+src/lib/souls.ts:217:  await fs.writeFile(orchestratorPath, composeOrchestratorPrompt(baseOrchestrator, tierByMode), "utf8");
+tests/e2e/fixtures/seed.ts:46:  await fsp.writeFile(TEST_STATE_FILE, JSON.stringify(state, null, 2));
+tests/model-router.test.ts:77:        .map(async (file) => fs.readFile(path.join(path.dirname(CONFIG), String(file)), "utf8").catch(() => ""))
+fittings/seed/screen-share-default/scripts/server.mjs:218:  await writeFile(STATUS_FILE, JSON.stringify({
+src/app/api/vault-sync/status/route.ts:14:    const raw = await fsp.readFile(STATUS_PATH, "utf8");
+tests/scheduler-cli.test.ts:95:    expect(await fs.readFile(env.MARKER_PATH, "utf8")).toBe("ran");
+src/lib/vault.ts:116:  const file = JSON.parse(await fs.readFile(vaultFilePath(), "utf8")) as VaultFile;
+src/lib/validation/fs-walk.ts:51:      content = await fs.readFile(absolutePath, "utf8");
+tests/project-config.test.ts:21:  await fsp.writeFile(path.join(dir, "README.md"), "x");
+tests/project-config.test.ts:41:    await fsp.writeFile(
+tests/project-config.test.ts:87:      await fsp.writeFile(path.join(tmpDir, ".env"), "PORT=8080\nFOO=bar\n");
+tests/project-config.test.ts:94:      await fsp.writeFile(
+src/lib/fitting-files.ts:104:export async function listDirectory(id: string, userPath = ""): Promise<DirectoryListing> {
+src/lib/fitting-files.ts:152:export async function readFile(id: string, userPath: string): Promise<FileContents> {
+src/lib/fitting-files.ts:172:  const buffer = await fs.readFile(target);
+src/lib/fitting-files.ts:180:export async function writeFile(id: string, userPath: string, content: string): Promise<{ path: string; size: number }> {
+src/lib/fitting-files.ts:202:  await fs.writeFile(target, content, "utf8");
+src/lib/fitting-files.ts:212:export async function createFile(
+src/lib/fitting-files.ts:242:  await fs.writeFile(target, content, "utf8");
+src/lib/clone.ts:90:    out[rel] = sha256(await fs.readFile(path.join(root, rel)));
+src/lib/clone.ts:140:export async function cloneFitting(
+src/lib/clone.ts:186:    await fs.writeFile(
+src/lib/clone.ts:221:    const parsed = JSON.parse(await fs.readFile(provPath, "utf8"));
+fittings/seed/browser-default/scripts/server.mjs:373:  await writeFile(STATUS_FILE, JSON.stringify({
+fittings/seed/browser-default/scripts/server.mjs:1384:    await writeFile(file, Buffer.from(data, "base64"));
+src/lib/quarters-runtimes.ts:179:    content = await fs.readFile(abs, "utf8");
+src/lib/plans.ts:59:    const content = await fs.readFile(p, "utf8");
+src/lib/claude-md.ts:42:    const content = await fs.readFile(p, "utf8");
+src/app/api/composition/active/route.ts:5:  resolveCompositionPointer
+src/app/api/composition/active/route.ts:16:    const resolved = resolveCompositionPointer(pointer);
+src/app/api/composition/active/route.ts:46:    const resolved = resolveCompositionPointer(pointer);
+fittings/seed/improver-nightly/scripts/improver.mjs:126:  await fs.writeFile(file, JSON.stringify(record, null, 2) + "\n", "utf8");
+fittings/seed/improver-nightly/scripts/improver.mjs:414:  await fs.writeFile(artifactPath, markdown, "utf8");
+fittings/seed/improver-nightly/scripts/improver.mjs:415:  await fs.writeFile(sidecarPath, JSON.stringify({
+fittings/seed/scheduler/scripts/scheduler.mjs:50:    const raw = await fs.readFile(JOBS_FILE, "utf8");
+fittings/seed/scheduler/scripts/scheduler.mjs:62:  await fs.writeFile(JOBS_FILE, JSON.stringify(jobs, null, 2) + "\n");
+src/app/api/power/heartbeat/route.ts:15:    const status = JSON.parse(await fs.readFile(statusFile, "utf8")) as { url?: string; port?: number };
+src/app/api/fittings/views/route.ts:43:      const raw = await readFile(path.join(dir, name), "utf8");
+fittings/seed/monitor-default/scripts/server.mjs:512:  await writeFile(STATUS_FILE, JSON.stringify({
+fittings/seed/kanban-loop/scripts/server.mjs:1498:        const text = await readFile(f, "utf8").catch(() => "");
+fittings/seed/kanban-loop/scripts/server.mjs:1515:        const text = await readFile(logFile, "utf8");
+fittings/seed/kanban-loop/scripts/server.mjs:1630:    await writeFile(confined, content, "utf8");
+fittings/seed/kanban-loop/scripts/server.mjs:1756:        const raw = await fs.readFile(path.join(dir, name), "utf8");
+fittings/seed/kanban-loop/scripts/server.mjs:1831:  await writeFile(STATUS_FILE, JSON.stringify({
+src/app/api/fittings/[id]/files/route.ts:2:import { FittingFileError, listDirectory } from "@/lib/fitting-files";
+src/app/api/fittings/[id]/files/route.ts:13:    const listing = await listDirectory(params.id, userPath);
+fittings/seed/modes/scripts/verify.mjs:11:// which then throws when runtime code (souls.ts) readFile()s it.
+src/lib/compositions.ts:202:    await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
+src/lib/compositions.ts:207:    await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
+src/lib/compositions.ts:221:  await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
+src/lib/compositions.ts:222:  await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
+src/lib/model-router.ts:188:  const raw = await fs.readFile(filePath, "utf8");
+src/lib/model-router.ts:195:  await fs.writeFile(filePath, `${stableJson(config)}\n`, "utf8");
+src/app/api/fittings/[id]/file/route.ts:2:import { FittingFileError, createFile, readFile, writeFile } from "@/lib/fitting-files";
+src/app/api/fittings/[id]/file/route.ts:13:    const result = await readFile(params.id, userPath);
+src/app/api/fittings/[id]/file/route.ts:32:    const result = await writeFile(params.id, userPath, content);
+src/app/api/fittings/[id]/file/route.ts:54:    const result = await createFile(params.id, userPath, content);
+src/lib/claude-install.ts:98:    const raw = await fs.readFile(installLockPath(opts), "utf8");
+src/lib/claude-install.ts:110:  await fs.writeFile(p, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+src/lib/claude-install.ts:130:  const buf = await fs.readFile(abs);
+src/lib/tours-registry.ts:100:      out.push(JSON.parse(await fs.readFile(path.join(dir, name), "utf8")));
+src/app/api/fittings/[id]/clone/route.ts:2:import { CloneError, cloneFitting } from "@/lib/clone";
+src/app/api/fittings/[id]/clone/route.ts:24:    const entry = await cloneFitting(params.id, { newId });
+src/lib/claude-install-source.ts:55:    lock = (yaml.load(await fs.readFile(lockPath, "utf8")) as ApmLock) ?? {};
+src/lib/claude-install-source.ts:83:    manifest = (yaml.load(await fs.readFile(apmPath, "utf8")) as typeof manifest) ?? null;
+src/lib/orchestrator-placement.ts:162:    modesJson = JSON.parse(await fs.readFile(path.join(opts.modesDir, "modes.json"), "utf8"));
+src/lib/orchestrator-placement.ts:186:  const sharedVoice = await fs.readFile(path.join(opts.modesDir, modesJson.sharedVoiceRef), "utf8");
+src/lib/orchestrator-placement.ts:187:  const stance = await fs.readFile(path.join(opts.modesDir, modesJson.modes[mode].soulRef), "utf8");
+src/lib/orchestrator-placement.ts:193:  await fs.writeFile(promptPath, prompt, "utf8");
+src/lib/orchestrator-placement.ts:208:    const routing = JSON.parse(await fs.readFile(opts.routingConfigPath, "utf8")) as {
+src/app/api/fittings/[id]/logs/route.ts:28:    const raw = await readFile(logPath, "utf8");
+src/lib/reconcile.ts:70:    settings = JSON.parse(await fsp.readFile(path.join(home, "settings.json"), "utf8"));
+src/lib/claude-scan.ts:82:  const buf = await fs.readFile(absPath);
+src/lib/claude-scan.ts:101:    const raw = await fs.readFile(path.join(home, "plugins", "installed_plugins.json"), "utf8");
+src/lib/claude-scan.ts:141:    const raw = await fs.readFile(path.join(home, "mcp.json"), "utf8");
+src/lib/internal-token.ts:40:      const existing = (await fs.readFile(file, "utf8")).trim();
+src/lib/internal-token.ts:52:  await fs.writeFile(file, token, { mode: 0o600 });
+src/lib/yaml.ts:6:    const raw = await fs.readFile(filePath, "utf8");
+src/lib/yaml.ts:25:  await fs.writeFile(filePath, raw, "utf8");
+src/lib/vault-audit.ts:51:    const raw = await fs.readFile(auditPath(), "utf8");
+src/lib/run-evidence.ts:37:    const raw = await fs.readFile(runEvidencePath(compositionDir), "utf8");
+src/lib/run-evidence.ts:60:  const manifest = await fs.readFile(args.manifestPath, "utf8");
+src/lib/runner.ts:339:      const assembled = await fs.readFile(promptPath, "utf8");
+src/lib/runner.ts:954:  const fallbackOrchestrator = await fs.readFile(
+src/lib/runner.ts:961:  const fallbackSoul = await fs.readFile(
+src/lib/runner.ts:996:  await fs.writeFile(promptPath, prompt, "utf8");
+src/lib/runner.ts:1040:      const parsed = JSON.parse(await fs.readFile(candidate, "utf8")) as { primaryRuntime?: unknown };
+src/lib/runner.ts:1063:    config = JSON.parse(await fs.readFile(scoped, "utf8"));
+src/lib/runner.ts:1066:      config = JSON.parse(await fs.readFile(SEED_ROUTING_PATH, "utf8"));
+src/lib/runner.ts:1104:    raw = await fs.readFile(scoped, "utf8");
+src/lib/runner.ts:1107:      raw = await fs.readFile(SEED_ROUTING_PATH, "utf8");
+src/lib/runner.ts:1258:    return fs.readFile(path.join(promptDir, promptFile), "utf8");
+src/lib/atomic-write.ts:75:    await fh.writeFile(data, { encoding: opts.encoding ?? "utf8" });
+src/lib/atomic-write.ts:89:      current = await fs.readFile(finalPath, "utf8");
+src/lib/atomic-write.ts:152:      const text = await fs.readFile(absPath, "utf8");
+src/lib/primitive-files.ts:77:    const content = await fs.readFile(abs, "utf8");
+src/lib/primitive-files.ts:84:export async function createFilePrimitive(
+src/lib/claude-workflows.ts:192:  const script = await fs.readFile(wf.absPath, "utf8");
+src/lib/keychain.ts:176:    const hex = (await fs.readFile(file, "utf8")).trim();
+src/lib/keychain.ts:183:  await fs.writeFile(file, fresh.toString("hex"), { mode: 0o600 });
+src/lib/provenance.ts:29:    const raw = await fs.readFile(provenanceLedgerPath(), "utf8");
+src/lib/claude-config-sync.ts:50:    else if (e.isFile()) out.push({ rel: path.relative(base, abs), sha: sha(await fs.readFile(abs)) });
+src/lib/claude-config-sync.ts:62:    else if (st.isFile()) map.set(sub, sha(await fs.readFile(abs)));
+src/lib/claude-config-sync.ts:125:  await fs.writeFile(p, BREADCRUMB_BODY, "utf8");
+src/lib/claude-json.ts:40:    const text = await fs.readFile(file, "utf8");
+src/lib/claude-json.ts:103:    return await fs.readFile(file, "utf8");
+src/lib/own-port-lifecycle.ts:243:    const raw = await readFile(spawnRecordPath(fittingId), "utf8");
+src/lib/own-port-lifecycle.ts:546:      const raw = await readFile(jsonPath, "utf8");
+src/lib/own-port-lifecycle.ts:711:    const raw = await readFile(jsonPath, "utf8");
+src/lib/active-composition.ts:39:    const raw = await fs.readFile(activeCompositionConfigPath(), "utf8");
+src/lib/active-composition.ts:65:    const raw = await fs.readFile(activeCompositionConfigPath(), "utf8");
+src/lib/active-composition.ts:90:export function resolveCompositionPointer(pointer: string): ResolvedComposition {
+src/lib/active-composition.ts:123:  return resolveCompositionPointer(await getActiveComposition());
+src/lib/orchestrator-projection.ts:96:  await fsp.writeFile(dest, opts.instructions, "utf8");
+src/lib/orchestrator-projection.ts:181:    existing = await fsp.readFile(target, "utf8");
+fittings/seed/kanban-loop/lib/board.mjs:21:  await fs.writeFile(tmp, JSON.stringify(obj, null, 2), "utf8");
+fittings/seed/kanban-loop/lib/board.mjs:26:  return JSON.parse(await fs.readFile(file, "utf8"));
+fittings/seed/kanban-loop/lib/board.mjs:182:      await fs.writeFile(lockPath, String(process.pid), { flag: "wx" });
+fittings/seed/kanban-loop/lib/board.mjs:189:        const owner = parseInt(await fs.readFile(lockPath, "utf8"), 10);
+fittings/seed/kanban-loop/lib/board.mjs:199:          const owner = parseInt(await fs.readFile(lockPath, "utf8").catch(() => ""), 10);
+fittings/seed/kanban-loop/lib/board.mjs:361:  await fs.writeFile(tmp, text.endsWith("\n") ? text : text + "\n", "utf8");
+src/lib/quarters.ts:14:  createFilePrimitive,
+src/lib/quarters.ts:148:      const r = fromFile(await createFilePrimitive(req.surface, req.name, req.content));
+src/app/api/composition/switch/route.ts:2:import { switchComposition } from "@/lib/composition-switch";
+src/app/api/composition/switch/route.ts:18:    const result = await switchComposition(target);
+
+codex
+I found a few concrete race and containment cases that survive the local guards. I’m doing one last pass to avoid reporting issues that are only theoretical or already prevented by call-site constraints.
+exec
+/usr/bin/zsh -lc "nl -ba tests/garrison-assistant.test.ts | sed -n '1,190p'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+     2	import os from "node:os";
+     3	import path from "node:path";
+     4	import { afterEach, beforeEach, describe, expect, it } from "vitest";
+     5	import { parseGarrisonMetadata } from "@/lib/metadata";
+     6	import { readYamlFile } from "@/lib/yaml";
+     7	
+     8	// The fitting ships as pure .mjs (runs under plain node); import via absolute path.
+     9	const FIT = path.resolve(__dirname, "..", "fittings", "seed", "garrison-assistant");
+    10	// eslint-disable-next-line
+    11	const importMjs = (rel: string): Promise<any> => import(path.join(FIT, rel));
+    12	
+    13	const REPO_ROOT = path.resolve(__dirname, "..");
+    14	
+    15	describe("garrison-assistant Fitting", () => {
+    16	  it("manifest parses as a sessions own-port Fitting consuming memory-store optionally", async () => {
+    17	    const manifest = await readYamlFile<{ "x-garrison"?: unknown }>(path.join(FIT, "apm.yml"));
+    18	    const m = parseGarrisonMetadata(manifest!["x-garrison"]);
+    19	    expect(m.faculty).toBe("sessions");
+    20	    expect(m.own_port).toBe(true);
+    21	    expect(m.consumes).toContainEqual({ kind: "memory-store", cardinality: "optional-one" });
+    22	    expect(m.verify?.command).toContain("--probe");
+    23	  });
+    24	});
+    25	
+    26	describe("Answer mode grounds answers in real sources", () => {
+    27	  it("answers three questions, each citing real source files", async () => {
+    28	    const { buildIndex, answer } = await importMjs("lib/index-store.mjs");
+    29	    const index = buildIndex({ repoRoot: REPO_ROOT });
+    30	    expect(index.size).toBeGreaterThan(20);
+    31	
+    32	    const cases = [
+    33	      { q: "what is the runtimes faculty", must: /FACULTIES|runtime/i },
+    34	      { q: "how do I use the taste Fitting", must: /taste/i },
+    35	      { q: "how does composition switching work", must: /composition|switch/i }
+    36	    ];
+    37	    for (const c of cases) {
+    38	      const a = answer(index, c.q);
+    39	      expect(a.sources.length, `${c.q} → sources`).toBeGreaterThan(0);
+    40	      // every cited source is a real repo file path
+    41	      for (const src of a.sources) {
+    42	        expect(() => readFileSync(path.join(REPO_ROOT, src), "utf8")).not.toThrow();
+    43	      }
+    44	      expect(a.answer).toMatch(c.must);
+    45	    }
+    46	  });
+    47	});
+    48	
+    49	describe("Guide mode launches tours by name", () => {
+    50	  it("resolves a known tour to a launch directive and fails loud on unknown", async () => {
+    51	    const { launchTour } = await importMjs("lib/tours.mjs");
+    52	    const launch = launchTour("switch-composition");
+    53	    expect(launch.launch).toBe(true);
+    54	    expect(launch.name).toBe("switch-composition");
+    55	    expect(launch.url).toContain("tour=switch-composition");
+    56	    expect(() => launchTour("does-not-exist")).toThrow(/unknown tour/);
+    57	  });
+    58	});
+    59	
+    60	describe("Build interview is adaptive and files provenance-assistant proposals", () => {
+    61	  let dataDir: string;
+    62	  beforeEach(() => {
+    63	    dataDir = mkdtempSync(path.join(os.tmpdir(), "gassist-"));
+    64	    process.env.IMPROVER_DATA = dataDir;
+    65	  });
+    66	  afterEach(() => {
+    67	    delete process.env.IMPROVER_DATA;
+    68	    rmSync(dataDir, { recursive: true, force: true });
+    69	  });
+    70	
+    71	  it("asks >=4 questions, adapts to answers, then files a skill + an automation proposal", async () => {
+    72	    const { nextStep } = await importMjs("lib/interview.mjs");
+    73	    const { fileProposals } = await importMjs("lib/proposals.mjs");
+    74	
+    75	    const answers: Array<{ id: string; text: string }> = [];
+    76	    const asked: string[] = [];
+    77	    let filed: Array<{ provenance: string; targetClass: string }> = [];
+    78	    for (let i = 0; i < 8; i++) {
+    79	      const step = nextStep(answers);
+    80	      if (step.done) {
+    81	        filed = fileProposals(step.proposals, "2026-07-12T20:30:00Z");
+    82	        break;
+    83	      }
+    84	      asked.push(step.question.id);
+    85	      const map: Record<string, string> = {
+    86	        daily: "run the test suite and review diffs",
+    87	        byhand: "ran lint and tests manually before every commit",
+    88	        repeat: "pull, install, typecheck, test, commit",
+    89	        byhand_detail: "on every commit"
+    90	      };
+    91	      answers.push({ id: step.question.id, text: map[step.question.id] ?? "x" });
+    92	    }
+    93	
+    94	    expect(asked.length).toBeGreaterThanOrEqual(4);
+    95	    // adaptive: the byhand="lint and tests" answer branches to the CI-specific follow-up
+    96	    expect(asked).toContain("byhand_detail");
+    97	
+    98	    expect(filed.length).toBe(2);
+    99	    expect(filed.every((p) => p.provenance === "assistant")).toBe(true);
+   100	    expect(filed.map((p) => p.targetClass)).toContain("quarters/skill");
+   101	    expect(filed.map((p) => p.targetClass)).toContain("automations/job");
+   102	
+   103	    // the proposals landed in the Improver review-queue.json the UI reads
+   104	    const queue = JSON.parse(readFileSync(path.join(dataDir, "review-queue.json"), "utf8"));
+   105	    expect(queue.filter((p: { provenance?: string }) => p.provenance === "assistant").length).toBe(2);
+   106	    expect(queue.every((p: { status?: string }) => p.status === "pending")).toBe(true);
+   107	  });
+   108	
+   109	  it("adapts differently for a non-CI by-hand answer", async () => {
+   110	    const { nextStep } = await importMjs("lib/interview.mjs");
+   111	    const answers = [
+   112	      { id: "daily", text: "write the weekly status report" },
+   113	      { id: "byhand", text: "wrote the status summary for the team" },
+   114	      { id: "repeat", text: "collect, summarize, send" }
+   115	    ];
+   116	    const step = nextStep(answers);
+   117	    expect(step.done).toBe(false);
+   118	    expect(step.question.id).toBe("byhand_detail");
+   119	    expect(step.question.q).toMatch(/report|reads it/i);
+   120	  });
+   121	});
+   122	
+   123	describe("hardening (S5 codex findings)", () => {
+   124	  it("I2: the index never follows a symlink out of the repo", async () => {
+   125	    const { buildIndex } = await importMjs("lib/index-store.mjs");
+   126	    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } = await import("node:fs");
+   127	    const os = await import("node:os");
+   128	    const p = await import("node:path");
+   129	    const root = mkdtempSync(p.join(os.tmpdir(), "idx-"));
+   130	    mkdirSync(p.join(root, "docs"));
+   131	    mkdirSync(p.join(root, "fittings", "seed"), { recursive: true });
+   132	    writeFileSync(p.join(root, "docs", "real.md"), "# Real\nlegit content here indexed");
+   133	    const secret = p.join(root, "SECRET.md");
+   134	    writeFileSync(secret, "# secret\ntoken sekritvalue leak");
+   135	    try { symlinkSync(secret, p.join(root, "docs", "leak.md")); } catch { /* platform w/o symlink */ }
+   136	    const index = buildIndex({ repoRoot: root });
+   137	    const joined = index.records.map((r: {source:string}) => r.source).join("|");
+   138	    expect(joined).toContain("docs/real.md");
+   139	    expect(joined).not.toContain("leak.md"); // the symlink was skipped
+   140	    expect(index.records.some((r: {body:string}) => /sekritvalue/.test(r.body))).toBe(false);
+   141	    rmSync(root, { recursive: true, force: true });
+   142	  });
+   143	
+   144	  it("I5: fileProposals refuses to overwrite a corrupt queue (never data-loss)", async () => {
+   145	    const { fileProposals } = await importMjs("lib/proposals.mjs");
+   146	    const { mkdtempSync, writeFileSync, readFileSync } = await import("node:fs");
+   147	    const os = await import("node:os");
+   148	    const p = await import("node:path");
+   149	    const dir = mkdtempSync(p.join(os.tmpdir(), "q-"));
+   150	    process.env.IMPROVER_DATA = dir;
+   151	    const qf = p.join(dir, "review-queue.json");
+   152	    writeFileSync(qf, "{ this is not json");
+   153	    const candidate = { kind: "skill", targetClass: "quarters/skill", title: "x", claim: "x", draft: { name: "x" } };
+   154	    expect(() => fileProposals([candidate], "2026-07-12T00:00:00Z")).toThrow(/refusing to overwrite/);
+   155	    // the corrupt file is untouched (not clobbered)
+   156	    expect(readFileSync(qf, "utf8")).toBe("{ this is not json");
+   157	    delete process.env.IMPROVER_DATA;
+   158	  });
+   159	});
+   160	
+   161	describe("I4: malformed interview input is a 400, never an uncaught 500", () => {
+   162	  it("rejects a non-array and a bad element with 400", async () => {
+   163	    const { createServer } = await importMjs("scripts/server.mjs");
+   164	    const http = await import("node:http");
+   165	    const server = createServer();
+   166	    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+   167	    const port = (server.address() as { port: number }).port;
+   168	
+   169	    const post = (body: string): Promise<number> =>
+   170	      new Promise((resolve) => {
+   171	        const req = http.request(
+   172	          { host: "127.0.0.1", port, path: "/interview/next", method: "POST", headers: { "content-type": "application/json" } },
+   173	          (res) => { res.resume(); resolve(res.statusCode ?? 0); }
+   174	        );
+   175	        req.end(body);
+   176	      });
+   177	
+   178	    expect(await post('{"answers":[null]}')).toBe(400);
+   179	    expect(await post('{"answers":"x"}')).toBe(400);
+   180	    // an element with a non-string text must not reach interview.mjs .toLowerCase() (500)
+   181	    expect(await post('{"answers":[{"id":"byhand","text":{"bad":true}}]}')).toBe(400);
+   182	    expect(await post('{"answers":[]}')).toBe(200); // valid empty → first question
+   183	    await new Promise<void>((r) => server.close(() => r()));
+   184	  });
+   185	});
+
+exec
+/usr/bin/zsh -lc "nl -ba tests/improver-shadcn-patterns.test.ts | sed -n '1,210p'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+     2	import os from "node:os";
+     3	import path from "node:path";
+     4	import { pathToFileURL } from "node:url";
+     5	import { afterEach, beforeEach, describe, expect, it } from "vitest";
+     6	
+     7	const REPO = path.resolve(__dirname, "..");
+     8	// eslint-disable-next-line
+     9	const patterns = (): Promise<any> =>
+    10	  import(pathToFileURL(path.join(REPO, "fittings/seed/improver/lib/shadcn-patterns.mjs")).href);
+    11	// eslint-disable-next-line
+    12	const rq = (): Promise<any> =>
+    13	  import(pathToFileURL(path.join(REPO, "fittings/seed/improver/lib/review-queue.mjs")).href);
+    14	
+    15	let dataDir: string;
+    16	let repoRoot: string;
+    17	beforeEach(() => {
+    18	  dataDir = mkdtempSync(path.join(os.tmpdir(), "imp-"));
+    19	  process.env.IMPROVER_DATA = dataDir;
+    20	  repoRoot = mkdtempSync(path.join(os.tmpdir(), "repo-"));
+    21	  mkdirSync(path.join(repoRoot, "src"), { recursive: true });
+    22	  writeFileSync(path.join(repoRoot, "src", "a.ts"), "line1\nconst leak = readSecret();\nline3\n");
+    23	});
+    24	afterEach(() => {
+    25	  delete process.env.IMPROVER_DATA;
+    26	  rmSync(dataDir, { recursive: true, force: true });
+    27	  rmSync(repoRoot, { recursive: true, force: true });
+    28	});
+    29	
+    30	describe("pattern 1 — evidence discipline (enqueue preserves evidence + confidence)", () => {
+    31	  it("a proposal's file:line evidence and confidence survive enqueue; legacy proposals still load", async () => {
+    32	    const { enqueue } = await rq();
+    33	    const withEv = enqueue([], {
+    34	      id: "p1", rule: "correctness", targetClass: "code", claim: "x", diff: "d", decision: "?", applyVia: "v", at: "t",
+    35	      citations: [{ file: "src/a.ts", line: 2, snippet: "readSecret" }], confidence: "high"
+    36	    });
+    37	    expect(withEv[0].citations).toEqual([{ file: "src/a.ts", line: 2, snippet: "readSecret" }]);
+    38	    expect(withEv[0].confidence).toBe("high");
+    39	    // legacy proposal (no evidence) — unaffected
+    40	    const legacy = enqueue([], { id: "p2", rule: "r", targetClass: "c", claim: "x", diff: "d", decision: "?", applyVia: "v", at: "t" });
+    41	    expect(legacy[0].citations).toBeUndefined();
+    42	    expect(legacy[0].confidence).toBeUndefined();
+    43	  });
+    44	});
+    45	
+    46	describe("pattern 2 — vet pass drops proposals whose evidence no longer holds", () => {
+    47	  it("keeps a proposal whose cited snippet is present; DROPS a planted false-positive", async () => {
+    48	    const { vetProposals } = await patterns();
+    49	    const good = { id: "good", claim: "real", citations: [{ file: "src/a.ts", line: 2, snippet: "readSecret" }] };
+    50	    const falsePositive = { id: "planted-fp", claim: "bogus", citations: [{ file: "src/a.ts", line: 2, snippet: "THIS_STRING_IS_NOT_THERE" }] };
+    51	    const missingFile = { id: "gone", claim: "x", citations: [{ file: "src/deleted.ts", line: 1 }] };
+    52	    const logs: string[] = [];
+    53	    const { kept, dropped } = vetProposals([good, falsePositive, missingFile], { repoRoot, log: (m: string) => logs.push(m) });
+    54	    expect(kept.map((p: { id: string }) => p.id)).toEqual(["good"]);
+    55	    expect(dropped.map((p: { id: string }) => p.id).sort()).toEqual(["gone", "planted-fp"]);
+    56	    expect(logs.join("\n")).toMatch(/vet: dropped planted-fp — evidence stale at src\/a\.ts:2/);
+    57	  });
+    58	});
+    59	
+    60	describe("pattern 3 — rejection ledger: a rejected finding does not reappear", () => {
+    61	  it("records a reject with a reason and suppresses the same finding on the next run", async () => {
+    62	    const { recordRejection, suppressRejected, isSuppressed } = await patterns();
+    63	    const proposal = { id: "feedback-x", rule: "feedback", targetClass: "orchestrator/policy", claim: "step X up" };
+    64	
+    65	    // RUN 1: the finding is fresh — not suppressed.
+    66	    const before = suppressRejected([proposal]);
+    67	    expect(before.kept.map((p: { id: string }) => p.id)).toEqual(["feedback-x"]);
+    68	
+    69	    // human rejects it WITH A REASON.
+    70	    recordRejection(proposal, "not worth it — X is intentionally lightweight", "2026-07-12T00:00:00Z");
+    71	    expect(isSuppressed(proposal)).toBe(true);
+    72	
+    73	    // RUN 2: the SAME finding (even re-phrased identically, new id) is suppressed.
+    74	    const rerun = { id: "feedback-x-run2", rule: "feedback", targetClass: "orchestrator/policy", claim: "Step X Up" };
+    75	    const after = suppressRejected([rerun]);
+    76	    expect(after.kept).toEqual([]);
+    77	    expect(after.suppressed.map((p: { id: string }) => p.id)).toEqual(["feedback-x-run2"]);
+    78	
+    79	    // the ledger persisted the reason
+    80	    const ledger = JSON.parse(readFileSync(path.join(dataDir, "rejection-ledger.json"), "utf8"));
+    81	    expect(ledger.rejections[0].reason).toContain("not worth it");
+    82	  });
+    83	
+    84	  it("markRejected persists the rejection reason on the proposal", async () => {
+    85	    const { markRejected } = await rq();
+    86	    const q = markRejected([{ id: "a", status: "pending" }], "a", "2026-07-12T00:00:00Z", "duplicate");
+    87	    expect(q[0].status).toBe("rejected");
+    88	    expect(q[0].rejectionReason).toBe("duplicate");
+    89	  });
+    90	});
+    91	
+    92	describe("pattern 4 — reconcile verifies applied, refreshes drifted, retires stale", () => {
+    93	  it("verifies applied entries, refreshes valid pending, retires evidence-gone + over-TTL pending", async () => {
+    94	    const { reconcile } = await patterns();
+    95	    const queue = [
+    96	      { id: "applied-ok", status: "applied", citations: [{ file: "src/a.ts", line: 2, snippet: "readSecret" }] },
+    97	      { id: "pending-ok", status: "pending", at: "2026-07-12T00:00:00Z", citations: [{ file: "src/a.ts", line: 2, snippet: "readSecret" }] },
+    98	      { id: "pending-gone", status: "pending", at: "2026-07-12T00:00:00Z", citations: [{ file: "src/deleted.ts", line: 1 }] },
+    99	      { id: "pending-old", status: "pending", at: "2020-01-01T00:00:00Z", evidence: [] },
+   100	    ];
+   101	    const logs: string[] = [];
+   102	    const r = reconcile(queue, { repoRoot, ttlDays: 30, now: "2026-07-12T12:00:00Z", log: (m: string) => logs.push(m) });
+   103	    expect(r.verified).toBe(1);
+   104	    expect(r.refreshed).toBe(1);
+   105	    expect(r.retired).toBe(2);
+   106	    const byId = Object.fromEntries(r.queue.map((p: { id: string }) => [p.id, p]));
+   107	    expect(byId["pending-gone"].status).toBe("retired");
+   108	    expect(byId["pending-gone"].retiredReason).toBe("evidence gone");
+   109	    expect(byId["pending-old"].status).toBe("retired");
+   110	    expect(byId["applied-ok"].status).toBe("applied"); // never touches applied history
+   111	    expect(logs.join("\n")).toMatch(/reconcile: verified 1 applied · refreshed 1 pending · retired 2 stale/);
+   112	  });
+   113	});
+   114	
+   115	describe("hardening (S8 codex findings)", () => {
+   116	  it("I2: a structurally-corrupt ledger THROWS (never silently un-suppresses or clobbers)", async () => {
+   117	    const { loadRejectionLedger, recordRejection } = await patterns();
+   118	    const { writeFileSync } = await import("node:fs");
+   119	    const p = await import("node:path");
+   120	    const f = p.join(dataDir, "rejection-ledger.json");
+   121	    writeFileSync(f, JSON.stringify({ rejections: "oops" })); // valid JSON, wrong shape
+   122	    expect(() => loadRejectionLedger()).toThrow(/not a \{rejections/);
+   123	    expect(() => recordRejection({ id: "x", rule: "r", targetClass: "c", claim: "y" }, "reason", "t")).toThrow(/refusing/);
+   124	    // the corrupt file is untouched
+   125	    expect(JSON.parse((await import("node:fs")).readFileSync(f, "utf8")).rejections).toBe("oops");
+   126	  });
+   127	
+   128	  it("I4: a citation escaping the repo root reads as 'does not hold' (drops the proposal), never an out-of-root read", async () => {
+   129	    const { evidenceHolds, proposalEvidenceHolds } = await patterns();
+   130	    expect(evidenceHolds({ file: "/etc/passwd", line: 1 }, repoRoot)).toBe(false);
+   131	    expect(evidenceHolds({ file: "../../../../etc/passwd", line: 1 }, repoRoot)).toBe(false);
+   132	    // an in-root citation still works
+   133	    expect(evidenceHolds({ file: "src/a.ts", line: 2, snippet: "readSecret" }, repoRoot)).toBe(true);
+   134	    // a proposal whose only citation escapes is vetted out
+   135	    expect(proposalEvidenceHolds({ citations: [{ file: "/etc/passwd", line: 1 }] }, repoRoot)).toBe(false);
+   136	  });
+   137	
+   138	  it("I4b: a SYMLINK inside the repo pointing OUTSIDE is not read (realpath containment)", async () => {
+   139	    const { evidenceHolds } = await patterns();
+   140	    const { writeFileSync, symlinkSync, mkdtempSync } = await import("node:fs");
+   141	    const os2 = await import("node:os");
+   142	    const p2 = await import("node:path");
+   143	    const outside = mkdtempSync(p2.join(os2.tmpdir(), "outside-"));
+   144	    writeFileSync(p2.join(outside, "secret.txt"), "OUTSIDE_SECRET line");
+   145	    let symlinked = false;
+   146	    try { symlinkSync(p2.join(outside, "secret.txt"), p2.join(repoRoot, "inside-link.txt")); symlinked = true; } catch { /* no symlink support */ }
+   147	    if (symlinked) {
+   148	      // the symlink is lexically inside repoRoot but its realpath is outside → must NOT hold
+   149	      expect(evidenceHolds({ file: "inside-link.txt", line: 1, snippet: "OUTSIDE_SECRET" }, repoRoot)).toBe(false);
+   150	    }
+   151	  });
+   152	});
+
+exec
+/usr/bin/zsh -lc "nl -ba tests/composition-switch.test.ts | sed -n '1,320p'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { mkdtempSync, rmSync } from "node:fs";
+     2	import fs from "node:fs/promises";
+     3	import { tmpdir } from "node:os";
+     4	import path from "node:path";
+     5	import crypto from "node:crypto";
+     6	import { afterEach, beforeEach, describe, expect, it } from "vitest";
+     7	
+     8	import {
+     9	  getActiveComposition,
+    10	  setActiveComposition,
+    11	  resolveCompositionPointer,
+    12	  activeCompositionConfigPath
+    13	} from "@/lib/active-composition";
+    14	import { appendRunEvidence, readRunEvidence, sha256Hex } from "@/lib/run-evidence";
+    15	import {
+    16	  switchComposition,
+    17	  resolveTargetComposition,
+    18	  type SwitchDeps,
+    19	  type TargetResolution
+    20	} from "@/lib/composition-switch";
+    21	import { COMPOSITIONS_DIR } from "@/lib/paths";
+    22	// The CLI is an .mjs; its pure arg parser is exported for exactly this test.
+    23	import { parseGarrisonUpArgs } from "../scripts/garrison-up.mjs";
+    24	
+    25	let sandbox: string;
+    26	const priorHome = process.env.GARRISON_HOME;
+    27	
+    28	beforeEach(() => {
+    29	  sandbox = mkdtempSync(path.join(tmpdir(), "garrison-switch-"));
+    30	  process.env.GARRISON_HOME = sandbox;
+    31	});
+    32	
+    33	afterEach(() => {
+    34	  if (priorHome === undefined) delete process.env.GARRISON_HOME;
+    35	  else process.env.GARRISON_HOME = priorHome;
+    36	  rmSync(sandbox, { recursive: true, force: true });
+    37	});
+    38	
+    39	describe("active-composition pointer", () => {
+    40	  it("defaults to the default composition when no config file exists", async () => {
+    41	    expect(await getActiveComposition()).toBe("default");
+    42	  });
+    43	
+    44	  it("round-trips a written pointer via an atomic write", async () => {
+    45	    await setActiveComposition("router-v4");
+    46	    expect(await getActiveComposition()).toBe("router-v4");
+    47	    // The on-disk file is valid JSON with the pointer.
+    48	    const raw = await fs.readFile(activeCompositionConfigPath(), "utf8");
+    49	    expect(JSON.parse(raw)).toMatchObject({ active_composition: "router-v4" });
+    50	  });
+    51	
+    52	  it("preserves unrelated keys already in the config file", async () => {
+    53	    await fs.mkdir(sandbox, { recursive: true });
+    54	    await fs.writeFile(
+    55	      activeCompositionConfigPath(),
+    56	      JSON.stringify({ active_composition: "default", some_other_key: 42 }),
+    57	      "utf8"
+    58	    );
+    59	    await setActiveComposition("e2e-solo");
+    60	    const parsed = JSON.parse(await fs.readFile(activeCompositionConfigPath(), "utf8"));
+    61	    expect(parsed.active_composition).toBe("e2e-solo");
+    62	    expect(parsed.some_other_key).toBe(42);
+    63	  });
+    64	
+    65	  it("rejects an empty pointer", async () => {
+    66	    await expect(setActiveComposition("   ")).rejects.toThrow(/cannot be empty/);
+    67	  });
+    68	
+    69	  it("falls back to default for a blank/corrupt config", async () => {
+    70	    await fs.mkdir(sandbox, { recursive: true });
+    71	    await fs.writeFile(activeCompositionConfigPath(), "not json at all", "utf8");
+    72	    expect(await getActiveComposition()).toBe("default");
+    73	  });
+    74	});
+    75	
+    76	describe("resolveCompositionPointer", () => {
+    77	  it("resolves a plain id under compositions/", () => {
+    78	    const r = resolveCompositionPointer("router-v4");
+    79	    expect(r.id).toBe("router-v4");
+    80	    expect(r.external).toBe(false);
+    81	    expect(r.dir).toBe(path.join(COMPOSITIONS_DIR, "router-v4"));
+    82	    expect(r.manifestPath).toBe(path.join(COMPOSITIONS_DIR, "router-v4", "apm.yml"));
+    83	  });
+    84	
+    85	  it("folds a path INSIDE compositions/ back to its id", () => {
+    86	    const r = resolveCompositionPointer(path.join(COMPOSITIONS_DIR, "e2e-solo", "apm.yml"));
+    87	    expect(r.id).toBe("e2e-solo");
+    88	    expect(r.external).toBe(false);
+    89	  });
+    90	
+    91	  it("treats an external apm.yml path as external", () => {
+    92	    const r = resolveCompositionPointer("/tmp/somewhere/custom/apm.yml");
+    93	    expect(r.external).toBe(true);
+    94	    expect(r.id).toBe("custom");
+    95	    expect(r.manifestPath).toBe("/tmp/somewhere/custom/apm.yml");
+    96	    expect(r.dir).toBe("/tmp/somewhere/custom");
+    97	  });
+    98	
+    99	  it("defaults a blank pointer to the default id", () => {
+   100	    expect(resolveCompositionPointer("").id).toBe("default");
+   101	  });
+   102	});
+   103	
+   104	describe("switchComposition — resolve-first discipline", () => {
+   105	  function tracker() {
+   106	    const order: string[] = [];
+   107	    const deps: SwitchDeps = {
+   108	      resolveTarget: async (): Promise<TargetResolution> => ({
+   109	        resolved: { id: "target", dir: "/x/target", manifestPath: "/x/target/apm.yml", external: false },
+   110	        issues: []
+   111	      }),
+   112	      getActive: async () => "current",
+   113	      setActive: async (p) => {
+   114	        order.push(`setActive:${p}`);
+   115	      },
+   116	      up: async (id) => {
+   117	        order.push(`up:${id}`);
+   118	      },
+   119	      down: async (id) => {
+   120	        order.push(`down:${id}`);
+   121	      }
+   122	    };
+   123	    return { order, deps };
+   124	  }
+   125	
+   126	  it("blocks on a bad target WITHOUT calling down/up or setActive", async () => {
+   127	    const { order, deps } = tracker();
+   128	    const badResolve: SwitchDeps["resolveTarget"] = async () => ({
+   129	      resolved: { id: "bad", dir: "/x/bad", manifestPath: "/x/bad/apm.yml", external: false },
+   130	      issues: [
+   131	        {
+   132	          fittingId: "http-gateway",
+   133	          code: "missing-required",
+   134	          kind: "orchestrator",
+   135	          message: "requires an orchestrator provider but none is stationed"
+   136	        }
+   137	      ]
+   138	    });
+   139	    const result = await switchComposition("bad", { ...deps, resolveTarget: badResolve });
+   140	    expect(result.ok).toBe(false);
+   141	    expect(result.error).toContain("orchestrator");
+   142	    expect(result.error).toContain("missing-required");
+   143	    // No side effects: nothing was stopped, started, or pointer-flipped.
+   144	    expect(order).toEqual([]);
+   145	  });
+   146	
+   147	  it("does not flip the real pointer when the resolver blocks", async () => {
+   148	    // Real getActive/setActive against the sandbox; injected resolver + up/down.
+   149	    await setActiveComposition("default");
+   150	    const blocked = await switchComposition("bad", {
+   151	      resolveTarget: async () => ({
+   152	        resolved: { id: "bad", dir: "/x", manifestPath: "/x/apm.yml", external: false },
+   153	        issues: [{ fittingId: "x", code: "missing-required", kind: "orchestrator", message: "nope" }]
+   154	      }),
+   155	      up: async () => {
+   156	        throw new Error("up must not run");
+   157	      },
+   158	      down: async () => {
+   159	        throw new Error("down must not run");
+   160	      }
+   161	    });
+   162	    expect(blocked.ok).toBe(false);
+   163	    expect(await getActiveComposition()).toBe("default");
+   164	  });
+   165	
+   166	  it("on a clean target: down(current) -> setActive(target) -> up(resolvedId), in order", async () => {
+   167	    const { order, deps } = tracker();
+   168	    const result = await switchComposition("target", deps);
+   169	    expect(result).toEqual({ ok: true, id: "target" });
+   170	    expect(order).toEqual(["down:current", "setActive:target", "up:target"]);
+   171	  });
+   172	
+   173	  it("returns a readable error and does not flip the pointer if down() fails", async () => {
+   174	    const { order, deps } = tracker();
+   175	    const result = await switchComposition("target", {
+   176	      ...deps,
+   177	      down: async () => {
+   178	        throw new Error("boom stopping");
+   179	      }
+   180	    });
+   181	    expect(result.ok).toBe(false);
+   182	    expect(result.error).toContain("boom stopping");
+   183	    // Pointer was never set, up never ran.
+   184	    expect(order).toEqual([]);
+   185	  });
+   186	});
+   187	
+   188	describe("switchComposition — external pointers are not runnable (S4 codex finding)", () => {
+   189	  it("rejects an external apm.yml path whose basename collides with an in-repo comp, touching no state", async () => {
+   190	    // basename "default" deliberately collides with the in-repo default comp —
+   191	    // the bait-and-switch case: without the guard, up() would run the in-repo
+   192	    // "default" while the external file was the one validated.
+   193	    const extDir = path.join(sandbox, "default");
+   194	    await fs.mkdir(extDir, { recursive: true });
+   195	    const extManifest = path.join(extDir, "apm.yml");
+   196	    await fs.writeFile(extManifest, "name: default\nversion: 9\n", "utf8");
+   197	
+   198	    await setActiveComposition("router-v4"); // real sandbox pointer
+   199	
+   200	    const order: string[] = [];
+   201	    const result = await switchComposition(extManifest, {
+   202	      // A resolver that WOULD succeed — proves the external guard fires FIRST,
+   203	      // before resolve, so it cannot be bypassed by the injectable resolver.
+   204	      resolveTarget: async () => ({
+   205	        resolved: { id: "default", dir: extDir, manifestPath: extManifest, external: true },
+   206	        issues: []
+   207	      }),
+   208	      setActive: async (p) => {
+   209	        order.push(`setActive:${p}`);
+   210	      },
+   211	      up: async (id) => {
+   212	        order.push(`up:${id}`);
+   213	      },
+   214	      down: async (id) => {
+   215	        order.push(`down:${id}`);
+   216	      }
+   217	    });
+   218	
+   219	    expect(result.ok).toBe(false);
+   220	    expect(result.error).toContain("external composition paths are not runnable");
+   221	    // No down/up on the colliding in-repo "default", and the pointer never flipped.
+   222	    expect(order).toEqual([]);
+   223	    expect(await getActiveComposition()).toBe("router-v4");
+   224	  });
+   225	
+   226	  it("still accepts a plain in-repo id (guard does not over-reach)", async () => {
+   227	    const order: string[] = [];
+   228	    const result = await switchComposition("default", {
+   229	      resolveTarget: async () => ({
+   230	        resolved: { id: "default", dir: "/x", manifestPath: "/x/apm.yml", external: false },
+   231	        issues: []
+   232	      }),
+   233	      getActive: async () => "router-v4",
+   234	      setActive: async (p) => {
+   235	        order.push(`setActive:${p}`);
+   236	      },
+   237	      up: async (id) => {
+   238	        order.push(`up:${id}`);
+   239	      },
+   240	      down: async (id) => {
+   241	        order.push(`down:${id}`);
+   242	      }
+   243	    });
+   244	    expect(result).toEqual({ ok: true, id: "default" });
+   245	    expect(order).toEqual(["down:router-v4", "setActive:default", "up:default"]);
+   246	  });
+   247	});
+   248	
+   249	describe("resolveTargetComposition — real resolver over an on-disk manifest", () => {
+   250	  it("resolves the default composition to an issues array", async () => {
+   251	    const { resolved, issues } = await resolveTargetComposition("default");
+   252	    expect(resolved.id).toBe("default");
+   253	    expect(Array.isArray(issues)).toBe(true);
+   254	  });
+   255	
+   256	  it("throws a readable error for a missing manifest", async () => {
+   257	    const missing = path.join(sandbox, "no-such-composition", "apm.yml");
+   258	    await expect(resolveTargetComposition(missing)).rejects.toThrow(/not found or unreadable/);
+   259	  });
+   260	});
+   261	
+   262	describe("run-evidence", () => {
+   263	  async function writeManifest(dir: string, body: string): Promise<string> {
+   264	    await fs.mkdir(dir, { recursive: true });
+   265	    const p = path.join(dir, "apm.yml");
+   266	    await fs.writeFile(p, body, "utf8");
+   267	    return p;
+   268	  }
+   269	
+   270	  it("records compositionId + a stable sha256 of the apm.yml", async () => {
+   271	    const dir = path.join(sandbox, "comp-a");
+   272	    const body = "name: comp-a\nversion: 0.1.0\n";
+   273	    const manifestPath = await writeManifest(dir, body);
+   274	    const rec = await appendRunEvidence({
+   275	      compositionDir: dir,
+   276	      compositionId: "comp-a",
+   277	      manifestPath,
+   278	      at: "2026-07-12T00:00:00.000Z"
+   279	    });
+   280	    expect(rec.compositionId).toBe("comp-a");
+   281	    expect(rec.apmYmlSha256).toBe(crypto.createHash("sha256").update(body).digest("hex"));
+   282	    expect(rec.apmYmlSha256).toBe(sha256Hex(body));
+   283	    expect(rec.at).toBe("2026-07-12T00:00:00.000Z");
+   284	  });
+   285	
+   286	  it("appends (does not overwrite) across launches", async () => {
+   287	    const dir = path.join(sandbox, "comp-b");
+   288	    const manifestPath = await writeManifest(dir, "name: comp-b\n");
+   289	    await appendRunEvidence({ compositionDir: dir, compositionId: "comp-b", manifestPath, at: "t1" });
+   290	    await appendRunEvidence({ compositionDir: dir, compositionId: "comp-b", manifestPath, at: "t2" });
+   291	    const records = await readRunEvidence(dir);
+   292	    expect(records).toHaveLength(2);
+   293	    expect(records.map((r) => r.at)).toEqual(["t1", "t2"]);
+   294	  });
+   295	
+   296	  it("two compositions produce two files with different ids + hashes", async () => {
+   297	    const dirA = path.join(sandbox, "two-a");
+   298	    const dirB = path.join(sandbox, "two-b");
+   299	    const pa = await writeManifest(dirA, "name: two-a\nversion: 1\n");
+   300	    const pb = await writeManifest(dirB, "name: two-b\nversion: 2\n");
+   301	    const ra = await appendRunEvidence({ compositionDir: dirA, compositionId: "two-a", manifestPath: pa, at: "t" });
+   302	    const rb = await appendRunEvidence({ compositionDir: dirB, compositionId: "two-b", manifestPath: pb, at: "t" });
+   303	    expect(ra.compositionId).not.toBe(rb.compositionId);
+   304	    expect(ra.apmYmlSha256).not.toBe(rb.apmYmlSha256);
+   305	    expect((await readRunEvidence(dirA))[0].compositionId).toBe("two-a");
+   306	    expect((await readRunEvidence(dirB))[0].compositionId).toBe("two-b");
+   307	  });
+   308	});
+   309	
+   310	describe("garrison-up CLI arg parsing", () => {
+   311	  it("parses --composition <value>", () => {
+   312	    expect(parseGarrisonUpArgs(["--composition", "router-v4"])).toEqual({
+   313	      composition: "router-v4",
+   314	      help: false
+   315	    });
+   316	  });
+   317	
+   318	  it("parses -c <value>", () => {
+   319	    expect(parseGarrisonUpArgs(["-c", "e2e-solo"]).composition).toBe("e2e-solo");
+   320	  });
+
+exec
+/usr/bin/zsh -lc 'nl -ba src/app/api/fittings/[id]/file/route.ts && nl -ba src/app/api/fittings/[id]/files/route.ts && nl -ba src/app/api/composition/switch/route.ts' in /home/ggomes/dev/garrison
+ exited 1 in 0ms:
+zsh:1: no matches found: src/app/api/fittings/[id]/file/route.ts
+
+exec
+/usr/bin/zsh -lc "nl -ba 'src/app/api/fittings/[id]/file/route.ts'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { NextResponse, type NextRequest } from "next/server";
+     2	import { FittingFileError, createFile, readFile, writeFile } from "@/lib/fitting-files";
+     3	
+     4	export const runtime = "nodejs";
+     5	export const dynamic = "force-dynamic";
+     6	
+     7	export async function GET(
+     8	  request: NextRequest,
+     9	  { params }: { params: { id: string } }
+    10	) {
+    11	  try {
+    12	    const userPath = request.nextUrl.searchParams.get("path") ?? "";
+    13	    const result = await readFile(params.id, userPath);
+    14	    return NextResponse.json(result);
+    15	  } catch (error) {
+    16	    if (error instanceof FittingFileError) {
+    17	      return NextResponse.json({ error: error.message }, { status: error.status });
+    18	    }
+    19	    const message = error instanceof Error ? error.message : String(error);
+    20	    return NextResponse.json({ error: message }, { status: 500 });
+    21	  }
+    22	}
+    23	
+    24	export async function PUT(
+    25	  request: NextRequest,
+    26	  { params }: { params: { id: string } }
+    27	) {
+    28	  try {
+    29	    const body = await request.json();
+    30	    const userPath = String(body?.path ?? "");
+    31	    const content = typeof body?.content === "string" ? body.content : "";
+    32	    const result = await writeFile(params.id, userPath, content);
+    33	    return NextResponse.json({ ok: true, ...result });
+    34	  } catch (error) {
+    35	    if (error instanceof FittingFileError) {
+    36	      return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
+    37	    }
+    38	    const message = error instanceof Error ? error.message : String(error);
+    39	    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    40	  }
+    41	}
+    42	
+    43	// POST creates a NEW file (fails if it already exists); PUT overwrites an
+    44	// existing one. Keeping them on separate verbs preserves the overwrite-only
+    45	// contract of PUT.
+    46	export async function POST(
+    47	  request: NextRequest,
+    48	  { params }: { params: { id: string } }
+    49	) {
+    50	  try {
+    51	    const body = await request.json();
+    52	    const userPath = String(body?.path ?? "");
+    53	    const content = typeof body?.content === "string" ? body.content : "";
+    54	    const result = await createFile(params.id, userPath, content);
+    55	    return NextResponse.json({ ok: true, ...result }, { status: 201 });
+    56	  } catch (error) {
+    57	    if (error instanceof FittingFileError) {
+    58	      return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
+    59	    }
+    60	    const message = error instanceof Error ? error.message : String(error);
+    61	    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    62	  }
+    63	}
+
+exec
+/usr/bin/zsh -lc "nl -ba 'src/app/api/composition/switch/route.ts'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { NextResponse, type NextRequest } from "next/server";
+     2	import { switchComposition } from "@/lib/composition-switch";
+     3	import { jsonError } from "@/lib/http";
+     4	
+     5	export const runtime = "nodejs";
+     6	export const dynamic = "force-dynamic";
+     7	
+     8	// Switch the active composition: resolve the target first (a resolver error
+     9	// returns 409 with a readable message and changes NO state), then clean
+    10	// down -> set pointer -> up. Body: { target } (composition id or apm.yml path).
+    11	export async function POST(request: NextRequest) {
+    12	  try {
+    13	    const body = await request.json().catch(() => ({}));
+    14	    const target = typeof body?.target === "string" ? body.target : "";
+    15	    if (target.trim().length === 0) {
+    16	      return jsonError(new Error("target (composition id or apm.yml path) is required"), 400);
+    17	    }
+    18	    const result = await switchComposition(target);
+    19	    if (!result.ok) {
+    20	      return NextResponse.json({ ok: false, error: result.error, id: result.id }, { status: 409 });
+    21	    }
+    22	    return NextResponse.json({ ok: true, id: result.id });
+    23	  } catch (error) {
+    24	    return jsonError(error, 400);
+    25	  }
+    26	}
+
+exec
+/usr/bin/zsh -lc "nl -ba 'src/app/api/fittings/[id]/files/route.ts'" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { NextResponse, type NextRequest } from "next/server";
+     2	import { FittingFileError, listDirectory } from "@/lib/fitting-files";
+     3	
+     4	export const runtime = "nodejs";
+     5	export const dynamic = "force-dynamic";
+     6	
+     7	export async function GET(
+     8	  request: NextRequest,
+     9	  { params }: { params: { id: string } }
+    10	) {
+    11	  try {
+    12	    const userPath = request.nextUrl.searchParams.get("path") ?? "";
+    13	    const listing = await listDirectory(params.id, userPath);
+    14	    return NextResponse.json(listing);
+    15	  } catch (error) {
+    16	    if (error instanceof FittingFileError) {
+    17	      return NextResponse.json({ error: error.message }, { status: error.status });
+    18	    }
+    19	    const message = error instanceof Error ? error.message : String(error);
+    20	    return NextResponse.json({ error: message }, { status: 500 });
+    21	  }
+    22	}
+
+exec
+/usr/bin/zsh -lc 'nl -ba src/app/api/composition/active/route.ts' in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+     1	import { NextResponse, type NextRequest } from "next/server";
+     2	import {
+     3	  getActiveComposition,
+     4	  setActiveComposition,
+     5	  resolveCompositionPointer
+     6	} from "@/lib/active-composition";
+     7	import { jsonError } from "@/lib/http";
+     8	
+     9	export const runtime = "nodejs";
+    10	export const dynamic = "force-dynamic";
+    11	
+    12	// The current active-composition pointer, plus its resolution (id/dir/external).
+    13	export async function GET() {
+    14	  try {
+    15	    const pointer = await getActiveComposition();
+    16	    const resolved = resolveCompositionPointer(pointer);
+    17	    return NextResponse.json({
+    18	      pointer,
+    19	      id: resolved.id,
+    20	      dir: resolved.dir,
+    21	      manifestPath: resolved.manifestPath,
+    22	      external: resolved.external
+    23	    });
+    24	  } catch (error) {
+    25	    return jsonError(error, 500);
+    26	  }
+    27	}
+    28	
+    29	// Set the pointer WITHOUT running a switch (down/up). The full switch goes
+    30	// through POST /api/composition/switch. Accepts { target } (composition id or
+    31	// apm.yml path); tolerates { active_composition } as an alias.
+    32	export async function PUT(request: NextRequest) {
+    33	  try {
+    34	    const body = await request.json().catch(() => ({}));
+    35	    const raw =
+    36	      typeof body?.target === "string"
+    37	        ? body.target
+    38	        : typeof body?.active_composition === "string"
+    39	          ? body.active_composition
+    40	          : "";
+    41	    if (raw.trim().length === 0) {
+    42	      return jsonError(new Error("target (composition id or apm.yml path) is required"), 400);
+    43	    }
+    44	    await setActiveComposition(raw);
+    45	    const pointer = await getActiveComposition();
+    46	    const resolved = resolveCompositionPointer(pointer);
+    47	    return NextResponse.json({ pointer, id: resolved.id, external: resolved.external });
+    48	  } catch (error) {
+    49	    return jsonError(error, 400);
+    50	  }
+    51	}
+
+exec
+/usr/bin/zsh -lc "rg -n \"resolveActiveComposition|getActiveComposition\\(|active_composition|resolveCompositionPointer\\(await getActiveComposition|resolveCompositionPointer\\(pointer\" src/lib src/app fittings scripts tests" in /home/ggomes/dev/garrison
+ succeeded in 0ms:
+tests/composition-switch.test.ts:41:    expect(await getActiveComposition()).toBe("default");
+tests/composition-switch.test.ts:46:    expect(await getActiveComposition()).toBe("router-v4");
+tests/composition-switch.test.ts:49:    expect(JSON.parse(raw)).toMatchObject({ active_composition: "router-v4" });
+tests/composition-switch.test.ts:56:      JSON.stringify({ active_composition: "default", some_other_key: 42 }),
+tests/composition-switch.test.ts:61:    expect(parsed.active_composition).toBe("e2e-solo");
+tests/composition-switch.test.ts:72:    expect(await getActiveComposition()).toBe("default");
+tests/composition-switch.test.ts:163:    expect(await getActiveComposition()).toBe("default");
+tests/composition-switch.test.ts:223:    expect(await getActiveComposition()).toBe("router-v4");
+src/lib/composition-switch.ts:38:  const resolved = resolveCompositionPointer(pointer);
+src/lib/composition-switch.ts:93:  if (resolveCompositionPointer(pointer).external) {
+src/lib/active-composition.ts:27:  active_composition: string;
+src/lib/active-composition.ts:42:      typeof parsed.active_composition === "string" && parsed.active_composition.trim().length > 0
+src/lib/active-composition.ts:43:        ? parsed.active_composition.trim()
+src/lib/active-composition.ts:45:    return { active_composition: active };
+src/lib/active-composition.ts:47:    return { active_composition: DEFAULT_COMPOSITION_ID };
+src/lib/active-composition.ts:51:export async function getActiveComposition(): Promise<string> {
+src/lib/active-composition.ts:52:  return (await readActiveConfig()).active_composition;
+src/lib/active-composition.ts:71:  await writeJsonAtomic(activeCompositionConfigPath(), { ...existing, active_composition: value });
+src/lib/active-composition.ts:90:export function resolveCompositionPointer(pointer: string): ResolvedComposition {
+src/lib/active-composition.ts:122:export async function resolveActiveComposition(): Promise<ResolvedComposition> {
+src/lib/active-composition.ts:123:  return resolveCompositionPointer(await getActiveComposition());
+src/app/api/composition/active/route.ts:15:    const pointer = await getActiveComposition();
+src/app/api/composition/active/route.ts:16:    const resolved = resolveCompositionPointer(pointer);
+src/app/api/composition/active/route.ts:31:// apm.yml path); tolerates { active_composition } as an alias.
+src/app/api/composition/active/route.ts:38:        : typeof body?.active_composition === "string"
+src/app/api/composition/active/route.ts:39:          ? body.active_composition
+src/app/api/composition/active/route.ts:45:    const pointer = await getActiveComposition();
+src/app/api/composition/active/route.ts:46:    const resolved = resolveCompositionPointer(pointer);
+src/app/api/runtime/active/route.ts:2:import { resolveActiveComposition } from "@/lib/active-composition";
+src/app/api/runtime/active/route.ts:14:    const active = await resolveActiveComposition();
+
+codex
+- `src/lib/fitting-files.ts:161`: local fitting contains `leak.md -> /etc/passwd`; `readFile(id, "leak.md")` returns `/etc/passwd` contents. Confidence HIGH.
+
+- `src/lib/fitting-files.ts:110`: local fitting contains `out -> /etc`; `listDirectory(id, "out")` lists outside-root entries. Confidence HIGH.
+
+- `src/lib/fitting-files.ts:231`: two concurrent `createFile(id, "notes/x.md", "one"/"two")` calls can both pass the existence check; later write overwrites earlier content instead of returning 409. Confidence HIGH.
+
+- `src/lib/clone.ts:162`: source fitting contains symlink `secret -> /etc/passwd`; `cloneFitting(source)` with `dereference: true` copies outside-root bytes into `fittings/local/<id>/secret`. Confidence HIGH.
+
+- `src/lib/clone.ts:202`: two concurrent `cloneFitting("taste", { newId: "race" })` calls can append one registry entry, then the duplicate caller throws and `rm(destAbs)` deletes the winning clone directory, leaving `data/library.json` pointing at a missing fitting. Confidence HIGH.
+
+- `src/lib/active-composition.ts:109`: `compositions/evil` is a symlink to `/tmp/evil`; switching to `compositions/evil/apm.yml` is classified `external:false` and bypasses the external-pointer guard. Confidence HIGH.
+
+- `src/lib/composition-switch.ts:112`: two concurrent switches to valid targets A and B can both `down(current)`, then both `up(A/B)`; last pointer wins while the other composition remains running. Confidence HIGH.
+
+- `fittings/seed/garrison-assistant/lib/index-store.mjs:88`: repo `docs` itself is a symlink to an outside directory containing `secret.md`; `buildIndex()` follows it and indexes outside-root content. Confidence HIGH.
+
+- `fittings/seed/garrison-assistant/lib/index-store.mjs:90`: a huge `docs/big.md` or fitting `SKILL.md` is read fully with `readFileSync`, causing unbounded memory/time use. Confidence HIGH.
+tokens used
+73,045
+- `src/lib/fitting-files.ts:161`: local fitting contains `leak.md -> /etc/passwd`; `readFile(id, "leak.md")` returns `/etc/passwd` contents. Confidence HIGH.
+
+- `src/lib/fitting-files.ts:110`: local fitting contains `out -> /etc`; `listDirectory(id, "out")` lists outside-root entries. Confidence HIGH.
+
+- `src/lib/fitting-files.ts:231`: two concurrent `createFile(id, "notes/x.md", "one"/"two")` calls can both pass the existence check; later write overwrites earlier content instead of returning 409. Confidence HIGH.
+
+- `src/lib/clone.ts:162`: source fitting contains symlink `secret -> /etc/passwd`; `cloneFitting(source)` with `dereference: true` copies outside-root bytes into `fittings/local/<id>/secret`. Confidence HIGH.
+
+- `src/lib/clone.ts:202`: two concurrent `cloneFitting("taste", { newId: "race" })` calls can append one registry entry, then the duplicate caller throws and `rm(destAbs)` deletes the winning clone directory, leaving `data/library.json` pointing at a missing fitting. Confidence HIGH.
+
+- `src/lib/active-composition.ts:109`: `compositions/evil` is a symlink to `/tmp/evil`; switching to `compositions/evil/apm.yml` is classified `external:false` and bypasses the external-pointer guard. Confidence HIGH.
+
+- `src/lib/composition-switch.ts:112`: two concurrent switches to valid targets A and B can both `down(current)`, then both `up(A/B)`; last pointer wins while the other composition remains running. Confidence HIGH.
+
+- `fittings/seed/garrison-assistant/lib/index-store.mjs:88`: repo `docs` itself is a symlink to an outside directory containing `secret.md`; `buildIndex()` follows it and indexes outside-root content. Confidence HIGH.
+
+- `fittings/seed/garrison-assistant/lib/index-store.mjs:90`: a huge `docs/big.md` or fitting `SKILL.md` is read fully with `readFileSync`, causing unbounded memory/time use. Confidence HIGH.

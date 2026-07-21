@@ -1,0 +1,26 @@
+[
+ {
+  "beat": "s5-settings",
+  "criterionId": "S5 generic tier over real config.toml",
+  "assert": "functional assert / highlight.match",
+  "result": "pass"
+ },
+ {
+  "beat": "s5-logs",
+  "criterionId": "S5 declared log roots tailed",
+  "assert": "functional assert / highlight.match",
+  "result": "pass"
+ },
+ {
+  "beat": "s5-validation",
+  "criterionId": "S5 malformed toml rejected pre-write",
+  "assert": "functional assert / highlight.match",
+  "result": "pass"
+ },
+ {
+  "beat": "s5-containment",
+  "criterionId": "S5 undeclared file unreachable",
+  "assert": "functional assert / highlight.match",
+  "result": "pass"
+ }
+]

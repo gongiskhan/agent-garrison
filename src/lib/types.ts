@@ -1,3 +1,7 @@
+// WS6: the in-app tour descriptor's canonical TS type is the zod-inferred one
+// from metadata.ts. Type-only import — erased at runtime, so no import cycle.
+import type { TourDescriptor } from "./metadata";
+
 // Faculties are ROLES only (the Quarters pivot). Skills/Hooks/MCPs/Plugins/
 // Scripts/Settings are no longer faculties — they are platform primitives
 // surfaced in Quarters. The own-port runtime residue (dev-env, screen-share,
@@ -80,10 +84,17 @@ export type FittingShape = (typeof fittingShapes)[number];
 export const capabilityKinds = [
   "orchestrator",
   // modes: added 2026-06-22 — the identity/persona layer (souls + shared voice +
-  // per-mode routing bias + mode switching) the `modes` Fitting provides and the
-  // orchestrator consumes. Honesty-Test: a real Fitting needs it and no existing
-  // kind expresses it.
+  // per-mode routing bias + mode switching) the `modes` Fitting provided.
+  // SUPERSEDED 2026-07-13 (MARATHON-V3 D7) by `identity`: modes die (the bias/
+  // pin/sticky-switching/CRUD machinery is removed; James/Joe decompose into
+  // duties). Kept in the vocabulary for back-compat with any lingering manifest;
+  // no seed Fitting provides it after the modes fitting's retirement.
   "modes",
+  // identity (2026-07-13, MARATHON-V3 D7): the persona + tone layer of the
+  // system prompt, provided by the single Identity Fitting (default persona:
+  // Gary). Replaces `modes` as the live persona slot — "Hey Gary" addresses the
+  // operative, full stop. A composition-readiness rule (D10) requires one.
+  "identity",
   "memory-store",
   // data-source: dropped 2026-06-26 — superseded by `connector`, which is
   // strictly more general (a connector both reads AND acts, with a callable
@@ -97,6 +108,12 @@ export const capabilityKinds = [
   "connector",
   // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
   "runtime",
+  // mcp-gateway: re-added 2026-07-10 - the per-session stdio/HTTP MCP sidecar
+  // (talk_to, wait_for, ...) the http-gateway spawns for orchestrator/soul mode.
+  // Dropped in the Quarters pivot, re-added on the automation-runner precedent
+  // (add a kind only when a real Fitting needs one): the mcp-gateway Fitting
+  // provides it and `modes` cannot express the dependency without it.
+  "mcp-gateway",
   "channel",
   "vault",
   // dev-env: the consolidated Dev Env surface (2026-06-11). Replaces the
@@ -107,6 +124,15 @@ export const capabilityKinds = [
   "outpost",
   "monitor",
   "voice",
+  // duty (2026-07-13, MARATHON-V3 D2): a unit of work with a start and an end,
+  // provided by a Fitting, owning a skill. Duties + per-duty Levels replace the
+  // former task-type/tier/phase/mode vocabulary. Honesty-Test: real Fittings
+  // (the Dispatcher, the per-duty work Fittings) cannot be expressed without
+  // it. Discovery is the derived-view pattern: consume kind:duty with
+  // cardinality `any`. A Fitting provides ONE duty as the norm (multi allowed,
+  // discouraged); the provision's `name` is the duty id and MUST match a
+  // `duties[]` spec in the same manifest.
+  "duty",
   "view"
 ] as const;
 
@@ -207,42 +233,15 @@ export interface PortNeed {
   default?: number;
 }
 
-export interface PortPool {
-  start: number;
-  end: number;
-}
-
 export interface ProjectConfig {
   id: string;
   name: string;
   rootPath: string;
-  worktreeBase: string;
   portNeeds: PortNeed[];
   startupCommands: string[];
   envTemplate: Record<string, string>;
   defaultBaseBranch: string;
-  portPool?: PortPool;
 }
-
-export interface Tier {
-  model: string;
-  effort?: "low" | "medium" | "high" | "xhigh" | "max";
-  needs_testing?: boolean;
-  needs_agents_team?: boolean;
-}
-
-export interface WorktreeBinding {
-  soul: string;
-  sessionId: string;
-  mode: "headless" | "interactive";
-  tier: Tier;
-  tierFlags: string[];
-  terminalTabId?: string;
-  spawnedAt: string;
-  lastSummaryAt?: string;
-}
-
-export type WorktreeStatus = "active" | "merged" | "discarded";
 
 export type FittingLifecycle = "operative-bound" | "detached";
 
@@ -288,6 +287,67 @@ export interface ConnectorSpec {
   oauth?: ConnectorOAuth;
 }
 
+// ---------------------------------------------------------------------------
+// Duties (MARATHON-V3 D2/D3/D4). A duty is work with a start and an end,
+// provided by a Fitting, owning a skill. Each duty has 1..n LEVELS; a level is
+// either a leaf CELL {skill, target, effort} or an ordered SEQUENCE of duty
+// references. Levels are stored FLAT — every level carries its full explicit
+// content; inheritance lives only in the editor (copy-from-below + diff line),
+// never in the data model. The duty graph must be a DAG; the Resolver
+// (src/lib/resolver.ts) validates it.
+
+export const dutyEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
+export type DutyEffort = (typeof dutyEfforts)[number];
+
+// A leaf level's cell. All fields optional: automation-shaped duty levels may
+// leave target and effort empty (D14); skill-shaped cells name the skill the
+// duty owns. `target` names an engine-identity target (model/runtime/provider —
+// effort deliberately NOT part of target identity; it lives here in the cell).
+export interface DutyLevelCell {
+  skill?: string;
+  target?: string;
+  effort?: DutyEffort;
+}
+
+// One entry of a composite level's ordered sequence: a duty reference, run at
+// the parent's level by default, with an optional per-entry level override
+// (1-based index into the referenced duty's levels).
+export interface DutySequenceEntry {
+  duty: string;
+  level?: number;
+}
+
+// A duty level: leaf (cell) XOR composite (sequence) — exactly one is set,
+// enforced at parse time (metadata.ts dutyLevelSchema superRefine); both stay
+// optional here because zod's inferred output can't carry the union.
+// `description` is the one-line summary the Dispatcher reads
+// ("level 1: quick fix, no plan").
+export interface DutyLevel {
+  description: string;
+  cell?: DutyLevelCell;
+  sequence?: DutySequenceEntry[];
+}
+
+// A duty spec as declared by the providing Fitting's manifest `duties[]` block
+// (the provision name = the duty id), or defined/overridden by the composition
+// file (D8 — the composition absorbs duty definitions).
+export interface DutySpec {
+  id: string;
+  title: string;
+  // Verb-shaped description ("develop a change end to end", "review a diff").
+  description: string;
+  levels: DutyLevel[];
+  // S1b: when true, a turn running this duty holds off the compact controller —
+  // compaction is deferred to the next duty boundary (which discharges the hold),
+  // never mid-duty. Optional/additive; absent reads as no hold.
+  context_hold?: boolean;
+  // S3d (D9b): a duty gate. `explicit` means the engine does NOT auto-advance the
+  // card off this duty - it holds pending an explicit human go (a Move, or a "go"
+  // message routed as steering). Only meaningful on the discuss duty today. Absent
+  // (the default) = pass-through: the card advances automatically on the verdict.
+  gate?: "explicit";
+}
+
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
@@ -304,6 +364,9 @@ export interface GarrisonMetadata {
   // runner and the Setup Instructions editor) always sees a list. `undefined`
   // when the fitting declares no setup.
   setup?: SetupStep[];
+  // Duty specs for each kind:duty provision this Fitting declares (one per
+  // provision; provision name === duty id). Empty for non-duty Fittings.
+  duties?: DutySpec[];
   verify: {
     command: string;
     expect: string;
@@ -311,6 +374,8 @@ export interface GarrisonMetadata {
   };
   ui?: {
     views: UiView[];
+    // WS6: optional in-app tours declared inline on the fitting (additive).
+    tours?: TourDescriptor[];
   };
   tasks?: {
     source: string;
@@ -341,7 +406,70 @@ export interface GarrisonMetadata {
   // ONLY these named secrets to the Fitting's process (see vault scoping),
   // replacing the historical all-or-nothing delivery to any kind:vault consumer.
   secret_scope?: string[];
+  // D3 (GARRISON-RUNTIMES-V1): how a provider override (base URL / auth
+  // credential / model) is applied to this runtime engine. Absent on
+  // non-runtime Fittings and on runtimes that take no provider overrides.
+  provider_mechanism?: ProviderMechanism;
+  // D5: the Quarters descriptor this runtime ships — deep (registered
+  // implementation by id) or generic (descriptor-rendered native-config surface).
+  quarters_descriptor?: QuartersDescriptor;
 }
+
+// D3: the declared provider-override mechanism of a runtime Fitting.
+// Discriminated on `type` so consumers (the composer target editor, the launch
+// wiring) get the arm-specific required fields without re-validating. The env
+// arm's "declares at least one override channel" rule is enforced by the zod
+// refinement only — TS cannot express it without an unusable union explosion.
+export type ProviderMechanism =
+  | {
+      type: "env";
+      base_url_env?: string;
+      auth_env?: string;
+      model_arg?: string;
+      model_env?: string;
+      notes?: string;
+    }
+  | {
+      type: "config-file";
+      config_file: string;
+      config_format: "json" | "toml";
+      config_key?: string;
+      model_key?: string;
+      notes?: string;
+    };
+
+// D5: one native settings file surfaced by the generic Quarters tier.
+export interface QuartersSettingsFile {
+  path: string;
+  format: "json" | "toml";
+  label?: string;
+}
+
+// D5: the Quarters descriptor a runtime Fitting ships. Discriminated on `tier`:
+// the generic tier is rendered FROM the descriptor, so its home_dir is required
+// (the zod refinement enforces it at parse time; the union carries it to
+// consumers so the generic renderer never null-checks its anchor directory).
+export type QuartersDescriptor =
+  | {
+      tier: "deep";
+      id: string;
+      home_dir?: string;
+      settings_files?: QuartersSettingsFile[];
+      context_file?: string;
+      mcp_config?: { path: string; format: "json" | "toml"; key?: string };
+      log_paths?: string[];
+      categories?: string[];
+    }
+  | {
+      tier: "generic";
+      id: string;
+      home_dir: string;
+      settings_files?: QuartersSettingsFile[];
+      context_file?: string;
+      mcp_config?: { path: string; format: "json" | "toml"; key?: string };
+      log_paths?: string[];
+      categories?: string[];
+    };
 
 export interface RatingInfo {
   github_stars_url?: string;
@@ -360,6 +488,11 @@ export interface LibraryEntry {
   platforms: PlatformId[];
   ratings: RatingInfo;
   metadata: GarrisonMetadata;
+  // Present only on clones (S3): "<sourceId>@<version>" recording the upstream
+  // Fitting this was copied from. The clone is a first-class, independent local
+  // Fitting — upstream updates never touch it; drift is measured against the
+  // clone-time snapshot in the copy's clone.json, not against upstream.
+  cloned_from?: string;
 }
 
 export interface SelectedFitting {

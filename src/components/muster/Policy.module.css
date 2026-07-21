@@ -1,0 +1,697 @@
+/* Routing-policy panel (Muster Orchestrator tab) - the composer surfaces that
+   survived the own-port Orchestrator view's retirement. Same conventions as
+   Muster.module.css / Orchestrator.module.css: Garrison theme tokens, sharp
+   corners (radius 0), mono brass labels, sage = on/valid, alarm = fault.
+   Every wide block scrolls inside its own box; single column, no horizontal
+   bleed at 390px. Light-only. */
+
+.section {
+  margin-top: 0;
+}
+
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.panelLead {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--mute);
+  max-width: 560px;
+}
+
+.stateBox {
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+  padding: 22px 20px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--mute);
+  line-height: 1.55;
+}
+.skel {
+  height: 120px;
+  border: 1px solid var(--rule);
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: policyShimmer 1.4s ease-in-out infinite;
+}
+@keyframes policyShimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -80% 0; }
+}
+
+/* ── status pill + banners ──────────────────────────────────────────────── */
+.status {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.statusSaving { color: var(--brass); }
+.statusSaved { color: var(--sage); }
+.statusWarn { color: var(--warn); }
+.statusBad { color: var(--alarm); }
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.banner button {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.bannerWarn {
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  background: var(--paper-2);
+}
+.bannerBad {
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  background: var(--paper-2);
+}
+
+/* ── surfaces ───────────────────────────────────────────────────────────── */
+.surface {
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  padding: 16px 18px 18px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.surfaceHeadRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.surfaceHead {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 15.5px;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+.surfaceHint {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.5;
+  margin: 0 0 14px;
+  max-width: 640px;
+}
+.muted {
+  font-size: 11.5px;
+  color: var(--mute);
+}
+.ghostBtn {
+  border: 1px solid var(--rule-2);
+  background: transparent;
+  color: var(--ink-mute);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ghostBtn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.primaryBtn {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-height: 36px;
+}
+.primaryBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── rails ──────────────────────────────────────────────────────────────── */
+.rail {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.railError {
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  font-size: 11.5px;
+  padding: 10px 13px;
+  margin-bottom: 10px;
+}
+.railHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.railKind {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+}
+.railBadge {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  border: 1px solid var(--sage);
+  padding: 1px 6px;
+}
+.railMeta {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--mute);
+  letter-spacing: 0.03em;
+}
+.railDesc {
+  font-size: 11px;
+  color: var(--mute);
+  line-height: 1.45;
+  margin-bottom: 8px;
+  max-width: 640px;
+}
+.railTrack {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+/* ── chips ──────────────────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  min-height: 44px;
+}
+.chipOn {
+  border-color: var(--sage-2);
+}
+.chipOff {
+  /* 0.55 washed the chip name to 3.6:1 and the 8.5px skill line to 2.3:1 - the
+     dashed border already carries the off state, so dim only slightly */
+  opacity: 0.85;
+  border-style: dashed;
+}
+.chipOff .chipSkill,
+.chipOff .chipTarget {
+  color: var(--ink-mute);
+}
+.chipGrip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px 0 7px;
+  color: var(--mute-2);
+  cursor: grab;
+  touch-action: none;
+}
+.chipGrip svg {
+  fill: currentColor;
+}
+.chipToggle {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  color: var(--sage);
+  padding: 0 8px;
+  cursor: pointer;
+}
+.chipOff .chipToggle {
+  color: var(--mute);
+}
+.chipInfo {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 5px 10px 5px 8px;
+  cursor: pointer;
+  min-width: 0;
+}
+.chipName {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.chipSkill {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  color: var(--mute);
+  letter-spacing: 0.02em;
+}
+.chipTarget {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--mute);
+}
+
+/* target glyphs (styled text marks, no emoji) */
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+}
+.gClaude { color: var(--brass); }
+.gSdk { color: var(--sage); }
+/* darkened one step per hue - the 7.5px engine marks sat at 3.9-4.7:1 on paper */
+.gCodex { color: #35608f; }
+.gGemini { color: #6b4b8e; }
+.gOllama { color: #3f6549; }
+.gWorkflow { color: var(--ink-mute); }
+.gOther { color: var(--mute); }
+
+/* ── inspector overlay ──────────────────────────────────────────────────── */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 22, 16, 0.35);
+  z-index: 60;
+}
+.inspector {
+  position: fixed;
+  z-index: 61;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 92vw);
+  background: var(--paper);
+  border-left: 1px solid var(--rule-2);
+  padding: 20px 22px;
+  overflow-y: auto;
+}
+.inspHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.inspTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--ink);
+}
+.inspSub {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--mute);
+  margin-top: 4px;
+}
+.iconBtn {
+  border: 1px solid var(--rule-2);
+  background: transparent;
+  color: var(--ink-mute);
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.inspField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.inspLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.inspField input,
+.inspField select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.inspField input:focus,
+.inspField select:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.inspNote {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.4;
+}
+
+/* ── controls (coordination / security / qa) ────────────────────────────── */
+.ctlGrid {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.ctlRow {
+  display: grid;
+  grid-template-columns: 180px auto 1fr;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ctlLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.ctlNote {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.4;
+  min-width: 0;
+}
+.ctlNum {
+  width: 86px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.ctlNum:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.toggle,
+.sevDial {
+  display: inline-flex;
+  border: 1px solid var(--rule-2);
+}
+.seg {
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  cursor: pointer;
+  min-height: 34px;
+}
+.seg + .seg {
+  border-left: 1px solid var(--rule-2);
+}
+.segOn {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* ── leases + projects ──────────────────────────────────────────────────── */
+.leaseBlock {
+  border-top: 1px solid var(--rule);
+  padding-top: 14px;
+}
+.leaseList {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 12px;
+}
+.leaseItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  padding: 5px 6px 5px 10px;
+}
+.leasePath {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.leaseRemove {
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 3px;
+}
+.leaseRemove:hover {
+  color: var(--alarm);
+}
+.leaseAdd {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.leaseAdd input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.leaseAdd input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.leaseAdd button {
+  border: 1px solid var(--rule-2);
+  background: transparent;
+  color: var(--ink-mute);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.leaseAdd button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.projList {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.projRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 8px 12px;
+}
+.projName {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── try-it ─────────────────────────────────────────────────────────────── */
+.tryitRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.tryitInput {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.tryitInput:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.tryitRow select {
+  padding: 8px 10px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.tryitError {
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  font-size: 11.5px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+}
+.tryitOut {
+  display: grid;
+  gap: 12px;
+}
+.tryitChain {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pill {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-mute);
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  padding: 4px 9px;
+}
+.tryitGates {
+  display: grid;
+  gap: 6px;
+}
+.gateRow {
+  display: grid;
+  grid-template-columns: 120px auto 1fr;
+  align-items: baseline;
+  gap: 10px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 8px 12px;
+  min-width: 0;
+}
+.gateName {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.gateFlag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.gateOn { color: var(--sage); }
+.gateOff { color: var(--mute); }
+.gateWhy {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.4;
+  min-width: 0;
+}
+.tryitRail {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tchip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  padding: 7px 11px;
+}
+
+/* ── mobile (<= 640px): single column, no horizontal bleed ──────────────── */
+@media (max-width: 640px) {
+  .ctlRow {
+    grid-template-columns: 1fr auto;
+  }
+  .ctlNote {
+    grid-column: 1 / -1;
+  }
+  .gateRow {
+    grid-template-columns: auto auto;
+  }
+  .gateWhy {
+    grid-column: 1 / -1;
+  }
+  .inspector {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 78vh;
+    border-left: none;
+    border-top: 1px solid var(--rule-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; }
+}

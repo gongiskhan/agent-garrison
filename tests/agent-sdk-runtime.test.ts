@@ -1,12 +1,10 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
-import { readdirSync, readFileSync, existsSync } from "node:fs";
-// @ts-ignore — pure .mjs fitting modules (single-line so @ts-ignore covers the specifier)
-import { assertFence, isAnthropicBaseUrl, resolveEffectiveBaseUrl, FenceViolation } from "../fittings/seed/agent-sdk-runtime/lib/fence.mjs";
+import { readdirSync, readFileSync } from "node:fs";
 // @ts-ignore
 import { buildHarness, defaultPromptModeForRole, LEAN_SYSTEM_PROMPT } from "../fittings/seed/agent-sdk-runtime/lib/harness.mjs";
 // @ts-ignore
-import { SDK_PROVIDERS, buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, assertSupportsBlocks, assertLitellmVersionAllowed, staticBaseUrlsAreNonAnthropic } from "../fittings/seed/agent-sdk-runtime/lib/providers.mjs";
+import { SDK_PROVIDERS, buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, assertSupportsBlocks, assertLitellmVersionAllowed, authModeFor } from "../fittings/seed/agent-sdk-runtime/lib/providers.mjs";
 // @ts-ignore
 import { AgentSdkAdapter } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
 // @ts-ignore
@@ -14,8 +12,8 @@ import { delegate, validateDelegationResult, runAdapterConformance, MultiRuntime
 // @ts-ignore
 import { agentSdkPoolKey, agentSdkPoolEntries } from "../fittings/seed/agent-sdk-runtime/lib/pool.mjs";
 
-// Anthropic billing endpoint (used only in this test file — tests/ is OUT of the
-// programmatic-purge scan, so the literal host is allowed here).
+// A literal Anthropic host, used here only to prove buildSdkEnv STRIPS an inherited
+// one. tests/ is out of the headless-exclusion scan, so the literal is allowed.
 const ANTHROPIC_URL = "https://api.anthropic.com";
 
 function gen(messages: any[]) {
@@ -24,66 +22,46 @@ function gen(messages: any[]) {
   })();
 }
 function adapterYielding(messages: any[]) {
-  return new AgentSdkAdapter({ readSettings: () => null, createClient: async () => gen(messages) });
+  return new AgentSdkAdapter({ createClient: async () => gen(messages) });
 }
 
-// ── THE FENCE (fence-ok) ───────────────────────────────────────────────────
-describe("THE FENCE — default-deny Anthropic billing (fence-ok)", () => {
-  it("hard-refuses to launch with NO base URL (Max/Anthropic billing path)", () => {
-    expect(() => assertFence({ configBaseUrl: null })).toThrow(FenceViolation);
-    expect(() => assertFence({ configBaseUrl: null })).toThrow(/no ANTHROPIC_BASE_URL|hard-refuses/);
+// ── Runtime freedom: Anthropic is first-class routable (D29) ─────────────────
+describe("Runtime freedom — the Agent SDK reaches Anthropic + third-party endpoints (D29)", () => {
+  it("the Anthropic subscription provider is first-class (no base URL, no key, OAuth)", () => {
+    const { env, baseUrl, vaultKey } = buildSdkEnv({ provider: "anthropic", model: "claude-haiku-4-5" }, { secrets: null });
+    expect(baseUrl).toBe(null); // SDK default Anthropic endpoint
+    expect(vaultKey).toBe(null); // Max OAuth, not a Vault key
+    // No base-URL override; the key is forced EMPTY (an empty string is falsy
+    // to the CLI's key check, so stored OAuth creds win) — masking any stray
+    // ANTHROPIC_API_KEY in the inherited process env that would bill the API pool.
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe("");
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
-  it("hard-refuses an Anthropic base URL", () => {
-    expect(() => assertFence({ configBaseUrl: ANTHROPIC_URL })).toThrow(FenceViolation);
-    expect(() => assertFence({ configBaseUrl: "https://foo.anthropic.com" })).toThrow(FenceViolation);
+  it("clears an inherited Anthropic base URL / key before the subscription launch", () => {
+    const { env } = buildSdkEnv(
+      { provider: "anthropic" },
+      { baseEnv: { ANTHROPIC_BASE_URL: "https://leak.example", ANTHROPIC_API_KEY: "leak", ANTHROPIC_AUTH_TOKEN: "leak" } }
+    );
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe(""); // masked, not merely deleted (process env underneath)
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
-  it("passes for a non-Anthropic base URL", () => {
-    const st = assertFence({ configBaseUrl: "http://localhost:11434" });
-    expect(st.anthropic).toBe(false);
-    expect(st.state).toMatch(/non-anthropic/);
-  });
-
-  it("acceptApiBilling: true is the ONLY way past the fence, and states the cost", () => {
-    const st = assertFence({ configBaseUrl: ANTHROPIC_URL, acceptApiBilling: true });
-    expect(st.anthropic).toBe(true);
-    expect(st.acceptApiBilling).toBe(true);
-    expect(st.state).toMatch(/FULL RATES/);
-  });
-
-  it("asserts on the EFFECTIVE base URL — settings.json env override (#217) is a violation", () => {
-    expect(() =>
-      assertFence({
-        configBaseUrl: "http://localhost:11434",
-        settingsJson: { env: { ANTHROPIC_BASE_URL: ANTHROPIC_URL } }
-      })
-    ).toThrow(/#217|settings\.json/);
-  });
-
-  it("a non-Anthropic settings.json override is honoured as the effective URL", () => {
-    const r = resolveEffectiveBaseUrl({
-      configBaseUrl: "http://localhost:11434",
-      settingsJson: { env: { ANTHROPIC_BASE_URL: "http://localhost:8080" } }
-    });
-    expect(r.effective).toBe("http://localhost:8080");
-    expect(r.overriddenBySettings).toBe(true);
-    expect(assertFence({ configBaseUrl: "http://localhost:11434", settingsJson: { env: { ANTHROPIC_BASE_URL: "http://localhost:8080" } } }).anthropic).toBe(false);
-  });
-
-  it("isAnthropicBaseUrl classifies by hostname suffix", () => {
-    expect(isAnthropicBaseUrl(null)).toBe(true);
-    expect(isAnthropicBaseUrl("")).toBe(true);
-    expect(isAnthropicBaseUrl(ANTHROPIC_URL)).toBe(true);
-    expect(isAnthropicBaseUrl("https://foo.anthropic.com/x")).toBe(true);
-    expect(isAnthropicBaseUrl("http://localhost:11434")).toBe(false);
-    expect(isAnthropicBaseUrl("https://api.z.ai/api/anthropic")).toBe(false); // host is api.z.ai
-    expect(isAnthropicBaseUrl("https://api.deepseek.com/anthropic")).toBe(false);
+  it("authModeFor reports subscription / api-key / local per provider", () => {
+    expect(authModeFor({ provider: "anthropic" })).toBe("subscription");
+    expect(authModeFor({ provider: "ollama-local" })).toBe("local");
+    expect(authModeFor({ provider: "deepseek" })).toBe("api-key");
+    expect(authModeFor({ provider: "zai-glm" })).toBe("api-key");
+    expect(authModeFor({ provider: "llm-proxy" })).toBe("api-key");
+    // an explicit per-target authMode wins over the provider default
+    expect(authModeFor({ provider: "deepseek", authMode: "subscription" })).toBe("subscription");
   });
 });
 
-// ── fence containment: the SDK import is isolated + paired with THE FENCE ────
-describe("FENCE containment — the @anthropic-ai import is fenced (fence-ok)", () => {
+// ── SDK import isolation (injectability, not a ban) ──────────────────────────
+describe("SDK import isolation — the @anthropic-ai import lives in one injectable module", () => {
   const FIT = path.resolve(__dirname, "../fittings/seed/agent-sdk-runtime");
   function sourceFiles(): string[] {
     return (readdirSync(FIT, { recursive: true }) as string[])
@@ -92,16 +70,9 @@ describe("FENCE containment — the @anthropic-ai import is fenced (fence-ok)", 
       .filter((f) => !f.includes("node_modules"));
   }
 
-  it("only lib/sdk-client.mjs imports @anthropic-ai, and lib/fence.mjs exists beside it", () => {
+  it("only lib/sdk-client.mjs imports @anthropic-ai (so the adapter stays injectable/testable)", () => {
     const importers = sourceFiles().filter((f) => /@anthropic-ai\//.test(readFileSync(path.join(FIT, f), "utf8")));
     expect(importers.sort()).toEqual(["lib/sdk-client.mjs"]);
-    expect(existsSync(path.join(FIT, "lib/fence.mjs"))).toBe(true);
-  });
-
-  it("no fitting source uses the banned host literal (the fence matches by suffix)", () => {
-    for (const f of sourceFiles()) {
-      expect(readFileSync(path.join(FIT, f), "utf8")).not.toMatch(/api\.anthropic\.com/);
-    }
   });
 });
 
@@ -158,11 +129,11 @@ describe("THE HARNESS — per-target promptMode (harness-ok)", () => {
 
 // ── Providers + capability records (sdk-providers-ok) ───────────────────────
 describe("Providers — base URL + Vault auth + capability records (sdk-providers-ok)", () => {
-  it("every static provider base URL is non-Anthropic", () => {
-    expect(staticBaseUrlsAreNonAnthropic()).toBe(true);
+  it("the six providers are all present (incl. the first-class Anthropic subscription)", () => {
+    expect(Object.keys(SDK_PROVIDERS).sort()).toEqual(["anthropic", "deepseek", "llm-proxy", "minimax", "ollama-local", "zai-glm"]);
   });
 
-  it("buildSdkEnv wires the non-Anthropic base URL + Vault auth token, clears inherited Anthropic vars", () => {
+  it("buildSdkEnv wires the third-party base URL + Vault auth token, clears inherited Anthropic vars", () => {
     const { env, baseUrl } = buildSdkEnv({ provider: "deepseek", model: "deepseek-chat" }, { secrets: { DEEPSEEK_API_KEY: "sk-test" } });
     expect(baseUrl).toBe("https://api.deepseek.com/anthropic");
     expect(env.ANTHROPIC_BASE_URL).toBe("https://api.deepseek.com/anthropic");
@@ -197,6 +168,18 @@ describe("Providers — base URL + Vault auth + capability records (sdk-provider
     });
   });
 
+  it("the Anthropic provider serves the full capability set with effort supported", () => {
+    expect(capabilityRecord({ provider: "anthropic" })).toMatchObject({
+      text: true,
+      toolUse: true,
+      image: true,
+      document: true,
+      webSearch: true,
+      mcp: true,
+      effort: "supported"
+    });
+  });
+
   it("assertSupportsBlocks refuses an unsupported block (MCP @ deepseek) and allows supported ones", () => {
     expect(() => assertSupportsBlocks({ provider: "deepseek" }, ["mcp"])).toThrow(/does not serve|capability/i);
     expect(assertSupportsBlocks({ provider: "ollama-local" }, ["mcp", "tool_use"]).mcp).toBe(true);
@@ -216,10 +199,6 @@ describe("Providers — base URL + Vault auth + capability records (sdk-provider
     expect(rec.mcp).toBe(true);
     expect(rec.image).toBe(true);
   });
-
-  it("the five providers are all present", () => {
-    expect(Object.keys(SDK_PROVIDERS).sort()).toEqual(["deepseek", "llm-proxy", "minimax", "ollama-local", "zai-glm"]);
-  });
 });
 
 // ── Adapter conformance + structured awaitResponse (sdk-adapter-ok) ──────────
@@ -230,7 +209,7 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
       { type: "result", subtype: "success", usage: { output_tokens: 3 } }
     ]);
     const report = await runAdapterConformance(adapter, {
-      config: { compositionDir: "/tmp/x", provider: "ollama-local", model: "qwen3:8b", settingsJson: null },
+      config: { compositionDir: "/tmp/x", provider: "ollama-local", model: "qwen3:8b" },
       turnText: "ping"
     });
     expect(report.ok).toBe(true);
@@ -244,7 +223,7 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
       { type: "assistant", message: { content: [{ type: "text", text: "the first line is foo" }] } },
       { type: "result", subtype: "success", usage: { output_tokens: 10 } }
     ]);
-    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp", settingsJson: null });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
     await adapter.sendTurn(s, "read x and tell me its first line");
     const r = await adapter.awaitResponse(s);
     expect(r.toolUses.map((t: any) => t.name)).toContain("Read");
@@ -252,9 +231,9 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.sessionId).toBe("sess-1");
   });
 
-  it("buildQueryOptions wires the harness (preset/settingSources/maxTurns) + the fenced env", async () => {
+  it("buildQueryOptions wires the harness (preset/settingSources/maxTurns) + the launch env", async () => {
     const adapter = adapterYielding([]);
-    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/work", maxTurns: 5, settingsJson: null });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/work", maxTurns: 5 });
     const opts = adapter.buildQueryOptions(s);
     expect(opts.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
     expect(opts.settingSources).toEqual(["project"]);
@@ -262,25 +241,53 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(opts.cwd).toBe("/work");
     expect(opts.env.ANTHROPIC_BASE_URL).toBe("http://localhost:11434");
     expect(opts.env.ANTHROPIC_API_KEY).toBe("");
-    expect(s.fence.anthropic).toBe(false);
     expect(s.capabilities.provider).toBe("ollama-local");
   });
 
-  it("spawn ENFORCES the fence — an Anthropic target without acceptApiBilling throws before any model call", async () => {
+  it("spawns an Anthropic-endpoint agent-sdk session (first-class, D29) with no base URL", async () => {
     const adapter = adapterYielding([]);
-    await expect(adapter.spawn({ provider: "llm-proxy", baseUrl: ANTHROPIC_URL, model: "x", compositionDir: "/tmp", settingsJson: null })).rejects.toThrow(
-      FenceViolation
-    );
+    const s = await adapter.spawn({ provider: "anthropic", model: "claude-haiku-4-5", compositionDir: "/work" });
+    expect(s.alive).toBe(true);
+    expect(s.baseUrl).toBe(null);
+    expect(s.capabilities.provider).toBe("anthropic");
+    const opts = adapter.buildQueryOptions(s);
+    expect(opts.env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
+  it("forwards requested effort to the SDK only for a supported Anthropic target", async () => {
+    const adapter = adapterYielding([]);
+    const supported = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work",
+      effort: "high",
+    });
+    expect(adapter.buildQueryOptions(supported).effort).toBe("high");
+    expect(supported).toMatchObject({ effort: "high", effortApplied: true });
+
+    await adapter.setEffort(supported, "max");
+    expect(adapter.buildQueryOptions(supported).effort).toBe("max");
+    expect(supported).toMatchObject({ effort: "max", effortApplied: true });
+
+    const unsupported = await adapter.spawn({
+      provider: "ollama-local",
+      model: "qwen3:8b",
+      compositionDir: "/work",
+      effort: "high",
+    });
+    expect(adapter.buildQueryOptions(unsupported).effort).toBeUndefined();
+    expect(unsupported).toMatchObject({ effort: "high", effortApplied: false });
   });
 
   it("setModel updates the model within the endpoint family; setEffort records unsupported", async () => {
     const adapter = adapterYielding([]);
-    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp", settingsJson: null });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
     await adapter.setModel(s, "qwen3:0.6b");
     expect(s.model).toBe("qwen3:0.6b");
     await adapter.setEffort(s, "high");
     expect(s.effort).toBe("high");
     expect(s.effortApplied).toBe(false); // ollama endpoint does not map effort
+    expect(adapter.buildQueryOptions(s).effort).toBeUndefined();
   });
 });
 
@@ -288,10 +295,66 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
 describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
   it("a maxTurns ceiling stops and reports", async () => {
     const adapter = adapterYielding([{ type: "result", subtype: "error_max_turns", usage: { output_tokens: 5 } }]);
-    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 2, settingsJson: null });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 2 });
     await adapter.sendTurn(s, "loop forever");
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("max_turns");
+  });
+
+  it("normalizes the SDK's post-result max-turn rejection and preserves accumulated output", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => (async function* () {
+        yield { type: "system", session_id: "sdk-max-turn-session" };
+        yield {
+          type: "assistant",
+          message: { content: [
+            { type: "tool_use", id: "write-gate", name: "Write", input: {} },
+            { type: "text", text: "Plan and durable gate were written." }
+          ] }
+        };
+        yield {
+          type: "result",
+          subtype: "error_max_turns",
+          is_error: true,
+          errors: ["Reached maximum number of turns (24)"],
+          usage: { input_tokens: 10, output_tokens: 5 }
+        };
+        // SDK 0.3.179 rejects on the iterator step after delivering the result.
+        throw new Error("Claude Code returned an error result: Reached maximum number of turns (24)");
+      })()
+    });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 24 });
+    await adapter.sendTurn(s, "write the plan gate");
+    await expect(adapter.awaitResponse(s)).resolves.toMatchObject({
+      text: "Plan and durable gate were written.",
+      toolUses: [{ id: "write-gate", name: "Write" }],
+      stoppedReason: "max_turns"
+    });
+    expect(s.sessionId).toBe("sdk-max-turn-session");
+    expect(s.usedTokens).toBe(15);
+  });
+
+  it("does not swallow a max-turn-looking throw without the structured result envelope", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => (async function* () {
+        throw new Error("Claude Code returned an error result: Reached maximum number of turns (24)");
+      })()
+    });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 24 });
+    await adapter.sendTurn(s, "fail before a result");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow(/maximum number of turns/);
+  });
+
+  it("does not hide an unrelated iterator failure after an error_max_turns envelope", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => (async function* () {
+        yield { type: "result", subtype: "error_max_turns", usage: { output_tokens: 1 } };
+        throw new Error("stream integrity failure");
+      })()
+    });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", maxTurns: 24 });
+    await adapter.sendTurn(s, "fail after a result for another reason");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow("stream integrity failure");
   });
 
   it("a token-budget ceiling stops and reports", async () => {
@@ -299,7 +362,7 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
       { type: "assistant", message: { content: [{ type: "text", text: "partial" }] } },
       { type: "result", subtype: "success", usage: { output_tokens: 9999 } }
     ]);
-    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", budgetTokens: 100, settingsJson: null });
+    const s = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp", budgetTokens: 100 });
     await adapter.sendTurn(s, "expensive");
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("budget_exceeded");
@@ -320,7 +383,7 @@ describe("agent-sdk as secondary — delegate() bridge (sdk-bridge-ok)", () => {
       { task: "summarize the changelog", model: "qwen3:8b" },
       {
         adapter,
-        spawnConfig: { compositionDir: "/work", provider: "ollama-local", model: "qwen3:8b", promptMode: "full", settingsJson: null, secrets: null },
+        spawnConfig: { compositionDir: "/work", provider: "ollama-local", model: "qwen3:8b", promptMode: "full", secrets: null },
         writeArtifact: async (ns: string, name: string, content: string) => {
           written.push({ ns, name, content });
           return `artifacts/${ns}/${name}`;
@@ -343,7 +406,6 @@ describe("agent-sdk as secondary — delegate() bridge (sdk-bridge-ok)", () => {
 describe("MultiRuntimePool — agent-sdk warms keyed incl promptMode, heterogeneous with PTY (sdk-pool-ok)", () => {
   function poolAdapter() {
     return new AgentSdkAdapter({
-      readSettings: () => null,
       createClient: async () =>
         gen([
           { type: "assistant", message: { content: [{ type: "text", text: "warm" }] } },
@@ -370,8 +432,8 @@ describe("MultiRuntimePool — agent-sdk warms keyed incl promptMode, heterogene
       }
     };
     const targets = [
-      { provider: "ollama-local", model: "qwen3:8b", promptMode: "full", settingsJson: null, compositionDir: "/tmp" },
-      { provider: "ollama-local", model: "qwen3:8b", promptMode: "lean", settingsJson: null, compositionDir: "/tmp" }
+      { provider: "ollama-local", model: "qwen3:8b", promptMode: "full", compositionDir: "/tmp" },
+      { provider: "ollama-local", model: "qwen3:8b", promptMode: "lean", compositionDir: "/tmp" }
     ];
     const pool = new MultiRuntimePool({
       runtimes: [{ id: "claude-code", adapter: ptyStub, role: "primary", size: 1 }, ...agentSdkPoolEntries(targets, { adapter })]

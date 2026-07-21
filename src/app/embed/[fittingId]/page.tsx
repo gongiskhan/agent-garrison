@@ -91,6 +91,31 @@ export default function EmbedPage() {
   // Pick the reachable URL for where the browser is: loopback locally, the HTTPS
   // tailnet endpoint over Tailscale (so the iframe isn't unreachable / mixed-content).
   const base = resolveViewUrl(entry);
+
+  // "" means this view is running but has no reachable URL from here — over the
+  // tailnet that is a missing `tailscale serve` mapping for its port. Rendering
+  // the iframe anyway would request an http:// frame from an https:// page, which
+  // the browser blocks as mixed content and shows as a BLANK pane with no
+  // explanation. Say what is wrong and how to fix it instead.
+  if (!base) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h2 style={{ marginTop: 0 }}>{fittingId} is not published to the tailnet</h2>
+        <p style={{ color: "var(--mute)" }}>
+          It is running on port {entry.port}, but that port has no{" "}
+          <code>tailscale serve</code> mapping, so it cannot be embedded over
+          HTTPS (a plain-HTTP frame would be blocked as mixed content).
+        </p>
+        <p style={{ color: "var(--mute)" }}>
+          Publish it by running this from a prod shell on the Garrison host:
+        </p>
+        <pre style={{ overflowX: "auto" }}>
+          <code>node scripts/tailnet-serve-views.mjs</code>
+        </pre>
+      </div>
+    );
+  }
+
   const iframeSrc = qs ? `${base}${base.includes("?") ? "&" : "?"}${qs}` : base;
   return (
     <iframe
@@ -100,10 +125,9 @@ export default function EmbedPage() {
       // Own-port views run on a different port (a distinct origin), so without
       // an explicit Permissions-Policy delegation the embedded page's
       // navigator.clipboard is blocked — which silently breaks copy in the
-      // dev-env terminal. Same applies to getUserMedia: without `microphone`
-      // delegation the web-channel's push-to-talk button silently no-ops (the
-      // mic prompt never appears in the framed origin). `autoplay` lets the TTS
-      // reply play back without a per-utterance gesture. Delegate all three.
+      // dev-env terminal. Same for microphone (web-channel push-to-talk:
+      // getUserMedia rejects with NotAllowedError before any prompt) and
+      // autoplay (read-aloud's auto-play after a turn is not a user gesture).
       allow="clipboard-read; clipboard-write; microphone; autoplay"
       style={{
         width: "100%",

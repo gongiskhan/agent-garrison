@@ -1,0 +1,322 @@
+/* Orchestrator + Decisions panels (S5c) - the last two Muster sections. Built on
+   the same Garrison theme tokens and conventions as Muster.module.css: sharp
+   corners (radius 0), mono brass labels, sage = active, alarm = fault, greyed
+   paper-2 for the locked/generated blocks. Every wide block (the assembled prompt,
+   a locked section body) scrolls INSIDE its own box so the page never bleeds
+   horizontally at 390px, whether a section is expanded or collapsed. Light-only,
+   matching the app's single locked theme. */
+
+/* Each panel is a section TAB now - the rail above it owns navigation, so
+   nothing here collapses. The head is a static lead + a mono summary. */
+.section {
+  margin-top: 0;
+}
+
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.panelLead {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--mute);
+  max-width: 560px;
+}
+.panelSummary {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--mute);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* ── orchestrator panel ─────────────────────────────────────────────────── */
+.subLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin: 0 0 10px;
+}
+.groupLead {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.5;
+  margin: 0 0 12px;
+  max-width: 640px;
+}
+
+.authoredList {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+.authoredField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.authoredHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.authoredTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+.authoredStatus {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+  flex-shrink: 0;
+}
+.authoredStatus.saving {
+  color: var(--brass);
+}
+.authoredStatus.saved {
+  color: var(--sage);
+}
+.authoredStatus.error {
+  color: var(--alarm);
+}
+.authoredArea {
+  width: 100%;
+  min-height: 132px;
+  padding: 11px 13px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.authoredArea:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+/* ── locked / generated blocks ──────────────────────────────────────────── */
+.lockedList {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+.lockedBlock {
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.lockedHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--rule);
+}
+.lockedTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink-mute);
+}
+.lockedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+  border: 1px solid var(--brass);
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.lockedBadge svg {
+  flex-shrink: 0;
+}
+.lockedBody {
+  margin: 0;
+  padding: 11px 13px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--mute);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── assembled preview ──────────────────────────────────────────────────── */
+.assembledWrap {
+  border: 1px solid var(--rule-2);
+  background: var(--ink);
+  /* dark pane: flip the global near-invisible ink thumb to the paper variant so
+     the assembled prompt's scrollbar stays legible against --ink */
+  --sb-thumb: rgba(242, 234, 217, 0.14);
+  --sb-thumb-hover: rgba(242, 234, 217, 0.3);
+}
+.assembledHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.assembledLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-2);
+}
+.assembledMeta {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: rgba(244, 237, 224, 0.55);
+}
+.assembledBody {
+  margin: 0;
+  padding: 13px;
+  max-height: 360px;
+  overflow: auto;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(244, 237, 224, 0.9);
+  white-space: pre;
+}
+
+/* ── decisions panel ────────────────────────────────────────────────────── */
+.decisionsList {
+  display: grid;
+  gap: 6px;
+}
+.decisionRow {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  min-width: 0;
+}
+.decisionKind {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+  border: 1px solid var(--rule);
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.decisionKind.dispatch {
+  color: var(--sage);
+  border-color: var(--sage);
+}
+.decisionKind.misrouted {
+  color: var(--alarm);
+  border-color: var(--alarm);
+}
+.decisionDuty {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.decisionLevel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--brass);
+  margin-left: 5px;
+}
+.decisionReason {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.decisionTarget {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.decisionAt {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--mute);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.panelState {
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+  padding: 22px 20px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--mute);
+  line-height: 1.55;
+}
+.panelState b {
+  color: var(--ink-mute);
+  font-weight: 600;
+}
+.panelSkel {
+  height: 120px;
+  border: 1px solid var(--rule);
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: orchShimmer 1.4s ease-in-out infinite;
+}
+@keyframes orchShimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -80% 0; }
+}
+
+/* ── mobile (<= 640px): single column, no horizontal bleed ──────────────── */
+@media (max-width: 640px) {
+  .decisionRow {
+    grid-template-columns: auto 1fr;
+    row-gap: 4px;
+  }
+  .decisionReason {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+  .decisionAt {
+    display: none;
+  }
+  .assembledBody {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panelSkel { animation: none; }
+}

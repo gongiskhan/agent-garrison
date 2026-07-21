@@ -11,7 +11,8 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-const STATUS_FILE = path.join(HOME, ".garrison", "ui-fittings", "browser-default.json");
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+const STATUS_FILE = path.join(GARRISON_HOME, "ui-fittings", "browser-default.json");
 
 function die(msg, code = 1) { process.stderr.write(`garrison-browser: ${msg}\n`); process.exit(code); }
 

@@ -1,0 +1,75 @@
+{
+  "slice": "S2",
+  "title": "Brain merge",
+  "updatedAt": "2026-07-10T10:01:46Z",
+  "phase": "passed",
+  "status": "passed",
+  "kind": "api",
+  "profile": "build",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "blockers": [],
+  "gates": {
+    "typecheck": {
+      "exit": 0,
+      "summary": "clean"
+    },
+    "lint": {
+      "exit": 0,
+      "summary": "clean"
+    },
+    "securityWall": {
+      "gitleaks": {
+        "exit": 0
+      },
+      "semgrep": {
+        "exit": 0,
+        "summary": "S1 scan covers shared libs"
+      }
+    },
+    "test": {
+      "exit": 0,
+      "summary": "full suite baseline-only failures; 10 new autonomy/grep-proof tests green"
+    },
+    "probe": {
+      "exit": 0,
+      "summary": "renamed orchestrator fitting probe ok; compile --check ORCHESTRATOR_POLICY_OK"
+    },
+    "adversarialReview": {
+      "verdict": "approve",
+      "by": "rev-s2 (fresh-context)",
+      "actualModel": "claude-fable-5-lineage",
+      "summary": "rev-s2 approve after fixes (rev race + execution classifier verified empirically)"
+    },
+    "adversarialTest": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "designAudit": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "codexSliceReview": {
+      "status": "degraded",
+      "reason": "codex-unavailable",
+      "actualModel": null
+    },
+    "video": {
+      "status": "verified",
+      "mode": "asciinema (api slice)",
+      "link": "docs/autothing/runs/20260710-073032-ebe15853/slices/S2/evidence.cast",
+      "videoBytes": 1310,
+      "videoSha256": "14b940ea40b0906a74b02d9e955a6abc227658c0138558e06df3e4c8c6529fe8",
+      "verifiedBy": "content assertion (sentinel strings present in the cast)",
+      "at": "2026-07-10T10:16:09Z"
+    }
+  },
+  "commits": [
+    "572c7b4"
+  ],
+  "tags": [
+    "run-20260710-073032-s2-implement"
+  ]
+}

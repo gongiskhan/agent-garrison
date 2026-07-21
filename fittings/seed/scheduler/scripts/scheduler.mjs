@@ -35,15 +35,16 @@ import { spawn } from "node:child_process";
 // io.garrison.scheduler launchd daemon (cwd = anywhere), so an absolute,
 // per-machine location is the only thing all callers agree on. Override with
 // GARRISON_SCHEDULER_JOBS / GARRISON_SCHEDULER_LOG.
+const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const JOBS_FILE = process.env.GARRISON_SCHEDULER_JOBS
-  ?? path.join(os.homedir(), ".garrison", "scheduler-jobs.json");
+  ?? path.join(GARRISON_HOME, "scheduler-jobs.json");
 const LOG_FILE = process.env.GARRISON_SCHEDULER_LOG
-  ?? path.join(os.homedir(), ".garrison", "scheduler.log");
+  ?? path.join(GARRISON_HOME, "scheduler.log");
 const TICK_INTERVAL_MS = 60_000;
 // Default port for the daemon's /health endpoint. Override with
 // GARRISON_SCHEDULER_HEALTH_PORT or `daemon --health-port <n>`; a busy port is
 // tolerated (logged, daemon continues without /health).
-const DEFAULT_HEALTH_PORT = 7088;
+const DEFAULT_HEALTH_PORT = 27099;
 
 async function loadJobs() {
   try {
@@ -128,6 +129,17 @@ async function appendLog(line) {
   await fs.appendFile(LOG_FILE, line + "\n");
 }
 
+// Job commands say `node …` but the daemon may run under systemd with a
+// minimal PATH that lacks the (nvm-installed) node directory — every job then
+// dies with exit 127. Prepend the RUNNING node's own directory so `node`
+// always resolves to the same binary that runs the daemon.
+function jobEnv() {
+  const nodeDir = path.dirname(process.execPath);
+  const base = process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
+  const PATH = base.split(":").includes(nodeDir) ? base : `${nodeDir}:${base}`;
+  return { ...process.env, PATH };
+}
+
 async function runJob(job) {
   const startedAt = new Date().toISOString();
   await appendLog(`[${startedAt}] start ${job.id} :: ${job.command}`);
@@ -135,7 +147,7 @@ async function runJob(job) {
     // sh -c is the shell-evaluated execution path. Job commands are
     // user-authored (added via the `add` CLI) and trusted; this is the
     // same trust model as a user's own crontab entry.
-    const child = spawn("/bin/sh", ["-c", job.command]);
+    const child = spawn("/bin/sh", ["-c", job.command], { env: jobEnv() });
     let stdout = "", stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
@@ -211,7 +223,7 @@ function spawnListener(job, backoffMs = 1000) {
   // shutdown can kill the whole subprocess TREE — `/bin/sh -c <command>` plus any
   // grandchildren the command spawns — not just the shell parent (which would
   // orphan the real worker).
-  const child = spawn("/bin/sh", ["-c", job.command], { stdio: ["ignore", "pipe", "pipe"], detached: true });
+  const child = spawn("/bin/sh", ["-c", job.command], { stdio: ["ignore", "pipe", "pipe"], detached: true, env: jobEnv() });
   listenerWorkers.set(job.id, child);
   child.stdout.on("data", (c) => { void appendLog(`  [listener ${job.id}] ${c.toString().trimEnd()}`); });
   child.stderr.on("data", (c) => { void appendLog(`  [listener ${job.id}] err | ${c.toString().trimEnd()}`); });
@@ -279,13 +291,12 @@ async function daemon(opts = {}) {
     (process.env.GARRISON_SCHEDULER_HEALTH_PORT ? Number(process.env.GARRISON_SCHEDULER_HEALTH_PORT) : DEFAULT_HEALTH_PORT);
   const startedAt = new Date().toISOString();
   let ticks = 0;
-  const healthServer = startHealthServer(healthPort, () => ({
-    startedAt,
-    ticks,
-    pid: process.pid,
-    listeners: [...listenerWorkers.keys()]
-  }));
-  await appendLog(`[${startedAt}] scheduler daemon start (interval ${TICK_INTERVAL_MS}ms, health :${healthPort})`);
+  // Declared before shutdown() so the handler can close it; assigned only after
+  // the signal handlers are installed. A supervisor (or test) that sees /health
+  // up may SIGTERM immediately - if the handlers were registered after the
+  // server started listening, the default disposition would kill the process
+  // mid-startup with a non-zero exit.
+  let healthServer = null;
 
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -314,6 +325,14 @@ async function daemon(opts = {}) {
   };
   process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
   process.on("SIGINT", () => { void shutdown("SIGINT"); });
+
+  healthServer = startHealthServer(healthPort, () => ({
+    startedAt,
+    ticks,
+    pid: process.pid,
+    listeners: [...listenerWorkers.keys()]
+  }));
+  await appendLog(`[${startedAt}] scheduler daemon start (interval ${TICK_INTERVAL_MS}ms, health :${healthPort})`);
 
   await superviseListeners();
   while (!shuttingDown) {

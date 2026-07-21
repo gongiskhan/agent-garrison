@@ -20,27 +20,35 @@ x-garrison:
     - kind: mcp-gateway
       name: mcp-gateway
   consumes:
-    - kind: agent-skill
-      name: tier-classifier
-      cardinality: optional-one
-    - kind: agent-skill
-      name: testing
-      cardinality: optional-one
     - kind: orchestrator
       cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 120000
   verify:
     command: node apm_modules/_local/mcp-gateway/scripts/gateway.mjs --probe
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    Orchestrator-mode sidecar — not invoked directly by the Operative.
-    Runs as a companion to Claude Code sessions. Same-machine sessions use stdio MCP
-    (Claude Code spawns it as a child process). Remote outpost sessions use HTTP MCP
-    (gateway runs on the Garrison host, Claude Code on the remote machine connects
-    over Tailscale).
+    Orchestrator/soul-mode sidecar - not invoked directly by the Operative.
+    The http-gateway spawns it per soul session as a stdio MCP child (no port of
+    its own); remote outpost sessions connect over HTTP MCP instead. Hosts the
+    garrison-control tool set (present when GARRISON_HTTP_GATEWAY_BASE_URL is
+    set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs.
 
-    Tools:
-      - classify_tier, run_tests (present when corresponding Fitting is installed)
-      - garrison-control set (present when GARRISON_HTTP_GATEWAY_BASE_URL is set):
-        talk_to, wait_for, list_active_sessions, end_session, list_workdirs,
-        list_worktrees, create_worktree, get_worktree, close_worktree
+    Kanban run-engine tools (WS2, present when the kanban-loop board is live at
+    ~/.garrison/ui-fittings/kanban-loop.json):
+      - fetch_evidence(card_id, artifact_ref): pull one card artifact (raw text,
+        capped ~50KB) by its opaque ref token (plan | brief | evidenceIndex |
+        gateMarkers | evidence:<file> | session:<i> | log:<n>). Pull, not push.
+      - create_continuation(card_id, title?, description?): register a successor
+        card (continues=<card_id>, moved to plan) whose prompt is seeded from the
+        predecessor's handoff packet; returns { id, url }.
+      - poll_origin_events(origin_id, since?): PULL the lifecycle + duty-summary
+        events for a run origin (skill/terminal parity with a web thread's push
+        feed) - created | needs-input | blocked | failed | finished | duty-summary
+        | steering; poll again with the returned next_since for only new events.
+    NOTE: "continuation" here is CARD CHAINING (one card continues another's work),
+    DISTINCT from the Orchestrator policy's post-task "continuations" vocabulary
+    (store|ask|route|notify steps by output kind).

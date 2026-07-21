@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { startOwnPortFitting, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
+import { operativeEnvForFitting } from "@/lib/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,10 +16,12 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     if (!entry) {
       return NextResponse.json({ error: `fitting ${params.id} not in library` }, { status: 404 });
     }
-    // Vault may be locked on this manual path (no `up` unlock guarantee);
-    // vaultEnvForEntry returns {} in that case and the Fitting starts without
-    // its secrets rather than failing.
-    const extraEnv = await vaultEnvForEntry(entry);
+    // On-demand start is the NORMAL path for non-eager views (up only boots
+    // eager ones): when a composition is running, hand the view the same env
+    // the runner would at up — gateway URL, composition id, selection config,
+    // vault. Otherwise fall back to vault-only (may be locked; then {} — the
+    // Fitting starts without its secrets rather than failing).
+    const extraEnv = (await operativeEnvForFitting(params.id)) ?? (await vaultEnvForEntry(entry));
     const result = await startOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "start failed" }, { status: result.status ?? 500 });

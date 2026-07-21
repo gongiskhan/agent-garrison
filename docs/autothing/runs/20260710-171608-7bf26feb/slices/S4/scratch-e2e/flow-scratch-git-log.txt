@@ -1,0 +1,26 @@
+commit b7e1af29c53d95c2348dd4922e123ec50820580c
+Author: goncalo.gomes <goncalo.p.gomes@gmail.com>
+Date:   Sat Jul 11 05:53:51 2026 +0100
+
+    garrison(flow-scratch): implement fence - Add a multiply function with a test
+
+Garrison-Card: 01KX7RCN0FRGY4SFB7GEKDJ2JT
+Garrison-Run: 01KX7RCN0NSE1TGS40CNDBC1K8
+Garrison-Phase: implement
+
+commit 531ba56f2135746a551ca2151007c1eb8137b66f
+Author: goncalo.gomes <goncalo.p.gomes@gmail.com>
+Date:   Sat Jul 11 05:52:04 2026 +0100
+
+    chore: seed throwaway repo (add + its test)
+
+
+b7e1af2 garrison(flow-scratch): implement fence - Add a multiply function with a test
+Garrison-Card: 01KX7RCN0FRGY4SFB7GEKDJ2JT
+Garrison-Run: 01KX7RCN0NSE1TGS40CNDBC1K8
+Garrison-Phase: implement
+
+
+ src/multiply.mjs       |  3 +++
+ test/multiply.test.mjs | 11 +++++++++++
+ 2 files changed, 14 insertions(+)

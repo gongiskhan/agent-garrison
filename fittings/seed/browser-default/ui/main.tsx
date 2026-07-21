@@ -127,7 +127,24 @@ const SPECIAL_KEYS = new Set(Object.keys(SPECIAL_KEY_CODES));
 type PickTarget = { box: { x: number; y: number; w: number; h: number }; label: string; text: string; selector: string };
 type SelectionInfo = { kind: string; label?: string; text?: string; count?: number; box?: { x: number; y: number; w: number; h: number } };
 
-function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; inShell?: boolean }) {
+function CanvasPage({ initialTabId, inShell = false, embed = false }: { initialTabId: string; inShell?: boolean; embed?: boolean }) {
+  const cleanEmbed = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("embed");
+    return embed || requested === "1" || requested === "clean";
+  }, [embed]);
+  // Embedded QA surfaces can ask the canvas to preserve the viewport already
+  // applied when the tab was created. Without this, the canvas's normal
+  // resize-to-fit behaviour silently replaces a named desktop/mobile
+  // viewport with the iframe's display size and makes screenshot targeting
+  // use a different coordinate system from the one the user sees.
+  const preservedViewport = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("preserveViewport") !== "1") return null;
+    const width = Math.round(Number(params.get("viewportWidth")) || 0);
+    const height = Math.round(Number(params.get("viewportHeight")) || 0);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }, []);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
@@ -187,6 +204,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   // viewport: a stolen-from pane keeps a live input WS (input allows many
   // clients) and would otherwise reflow the page under the live viewer.
   const pushViewport = useCallback((force = false) => {
+    if (preservedViewport) return;
     if (viewportWsRef.current?.readyState !== WebSocket.OPEN) return;
     const wrap = wrapperRef.current;
     if (!wrap) return;
@@ -199,7 +217,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
     if (!force && last && last.width === width && last.height === height && last.dpr === dpr) return;
     lastSentViewportRef.current = { width, height, dpr };
     sendInput({ type: "viewport", width, height, devicePixelRatio: dpr });
-  }, [sendInput]);
+  }, [preservedViewport, sendInput]);
 
   const queueResize = useCallback(() => {
     if (resizeTimerRef.current) window.clearTimeout(resizeTimerRef.current);
@@ -264,7 +282,9 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
     fatalRef.current = null;
     setFatalError(null);
     setConnState("connecting");
-    lastSentViewportRef.current = null;
+    lastSentViewportRef.current = preservedViewport
+      ? { ...preservedViewport, dpr: 1 }
+      : null;
     qualitySentRef.current = null;
     firstFrameSeenRef.current = false;
     // TEMP: tab-swap timing instrumentation.
@@ -506,6 +526,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
 
   // Observe wrapper size changes and push them to the server (debounced).
   useEffect(() => {
+    if (preservedViewport) return;
     const wrap = wrapperRef.current;
     if (!wrap) return;
     const ro = new ResizeObserver(() => queueResize());
@@ -514,7 +535,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
       ro.disconnect();
       if (resizeTimerRef.current) window.clearTimeout(resizeTimerRef.current);
     };
-  }, [queueResize]);
+  }, [preservedViewport, queueResize]);
 
   // Poll URL from /tabs. Prefer requestedUrl for display when Chromium hit a
   // load error (so the URL bar shows what we asked for, not chrome-error://).
@@ -784,8 +805,8 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
   }, [currentUrl]);
 
   return (
-    <div className="canvas-page">
-      <div className="urlbar">
+    <div className={`canvas-page${cleanEmbed ? " embed clean-embed" : ""}`}>
+      {!cleanEmbed && <div className="urlbar">
         <button className="opt" onClick={() => navAction("back")} title="Back">‹</button>
         <button className="opt" onClick={() => navAction("forward")} title="Forward">›</button>
         <button onClick={() => navAction("reload")} title="Reload">↻</button>
@@ -858,7 +879,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
             title="Open in new tab"
           >Detach</button>
         )}
-      </div>
+      </div>}
       <div className={`canvas-wrapper${selMode !== "none" ? " selecting" : ""}`} ref={wrapperRef}>
         <canvas
           ref={canvasRef}
@@ -905,7 +926,7 @@ function CanvasPage({ initialTabId, inShell = false }: { initialTabId: string; i
             className={`conn-overlay ${connState === "closed" ? "reconnect" : ""}`}
             onClick={connState === "closed" ? () => connect() : undefined}
           >
-            {connState === "connecting" ? "Connecting…" : "Disconnected — tap to reconnect"}
+            {connState === "connecting" ? "Connecting…" : "Disconnected - tap to reconnect"}
           </div>
         )}
         {connState === "open" && loadError && (
@@ -1019,7 +1040,16 @@ function DevtoolsShell({ initialTabId }: { initialTabId: string }) {
 
 function App() {
   const route = useRoute();
-  if (route.kind === "canvas") return <CanvasPage initialTabId={route.initialTabId} />;
+  // ?embed=1 renders the bare screencast with no urlbar chrome - for host
+  // surfaces (Drill authoring) that overlay their own controls and need the
+  // iframe's full box to BE the page viewport (their click-to-viewport math
+  // breaks if a toolbar strip eats part of the iframe). `clean` is retained
+  // as a compatibility alias for previously generated Drill canvas URLs.
+  if (route.kind === "canvas") {
+    const requestedEmbed = new URLSearchParams(window.location.search).get("embed");
+    const embed = requestedEmbed === "1" || requestedEmbed === "clean";
+    return <CanvasPage initialTabId={route.initialTabId} embed={embed} />;
+  }
   if (route.kind === "devtools-shell") return <DevtoolsShell initialTabId={route.initialTabId} />;
   return <TabsList />;
 }

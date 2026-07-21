@@ -16,7 +16,8 @@
 //            per turn (20–30k with tool schemas); lean targets stop paying it.
 //
 // settingSources NEVER includes "user" → the user ~/.claude/settings.json env
-// block does not load (defence-in-depth for the #217 trap; THE FENCE is primary).
+// block does not load, so a stray env there can't silently redirect the SDK's
+// base URL (the #217 trap).
 //
 // `appendSystemPrompt` is deprecated in the renamed SDK; the structured
 // systemPrompt object (preset / string / preset+append) is the supported form.

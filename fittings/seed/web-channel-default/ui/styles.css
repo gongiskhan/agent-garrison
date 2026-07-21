@@ -1,11 +1,11 @@
 /* ============================================================================
-   Web-Channel — Garrison look-and-feel skin for the shared @garrison/claude-chat
+   Web-Channel - Garrison look-and-feel skin for the shared @garrison/claude-chat
    component.
 
    This file is concatenated AFTER packages/claude-chat/src/claude-chat.css by
    ui/build.mjs and is loaded ONLY by the web-channel (dev-env never loads it).
    So everything here overrides the shared component's dark default for the
-   web-channel surface alone — dev-env's light/dark themes are untouched.
+   web-channel surface alone - dev-env's light/dark themes are untouched.
 
    Design language (matches src/app/globals.css): warm cream "paper", ink text,
    1px "rule" hairlines, restrained sage-green accent, uppercase letter-spaced
@@ -16,7 +16,7 @@
 
 html, body {
   margin: 0;
-  background: #fbf8f1; /* paper — fills any area outside the centered column */
+  background: #fbf8f1; /* paper - fills any area outside the centered column */
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
 }
@@ -37,7 +37,7 @@ html, body {
   --cc-accent-fg:     #fbf8f1;  /* paper on accent  */
   --cc-user-bg:       #eaf1e7;  /* sage-soft        */
   --cc-user-fg:       #18211c;
-  --cc-code-bg:       #18211c;  /* ink — dark code card on cream (echoes .term) */
+  --cc-code-bg:       #18211c;  /* ink - dark code card on cream (echoes .term) */
   --cc-code-fg:       #d7e3dc;
   --cc-code-border:   #283731;
   --cc-slash-active:  #ece2cc;
@@ -117,7 +117,7 @@ html, body {
 /* ── Turns ── */
 .cc-turn { margin-bottom: 22px; }
 
-/* user — sage-soft bubble, right-aligned, near-sharp corners */
+/* user - sage-soft bubble, right-aligned, near-sharp corners */
 .cc-user {
   background: var(--cc-user-bg);
   color: var(--cc-user-fg);
@@ -128,7 +128,7 @@ html, body {
   font-size: 14.5px;
 }
 
-/* assistant — editorial column with a faint mono label + hairline, no bubble */
+/* assistant - editorial column with a faint mono label + hairline, no bubble */
 .cc-assistant { margin-top: 14px; max-width: 100%; }
 .cc-assistant::before {
   content: "OPERATIVE";
@@ -304,7 +304,7 @@ html, body {
 .cc-codecopy:hover { color: #d7e3dc; border-color: #44604f; }
 .cc-codeblock pre { margin: 0; border: none; border-radius: 0; background: var(--cc-code-bg); color: var(--cc-code-fg); padding: 12px; overflow-x: auto; font: 12.5px/1.5 var(--cc-mono); }
 
-/* per-message actions — visible but subtle (mobile has no hover) */
+/* per-message actions - visible but subtle (mobile has no hover) */
 .cc-msgactions { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; opacity: 0.55; transition: opacity 0.12s; }
 .cc-assistant:hover .cc-msgactions, .cc-msgactions:focus-within { opacity: 1; }
 .cc-msgcopy { font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; background: transparent; border: 1px solid var(--cc-border); color: var(--cc-fg-dim); border-radius: 0; padding: 3px 8px; cursor: pointer; }
@@ -322,4 +322,868 @@ html, body {
 @media (max-width: 420px) {
   .cc-scroll { padding: 16px 13px; }
   .cc-md, .cc-user { font-size: 14.5px; }
+}
+
+/* ============================================================================
+   Sessions shell - sidebar + thread list around the chat. The chat itself is
+   the centered .cc-root column (unchanged); the shell wraps it with a session
+   list. Palette literals mirror the .cc-root token overrides above (the shell
+   lives OUTSIDE .cc-root so it can't read --cc-*).
+   ============================================================================ */
+.wc-shell {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  background: #fbf8f1;            /* paper */
+}
+
+/* ── Sidebar ── */
+.wc-sidebar {
+  width: 264px;
+  flex-shrink: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f4ede0;            /* paper-2 */
+  border-right: 1px solid #d6cdba; /* rule */
+  padding-top: env(safe-area-inset-top);
+}
+.wc-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid #d6cdba;
+}
+.wc-sidebar-title {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #66695f;                /* mute */
+}
+.wc-new {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #3d6249;                /* sage-2 */
+  background: #eaf1e7;           /* sage-soft */
+  border: 1px solid #c4b89f;     /* rule-2 */
+  border-radius: 2px;
+  padding: 5px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wc-new:hover { background: #e0ebdb; }
+
+.wc-thread-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wc-empty-list {
+  padding: 18px 14px;
+  color: #7d8077;               /* mute-2 */
+  font-size: 13px;
+}
+
+.wc-thread {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #ece2cc; /* paper-3 hairline */
+  border-left: 3px solid transparent;
+  padding: 10px 10px 10px 13px;
+  cursor: pointer;
+  color: #18211c;               /* ink */
+  font-family: inherit;
+}
+.wc-thread:hover { background: #efe7d6; }
+.wc-thread--active {
+  background: #eaf1e7;          /* sage-soft */
+  border-left-color: #3d6249;   /* sage-2 */
+}
+.wc-thread-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.wc-thread-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wc-thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #7d8077;
+}
+.wc-thread-src {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #3d6249;
+  background: #e0ebdb;
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+.wc-thread-del {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 17px;
+  color: #9b362d;              /* alarm */
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.wc-thread:hover .wc-thread-del { opacity: 0.7; }
+.wc-thread-del:hover { opacity: 1; background: #f0ddd9; }
+
+/* ── Main chat area ── */
+.wc-main {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.wc-main .cc-root { flex: 1; min-height: 0; height: auto; }
+
+/* Prominent "return to host" bar (Kanban board / Automations) shown above the
+   chat when a Discuss session was opened from a host fitting. */
+.wc-backbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px 8px 50px;
+  border-bottom: 1px solid var(--wc-border, #e2ddcf);
+  background: var(--wc-bg-raise, #f4f1e8);
+}
+.wc-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--wc-fg, #2b2a26);
+  background: var(--wc-bg, #fff);
+  border: 1px solid var(--wc-border-strong, #cfc8b6);
+  border-radius: 7px;
+  padding: 5px 12px 5px 9px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.wc-back:hover { background: var(--wc-accent-soft, #eef3ec); border-color: var(--wc-accent, #6f8f6a); }
+.wc-backbar-spacer { flex: 1; }
+@media (min-width: 900px) { .wc-backbar { padding-left: 12px; } }
+
+/* Brief button (right side of the top bar) */
+.wc-briefbtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600;
+  color: var(--wc-fg, #2b2a26); background: var(--wc-bg, #fff);
+  border: 1px solid var(--wc-border-strong, #cfc8b6); border-radius: 7px;
+  padding: 5px 12px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
+}
+.wc-briefbtn:hover { background: var(--wc-accent-soft, #eef3ec); border-color: var(--wc-accent, #6f8f6a); }
+.wc-briefbtn-active { background: var(--wc-accent-soft, #eef3ec); border-color: var(--wc-accent, #6f8f6a); }
+
+/* ── Brief editor slide-over ── */
+.wc-brief {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(600px, 100%);
+  display: flex; flex-direction: column;
+  background: var(--wc-bg, #fbf9f2);
+  border-left: 1px solid var(--wc-border-strong, #cfc8b6);
+  box-shadow: -14px 0 40px -20px rgba(0,0,0,0.35);
+  z-index: 30;
+}
+.wc-brief-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--wc-border, #e2ddcf);
+  background: var(--wc-bg-raise, #f4f1e8);
+}
+.wc-brief-title { font-weight: 700; font-size: 14px; color: var(--wc-fg, #2b2a26); display: inline-flex; align-items: baseline; gap: 8px; }
+.wc-brief-file { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--wc-fg-dim, #7a7568); font-weight: 400; }
+.wc-brief-modes { margin-left: auto; display: inline-flex; border: 1px solid var(--wc-border-strong, #cfc8b6); border-radius: 7px; overflow: hidden; }
+.wc-brief-modes button { font-size: 12px; padding: 4px 12px; background: transparent; border: 0; cursor: pointer; color: var(--wc-fg-dim, #7a7568); }
+.wc-brief-modes button.wc-brief-mode-active { background: var(--wc-accent-soft, #eef3ec); color: var(--wc-fg, #2b2a26); font-weight: 600; }
+.wc-brief-close { font-size: 20px; line-height: 1; background: transparent; border: 0; cursor: pointer; color: var(--wc-fg-dim, #7a7568); padding: 0 4px; }
+.wc-brief-close:hover { color: var(--wc-fg, #2b2a26); }
+.wc-brief-body { flex: 1; min-height: 0; overflow: auto; display: flex; }
+.wc-brief-editor {
+  flex: 1; width: 100%; resize: none; border: 0; outline: none;
+  padding: 14px 16px; background: transparent; color: var(--wc-fg, #2b2a26);
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wc-brief-preview { flex: 1; padding: 14px 18px; overflow: auto; color: var(--wc-fg, #2b2a26); font-size: 14px; line-height: 1.6; }
+.wc-brief-loading { padding: 18px; color: var(--wc-fg-dim, #7a7568); }
+.wc-brief-foot {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-top: 1px solid var(--wc-border, #e2ddcf);
+  background: var(--wc-bg-raise, #f4f1e8); font-size: 12px;
+}
+.wc-brief-spacer { flex: 1; }
+.wc-brief-ok { color: var(--wc-accent, #4c7a48); font-weight: 600; }
+.wc-brief-dirty { color: #a5762a; }
+.wc-brief-dim { color: var(--wc-fg-dim, #7a7568); }
+.wc-brief-err { color: #b3402f; }
+.wc-brief-save {
+  font-size: 13px; font-weight: 600; color: #fff; background: var(--wc-accent, #6f8f6a);
+  border: 1px solid var(--wc-accent, #6f8f6a); border-radius: 7px; padding: 5px 16px; cursor: pointer;
+}
+.wc-brief-save:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 720px) { .wc-brief { width: 100%; } }
+.wc-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #7d8077;
+  font-size: 14px;
+}
+
+/* ── Mobile / tablet toggle + scrim (wide: sidebar inline, these hidden) ──
+   The overlay breakpoint is 900px: below it the 264px sidebar would squeeze
+   the chat column under ~600px, so the sidebar becomes a slide-over. */
+.wc-sidebar-toggle { display: none; }
+.wc-sidebar-scrim { display: none; }
+
+@media (max-width: 899px) {
+  .wc-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 2px 0 14px rgba(24, 33, 28, 0.18);
+  }
+  .wc-shell--open .wc-sidebar { transform: translateX(0); }
+  .wc-sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(24, 33, 28, 0.32);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .wc-shell--open .wc-sidebar-scrim { opacity: 1; pointer-events: auto; }
+  .wc-sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: max(8px, env(safe-area-inset-top));
+    left: 8px;
+    z-index: 50;
+    width: 34px;
+    height: 34px;
+    background: #f4ede0;
+    border: 1px solid #c4b89f;
+    border-radius: 3px;
+    color: #18211c;
+    cursor: pointer;
+  }
+  .wc-main .cc-header { padding-left: 50px; }
+}
+
+/* ============================================================================
+   Responsive refit (2026-07-11) - the web channel is the primary way to start
+   tasks, from a phone as much as from a desktop. Three rules:
+     1. The chat column uses the available width gracefully at every size.
+     2. The pre-composer control rows never stack into a wall: dead strips are
+        removed, chip rows scroll horizontally instead of wrapping.
+     3. The composer never grows scrollbar artifacts: the textarea autosizes
+        to its content (field-sizing) and shrinks properly in flex.
+   ============================================================================ */
+
+/* ── Width: the surface FILLS its container; the CONTENT is what's measured ──
+   The old rule capped .cc-root itself at 860px, so on a wide monitor the chat
+   sat in a narrow strip with dead paper on both sides and the chrome (header,
+   composer, toolbars) was capped with it. Instead the root now spans the full
+   pane and each row gets a symmetric gutter that centres a readable measure -
+   the column genuinely grows with the viewport up to --cc-measure, and beyond
+   that the header rules and composer still span edge to edge like a real app.
+   The gutter is a percentage of the ROOT's width (each row is its direct
+   block child), so it tracks the pane, not the viewport - correct with the
+   264px sessions sidebar in or out. */
+.cc-root {
+  --cc-measure: 1200px;
+  --cc-gutter: max(16px, calc((100% - var(--cc-measure)) / 2));
+  max-width: none;
+  width: 100%;
+  border-left: none;
+  border-right: none;
+}
+.cc-header,
+.cc-scroll,
+.cc-statusstrip,
+.cc-modes,
+.cc-toolbar,
+.cc-composer {
+  padding-left: var(--cc-gutter);
+  padding-right: var(--cc-gutter);
+}
+/* The slash menu is absolutely positioned against .cc-composer - align it to the
+   same measure instead of the composer's full padded box. */
+.cc-slashmenu { left: var(--cc-gutter); right: var(--cc-gutter); }
+/* Keep the mobile sidebar-toggle clearance (declared before this block). */
+@media (max-width: 899px) {
+  .wc-main .cc-header { padding-left: 50px; }
+}
+/* A user bubble is a bubble, not a banner: cap it in ch so it stays legible when
+   the column is wide, while still filling narrow screens. */
+.cc-user { max-width: min(86%, 70ch); margin-left: auto; }
+
+/* Header never overflows: the model chip ellipsizes instead of pushing the
+   RAW toggle off-screen. */
+.cc-header { min-width: 0; }
+.cc-model { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Dead strip removal: the status strip's own "no status" placeholder row
+   (cc-dim) means there is nothing to show - drop the whole strip. */
+.cc-statusstrip:has(> .cc-statusrow.cc-dim:only-child) { display: none; }
+.cc-statusrow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Chip rows: one line each, horizontal scroll instead of wrapping, no visible
+   scrollbar. Keeps the bottom chrome to a predictable height on phones. */
+.cc-modes, .cc-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.cc-modes::-webkit-scrollbar, .cc-toolbar::-webkit-scrollbar { display: none; }
+.cc-mode, .cc-chip { flex-shrink: 0; white-space: nowrap; }
+.cc-tool-group { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Composer: the textarea sizes to its content (no scrollbar artifact from a
+   wrapped placeholder), shrinks properly, and the buttons keep their feet. */
+.cc-input {
+  min-width: 0;
+  field-sizing: content;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.cc-send, .cc-stop, .cc-mic { flex-shrink: 0; }
+
+/* Phone-tight spacing (<= 600px): the same chrome, less air. */
+@media (max-width: 600px) {
+  .cc-scroll { padding: 14px 12px; }
+  .cc-composer { padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .cc-modes, .cc-toolbar { padding: 6px 10px; gap: 5px; }
+  .cc-mode, .cc-chip { padding: 4px 8px; font-size: 9.5px; }
+  .cc-send, .cc-stop { padding: 0 14px; font-size: 13.5px; }
+  .cc-statusstrip { padding: 4px 12px; }
+  .cc-backbar { padding-top: 6px; padding-bottom: 6px; }
+}
+
+/* ── Streaming voice (S6b): conversation mode + push-to-talk ──────────────────
+   Rendered into ClaudeChat's composerAdornment slot. Two inline buttons in the
+   composer row + a status panel absolutely positioned above the composer (which
+   is position:relative). Scoped to .wcv-* so it never collides with .cc-*. */
+.wcv { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.wcv-convo, .wcv-mic {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 42px; padding: 0 10px;
+  background: #fff; color: var(--cc-fg-dim);
+  border: 1px solid var(--cc-border); border-radius: 2px;
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; cursor: pointer;
+}
+.wcv-mic { min-width: 44px; justify-content: center; padding: 0 8px; }
+.wcv-convo:hover:not(:disabled), .wcv-mic:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-fg); }
+.wcv-convo:disabled, .wcv-mic:disabled { opacity: 0.4; cursor: default; }
+.wcv-convo.wcv-on {
+  background: var(--cc-accent); color: var(--cc-accent-fg); border-color: var(--cc-accent);
+}
+.wcv-mic.wcv-mic-rec { border-color: var(--cc-danger-bg); color: var(--cc-danger-bg); }
+.wcv-mic-dot { width: 9px; height: 9px; background: var(--cc-danger-bg); border-radius: 50%; animation: wcv-pulse 1.1s ease-in-out infinite; }
+@keyframes wcv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.wcv-panel {
+  position: absolute; left: var(--cc-gutter, 14px); right: var(--cc-gutter, 14px); bottom: calc(100% + 6px);
+  background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 3px;
+  padding: 10px 12px; box-shadow: 0 -6px 22px rgba(24, 33, 28, 0.12);
+  font-size: 13.5px; color: var(--cc-fg); z-index: 5;
+}
+.wcv-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.wcv-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg-faint); }
+.wcv-dot-listening { background: var(--cc-accent); animation: wcv-pulse 1.1s ease-in-out infinite; }
+.wcv-dot-sending { background: var(--cc-brass, #b4862a); }
+.wcv-dot-speaking { background: var(--cc-accent); }
+.wcv-state {
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--cc-fg-dim);
+}
+.wcv-level { display: inline-block; width: 40px; height: 4px; background: var(--cc-bg-sunk); border-radius: 2px; overflow: hidden; }
+.wcv-level > i { display: block; height: 100%; background: var(--cc-accent); transform-origin: left center; transition: transform 90ms linear; }
+.wcv-latency {
+  margin-left: auto; font-family: var(--cc-mono); font-size: 10px;
+  color: var(--cc-fg-faint); font-variant-numeric: tabular-nums;
+}
+.wcv-latency-over { color: var(--cc-danger-bg); font-weight: 600; }
+.wcv-stop {
+  margin-left: 6px; width: 22px; height: 22px; line-height: 1;
+  background: transparent; border: 1px solid var(--cc-border); border-radius: 2px;
+  color: var(--cc-fg-dim); cursor: pointer; font-size: 15px;
+}
+.wcv-stop:hover { color: var(--cc-fg); border-color: var(--cc-fg); }
+.wcv-transcript { line-height: 1.45; min-height: 1.2em; word-break: break-word; }
+.wcv-final { color: var(--cc-fg); }
+.wcv-interim { color: var(--cc-fg-faint); font-style: italic; }
+.wcv-hint { color: var(--cc-fg-faint); }
+.wcv-err { color: var(--cc-danger-bg); font-size: 12.5px; }
+@media (max-width: 600px) {
+  .wcv-convo-label { display: none; }
+  .wcv-convo { padding: 0 8px; }
+  .wcv-panel { left: 10px; right: 10px; }
+}
+
+/* ==========================================================================
+   Fortress operations-room refit
+   ========================================================================== */
+:root {
+  --wc-olive-950: #141a15;
+  --wc-olive-900: #202920;
+  --wc-olive-800: #2b372c;
+  --wc-olive-700: #465348;
+  --wc-stone-50: #f5f0e6;
+  --wc-stone-100: #ede5d6;
+  --wc-stone-200: #ded2bc;
+  --wc-stone-300: #cbbda3;
+  --wc-ink: #202820;
+  --wc-muted: #676b62;
+  /* Declared (not just a fallback literal) so every `var(--wc-fg-dim, #7a7568)`
+     in the brief slide-over resolves to a tone that clears AA on stone-100/-200
+     chrome; the #7a7568 fallback was 3.3:1 on the brief head/foot bars. */
+  --wc-fg-dim: #465348;
+  --wc-brass: #b1954e;
+  --wc-brass-deep: #746232;
+  --wc-sage: #6f8e6d;
+  --wc-alarm: #963f35;
+  --wc-sans: Avenir, "Avenir Next", "Barlow", "Segoe UI", sans-serif;
+  --wc-serif: Iowan Old Style, "Source Serif 4", "Palatino Linotype", Georgia, serif;
+  --wc-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+}
+
+html,
+body {
+  background: var(--wc-olive-950);
+  font-family: var(--wc-sans);
+}
+
+.wc-shell {
+  background:
+    linear-gradient(rgba(35,45,36,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(35,45,36,.035) 1px, transparent 1px),
+    var(--wc-stone-50);
+  background-size: 30px 30px;
+}
+
+.wc-sidebar {
+  width: 284px;
+  background:
+    linear-gradient(180deg, rgba(177,149,78,.08), transparent 26%),
+    var(--wc-olive-900);
+  border-right-color: #4b584d;
+  box-shadow: 14px 0 32px rgba(20,26,21,.12);
+}
+
+.wc-sidebar-head {
+  min-height: 66px;
+  padding: 14px 14px 13px;
+  border-bottom-color: #4b584d;
+}
+
+.wc-sidebar-title {
+  color: #c8ccbf;
+  font: 10px/1.2 var(--wc-mono);
+  letter-spacing: .15em;
+}
+
+.wc-new {
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid #c8ae66;
+  border-radius: 2px;
+  background: var(--wc-brass);
+  color: #171b17;
+  font: 10px/1.1 var(--wc-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.wc-new:hover {
+  background: #c5aa60;
+}
+
+.wc-empty-list {
+  margin: 16px 12px;
+  padding: 18px 14px;
+  border-top: 1px solid #465348;
+  border-bottom: 1px solid #354137;
+  color: #9fa69a;
+  font-family: var(--wc-serif);
+}
+
+.wc-thread {
+  min-height: 60px;
+  padding: 11px 10px 11px 14px;
+  border-bottom-color: #354137;
+  border-left-width: 3px;
+  color: #eef0e8;
+}
+
+.wc-thread:hover {
+  background: #2b372c;
+}
+
+.wc-thread--active {
+  background:
+    linear-gradient(90deg, rgba(177,149,78,.16), transparent 85%),
+    #303c31;
+  border-left-color: var(--wc-brass);
+}
+
+.wc-thread-title {
+  font-size: 13px;
+  font-weight: 620;
+  letter-spacing: .005em;
+}
+
+.wc-thread-meta {
+  color: #9fa69a;
+  font: 10px/1.3 var(--wc-mono);
+}
+
+.wc-thread-src {
+  padding: 2px 5px;
+  border: 1px solid #576358;
+  border-radius: 1px;
+  background: transparent;
+  color: #cbb677;
+  font: 9px/1.2 var(--wc-mono);
+}
+
+.wc-thread-del {
+  width: 32px;
+  height: 32px;
+  line-height: 30px;
+  color: #e08475;
+}
+
+.wc-thread-del:hover {
+  background: rgba(150,63,53,.22);
+}
+
+.wc-main {
+  background: var(--wc-stone-50);
+}
+
+.cc-root {
+  --cc-bg: var(--wc-stone-50);
+  --cc-bg-elev: var(--wc-stone-100);
+  --cc-bg-sunk: var(--wc-stone-200);
+  --cc-fg: var(--wc-ink);
+  /* Muted tones are darkened to clear AA on the warm dossier surfaces: the old
+     #676b62 / #86887e sat at 3.6:1 - 2.7:1 against stone-200/-100 chips, badges
+     and the status strip. Same olive family, two steps down. */
+  --cc-fg-dim: var(--wc-olive-700);
+  --cc-fg-faint: #5c6157;
+  --cc-border: #d2c7b1;
+  --cc-border-strong: #b7a98e;
+  --cc-accent: var(--wc-brass-deep);
+  --cc-accent-fg: #fffaf0;
+  --cc-user-bg: #dce5d8;
+  --cc-user-fg: #202820;
+  --cc-code-bg: #141b16;
+  --cc-code-fg: #dce4d9;
+  --cc-code-border: #334137;
+  --cc-slash-active: #ded4bf;
+  --cc-danger-bg: var(--wc-alarm);
+  --cc-danger-border: var(--wc-alarm);
+  --cc-sans: var(--wc-sans);
+  --cc-serif: var(--wc-serif);
+  --cc-mono: var(--wc-mono);
+  background:
+    radial-gradient(circle at 72% 15%, rgba(177,149,78,.075), transparent 28%),
+    var(--wc-stone-50);
+}
+
+.cc-header {
+  min-height: 66px;
+  background:
+    linear-gradient(90deg, rgba(177,149,78,.1), transparent 36%),
+    var(--wc-olive-800);
+  border-bottom-color: #586458;
+  color: #f5f0e6;
+}
+
+.cc-title {
+  color: #f5f0e6;
+  font: 650 18px/1.1 var(--wc-serif);
+}
+
+.cc-model,
+.cc-ctx {
+  color: #b9c0b4;
+  font-family: var(--wc-mono);
+}
+
+.cc-rawtoggle {
+  color: #d9ddd4;
+  border-color: #697369;
+}
+
+.cc-conn {
+  border-radius: 1px;
+  background: #8eaa85;
+}
+
+.cc-scroll {
+  background-image:
+    linear-gradient(rgba(43,55,44,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43,55,44,.035) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.cc-empty {
+  color: var(--wc-muted);
+  font: 16px/1.55 var(--wc-serif);
+}
+
+.cc-assistant::before {
+  color: var(--wc-brass-deep);
+  border-bottom-color: #cfc2aa;
+}
+
+.cc-user {
+  border-color: #c1cdbb;
+  border-radius: 2px 2px 2px 10px;
+  box-shadow: 0 8px 24px rgba(31,40,32,.08);
+}
+
+.cc-statusstrip {
+  background: #dfd5c1;
+}
+
+.cc-modes,
+.cc-toolbar {
+  background: #e9e0cf;
+}
+
+.cc-mode,
+.cc-chip {
+  min-height: 32px;
+  background: rgba(255,255,255,.34);
+  border-radius: 2px;
+}
+
+.cc-mode-active,
+.cc-chip-active,
+.cc-root[data-theme="light"] .cc-mode-active,
+.cc-root[data-theme="light"] .cc-chip-active {
+  background: var(--wc-olive-800);
+  border-color: var(--wc-olive-800);
+  color: #f5f0e6;
+}
+
+.cc-composer {
+  background: #e5dbc8;
+  border-top-color: #c8baa0;
+  box-shadow: 0 -14px 30px rgba(31,40,32,.09);
+}
+
+.cc-input {
+  background: #fbf8f1;
+  border-radius: 2px;
+  border-color: #b7a98e;
+  min-height: 46px;
+}
+
+.cc-send {
+  min-height: 46px;
+  border-radius: 2px;
+  background: var(--wc-brass-deep);
+  border-color: var(--wc-brass-deep);
+}
+
+.cc-mic,
+.wcv-convo,
+.wcv-mic {
+  min-height: 46px;
+  border-radius: 2px;
+  background: #f8f4eb;
+  border-color: #b7a98e;
+}
+
+.cc-slashmenu,
+.wcv-panel {
+  border-radius: 2px;
+  box-shadow: 0 -12px 34px rgba(20,26,21,.18);
+}
+
+.wc-backbar,
+.wc-brief-head,
+.wc-brief-foot {
+  background: #e4dac7;
+  border-color: #c8baa0;
+}
+
+.wc-back,
+.wc-briefbtn,
+.wc-brief-save,
+.wc-brief-modes,
+.wc-brief-modes button,
+.wc-brief-close {
+  border-radius: 2px;
+  font-family: var(--wc-sans);
+}
+
+.wc-back,
+.wc-briefbtn {
+  min-height: 38px;
+  color: var(--wc-ink);
+  background: #f7f2e9;
+  border-color: #b8aa90;
+}
+
+.wc-brief {
+  background: var(--wc-stone-50);
+  border-left-color: #aa9b80;
+  box-shadow: -22px 0 54px rgba(20,26,21,.22);
+}
+
+.wc-brief-title {
+  font: 650 18px/1.15 var(--wc-serif);
+}
+
+.wc-brief-file,
+.wc-brief-editor {
+  font-family: var(--wc-mono);
+}
+
+.wc-brief-save {
+  min-height: 38px;
+  background: var(--wc-olive-800);
+  border-color: var(--wc-olive-800);
+}
+
+.wc-sidebar-toggle {
+  width: 42px;
+  height: 42px;
+  border-radius: 2px;
+  background: var(--wc-olive-800);
+  border-color: #657065;
+  color: #f5f0e6;
+}
+
+:is(.wc-shell, .cc-root) :is(button, textarea, input):focus-visible {
+  outline: 2px solid #cdb366;
+  outline-offset: 2px;
+}
+
+:is(.wc-shell, .cc-root) button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+@media (pointer: coarse) {
+  .wc-shell :is(button, .wc-thread),
+  .cc-root :is(button, .cc-mode, .cc-chip) {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 899px) {
+  .wc-sidebar {
+    width: min(86vw, 320px);
+    box-shadow: 18px 0 44px rgba(20,26,21,.34);
+  }
+
+  .wc-main .cc-header {
+    padding-left: 58px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wc-shell *,
+  .wc-shell *::before,
+  .wc-shell *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Contrast floor (AA) ──────────────────────────────────────────────────
+   Remaining text/background pairs that sat under 4.5:1 after the token
+   darkening above. Each replacement is a tone of the SAME palette family.
+   Declared last so it wins over the equal-specificity base rules. */
+
+/* Sidebar metadata on the olive thread rows: the active row's brass wash
+   lightens the background, dropping #9fa69a to ~4.5:1. */
+.wc-thread-meta {
+  color: #b0b7aa;
+}
+
+/* Brief slide-over status words on the stone-100 foot bar. */
+.wc-brief-ok { color: #3d6540; }
+.wc-brief-dirty { color: #5c4d28; }
+.wc-brief-err { color: var(--wc-alarm); }
+
+/* Loading placeholder on the stone-50 chat pane (was #7d8077 at 3.5:1). */
+.wc-loading { color: var(--wc-olive-700); }
+
+/* ── Scrollbars — near-invisible, still scrollable ────────────────────────
+   Dark ink thumb by default (the app's scrollable panes are warm stone); the
+   light variant is re-declared on the olive sidebar and the ink code cards. */
+:root {
+  --sb-thumb: rgba(32, 40, 32, 0.16);
+  --sb-thumb-hover: rgba(32, 40, 32, 0.34);
+}
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.wc-sidebar,
+.wc-thread-list,
+.cc-md pre,
+.cc-codeblock pre {
+  --sb-thumb: rgba(245, 240, 230, 0.18);
+  --sb-thumb-hover: rgba(245, 240, 230, 0.36);
 }

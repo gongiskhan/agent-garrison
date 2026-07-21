@@ -1,0 +1,49 @@
+{
+  "slice": "S4a",
+  "kind": "mixed",
+  "commits": [
+    "a97ddc3",
+    "2a560c2"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s4a-impl",
+      "at": "2026-07-13T18:17:41Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T18:17:41Z",
+      "detail": "typecheck+lint clean; runner change purely additive (16 ins/0 del)"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T18:17:41Z",
+      "detail": "11 new + 202/202 kanban + 97/97 coord; develop L1/L2 visit different sequences"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T18:56:41Z",
+      "detail": "4 findings (batch path, effectiveListForCard, board reconcile, empty guard) fixed 2a560c2"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "at": "2026-07-13T18:56:41Z",
+      "detail": "batch-path finding = codex finding 1, fixed 2a560c2 (review saw pre-fix a97ddc3)"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "pending",
+      "note": "board UX at WS7"
+    },
+    "walkthrough": {
+      "status": "pending",
+      "note": "WS7 live-fire"
+    }
+  }
+}

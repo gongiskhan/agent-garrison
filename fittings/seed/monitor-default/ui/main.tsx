@@ -38,12 +38,209 @@ type Entity = {
   soul?: string | null;
   tier?: { model?: string; effort?: string; tier?: number; reason?: string } | null;
   branch?: string | null;
-  worktreePath?: string | null;
+  projectPath?: string | null;
   title?: string | null;
   mode?: string | null;
 };
 
-type Snapshot = { kind: "snapshot"; entities: Entity[] };
+type DiskSeverity = "ok" | "warn" | "critical";
+
+type DiskVital = {
+  mount: string;
+  fs: string;
+  type: string;
+  size: number;
+  used: number;
+  available: number;
+  usePercent: number | null;
+  severity: DiskSeverity;
+};
+
+type Vitals = {
+  ts: string | null;
+  cpu: {
+    currentLoad: number | null;
+    load1: number | null;
+    load5: number | null;
+    load15: number | null;
+    cores: number;
+  } | null;
+  mem: { total: number; used: number; free: number; usePercent: number } | null;
+  disks: DiskVital[];
+  net: {
+    rxSec: number;
+    txSec: number;
+    interfaces: Array<{ iface: string; rxSec: number; txSec: number }>;
+  } | null;
+  units: Array<{ unit: string; load: string; active: string; sub: string; description: string }>;
+};
+
+type Snapshot = { kind: "snapshot"; entities: Entity[]; vitals?: Vitals | null };
+
+function fmtBytes(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function fmtBps(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "-";
+  return `${fmtBytes(n)}/s`;
+}
+
+function fmtLoad(n: number | null | undefined): string {
+  return n == null || !Number.isFinite(n) ? "-" : n.toFixed(2);
+}
+
+function sevClass(s: DiskSeverity): string {
+  return s === "critical" ? "sev-critical" : s === "warn" ? "sev-warn" : "sev-ok";
+}
+
+function barSeverityClass(s: DiskSeverity): string {
+  return s === "critical" ? "bar-critical" : s === "warn" ? "bar-warn" : "";
+}
+
+function unitStateClass(active: string): string {
+  return active === "active" ? "unit-active" : active === "failed" ? "unit-failed" : "unit-other";
+}
+
+function Bar({ percent, severity }: { percent: number | null; severity?: DiskSeverity }) {
+  const p = percent == null || !Number.isFinite(percent) ? 0 : Math.max(0, Math.min(100, percent));
+  const cls = "bar-fill" + (severity ? ` ${barSeverityClass(severity)}` : "");
+  return (
+    <div className="bar" role="progressbar" aria-valuenow={Math.round(p)} aria-valuemin={0} aria-valuemax={100}>
+      <div className={cls} style={{ width: `${p}%` }} />
+    </div>
+  );
+}
+
+function VitalsPanel({ vitals }: { vitals: Vitals | null }) {
+  if (!vitals) {
+    return (
+      <section className="vitals" aria-label="system vitals">
+        <div className="vitals-empty muted">collecting system vitals...</div>
+      </section>
+    );
+  }
+  const { cpu, mem, net, disks, units } = vitals;
+  return (
+    <section className="vitals" aria-label="system vitals">
+      <div className="vitals-grid">
+        <div className="vital-card">
+          <div className="vital-title">CPU</div>
+          {cpu ? (
+            <>
+              <div className="vital-big mono">{cpu.currentLoad != null ? `${cpu.currentLoad.toFixed(0)}%` : "-"}</div>
+              <Bar percent={cpu.currentLoad} />
+              <div className="vital-sub mono">
+                load {fmtLoad(cpu.load1)} · {fmtLoad(cpu.load5)} · {fmtLoad(cpu.load15)}
+                <span className="muted"> · {cpu.cores} cores</span>
+              </div>
+            </>
+          ) : (
+            <div className="vital-sub muted">unavailable</div>
+          )}
+        </div>
+
+        <div className="vital-card">
+          <div className="vital-title">Memory</div>
+          {mem ? (
+            <>
+              <div className="vital-big mono">{mem.usePercent.toFixed(0)}%</div>
+              <Bar percent={mem.usePercent} />
+              <div className="vital-sub mono">
+                {fmtBytes(mem.used)} / {fmtBytes(mem.total)}
+                <span className="muted"> used</span>
+              </div>
+            </>
+          ) : (
+            <div className="vital-sub muted">unavailable</div>
+          )}
+        </div>
+
+        <div className="vital-card">
+          <div className="vital-title">Network</div>
+          {net ? (
+            <div className="vital-net">
+              <div className="net-row mono">
+                <span className="net-dir">rx</span> {fmtBps(net.rxSec)}
+              </div>
+              <div className="net-row mono">
+                <span className="net-dir">tx</span> {fmtBps(net.txSec)}
+              </div>
+            </div>
+          ) : (
+            <div className="vital-sub muted">unavailable</div>
+          )}
+        </div>
+      </div>
+
+      <div className="vital-card vital-wide">
+        <div className="vital-title">Disks</div>
+        {disks.length === 0 ? (
+          <div className="vital-sub muted">no mounts reported</div>
+        ) : (
+          <ul className="disk-list">
+            {disks.map((d, i) => (
+              <li key={`${d.mount}-${i}`} className="disk-row">
+                <div className="disk-head">
+                  <span className="disk-mount mono" title={`${d.fs}${d.type ? ` (${d.type})` : ""}`}>
+                    {d.mount}
+                  </span>
+                  <span className="disk-usage mono">
+                    {fmtBytes(d.used)} / {fmtBytes(d.size)}
+                    {d.usePercent != null && (
+                      <span className={"disk-pct " + sevClass(d.severity)}> · {d.usePercent.toFixed(0)}%</span>
+                    )}
+                  </span>
+                </div>
+                <Bar percent={d.usePercent} severity={d.severity} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="vital-card vital-wide">
+        <div className="vital-title">Garrison units</div>
+        {units.length === 0 ? (
+          <div className="vital-sub muted">no garrison-* systemd user units</div>
+        ) : (
+          <div className="units-table-wrap">
+            <table className="units-table mono">
+              <thead>
+                <tr>
+                  <th>unit</th>
+                  <th>load</th>
+                  <th>active</th>
+                  <th>sub</th>
+                </tr>
+              </thead>
+              <tbody>
+                {units.map((u, i) => (
+                  <tr key={`${u.unit}-${i}`}>
+                    <td className="unit-name">{u.unit}</td>
+                    <td>{u.load}</td>
+                    <td>
+                      <span className={"unit-state " + unitStateClass(u.active)}>{u.active}</span>
+                    </td>
+                    <td>{u.sub}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function StatusDot({ status, stat }: { status: Entity["status"]; stat: string }) {
   const first = stat?.[0] ?? "?";
@@ -128,7 +325,7 @@ function ProcessCard({ entity, onOpen }: { entity: Entity; onOpen: (pid: number)
           <span className="tag tag-tier">{tierLabel(entity.tier)}</span>
         )}
         {entity.branch && (
-          <span className="tag tag-branch mono" title={entity.worktreePath ?? undefined}>
+          <span className="tag tag-branch mono" title={entity.projectPath ?? undefined}>
             {entity.branch}
           </span>
         )}
@@ -310,6 +507,7 @@ function Drilldown({
 
 function App() {
   const [entities, setEntities] = useState<Entity[]>([]);
+  const [vitals, setVitals] = useState<Vitals | null>(null);
   const [openPid, setOpenPid] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -320,6 +518,7 @@ function App() {
         const data: Snapshot = JSON.parse(ev.data);
         if (data.kind === "snapshot") {
           setEntities(data.entities);
+          if (data.vitals !== undefined) setVitals(data.vitals ?? null);
           setError(null);
         }
       } catch (e) {
@@ -343,15 +542,18 @@ function App() {
         {error && <span className="error">{error}</span>}
       </header>
 
-      <main className="grid">
-        {entities.length === 0 ? (
-          <div className="empty-state">No entities yet. The Monitor watches descendants of the Garrison runtime — spawn something through the runner to see it here.</div>
-        ) : (
-          [...live, ...dead].map((e) => (
-            <ProcessCard key={e.pid} entity={e} onOpen={setOpenPid} />
-          ))
-        )}
-      </main>
+      <div className="content">
+        <VitalsPanel vitals={vitals} />
+        <main className="grid">
+          {entities.length === 0 ? (
+            <div className="empty-state">No entities yet. The Monitor watches descendants of the Garrison runtime - spawn something through the runner to see it here.</div>
+          ) : (
+            [...live, ...dead].map((e) => (
+              <ProcessCard key={e.pid} entity={e} onOpen={setOpenPid} />
+            ))
+          )}
+        </main>
+      </div>
 
       {open && (
         <Drilldown

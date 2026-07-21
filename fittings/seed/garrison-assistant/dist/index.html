@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#273126" />
+<title>Garrison Assistant</title>
+<style>
+  :root{
+    --olive-950:#151b16;--olive-900:#202920;--olive-800:#273126;--olive-700:#465348;
+    --stone-50:#f2ecdf;--stone-100:#e8dfcf;--stone-200:#ddd1bb;--stone-300:#c8baa0;
+    --ink:#202820;--muted:#5c6157;--faint:#85887f;--brass:#b1954e;--brass-deep:#6f6338;
+    --sage:#668267;--sage-soft:#dce6d9;--alarm:#963f35;--alarm-soft:#f1ddd8;
+    --sans:Avenir,"Avenir Next","Barlow","Segoe UI",sans-serif;
+    --serif:Iowan Old Style,"Source Serif 4","Palatino Linotype",Georgia,serif;
+    --mono:"SFMono-Regular","Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:var(--olive-950);color:var(--ink);font-family:var(--sans);-webkit-text-size-adjust:100%}
+  body{
+    min-height:100vh;background:
+      linear-gradient(rgba(177,149,78,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(177,149,78,.035) 1px,transparent 1px),
+      var(--olive-950);background-size:30px 30px
+  }
+  button,textarea,input{font:inherit}
+  button{cursor:pointer}
+  .shell{display:grid;grid-template-columns:286px minmax(0,1fr);min-height:100vh}
+  .rail{
+    display:flex;flex-direction:column;padding:22px 16px;background:
+      linear-gradient(180deg,rgba(177,149,78,.09),transparent 28%),var(--olive-900);
+    border-right:1px solid #4e5b50;color:#edf0e8;box-shadow:14px 0 34px rgba(6,9,7,.2)
+  }
+  .brand{display:flex;align-items:center;gap:12px;padding:2px 4px 22px;border-bottom:1px solid #465348}
+  .mark{width:32px;height:32px;display:grid;place-items:center;border:1px solid #687368;color:#c8ae66}
+  .brand-kicker{font:9px/1.2 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:#c8ae66}
+  .brand-name{margin-top:3px;font:650 17px/1 var(--serif)}
+  .mode-label{margin:22px 5px 8px;font:9px/1.2 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:#9fa79b}
+  .mode{
+    width:100%;min-height:58px;display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:center;
+    padding:10px 11px;border:1px solid transparent;border-left:3px solid transparent;border-radius:2px;
+    background:transparent;color:#eef0e8;text-align:left
+  }
+  .mode:hover{background:#2b372c}
+  .mode.active{background:linear-gradient(90deg,rgba(177,149,78,.17),transparent);border-color:#465348;border-left-color:var(--brass)}
+  .mode-icon{font:12px/1 var(--mono);color:#c8ae66}
+  .mode strong{display:block;font-size:13px}.mode small{display:block;margin-top:2px;color:#a8afa4;font-size:11px}
+  .rail-note{margin-top:auto;padding:16px 5px 2px;border-top:1px solid #465348;color:#9fa79b;font:10px/1.55 var(--mono)}
+  .work{min-width:0;background:
+    radial-gradient(circle at 82% 6%,rgba(177,149,78,.09),transparent 28%),
+    linear-gradient(rgba(42,55,44,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(42,55,44,.035) 1px,transparent 1px),
+    var(--stone-50);background-size:auto,30px 30px,30px 30px,auto
+  }
+  .command{
+    min-height:56px;display:flex;align-items:center;gap:12px;padding:10px clamp(18px,4vw,54px);
+    border-bottom:1px solid #59665a;background:linear-gradient(90deg,rgba(177,149,78,.1),transparent 42%),var(--olive-800);
+    color:#f5f0e6;box-shadow:0 10px 28px rgba(20,26,21,.13)
+  }
+  .command-copy{min-width:0}.eyebrow{font:9px/1.2 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:#c8ae66}
+  h1{margin:3px 0 0;font:650 18px/1.15 var(--serif);letter-spacing:-.02em}
+  .status{margin-left:auto;display:flex;align-items:center;gap:7px;color:#bdc4b8;font:10px/1.2 var(--mono);letter-spacing:.07em;text-transform:uppercase}
+  .status i{width:7px;height:7px;background:var(--sage);box-shadow:0 0 0 3px rgba(102,130,103,.18)}
+  .content{width:min(940px,100%);margin:0 auto;padding:clamp(22px,4vw,40px) clamp(16px,4vw,44px) 72px}
+  .intro{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.38fr);gap:24px;align-items:end;margin-bottom:24px}
+  .intro h2{margin:0;font:650 clamp(20px,2.4vw,24px)/1.15 var(--serif);letter-spacing:-.02em;color:var(--ink)}
+  .intro p{margin:0;color:var(--muted);font-size:14px;line-height:1.65}
+  .panel{border:1px solid var(--stone-300);border-top:3px solid var(--brass-deep);border-radius:2px;background:rgba(248,244,235,.96);box-shadow:0 16px 38px rgba(31,40,32,.07)}
+  .panel-head{padding:18px 20px 14px;border-bottom:1px solid var(--stone-200)}
+  .panel-head h3{margin:0;font:650 19px/1.2 var(--serif);letter-spacing:-.012em}
+  .panel-head p{margin:5px 0 0;color:var(--muted);font-size:12.5px}
+  .panel-body{padding:20px}
+  .field-label{display:block;margin-bottom:7px;font:10px/1.2 var(--mono);letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+  textarea,input{
+    width:100%;min-height:46px;padding:11px 12px;border:1px solid var(--stone-300);border-radius:2px;
+    background:#fffaf1;color:var(--ink);outline:0
+  }
+  textarea{min-height:112px;resize:vertical;line-height:1.5}
+  ::placeholder{color:var(--muted);opacity:1}
+  .actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:12px}
+  .btn{min-height:42px;padding:9px 15px;border:1px solid var(--stone-300);border-radius:2px;background:#f8f4eb;color:var(--ink);font-weight:650}
+  .btn:hover:not(:disabled){border-color:var(--brass);background:#eee5d5}
+  .btn.primary{background:var(--brass-deep);border-color:var(--brass-deep);color:#fffaf0}
+  .btn:active:not(:disabled){transform:translateY(1px)}.btn:disabled{opacity:.5;cursor:default}
+  .result{display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--stone-200)}
+  .result.show{display:block}
+  .answer{white-space:pre-wrap;font:15px/1.67 var(--serif)}
+  .sources{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+  .source{padding:4px 7px;border:1px solid var(--stone-300);border-radius:2px;background:var(--stone-100);color:#5e5535;font:10px/1.3 var(--mono)}
+  .steps{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+  .step{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:11px;border:1px solid var(--stone-200);background:#f4eee3}
+  .step-no{font:10px/1.4 var(--mono);color:var(--brass-deep)}.step-copy{font-size:13px;line-height:1.5}
+  .tours{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.tour{font:10px/1.2 var(--mono);letter-spacing:.04em}
+  .question{padding:15px;border-left:3px solid var(--brass);background:var(--stone-100)}
+  .question-id{font:9px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .question-text{margin-top:5px;font:650 18px/1.35 var(--serif)}
+  .proposal{padding:13px;border:1px solid var(--stone-200);border-left:3px solid var(--sage);background:#f4eee3}
+  .proposal+.proposal{margin-top:8px}.proposal strong{font-family:var(--serif)}.proposal small{display:block;margin-top:4px;color:var(--muted)}
+  .busy{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font:10px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .busy::before{content:"";width:9px;height:9px;border:1px solid var(--brass-deep);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+  .error{padding:10px 12px;border-left:3px solid var(--alarm);background:var(--alarm-soft);color:var(--alarm);font-size:13px}
+  [hidden]{display:none!important}
+  :is(button,textarea,input):focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  :root{--sb-thumb:rgba(32,40,32,.16);--sb-thumb-hover:rgba(32,40,32,.34)}
+  *{scrollbar-width:thin;scrollbar-color:var(--sb-thumb) transparent}
+  ::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--sb-thumb);border:2px solid transparent;background-clip:padding-box}
+  *::-webkit-scrollbar-thumb:hover{background-color:var(--sb-thumb-hover)}
+  ::-webkit-scrollbar-corner{background:transparent}
+  .rail{--sb-thumb:rgba(242,236,223,.18);--sb-thumb-hover:rgba(242,236,223,.35)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media(max-width:760px){
+    .shell{grid-template-columns:1fr}.rail{min-height:auto;padding:14px;position:relative}.brand{padding-bottom:13px}
+    .mode-label,.rail-note{display:none}.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:10px}
+    .mode{min-height:48px;display:flex;justify-content:center;padding:8px;border-left-width:1px;text-align:center}.mode small,.mode-icon{display:none}
+    .mode.active{border-bottom:3px solid var(--brass)}.command{min-height:52px}.intro{grid-template-columns:1fr;gap:12px}
+  }
+  @media(pointer:coarse){button,input,textarea{min-height:44px}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <aside class="rail">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">⌂</div>
+      <div><div class="brand-kicker">Garrison fitting</div><div class="brand-name">Assistant</div></div>
+    </div>
+    <div class="mode-label">Operating mode</div>
+    <nav class="modes" aria-label="Assistant mode">
+      <button class="mode active" type="button" data-mode="answer"><span class="mode-icon">01</span><span><strong>Answer</strong><small>Grounded help</small></span></button>
+      <button class="mode" type="button" data-mode="guide"><span class="mode-icon">02</span><span><strong>Guide</strong><small>Procedures & tours</small></span></button>
+      <button class="mode" type="button" data-mode="build"><span class="mode-icon">03</span><span><strong>Build</strong><small>Draft improvements</small></span></button>
+    </nav>
+    <div class="rail-note">Local index only<br />Proposals require Improver review</div>
+  </aside>
+
+  <section class="work">
+    <header class="command">
+      <div class="command-copy"><div class="eyebrow">Faculty / Assistant</div><h1 id="pageTitle">Grounded answer desk</h1></div>
+      <div class="status"><i aria-hidden="true"></i><span id="statusText">Local & ready</span></div>
+    </header>
+    <div class="content">
+      <div class="intro">
+        <h2 id="heroTitle">Ask Garrison about itself.</h2>
+        <p id="heroCopy">Answers are retrieved from the local documentation and installed fitting instructions, with the source paths kept in view.</p>
+      </div>
+
+      <section class="panel mode-panel" id="answerPanel">
+        <div class="panel-head"><h3>Answer request</h3><p>Search the local Garrison index. No external model or network call.</p></div>
+        <div class="panel-body">
+          <label class="field-label" for="question">Question</label>
+          <textarea id="question" placeholder="How do fittings expose their own-port views?"></textarea>
+          <div class="actions"><button class="btn primary" id="askBtn" type="button">Search doctrine</button><span id="answerBusy" class="busy" hidden>Searching index</span></div>
+          <div class="result" id="answerResult"><div class="answer" id="answerCopy"></div><div class="sources" id="answerSources"></div></div>
+        </div>
+      </section>
+
+      <section class="panel mode-panel" id="guidePanel" hidden>
+        <div class="panel-head"><h3>Procedure guide</h3><p>Retrieve ordered references and launch any matching in-product tour.</p></div>
+        <div class="panel-body">
+          <label class="field-label" for="topic">Topic</label>
+          <input id="topic" placeholder="Installing and reviewing a fitting" />
+          <div class="actions"><button class="btn primary" id="guideBtn" type="button">Prepare guide</button><span id="guideBusy" class="busy" hidden>Preparing brief</span></div>
+          <div class="result" id="guideResult"><ol class="steps" id="guideSteps"></ol><div class="tours" id="guideTours"></div></div>
+        </div>
+      </section>
+
+      <section class="panel mode-panel" id="buildPanel" hidden>
+        <div class="panel-head"><h3>Improvement interview</h3><p>Answer one prompt at a time. Completed candidates are filed to the Improver review queue, never applied directly.</p></div>
+        <div class="panel-body">
+          <div class="question" id="buildQuestion"><div class="question-id">Interview not started</div><div class="question-text">Ready to map your recurring work?</div></div>
+          <label class="field-label" for="buildAnswer" style="margin-top:16px">Your answer</label>
+          <textarea id="buildAnswer" placeholder="Describe the work in plain language…"></textarea>
+          <div class="actions"><button class="btn primary" id="buildBtn" type="button">Start interview</button><button class="btn" id="buildReset" type="button">Reset</button><span id="buildBusy" class="busy" hidden>Filing proposals</span></div>
+          <div class="result" id="buildResult"></div>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const modes = {
+  answer: ["Grounded answer desk", "Ask Garrison about itself.", "Answers are retrieved from the local documentation and installed fitting instructions, with the source paths kept in view."],
+  guide: ["Procedure room", "Turn doctrine into a route.", "Request concise source-backed steps, then launch a known tour when the subject has one."],
+  build: ["Improvement workshop", "Find the work worth fortifying.", "A short adaptive interview drafts skills and automations for review in the Improver."]
+};
+let answers = [];
+let activeQuestion = null;
+
+function setMode(name) {
+  document.querySelectorAll(".mode").forEach((el) => el.classList.toggle("active", el.dataset.mode === name));
+  document.querySelectorAll(".mode-panel").forEach((el) => { el.hidden = el.id !== name + "Panel"; });
+  $("pageTitle").textContent = modes[name][0]; $("heroTitle").textContent = modes[name][1]; $("heroCopy").textContent = modes[name][2];
+}
+document.querySelectorAll(".mode").forEach((el) => el.addEventListener("click", () => setMode(el.dataset.mode)));
+
+async function request(url, options) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+function errorBox(message) { const el=document.createElement("div");el.className="error";el.textContent=message;return el; }
+function busy(id, on) { $(id).hidden = !on; $("statusText").textContent = on ? "Working" : "Local & ready"; }
+
+$("askBtn").onclick = async () => {
+  const question = $("question").value.trim(); if (!question) return $("question").focus();
+  busy("answerBusy", true); $("askBtn").disabled = true; $("answerResult").classList.remove("show");
+  try {
+    const data = await request("/answer", {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question})});
+    $("answerCopy").textContent = data.answer || "No answer returned."; $("answerSources").textContent = "";
+    for (const source of data.sources || []) { const el=document.createElement("span");el.className="source";el.textContent=source;$("answerSources").appendChild(el); }
+    $("answerResult").classList.add("show");
+  } catch (e) { $("answerCopy").textContent="";$("answerSources").replaceChildren(errorBox(e.message));$("answerResult").classList.add("show"); }
+  finally { busy("answerBusy", false); $("askBtn").disabled = false; }
+};
+
+$("guideBtn").onclick = async () => {
+  const topic = $("topic").value.trim(); if (!topic) return $("topic").focus();
+  busy("guideBusy", true); $("guideBtn").disabled = true; $("guideResult").classList.remove("show");
+  try {
+    const data = await request("/guide?topic=" + encodeURIComponent(topic)); $("guideSteps").textContent = ""; $("guideTours").textContent = "";
+    (data.steps || []).forEach((copy, i) => { const li=document.createElement("li");li.className="step";li.innerHTML=`<span class="step-no">${String(i+1).padStart(2,"0")}</span><span class="step-copy"></span>`;li.querySelector(".step-copy").textContent=String(copy).replace(/^\\d+\\.\\s*/,"");$("guideSteps").appendChild(li); });
+    if (!(data.steps || []).length) $("guideSteps").appendChild(errorBox("No indexed procedure matched this topic."));
+    (data.tours || []).forEach((name) => { const b=document.createElement("button");b.type="button";b.className="btn tour";b.textContent="Launch " + name;b.onclick=()=>launchTour(name,b);$("guideTours").appendChild(b); });
+    $("guideResult").classList.add("show");
+  } catch (e) { $("guideSteps").replaceChildren(errorBox(e.message));$("guideTours").textContent="";$("guideResult").classList.add("show"); }
+  finally { busy("guideBusy", false); $("guideBtn").disabled = false; }
+};
+async function launchTour(name, button) {
+  button.disabled=true;try{await request("/guide/launch-tour",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name})});button.textContent="Tour launched";}catch(e){button.textContent=e.message;}finally{setTimeout(()=>button.disabled=false,900);}
+}
+
+function showQuestion(q) {
+  activeQuestion=q;$("buildQuestion").innerHTML="";const id=document.createElement("div");id.className="question-id";id.textContent=`Interview / ${q.id}`;const copy=document.createElement("div");copy.className="question-text";copy.textContent=q.q;$("buildQuestion").append(id,copy);
+  $("buildBtn").textContent="Record & continue";$("buildAnswer").value="";$("buildAnswer").focus();
+}
+async function advanceBuild() {
+  if (activeQuestion) { const text=$("buildAnswer").value.trim();if(!text)return $("buildAnswer").focus();answers.push({id:activeQuestion.id,text}); }
+  busy("buildBusy",true);$("buildBtn").disabled=true;
+  try {
+    const data=await request("/interview/next",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({answers})});
+    if (!data.done) { showQuestion(data.question); }
+    else {
+      activeQuestion=null;$("buildQuestion").innerHTML='<div class="question-id">Filed for review</div><div class="question-text">Candidates are waiting in the Improver.</div>';
+      $("buildAnswer").hidden=true;$("buildBtn").hidden=true;$("buildResult").textContent="";
+      for(const p of data.proposals||[]){const el=document.createElement("div");el.className="proposal";const title=document.createElement("strong");title.textContent=p.title||p.kind||"Proposal";const sub=document.createElement("small");sub.textContent=p.claim||"Filed with assistant provenance.";el.append(title,sub);$("buildResult").appendChild(el);}
+      $("buildResult").classList.add("show");
+    }
+  } catch(e){$("buildResult").replaceChildren(errorBox(e.message));$("buildResult").classList.add("show");}
+  finally{busy("buildBusy",false);$("buildBtn").disabled=false;}
+}
+$("buildBtn").onclick=advanceBuild;
+$("buildReset").onclick=()=>{answers=[];activeQuestion=null;$("buildAnswer").hidden=false;$("buildAnswer").value="";$("buildBtn").hidden=false;$("buildBtn").textContent="Start interview";$("buildResult").classList.remove("show");$("buildQuestion").innerHTML='<div class="question-id">Interview not started</div><div class="question-text">Ready to map your recurring work?</div>';};
+</script>
+</body>
+</html>

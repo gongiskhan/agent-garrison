@@ -1,0 +1,14 @@
+{
+  "slice": "S2b", "title": "WS2b opencode-runtime Fitting", "kind": "mixed", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T19:20:37Z", "evidence": "commits 7f0acbb..040133c + tests a0953a9/cf37679 + fix 6db2f1e + docs 2f05e2b/7ba56c8 (two-agent convergence, stateless run-subprocess design; server-first variant preserved as documented upgrade path)" },
+    "test": { "status": "passed", "at": "2026-07-12T19:20:37Z", "evidence": "full suite 2024 passed/0 failed; opencode file 15/15; validate-fitting 4/4 PASS; bridge --probe ok; LIVE delegate round-trip bridge→opencode→ollama returned {summary, artifacts} twice" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T19:20:37Z", "evidence": "gitleaks clean all commits; semgrep 0; argv-array transport, no shell interpolation; no new deps" },
+    "adversarialReview": { "status": "passed", "verdict": "approve", "at": "2026-07-12T19:20:37Z", "evidence": "slices/S2b/review.md — live CLI flag audit against opencode 1.17.15; injection/traversal/parse checks clean; 2 non-blocking parity observations" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->fixed->resolved", "actualModel": "gpt-5.5", "at": "2026-07-12T19:20:37Z", "evidence": "2 real I3 loud-failure findings → 6db2f1e (+3 regression tests) → recheck resolved" },
+    "adversarialTest": { "status": "skipped", "reason": "kind-conditional (api-shape delegate surface; run-level batch covers it; UI surface is the Quarters descriptor already render-tested by suite)" },
+    "design": { "status": "skipped", "reason": "no new UI code (generic Quarters tier renders the descriptor)" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T19:20:37Z", "video": { "mode": "asciinema", "path": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2b/live-delegate.cast", "sha256": "1daf66eb391d95cad1f1161d144a221635b5a03d840ce19d178446d1a1ed8b5a", "bytes": 890, "evidence": "live delegate: task spec → bridge → opencode run → local qwen → {summary, artifacts[]} with artifact file written; small-model instruction-following caveat recorded for S2d degradations" } }
+  },
+  "sentinel": "MARATHON-WS2B OK"
+}

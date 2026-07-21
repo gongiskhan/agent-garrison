@@ -1,0 +1,175 @@
+import { test, expect } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import yaml from "js-yaml";
+
+// The Muster Orchestrator + Decisions panels (S5c, D11/D12). Driven by a dedicated
+// fixture composition so the layered prompt has deterministic content and the
+// decisions feed has seeded records. COMPOSITIONS_DIR is the repo's compositions/
+// (cwd-relative), shared with the dev server; the fixture + its .garrison log are
+// written there and removed afterAll.
+
+const FIXTURE_ID = "muster-orch-e2e-fixture";
+const FIXTURE_DIR = path.join(process.cwd(), "compositions", FIXTURE_ID);
+
+function writeFixture(): void {
+  fs.mkdirSync(path.join(FIXTURE_DIR, ".garrison"), { recursive: true });
+  const manifest = {
+    name: FIXTURE_ID,
+    version: "0.1.0",
+    target: "claude",
+    dependencies: { apm: [] },
+    "x-garrison": {
+      composition: {
+        schema: 4,
+        id: FIXTURE_ID,
+        name: "Muster Orchestrator E2E Fixture",
+        selections: {},
+        duties: [
+          {
+            id: "develop",
+            title: "Develop",
+            description: "develop a change end to end",
+            levels: [
+              {
+                description: "standard - a bounded feature or a focused change",
+                cell: { skill: "garrison-implement", target: "cc-sonnet", effort: "medium" }
+              }
+            ]
+          }
+        ],
+        selected_duties: ["develop"],
+        targets: [{ id: "cc-sonnet", runtime: "claude-code", model: "sonnet" }],
+        prompt_sources: {
+          orchestrator: ".garrison/prompts/orchestrator.md",
+          soul: ".garrison/prompts/soul.md"
+        }
+      }
+    }
+  };
+  fs.writeFileSync(path.join(FIXTURE_DIR, "apm.yml"), yaml.dump(manifest), "utf8");
+
+  // Seed the decisions log the panel reads (dispatcher + a routed record).
+  const decisions = [
+    { kind: "dispatch", at: "2026-07-13T09:00:00.000Z", messageDigest: "aa11", duty: "develop", level: 1, confidence: "high", reason: "→ develop L1, confidence high" },
+    { at: "2026-07-13T09:05:00.000Z", promptDigest: "bb22", taskType: "code", tier: "expert", role: "runtimes", targetId: "cc-sonnet", runtime: "claude-code", model: "sonnet" }
+  ];
+  fs.writeFileSync(
+    path.join(FIXTURE_DIR, ".garrison", "decisions.jsonl"),
+    decisions.map((d) => JSON.stringify(d)).join("\n") + "\n",
+    "utf8"
+  );
+}
+
+// Drop any leftover authored override between tests so the autosave test starts clean.
+function clearAuthored(): void {
+  fs.rmSync(path.join(FIXTURE_DIR, ".garrison", "orchestrator-authored.json"), { force: true });
+}
+
+
+// Muster presents its areas as section tabs (Duties / Fittings / Orchestrator /
+// Decisions); only the active one mounts, and a panel never collapses behind its
+// own title (the tab owns navigation). Select the tab that owns the panel under
+// test, then wait for its async load (the loading skeleton detaching).
+async function openSection(
+  page: import("@playwright/test").Page,
+  id: "duties" | "fittings" | "orchestrator" | "decisions"
+): Promise<void> {
+  await page.getByTestId("muster-page").waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+  await page.getByTestId(`section-nav-${id}`).click();
+  if (id === "orchestrator") {
+    // The Orchestrator tab now fronts two surfaces (Routing policy | System
+    // prompt); these tests exercise the prompt panel.
+    await page.getByTestId("orchestrator-sub-prompt").click();
+  }
+}
+
+async function waitForPanel(
+  page: import("@playwright/test").Page,
+  id: "orchestrator" | "decisions"
+): Promise<void> {
+  await page.getByTestId(`${id}-loading`).waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+}
+
+test.beforeEach(() => {
+  writeFixture();
+  clearAuthored();
+});
+test.afterAll(() => fs.rmSync(FIXTURE_DIR, { recursive: true, force: true }));
+
+test("(a) orchestrator panel renders locked (greyed, non-editable) + authored + assembled", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await openSection(page, "orchestrator");
+  await waitForPanel(page, "orchestrator");
+  await expect(page.getByTestId("orchestrator-panel")).toBeVisible();
+
+  // A LOCKED block with its "regenerated from composition" badge, and NO edit control inside it.
+  const locked = page.getByTestId("orchestrator-locked-readiness");
+  await expect(locked).toBeVisible();
+  await expect(page.getByTestId("orchestrator-locked-badge-readiness")).toBeVisible();
+  await expect(locked.locator("textarea")).toHaveCount(0);
+
+  // An AUTHORED section is an editable textarea.
+  const authored = page.getByTestId("orchestrator-authored-routing-philosophy");
+  await expect(authored).toBeVisible();
+  await expect(authored).toBeEditable();
+
+  // The assembled preview (locked + authored concatenated).
+  const assembled = page.getByTestId("orchestrator-assembled");
+  await expect(assembled).toBeVisible();
+  await expect(assembled).toContainText("GARRISON-SECTION");
+});
+
+test("(b) editing an authored section autosaves and survives reload; locked stays put", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await openSection(page, "orchestrator");
+  await waitForPanel(page, "orchestrator");
+  const authored = page.getByTestId("orchestrator-authored-routing-philosophy");
+  await expect(authored).toBeVisible();
+
+  const lockedBefore = (await page.getByTestId("orchestrator-locked-readiness").innerText()).trim();
+
+  const custom = "E2E CUSTOM ROUTING DOCTRINE " + Date.now();
+  await authored.fill(custom);
+  // Debounced autosave (600ms) → the status flips to "saved".
+  await expect(page.getByTestId("orchestrator-authored-status-routing-philosophy")).toHaveText(/saved/i, {
+    timeout: 10_000
+  });
+
+  // Reload: the authored edit persisted, and the locked block is unchanged.
+  await page.reload();
+  await openSection(page, "orchestrator"); // reload lands on the default (Duties) tab
+  await waitForPanel(page, "orchestrator");
+  await expect(page.getByTestId("orchestrator-authored-routing-philosophy")).toHaveValue(custom);
+  const lockedAfter = (await page.getByTestId("orchestrator-locked-readiness").innerText()).trim();
+  expect(lockedAfter).toBe(lockedBefore);
+});
+
+test("(c) the decisions panel renders the evidence feed", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await openSection(page, "decisions");
+  await waitForPanel(page, "decisions");
+  await expect(page.getByTestId("decisions-panel")).toBeVisible();
+
+  const list = page.getByTestId("decisions-list");
+  await expect(list).toBeVisible();
+  // Newest first: the routed record leads, the dispatcher record follows.
+  await expect(page.getByTestId("decision-row-0")).toContainText(/route/i);
+  await expect(page.getByTestId("decision-row-1")).toContainText("develop");
+});
+
+test("(e) no horizontal overflow at 390px on the orchestrator panel (widest content)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await openSection(page, "orchestrator");
+  await waitForPanel(page, "orchestrator");
+  // The assembled prompt is the widest content in the app; with it on screen the
+  // page must still not scroll horizontally at 390px.
+  await expect(page.getByTestId("orchestrator-assembled")).toBeVisible();
+
+  const overflow = await page.evaluate(() => {
+    const el = document.documentElement;
+    return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+  });
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+});

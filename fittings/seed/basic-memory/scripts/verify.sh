@@ -8,7 +8,9 @@ VAULT_DIR="${BASIC_MEMORY_VAULT_DIR:-$HOME/ObsidianVault}"
 VAULT_DIR="${VAULT_DIR/#\~/$HOME}"
 PROJECT_NAME="${BASIC_MEMORY_PROJECT_NAME:-main}"
 CAPTURE_ENABLED="${BASIC_MEMORY_CAPTURE_ENABLED:-true}"
-SETTINGS_FILE="${CLAUDE_SETTINGS_FILE:-$HOME/.claude/settings.json}"
+CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
+SETTINGS_FILE="${CLAUDE_SETTINGS_FILE:-${GARRISON_CLAUDE_SETTINGS_PATH:-$CLAUDE_HOME/settings.json}}"
+CONFIG_DIR="${BASIC_MEMORY_CONFIG_DIR:-${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/basic-memory}}"
 
 export PATH="$HOME/.local/bin:$PATH"
 fail() { echo "verify failed: $*" >&2; exit 1; }
@@ -25,7 +27,7 @@ command -v basic-memory >/dev/null 2>&1 || fail "basic-memory not on PATH"
 # project name containing metacharacters or that is a prefix of another never false-matches.
 project_registered() {
   basic-memory project info "$PROJECT_NAME" >/dev/null 2>&1 && return 0
-  local cfg="${BASIC_MEMORY_CONFIG:-${BASIC_MEMORY_HOME:-$HOME/.basic-memory}/config.json}"
+  local cfg="${BASIC_MEMORY_CONFIG:-${CONFIG_DIR:-${BASIC_MEMORY_HOME:-$HOME/.basic-memory}}/config.json}"
   [ -f "$cfg" ] || return 1
   PROJECT_NAME="$PROJECT_NAME" python3 - "$cfg" <<'PY'
 import json, os, sys

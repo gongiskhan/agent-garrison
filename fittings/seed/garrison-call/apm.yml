@@ -1,0 +1,101 @@
+name: garrison-call
+version: 0.1.0
+description: >-
+  Single-shot, structured LLM call fitting — one request, one response, NEVER a
+  primary. Three wire shapes (Anthropic Messages / OpenAI-compatible Chat / Ollama
+  native generate) behind a generalized default-deny base-URL fence. Interface is a
+  script (scripts/call.mjs) taking a JSON spec on STDIN and returning a JSON result
+  on STDOUT; provider secrets are resolved from the environment by vault name.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: single
+  # Exposed as a SCRIPT consumed by NAME, not a capability provision. None of the
+  # existing capabilityKinds fits: `runtime` (the closest) hosts an agent loop,
+  # exposes delegate(), and is primary-eligible — garrison-call has NO tool loop,
+  # NO session, and is NEVER primary (FLOW_PLAN S5a: garrison-call is INELIGIBLE as
+  # an agentic target). Declaring kind:runtime would wrongly make it primary-/
+  # cell-selectable. `automation-runner` is the scheduler/improver trigger kind, not
+  # this. So per the "add no kind speculatively" rule it provides nothing and
+  # consumers invoke scripts/call.mjs by name (the Dispatcher duty cell + the
+  # probe-question repoint reference it as a call target, outside the capability graph).
+  component_shape: script
+  platforms:
+    - all
+  summary: >-
+    Single-shot / structured LLM calls only — no tool loop, no session, never a
+    primary. Three wire shapes: Anthropic Messages (POST /v1/messages),
+    OpenAI-compatible Chat (POST /v1/chat/completions), and Ollama native
+    (POST /api/generate). A generalized default-deny base-URL fence rejects any
+    unlisted, non-loopback endpoint. Interface: echo a JSON spec into
+    scripts/call.mjs (STDIN) → a JSON result (STDOUT). Provider secrets are read
+    from the environment by vault name — never inlined, never logged.
+  config_schema:
+    - key: default_provider
+      type: string
+      default: ollama-local
+      description: Named allowlist entry used when a call spec omits both provider and baseUrl (anthropic | ollama-local | deepseek | zai-glm | openai).
+    - key: default_shape
+      type: string
+      default: ollama
+      description: Wire shape used when a call spec omits it (anthropic | openai | ollama).
+    - key: default_timeout_ms
+      type: integer
+      default: 60000
+      description: Per-call request timeout in milliseconds when a spec omits timeoutMs.
+    - key: default_max_tokens
+      type: integer
+      default: 1024
+      description: Output token cap when a spec omits maxTokens.
+  consumes:
+    - kind: vault
+      cardinality: optional-one
+  verify:
+    command: node apm_modules/_local/garrison-call/scripts/call.mjs --probe
+    expect: ok
+    timeout_ms: 15000
+  for_consumers: |
+    SINGLE-SHOT, STRUCTURED LLM calls — no tool loop, no session, NEVER a primary.
+    Invoke by name (this fitting exposes no capability; it is a script consumed by
+    name):
+      echo '<spec_json>' | node scripts/call.mjs      # spec via STDIN (never argv)
+      node scripts/call.mjs --probe                    # read-only self-test → "ok"
+
+    Spec (STDIN JSON):
+      { shape, baseUrl?, provider?, model, prompt | messages, system?, schema?,
+        timeoutMs?, maxTokens? }
+      shape:    "anthropic" | "openai" | "ollama"   (wire protocol, below)
+      provider: a named allowlist entry (anthropic | ollama-local | deepseek |
+                zai-glm | openai) — its base URL + auth are used
+      baseUrl:  an explicit URL — allowed ONLY if listed, or loopback for the
+                ollama/openai shapes (see the fence)
+      schema:   a JSON schema; when present the call is STRUCTURED — the model
+                output is parsed + validated and returned as `structured`
+
+    Result (STDOUT JSON):
+      { ok:true, text }               unstructured reply
+      { ok:true, structured, usage }  schema-validated object
+      { ok:false, error }             fence / missing-key / network / non-2xx —
+                                      the error string is always secret-free
+
+    Wire shapes:
+      anthropic → POST {baseUrl}/v1/messages          (Anthropic Messages API)
+      openai    → POST {baseUrl}/v1/chat/completions  (OpenAI-compatible Chat)
+      ollama    → POST {baseUrl}/api/generate         (Ollama native; native
+                                                       structured output via `format`)
+
+    DEFAULT-DENY BASE-URL FENCE (the security boundary):
+      A call may only reach a base URL that is (a) an EXACT entry in the named
+      provider table, or (b) an explicit loopback URL (localhost / 127.0.0.1 / ::1)
+      AND only for the ollama / openai shapes. Every other base URL is REJECTED
+      loudly — there is NO wildcard / configurable entry. A raw Anthropic-shape call
+      to an unlisted loopback port is still denied (it must be a table entry). Extend
+      the allowlist only by adding an EXPLICIT provider-table entry in
+      lib/providers.mjs.
+
+    SECRETS: provider keys are resolved from the environment BY VAULT NAME
+    (authTokenEnv per provider) — never hardcoded, never returned, never logged; a
+    missing key names the env var, not its value. Loopback (Ollama) endpoints need
+    no key.

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -96,5 +97,41 @@ describe("fitting files api", () => {
     await expect(
       writeFile(TEST_FITTING_ID, "node_modules/something/index.js", "no")
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  // Read-side containment (codex-checkpoint findings 1+2): a Fitting-carried
+  // symlink pointing off-root must not be followed by the read endpoints, the
+  // same way the write endpoints already guard.
+  describe("read-side symlink containment", () => {
+    const FITTING_DIR = path.resolve(ROOT_DIR, "fittings/seed/basic-memory");
+    const FILE_LINK = path.join(FITTING_DIR, ".garrison-leak-link.md");
+    const DIR_LINK = path.join(FITTING_DIR, ".garrison-leak-dir");
+    let outside = "";
+
+    beforeAll(async () => {
+      // A real, existing off-root target so the symlinks actually resolve (a
+      // dangling link would 404 on its own and prove nothing).
+      outside = await fs.mkdtemp(path.join(os.tmpdir(), "ff-outside-"));
+      await fs.writeFile(path.join(outside, "host-secret.txt"), "HOST SECRET\n", "utf8");
+      await fs.symlink(path.join(outside, "host-secret.txt"), FILE_LINK, "file").catch(() => {});
+      await fs.symlink(outside, DIR_LINK, "dir").catch(() => {});
+    });
+    afterAll(async () => {
+      await fs.unlink(FILE_LINK).catch(() => {});
+      await fs.unlink(DIR_LINK).catch(() => {});
+      if (outside) await fs.rm(outside, { recursive: true, force: true }).catch(() => {});
+    });
+
+    it("readFile refuses to follow a symlink out of the fitting", async () => {
+      await expect(readFile(TEST_FITTING_ID, ".garrison-leak-link.md")).rejects.toMatchObject({
+        status: 400
+      });
+    });
+
+    it("listDirectory refuses to follow a symlinked directory out of the fitting", async () => {
+      await expect(listDirectory(TEST_FITTING_ID, ".garrison-leak-dir")).rejects.toMatchObject({
+        status: 400
+      });
+    });
   });
 });

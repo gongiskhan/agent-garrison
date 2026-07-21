@@ -2,20 +2,29 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runAutomation } from "../fittings/seed/automations/lib/engine.mjs";
-import { getRun } from "../fittings/seed/automations/lib/store.mjs";
+import { runAutomation, runAutomationMatrix } from "../fittings/seed/automations/lib/engine.mjs";
+import { getRun, getMatrixRun } from "../fittings/seed/automations/lib/store.mjs";
 import { interpolate, interpolateDeep } from "../fittings/seed/automations/lib/template-vars.mjs";
 
 // E2 — the run engine for non-browser steps. Inject deps so no real connector
 // subprocess / backend / network is touched.
 
 let dir: string;
+let prevHome: string | undefined;
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "garrison-engine-"));
   process.env.GARRISON_AUTOMATIONS_DIR = dir;
+  // Isolate GARRISON_HOME too, so browser-step discovery (browserBaseUrl reads
+  // <home>/ui-fittings/browser-default.json) can't leak the LIVE install's state
+  // into the "browser fitting not running" case — which otherwise flakes when a
+  // browser fitting is running on the dev machine.
+  prevHome = process.env.GARRISON_HOME;
+  process.env.GARRISON_HOME = dir;
 });
 afterEach(() => {
   delete process.env.GARRISON_AUTOMATIONS_DIR;
+  if (prevHome === undefined) delete process.env.GARRISON_HOME;
+  else process.env.GARRISON_HOME = prevHome;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -148,6 +157,68 @@ describe("run engine (E2)", () => {
     expect(events.some((e) => e.type === "run_patch" && e.phase === "applied")).toBe(true);
   });
 
+  it("keeps the planned step id when a successful fixer replaces its implementation", async () => {
+    let attempts = 0;
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "expected-check", type: "verify", description: "arrives at chat" }] },
+      deps: {
+        runBrowser: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            const error: any = new Error("expected outcome not met");
+            error.recoverable = true;
+            throw error;
+          }
+          return { tier: "execute", url: "/" };
+        },
+        proposePatch: async () => ({
+          kind: "replace_current",
+          reasoning: "navigate directly",
+          newStep: { id: "invented-fixer-id", type: "navigate", url: "/" }
+        })
+      }
+    });
+
+    expect(record.status).toBe("completed");
+    expect(record.steps.at(-1)).toMatchObject({
+      stepId: "expected-check",
+      type: "navigate",
+      status: "completed"
+    });
+  });
+
+  it("closes a live browser session after a terminal run", async () => {
+    let closed = 0;
+    const runBrowser: any = async () => ({ tier: "execute" });
+    runBrowser.close = async () => { closed += 1; };
+
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "navigate", url: "https://example.test" }] },
+      deps: { runBrowser }
+    });
+
+    expect(record.status).toBe("completed");
+    expect(closed).toBe(1);
+  });
+
+  it("keeps a paused browser session open for user intervention", async () => {
+    let closed = 0;
+    const runBrowser: any = async () => {
+      const error: any = new Error("The page shows a Google reCAPTCHA verification page");
+      error.recoverable = true;
+      throw error;
+    };
+    runBrowser.close = async () => { closed += 1; };
+
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "continue" }] },
+      deps: { runBrowser }
+    });
+
+    expect(record.status).toBe("paused_for_user");
+    expect(closed).toBe(0);
+  });
+
   it("pauses for the user on a CAPTCHA (fast-path, no fixer call)", async () => {
     let fixerCalled = false;
     const record = await runAutomation({
@@ -173,6 +244,75 @@ describe("run engine (E2)", () => {
     });
     expect(record.status).toBe("failed");
     expect(patches).toBeLessThanOrEqual(5); // maxPatchesPerIndex
+    expect(record.failure).toMatchObject({ class: "product", component: "app" });
+    expect(record.steps.at(-1).failure).toMatchObject({ class: "product", component: "app" });
+  });
+
+  it("persists structured infrastructure metadata and never sends a dependency outage to the fixer", async () => {
+    let fixerCalled = false;
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "verify", description: "hero is visible" }] },
+      deps: {
+        runBrowser: async () => {
+          const error: any = new Error("vision 503");
+          error.recoverable = false;
+          error.failure = { class: "infrastructure", component: "vision", code: "vision-http-503", retryable: true };
+          throw error;
+        },
+        proposePatch: async () => {
+          fixerCalled = true;
+          return { kind: "abort" };
+        }
+      }
+    });
+
+    expect(fixerCalled).toBe(false);
+    expect(record.failure).toEqual({
+      class: "infrastructure",
+      component: "vision",
+      code: "vision-http-503",
+      retryable: true
+    });
+    expect(record.steps[0].failure).toEqual(record.failure);
+  });
+
+  it("preserves the app defect and records a fixer outage as a separate recovery failure", async () => {
+    const events: any[] = [];
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "dismiss overlay" }] },
+      deps: {
+        runBrowser: async () => {
+          const error: any = new Error("overlay still covers the button");
+          error.recoverable = true;
+          throw error;
+        },
+        proposePatch: async () => {
+          const error: any = new Error("fixer 503");
+          error.failure = { class: "infrastructure", component: "fixer", code: "fixer-http-503", retryable: true };
+          throw error;
+        }
+      },
+      emit: (event: any) => events.push(event)
+    });
+
+    expect(record.failure).toMatchObject({
+      class: "product",
+      component: "app",
+      code: "browser-interaction-failed"
+    });
+    expect(record.recoveryFailure).toMatchObject({
+      class: "infrastructure",
+      component: "fixer",
+      code: "fixer-http-503"
+    });
+    expect(record.steps[0].failure).toEqual(record.failure);
+    expect(record.steps[0].recoveryFailure).toEqual(record.recoveryFailure);
+    expect(record.steps[0].error).toBe("overlay still covers the button");
+    expect(events.find((event) => event.type === "run_error")).toMatchObject({
+      error: "overlay still covers the button",
+      failure: record.failure,
+      recoveryFailure: record.recoveryFailure
+    });
   });
 
   it("HITL: a CAPTCHA pauses, then resumes and retries the step to completion", async () => {
@@ -223,6 +363,70 @@ describe("run engine (E2)", () => {
     expect(record.pause).toMatchObject({ kind: "awaiting_consent" });
   });
 
+  it("delta 1: carries a caller-supplied contextTag + ephemeral flag on the run record", async () => {
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "wait", durationMs: 1 }] },
+      contextTag: "drill",
+      ephemeral: true,
+      deps: { sleep: noSleep }
+    });
+    expect(record.status).toBe("completed");
+    expect(record.contextTag).toBe("drill");
+    expect(record.ephemeral).toBe(true);
+    const loaded = await getRun(record.id);
+    expect(loaded.contextTag).toBe("drill");
+  });
+
+  it("delta 4: a disabled step is skipped (tier skipped), not executed, and later steps still run", async () => {
+    let ran = false;
+    const record = await runAutomation({
+      automation: {
+        id: "a",
+        name: "A",
+        steps: [
+          { id: "s1", type: "local_command", command: "printf skip-me", enabled: false },
+          { id: "s2", type: "wait", durationMs: 1 }
+        ]
+      },
+      deps: { sleep: noSleep, runCommand: async () => { ran = true; return { stdout: "", stderr: "", exitCode: 0 }; } }
+    });
+    expect(record.status).toBe("completed");
+    expect(record.steps[0]).toMatchObject({ status: "skipped", tier: "skipped" });
+    expect(record.steps[1].status).toBe("completed");
+    expect(ran).toBe(false);
+  });
+
+  it("delta 7: writes a browser step's evidence to a plain file and strips the base64 from the persisted record", async () => {
+    const tinyJpegB64 = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"); // minimal SOI/EOI JPEG markers
+    const record = await runAutomation({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "click" }] },
+      deps: { runBrowser: async () => ({ tier: "vision", action: { kind: "click" }, evidence: { screenshotB64: tinyJpegB64 } }) }
+    });
+    expect(record.status).toBe("completed");
+    expect(record.steps[0].evidencePath).toMatch(/step-000\.jpg$/);
+    const { existsSync, readFileSync } = await import("node:fs");
+    expect(existsSync(record.steps[0].evidencePath)).toBe(true);
+    expect(readFileSync(record.steps[0].evidencePath)).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    // no base64 blob leaks into the persisted/emitted result
+    expect(JSON.stringify(record)).not.toContain(tinyJpegB64);
+  });
+
+  it("delta 6: runAutomationMatrix runs the same automation once per viewport and groups results", async () => {
+    const seen: any[] = [];
+    const matrix = await runAutomationMatrix({
+      automation: { id: "a", name: "A", steps: [{ id: "s1", type: "browser", description: "x" }] },
+      viewports: [{ id: "desktop", width: 1280, height: 800 }, { id: "mobile", width: 390, height: 844 }],
+      contextTag: "drill",
+      deps: { runBrowser: async ({ step }: any) => { seen.push(step); return { tier: "vision" }; } }
+    });
+    expect(matrix.results).toHaveLength(2);
+    expect(matrix.results.map((r: any) => r.viewportId).sort()).toEqual(["desktop", "mobile"]);
+    expect(matrix.results.every((r: any) => r.status === "completed")).toBe(true);
+    expect(seen).toHaveLength(2); // ran twice — once per viewport
+    const loaded = await getMatrixRun(matrix.matrixId);
+    expect(loaded.results).toHaveLength(2);
+  });
+
   it("fails a browser step cleanly when the Browser Fitting is not running", async () => {
     const prev = process.env.GARRISON_BROWSER_URL;
     delete process.env.GARRISON_BROWSER_URL;
@@ -232,6 +436,11 @@ describe("run engine (E2)", () => {
       });
       expect(record.status).toBe("failed");
       expect(record.error).toContain("browser fitting not running");
+      expect(record.failure).toMatchObject({
+        class: "infrastructure",
+        component: "browser",
+        code: "browser-unavailable"
+      });
     } finally {
       if (prev !== undefined) process.env.GARRISON_BROWSER_URL = prev;
     }

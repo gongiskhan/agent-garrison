@@ -11,12 +11,12 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Walks the Garrison process tree, captures stdout/stderr from spawn-helper-wrapped children, and serves a React UI on its own port (default 7077). Read-only; never kills, signals, or pauses processes.
+  summary: Walks the Garrison process tree, captures stdout/stderr from spawn-helper-wrapped children, and serves a React UI on its own port (default 27077). Also shows a system-vitals panel (CPU load, memory, per-mount disk usage, network throughput, and the state of garrison-* systemd user units on Linux). Strictly read-only and display-only; never kills, signals, pauses, starts, or restarts processes or units.
   config_schema:
     - key: port
       type: integer
-      default: 7077
-      description: HTTP port the Monitor server binds to. Falls back to next free port when in use.
+      default: 27077
+      description: HTTP port the Monitor server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
       default: 127.0.0.1
@@ -53,5 +53,11 @@ x-garrison:
       GET  /api/entities                      → list of all Garrison-spawned entities
       GET  /api/entities/:pid                 → single entity detail (with redacted env)
       GET  /api/entities/:pid/logs?stream=…   → captured stdout/stderr (paged + SSE tail)
-      GET  /api/entities/stream               → SSE snapshot tick (default 1 Hz)
-    No mutation endpoints; observation only.
+      GET  /api/entities/stream               → SSE snapshot tick (default 1 Hz); each
+                                                snapshot also carries a `vitals` field
+      GET  /api/vitals                        → latest system-vitals sample:
+                                                { ts, cpu, mem, disks[], net, units[] }
+                                                (refreshed every ~5s). Disk severity is
+                                                classified ok / warn (≥85%) / critical (≥95%).
+    No mutation endpoints; observation only. The vitals panel is display-only — it never
+    exposes kill / restart / start / stop controls for processes or systemd units.

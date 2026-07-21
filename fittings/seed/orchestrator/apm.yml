@@ -1,0 +1,55 @@
+name: orchestrator
+version: 0.2.0
+description: Orchestrator for Agent Garrison — the single brain. Owns the compiled policy (task types × tiers → targets, phase plans, work kinds, phase-skill bindings), the preRoute and the {{routing}} injection. Absorbs the former Model Router (GARRISON-UNIFY-V1 D6). Configured from the Muster Orchestrator tab; the former own-port composer view is retired.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: orchestrator
+  cardinality_hint: single
+  component_shape: system-prompt
+  platforms:
+    - claude-code
+  summary: >-
+    Fills the Orchestrator Faculty — the one policy, one brain. Owns the v2
+    policy config (matrix resolving every task type × tier straight to a
+    target; phase plans; work kinds; the phase-skill registry) and compiles it
+    byte-stably into both the routing.md injected via {{routing}} and the
+    machine-readable ~/.garrison/orchestrator/policy.json (the single
+    consumption interface for the run engine and every phase skill). The
+    policy is edited from Garrison's Muster Orchestrator tab (whole-document,
+    baseline-hash guarded writes through /api/orchestrator/policy).
+  config_schema: []
+  provides:
+    - kind: orchestrator
+      name: orchestrator
+  consumes:
+    # The modes Fitting (Gary/Joe/James souls + shared voice + per-mode routing
+    # bias) is optional: when selected, src/lib/souls.ts folds each soul into the
+    # GARRISON_SOULS_CONFIG the gateway runs. optional-one tolerates 0 providers,
+    # so a composition without modes is unaffected.
+    - kind: modes
+      cardinality: optional-one
+  setup:
+    command: node scripts/compile.mjs --check
+    idempotent: true
+    timeout_ms: 90000
+  verify:
+    command: node apm_modules/_local/orchestrator/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 15000
+  for_consumers: |
+    The Orchestrator fills the Orchestrator Faculty and owns every routing knob:
+    task types, models, efforts, runtimes, phase plans, work kinds, and
+    phase-skill bindings. Its compiled routing.md is injected into the assembled
+    system prompt via the {{routing}} placeholder; its compiled machine-readable
+    policy lands at ~/.garrison/orchestrator/policy.json (atomic, byte-stable)
+    on every accepted PUT and at composition start — the run engine and every
+    phase skill read THAT file, never HTTP. The operative does NOT choose its
+    own model: the gateway pre-routes (Stage A: taskType + tier + execution)
+    before the turn and places it on the resolved target.
+    Every reply must end with `[route: <target-id> | rule: <rule-id> | profile: <name>]`.
+    The policy is edited from Garrison's Muster Orchestrator tab (whole-document,
+    baseline-hash guarded writes via /api/orchestrator/policy; 409 on baseline
+    mismatch, 422 when the policy fails to validate or compile; policy.json is
+    recompiled on every accepted write).

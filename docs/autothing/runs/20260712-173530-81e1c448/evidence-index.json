@@ -1,0 +1,128 @@
+{
+ "runId": "20260712-173530-81e1c448",
+ "project": "agent-garrison",
+ "brief": "GARRISON-MARATHON-V1",
+ "profile": "build",
+ "gatesConfig": {
+  "test": true,
+  "adversarialReview": true,
+  "adversarialTest": true,
+  "codexSliceReview": true,
+  "design": true,
+  "walkthrough": true,
+  "deliberateRed": true,
+  "mutation": true,
+  "report": true,
+  "foundation": true,
+  "codexCheckpoint": true,
+  "askQuestions": false
+ },
+ "runLog": "RUN_LOG.md",
+ "runSpec": "docs/autothing/runs/20260712-173530-81e1c448/RUN_SPEC.md",
+ "plan": "docs/autothing/runs/20260712-173530-81e1c448/FLOW_PLAN.md",
+ "slices": {
+  "S0": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS0 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S0/gate-status.json"
+  },
+  "S1": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS1 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S1/gate-status.json",
+   "videoSha256": "74c2bc427cdd1a61dce875f2f6d28d5c0ac995c7d7b5ed6ae41ee91d3e752730",
+   "videoBytes": 1160009
+  },
+  "S2a": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2A OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2a1/gate-status.json",
+   "videoSha256": "b2f00c22ca73f84c2b2d3c5d704b1cc566958e457ea6832bc6fb4f5cc1a72ef6",
+   "videoBytes": 1551917,
+   "evidenceMode": "asciinema"
+  },
+  "S2b": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2B OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2b/gate-status.json",
+   "videoSha256": "1daf66eb391d95cad1f1161d144a221635b5a03d840ce19d178446d1a1ed8b5a",
+   "videoBytes": 890,
+   "evidenceMode": "asciinema"
+  },
+  "S2c": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2C OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2c/gate-status.json"
+  },
+  "S3": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS3 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S3/gate-status.json",
+   "videoSha256": "d2ba644a42c9482b3f79c41a935389fa2d69f756d358d5b9e4ac40124d8d4ad3"
+  },
+  "S4": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS4 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S4/gate-status.json",
+   "videoSha256": "d2ba644a42c9482b3f79c41a935389fa2d69f756d358d5b9e4ac40124d8d4ad3"
+  },
+  "S2d": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS2D OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S2d/gate-status.json"
+  },
+  "S5": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS5 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S5/gate-status.json",
+   "videoSha256": "b8905952638f16f7d7a01e9ce99b4f331d783f88a90480848561286e5be30259",
+   "evidenceMode": "asciinema"
+  },
+  "S7": {
+   "status": "passed",
+   "sentinel": "IMPROVER-PROBE OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S7/gate-status.json",
+   "videoSha256": "5e899ecb71b956baa1bc1be2645f6bb2f3ce5a1eac3ab77542692cd26aef5342",
+   "evidenceMode": "asciinema"
+  },
+  "S8": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS8 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S8/gate-status.json",
+   "videoSha256": "147533b97f06b35fd3c78b1c5d917a949fc2a40ae12fce579578f05f8311222a",
+   "evidenceMode": "asciinema"
+  },
+  "S6": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS6 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S6/gate-status.json",
+   "videoSha256": "90f18a2acd528b7de862ca5b296acdceb31610023aad789be1044909d09e557e",
+   "videoBytes": 1796492
+  },
+  "S9": {
+   "status": "passed",
+   "sentinel": "MARATHON-WS9 OK",
+   "gateStatus": "docs/autothing/runs/20260712-173530-81e1c448/slices/S9/gate-status.json",
+   "impl": "docs/autothing/runs/20260712-173530-81e1c448/slices/S9/impl.md",
+   "copyReduction": {
+    "before": 688,
+    "after": 518,
+    "pct": 24.7
+   },
+   "narrowViewport": "docs/autothing/runs/20260712-173530-81e1c448/slices/S9/overflow-390.json",
+   "screenshots": [
+    "home-390.png",
+    "compose-390.png",
+    "quarters-390.png",
+    "vault-390.png",
+    "narrow-home.png",
+    "narrow-compose.png",
+    "narrow-quarters.png",
+    "narrow-vault.png"
+   ]
+  }
+ },
+ "globalGate": {
+  "status": "in-progress"
+ }
+}

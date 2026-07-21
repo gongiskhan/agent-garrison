@@ -39,12 +39,17 @@ export function resolvePlacementPaths(
   const installedModes = path.join(compDir, "apm_modules", "_local", "modes");
   const scopedRouting = path.join(compDir, ".garrison", "routing.json");
   return {
+    // The modes seed fitting was retired (D7 — modes/souls replaced by the
+    // identity fitting). The installed-modes path still resolves when a
+    // composition carries a legacy modes package; otherwise this points at the
+    // (now absent) seed dir, whose missing modes.json makes the caller fall back
+    // to a bare session — the correct post-retirement outcome.
     modesDir: existsSync(path.join(installedModes, "modes.json"))
       ? installedModes
       : path.join(rootDir, "fittings/seed/modes"),
     routingConfigPath: existsSync(scopedRouting)
       ? scopedRouting
-      : path.join(rootDir, "fittings/seed/model-router/config/routing.seed.json")
+      : path.join(rootDir, "fittings/seed/orchestrator/config/routing.seed.json")
   };
 }
 
@@ -54,6 +59,13 @@ export interface PlacementResult {
   model: string | null;
   effort: string | null;
   role: string;
+  // The resolved routing target, surfaced so callers (the Dev Env) can display
+  // and persist what the session was placed as. Null when the routing config
+  // has no target for the resolved role (placement still succeeds — the mode
+  // prompt is composed — but there is no model override).
+  targetId: string | null;
+  runtime: string | null;
+  provider: string | null;
 }
 
 export interface PlacementOptions {
@@ -62,6 +74,42 @@ export interface PlacementOptions {
   modesDir: string; // the modes fitting dir (souls + voice + modes.json)
   routingConfigPath: string; // routing.json / routing.seed.json (role → target)
   outDir: string; // where the composed mode prompt is written
+  // Optional: the composition's `.garrison/decisions.jsonl`. When set, the
+  // routing decision is appended here at placement time (best-effort telemetry).
+  // Omitted callers (and every existing test) place with no telemetry side effect.
+  decisionsPath?: string;
+}
+
+// Placement telemetry record — mirrors the field names of the orchestrator
+// fitting's decisionRecord (fittings/seed/orchestrator/lib/routing-telemetry.mjs)
+// so both write the same shape into decisions.jsonl, but kept as a local TS type
+// so src/lib stays self-contained (no import of the fitting's .mjs).
+interface PlacementDecisionRecord {
+  at: string;
+  promptDigest: string | null;
+  taskType: string;
+  tier: string | null;
+  role: string;
+  ruleId: string | null;
+  targetId: string | null;
+  profile: string;
+  via: string;
+  runtime: string | null;
+  provider: string | null;
+  model: string | null;
+  channel: string;
+  mode: string;
+}
+
+// Append one decision record as a JSON line. Best-effort: a telemetry failure
+// must never break session placement, so any error is swallowed (with a warn).
+async function appendPlacementDecision(filePath: string, record: PlacementDecisionRecord): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.appendFile(filePath, JSON.stringify(record) + "\n", "utf8");
+  } catch (err) {
+    console.warn(`[placement] telemetry append failed: ${(err as Error)?.message ?? String(err)}`);
+  }
 }
 
 // ── Mode bias (pure TS mirror of routing-core.mjs biasRole/modeBiasFor) ──────
@@ -149,27 +197,65 @@ export async function placeOrchestratedSession(opts: PlacementOptions): Promise<
   if (path.relative(path.resolve(opts.outDir), path.resolve(promptPath)).startsWith("..")) return null;
   await fs.writeFile(promptPath, prompt, "utf8");
 
-  // Model/effort from the mode's routing bias → role → routing target.
+  // Model/effort from the mode's routing bias → compute rank → routing target.
+  // v1 configs map the rank label through the profile roleMap; v2 configs (the
+  // policy schema) index the profile's computeLadder [fast, standard, expert].
   let role = "standard";
   let model: string | null = null;
   let effort: string | null = null;
+  let targetId: string | null = null;
+  let runtime: string | null = null;
+  let provider: string | null = null;
+  let profileName = "balanced";
   try {
     const bias = modeBiasFor(mode, modesJson);
     role = bias ? biasRole("standard", bias) : "standard";
     const routing = JSON.parse(await fs.readFile(opts.routingConfigPath, "utf8")) as {
+      version?: number;
       activeProfile?: string;
-      profiles?: Record<string, { roleMap?: Record<string, string> }>;
-      targets?: Array<{ id: string; model?: string; effort?: string }>;
+      profiles?: Record<string, { roleMap?: Record<string, string>; computeLadder?: string[] }>;
+      targets?: Array<{ id: string; model?: string; effort?: string; runtime?: string; provider?: string }>;
     };
-    const profileName = routing.activeProfile ?? "balanced";
+    profileName = routing.activeProfile ?? "balanced";
     const profile = (routing.profiles ?? {})[profileName] ?? {};
-    const targetId = (profile.roleMap ?? {})[role];
+    const resolvedTargetId =
+      routing.version === 2
+        ? (profile.computeLadder ?? [])[COMPUTE_RANK[role] ?? 1]
+        : (profile.roleMap ?? {})[role];
+    targetId = resolvedTargetId ?? null;
     const target = (routing.targets ?? []).find((t) => t.id === targetId) ?? null;
     model = target?.model ?? null;
     effort = target?.effort ?? null;
+    runtime = target?.runtime ?? null;
+    provider = target?.provider ?? null;
   } catch {
-    // leave model/effort null — the caller falls back to its default
+    // leave target/model/effort null — the caller falls back to its default
   }
 
-  return { mode, promptPath, model, effort, role };
+  // Placement telemetry (best-effort): record this routing decision to the
+  // composition's decisions.jsonl. Reached only when placement SUCCEEDS (a mode
+  // resolved + prompt written); the earlier null-returns (no modes, unsafe id)
+  // never write a row, so a bare-session fallback stays silent. `tier` is null —
+  // placement is mode-based, not tier-classified; `ruleId` is null — no routing
+  // rule was matched (the mode's bias picked the role directly).
+  if (opts.decisionsPath) {
+    await appendPlacementDecision(opts.decisionsPath, {
+      at: new Date().toISOString(),
+      promptDigest: null,
+      taskType: "dev-env-session",
+      tier: null,
+      role,
+      ruleId: null,
+      targetId,
+      profile: profileName,
+      via: "placement",
+      runtime,
+      provider,
+      model,
+      channel: opts.channel,
+      mode
+    });
+  }
+
+  return { mode, promptPath, model, effort, role, targetId, runtime, provider };
 }

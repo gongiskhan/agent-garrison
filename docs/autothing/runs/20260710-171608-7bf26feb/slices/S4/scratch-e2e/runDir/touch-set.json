@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "cardId": "01KX7RCN0FRGY4SFB7GEKDJ2JT",
+  "runId": "01KX7RCN0NSE1TGS40CNDBC1K8",
+  "project": "flow-scratch",
+  "predictedAt": "2026-07-11T04:53:51.257Z",
+  "files": [
+    "src/multiply.mjs",
+    "test/multiply.test.mjs"
+  ],
+  "dirs": [],
+  "surfaces": [],
+  "exclusive": [],
+  "notes": "Additive: two new files, no edits to existing sources."
+}

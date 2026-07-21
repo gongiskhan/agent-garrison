@@ -1,0 +1,1268 @@
+{
+  "title": "Runtime routing \u2014 one Operative, many engines",
+  "project": "agent-garrison",
+  "folder": "runtimes-routing",
+  "video": {
+    "width": 1280,
+    "height": 1000,
+    "fps": 30
+  },
+  "segments": [
+    {
+      "type": "title",
+      "id": "intro",
+      "text": "One Operative, many engines",
+      "subtitle": "Set up a runtime, route tasks by tier, attribute every phase \u2014 Agent Garrison",
+      "reflectFlag": true,
+      "duration": 3.2
+    },
+    {
+      "type": "browser",
+      "id": "dash-intro",
+      "baseURL": "http://127.0.0.1:27777",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "dash-running",
+          "caption": "The Garrison dashboard \u2014 the Operative is up and running.",
+          "expectedScreen": "the Garrison dashboard with a composition card, a green/live 'running' status pill and a Restart Operative button",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".page.dash .hero .btn.primary"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".page.dash span.pill.live"
+            }
+          ],
+          "assert": {
+            "selector": ".page.dash span.pill.live",
+            "text": "RUNNING",
+            "highlight": true
+          },
+          "hold": 3600
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "compose-station",
+      "baseURL": "http://127.0.0.1:27777",
+      "startPath": "/compose",
+      "beats": [
+        {
+          "id": "search-runtimes",
+          "caption": "Four runtime Fittings ship in the registry \u2014 Claude Code, Codex, Gemini, and the Agent SDK.",
+          "expectedScreen": "the Compose page with a search box containing 'runtime' and result cards for the runtime fittings",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".compose-search input[type=\"search\"]"
+            },
+            {
+              "type": "fill",
+              "selector": ".compose-search input[type=\"search\"]",
+              "text": "runtime"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 900
+            }
+          ],
+          "assert": {
+            "selector": "text:Agent SDK runtime",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "runtimes-station",
+          "caption": "The Runtimes station: three engines stationed \u2014 the Agent SDK runtime is not, yet.",
+          "expectedScreen": "the Runtimes faculty station page with cards for claude-code, codex, gemini (selected) and Agent SDK runtime (unselected, with a + Add button)",
+          "actions": [
+            {
+              "type": "goto",
+              "path": "/compose/runtimes"
+            },
+            {
+              "type": "waitFor",
+              "selector": "article"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 600
+            }
+          ],
+          "assert": {
+            "selector": "article:has-text(\"Agent SDK runtime\")",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "station-add",
+          "caption": "Station it \u2014 one click adds the new runtime to the composition (autosaved).",
+          "expectedScreen": "the Agent SDK runtime card now selected (sage border) with its button flipped to Remove",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "article:has-text(\"Agent SDK runtime\") button.btn.small.primary"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "assert": {
+            "selector": "article:has-text(\"Agent SDK runtime\")",
+            "text": "Remove",
+            "highlight": true
+          },
+          "hold": 4200
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "restart-1",
+      "baseURL": "http://127.0.0.1:27777",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "restart1-click",
+          "caption": "Restart the Operative \u2014 APM installs and verifies the new runtime.",
+          "expectedScreen": "the dashboard right after clicking Restart: the status pill flips to a warn state (stopping/starting)",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".page.dash .hero .btn.primary"
+            },
+            {
+              "type": "click",
+              "selector": ".page.dash .hero .btn.primary"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".page.dash span.pill.warn",
+              "timeout": 60000
+            }
+          ],
+          "assert": {
+            "selector": ".page.dash span.pill",
+            "highlight": true
+          },
+          "hold": 2600
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "restart-1-lapse",
+      "continue": true,
+      "speed": 8,
+      "runTimeoutMs": 540000,
+      "beats": [
+        {
+          "id": "restart1-wait",
+          "caption": "Timelapse: apm install \u2192 setup hooks \u2192 verify probes \u2192 operative spawn.",
+          "expectedScreen": "the dashboard runtime log streaming install/verify lines while the status pill works through starting/verifying",
+          "actions": [],
+          "holdUntil": {
+            "selector": ".page.dash span.pill.live",
+            "timeout": 480000
+          },
+          "hold": 2000
+        },
+        {
+          "id": "restart1-proof",
+          "caption": "Back to RUNNING \u2014 agent-sdk-runtime installed, probed and verified in the live log.",
+          "expectedScreen": "the dashboard with the running pill and the runtime log containing agent-sdk-runtime install/verify lines",
+          "actions": [],
+          "assert": {
+            "selector": "section.term .body",
+            "text": "agent-sdk-runtime",
+            "highlight": true
+          },
+          "hold": 4200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "t-composer",
+      "text": "The Composer",
+      "subtitle": "Targets \u00b7 a task-type \u00d7 tier matrix \u00b7 per-phase routing",
+      "duration": 2.8
+    },
+    {
+      "type": "browser",
+      "id": "composer",
+      "baseURL": "http://127.0.0.1:27087",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "composer-tour",
+          "caption": "The routing Composer: draggable runtime targets, and the PRIMARY picker for the operative's engine.",
+          "expectedScreen": "the Composer page with profile buttons, a PRIMARY select, and a tray of target cards with runtime glyphs (CC/CX/GM)",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".tray .tcard"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 800
+            }
+          ],
+          "assert": {
+            "selector": "header.topbar",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "primary-picker",
+          "caption": "The freshly installed Agent SDK runtime is now selectable \u2014 Claude Code stays the primary engine.",
+          "expectedScreen": "the PRIMARY dropdown in the topbar next to the profiles",
+          "actions": [
+            {
+              "type": "hover",
+              "selector": ".primary-picker select#primary-runtime"
+            }
+          ],
+          "assert": {
+            "selector": ".primary-picker",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "add-target-form",
+          "caption": "Create a target on the new runtime: agent-sdk \u00b7 claude-haiku-4-5 \u00b7 low effort.",
+          "expectedScreen": "the Add-target form open in the tray with id, runtime, model and effort fields filled",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "button.tcard.add"
+            },
+            {
+              "type": "fill",
+              "selector": ".tcard.add-form input[placeholder=\"id (e.g. cc-opus-high)\"]",
+              "text": "sdk-haiku-low"
+            },
+            {
+              "type": "select",
+              "selector": ".tcard.add-form select:first-of-type",
+              "value": "agent-sdk"
+            },
+            {
+              "type": "fill",
+              "selector": ".tcard.add-form input[placeholder=\"model\"]",
+              "text": "claude-haiku-4-5"
+            },
+            {
+              "type": "select",
+              "selector": ".tcard.add-form select:last-of-type",
+              "value": "low"
+            }
+          ],
+          "assert": {
+            "selector": ".tcard.add-form",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "add-target-commit",
+          "caption": "The target joins the tray \u2014 SDK glyph, ready to route to.",
+          "expectedScreen": "a new sdk-haiku-low target card in the tray with an SDK glyph",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".add-actions button.primary"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".tray .tcard:has-text(\"sdk-haiku-low\")"
+            }
+          ],
+          "assert": {
+            "selector": ".tray .tcard:has-text(\"sdk-haiku-low\")",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "provider-switch",
+          "caption": "Point it at the Anthropic subscription provider \u2014 every edit autosaves.",
+          "expectedScreen": "the sdk-haiku-low card with its provider dropdown set to anthropic and a 'saved' status pill in the topbar",
+          "actions": [
+            {
+              "type": "select",
+              "selector": ".tray .tcard:has-text(\"sdk-haiku-low\") select.tcard-provider",
+              "value": "anthropic"
+            },
+            {
+              "type": "waitFor",
+              "selector": "header.topbar span.status.saved",
+              "timeout": 15000
+            }
+          ],
+          "assert": {
+            "selector": "header.topbar span.status.saved",
+            "text": "SAVED",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "arm-sdk",
+          "caption": "Arm the new target: click the card, then click every lane it should own.",
+          "expectedScreen": "the sdk-haiku-low tray card highlighted with an armed outline",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".tray .tcard:has-text(\"sdk-haiku-low\") .tcard-grab"
+            }
+          ],
+          "assert": {
+            "selector": ".tcard.armed",
+            "text": "sdk-haiku-low",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "click-low-code",
+          "caption": "Low-tier code tasks \u2192 the Agent SDK runtime.",
+          "expectedScreen": "the code x T0-trivial cell showing a solid SDK haiku token",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"code\")) td.cell:nth-child(2)"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"code\")) td.cell:nth-child(2)",
+            "text": "SDK",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "click-low-other",
+          "caption": "\u2026general asks too\u2026",
+          "expectedScreen": "the other x T0-trivial cell showing a solid SDK haiku token",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"other\")) td.cell:nth-child(2)"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"other\")) td.cell:nth-child(2)",
+            "text": "SDK",
+            "highlight": true
+          },
+          "hold": 3400
+        },
+        {
+          "id": "click-low-research",
+          "caption": "\u2026and research: every low-tier lane lands on the runtime stationed minutes ago.",
+          "expectedScreen": "the research x T0-trivial cell showing a solid SDK haiku token",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"research\")) td.cell:nth-child(2)"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"research\")) td.cell:nth-child(2)",
+            "text": "SDK",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "click-medium",
+          "caption": "Medium tasks stay on Claude Code with Sonnet.",
+          "expectedScreen": "the code x T1-standard cell showing a solid CC sonnet token",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".tray .tcard:has-text(\"cc-sonnet-med\") .tcard-grab"
+            },
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"code\")) td.cell:nth-child(3)"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"code\")) td.cell.explicit:nth-child(3)",
+            "text": "sonnet",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "click-hard",
+          "caption": "Hard tasks get Claude Code on Opus.",
+          "expectedScreen": "the code x T2-deep cell showing a solid CC opus token",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".tray .tcard:has-text(\"cc-opus-high\") .tcard-grab"
+            },
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"code\")) td.cell:nth-child(4)"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"code\")) td.cell:nth-child(4)",
+            "text": "opus",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "click-phase-plan",
+          "caption": "The pipeline phases are rows too \u2014 planning and implementation run on Opus\u2026",
+          "expectedScreen": "the plan and implement phase row headers showing opus row-default tokens",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"plan\")) th.rowhead"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 500
+            },
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"implement\")) th.rowhead"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"implement\")) th.rowhead",
+            "text": "opus",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "click-phase-review",
+          "caption": "\u2026while reviews and tests run on Sonnet \u2014 each phase picks its own target.",
+          "expectedScreen": "the review and test phase row headers showing sonnet row-default tokens",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".tray .tcard:has-text(\"cc-sonnet-med\") .tcard-grab"
+            },
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"review\")) th.rowhead"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 500
+            },
+            {
+              "type": "click",
+              "selector": "table.matrix tr:has(.rh-name:text-is(\"test\")) th.rowhead"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 700
+            }
+          ],
+          "assert": {
+            "selector": "table.matrix tr:has(.rh-name:text-is(\"test\")) th.rowhead",
+            "text": "sonnet",
+            "highlight": true
+          },
+          "hold": 4200
+        },
+        {
+          "id": "disarm",
+          "caption": "Disarm \u2014 the policy is saved; the matrix IS the routing.",
+          "expectedScreen": "the matrix with SDK/sonnet/opus tokens across the code row tiers and phase rows, saved pill in the topbar",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".tray .tcard:has-text(\"cc-sonnet-med\") .tcard-grab"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 600
+            }
+          ],
+          "assert": {
+            "selector": "header.topbar span.status.saved",
+            "text": "SAVED",
+            "highlight": true
+          },
+          "hold": 4200
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "restart-2",
+      "baseURL": "http://127.0.0.1:27777",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "restart2-click",
+          "caption": "Apply it live: the gateway snapshots routing at boot \u2014 restart the Operative.",
+          "expectedScreen": "the dashboard right after clicking Restart, pill in a warn state",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".page.dash .hero .btn.primary"
+            },
+            {
+              "type": "click",
+              "selector": ".page.dash .hero .btn.primary"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".page.dash span.pill.warn",
+              "timeout": 60000
+            }
+          ],
+          "assert": {
+            "selector": ".page.dash span.pill",
+            "highlight": true
+          },
+          "hold": 2400
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "restart-2-lapse",
+      "continue": true,
+      "speed": 8,
+      "runTimeoutMs": 540000,
+      "beats": [
+        {
+          "id": "restart2-wait",
+          "caption": "Timelapse: the same install \u2192 verify \u2192 spawn cycle, now with the new routing.",
+          "expectedScreen": "the dashboard log streaming while the pill works back to running",
+          "actions": [],
+          "holdUntil": {
+            "selector": ".page.dash span.pill.live",
+            "timeout": 480000
+          },
+          "hold": 3000
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "t-low",
+      "text": "A low-tier task",
+      "subtitle": "Web Channel \u2192 classifier \u2192 T0-trivial \u2192 the Agent SDK runtime",
+      "duration": 2.8
+    },
+    {
+      "type": "browser",
+      "id": "web-low",
+      "baseURL": "http://127.0.0.1:27083",
+      "startPath": "/",
+      "runTimeoutMs": 540000,
+      "beats": [
+        {
+          "id": "web-new",
+          "caption": "A fresh conversation on the Web Channel.",
+          "expectedScreen": "the web channel chat surface with an empty conversation and a message input",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "textarea.cc-input"
+            },
+            {
+              "type": "click",
+              "selector": ".wc-new"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 900
+            }
+          ],
+          "assert": {
+            "selector": ".cc-root",
+            "highlight": true
+          },
+          "hold": 3200
+        },
+        {
+          "id": "web-ask",
+          "caption": "Ask something trivial \u2014 the warm classifier files it as tier T0.",
+          "expectedScreen": "the user's question in a chat bubble with a working indicator below",
+          "actions": [
+            {
+              "type": "fill",
+              "selector": "textarea.cc-input",
+              "text": "What does the slugify function in the garrison-e2e-demo project do? Answer in one short sentence."
+            },
+            {
+              "type": "click",
+              "selector": "button.cc-send"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".cc-turn .cc-user"
+            }
+          ],
+          "assert": {
+            "selector": ".cc-turn .cc-user",
+            "text": "slugify",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "web-reply",
+          "caption": "The reply \u2014 generated by the Agent SDK runtime on Haiku, not the main operative.",
+          "expectedScreen": "an assistant reply describing the slugify function",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".cc-turn .cc-assistant .cc-md",
+              "timeout": 420000
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 800
+            }
+          ],
+          "assert": {
+            "selector": ".cc-turn .cc-assistant .cc-md",
+            "text": "slug",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "web-chip",
+          "caption": "Every reply carries its routing chip: runtime, model and tier.",
+          "expectedScreen": "the reply's hover actions showing an uppercased routing chip starting with AGENT-SDK (runtime/model, possibly truncated)",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".cc-routechip",
+              "timeout": 20000
+            },
+            {
+              "type": "hover",
+              "selector": ".cc-turn .cc-assistant"
+            }
+          ],
+          "assert": {
+            "selector": ".cc-routechip",
+            "text": "AGENT-SDK",
+            "highlight": true
+          },
+          "hold": 5200
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ev-web-decision",
+      "command": "grep '\"runtime\":\"agent-sdk\"' /home/ggomes/dev/garrison/compositions/default/.garrison/decisions.jsonl | tail -n 1",
+      "source": "compositions/default/.garrison/decisions.jsonl \u2014 the router's decision log",
+      "caption": "The decision log attributes the turn: T0-trivial \u2192 sdk-haiku-low on the agent-sdk runtime.",
+      "expectedScreen": "a JSON log panel with the last routing decisions, the agent-sdk line highlighted",
+      "highlight": {
+        "match": "agent-sdk",
+        "note": "tier-routed to the runtime stationed minutes ago"
+      },
+      "kind": "json",
+      "hold": 5600
+    },
+    {
+      "type": "title",
+      "id": "t-medium",
+      "text": "A medium task",
+      "subtitle": "Dev Env \u2192 compute ladder \u2192 Claude Code on Sonnet",
+      "duration": 2.8
+    },
+    {
+      "type": "browser",
+      "id": "devenv-medium",
+      "baseURL": "http://127.0.0.1:27086",
+      "startPath": "/",
+      "runTimeoutMs": 540000,
+      "beats": [
+        {
+          "id": "devenv-open",
+          "caption": "The Dev Env \u2014 every session here is placed through the same routing policy.",
+          "expectedScreen": "the dev-env menu opening and the New session dialog appearing",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": "button.menu-btn"
+            },
+            {
+              "type": "click",
+              "selector": "button.menu-btn"
+            },
+            {
+              "type": "click",
+              "selector": ".menu button:has-text(\"New session\u2026\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".modal"
+            }
+          ],
+          "assert": {
+            "selector": ".modal",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "devenv-pick",
+          "caption": "Project + Orchestrator mode: James, the product/architect \u2014 a standard-rung placement.",
+          "expectedScreen": "the New session dialog with garrison-e2e-demo picked and the Orchestrator select showing James",
+          "actions": [
+            {
+              "type": "select",
+              "selector": "label:Project",
+              "value": "garrison-e2e-demo"
+            },
+            {
+              "type": "select",
+              "selector": "label:Orchestrator",
+              "value": "james"
+            }
+          ],
+          "assert": {
+            "selector": ".modal",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "devenv-start",
+          "caption": "The session spawns \u2014 the launch command carries the routed model.",
+          "expectedScreen": "a claude terminal pane starting up inside the session tab",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".modal-row button.btn.primary"
+            },
+            {
+              "type": "waitFor",
+              "selector": "[data-testid=\"terminal-pane\"]",
+              "timeout": 90000
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 6000
+            }
+          ],
+          "assert": {
+            "selector": "[data-testid=\"terminal-pane\"]",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "devenv-chip",
+          "caption": "The placement badge on the tab: james \u00b7 sonnet \u2014 Claude Code via the compute ladder.",
+          "expectedScreen": "the session tab showing a small james \u00b7 sonnet placement chip",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".tab-placement",
+              "timeout": 30000
+            }
+          ],
+          "assert": {
+            "selector": ".tab-placement",
+            "text": "james \u00b7 sonnet",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "devenv-task",
+          "caption": "Hand it a medium task: a new module with tests, run to green.",
+          "expectedScreen": "the quick-prompt input with the task text being sent to the session",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".quick-prompt input:not([disabled])",
+              "timeout": 120000
+            },
+            {
+              "type": "fill",
+              "selector": ".quick-prompt input",
+              "text": "Add a wordCount function in src/word-count.mjs (count words in a string; handle multiple spaces and empty input; export it), plus test/word-count.test.mjs with node --test coverage, and run the tests to confirm they pass."
+            },
+            {
+              "type": "press",
+              "key": "Enter"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 2000
+            }
+          ],
+          "assert": {
+            "selector": ".claude-pane",
+            "highlight": true
+          },
+          "hold": 3600
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "devenv-lapse",
+      "continue": true,
+      "speed": 8,
+      "runTimeoutMs": 900000,
+      "beats": [
+        {
+          "id": "devenv-work",
+          "caption": "Timelapse: the session streams through the task in the Chat view \u2014 module, tests, green run.",
+          "expectedScreen": "the dev-env Chat view streaming the session's reply and tool activity while it works",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "div[aria-label=\"Claude view\"] button:has-text(\"Chat\")"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "holdUntil": {
+            "selector": ".tab .badge-waiting",
+            "timeout": 780000
+          },
+          "hold": 3000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ev-devenv-decision",
+      "command": "grep dev-env-session /home/ggomes/dev/garrison/compositions/default/.garrison/decisions.jsonl | tail -n 1",
+      "source": "decisions.jsonl \u2014 dev-env placement attribution",
+      "caption": "The placement decision on record: james \u2192 standard \u2192 cc-sonnet-med on claude-code.",
+      "expectedScreen": "a JSON panel with the dev-env-session decision line, cc-sonnet-med highlighted",
+      "highlight": {
+        "match": "cc-sonnet-med",
+        "note": "the session's model was routed, not hardcoded"
+      },
+      "kind": "json",
+      "hold": 5600
+    },
+    {
+      "type": "evidence",
+      "id": "ev-devenv-file",
+      "file": "/home/ggomes/dev/garrison-e2e-demo/src/word-count.mjs",
+      "source": "garrison-e2e-demo/src/word-count.mjs \u2014 written by the session",
+      "caption": "The medium task landed: the module exists (its tests ran in the session).",
+      "expectedScreen": "a code panel showing the wordCount module source",
+      "highlight": {
+        "match": "wordCount",
+        "note": "created by the sonnet-placed Dev Env session"
+      },
+      "kind": "code",
+      "hold": 5200
+    },
+    {
+      "type": "title",
+      "id": "t-hard",
+      "text": "A hard task",
+      "subtitle": "The Kanban loop \u2014 every phase routed and attributed",
+      "duration": 2.8
+    },
+    {
+      "type": "browser",
+      "id": "kanban-create",
+      "baseURL": "http://127.0.0.1:27089",
+      "startPath": "/",
+      "runTimeoutMs": 600000,
+      "beats": [
+        {
+          "id": "kb-new",
+          "caption": "The Kanban board \u2014 the autonomous pipeline. New card.",
+          "expectedScreen": "the kanban board with pipeline columns and the New card sheet opening",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".topbar .btn.primary"
+            },
+            {
+              "type": "click",
+              "selector": ".topbar .btn.primary"
+            },
+            {
+              "type": "waitFor",
+              "selector": "#nc-title"
+            }
+          ],
+          "assert": {
+            "selector": ".sheet",
+            "highlight": true
+          },
+          "hold": 3200
+        },
+        {
+          "id": "kb-fill",
+          "caption": "A demanding brief: a paginate module \u2014 validation, docs, and full test coverage.",
+          "expectedScreen": "the New card sheet with title, project garrison-e2e-demo and a detailed description",
+          "actions": [
+            {
+              "type": "fill",
+              "selector": "#nc-title",
+              "text": "Add a paginate module with cursor support"
+            },
+            {
+              "type": "select",
+              "selector": "#nc-project",
+              "value": "garrison-e2e-demo"
+            },
+            {
+              "type": "fill",
+              "selector": "#nc-desc",
+              "text": "Implement src/paginate.mjs exporting paginate(items, {pageSize, cursor}) returning {page, nextCursor, total}. Validate inputs defensively (non-array items, invalid pageSize), include JSDoc on every export, add a README section, and comprehensive node --test coverage in test/paginate.test.mjs including empty list, out-of-range cursor, and pageSize larger than the list."
+            }
+          ],
+          "assert": {
+            "selector": "#nc-desc",
+            "highlight": true
+          },
+          "hold": 4600
+        },
+        {
+          "id": "kb-create",
+          "caption": "Created \u2014 it lands in Backlog.",
+          "expectedScreen": "the board with the paginate card visible in the Backlog column",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "button:Create card"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".card:has-text(\"paginate module\")",
+              "timeout": 20000
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"paginate module\")",
+            "highlight": true
+          },
+          "hold": 3800
+        },
+        {
+          "id": "kb-move-todo",
+          "caption": "Through the manual gate: Backlog has one exit, so Move sends it straight to To Do.",
+          "expectedScreen": "the paginate card now sitting in the To Do column",
+          "actions": [
+            {
+              "type": "waitTimeout",
+              "ms": 900
+            },
+            {
+              "type": "click",
+              "selector": ".card:has-text(\"paginate module\") button:has-text(\"Move\")"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1800
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"paginate module\")",
+            "highlight": true
+          },
+          "hold": 3200
+        },
+        {
+          "id": "kb-move-plan",
+          "caption": "\u2026and into the pipeline: Plan dispatches to the Operative immediately.",
+          "expectedScreen": "the paginate card in the Plan column flipping to a running state",
+          "actions": [
+            {
+              "type": "waitTimeout",
+              "ms": 900
+            },
+            {
+              "type": "click",
+              "selector": ".card:has-text(\"paginate module\") button:has-text(\"Move\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".sheet button.move-opt",
+              "timeout": 25000
+            },
+            {
+              "type": "click",
+              "selector": ".sheet button.move-opt:has-text(\"Plan\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".card.running",
+              "timeout": 120000
+            }
+          ],
+          "assert": {
+            "selector": ".card.running",
+            "highlight": true
+          },
+          "hold": 3600
+        },
+        {
+          "id": "kb-streaming",
+          "caption": "The Plan phase runs live on the card \u2014 the operative's work streams onto the board.",
+          "expectedScreen": "the running paginate card with a live streaming log tail and elapsed timer",
+          "actions": [
+            {
+              "type": "waitFor",
+              "selector": ".card.running .run-tail",
+              "timeout": 90000
+            }
+          ],
+          "assert": {
+            "selector": ".card.running",
+            "highlight": true
+          },
+          "hold": 5200
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "kanban-plan-lapse",
+      "continue": true,
+      "speed": 8,
+      "runTimeoutMs": 1500000,
+      "beats": [
+        {
+          "id": "kb-plan-wait",
+          "caption": "Timelapse: planning on Opus \u2014 the row you dragged decides who does this.",
+          "expectedScreen": "the running card streaming plan work, then advancing with a route chip appearing",
+          "actions": [],
+          "holdUntil": {
+            "selector": ".card:has-text(\"paginate module\") .chip.route",
+            "timeout": 1380000
+          },
+          "hold": 2400
+        },
+        {
+          "id": "kb-plan-chip",
+          "caption": "First stamp: plan @ opus \u2014 the router's per-phase decision, recorded on the card.",
+          "expectedScreen": "the paginate card carrying a 'plan @ opus' route chip",
+          "actions": [],
+          "assert": {
+            "selector": ".card:has-text(\"paginate module\") .chip.route",
+            "text": "plan @ opus",
+            "highlight": true
+          },
+          "hold": 5200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "t-later-1",
+      "text": "\u2248 half an hour later",
+      "subtitle": "Implement on Opus \u00b7 Review + Adversarial Review on Sonnet",
+      "duration": 2.6
+    },
+    {
+      "type": "browser",
+      "id": "kanban-test",
+      "continue": true,
+      "waitBefore": {
+        "selector": "section:has(.lname-text:text-is(\"Test\")) .card:has-text(\"paginate module\")",
+        "timeout": 5400000
+      },
+      "runTimeoutMs": 5460000,
+      "beats": [
+        {
+          "id": "kb-at-test",
+          "caption": "The card worked its way to Test \u2014 the chip updated at every hop.",
+          "expectedScreen": "the paginate card sitting in the Test column with a route chip from the last advance",
+          "actions": [
+            {
+              "type": "waitTimeout",
+              "ms": 800
+            }
+          ],
+          "assert": {
+            "selector": ".card:has-text(\"paginate module\") .chip.route",
+            "text": "sonnet",
+            "highlight": true
+          },
+          "hold": 5200
+        },
+        {
+          "id": "kb-timeline",
+          "caption": "Open the card: the Activity trail lists each phase's runtime and model decision.",
+          "expectedScreen": "the card detail sheet with an activity timeline showing routed entries naming claude-code/opus and claude-code/sonnet per phase",
+          "actions": [
+            {
+              "type": "click",
+              "selector": ".card:has-text(\"paginate module\") button:has-text(\"Open\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".sheet",
+              "timeout": 20000
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "hold": 6000
+        },
+        {
+          "id": "kb-timeline-close",
+          "caption": "Back to the board \u2014 the Test beat and the closing phases run unattended.",
+          "expectedScreen": "the kanban board again with the paginate card in Test",
+          "actions": [
+            {
+              "type": "press",
+              "key": "Escape"
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 800
+            }
+          ],
+          "hold": 3200
+        }
+      ]
+    },
+    {
+      "type": "title",
+      "id": "t-later-2",
+      "text": "\u2248 Test \u00b7 Adversarial Test \u00b7 Walkthrough \u00b7 Validate later",
+      "subtitle": "Each on its routed target, each writing durable gate evidence",
+      "duration": 2.8
+    },
+    {
+      "type": "browser",
+      "id": "kanban-done",
+      "continue": true,
+      "waitBefore": {
+        "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"paginate module\")",
+        "timeout": 7200000
+      },
+      "runTimeoutMs": 7260000,
+      "beats": [
+        {
+          "id": "kb-done",
+          "caption": "Done \u2014 the full pipeline ran: plan, implement, both reviews, test, adversarial test, walkthrough, validate.",
+          "expectedScreen": "the paginate card in the Done column",
+          "actions": [
+            {
+              "type": "waitTimeout",
+              "ms": 1000
+            }
+          ],
+          "assert": {
+            "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"paginate module\")",
+            "highlight": true
+          },
+          "hold": 5200
+        },
+        {
+          "id": "kb-done-open",
+          "caption": "The finished card: every phase attributed, every gate recorded.",
+          "expectedScreen": "the card detail sheet with the complete activity timeline of routed phases",
+          "actions": [
+            {
+              "type": "click",
+              "selector": "section:has(.lname-text:text-is(\"Done\")) .card:has-text(\"paginate module\") button:has-text(\"Open\")"
+            },
+            {
+              "type": "waitFor",
+              "selector": ".sheet",
+              "timeout": 20000
+            },
+            {
+              "type": "waitTimeout",
+              "ms": 1500
+            }
+          ],
+          "hold": 6000
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ev-kanban-decisions",
+      "command": "python3 -c \"import json; rows=[json.loads(l) for l in open('/home/ggomes/dev/garrison/compositions/default/.garrison/decisions.jsonl')]; phases=['plan','implement','review','adversarial-review','test','adversarial-test','walkthrough','validate']; last={}; [last.update({r['taskType']: r}) for r in rows if r.get('taskType') in phases]; [print('%-19s -> %-15s (%s/%s)' % (p2, last[p2]['targetId'], last[p2].get('runtime'), last[p2].get('model'))) for p2 in phases if p2 in last]\"",
+      "source": "decisions.jsonl \u2014 one routing decision per pipeline phase",
+      "caption": "Phase by phase in the decision log: Opus for plan and implement, Sonnet for the gates.",
+      "expectedScreen": "a JSON panel of per-phase decision lines with cc-opus-high highlighted",
+      "highlight": {
+        "match": "cc-opus-high",
+        "note": "the phase rows you dragged in the Composer, honored at runtime"
+      },
+      "kind": "json",
+      "hold": 6400
+    },
+    {
+      "type": "evidence",
+      "id": "ev-kanban-gates",
+      "command": "cd /home/ggomes/.garrison/runs/garrison-e2e-demo/$(ls -t /home/ggomes/.garrison/runs/garrison-e2e-demo/ | head -1) && cat gate-status*.json",
+      "source": "the card's run directory \u2014 durable gate records (D9)",
+      "caption": "And the durable gate evidence: no phase advances on the operative's word alone.",
+      "expectedScreen": "a JSON panel with per-phase gate entries, the passed status highlighted",
+      "highlight": {
+        "match": "passed",
+        "note": "written by the phase itself, checked by the engine"
+      },
+      "kind": "json",
+      "hold": 5600
+    },
+    {
+      "type": "title",
+      "id": "outro",
+      "text": "Compose \u00b7 Route \u00b7 Prove",
+      "subtitle": "Every task \u2014 and every phase \u2014 attributed to its runtime",
+      "reflectFlag": true,
+      "duration": 3.4
+    }
+  ]
+}

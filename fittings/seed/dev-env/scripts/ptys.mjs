@@ -380,15 +380,31 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
   ptys.set(id, rec);
   persistPty(rec);
 
-  // Inject the command (the claude launch line) by typing it into the shell,
-  // 250ms after spawn so a slow login shell is ready. In tmux mode this fires
-  // only on a freshly CREATED session — re-attaching lands on the already
-  // running claude (or the shell it dropped back to), which must not be
-  // clobbered with a second launch.
+  // Inject the command (the claude launch line) by typing it into the shell.
+  // A fixed 250ms delay raced slow shell/terminal init (observed live: zsh ate
+  // the first keystrokes and executed `ude ...` → "command not found" → a dead
+  // pane that looks placed but never boots claude). Wait for the pane to go
+  // quiet — no new output for two consecutive polls — before typing, with a
+  // 250ms floor and a 5s ceiling so a silent shell still gets the command. In
+  // tmux mode this fires only on a freshly CREATED session — re-attaching lands
+  // on the already running claude, which must not be clobbered.
   if (rec.command && rec.command.trim() && (!tmuxMode || createdTmuxSession)) {
-    setTimeout(() => {
-      try { term.write(rec.command + "\r"); } catch {}
-    }, 250);
+    const t0 = Date.now();
+    let lastLen = -1;
+    let quietPolls = 0;
+    const poll = () => {
+      let len = 0;
+      try { len = rec.buffer ? rec.buffer.length : 0; } catch { len = 0; }
+      quietPolls = len === lastLen ? quietPolls + 1 : 0;
+      lastLen = len;
+      const waited = Date.now() - t0;
+      if ((quietPolls >= 2 && waited >= 250) || waited >= 5000) {
+        try { term.write(rec.command + "\r"); } catch {}
+        return;
+      }
+      setTimeout(poll, 150);
+    };
+    setTimeout(poll, 250);
   }
 
   return rec;
@@ -430,7 +446,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null, orch
     return spawnPty({
       sessionId: session.id,
       role,
-      cwd: session.worktreePath,
+      cwd: session.projectPath,
       command: role === "claude" ? cc({ resume: true, resumeId }) : undefined,
       restoredScrollbackB64: old.length ? old.toString("base64") : undefined
     });
@@ -442,7 +458,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null, orch
     return spawnPty({
       sessionId: session.id,
       role,
-      cwd: session.worktreePath,
+      cwd: session.projectPath,
       command: cc({ resume: true, resumeId }),
       restoredScrollbackB64: typeof envelope.scrollbackB64 === "string" ? envelope.scrollbackB64 : undefined,
       restoredMarker: `\r\n\x1b[2m[garrison: resuming claude session — ${verb}]\x1b[0m\r\n`
@@ -452,7 +468,7 @@ export function ensurePty({ session, role, resume = false, resumeId = null, orch
   return spawnPty({
     sessionId: session.id,
     role,
-    cwd: session.worktreePath,
+    cwd: session.projectPath,
     command: role === "claude" ? cc({ resume, resumeId }) : undefined
   });
 }

@@ -1,0 +1,56 @@
+{
+  "project": "agent-garrison",
+  "updatedAt": "2026-07-01T12:20:00Z",
+  "galleryUrl": "http://100.108.210.116:8099/agent-garrison/improver/",
+  "slices": [
+    {
+      "slice": "A",
+      "title": "Ecosystem-update + reapply-sweep phases (improver Fitting)",
+      "kind": "automation",
+      "status": "passed",
+      "video": "http://100.108.210.116:8099/agent-garrison/improver/2026-07-01_12-09-50/final.mp4",
+      "verifiedAt": "2026-07-01T12:15:00Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260701-092738-9b939e7a/slices/A/gate-status.json"
+    },
+    {
+      "slice": "B",
+      "title": "Improver review UI: ecosystem-status panel, verify-probe extension, reapply-failed status support",
+      "kind": "ui",
+      "status": "passed",
+      "video": "http://100.108.210.116:8099/agent-garrison/improver/2026-07-01_12-16-36/final.mp4",
+      "verifiedAt": "2026-07-01T12:20:00Z",
+      "flagged": false,
+      "gateStatus": "docs/autothing/runs/20260701-092738-9b939e7a/slices/B/gate-status.json"
+    }
+  ],
+  "globalGate": {
+    "status": "completed-with-blockers",
+    "e2eAll": { "cmd": "npx vitest run tests/improver-*.test.ts", "exit": 0 },
+    "verifyApp": { "via": "node fittings/seed/improver/scripts/improver.mjs --probe", "verdict": "clean" },
+    "build": { "cmd": "npm run typecheck && node fittings/seed/improver/ui/build.mjs", "exit": 0 },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0 },
+    "lint": { "cmd": "npm run lint", "exit": 0 },
+    "crossModel": { "reviewAllApproved": true, "pwTestAllPassed": false },
+    "designAudit": { "verdict": "skipped - Slice B UI change is small/additive (one new tab, one new badge state on an existing card layout), not a new surface; matched existing visual conventions exactly (colors, badge shape, card layout) with no deviation warranting a separate audit pass" },
+    "everySliceVideoVerified": true
+  },
+  "blockers": [
+    {
+      "slice": "A",
+      "gate": "codexPwTest",
+      "cause": "external-sandbox",
+      "detail": "Codex's own exec sandbox is workspace-write [workdir, /tmp, $TMPDIR] (printed in its own session banner). Its independent functional pass ran `node fittings/seed/improver/scripts/improver.mjs run-now` with default env, which writes to ~/.garrison/improver - outside that whitelist - and hit EPERM.",
+      "remediationAttempted": "node fittings/seed/improver/scripts/improver.mjs run-now (inside codex exec -s workspace-write) -> EPERM opening ~/.garrison/improver/ecosystem-update-log.json",
+      "compensatingEvidence": "Codex's own isolated fixture-based functional checks (constructed and run entirely by Codex itself, exercising runEcosystemUpdate/runReapplySweep directly) PASSED cleanly. I independently re-ran the identical CLI invocation outside Codex's sandbox (IMPROVER_DATA=<temp dir> node improver.mjs run-now) and confirmed exit 0 with both logs written correctly. A vision-verified asciinema walkthrough (both per-beat and holistic gates passed) additionally records the real restore-a-clobbered-note scenario end-to-end."
+    },
+    {
+      "slice": "B",
+      "gate": "codexPwTest",
+      "cause": "external-sandbox",
+      "detail": "Codex's Playwright pass could not launch any browser engine (Chromium/Firefox/WebKit all aborted at OS-level Mach-port bootstrap_check_in before any page loaded) - a macOS sandbox restriction in Codex's own exec environment.",
+      "remediationAttempted": "codex exec -s workspace-write -c sandbox_workspace_write.network_access=true ... (tried chromium.launch(), firefox.launch(), webkit.launch() - all three aborted with Permission denied / SIGABRT at browser-process bootstrap)",
+      "compensatingEvidence": "Codex's static review (codexReview, 2 rounds, clean approve, found and I fixed 2 real bugs) already covered these exact files. I independently drove the real running server myself via claude-in-chrome (not Codex) and confirmed the full acceptance with zero console errors. A vision-verified browser walkthrough (both per-beat and holistic gates passed) additionally records the same scenario end-to-end, including the autonomy-untouched proof."
+    }
+  ]
+}

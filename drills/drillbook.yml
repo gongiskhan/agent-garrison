@@ -1,0 +1,51 @@
+app:
+  name: Agent Garrison
+  url: http://127.0.0.1:27777
+fullDrill: true
+autonomy: gated
+viewports:
+  - desktop
+  - mobile
+globalRules: >-
+  Use Garrison’s warm paper, sage, brass, sharp-corner visual language
+  consistently. Primary navigation and actions must be understandable,
+  keyboard-accessible, free of console errors, and usable at 1440px desktop and
+  390px phone widths. No clipped controls, raw API payloads, dead ends, or
+  status contradictions.
+dispatch: manual
+pages:
+  - id: dashboard
+    title: Dashboard
+    path: /
+    mode: steps
+    selected: true
+  - id: composition
+    title: Composition
+    path: /muster
+    mode: steps
+    selected: true
+  - id: vault
+    title: Vault
+    path: /vault
+    mode: steps
+    selected: true
+  - id: quarters
+    title: Quarters
+    path: /quarters
+    mode: steps
+    selected: true
+  - id: connectors
+    title: Connectors
+    path: /connectors
+    mode: steps
+    selected: true
+  - id: drill-view
+    title: Drill view
+    path: /fitting/drill
+    mode: steps
+    selected: true
+  - id: kanban-view
+    title: Kanban view
+    path: /fitting/kanban-loop
+    mode: steps
+    selected: true

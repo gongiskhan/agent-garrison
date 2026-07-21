@@ -1,0 +1,6 @@
+[
+  { "beat": "ac1-list",   "criterionId": "AC-1", "timestamp": 3.895,  "assert": "Snapshot list row 'text:56b1218f' present; Last backup panel shows Result=success, When=7/10/2026 12:20:03 PM, Processed=400.9 MiB; Repository lists 2 restic snapshots (56b1218f, c5b8f6b5)", "result": "pass" },
+  { "beat": "ac2-verify", "criterionId": "AC-2", "timestamp": 11.399, "assert": "Verify repository -> Verify result panel shows 'check passed' badge and restic check output ending 'no errors were found'", "result": "pass" },
+  { "beat": "ac3-backup", "criterionId": "AC-3", "timestamp": 44.558, "assert": "Back up now + Refresh -> Snapshots count = 3, a 3rd list row exists (new snapshot d334fe8a @ 12:27:23 PM), list grew by one from 2", "result": "pass" },
+  { "beat": "ac4-restore","criterionId": "AC-4", "timestamp": 49.964, "assert": "Restore panel prints 'restic -r /home/ggomes/.garrison-test/snapshots-repo restore d334fe8a --target /path/to/restore' (highlighted); note states restore is never automated (no in-UI restore)", "result": "pass" }
+]

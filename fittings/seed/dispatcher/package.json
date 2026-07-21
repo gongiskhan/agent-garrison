@@ -1,0 +1,10 @@
+{
+  "name": "dispatcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Dispatcher duty (kind:duty, name:dispatch) — the tier classifier's successor. Turns a message + the composition's duties/levels into a (duty, level) via one single-shot structured garrison-call. No dependencies.",
+  "bin": {
+    "dispatcher": "scripts/dispatch.mjs"
+  }
+}

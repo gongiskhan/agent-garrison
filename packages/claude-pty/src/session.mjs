@@ -2,10 +2,14 @@
 // `oneShotTurn` helper for one-and-done callers (tier-classifier,
 // coding-subagent).
 //
-// Detection is SCREEN-based, not JSONL-based: claude 2.1.175 fires hooks but
-// does not persist conversation content to the session transcript file
-// (verified empirically), so the headless xterm mirror is the source of truth
-// for the reply and the turn lifecycle. See screen.mjs.
+// Detection is SCREEN-based, not JSONL-based: the headless xterm mirror is the
+// source of truth for the reply, the turn lifecycle, and the live context %
+// (see screen.mjs). This is load-bearing, not incidental: claude 2.1.209 sessions
+// spawned under node-pty (this PTY/TUI path) do NOT persist a transcript at all —
+// verified live, no <session-id>.jsonl is ever written under ~/.claude/projects for
+// a PTY session. SDK-driven sessions (the agent-sdk runtime) DO persist transcripts
+// with per-assistant-event `usage`; the jsonl.mjs helpers apply to THOSE (and to any
+// future claude that journals PTY turns), never to this PTY operative.
 //
 // Garrison arg shape:
 //   - permissionMode "bypassPermissions" -> --dangerously-skip-permissions,
@@ -16,6 +20,8 @@
 
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { spawnClaudePty } from "./pty.mjs";
 import { isCommandMessage } from "./detection.mjs";
 import { claudeProjectDirForCwd } from "./paths.mjs";
@@ -27,6 +33,7 @@ import {
   extractReply,
   parseStatus,
   captureLines,
+  hasQueuedMessages,
 } from "./screen.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -98,6 +105,10 @@ export class OperativePtySession {
     this.lastActivityAt = Date.now();
     this.disposed = false;
     this.inflight = null;
+    // Session-lifetime peak context percentage (max of every sampled contextPct).
+    // Fed by status(), runTurn, and any live sampler (the rich stream) via
+    // notePeakContextPct; null until the first numeric sample lands.
+    this.peakContextPct = null;
   }
 
   static async spawn(opts) {
@@ -116,13 +127,30 @@ export class OperativePtySession {
 
     await preTrustCwd(compositionDir);
 
+    const launchEnv = { ...(opts.env ?? process.env) };
+    // Point the CLI at an isolated config dir ONLY when the Garrison home is a
+    // non-default one (dev/codex/sandbox). Setting CLAUDE_CONFIG_DIR to the
+    // user's real ~/.claude is NOT a no-op: the CLI then keeps its config at
+    // <dir>/.claude.json instead of the SIBLING ~/.claude.json it uses by
+    // default. That sibling file is the onboarded one (theme,
+    // hasCompletedOnboarding); the in-dir copy is a stub, so the interactive
+    // TUI comes up on the "choose a text style" onboarding screen and the
+    // gateway spawn fails with `spawn-failed: waiting on a login/setup screen`.
+    // Mirrors the sibling rule in src/lib/claude-home.ts.
+    const claudeHome = launchEnv.GARRISON_CLAUDE_HOME;
+    if (claudeHome && !launchEnv.CLAUDE_CONFIG_DIR) {
+      const defaultHome = path.join(os.homedir(), ".claude");
+      if (path.resolve(claudeHome) !== defaultHome) {
+        launchEnv.CLAUDE_CONFIG_DIR = claudeHome;
+      }
+    }
     const handle = spawnClaudePty(claudeBinary, argv, {
       cwd: compositionDir,
       // providerLaunch keeps the explicitly-set ANTHROPIC_BASE_URL/AUTH_TOKEN
       // (e.g. ollama-local / a cloud OSS provider from buildLaunchEnv); the
       // default path strips an INHERITED base URL so the operative rides the Max
       // plan (billing ban).
-      env: stripNestingMarkers(opts.env ?? process.env, { keepProvider: opts.providerLaunch === true }),
+      env: stripNestingMarkers(launchEnv, { keepProvider: opts.providerLaunch === true }),
       cols: opts.cols,
       rows: opts.rows,
       spawnImpl: opts.spawnImpl,
@@ -135,6 +163,8 @@ export class OperativePtySession {
       projectDir: claudeProjectDirForCwd(canonicalisedCwd(compositionDir)),
       knownFiles: new Set(),
       timeoutMs: opts.readinessTimeoutMs ?? 25_000,
+      acceptBypassPermissions:
+        !opts.permissionMode || opts.permissionMode === "bypassPermissions",
     }).catch((err) => {
       // AuthTrapError or other readiness failure — dispose and rethrow.
       handle.dispose();
@@ -164,9 +194,27 @@ export class OperativePtySession {
     return this.inflight !== null;
   }
 
-  /** Current parsed status line (model, context %, permission mode, rows). */
+  /** Fold a freshly-sampled context percentage into the session-lifetime peak.
+   *  Ignores non-numeric samples (e.g. a missing statusline → contextPct null).
+   *  Returns the current peak so a caller can read it back in one call. */
+  notePeakContextPct(pct) {
+    if (typeof pct === "number" && Number.isFinite(pct)) {
+      this.peakContextPct = this.peakContextPct === null ? pct : Math.max(this.peakContextPct, pct);
+    }
+    return this.peakContextPct;
+  }
+
+  /** The session-lifetime peak context percentage (null before any sample). */
+  getPeakContextPct() {
+    return this.peakContextPct;
+  }
+
+  /** Current parsed status line (model, context %, permission mode, rows) plus
+   *  the session-lifetime peakContextPct. Sampling here also updates the peak. */
   status() {
-    return parseStatus(this.handle);
+    const status = parseStatus(this.handle);
+    this.notePeakContextPct(status.contextPct);
+    return { ...status, peakContextPct: this.peakContextPct };
   }
 
   /** Send one prompt and wait for the turn to finish. One turn at a time. */
@@ -188,9 +236,19 @@ export class OperativePtySession {
   async #runInner(req, commandMode) {
     const startTs = Date.now();
     const timeout = req.timeoutMs ?? (commandMode ? COMMAND_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
+    // A real prompt (not a bare slash command) must be observed working before the
+    // turn can settle — see waitForTurnComplete's `requireWork`. This is what stops
+    // a Discuss turn from "completing" in ~3s off a stale idle screen with an empty
+    // reply.
+    const requireWork = !commandMode;
 
     const registered = await this.#submitAndConfirm(req.message, req.settleMs);
     if (!registered) {
+      if (!this.handle.isAlive()) {
+        throw new Error(
+          `OperativePtySession: claude process exited (code ${this.handle.exitCode?.() ?? "unknown"}); cannot run a turn.`
+        );
+      }
       throw new Error("OperativePtySession: message never registered (claude did not accept input).");
     }
 
@@ -198,13 +256,29 @@ export class OperativePtySession {
       startTs,
       timeoutMs: timeout,
       onUpdate: req.onScreen,
+      requireWork,
     });
     if (completion.signal === "timeout") {
       throw new Error(`OperativePtySession turn timed out after ${completion.elapsedMs}ms.`);
     }
 
-    const reply = extractReply(this.handle, req.message);
-    return { reply, sessionId: this.claudeSessionId, completion, status: parseStatus(this.handle) };
+    let reply = extractReply(this.handle, req.message);
+    // The reply can still be mid-render at the exact instant the turn idled. For a
+    // real prompt an empty scrape is almost always that race (not a genuinely empty
+    // turn), so give the screen one more short settle and re-scrape before giving
+    // up — cheap insurance against an empty Discuss reply.
+    if (!reply && requireWork) {
+      await sleep(900);
+      reply = extractReply(this.handle, req.message);
+    }
+    const status = parseStatus(this.handle);
+    this.notePeakContextPct(status.contextPct);
+    return {
+      reply,
+      sessionId: this.claudeSessionId,
+      completion,
+      status: { ...status, peakContextPct: this.peakContextPct },
+    };
   }
 
   /**
@@ -218,18 +292,24 @@ export class OperativePtySession {
    */
   // Claude Code 2.1.179 shows a "Bypass Permissions mode" confirm modal on first
   // launch that swallows stdin until accepted (❯ 1. No, exit / 2. Yes, I accept).
-  // Accept it (arrow-down → Enter) so the TUI starts taking input. Idempotent:
-  // does nothing once the modal is gone.
+  // Accept it ("2" → Enter) so the TUI starts taking input. Idempotent: does
+  // nothing once the modal is gone.
   async #submitAndConfirm(message, settleMs) {
     // Wider deadline: a lazily-spawned session needs ~10-15s to boot before it
     // even paints the bypass-mode confirm modal.
     const deadline = Date.now() + 45_000;
     let first = true;
     while (Date.now() < deadline && !this.disposed) {
+      // A dead child never accepts input — bail immediately instead of
+      // clear+resend-looping against a frozen screen for the full deadline.
+      if (!this.handle.isAlive()) return false;
       // Claude Code 2.1.179 shows a "Bypass Permissions mode" confirm modal a
-      // few seconds into startup that swallows input until accepted. Whenever
-      // it's visible, select option 2 ("Yes, I accept") and confirm. Digit "2"
-      // is unambiguous (no risk of confirming the default "No, exit").
+      // few seconds into startup that swallows input until accepted. The
+      // readiness probe accepts it when it paints before readiness settles, but
+      // a lazily-spawned session can paint it later — so whenever it's visible
+      // here, select option 2 ("Yes, I accept") and confirm. Digit "2" is
+      // unambiguous (no risk of confirming the default "No, exit"). Idempotent:
+      // this is a no-op once the modal is gone.
       const s = this.screen().join("\n"); // screen() returns an array of lines
       if (/Bypass Permissions mode/i.test(s) && /Yes, I accept/i.test(s)) {
         if (process.env.GARRISON_PTY_DEBUG) console.error("[pty-debug] bypass modal up → selecting '2' (Yes)");
@@ -244,6 +324,10 @@ export class OperativePtySession {
       first = false;
       await this.handle.sendInput(message, settleMs);
       if (await this.#waitTurnStarted(4000)) return true;
+      // Submission accepted but QUEUED (the TUI was still busy with something).
+      // The queued message runs when the TUI frees — it IS registered, and a
+      // resend would stack a duplicate turn on the queue.
+      if (hasQueuedMessages(this.handle)) return true;
     }
     return false;
   }
@@ -306,7 +390,17 @@ export async function oneShotTurn(opts) {
     rows: opts.rows,
     readinessTimeoutMs: opts.readinessTimeoutMs,
     spawnImpl: opts.spawnImpl,
+    extraArgs: opts.extraArgs,
   });
+  // Optional peek at the disposable session (e.g. to build a streaming reply
+  // extractor over its handle). The session is disposed below regardless.
+  if (typeof opts.onSession === "function") {
+    try {
+      opts.onSession(session);
+    } catch {
+      /* observer errors never break the turn */
+    }
+  }
   try {
     const outcome = await session.runTurn({
       message: opts.message,

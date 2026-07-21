@@ -1,18 +1,19 @@
 ---
 name: garrison-browser
 description: Inspect the browser tab running side-by-side in the Garrison Browser Fitting — take screenshots, read console messages, read network requests, dump DOM, run JS, and read what the user pointed at on the page — without asking them to paste or describe it. Triggers when the user references the browser pane / the canvas / the app they're viewing, mentions a console message or network error they can see, asks "what's on the page", says "this"/"that"/"here"/"remove this"/"change this" about the page, or is iterating on a UI change and wants verification.
-allowed-tools: Bash(~/.garrison/bin/garrison-browser:*) Bash(garrison-browser:*) Read
+allowed-tools: Bash(garrison-browser:*) Read
 ---
 
 # garrison-browser
 
-You have a CLI, `~/.garrison/bin/garrison-browser`, that talks to the
+You have a CLI, `garrison-browser`, that talks to the
 Garrison Browser Fitting and lets you inspect the headless Chromium
 tab the user is watching in their split-pane canvas. Use it instead of
 asking the user to paste a screenshot or console log.
 
-Invoke it with the full path (it isn't on `$PATH` by default):
-`~/.garrison/bin/garrison-browser <command>`.
+The Fitting installer puts the command in the active Garrison home's `bin`
+directory. The Codex instance launcher adds that directory to `$PATH`, so invoke
+it as `garrison-browser <command>`.
 
 ## When to use this
 
@@ -33,7 +34,7 @@ you can fall back to asking the user.
 with `--tab <id>` from the `tabs` list.
 
 ```
-~/.garrison/bin/garrison-browser tabs                              # list open tabs
+garrison-browser tabs                                              # list open tabs
 garrison-browser screenshot                        # → prints /tmp/...png path
 garrison-browser screenshot --full                 # full-page (scrolled)
 garrison-browser console                           # recent console entries

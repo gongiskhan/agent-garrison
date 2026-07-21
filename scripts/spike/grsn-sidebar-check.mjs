@@ -3,7 +3,7 @@ import { chromium } from "playwright";
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1024 } });
 try {
-  await page.goto("http://127.0.0.1:7777/", { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.goto("http://127.0.0.1:27777/", { waitUntil: "domcontentloaded", timeout: 30000 });
 } catch (e) {
   console.log("goto soft: " + e.message);
 }

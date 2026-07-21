@@ -1,0 +1,64 @@
+name: duty-develop
+version: 0.1.0
+description: >-
+  The Develop duty — take a change end to end. A COMPOSITE duty: its levels are
+  ordered sequences of the plan/implement/review/test duties. Owns the
+  duty-develop skill (the dev face).
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f2): it PROVIDES exactly one duty and OWNS the
+  # skill that executes it. Unlike the leaf duties, `develop` is COMPOSITE — its
+  # levels sequence the plan/implement/review/test duties (provided by the
+  # duty-plan/duty-implement/duty-review/duty-test Fittings, S3f1) rather than
+  # binding a skill cell directly. `building` accepts the `skill` shape and is
+  # multi, so the duty Fittings coexist.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `develop` duty and owns the duty-develop skill — the dev face.
+    Develop a change end to end: level 1 is a quick fix (implement only), level 2
+    plans, implements, reviews, and tests. A composite duty whose sequence refs
+    resolve to the leaf work duties.
+  provides:
+    - kind: duty
+      name: develop
+  consumes: []
+  duties:
+    - id: develop
+      title: Develop
+      description: Develop a change end to end.
+      # S1b: develop carries a change end to end — hold off compaction until the
+      # duty boundary (honored when develop is bound as a standalone leaf; when it
+      # expands to a sequence, its implement leg holds via duty-implement).
+      context_hold: true
+      levels:
+        - description: "level 1: quick fix, no plan — implement only"
+          sequence:
+            - duty: implement
+              level: 1
+        - description: "level 2: plan, implement, review, test — the full build discipline"
+          sequence:
+            - duty: plan
+              level: 1
+            - duty: implement
+              level: 1
+            - duty: review
+              level: 1
+            - duty: test
+              level: 1
+  verify:
+    command: test -f apm_modules/_local/duty-develop/.apm/skills/duty-develop/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `develop` duty owns the duty-develop skill — the dev face that carries a
+    change end to end. It is COMPOSITE: level 1 runs the implement duty alone (a
+    quick fix), level 2 runs plan, then implement, then review, then test. The
+    Resolver expands the sequence into the card's Kanban journey; a gate that
+    fails sends the card back to the failing leaf duty. Bind develop when the work
+    is a real change to ship rather than a one-shot answer.

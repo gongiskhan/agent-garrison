@@ -8,9 +8,22 @@ LOG_DIR="$CONFIG_DIR/logs"
 PLIST_LABEL="io.garrison.outpost"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
 
-: "${GARRISON_HOST:?GARRISON_HOST is required (e.g. ws://100.x.x.x:3702/bridge)}"
+: "${GARRISON_HOST:?GARRISON_HOST is required (e.g. ws://100.x.x.x:23702/bridge or http://100.x.x.x:23702)}"
 : "${GARRISON_TOKEN:?GARRISON_TOKEN is required}"
 MACHINE_NAME="${GARRISON_MACHINE:-$(hostname -s)}"
+
+# The pairing installer passes GARRISON_HOST as the http(s) base it curls the installer
+# from (http://<tailnet-ip>:23702). The bridge, however, dials the ws /bridge endpoint, so
+# normalise: an http(s) base becomes ws(s)://host:port/bridge; a ws(s) URL without the
+# /bridge path gets it appended; an explicit ws(s)://…/bridge is left untouched.
+case "$GARRISON_HOST" in
+  http://*)  GARRISON_HOST="ws://${GARRISON_HOST#http://}" ;;
+  https://*) GARRISON_HOST="wss://${GARRISON_HOST#https://}" ;;
+esac
+case "$GARRISON_HOST" in
+  *"/bridge") : ;;                                  # already a bridge URL
+  ws://*|wss://*) GARRISON_HOST="${GARRISON_HOST%/}/bridge" ;;
+esac
 
 echo "==> Garrison Outpost Bootstrap"
 echo "    host:    $GARRISON_HOST"
@@ -39,6 +52,7 @@ fi
 
 # --- Clone or update ---
 mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR" 2>/dev/null || true  # token lives here — keep it private
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
   echo "==> Updating bridge at $INSTALL_DIR"
@@ -54,13 +68,16 @@ echo "==> Installing dependencies and building"
 
 # --- Config ---
 echo "==> Writing $CONFIG_DIR/config.json"
-cat > "$CONFIG_DIR/config.json" <<JSON
+# The config holds the pairing token — create it 0600 so it is never world-readable.
+( umask 077; cat > "$CONFIG_DIR/config.json" <<JSON
 {
   "host_url": "$GARRISON_HOST",
   "token": "$GARRISON_TOKEN",
   "machine_name": "$MACHINE_NAME"
 }
 JSON
+)
+chmod 600 "$CONFIG_DIR/config.json" 2>/dev/null || true
 
 # --- Launchd plist ---
 mkdir -p "$HOME/Library/LaunchAgents"

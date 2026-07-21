@@ -8,10 +8,13 @@
 
 > **Superseded by the 2026-06-07 Quarters pivot.** The Faculty list and the
 > "spawns its own Operative" framing below are the original shape and no longer
-> the current architecture: Faculties are now **6 roles** (`orchestrator`,
-> `channels`, `gateway`, `memory`, `observability`, `sessions`), the capability
-> vocabulary shrank (`soul`/`agent-skill`/`automation-runner`/`data-source`/
-> `mcp-gateway` dropped), and the Operative folds into the user's real
+> the current architecture: Faculties are now **17** (9 core roles —
+> `orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
+> `sessions`, `surfaces`, `modes` — plus 7 capability faculties and
+> `connectors`), the capability vocabulary changed (`soul`, `agent-skill`,
+> `data-source` and `artifact-store` dropped; `automation-runner` and
+> `mcp-gateway` were RE-ADDED in 2026-06-13 / 2026-07-10; `identity` and `duty`
+> added 2026-07-13), and the Operative folds into the user's real
 > `~/.claude` Claude Code. This spec is kept for intent/shape; for current state
 > read [`decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./decisions/2026-06-07-faculties-as-roles-operative-folded.md),
 > [`FACULTIES.md`](./FACULTIES.md), and [`CAPABILITIES.md`](./CAPABILITIES.md).

@@ -5,6 +5,13 @@
 // Hermetic: a tmpdir GARRISON_KANBAN_DIR and a sandbox project root.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+
 import { promises as fs } from "node:fs";
 import { realpathSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -56,11 +63,11 @@ function fakeBoard() {
       { id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual", validNext: ["todo"] },
       {
         id: "plan", title: "Plan", order: 1, kind: "agent", trigger: "immediate",
-        skill: "autothing-plan", taskType: "code", tier: "T2-deep", mode: "james", validNext: ["implement"]
+        phase: "plan", validNext: ["implement"]
       },
       {
         id: "adversarial-review", title: "Adversarial Review", order: 2, kind: "agent", trigger: "immediate",
-        skill: "autothing-adversarial-review", taskType: "review", tier: "T1-standard", validNext: ["test", "implement"]
+        phase: "adversarial-review", validNext: ["test", "implement"]
       },
       { id: "done", title: "Done", order: 3, kind: "manual", trigger: "manual", terminal: true, validNext: [] }
     ]
@@ -88,10 +95,12 @@ describe("buildBoardView", () => {
     expect(plan.cards.map((c: any) => c.id)).toEqual(["B".repeat(26), "C".repeat(26)]);
     expect(advReview.cards).toEqual([]); // no card on it
 
-    // The view carries the list's skill/trigger so the UI can render the column.
-    expect(plan.skill).toBe("autothing-plan");
+    // The view carries the list's phase/trigger so the UI can render the column
+    // (D15: no per-list skill — bindings live in the compiled policy).
+    expect(plan.phase).toBe("plan");
     expect(plan.trigger).toBe("immediate");
-    expect(advReview.skill).toBe("autothing-adversarial-review");
+    expect(advReview.phase).toBe("adversarial-review");
+    expect(advReview.skill).toBeUndefined();
 
     // The flat array still carries every card.
     expect(view.cards).toHaveLength(3);
@@ -114,7 +123,21 @@ describe("buildBoardView", () => {
       briefPath: "briefs/x.md",
       videoUrl: "https://example/v",
       description: "a short description", // a front field (card tooltip + operative context)
-      acceptance: "SHOULD NOT LEAK"
+      acceptance: "SHOULD NOT LEAK",
+      events: [{
+        at: "2026-07-16T08:00:00.000Z",
+        kind: "runtime",
+        message: "Plan runtime turn completed",
+        route: {
+          targetId: "sdk-sonnet-full",
+          runtime: "agent-sdk",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          effort: "medium",
+          effortApplied: true,
+          phase: "plan"
+        }
+      }]
     };
     const s = cardSummary(card);
     expect(s).toMatchObject({
@@ -126,6 +149,14 @@ describe("buildBoardView", () => {
     // operative context). The acceptance body, however, must NOT leak into the projection.
     expect((s as any).description).toBe("a short description");
     expect((s as any).acceptance).toBeUndefined();
+    expect((s as any).lastRoute).toMatchObject({
+      targetId: "sdk-sonnet-full",
+      runtime: "agent-sdk",
+      model: "claude-sonnet-4-6",
+      effort: "medium",
+      effortApplied: true,
+      phase: "plan"
+    });
   });
 });
 
@@ -175,6 +206,7 @@ describe("resolveCardLinks", () => {
     const links = resolveCardLinks(card, { root: KANBAN_DIR, cwd: PROJECT_ROOT });
     expect(links.plan).toBeNull();
     expect(links.gateMarkers).toBeNull();
+    expect(links.gates).toEqual([]);
     expect(links.brief).toBeNull();
     expect(links.video).toBeNull();
     expect(links.sessions).toEqual([]);
@@ -195,6 +227,43 @@ describe("resolveCardLinks", () => {
     await fs.writeFile(planPath, "# plan", "utf8");
     links = resolveCardLinks(card, { root: KANBAN_DIR, cwd: PROJECT_ROOT });
     expect(links.plan?.exists).toBe(true);
+  });
+
+  it("falls back to plan.md and enumerates safe phase gates in workflow order", async () => {
+    const runRel = "docs/autothing/runs/R-GATES";
+    const runDir = path.join(PROJECT_ROOT, runRel);
+    await fs.mkdir(path.join(runDir, "gate-status.review.json"), { recursive: true }); // directory: ignored
+    await fs.writeFile(path.join(runDir, "plan.md"), "# runtime plan", "utf8");
+    await fs.writeFile(path.join(runDir, "gate-status.implement.json"), "{}", "utf8");
+    await fs.writeFile(path.join(runDir, "gate-status.plan.json"), "{}", "utf8");
+    await fs.writeFile(path.join(runDir, "gate-status.json"), "{}", "utf8");
+    await fs.writeFile(path.join(runDir, "gate-status.plan.json.bak"), "ignored", "utf8");
+    const card = {
+      id: "G".repeat(26),
+      title: "gates",
+      list: "implement",
+      iterations: 1,
+      runDir: runRel,
+      sequence: ["plan", "implement", "review", "test"],
+      sessionIds: []
+    };
+
+    let links = resolveCardLinks(card, { root: KANBAN_DIR, cwd: PROJECT_ROOT });
+    expect(links.plan?.path).toBe(path.join(runDir, "plan.md"));
+    expect(links.plan?.exists).toBe(true);
+    expect(links.gates.map((g: any) => path.basename(g.path))).toEqual([
+      "gate-status.plan.json",
+      "gate-status.implement.json",
+      "gate-status.json"
+    ]);
+    expect(links.gates.every((g: any) => g.url.includes("artifact?ref=gate%3A"))).toBe(true);
+    expect(resolveArtifactRef(card, "gate:gate-status.plan.json", { root: KANBAN_DIR, cwd: PROJECT_ROOT }))
+      .toBe(path.join(runDir, "gate-status.plan.json"));
+    expect(resolveArtifactRef(card, "gate:../secret.json", { root: KANBAN_DIR, cwd: PROJECT_ROOT })).toBeNull();
+
+    await fs.writeFile(path.join(runDir, "FLOW_PLAN.md"), "# canonical plan", "utf8");
+    links = resolveCardLinks(card, { root: KANBAN_DIR, cwd: PROJECT_ROOT });
+    expect(links.plan?.path).toBe(path.join(runDir, "FLOW_PLAN.md"));
   });
 });
 
@@ -263,6 +332,7 @@ describe("resolveArtifactRef (server-side ref → path; client never supplies a 
     // evidenceIndex is CARD-SCOPED — under this card's own run dir, not the shared global.
     expect(resolveArtifactRef(card, "evidenceIndex", opts)).toBe(path.join(PROJECT_ROOT, "docs/autothing/runs/RZ/evidence-index.json"));
     expect(resolveArtifactRef(card, "gateMarkers", opts)).toBe(path.join(PROJECT_ROOT, "docs/autothing/runs/RZ/slices/s1/gate-status.json"));
+    expect(resolveArtifactRef(card, "gate:gate-status.plan.json", opts)).toBe(path.join(PROJECT_ROOT, "docs/autothing/runs/RZ/gate-status.plan.json"));
     expect(resolveArtifactRef(card, "brief", opts)).toBe(path.join(PROJECT_ROOT, "briefs/m.md"));
     expect(resolveArtifactRef(card, "session:1", opts)).toBe(path.join(claudeProjectDirForCwd(PROJECT_ROOT), "sess-b.jsonl"));
     expect(resolveArtifactRef(card, "log:2", opts)).toBe(path.join(KANBAN_DIR, "cards", "M".repeat(26), "log-2.md"));

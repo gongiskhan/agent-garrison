@@ -7,8 +7,8 @@
 //   - reverse-proxy of Chromium's built-in DevTools at HTTP /devtools/*
 //   - tabs list + canvas page UI at HTTP / and /canvas/:tabId
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, readlink, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -18,10 +18,68 @@ import url from "node:url";
 import { tmpdir } from "node:os";
 import { WebSocketServer, WebSocket } from "ws";
 import { chromium } from "playwright";
+import { createSpotter } from "./spotter.mjs";
 
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
+
+// Boolean env knob readable under BOTH its legacy name and the runner's
+// composition-config projection (GARRISON_BROWSERDEFAULT_<KEY>, which renders
+// booleans as "true"/"false") - the projected form was previously a dead knob.
+function envFlag(names, fallback) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value !== undefined) return value !== "0" && value !== "false" && value !== "";
+  }
+  return fallback;
+}
+// PERSISTENT PROFILE defaults ON: login sessions established in the shared
+// context (drill authoring, canvas browsing) must survive fitting restarts -
+// prod redeploys on every landed commit, and an ephemeral /tmp profile forced
+// a fresh login each time. Opt out with persistent_profile: false /
+// GARRISON_BROWSER_PERSISTENT=0 (tests get isolation for free anyway: the
+// profile lives under GARRISON_HOME, which test spawns point at a tmpdir).
+const PERSISTENT_PROFILE = envFlag(["GARRISON_BROWSER_PERSISTENT", "GARRISON_BROWSERDEFAULT_PERSISTENT_PROFILE"], true);
+const STEALTH = envFlag(["GARRISON_BROWSER_STEALTH", "GARRISON_BROWSERDEFAULT_STEALTH"], false);
+
+function persistentProfileDir() {
+  return process.env.GARRISON_BROWSER_PROFILE_DIR
+    || path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "browser-profile");
+}
+
+// Cookie continuity belt-and-braces. The persistent user-data-dir carries
+// everything (localStorage, IndexedDB, cookies) but only when chromium's own
+// shutdown flush completes - which a loaded box or a SIGKILL path can rob. So
+// the shared context's cookies are ALSO snapshotted to a storageState file
+// (on shutdown while CDP is still alive, plus a periodic timer) and merged
+// back via addCookies at launch. Deterministic, timing-independent logins.
+function storageStateFile() {
+  return path.join(persistentProfileDir(), "storage-state.json");
+}
+
+let storageSnapshotTimer = null;
+
+async function snapshotStorageState() {
+  if (!PERSISTENT_PROFILE || !context) return;
+  try {
+    const state = await context.storageState();
+    const file = storageStateFile();
+    await writeFile(`${file}.tmp`, JSON.stringify(state), { mode: 0o600 });
+    await rename(`${file}.tmp`, file);
+  } catch { /* CDP already gone or disk hiccup - the profile flush remains */ }
+}
+
+async function seedCookiesFromSnapshot() {
+  try {
+    const saved = JSON.parse(await readFile(storageStateFile(), "utf8"));
+    if (Array.isArray(saved?.cookies) && saved.cookies.length) {
+      await context.addCookies(saved.cookies);
+    }
+  } catch { /* no snapshot yet, or unreadable - nothing to seed */ }
+}
 
 /** @type {Map<string, TabState>} */
 const tabs = new Map();
@@ -40,6 +98,12 @@ let launchOpts = null;
 // In-flight relaunch promise — guards ensureChromium against double-launching
 // when concurrent requests race after the headless process dies.
 let chromiumLaunching = null;
+// Set once shutdown begins. Blocks two hazards the persistent profile made
+// costly: (a) a late tab/capture request relaunching chromium during the
+// shutdown window and leaving the fresh child orphaned on the profile, and
+// (b) a second signal running shutdown() concurrently and truncating the
+// first pass's cookie-flush wait.
+let shuttingDown = false;
 
 /**
  * @typedef {{
@@ -74,7 +138,9 @@ let chromiumLaunching = null;
  *   inputClients: Set<import("ws").WebSocket>,
  *   focusedEditable: boolean,
  *   focusWatcher: NodeJS.Timeout | null,
- *   selection: object | null
+ *   selection: object | null,
+ *   captureSessionId?: string | null,
+ *   onConsoleEntry?: ((entry: ConsoleEntry) => void) | null
  * }} TabState
  */
 
@@ -111,6 +177,14 @@ const HEARTBEAT_MS = 15_000;
 function pushBounded(arr, entry) {
   arr.push(entry);
   if (arr.length > BUFFER_LIMIT) arr.splice(0, arr.length - BUFFER_LIMIT);
+}
+
+// Console entries feed the bounded buffer AND an optional per-tab listener
+// (Spotter's console-burst trigger on capture-session tabs). A listener error
+// must never break instrumentation.
+function pushConsole(tab, entry) {
+  pushBounded(tab.console, entry);
+  try { tab.onConsoleEntry?.(entry); } catch {}
 }
 
 // Hand a popup destination off to the user's REAL Chrome (the desktop app),
@@ -216,7 +290,7 @@ async function attachInstrumentation(tab) {
 
   // Console: console.log/warn/error/info/debug
   cdp.on("Runtime.consoleAPICalled", (e) => {
-    pushBounded(tab.console, {
+    pushConsole(tab, {
       ts: Date.now(),
       level: e.type || "log",
       text: formatConsoleArgs(e.args),
@@ -230,7 +304,7 @@ async function attachInstrumentation(tab) {
   // Console: uncaught exceptions
   cdp.on("Runtime.exceptionThrown", (e) => {
     const ex = e.exceptionDetails;
-    pushBounded(tab.console, {
+    pushConsole(tab, {
       ts: Date.now(),
       level: "error",
       text: ex?.exception?.description || ex?.text || "exception",
@@ -245,7 +319,7 @@ async function attachInstrumentation(tab) {
   cdp.on("Log.entryAdded", (e) => {
     const en = e.entry;
     if (!en) return;
-    pushBounded(tab.console, {
+    pushConsole(tab, {
       ts: Date.now(),
       level: en.level || "log",
       text: `[${en.source || "browser"}] ${en.text}`,
@@ -299,8 +373,11 @@ async function attachInstrumentation(tab) {
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.BROWSER_PORT || 7084),
-    host: process.env.BROWSER_HOST || "127.0.0.1",
+    // Port precedence (house convention, same as improver/ports-default):
+    // runner-projected composition config first (per-instance, e.g. main=7084
+    // vs codex=27084), then the legacy env / --port (tests), then the default.
+    port: Number(process.env.GARRISON_BROWSERDEFAULT_PORT || process.env.BROWSER_PORT || 27084),
+    host: process.env.GARRISON_BROWSERDEFAULT_BIND_HOST || process.env.BROWSER_HOST || "127.0.0.1",
     // Defaults match the LOW quality preset — responsive over Tailscale beats
     // sharpness for the common case. The canvas's quality toggle bumps it.
     viewportWidth: Number(process.env.BROWSER_VIEWPORT_WIDTH || 800),
@@ -333,18 +410,37 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return null; }
 }
 
-async function findFreePort(startPort) {
+// The fitting's own HTTP port is canonical (the Chromium CDP port is
+// OS-assigned via --remote-debugging-port=0). Probe it BEFORE the expensive
+// Chromium launch and refuse to start when it is taken.
+async function assertPortFree(port, host) {
   const net = await import("node:net");
-  for (let port = startPort; port < startPort + 200; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+  const free = await new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
+  });
+  if (!free) {
+    console.error(`[browser] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+    process.exit(1);
   }
-  return null;
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[browser] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
 }
 
 async function writeStatusFile(opts) {
@@ -399,30 +495,121 @@ async function waitForCdpReady(port, timeoutMs = 15000) {
   throw new Error(`Chromium CDP did not respond on port ${port} within ${timeoutMs}ms`);
 }
 
+// Chromium writes the OS-assigned debugging port into the profile's
+// DevToolsActivePort file. Reading it (instead of pre-probing a port) makes
+// concurrent instances collision-free by construction - each owns its
+// user-data-dir, so no two servers can end up driving the same Chromium.
+async function waitForDevToolsPort(userDataDir, timeoutMs = 15000) {
+  const portFile = path.join(userDataDir, "DevToolsActivePort");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const p = Number(readFileSync(portFile, "utf8").split("\n")[0].trim());
+      if (Number.isInteger(p) && p > 0) return p;
+    } catch { /* not written yet */ }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Chromium did not write ${portFile} within ${timeoutMs}ms`);
+}
+
+// The parent pid of a /proc process, or null if unreadable. Used to tell an
+// ORPHANED chromium (its old server exited, so it reparented to init/systemd)
+// from one a LIVE sibling server still owns.
+async function parentPidOf(pid) {
+  try {
+    // /proc/<pid>/stat: "pid (comm) state ppid ..."; comm can contain spaces
+    // and parens, so parse ppid as the 2nd field after the final ')'.
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    const ppid = Number(after[1]);
+    return Number.isFinite(ppid) ? ppid : null;
+  } catch {
+    return null;
+  }
+}
+
+// A chromium leaked by a previous server generation (a unit kill that missed
+// the child) can still hold the persistent profile's SingletonLock, and a new
+// launch against the same user-data-dir refuses to start. The lock is a
+// symlink to "<host>-<pid>". Reclaim it ONLY from a chromium that (a) uses THIS
+// exact user-data-dir AND (b) is genuinely orphaned - its parent is gone or it
+// reparented to init. A chromium a LIVE sibling server owns (shared profile dir
+// misconfig - dev/prod/codex normally have separate GARRISON_HOMEs) is left
+// alone, so two instances never kill-ping-pong; the second just fails to boot,
+// the honest signal to fix the config. Best-effort throughout.
+async function breakStaleProfileLock(dir) {
+  const lockPath = path.join(dir, "SingletonLock");
+  try {
+    const target = await readlink(lockPath);
+    const pid = Number(target.split("-").pop());
+    if (Number.isFinite(pid) && pid > 1) {
+      let args = [];
+      try {
+        // cmdline is NUL-separated; split (not space-join) so the arg compares
+        // EXACTLY - a substring test would match a sibling prefix dir
+        // (browser-profile vs browser-profile-dev) and hit an innocent process.
+        args = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
+      } catch { /* pid gone or non-linux - stale lock */ }
+      const ppid = await parentPidOf(pid);
+      // Orphan iff the parent is init/systemd (<=1) or no longer alive.
+      let orphaned = ppid === null || ppid <= 1;
+      if (!orphaned && ppid) {
+        try { process.kill(ppid, 0); } catch { orphaned = true; }
+      }
+      if (args.includes(`--user-data-dir=${dir}`) && !orphaned) {
+        // A live sibling owns the profile. Leave BOTH its process and its lock
+        // intact and let our own launch fail - never clear a live chromium's
+        // SingletonLock.
+        console.error(`[chromium] persistent profile ${dir} is held by a LIVE chromium (pid=${pid}, parent=${ppid}) - not reclaiming; is another browser fitting sharing this profile dir?`);
+        return;
+      }
+      if (args.includes(`--user-data-dir=${dir}`)) {
+        console.error(`[chromium] terminating orphaned chromium pid=${pid} holding the persistent profile`);
+        try {
+          process.kill(pid, "SIGTERM");
+          // Give it time to flush the profile (cookies included) before the
+          // last-resort SIGKILL - a fast kill would lose the very session
+          // state the persistent profile exists to keep.
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            process.kill(pid, 0); // throws when the process is gone
+          }
+          process.kill(pid, "SIGKILL");
+        } catch { /* exited - the graceful path */ }
+      }
+    }
+  } catch { /* no lock - nothing to break */ }
+  await rm(lockPath, { force: true }).catch(() => {});
+}
+
 async function launchChromium(opts) {
   launchOpts = opts;
-  cdpPort = await findFreePort(9222);
-  if (cdpPort === null) throw new Error("no free CDP port available");
-  cdpHttpEndpoint = `http://127.0.0.1:${cdpPort}`;
-  cdpWsEndpoint = `ws://127.0.0.1:${cdpPort}`;
 
   const exe = resolveFullChromiumBinary();
-  // Opt-in PERSISTENT PROFILE: reuse a stable user-data-dir so cookies/consent
-  // survive across runs (set GARRISON_BROWSER_PERSISTENT=1, dir overridable via
-  // GARRISON_BROWSER_PROFILE_DIR). Default stays an ephemeral temp profile.
-  const persistent = process.env.GARRISON_BROWSER_PERSISTENT === "1";
+  // PERSISTENT PROFILE (default on, see PERSISTENT_PROFILE above): reuse a
+  // stable user-data-dir so cookies/logins survive fitting restarts. Opt-out
+  // falls back to an ephemeral temp profile removed on shutdown.
+  const persistent = PERSISTENT_PROFILE;
   const userDataDir = persistent
-    ? (process.env.GARRISON_BROWSER_PROFILE_DIR
-        || path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "browser-profile"))
+    ? persistentProfileDir()
     : await mkdtemp(path.join(tmpdir(), "garrison-browser-"));
-  if (persistent) await mkdir(userDataDir, { recursive: true });
+  if (persistent) {
+    await mkdir(userDataDir, { recursive: true });
+    await breakStaleProfileLock(userDataDir);
+  }
   ephemeralProfileDir = persistent ? null : userDataDir;
-  // Opt-in STEALTH: reduce headless/automation fingerprints (GARRISON_BROWSER_STEALTH=1).
-  const stealth = process.env.GARRISON_BROWSER_STEALTH === "1";
+  const stealth = STEALTH;
 
-  chromiumChild = spawn(exe, [
+  // Headless-gap fix (GARRISON-UNIFY-V1 S16/E11-adjacent): Ubuntu 23.10+ (and
+  // this GCP box) restricts unprivileged user namespaces via AppArmor, so
+  // Chromium's sandbox is UNUSABLE and the launch dies with a FATAL "No usable
+  // sandbox!". Detect the sandbox-death and retry ONCE with --no-sandbox —
+  // an accepted tradeoff for a single-user dev box driving local/dev content
+  // (Playwright uses the same flag in containers). Logged loudly.
+  const baseArgs = [
     "--headless=new",
-    `--remote-debugging-port=${cdpPort}`,
+    "--remote-debugging-port=0",
     "--remote-debugging-address=127.0.0.1",
     "--remote-allow-origins=*",
     `--user-data-dir=${userDataDir}`,
@@ -434,23 +621,57 @@ async function launchChromium(opts) {
     "--disable-background-networking",
     "--no-startup-window",
     ...(stealth ? ["--disable-blink-features=AutomationControlled"] : [])
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ];
 
-  chromiumChild.stdout.on("data", () => {});
-  chromiumChild.stderr.on("data", (d) => {
-    const line = d.toString();
-    // Quiet routine Chromium chatter; surface anything that looks like an error.
-    if (/error|fatal|fail/i.test(line)) console.error(`[chromium] ${line.trimEnd()}`);
-  });
-  chromiumChild.on("exit", (code, signal) => {
-    console.error(`[chromium] exited code=${code} signal=${signal}`);
-    chromiumChild = null;
-    // The browser/context handles are now dead. Drop them so the next openTab
-    // relaunches instead of throwing "Target ... has been closed".
-    discardChromium();
-  });
+  const launchOnce = (extraArgs) => {
+    let sandboxDeath = false;
+    // A stale DevToolsActivePort from a previous run (persistent profile) must
+    // not be read as this launch's port.
+    rmSync(path.join(userDataDir, "DevToolsActivePort"), { force: true });
+    const child = spawn(exe, [...baseArgs, ...extraArgs], { stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.on("data", () => {});
+    child.stderr.on("data", (d) => {
+      const line = d.toString();
+      if (/No usable sandbox/i.test(line)) sandboxDeath = true;
+      // Quiet routine Chromium chatter; surface anything that looks like an error.
+      if (/error|fatal|fail/i.test(line)) console.error(`[chromium] ${line.trimEnd()}`);
+    });
+    child.on("exit", (code, signal) => {
+      console.error(`[chromium] exited code=${code} signal=${signal}`);
+      if (chromiumChild === child) {
+        chromiumChild = null;
+        // The browser/context handles are now dead. Drop them so the next openTab
+        // relaunches instead of throwing "Target ... has been closed".
+        discardChromium();
+      }
+    });
+    return { child, sandboxDied: () => sandboxDeath };
+  };
 
-  await waitForCdpReady(cdpPort);
+  // Race CDP readiness against child death, so a sandbox FATAL (immediate)
+  // fails fast instead of burning the full CDP timeout before the retry.
+  const readyOrDead = async (child) => {
+    const dead = new Promise((_, reject) => child.once("exit", () => reject(new Error("chromium exited before CDP became ready"))));
+    cdpPort = await Promise.race([waitForDevToolsPort(userDataDir), dead]);
+    cdpHttpEndpoint = `http://127.0.0.1:${cdpPort}`;
+    cdpWsEndpoint = `ws://127.0.0.1:${cdpPort}`;
+    await Promise.race([waitForCdpReady(cdpPort), dead]);
+  };
+
+  let attempt = launchOnce(process.env.GARRISON_BROWSER_NO_SANDBOX === "1" ? ["--no-sandbox"] : []);
+  chromiumChild = attempt.child;
+  try {
+    await readyOrDead(attempt.child);
+  } catch (err) {
+    if (attempt.sandboxDied()) {
+      console.error("[chromium] sandbox unusable on this host (AppArmor userns restriction) — relaunching with --no-sandbox (single-user dev box tradeoff)");
+      attempt = launchOnce(["--no-sandbox"]);
+      chromiumChild = attempt.child;
+      await readyOrDead(attempt.child);
+    } else {
+      throw err;
+    }
+  }
 
   browser = await chromium.connectOverCDP(cdpHttpEndpoint);
   browser.on("disconnected", () => {
@@ -472,6 +693,13 @@ async function launchChromium(opts) {
     }
   }
 
+  if (persistent && context) {
+    await seedCookiesFromSnapshot();
+    if (storageSnapshotTimer) clearInterval(storageSnapshotTimer);
+    storageSnapshotTimer = setInterval(() => void snapshotStorageState(), 60_000);
+    storageSnapshotTimer.unref();
+  }
+
   console.log(`[browser] chromium up on rdp port ${cdpPort} (exe=${exe})${persistent ? " [persistent]" : ""}${stealth ? " [stealth]" : ""}`);
 }
 
@@ -484,6 +712,19 @@ function discardChromium() {
     for (const ws of tab.inputClients) { try { ws.close(); } catch {} }
   }
   tabs.clear();
+  // Capture sessions died with the browser — their contexts are gone and any
+  // partially-flushed video stays in .video-tmp. Callers see the session as
+  // missing and degrade (a warning, never a failed run).
+  if (captureSessions.size) {
+    console.warn(`[capture] dropping ${captureSessions.size} session(s) with the dead browser`);
+    for (const session of captureSessions.values()) {
+      // No context survives to finalize against — stop Spotter's timers and
+      // flush its manifest for whatever frames already hit disk.
+      try { session.spotter?.abandon(); } catch {}
+      session.spotter = null;
+    }
+    captureSessions.clear();
+  }
   browser = null;
   context = null;
 }
@@ -494,6 +735,10 @@ function discardChromium() {
 // context or browser has been closed".
 async function ensureChromium() {
   if (browser && browser.isConnected() && context) return;
+  // During shutdown, CDP Browser.close drops the connection on purpose - never
+  // relaunch a fresh chromium behind the departing process's back (it would
+  // outlive us, orphaned on the persistent profile).
+  if (shuttingDown) throw new Error("browser fitting is shutting down");
   if (!chromiumLaunching) {
     if (chromiumChild) { try { chromiumChild.kill("SIGTERM"); } catch {} chromiumChild = null; }
     discardChromium();
@@ -504,26 +749,69 @@ async function ensureChromium() {
 }
 
 async function shutdownChromium() {
+  // Snapshot the shared context's cookies FIRST - this is the timing-INDEPENDENT
+  // login-continuity guarantee. The own-port lifecycle SIGKILLs this process ~4s
+  // after SIGTERM (own-port-lifecycle.ts terminateWithEscalation), which would
+  // cut off chromium's own profile flush; a single fast storageState() write up
+  // front means cookies survive even that hard kill, re-seeded via addCookies on
+  // the next boot. The graceful chromium wait below is a clean-exit nicety fully
+  // realized only on the 90s systemd-stop path, not required for correctness.
+  if (storageSnapshotTimer) { clearInterval(storageSnapshotTimer); storageSnapshotTimer = null; }
+  await snapshotStorageState();
+  // Finalize live capture sessions first so a SIGTERM still flushes their
+  // videos to disk instead of leaving orphaned .video-tmp fragments.
+  for (const session of [...captureSessions.values()]) {
+    await stopCaptureSession(session, { reason: "shutdown" }).catch(() => {});
+  }
   for (const tab of tabs.values()) await cleanupTab(tab).catch(() => {});
   tabs.clear();
+  // Ask chromium to shut ITSELF down first (CDP Browser.close): the only path
+  // that reliably flushes the persistent profile - cookies included - before
+  // exit. Signals below are fallback (SIGTERM) and last resort (SIGKILL).
+  try {
+    const cdp = await browser?.newBrowserCDPSession();
+    await cdp?.send("Browser.close");
+  } catch { /* CDP already gone - the signal path below still applies */ }
   try { await browser?.close(); } catch {}
   if (chromiumChild) {
-    try { chromiumChild.kill("SIGTERM"); } catch {}
+    const child = chromiumChild;
     chromiumChild = null;
+    // WAIT for chromium to actually exit (SIGKILL only as a last resort):
+    // exiting the server while chromium is still flushing leaves an orphan
+    // holding the persistent profile with unflushed cookies - the next boot
+    // would break its lock and lose the login state persistence exists for.
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => {
+        // 15s: chromium exit is normally sub-second, but on a loaded box the
+        // renderer teardown can crawl - and a SIGKILL here loses the cookie
+        // flush the persistent profile exists for. systemd's stop budget on a
+        // redeploy is 90s, so a generous wait costs nothing real.
+        const timer = setTimeout(() => {
+          try { child.kill("SIGKILL"); } catch { /* already gone */ }
+          resolve();
+        }, 15000);
+        child.once("exit", () => { clearTimeout(timer); resolve(); });
+        try { child.kill("SIGTERM"); } catch { clearTimeout(timer); resolve(); }
+      });
+    }
   }
 }
 
 // ─── Tab lifecycle ──────────────────────────────────────────────────────
 
-async function openTab(initialUrl) {
+async function openTab(initialUrl, { context: targetContext = null, captureSessionId = null } = {}) {
   await ensureChromium();
+  // A capture session's tab lives in the session's dedicated context; a
+  // relaunch retry is only meaningful for the shared default context (the
+  // session context died with the old browser and cannot be resurrected).
+  const ctx = targetContext || context;
   let page;
   try {
-    page = await context.newPage();
+    page = await ctx.newPage();
   } catch (err) {
     // The CDP connection can drop between ensureChromium and newPage (the
     // headless process gets reaped). Relaunch once and retry before failing.
-    if (/has been closed|disconnected|Target closed|Target page/i.test(String(err))) {
+    if (!targetContext && /has been closed|disconnected|Target closed|Target page/i.test(String(err))) {
       discardChromium();
       await ensureChromium();
       page = await context.newPage();
@@ -533,7 +821,8 @@ async function openTab(initialUrl) {
   }
   // Create the CDP session + attach instrumentation BEFORE the initial
   // navigation so first-load console/network events get captured too.
-  const cdpSession = await context.newCDPSession(page);
+  const owningContext = page.context();
+  const cdpSession = await owningContext.newCDPSession(page);
   const { targetInfo } = await cdpSession.send("Target.getTargetInfo");
   const tabId = targetInfo.targetId;
 
@@ -558,7 +847,8 @@ async function openTab(initialUrl) {
     // Most recent user "pointing" — an element pick or a drawn region — that the
     // Operative session can read via GET /selection (the garrison-browser CLI),
     // so "remove this" resolves to whatever the user marked on the canvas.
-    selection: null
+    selection: null,
+    captureSessionId
   };
   tabs.set(tabId, tab);
   await attachInstrumentation(tab);
@@ -627,6 +917,310 @@ async function listTabs() {
   });
 }
 
+// ─── Capture sessions (Drill evidence D1/D2) ────────────────────────────
+//
+// A capture session is a dedicated Playwright-owned context created because
+// the shared CDP default context cannot record evidence: recordVideo is a
+// newContext-time option, and the default context is never closed per run
+// (video/tracing only finalize on close). One session = one context + ONE
+// reusable tab; engine-opened tabs carrying `captureSession` in the POST
+// /tabs body ATTACH to that tab instead of creating a page, so a whole
+// multi-check run lands in a single continuous webm finalized at
+// /capture/stop. The session id is caller-minted and opaque; the caller owns
+// the artifact dir's naming and layout. Evidence must never fail a run:
+// every degraded path here answers with ok:false or a warning, never a throw
+// into the tab flow.
+
+const captureSessions = new Map();
+const CAPTURE_IDLE_TTL_MS = 20 * 60 * 1000;
+// Held sessions (Debrief's Live Browser replay) are viewer-facing: watching
+// the canvas never bumps lastActivityAt, so they get a long hard cap instead
+// of the idle TTL. Explicit /capture/stop remains the designed release.
+const CAPTURE_HELD_TTL_MS = 2 * 60 * 60 * 1000;
+const CAPTURE_SWEEP_MS = 60 * 1000;
+
+function captureDirAllowed(dir) {
+  const root = path.resolve(process.env.GARRISON_HOME || path.join(HOME, ".garrison"));
+  const target = path.resolve(dir);
+  return target === root || target.startsWith(root + path.sep);
+}
+
+async function handleCaptureStart(req, res) {
+  const body = (await readBody(req)) || {};
+  const sessionId = typeof body.sessionId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(body.sessionId)
+    ? body.sessionId
+    : null;
+  if (!sessionId) return jsonRes(res, 400, { ok: false, error: "sessionId ([A-Za-z0-9_-]{1,64}) required" });
+  if (captureSessions.has(sessionId)) return jsonRes(res, 409, { ok: false, error: "capture session already exists" });
+  const dir = typeof body.dir === "string" ? body.dir : "";
+  if (!dir || !path.isAbsolute(dir) || !captureDirAllowed(dir)) {
+    return jsonRes(res, 400, { ok: false, error: "dir must be an absolute path under the garrison home" });
+  }
+  const vp = body.viewport && typeof body.viewport === "object" ? body.viewport : {};
+  const width = Math.round(Number(vp.width)) || 1280;
+  const height = Math.round(Number(vp.height)) || 800;
+  const wantVideo = body.video === true;
+  const wantHold = body.hold === true;
+  const warnings = [];
+  try {
+    await ensureChromium();
+    await mkdir(dir, { recursive: true });
+    // Login continuity: the shared default context holds whatever auth state
+    // earlier runs/authoring established; a fresh context starts cookie-less
+    // and would fail drills against logged-in apps. Best-effort seed.
+    let storageState = null;
+    try {
+      storageState = await context.storageState();
+    } catch (err) {
+      warnings.push(`storage-state seed unavailable: ${err.message}`);
+    }
+    const videoDir = wantVideo ? path.join(dir, ".video-tmp") : null;
+    if (videoDir) await mkdir(videoDir, { recursive: true });
+    // viewport: null is LOAD-BEARING. A context-configured viewport makes
+    // Playwright own emulation for its pages and re-assert it on navigation,
+    // stomping the per-check CDP override applied at attach (mobile checks
+    // would silently run at the desktop size). The shared default context
+    // never had a Playwright viewport either — per-check emulation is applied
+    // via raw CDP below, exactly as before. recordVideo carries its own size.
+    const sessionContext = await browser.newContext({
+      viewport: null,
+      ...(storageState ? { storageState } : {}),
+      ...(wantVideo ? { recordVideo: { dir: videoDir, size: { width, height } } } : {})
+    });
+    const session = {
+      id: sessionId,
+      dir,
+      videoDir,
+      context: sessionContext,
+      tab: null,
+      video: wantVideo,
+      tracing: false,
+      chunkOpen: false,
+      startedAt: 0,
+      lastActivityAt: Date.now(),
+      warnings,
+      stopping: false,
+      spotter: null,
+      hold: wantHold
+    };
+    // Tracing runs once per session (a second tracing.start throws); per-step
+    // isolation comes from startChunk/stopChunk around each check. sources:false
+    // — there is no test-source file to embed for engine-driven actions.
+    try {
+      await sessionContext.tracing.start({ screenshots: true, snapshots: true, sources: false });
+      session.tracing = true;
+    } catch (err) {
+      warnings.push(`tracing unavailable: ${err.message}`);
+    }
+    captureSessions.set(sessionId, session);
+    // The session tab is created eagerly: the video timeline begins when the
+    // page opens, so startedAt — the offset origin consumers use to deep-link
+    // into the webm — is the tab's creation time, not the context's.
+    session.tab = await openTab("about:blank", { context: sessionContext, captureSessionId: sessionId });
+    session.startedAt = Date.now();
+    // Spotter (Evidence V2): trigger-driven frame capture rides the session
+    // when the caller asks for it. A Spotter failure is a warning — the run
+    // keeps its V1 evidence (video/traces/screenshots) untouched.
+    if (body.spotter && typeof body.spotter === "object") {
+      try {
+        session.spotter = await createSpotter({ session, config: body.spotter });
+      } catch (err) {
+        warnings.push(`spotter unavailable: ${err.message}`);
+      }
+    }
+    jsonRes(res, 201, {
+      ok: true,
+      sessionId,
+      startedAt: session.startedAt,
+      // The session tab's id: callers embedding the live canvas need it and
+      // it is not otherwise discoverable without racing /tabs.
+      tabId: session.tab?.tabId ?? null,
+      video: wantVideo,
+      hold: wantHold,
+      spotter: !!session.spotter,
+      warnings
+    });
+  } catch (err) {
+    const broken = captureSessions.get(sessionId);
+    captureSessions.delete(sessionId);
+    if (broken?.context) { try { await broken.context.close(); } catch {} }
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function stopCaptureSession(session, { reason = "stop" } = {}) {
+  if (session.stopping) return { ok: false, error: "capture session already stopping" };
+  session.stopping = true;
+  captureSessions.delete(session.id);
+  const warnings = [...session.warnings];
+  const endedAt = Date.now();
+  let videoRel = null;
+  // Spotter first: it needs the live page for a final grab and must drain its
+  // write chain before the context goes away.
+  let spotter = null;
+  if (session.spotter) {
+    try {
+      spotter = await session.spotter.stop();
+    } catch (err) {
+      warnings.push(`spotter stop: ${err.message}`);
+    }
+    session.spotter = null;
+  }
+  // Tracing teardown first (it needs the live context): discard any chunk a
+  // crashed caller left open, then stop the session-level trace.
+  if (session.tracing) {
+    if (session.chunkOpen) {
+      try { await session.context.tracing.stopChunk(); } catch (err) { warnings.push(`trace chunk discard: ${err.message}`); }
+      session.chunkOpen = false;
+    }
+    try { await session.context.tracing.stop(); } catch (err) { warnings.push(`tracing stop: ${err.message}`); }
+    session.tracing = false;
+  }
+  // Grab the video handle BEFORE closing: page.video() is unreachable after
+  // the page object is gone, but saveAs() resolves only after close flushes.
+  const video = session.video && session.tab ? session.tab.page.video() : null;
+  if (session.tab) {
+    try { await cleanupTab(session.tab); } catch (err) { warnings.push(`tab close: ${err.message}`); }
+  }
+  try { await session.context.close(); } catch (err) { warnings.push(`context close: ${err.message}`); }
+  if (video) {
+    try {
+      await video.saveAs(path.join(session.dir, "video.webm"));
+      try { await video.delete(); } catch {}
+      videoRel = "video.webm";
+    } catch (err) {
+      warnings.push(`video finalize: ${err.message}`);
+    }
+  }
+  if (session.videoDir) { try { await rm(session.videoDir, { recursive: true, force: true }); } catch {} }
+  if (reason !== "stop") console.warn(`[capture] session ${session.id} finalized on ${reason}`);
+  return { ok: true, sessionId: session.id, startedAt: session.startedAt, endedAt, video: videoRel, spotter, warnings };
+}
+
+async function handleCaptureStop(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = captureSessions.get(typeof body.sessionId === "string" ? body.sessionId : "");
+  if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  jsonRes(res, 200, await stopCaptureSession(session));
+}
+
+// Session-tab viewport emulation is ALWAYS raw CDP — never
+// page.setViewportSize. On the reused session tab a Playwright-owned
+// viewport would be re-asserted on the next navigation, stomping a later
+// check's mobile override (the exact hazard applyViewportEmulation documents
+// for the CDP path, inverted). tab.emulatedViewport stays the source of
+// truth for observers.
+async function applySessionViewport(tab, vp) {
+  const width = Math.round(Number(vp.width) || 0);
+  const height = Math.round(Number(vp.height) || 0);
+  if (!width || !height) throw new Error("viewport requires numeric width and height");
+  await tab.cdpSession.send("Emulation.setDeviceMetricsOverride", {
+    width,
+    height,
+    deviceScaleFactor: Number(vp.deviceScaleFactor) || 1,
+    mobile: !!vp.isMobile
+  });
+  tab.emulatedViewport = { width, height };
+}
+
+// Artifact names are caller-chosen but confined to one path segment inside
+// the session dir — no separators, no dotfiles.
+function safeArtifactName(name) {
+  return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/.test(name) ? name : null;
+}
+
+function liveCaptureSession(body) {
+  const session = captureSessions.get(typeof body.sessionId === "string" ? body.sessionId : "");
+  if (!session || session.stopping) return null;
+  session.lastActivityAt = Date.now();
+  return session;
+}
+
+// Per-check trace chunks (D2): one zip per check, cut by the caller around
+// each engine run. An already-open chunk (caller crashed mid-check) is
+// discarded rather than leaking into the next check's trace.
+async function handleCaptureChunkStart(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = liveCaptureSession(body);
+  if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  if (!session.tracing) return jsonRes(res, 200, { ok: false, error: "tracing unavailable for this session" });
+  try {
+    if (session.chunkOpen) {
+      try { await session.context.tracing.stopChunk(); } catch {}
+      session.chunkOpen = false;
+    }
+    await session.context.tracing.startChunk({ title: typeof body.title === "string" ? body.title : undefined });
+    session.chunkOpen = true;
+    // Spotter boundary (D2a): tag the new check window and always keep a
+    // frame at the step boundary. `name` is the caller's check key — the same
+    // key the chunk-stop trace will carry — so frames join checks downstream.
+    session.spotter?.onChunkStart(
+      typeof body.name === "string" && body.name
+        ? body.name.slice(0, 200)
+        : typeof body.title === "string" ? body.title.slice(0, 200) : null
+    );
+    jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleCaptureChunkStop(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = liveCaptureSession(body);
+  if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  const name = safeArtifactName(body.name);
+  if (!name) return jsonRes(res, 400, { ok: false, error: "name ([A-Za-z0-9][A-Za-z0-9._-]*) required" });
+  if (!session.tracing || !session.chunkOpen) {
+    return jsonRes(res, 200, { ok: false, error: "no open trace chunk" });
+  }
+  session.spotter?.onChunkStop();
+  try {
+    const rel = `trace-${name}.zip`;
+    await session.context.tracing.stopChunk({ path: path.join(session.dir, rel) });
+    session.chunkOpen = false;
+    jsonRes(res, 200, { ok: true, trace: rel });
+  } catch (err) {
+    session.chunkOpen = false;
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Step screenshots (D3): full-page PNGs of the session tab, taken at check
+// end (and again on failure). These are the only evidence kind eligible as
+// model input downstream — video/traces never enter a model call.
+async function handleCaptureScreenshot(req, res) {
+  const body = (await readBody(req)) || {};
+  const session = liveCaptureSession(body);
+  if (!session || !session.tab) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  const name = safeArtifactName(body.name);
+  if (!name) return jsonRes(res, 400, { ok: false, error: "name ([A-Za-z0-9][A-Za-z0-9._-]*) required" });
+  try {
+    const rel = `${name}.png`;
+    await session.tab.page.screenshot({
+      type: "png",
+      fullPage: body.fullPage !== false,
+      path: path.join(session.dir, rel),
+      timeout: 15000
+    });
+    jsonRes(res, 200, { ok: true, screenshot: rel });
+  } catch (err) {
+    jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Abandoned sessions (a crashed caller never sends /capture/stop) still
+// finalize to disk instead of leaking a context + an unbounded recording.
+setInterval(() => {
+  const now = Date.now();
+  for (const session of [...captureSessions.values()]) {
+    const ttl = session.hold ? CAPTURE_HELD_TTL_MS : CAPTURE_IDLE_TTL_MS;
+    if (now - session.lastActivityAt > ttl) {
+      void stopCaptureSession(session, { reason: session.hold ? "held-ttl" : "idle-ttl" }).catch(() => {});
+    }
+  }
+}, CAPTURE_SWEEP_MS).unref();
+
 // ─── HTTP handlers ──────────────────────────────────────────────────────
 
 function handleHealth(_req, res, opts) {
@@ -637,7 +1231,11 @@ function handleHealth(_req, res, opts) {
     host: opts.host,
     tabs: tabs.size,
     cdpHttpEndpoint,
-    cdpWsEndpoint
+    cdpWsEndpoint,
+    // Login-continuity observability: whether cookie/session state survives a
+    // fitting restart, and where it lives when it does.
+    persistentProfile: PERSISTENT_PROFILE,
+    profileDir: PERSISTENT_PROFILE ? persistentProfileDir() : null
   });
 }
 
@@ -661,11 +1259,82 @@ async function handleCreateTab(req, res) {
   const body = (await readBody(req)) || {};
   const initialUrl = typeof body.url === "string" ? body.url : "about:blank";
   if (!isAllowedNavScheme(initialUrl)) return jsonRes(res, 400, { error: "navigation scheme not allowed" });
+  // Capture-session attach: a caller carrying the session id gets the
+  // session's single reusable tab (viewport re-emulated, navigated like a
+  // fresh tab) so every check of a run records into one continuous video.
+  // A dead/unknown session falls through to a plain tab — the run must
+  // proceed with degraded evidence, never fail on it.
+  const captureSessionId = typeof body.captureSession === "string" ? body.captureSession : null;
+  if (captureSessionId) {
+    const session = captureSessions.get(captureSessionId);
+    if (session && session.tab && !session.stopping) {
+      const tab = session.tab;
+      session.lastActivityAt = Date.now();
+      tab.lastActivityAt = Date.now();
+      if (body.viewport && typeof body.viewport === "object") {
+        await applySessionViewport(tab, body.viewport).catch((err) => {
+          console.warn(`[capture] viewport-at-attach failed: ${err.message}`);
+        });
+      }
+      if (initialUrl && initialUrl !== "about:blank") {
+        tab.requestedUrl = initialUrl;
+        try { await tab.page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 }); }
+        catch (err) { console.warn(`[capture] goto-at-attach failed: ${err.message}`); }
+      }
+      return jsonRes(res, 201, { tabId: tab.tabId, url: tab.page.url() });
+    }
+    console.warn(`[capture] unknown/stopped session ${captureSessionId} on /tabs — opening a plain tab`);
+  }
   try {
     const tab = await openTab(initialUrl);
+    // Viewport emulation at creation (Automations engine delta 3): applied
+    // before the caller's first navigation is even visible to them, so
+    // responsive CSS sees the right size from first paint.
+    if (body.viewport && typeof body.viewport === "object") {
+      await applyViewportEmulation(tab, body.viewport).catch((err) => {
+        console.warn(`[browser] viewport-at-creation failed: ${err.message}`);
+      });
+    }
     jsonRes(res, 201, { tabId: tab.tabId, url: tab.page.url() });
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Device emulation shared by tab-creation and the standalone /viewport route.
+// `isMobile`/`deviceScaleFactor` go through CDP (Playwright's setViewportSize
+// alone doesn't touch those); a plain width/height uses Playwright directly.
+// The CDP path bypasses Playwright's own viewport bookkeeping, so
+// `page.viewportSize()` keeps reporting the tab's ORIGINAL size afterward —
+// `tab.emulatedViewport` is the source of truth handleObserve must read
+// instead, or every observation for a mobile-emulated tab reports the wrong
+// width to callers (including a real vision call).
+async function applyViewportEmulation(tab, vp) {
+  const width = Math.round(Number(vp.width) || 0);
+  const height = Math.round(Number(vp.height) || 0);
+  if (!width || !height) throw new Error("viewport requires numeric width and height");
+  if (vp.isMobile || vp.deviceScaleFactor) {
+    await tab.cdpSession.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor: Number(vp.deviceScaleFactor) || 1,
+      mobile: !!vp.isMobile
+    });
+  } else {
+    await tab.page.setViewportSize({ width, height });
+  }
+  tab.emulatedViewport = { width, height };
+}
+
+async function handleSetViewport(req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
+  const body = (await readBody(req)) || {};
+  try {
+    await applyViewportEmulation(tab, body);
+    jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -696,6 +1365,16 @@ async function handleNavigateTab(req, res, tabId) {
 async function handleDeleteTab(_req, res, tabId) {
   const tab = tabs.get(tabId);
   if (!tab) return jsonRes(res, 404, { ok: false });
+  // A capture session's tab is BORROWED by engine runs: their close is a
+  // detach (the tab outlives each check; /capture/stop closes it for real,
+  // which is what finalizes the session video).
+  if (tab.captureSessionId) {
+    const session = captureSessions.get(tab.captureSessionId);
+    if (session && session.tab === tab && !session.stopping) {
+      session.lastActivityAt = Date.now();
+      return jsonRes(res, 200, { ok: true, detached: true });
+    }
+  }
   await cleanupTab(tab);
   jsonRes(res, 200, { ok: true });
 }
@@ -855,7 +1534,7 @@ async function handleObserve(_req, res, tabId, query) {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}:${v}`)
       .join(",");
-    const vp = page.viewportSize() || { width: 0, height: 0 };
+    const vp = tab.emulatedViewport || page.viewportSize() || { width: 0, height: 0 };
     const observation = { url: pageUrl, title, headingText: parts.headingText, shapeSketch, viewport: { w: vp.width, h: vp.height } };
     if (query && query.a11y === "1") {
       observation.a11y = await accessibilityTree(tab);
@@ -928,6 +1607,60 @@ async function handleExecute(req, res, tabId) {
       else throw new Error(`unknown action kind: ${kind}`);
     }
     jsonRes(res, 200, { ok: true });
+  } catch (err) {
+    jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// Same locator ladder as resolveActionLocator, but WITHOUT `.first()` — count
+// needs every match, not just the first, unlike an action's single target.
+function resolveAssertionLocator(page, a) {
+  if (a.selector) return page.locator(a.selector);
+  if (a.role && a.name) return page.getByRole(a.role, { name: a.name });
+  if (a.testId) return page.getByTestId(a.testId);
+  if (a.label) return page.getByLabel(a.label);
+  if (a.placeholder) return page.getByPlaceholder(a.placeholder);
+  if (a.text) return page.getByText(a.text);
+  if (a.role) return page.getByRole(a.role);
+  throw new Error("assertion has no locator hint (selector/role+name/testId/label/placeholder/text)");
+}
+
+// Richer deterministic assertions (Automations engine delta 5): the kinds
+// needing live Playwright locator access (count/visible/attribute-equals) —
+// text-contains/url-matches are resolved by the caller from observe() and
+// never reach this endpoint.
+async function handleAssert(req, res, tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
+  const body = (await readBody(req)) || {};
+  const assertion = body.assertion ?? body;
+  const page = tab.page;
+  try {
+    const kind = assertion.kind;
+    if (kind === "count") {
+      const loc = resolveAssertionLocator(page, assertion);
+      const n = await loc.count();
+      const op = assertion.op ?? "eq";
+      const value = Number(assertion.value ?? 0);
+      const passed = op === "eq" ? n === value
+        : op === "gte" ? n >= value
+        : op === "lte" ? n <= value
+        : op === "gt" ? n > value
+        : op === "lt" ? n < value
+        : (() => { throw new Error(`unknown count op: ${op}`); })();
+      return jsonRes(res, 200, { ok: true, passed, actual: n });
+    }
+    if (kind === "visible") {
+      const loc = resolveAssertionLocator(page, assertion).first();
+      const passed = await loc.isVisible({ timeout: assertion.timeoutMs ?? 3000 }).catch(() => false);
+      return jsonRes(res, 200, { ok: true, passed });
+    }
+    if (kind === "attribute-equals") {
+      const loc = resolveAssertionLocator(page, assertion).first();
+      const actual = await loc.getAttribute(assertion.attribute, { timeout: assertion.timeoutMs ?? 3000 }).catch(() => null);
+      return jsonRes(res, 200, { ok: true, passed: actual === assertion.value, actual });
+    }
+    return jsonRes(res, 400, { ok: false, error: `unsupported assertion kind: ${kind}` });
   } catch (err) {
     jsonRes(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -1007,6 +1740,45 @@ function proxyDevtools(req, res) {
   });
   req.on("error", () => { try { upstream.destroy(); } catch {} });
   req.pipe(upstream);
+}
+
+// CSRF origin check, shared by the HTTP and WebSocket guards.
+//
+// This service drives a real browser and can read page content, so a malicious
+// webpage must never be able to call it. The original rule was "the Origin's
+// host must be loopback" — which also rejected the Fitting's OWN page whenever
+// Garrison was reached over the tailnet: a `<script type="module">` is fetched
+// with CORS, so it carries Origin: https://<tailnet-host>:<port>, got a 403,
+// and the SPA never booted (an empty Browser pane, while curl — which sends no
+// Origin — looked perfectly healthy).
+//
+// The correct test is same-origin: compare the Origin against the Host the
+// request actually arrived on. That is strictly safer than a host allowlist and
+// works on any hostname — loopback, tailnet or LAN — because a malicious page
+// at evil.com still sends Origin: https://evil.com against Host: <us>, which
+// mismatches. Verified that `tailscale serve` preserves the original Host
+// (it forwards Host + X-Forwarded-Host as the tailnet name), so a proxied
+// same-origin request compares equal.
+function isAllowedOrigin(origin, hostHeader) {
+  if (!origin) return true; // server-to-server callers send no Origin
+  let originHost;
+  try {
+    const parsedOrigin = new URL(origin);
+    const hostname = parsedOrigin.hostname;
+    if (
+      hostname === "127.0.0.1" ||
+      hostname === "localhost" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    ) {
+      return true;
+    }
+    originHost = parsedOrigin.host; // includes the port
+  } catch {
+    return false;
+  }
+  if (!hostHeader) return false;
+  return originHost.toLowerCase() === String(hostHeader).toLowerCase();
 }
 
 function serveStatic(req, res, distDir) {
@@ -1121,7 +1893,9 @@ async function attachViewport(ws, tab, _opts) {
 
   if (!tab.viewportCdp) {
     // Fresh attach: create the CDP session and wire the frame listener.
-    const cdp = await context.newCDPSession(tab.page);
+    // The page's OWN context — a capture-session tab lives in a dedicated
+    // context, and the default context cannot mint sessions for its pages.
+    const cdp = await tab.page.context().newCDPSession(tab.page);
     tab.viewportCdp = cdp;
     // TEMP: swap-timing — first frame after every (re)start. Reset on restart.
     tab.firstFrameLogged = false;
@@ -1549,9 +2323,9 @@ function attachRawCdp(ws, tab) {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[browser] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
+  assertStatusSlotFree();
+  await assertPortFree(opts.port, opts.host);
+  const liveOpts = { ...opts };
 
   await launchChromium(liveOpts);
 
@@ -1564,12 +2338,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       // Origin; the same-origin canvas sends a loopback Origin — both allowed.
       const reqOrigin = req.headers.origin;
       if (reqOrigin) {
-        let loopback = false;
-        try {
-          const h = new URL(reqOrigin).hostname;
-          loopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-        } catch { loopback = false; }
-        if (!loopback) {
+        if (!isAllowedOrigin(reqOrigin, req.headers.host)) {
           res.statusCode = 403;
           res.setHeader("content-type", "application/json");
           return res.end(JSON.stringify({ error: "cross-origin forbidden" }));
@@ -1587,6 +2356,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
       if (pathname === "/tabs" && method === "GET") return await handleListTabs(req, res);
       if (pathname === "/tabs" && method === "POST") return await handleCreateTab(req, res);
+
+      if (pathname === "/capture/start" && method === "POST") return await handleCaptureStart(req, res);
+      if (pathname === "/capture/stop" && method === "POST") return await handleCaptureStop(req, res);
+      if (pathname === "/capture/chunk-start" && method === "POST") return await handleCaptureChunkStart(req, res);
+      if (pathname === "/capture/chunk-stop" && method === "POST") return await handleCaptureChunkStop(req, res);
+      if (pathname === "/capture/screenshot" && method === "POST") return await handleCaptureScreenshot(req, res);
 
       const navMatch = pathname.match(/^\/tabs\/([^/]+)\/nav$/);
       if (navMatch && method === "POST") return await handleNavigateTab(req, res, decodeURIComponent(navMatch[1]));
@@ -1616,6 +2391,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (a11yMatch && method === "GET") return await handleA11y(req, res, decodeURIComponent(a11yMatch[1]));
       const execMatch = pathname.match(/^\/tabs\/([^/]+)\/execute$/);
       if (execMatch && method === "POST") return await handleExecute(req, res, decodeURIComponent(execMatch[1]));
+
+      const assertMatch = pathname.match(/^\/tabs\/([^/]+)\/assert$/);
+      if (assertMatch && method === "POST") return await handleAssert(req, res, decodeURIComponent(assertMatch[1]));
+
+      const viewportMatch = pathname.match(/^\/tabs\/([^/]+)\/viewport$/);
+      if (viewportMatch && method === "POST") return await handleSetViewport(req, res, decodeURIComponent(viewportMatch[1]));
 
       const evalMatch = pathname.match(/^\/tabs\/([^/]+)\/eval$/);
       if (evalMatch && method === "POST") return await handleEval(req, res, decodeURIComponent(evalMatch[1]));
@@ -1652,17 +2433,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     // CSRF defense for the drivable WS surfaces (/input drives the browser): reject
     // a cross-origin (non-loopback) Origin, same as the HTTP guard.
     const wsOrigin = request.headers.origin;
-    if (wsOrigin) {
-      let loopback = false;
-      try {
-        const h = new URL(wsOrigin).hostname;
-        loopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-      } catch { loopback = false; }
-      if (!loopback) {
-        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+    if (!isAllowedOrigin(wsOrigin, request.headers.host)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
       const tab = tabs.get(decodeURIComponent(route.tabId));
@@ -1679,6 +2453,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     });
   });
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[browser] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      void shutdownChromium().finally(() => process.exit(1));
+      return;
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
@@ -1689,7 +2471,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   });
 
   const shutdown = async (signal) => {
+    if (shuttingDown) return; // a second signal must not truncate the first pass's flush
+    shuttingDown = true;
     console.log(`[browser] shutdown (${signal})`);
+    // Stop accepting NEW connections up front (no exit callback - it would fire
+    // the instant the last socket drains and race the cookie flush below). The
+    // shuttingDown latch already makes any in-flight request refuse to relaunch
+    // chromium. We exit explicitly only after the graceful teardown completes.
+    server.close();
     await shutdownChromium();
     await clearStatusFile();
     // Remove the ephemeral profile so the default leaves no cookies/session behind.
@@ -1697,8 +2486,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       await rm(ephemeralProfileDir, { recursive: true, force: true }).catch(() => {});
       ephemeralProfileDir = null;
     }
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 3000);
+    process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));

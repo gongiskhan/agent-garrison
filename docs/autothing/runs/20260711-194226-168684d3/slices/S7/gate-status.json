@@ -1,0 +1,64 @@
+{
+ "slice": "S7-quarters-sections",
+ "kind": "ui",
+ "commits": [
+  "1d60a68",
+  "9872333 (review round)",
+  "9c72a34"
+ ],
+ "attempts": 2,
+ "gates": {
+  "typecheck": {
+   "status": "passed",
+   "exit": 0
+  },
+  "lint": {
+   "status": "passed",
+   "exit": 0
+  },
+  "test": {
+   "status": "passed",
+   "detail": "e2e both states + persistence + null-localStorage ratchet (4 passed); deep-surface specs unchanged (9 passed); full vitest green"
+  },
+  "securityWall": {
+   "status": "passed",
+   "detail": "gitleaks+semgrep clean"
+  },
+  "codexSliceReview": {
+   "verdict": "needs-work->fixed",
+   "by": "codex exec (inline diff)",
+   "actualModel": "gpt-5.5 high",
+   "detail": "1 confirmed: JSON-null localStorage crash -> shape validation 9c72a34; re-verify resolved:true",
+   "ratchetGuard": "e2e corrupted-localStorage case"
+  },
+  "adversarialReview": {
+   "verdict": "approve",
+   "by": "fresh-context review-s7s8",
+   "detail": "medium: create-on-miss GET side-effect -> read-only guard (9872333, reviewer-proven); low: loading flash -> loading guard; low: param forwarding -> composition-only"
+  },
+  "adversarialTest": {
+   "verdict": "pass",
+   "by": "fresh-context advtest-s7",
+   "detail": "own playwright probes: 3 sections all-collapsed, persistence both directions, solo classic, deep unchanged, robustness (bogus composition, localStorage garbage, toggle spam)"
+  },
+  "design": {
+   "verdict": "clean",
+   "by": "ux-qa capture",
+   "detail": "toggle 49px tap target, 16.49:1 contrast, no mobile overflow; screenshots in evidence/"
+  },
+  "walkthrough": {
+   "status": "verified",
+   "mode": "evidence",
+   "video": "/home/ggomes/.walkthrough/runs/agent-garrison/runtimes-v1/2026-07-11_23-00-01/final.mp4",
+   "beats": "S7 beats 2/2 in the shared 6/6 verified recording",
+   "evidence": "evidence/evidence.json"
+  }
+ },
+ "evidence": {
+  "videoSha256": "bd8ac85fefe19abff3f0e4af05f23831200e2ee39bac4904adffe9ec466fd581",
+  "videoBytes": 1924721,
+  "gallery": "http://100.88.165.46:8099/"
+ },
+ "sentinel": "QUARTERS-SECTIONS-OK",
+ "status": "passed"
+}

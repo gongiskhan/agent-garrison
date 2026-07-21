@@ -1,0 +1,47 @@
+{
+  "slice": "S3b1",
+  "kind": "api",
+  "commits": [
+    "ded57a3"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s3b1-impl",
+      "at": "2026-07-13T15:06:25Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T15:06:25Z",
+      "detail": "typecheck+lint clean"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T15:06:25Z",
+      "detail": "17 new (compositions-v4 11, migrate 6); 72 green incl existing composition suites"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T15:25:57Z",
+      "detail": "3 findings (proto-pollution, overlay-membership, global_config path extraction) all fixed + regression-tested in the amended S3B1-FIX1 commit"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T15:26:27Z",
+      "detail": "clean after codex fixes"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  }
+}

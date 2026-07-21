@@ -37,7 +37,7 @@ export function FittingOverview({ entry, composition, library, compact }: Fittin
     <div
       style={{
         display: "grid",
-        gap: compact ? 14 : 22,
+        gap: compact ? 16 : 28,
         padding: compact ? "12px 0 4px" : 0
       }}
     >
@@ -60,11 +60,33 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <div
       className="font-mono"
       style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
         fontSize: 10,
-        letterSpacing: "0.16em",
+        letterSpacing: "0.18em",
         textTransform: "uppercase",
+        color: "var(--brass)",
+        marginBottom: 9
+      }}
+    >
+      <span>{children}</span>
+      <span style={{ height: 1, flex: 1, background: "var(--rule)" }} aria-hidden />
+    </div>
+  );
+}
+
+function EmptyDetail({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        border: "1px dashed var(--rule-2)",
+        borderLeft: "3px solid var(--rule-2)",
+        background: "var(--surface)",
         color: "var(--mute)",
-        marginBottom: 6
+        fontSize: 12.5,
+        lineHeight: 1.6,
+        padding: "11px 13px"
       }}
     >
       {children}
@@ -80,11 +102,14 @@ function HowItWorks({ entry }: { entry: LibraryEntry }) {
       <div
         style={{
           fontSize: 13,
-          lineHeight: 1.6,
-          color: "var(--ink)",
-          background: "var(--paper-2)",
-          border: "1px solid var(--rule)",
-          padding: "12px 14px",
+          lineHeight: 1.7,
+          color: "var(--ink-mute)",
+          background: "var(--surface)",
+          borderTop: "1px solid var(--rule)",
+          borderRight: "1px solid var(--rule)",
+          borderBottom: "1px solid var(--rule)",
+          borderLeft: "3px solid var(--brass)",
+          padding: "14px 16px",
           whiteSpace: "pre-wrap"
         }}
       >
@@ -100,7 +125,7 @@ function Provides({ entry }: { entry: LibraryEntry }) {
     return (
       <section>
         <SectionLabel>Provides</SectionLabel>
-        <div style={{ fontSize: 12.5, color: "var(--mute)" }}>None.</div>
+        <EmptyDetail>No capabilities declared.</EmptyDetail>
       </section>
     );
   }
@@ -116,11 +141,13 @@ function Provides({ entry }: { entry: LibraryEntry }) {
               style={{
                 display: "flex",
                 alignItems: "center",
+                flexWrap: "wrap",
                 gap: 8,
                 fontSize: 12.5,
-                padding: "6px 10px",
-                background: "white",
-                border: "1px solid var(--rule)"
+                padding: "8px 11px",
+                background: "var(--surface)",
+                border: "1px solid var(--rule)",
+                borderLeft: "2px solid var(--sage)"
               }}
             >
               <code style={{ fontFamily: "var(--font-mono), monospace" }}>
@@ -150,9 +177,9 @@ function Consumes({
     return (
       <section>
         <SectionLabel>Consumes</SectionLabel>
-        <div style={{ fontSize: 12.5, color: "var(--mute)" }}>
+        <EmptyDetail>
           This Fitting does not consume any capabilities from other Fittings.
-        </div>
+        </EmptyDetail>
       </section>
     );
   }
@@ -174,11 +201,19 @@ function Consumes({
               key={`${c.kind}:${c.name ?? ""}:${i}`}
               style={{
                 fontSize: 12.5,
-                padding: "8px 10px",
-                background: "white",
+                padding: "10px 12px",
+                background: "var(--surface)",
                 border: "1px solid var(--rule)",
+                borderLeft: `2px solid ${
+                  composition !== null &&
+                  providers.length === 0 &&
+                  c.cardinality !== "optional-one" &&
+                  c.cardinality !== "any"
+                    ? "var(--alarm)"
+                    : "var(--rule-2)"
+                }`,
                 display: "grid",
-                gap: 4
+                gap: 6
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -241,9 +276,9 @@ function Views({
     return (
       <section>
         <SectionLabel>Views</SectionLabel>
-        <div style={{ fontSize: 12.5, color: "var(--mute)" }}>
+        <EmptyDetail>
           This Fitting ships no UI.
-        </div>
+        </EmptyDetail>
       </section>
     );
   }
@@ -256,11 +291,12 @@ function Views({
             key={v.id}
             style={{
               fontSize: 12.5,
-              padding: "8px 10px",
-              background: "white",
+              padding: "10px 12px",
+              background: "var(--surface)",
               border: "1px solid var(--rule)",
+              borderLeft: "2px solid var(--brass)",
               display: "grid",
-              gridTemplateColumns: "1fr auto",
+              gridTemplateColumns: "minmax(0, 1fr) auto",
               gap: 8,
               alignItems: "center"
             }}
@@ -303,29 +339,49 @@ function OwnPortRow({
     <li
       style={{
         fontSize: 12.5,
-        background: "white",
-        border: "1px solid var(--rule)"
+        background: "var(--surface)",
+        border: "1px solid var(--rule)",
+        borderLeft: "2px solid var(--brass)"
       }}
     >
       <div
         style={{
-          padding: "8px 10px",
+          padding: "11px 12px",
           display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 8,
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
+          gap: 12,
           alignItems: "center"
         }}
       >
-        <div>
-          <b>Own-port UI</b>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background:
+                  view?.healthy === true
+                    ? "var(--sage)"
+                    : view?.healthy === false
+                      ? "var(--alarm)"
+                      : "var(--rule-2)"
+              }}
+              aria-hidden
+            />
+            <b>Own-port UI</b>
+            <span className="font-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mute)" }}>
+              {view?.healthy === true ? "live" : view?.healthy === false ? "unreachable" : "offline"}
+            </span>
+          </div>
           {defaultPort ? (
-            <span style={{ color: "var(--mute)" }}>
+            <span style={{ display: "inline-block", color: "var(--mute)", marginTop: 3 }}>
               {" "}
               · default <code style={{ fontFamily: "var(--font-mono), monospace" }}>:{defaultPort}</code>
             </span>
           ) : null}
           {view?.url ? (
-            <span style={{ color: "var(--mute)" }}>
+            <span style={{ display: "inline-block", color: "var(--mute)", marginTop: 3, maxWidth: "100%", overflowWrap: "anywhere" }}>
               {" "}
               · live at <code style={{ fontFamily: "var(--font-mono), monospace" }}>{view.url}</code>
             </span>
@@ -381,15 +437,19 @@ function OwnPortControls({
   const healthy = view?.healthy === true && view.url;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 6 }}>
       {error ? (
-        <span style={{ fontSize: 11, color: "var(--alarm)" }} title={error}>
-          error
+        <span
+          style={{ maxWidth: 180, fontSize: 11, color: "var(--alarm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          title={error}
+          role="alert"
+        >
+          Action failed
         </span>
       ) : null}
       <button
         type="button"
-        className="btn small ghost"
+        className="btn small ghost active:translate-y-px"
         onClick={onToggleLogs}
         aria-pressed={logsOpen}
       >
@@ -399,7 +459,7 @@ function OwnPortControls({
         <>
           <Link
             href={`/embed/${entry.id}`}
-            className="btn small primary"
+            className="btn small primary active:translate-y-px"
             style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
             title={`Open ${entry.name} embedded (${view.url})`}
           >
@@ -407,7 +467,7 @@ function OwnPortControls({
           </Link>
           <button
             type="button"
-            className="btn small ghost"
+            className="btn small ghost active:translate-y-px"
             onClick={() => void callAction("restart")}
             disabled={busy !== null}
             title="Stop and start — reloads the Fitting's code (use after editing it)"
@@ -416,7 +476,7 @@ function OwnPortControls({
           </button>
           <button
             type="button"
-            className="btn small ghost"
+            className="btn small ghost active:translate-y-px"
             onClick={() => void callAction("stop")}
             disabled={busy !== null}
           >
@@ -430,7 +490,7 @@ function OwnPortControls({
           </span>
           <button
             type="button"
-            className="btn small primary"
+            className="btn small primary active:translate-y-px"
             onClick={() => void callAction("start")}
             disabled={busy !== null}
           >
@@ -450,6 +510,7 @@ function LogPanel({ fittingId }: { fittingId: string }) {
   const [exists, setExists] = useState<boolean>(true);
   const [truncated, setTruncated] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const preRef = useRef<HTMLPreElement | null>(null);
   const pinnedToBottomRef = useRef(true);
 
@@ -473,9 +534,11 @@ function LogPanel({ fittingId }: { fittingId: string }) {
         setExists(data.exists);
         setTruncated(data.truncated);
         setError(null);
+        setLoading(false);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
       }
     }
 
@@ -502,7 +565,7 @@ function LogPanel({ fittingId }: { fittingId: string }) {
   }
 
   return (
-    <div style={{ borderTop: "1px solid var(--rule)", background: "var(--paper-2)" }}>
+    <div style={{ borderTop: "1px solid var(--rule)", background: "var(--surface-strong)" }}>
       <div
         style={{
           display: "flex",
@@ -511,7 +574,8 @@ function LogPanel({ fittingId }: { fittingId: string }) {
           padding: "6px 10px",
           fontSize: 11,
           color: "var(--mute)",
-          borderBottom: "1px solid var(--rule)"
+          borderBottom: "1px solid var(--rule)",
+          background: "var(--surface-strong)"
         }}
       >
         <span style={{ fontFamily: "var(--font-mono), monospace" }}>
@@ -520,7 +584,8 @@ function LogPanel({ fittingId }: { fittingId: string }) {
         <span style={{ flex: 1 }} />
         {truncated ? <span>tail only</span> : null}
         {!exists ? <span>no log yet — start the view to populate</span> : null}
-        {error ? <span style={{ color: "var(--alarm)" }}>{error}</span> : null}
+        {loading ? <span role="status">loading…</span> : null}
+        {error ? <span style={{ color: "var(--alarm)" }} role="alert">{error}</span> : null}
       </div>
       <pre
         ref={preRef}
@@ -531,15 +596,19 @@ function LogPanel({ fittingId }: { fittingId: string }) {
           fontFamily: "var(--font-mono), monospace",
           fontSize: 11.5,
           lineHeight: 1.5,
-          color: "var(--ink)",
-          background: "var(--paper)",
+          color: "var(--paper-2)",
+          background: "var(--ink)",
           maxHeight: 280,
           overflow: "auto",
           whiteSpace: "pre-wrap",
-          wordBreak: "break-word"
+          wordBreak: "break-word",
+          // Dark pane: flip the global scrollbar thumb to the faint paper
+          // variant so the bar stays visible on the ink background.
+          ["--sb-thumb" as string]: "rgba(242, 234, 217, 0.14)",
+          ["--sb-thumb-hover" as string]: "rgba(242, 234, 217, 0.3)"
         }}
       >
-        {content || (exists ? "" : "(no output captured yet)")}
+        {loading ? "Loading log…" : content || "(no output captured yet)"}
       </pre>
     </div>
   );
@@ -555,8 +624,8 @@ function CapabilityBadge({ label }: { label: string }) {
         textTransform: "uppercase",
         color: "var(--mute)",
         border: "1px solid var(--rule)",
-        padding: "2px 6px",
-        background: "var(--paper)"
+        padding: "2px 7px",
+        background: "var(--surface-strong)"
       }}
     >
       {label}

@@ -1,0 +1,5 @@
+[
+ {"beat":"ac1","criterionId":"S2-AC1","assert":"needs-attention card 'Spike a GraphQL edge gateway' shows a .revert-block reading 'Prepared revert of 2 commits' with a Confirm revert button (highlighted); produced by a real POST /cards/:id/abandon over two real fence commits","result":"pass"},
+ {"beat":"ac2","criterionId":"S2-AC2","assert":".state-callout.waiting on the victim 'Add refresh-token rotation' reads 'Waiting on Migrate token cache to Redis (3AB4DK): broken by its commits, until its fix fence' (highlighted); produced by real attribution of the offender's overlapping fence","result":"pass"},
+ {"beat":"ac3","criterionId":"S2-AC3","assert":".chip.fence 'fence d9a1466' on the offender card 'Migrate token cache to Redis' (highlighted); a real commit fence written by advanceCardPhase","result":"pass"}
+]

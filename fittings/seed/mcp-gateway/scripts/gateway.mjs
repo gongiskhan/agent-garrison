@@ -29,13 +29,14 @@ import {
   callListActiveSessions,
   callEndSession,
   callListWorkdirs,
-  callListWorktrees,
-  callCreateWorktree,
-  callGetWorktree,
-  callCloseWorktree,
   automationsAvailable,
   callListAutomations,
-  callRunAutomation
+  callRunAutomation,
+  callRecordImproverFeedback,
+  kanbanAvailable,
+  callFetchEvidence,
+  callCreateContinuation,
+  callPollOriginEvents
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -59,7 +60,7 @@ async function discoverTools() {
   if (testingOk) {
     tools.push({
       name: "run_tests",
-      description: "Run the worktree project's native test command (npm/pytest/cargo/go).",
+      description: "Run the project's native test command (npm/pytest/cargo/go).",
       inputSchema: {
         type: "object",
         properties: {
@@ -93,22 +94,91 @@ async function discoverTools() {
     );
   }
 
+  // Kanban run-engine tools (WS2 — CARD CHAINING). Gated on the board being live
+  // (~/.garrison/ui-fittings/kanban-loop.json). Distinct from the Orchestrator
+  // policy's post-task "continuations" (store|ask|route|notify).
+  if (kanbanAvailable()) {
+    tools.push(
+      {
+        name: "fetch_evidence",
+        description:
+          "Pull one artifact from a done/running card by its opaque ref token (from a card's evidence manifest or handoff packet): plan | brief | evidenceIndex | gateMarkers | evidence:<file> | session:<i> | log:<n>. Returns the raw text (capped ~50KB). Pull, not push — fetch only what you need.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card_id: { type: "string", description: "The card ULID that owns the artifact." },
+            artifact_ref: { type: "string", description: "The opaque ref token (e.g. 'plan', 'log:2', 'evidence:after.png')." }
+          },
+          required: ["card_id", "artifact_ref"]
+        }
+      },
+      {
+        name: "create_continuation",
+        description:
+          "Register a CONTINUATION card that continues a predecessor card's work (card chaining). Creates the card with continues=<card_id> and moves it to plan; the successor's prompt is seeded from the predecessor's handoff packet. Returns { id, url }.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card_id: { type: "string", description: "The predecessor card ULID to continue." },
+            title: { type: "string", description: "Optional title (default 'Continue: <predecessor title>')." },
+            description: { type: "string", description: "Optional description / the next work to do." }
+          },
+          required: ["card_id"]
+        }
+      },
+      {
+        name: "poll_origin_events",
+        description:
+          "Poll the lifecycle + duty-summary events for a run ORIGIN (skill/terminal parity with a web thread's push feed): created | needs-input | blocked | failed | finished | duty-summary | steering. Pass the origin_id you stamped on the card (e.g. 'skill:<run id>'); poll again with the returned next_since to see only new events. This is the PULL delivery for a session with no push surface.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            origin_id: { type: "string", description: "The origin id stamped on the card(s) (e.g. 'skill:<run id>' or 'board')." },
+            since: { type: "string", description: "Optional: the previous next_since (a line offset) or an ISO timestamp - only newer events are returned." }
+          },
+          required: ["origin_id"]
+        }
+      }
+    );
+  }
+
+  // Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13). Always
+  // available: it writes directly to ~/.garrison/improver/feedback-queue.jsonl, so
+  // it does not depend on garrison-control (the http gateway). The PostToolUse
+  // AskUserQuestion capture is the primary path; this tool is the belt for surfaces
+  // that carry no PostToolUse hook.
+  tools.push({
+    name: "record_improver_feedback",
+    description:
+      "Record one Improver Probe answer as evidence (fallback capture path). Appends a single record to the Improver feedback queue. Only for relaying a probe answer the user gave — never fabricate answers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", description: "The Claude session id the probe was asked in." },
+        area: { type: "string", description: "orchestrator | went-well (the probe area)." },
+        question: { type: "string", description: "The exact question that was asked." },
+        answer: { type: "string", description: "The option label the user selected (or their free-text 'Other')." }
+      },
+      required: ["area", "question", "answer"]
+    }
+  });
+
   if (isGarrisonControlEnabled()) {
     tools.push(
       {
         name: "talk_to",
-        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass worktree_id to bind to a specific worktree; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
+        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass project (or an explicit cwd) to run the session at that repo root on its current branch; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
         inputSchema: {
           type: "object",
           properties: {
             soul: { type: "string", description: "engineer | architect | assistant | researcher | companion" },
             message: { type: "string", description: "What the Soul should do." },
-            worktree_id: { type: "string", description: "Bind the session to this worktree (resolves cwd, surfaces URLs)." },
+            project: { type: "string", description: "Project label (e.g. 'agent-garrison') resolved to its repo root under the dev-root; the session runs there on the current branch." },
             mode: { type: "string", enum: ["headless", "interactive"], description: "Override the origin-derived default." },
             tier_hint: { type: "object", description: "Result of classify_tier — { model, effort, needs_testing, needs_agents_team }." },
             task_title: { type: "string", description: "Short human-readable summary for UI display." },
             channel: { type: "string", description: "Channel id (default 'main')." },
-            cwd: { type: "string", description: "Working directory override." }
+            cwd: { type: "string", description: "Absolute working-directory override (wins over project)." }
           },
           required: ["soul", "message"]
         }
@@ -127,12 +197,11 @@ async function discoverTools() {
       },
       {
         name: "list_active_sessions",
-        description: "Enumerate active Soul sub-sessions. Optional filters: parent, worktree_id, mode, soul.",
+        description: "Enumerate active Soul sub-sessions. Optional filters: parent, mode, soul.",
         inputSchema: {
           type: "object",
           properties: {
             parent: { type: "string" },
-            worktree_id: { type: "string" },
             mode: { type: "string" },
             soul: { type: "string" }
           }
@@ -155,51 +224,6 @@ async function discoverTools() {
           properties: { soul: { type: "string" } },
           required: ["soul"]
         }
-      },
-      {
-        name: "list_worktrees",
-        description: "List Garrison worktrees, sorted by recency. Optional filter by project.",
-        inputSchema: {
-          type: "object",
-          properties: { project: { type: "string", description: "Project id (e.g., 'agent-garrison')." } }
-        }
-      },
-      {
-        name: "create_worktree",
-        description: "Create a new worktree on a feature branch with allocated ports and Tailscale URLs.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            project: { type: "string" },
-            task_title: { type: "string", description: "Short human-readable summary." },
-            branch_name: { type: "string", description: "Override default slug-based branch name." },
-            base_branch: { type: "string", description: "Override projectConfig.defaultBaseBranch." }
-          },
-          required: ["project", "task_title"]
-        }
-      },
-      {
-        name: "get_worktree",
-        description: "Get details (ports, urls, status, bindings) for a worktree by id.",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string" } },
-          required: ["id"]
-        }
-      },
-      {
-        name: "close_worktree",
-        description: "Close a worktree: 'merge' opens a PR via gh, 'discard' removes it, 'leave_open' is a no-op marker. Confirm with the user before merge/discard.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            action: { type: "string", enum: ["merge", "discard", "leave_open"] },
-            pr_title: { type: "string" },
-            pr_body: { type: "string" }
-          },
-          required: ["id", "action"]
-        }
       }
     );
   }
@@ -211,17 +235,17 @@ async function discoverTools() {
 async function dispatchTool(name, input) {
   if (name === "classify_tier") return callClassifyTier(input);
   if (name === "run_tests") return callRunTests(input);
+  if (name === "record_improver_feedback") return callRecordImproverFeedback(input);
   if (name === "list_automations") return callListAutomations(input);
   if (name === "run_automation") return callRunAutomation(input);
+  if (name === "fetch_evidence") return callFetchEvidence(input);
+  if (name === "create_continuation") return callCreateContinuation(input);
+  if (name === "poll_origin_events") return callPollOriginEvents(input);
   if (name === "talk_to") return callTalkTo(input);
   if (name === "wait_for") return callWaitFor(input);
   if (name === "list_active_sessions") return callListActiveSessions(input);
   if (name === "end_session") return callEndSession(input);
   if (name === "list_workdirs") return callListWorkdirs(input);
-  if (name === "list_worktrees") return callListWorktrees(input);
-  if (name === "create_worktree") return callCreateWorktree(input);
-  if (name === "get_worktree") return callGetWorktree(input);
-  if (name === "close_worktree") return callCloseWorktree(input);
   throw new Error(`unknown tool: ${name}`);
 }
 
@@ -295,7 +319,7 @@ async function runStdio() {
 // ─────────────────────────────────────────── subcommand: http
 async function runHttp(argv) {
   const flags = parseFlags(argv);
-  const port = Number(flags.port ?? 9876);
+  const port = Number(flags.port ?? 29876);
   const token = flags.token ?? "";
   const host = flags.host ?? "0.0.0.0";
 

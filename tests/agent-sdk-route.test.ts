@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 // @ts-ignore — pure .mjs
-import { resolveRoute } from "../fittings/seed/model-router/lib/routing-core.mjs";
+import { resolveRoute } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 // @ts-ignore
 import { assertRouteCapability, capabilityRecord, CapabilityError } from "../fittings/seed/agent-sdk-runtime/lib/providers.mjs";
 

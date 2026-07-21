@@ -1,0 +1,123 @@
+name: dispatcher
+version: 0.1.0
+description: >-
+  The Dispatcher — a DUTY (id: dispatch) that replaces the tier classifier
+  (MARATHON-V3 D6). Reads an inbound task plus the composition's selected duties
+  and levels, and picks a (duty, level) with a confidence note via ONE single-shot
+  structured garrison-call on a small fast model. Logs routing evidence
+  {messageDigest, duty, level, reason} to the decisions log. An explicit "run at
+  level N" instruction, or a card-level field, always overrides the pick.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  # Faculty `gateway`: the Dispatcher is the pre-routing brain the gateway
+  # consults on every inbound message — the direct successor to the classifier
+  # session RoutedGateway.classify() owned. It provides kind:duty (name:dispatch),
+  # discovered by the Resolver regardless of faculty (the `dispatch` readiness
+  # rule checks the duty id, not the role); `gateway` accepts the `script` shape
+  # and is multi, so it coexists with http-gateway. `modes` was rejected: it is
+  # single/system-prompt (no `script`) and is being retired this run.
+  faculty: gateway
+  cardinality_hint: single
+  component_shape: script
+  platforms:
+    - all
+  summary: >-
+    The routing brain, duties-and-levels edition. One single-shot STRUCTURED
+    garrison-call on a small fast model turns a message + the composition's
+    selected duties/levels into a (duty, level) + confidence. Code clamps
+    out-of-vocab picks, applies human "run at level N" / card overrides, and logs
+    {messageDigest, duty, level, reason} evidence — never the raw message. Not a
+    primary, not a session: the model only classifies, code resolves.
+  config_schema:
+    - key: dispatch_provider
+      type: string
+      default: ollama-local
+      description: garrison-call named provider the default dispatch cell calls (anthropic | ollama-local | deepseek | zai-glm | openai).
+    - key: dispatch_shape
+      type: string
+      default: ollama
+      description: garrison-call wire shape for the dispatch call (anthropic | openai | ollama).
+    - key: dispatch_model
+      type: string
+      default: qwen2.5:3b
+      description: The small fast model the default dispatch cell runs on.
+    - key: dispatch_max_tokens
+      type: integer
+      default: 256
+      description: Output token cap for the single-shot dispatch call (a JSON object is small).
+    - key: dispatch_timeout_ms
+      type: integer
+      default: 30000
+      description: Per-call timeout in milliseconds for the dispatch call.
+    - key: evidence_file
+      type: path
+      default: .garrison/decisions.jsonl
+      description: Decisions log (relative to the composition dir) the routing-evidence JSONL line is appended to.
+    - key: dispatch_clarity_rubric
+      type: string
+      default: >-
+        Judge whether the ask carries enough to plan against - a clear goal, a scope, and any hard
+        constraints. When the goal or scope is missing or vague, it is needs-discuss; otherwise clear.
+      description: The editable rubric folded into the dispatch prompt's clarity line (S3d) - how to judge whether an ask is specified enough to plan against, or needs a scope discussion first.
+  provides:
+    - kind: duty
+      name: dispatch
+  consumes:
+    # Optional: a keyed dispatch provider (non-loopback) needs its secret
+    # materialized; a local Ollama model needs none, so optional-one.
+    - kind: vault
+      cardinality: optional-one
+  # The dispatch duty. ONE leaf level whose cell is a garrison-call target on a
+  # small fast model (the default cell). No `skill` on the cell — it is an
+  # automation/routing cell (single-shot garrison-call), not an agent-loop skill,
+  # so it is exempt from the skill-needs-agentic-target rule and may target the
+  # single-shot garrison-call engine. The composition binds `dispatch-fast` to a
+  # concrete garrison-call target on its small fast model.
+  duties:
+    - id: dispatch
+      title: Dispatch
+      description: Read an inbound task and route it to the right duty and level.
+      levels:
+        - description: >-
+            Single-shot structured classification of the task into (duty, level) on a small fast
+            model — the default dispatch cell.
+          cell:
+            target: dispatch-fast
+            effort: low
+  verify:
+    command: node apm_modules/_local/dispatcher/scripts/dispatch.mjs --probe
+    expect: ok
+    timeout_ms: 15000
+  for_consumers: |
+    THE DISPATCHER (kind:duty, name:dispatch) — the tier classifier's successor.
+    It turns a message into a (duty, level) using the composition's OWN duties, so
+    adding a duty needs no Dispatcher change.
+
+    Input (the resolved model + the message):
+      model = { duties, selectedDuties }   # from the Resolver (src/lib/resolver.ts)
+      message = the inbound task string
+
+    Output:
+      { duty, level, confidence, reason, overridden, overrideSource, evidence }
+      - duty/level:   the pick, resolved to a leaf cell by resolveSequence(duty, level)
+      - confidence:   low | medium | high
+      - evidence:     { kind:"dispatch", at, messageDigest, duty, level, reason }
+                      logged to the decisions log — the RAW message is never stored
+
+    Mechanism: ONE single-shot STRUCTURED garrison-call on a small fast model
+    (never a primary, no session). Code — not the model — clamps an out-of-vocab
+    pick to the standard slot and applies the human override.
+
+    HUMAN OVERRIDE (always wins over the pick): an explicit "run at level N" in the
+    message, or a card-level `level` field. The duty is kept; only the level (depth)
+    is overridden, clamped into the duty's real range.
+
+    PARITY: buildDispatchPrompt/parseDispatch mirror the classifier's
+    buildClassifierPrompt/parseClassification; the (duty, level) resolves through
+    the migrated duties model to the SAME (runtime, model, effort) the old
+    (task-type, tier) matrix produced (tests/dispatcher-parity.test.ts, the full
+    seed matrix). The dedicated classifier session is RETAINED as the documented
+    live default pending a live classification-accuracy confirmation (D6:
+    retirement is not forced).

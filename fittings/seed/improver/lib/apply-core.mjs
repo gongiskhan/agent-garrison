@@ -15,6 +15,13 @@ export function shaOf(content) {
   return `sha256:${createHash("sha256").update(content ?? "").digest("hex")}`;
 }
 
+// The single source of truth for what "applied" looks like on disk - any
+// caller that needs to detect whether a proposal's marked block survived
+// (e.g. the reapply sweep) must use this, not re-derive the literal.
+export function markerFor(proposalId) {
+  return `<!-- improver:${proposalId} -->`;
+}
+
 export async function readTarget(targetFile) {
   let content = "";
   try {
@@ -29,7 +36,7 @@ export async function readTarget(targetFile) {
 // from the proposal diff's "+" lines. Idempotent — re-applying the same proposal
 // id is a no-op (the marker is already present).
 export function buildNewContent(baseContent, proposal) {
-  const marker = `<!-- improver:${proposal.id} -->`;
+  const marker = markerFor(proposal.id);
   if (baseContent.includes(marker)) return baseContent;
   const additions = String(proposal.diff || "")
     .split("\n")

@@ -1,0 +1,11 @@
+{
+  "viewport": "390x844 (iPhone-class, over Tailscale)",
+  "surfaces": {
+    "home": { "horizontalOverflowPx": 0, "ok": true },
+    "compose": { "horizontalOverflowPx": 0, "ok": true },
+    "quarters": { "horizontalOverflowPx": 0, "ok": true },
+    "vault": { "horizontalOverflowPx": 0, "ok": true, "note": "was 42px; fixed by wrapping the materialization table in overflow-x:auto" }
+  },
+  "screenshots": ["narrow-home.png", "narrow-compose.png", "narrow-quarters.png", "narrow-vault.png"],
+  "allPass": true
+}

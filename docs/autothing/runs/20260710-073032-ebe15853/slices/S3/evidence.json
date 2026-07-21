@@ -1,0 +1,121 @@
+{
+  "slice": "S3",
+  "view": "Orchestrator Composer",
+  "project": "agent-garrison",
+  "mode": "evidence",
+  "video": "evidence.mp4",
+  "recordedAt": "2026-07-10T11:49:18.039Z",
+  "sandbox": "Booted sandboxed per tests/e2e/orchestrator-view.spec.ts: ORCHESTRATOR_CONFIG=temp copy of routing.seed.json, ORCHESTRATOR_PORT/IMPROVER_PORT=free, GARRISON_HOME=temp. Improver seeded with GARRISON_RUNS_DIR of 3 evidence-index fixtures (2 test-failed + 1 passed) + POST /api/run-now -> 1 orchestrator-policy ghost proposal surfaced via the composer's /ghost-edits proxy.",
+  "note": "AC-1..AC-7 at desktop viewport 1280x2960; AC-8 at iPhone viewport 390x844 letterboxed into the same canvas (viewport-emulated). AC-2's drag driven off-camera (the walkthrough recorder has no drag action) as a real dnd-kit pointer drag; the video shows the persisted cell + recompiled policy.json.",
+  "gate": {
+    "perBeatVision": "pass (8/8)",
+    "inlineAsserts": "pass (8/8)",
+    "holisticVideoGate": "skipped (evidence mode)"
+  },
+  "criteria": [
+    {
+      "criterionId": "AC-1",
+      "beat": "ac1",
+      "caption": "AC-1 - four surfaces: tray, 18x3 matrix, rails, try-it",
+      "timestamp": {
+        "tStart": 0.665,
+        "tMid": 1.679,
+        "tEnd": 2.692
+      },
+      "frame": "frames/beat-00-ac1.png",
+      "assert": "On load: waited for .ghosts, .tray .tcard, table.matrix tbody tr, the full-feature .rail, and .tryit-input; asserted .tryit-input visible. All four surfaces (tray, 18x3 matrix, rails, try-it) render.",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-2",
+      "beat": "ac2",
+      "caption": "AC-2 - drag set implement x T2-deep to cc-sonnet-med",
+      "timestamp": {
+        "tStart": 2.692,
+        "tMid": 4.092,
+        "tEnd": 8.533
+      },
+      "frame": "frames/beat-01-ac2.png",
+      "assert": "A real dnd-kit pointer drag (mouse down on cc-sonnet-med .tcard-grab, move >6px, over the implement x T2-deep cell, mouse up) was driven off-camera via Playwright and returned PUT /routing 200. On camera: asserted the implement row, T2-deep cell now reads target model 'sonnet' (cc-sonnet-med), highlighted.",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-3",
+      "beat": "ac3",
+      "caption": "AC-3 - the drop recompiled policy.json (model sonnet)",
+      "timestamp": {
+        "tStart": 8.533,
+        "tMid": 9.933,
+        "tEnd": 11.333
+      },
+      "frame": "frames/beat-02-ac3.png",
+      "assert": "Evidence panel of policy.json matrix.implement['T2-deep'] (the compiled document the gateway reads). highlight.match \"model\": \"sonnet\" present -> the drop autosaved and recompiled policy to cc-sonnet-med.",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-4",
+      "beat": "ac4",
+      "caption": "AC-4 - effort dial retuned cc-haiku-low to medium",
+      "timestamp": {
+        "tStart": 12.641,
+        "tMid": 14.041,
+        "tEnd": 17.87
+      },
+      "frame": "frames/beat-03-ac4.png",
+      "assert": "Clicked the 'medium' effort segment on the cc-haiku-low target card; asserted the card's active dial segment (.dial .seg.on) now reads 'medium' (autosaved; status pill showed 'saved').",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-5",
+      "beat": "ac5",
+      "caption": "AC-5 - toggled test off in api-change (dimmed, still shown)",
+      "timestamp": {
+        "tStart": 17.87,
+        "tMid": 19.27,
+        "tEnd": 26.068
+      },
+      "frame": "frames/beat-04-ac5.png",
+      "assert": "Clicked the 'test' phase chip toggle in the api-change (non-default) rail; asserted that chip is now .chip.off (dimmed) while still present in the rail - off, never hidden.",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-6",
+      "beat": "ac6",
+      "caption": "AC-6 - dry-run resolved the full rail",
+      "timestamp": {
+        "tStart": 26.068,
+        "tMid": 27.468,
+        "tEnd": 31.526
+      },
+      "frame": "frames/beat-05-ac6.png",
+      "assert": "Filled the try-it input with 'implement a login page with tests' and clicked Dry run; asserted .tryit-out contains the kind/tier/type pills (kind: full-feature, tier: T1-standard, type: implement, interactive) above a resolved .tryit-rail of per-phase chips each carrying a skill + model/effort/runtime target.",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-7",
+      "beat": "ac7",
+      "caption": "AC-7 - Improver proposals: nothing auto-applies",
+      "timestamp": {
+        "tStart": 31.526,
+        "tMid": 32.926,
+        "tEnd": 38.733
+      },
+      "frame": "frames/beat-06-ac7.png",
+      "assert": "Asserted the Improver proposals panel (.ghosts) shows 1 pending orchestrator-policy proposal (test gate failed in 2/3 full-feature runs) with Accept and Dismiss actions and the text 'review before applying'. Accept was NOT clicked (nothing auto-applies).",
+      "result": "pass"
+    },
+    {
+      "criterionId": "AC-8",
+      "beat": "ac8",
+      "caption": "AC-8 - iPhone 390x844: matrix scrolls in its own container",
+      "timestamp": {
+        "tStart": 39.371,
+        "tMid": 40.771,
+        "tEnd": 47.266
+      },
+      "frame": "frames/beat-07-ac8.png",
+      "assert": "iPhone viewport 390x844: asserted the T0-trivial matrix column header inside .matrix-scroll; verified (Playwright metrics) document.body.scrollWidth==390==innerWidth (no page horizontal overflow) while .matrix-scroll scrollWidth 569 > clientWidth 356 (the matrix scrolls in its own container). Recorded at 390x844, letterboxed into the shared 1280x2960 canvas.",
+      "result": "pass"
+    }
+  ]
+}

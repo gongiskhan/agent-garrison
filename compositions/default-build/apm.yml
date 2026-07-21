@@ -1,0 +1,727 @@
+name: dogfood-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/agent-sdk-runtime
+    - path: ../../fittings/seed/automations
+    - path: ../../fittings/seed/basic-memory
+    - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/claude-code-runtime
+    - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/deepgram-voice
+    - path: ../../fittings/seed/dev-env
+    - path: ../../fittings/seed/file-browser
+    - path: ../../fittings/seed/garrison-assistant
+    - path: ../../fittings/seed/gemini-runtime
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/identity-gary
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/orchestrator
+    - path: ../../fittings/seed/outpost-tailscale-host
+    - path: ../../fittings/seed/ports-default
+    - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/scheduler
+    - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/slack-channel
+    - path: ../../fittings/seed/snapshots-default
+    - path: ../../fittings/seed/taste
+    - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/vault-git-sync
+    - path: ../../fittings/seed/web-channel-default
+x-garrison:
+  composition:
+    schema: 4
+    id: default-build
+    name: Dogfood Operative (build)
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 10
+        max_spend_per_day: 250
+        max_tool_calls_per_tick: 300
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      orchestrator:
+        - id: orchestrator
+          config:
+            port: 7087
+            bind_host: 127.0.0.1
+      channels:
+        - id: slack-channel
+          config:
+            slack_port: 9512
+            gateway_url: http://127.0.0.1:4777
+            chat_timeout_ms: 600000
+        - id: web-channel-default
+          config:
+            port: 7083
+            bind_host: 127.0.0.1
+            gateway_url: ''
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+      runtimes:
+        - id: claude-code-runtime
+          config: {}
+        - id: codex-runtime
+          config: {}
+        - id: gemini-runtime
+          config: {}
+        - id: opencode-runtime
+          config: {}
+        - id: agent-sdk-runtime
+          config:
+            provider: ollama-local
+            model: ''
+            promptMode: full
+            maxTurns: 12
+      design:
+        - id: taste
+          config: {}
+      memory:
+        - id: basic-memory
+          config:
+            vault_dir: ~/ObsidianVault
+            memory_dir: Memory
+            project_name: main
+            capture_enabled: true
+            register_codex_gemini: false
+      observability:
+        - id: monitor-default
+          config:
+            port: 7077
+            bind_host: 127.0.0.1
+            poll_interval_ms: 1000
+            log_retention_hours: 24
+        - id: automations
+          config:
+            port: 7090
+            bind_host: 127.0.0.1
+        - id: improver
+          config:
+            port: 7093
+            bind_host: 127.0.0.1
+            cron: 30 3 * * *
+            vault_dir: ~/ObsidianVault
+            memory_primary: true
+            checkpoint_retention_days: 14
+            dream_model: haiku
+        - id: scheduler
+          config:
+            jobs_file: ~/.garrison/scheduler-jobs.json
+            log_file: ~/.garrison/scheduler.log
+            health_port: 7099
+        - id: kanban-loop
+          config:
+            board_dir: ~/.garrison/kanban-loop
+            iteration_cap: 10
+            test_beat_cron: 0 */5 * * *
+      sessions:
+        - id: garrison-assistant
+          config:
+            port: 7095
+            bind_host: 127.0.0.1
+        - id: dev-env
+          config:
+            port: 7086
+            bind_host: 127.0.0.1
+        - id: file-browser
+          config:
+            port: 7091
+            bind_host: 127.0.0.1
+            root: ~/.garrison/files
+        - id: vault-git-sync
+          config:
+            cron: 0 4 * * *
+            vault_dir: ~/ObsidianVault
+        - id: snapshots-default
+          config:
+            projects_root: ~/dev
+      surfaces:
+        - id: screen-share-default
+          config:
+            port: 7079
+            bind_host: 127.0.0.1
+        - id: browser-default
+          config:
+            port: 7084
+            bind_host: 127.0.0.1
+            viewport_width: 1600
+            viewport_height: 1200
+            jpeg_quality: 70
+            every_nth_frame: 1
+        - id: ports-default
+          config:
+            port: 7088
+            bind_host: 127.0.0.1
+            scan_interval_ms: 5000
+        - id: power-default
+          config:
+            port: 7092
+            bind_host: 127.0.0.1
+            idle_minutes: 30
+            load_threshold: 1
+        - id: outpost-tailscale-host
+          config:
+            port: 7082
+            bind_host: 127.0.0.1
+            outpost_host_url: http://127.0.0.1:3702
+      modes:
+        - id: identity-gary
+          config:
+            user_name: the user
+      connectors:
+        - id: deepgram-voice
+          config:
+            port: 7085
+            bind_host: 127.0.0.1
+            stt_model: nova-2
+            tts_model: aura-asteria-en
+        - id: trello
+          config:
+            board_id: vl1Z8KFH
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+      soul: .garrison/prompts/soul.md
+    duties:
+      - id: code
+        title: Code
+        description: Code work (migrated from routing task-type "code")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sdk-ollama-build
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: other
+        title: Other
+        description: Other work (migrated from routing task-type "other")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sdk-ollama-build
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: research
+        title: Research
+        description: Research work (migrated from routing task-type "research")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: plan
+        title: Plan
+        description: Plan work (migrated from routing task-type "plan")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: implement
+        title: Implement
+        description: Implement work (migrated from routing task-type "implement")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: review
+        title: Review
+        description: Review work (migrated from routing task-type "review")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sdk-ollama-build
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: sec-codex
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: sec-codex
+      - id: test
+        title: Test
+        description: Test work (migrated from routing task-type "test")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: image
+        title: Image
+        description: Image work (migrated from routing task-type "image")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sec-gemini
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: sec-gemini
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: sec-gemini
+      - id: video
+        title: Video
+        description: Video work (migrated from routing task-type "video")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-opus
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-opus
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: writing
+        title: Writing
+        description: Writing work (migrated from routing task-type "writing")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sdk-ollama-build
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: ops
+        title: Ops
+        description: Ops work (migrated from routing task-type "ops")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sdk-ollama-build
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: adversarial-review
+        title: Adversarial Review
+        description: Adversarial Review work (migrated from routing task-type "adversarial-review")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: adversarial-test
+        title: Adversarial Test
+        description: Adversarial Test work (migrated from routing task-type "adversarial-test")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: ux-qa
+        title: Ux Qa
+        description: Ux Qa work (migrated from routing task-type "ux-qa")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: walkthrough
+        title: Walkthrough
+        description: Walkthrough work (migrated from routing task-type "walkthrough")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: validate
+        title: Validate
+        description: Validate work (migrated from routing task-type "validate")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: codex-checkpoint
+        title: Codex Checkpoint
+        description: Codex Checkpoint work (migrated from routing task-type "codex-checkpoint")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: report
+        title: Report
+        description: Report work (migrated from routing task-type "report")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: cc-opus
+              effort: low
+      - id: probe-question
+        title: Probe Question
+        description: Probe Question work (migrated from routing task-type "probe-question")
+        levels:
+          - description: >-
+              trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
+              lookup, a one-line config tweak.
+            cell:
+              target: sdk-ollama-probe
+              effort: low
+          - description: >-
+              standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
+              refactor, a normal review.
+            cell:
+              target: sdk-ollama-probe
+              effort: low
+          - description: >-
+              deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
+              cause, a security-sensitive change, a multi-subsystem migration.
+            cell:
+              target: sdk-ollama-probe
+              effort: low
+    selected_duties:
+      - code
+      - other
+      - research
+      - review
+      - image
+      - video
+      - writing
+      - ops
+      - probe-question
+    targets:
+      - id: cc-haiku
+        runtime: claude-code
+        model: haiku
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+      - id: cc-ollama-qwen
+        runtime: claude-code
+        model: qwen2.5-coder
+        provider: ollama-local
+        params:
+          type: runtime-target
+      - id: cc-ollama-deepseek
+        runtime: claude-code
+        model: deepseek-coder-v2
+        provider: ollama-local
+        params:
+          type: runtime-target
+      - id: sec-gemini
+        runtime: gemini
+        model: gemini-2.5-flash
+        params:
+          type: secondary
+      - id: sec-codex
+        runtime: codex
+        model: gpt-5-codex
+        params:
+          type: secondary
+      - id: classifier
+        runtime: claude-code
+        model: haiku
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+          pinned: true
+      - id: sdk-ollama-chat
+        runtime: agent-sdk
+        model: qwen3:0.6b
+        provider: ollama-local
+        params:
+          type: runtime-target
+          promptMode: lean
+      - id: sdk-ollama-build
+        runtime: agent-sdk
+        model: qwen2.5-coder:7b
+        provider: ollama-local
+        params:
+          type: runtime-target
+          promptMode: lean
+          maxTurns: 2
+          leanPrompt: >-
+            You output JavaScript source code ONLY, as a single fenced code block. Example request:
+            "a function add that sums two numbers". Example reply (this exact shape, nothing else):
+
+            ```js
+
+            export function add(a, b) {
+              return a + b;
+            }
+
+            ```
+
+            Rules: reply with ONLY one ```js fenced block containing the implementation. Never
+            output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
+            tool. No prose before or after. No imports unless explicitly requested.
+      - id: cc-opus
+        runtime: claude-code
+        model: opus
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+      - id: cc-sonnet
+        runtime: claude-code
+        model: sonnet
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+      - id: sdk-haiku
+        runtime: agent-sdk
+        model: claude-haiku-4-5
+        provider: anthropic
+        params:
+          type: runtime-target
+          authMode: api-key
+      - id: sdk-ollama-probe
+        runtime: agent-sdk
+        model: qwen2.5:3b
+        provider: ollama-local
+        params:
+          type: runtime-target
+          promptMode: lean
+      - id: sol
+        runtime: codex
+        model: gpt-5.6-sol
+        provider: anthropic
+        params:
+          type: secondary
+          authMode: api-key
+      - id: fable
+        runtime: claude-code
+        model: claude-fable-5
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+          authMode: subscription
+      - id: opus
+        runtime: claude-code
+        model: claude-opus-4.8
+        provider: anthropic-plan
+        params:
+          type: runtime-target
+          authMode: subscription

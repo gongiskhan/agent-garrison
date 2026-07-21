@@ -24,6 +24,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
     library,
     runnerState,
     saveComposition,
+    refreshLibrary,
     busy,
     openFittingEditor
   } = useAppShell();
@@ -121,6 +122,18 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
     void saveComposition({ selections });
   }
 
+  // Clone a library Fitting into the local namespace. On success the registry
+  // is refetched so the new copy appears as its own selectable card in the same
+  // Faculty. Throws on failure so the card can surface the error inline.
+  async function cloneEntry(entry: LibraryEntry): Promise<void> {
+    const res = await fetch(`/api/fittings/${encodeURIComponent(entry.id)}/clone`, {
+      method: "POST"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `Clone failed (${res.status})`);
+    await refreshLibrary();
+  }
+
   function updateConfig(
     entry: LibraryEntry,
     key: string,
@@ -141,7 +154,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
         <Link href="/compose">Compose</Link> · <b>{faculty.name}</b>
       </div>
       <div className="page narrow">
-        <header style={{ padding: "8px 0 22px", borderBottom: "1px solid var(--rule)", marginBottom: 26 }}>
+        <header style={{ padding: "6px 0 18px", borderBottom: "1px solid var(--rule)", marginBottom: 22 }}>
           <div
             className="font-mono"
             style={{
@@ -159,7 +172,13 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           </div>
           <h1
             className="font-display"
-            style={{ fontWeight: 600, fontSize: 40, letterSpacing: "-0.014em", lineHeight: 1.04, margin: "0 0 12px" }}
+            style={{
+              fontWeight: 600,
+              fontSize: "clamp(26px, 2.6vw, 34px)",
+              letterSpacing: "-0.014em",
+              lineHeight: 1.08,
+              margin: "0 0 10px"
+            }}
           >
             {faculty.name}
           </h1>
@@ -178,26 +197,16 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           <div className="banner alarm">
             <span className="glyph">!</span>
             <div>
-              <h5>This station is empty — the Operative is running on a stub</h5>
+              <h5>Station empty — running on a stub</h5>
               <p>
-                v1 of Garrison ships without a reference Orchestrator Fitting. Until the Runtime SDK
-                milestone lands one, the runner concatenates a minimal default. See{" "}
+                No reference Orchestrator Fitting ships in v1; the runner uses a minimal default. See{" "}
                 <code>fittings/seed/README.md</code>.
               </p>
             </div>
           </div>
         ) : null}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 1,
-            background: "var(--rule)",
-            border: "1px solid var(--rule)",
-            marginBottom: isAlarm ? 28 : 32
-          }}
-        >
+        <div className="station-cells" style={{ marginBottom: isAlarm ? 28 : 32 }}>
           <Cell label="Cardinality">
             {faculty.cardinality}
             {faculty.cardinality === "single" && faculty.governing ? (
@@ -234,11 +243,10 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
             }}
           >
             <div className="font-display" style={{ fontWeight: 600, fontSize: 18, marginBottom: 4 }}>
-              No Fittings curated for this Faculty yet
+              No Fittings curated for {faculty.name} yet
             </div>
             <p style={{ color: "var(--mute)", fontSize: 13, margin: "0 0 14px" }}>
-              The registry doesn&apos;t have an entry for {faculty.name} in v1. Add one through{" "}
-              <code>CONTRIBUTING.md</code>, or search the Composition for Fittings in other Faculties.
+              Add one through <code>CONTRIBUTING.md</code>, or search for Fittings in other Faculties.
             </p>
             <Link className="btn ghost small" href="/compose">
               Search all Fittings →
@@ -265,6 +273,7 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
                   }
                   onRemove={() => removeSelection(entry.id)}
                   onEdit={() => openFittingEditor(entry)}
+                  onClone={() => cloneEntry(entry)}
                 />
               );
             })}
@@ -288,10 +297,6 @@ export function FacultyStation({ facultyId }: { facultyId: FacultyId }) {
           <OrchestratorGlobalConfig
             globalConfig={composition.globalConfig}
             onChange={(globalConfig) => void saveComposition({ globalConfig })}
-            runtimeOptions={(composition.selections.runtimes ?? []).map((sel) => ({
-              id: sel.id,
-              name: library.find((e) => e.id === sel.id)?.name ?? sel.id
-            }))}
             busy={busy}
           />
         ) : null}
@@ -484,7 +489,8 @@ function FittingCard({
   library,
   onSelect,
   onRemove,
-  onEdit
+  onEdit,
+  onClone
 }: {
   entry: LibraryEntry;
   selected: boolean;
@@ -495,8 +501,24 @@ function FittingCard({
   onSelect: () => void;
   onRemove: () => void;
   onEdit: () => void;
+  onClone: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [cloning, setCloning] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
+
+  async function handleClone() {
+    if (cloning) return;
+    setCloning(true);
+    setCloneError(null);
+    try {
+      await onClone();
+    } catch (err) {
+      setCloneError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCloning(false);
+    }
+  }
   return (
     <article
       style={{
@@ -533,6 +555,25 @@ function FittingCard({
             >
               {entry.metadata.component_shape}
             </span>
+            {entry.cloned_from ? (
+              <span
+                className="font-mono"
+                title={`Cloned from ${entry.cloned_from}`}
+                style={{
+                  marginLeft: 6,
+                  fontSize: 10,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "var(--brass)",
+                  border: "1px solid var(--brass)",
+                  padding: "2px 6px",
+                  fontWeight: 500,
+                  verticalAlign: "middle"
+                }}
+              >
+                clone
+              </span>
+            ) : null}
           </div>
           <p style={{ color: "var(--mute)", fontSize: 13, lineHeight: 1.5, marginTop: 4, maxWidth: 540 }}>
             {entry.summary}
@@ -598,6 +639,21 @@ function FittingCard({
               ) : null}
             </>
           )}
+          {entry.localPath ? (
+            <button
+              className="btn small ghost"
+              onClick={handleClone}
+              disabled={cloning}
+              title="Copy this Fitting into a local, editable copy"
+            >
+              {cloning ? "Cloning…" : "Clone"}
+            </button>
+          ) : null}
+          {cloneError ? (
+            <span style={{ fontSize: 10.5, color: "var(--alarm)", maxWidth: 180, textAlign: "right" }}>
+              {cloneError}
+            </span>
+          ) : null}
         </div>
       </div>
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--rule)", display: "flex", alignItems: "center", gap: 12 }}>
@@ -760,12 +816,10 @@ function ConfigInput({
 function OrchestratorGlobalConfig({
   globalConfig,
   onChange,
-  runtimeOptions,
   busy
 }: {
   globalConfig: GlobalConfig;
   onChange: (g: GlobalConfig) => void;
-  runtimeOptions: { id: string; name: string }[];
   busy: string | null;
 }) {
   return (
@@ -774,25 +828,14 @@ function OrchestratorGlobalConfig({
       <div style={{ border: "1px solid var(--rule)", background: "white", padding: "4px 18px" }}>
         <div className="field">
           <label>primary_runtime</label>
-          <select
-            className="text"
-            value={globalConfig.primary_runtime ?? ""}
-            onChange={(e) =>
-              onChange({ ...globalConfig, primary_runtime: e.target.value || undefined })
-            }
-            disabled={Boolean(busy)}
-          >
-            <option value="">Default — Claude Code runtime</option>
-            {runtimeOptions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
           <div className="hint">
-            Which composed runtime hosts the orchestrator. Leave as Default for the
-            Claude Code engine; other composed runtimes become model-router targets.
-            Pick a runtime&apos;s provider on its own card to run it on Ollama / DeepSeek / Z.ai.
+            Set from the Muster Fittings tab&apos;s Primary picker now, not here.
+            {globalConfig.primary_runtime ? (
+              <>
+                {" "}This composition still carries a deprecated value
+                (&quot;{globalConfig.primary_runtime}&quot;); the policy file wins.
+              </>
+            ) : null}
           </div>
         </div>
         <div className="field">

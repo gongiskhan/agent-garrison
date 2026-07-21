@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 # Set these for your install (Environment lines or an EnvironmentFile):
 #   Environment=SCHEDULER=/abs/path/to/scheduler.mjs
-#   Environment=GARRISON_SCHEDULER_HEALTH_PORT=7088
+#   Environment=GARRISON_SCHEDULER_HEALTH_PORT=27099
 ExecStart=/usr/bin/env node ${SCHEDULER} daemon --health-port ${GARRISON_SCHEDULER_HEALTH_PORT}
 Restart=always
 RestartSec=3

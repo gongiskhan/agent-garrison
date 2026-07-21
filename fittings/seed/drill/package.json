@@ -1,0 +1,12 @@
+{
+  "name": "garrison-drill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Drill fitting for Agent Garrison — visual, agent-driven QA.",
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "@medv/finder": "^4.0.2",
+    "css-selector-generator": "^3.9.2"
+  }
+}

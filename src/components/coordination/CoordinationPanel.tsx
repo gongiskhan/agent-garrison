@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import styles from "./CoordinationPanel.module.css";
 
 // Read-only Coordination view. Renders the SINGLE coordination-state source
 // (GET /api/coordination/status, which runs the same `coord state --json` the CLI
@@ -85,7 +86,9 @@ const T = {
 };
 
 const VERDICT = {
-  "live-and-used": { label: "LIVE & IN USE", glyph: "●", bg: "var(--sage-soft)", border: "var(--sage)", fg: "var(--sage-2)" },
+  // fg is the deep --sage, not --sage-2: the lighter tone only reached ~3.4:1
+  // against --sage-soft, which fails AA for the verdict label and glyph.
+  "live-and-used": { label: "LIVE & IN USE", glyph: "●", bg: "var(--sage-soft)", border: "var(--sage)", fg: "var(--sage)" },
   idle: { label: "LIVE (IDLE)", glyph: "○", bg: "var(--paper-2)", border: "var(--rule-2)", fg: "var(--mute)" },
   degraded: { label: "DEGRADED", glyph: "▲", bg: "var(--warn-soft)", border: "var(--brass)", fg: "var(--brass)" },
   down: { label: "DOWN", glyph: "■", bg: "var(--alarm-soft)", border: "var(--alarm)", fg: "var(--alarm)" },
@@ -99,7 +102,7 @@ const monoLabel: React.CSSProperties = {
   textTransform: "uppercase",
   color: T.mute
 };
-const card: React.CSSProperties = { background: "#fff", border: `1px solid ${T.rule}`, padding: "16px 18px", marginTop: 12 };
+const card: React.CSSProperties = { background: "var(--surface)", border: `1px solid ${T.rule}`, padding: "18px 20px" };
 const dot = (color: string): React.CSSProperties => ({ display: "inline-block", width: 8, height: 8, borderRadius: 0, background: color, marginRight: 8 });
 
 function shortId(id: string) {
@@ -201,19 +204,23 @@ export function CoordinationPanel() {
         <b>Coordination</b>
       </div>
       <div className="page">
-        <div className="head">
-          <h1>Coordination</h1>
-          <p className="ld">
-            Is cross-session coordination actually working right now — and who is about to step on whom? One read-only
-            view over the unified state the CLI (<code>coord status</code>) and the agent digest also use.
+        <header className={styles.header}>
+          <div>
+            <span className={styles.eyebrow}>Shared ground</span>
+            <h1>Coordination</h1>
+          </div>
+          <p>
+            One operational picture of current sessions, planning locks, file
+            leases, and the hook chain that keeps concurrent work apart.
           </p>
-        </div>
+        </header>
 
         {/* HERO VERDICT — the one-second answer */}
         <div
+          className={styles.verdict}
           data-testid="hero-verdict"
           data-verdict={loadError ? "unknown" : state?.heroVerdict?.overall ?? "unknown"}
-          style={{ background: verdict.bg, border: `1px solid ${verdict.border}`, padding: "18px 20px", marginTop: 4, display: "flex", gap: 14, alignItems: "flex-start" }}
+          style={{ background: verdict.bg, borderColor: verdict.border }}
         >
           <span style={{ fontSize: 26, lineHeight: 1, color: verdict.fg }} aria-hidden>
             {verdict.glyph}
@@ -226,7 +233,7 @@ export function CoordinationPanel() {
               ))}
             </ul>
           </div>
-          <button onClick={refresh} style={ghostBtn} disabled={busy !== null}>
+          <button className="btn ghost" onClick={refresh} disabled={busy !== null}>
             Refresh
           </button>
         </div>
@@ -238,13 +245,14 @@ export function CoordinationPanel() {
           </div>
         ) : null}
 
+        <div className={styles.coordGrid}>
         {/* LIVENESS */}
-        <section style={card}>
+        <section className={styles.card} style={card}>
           <div style={monoLabel}>Liveness</div>
           <div style={{ display: "flex", gap: 28, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
             <LiveDot label="agent_mail" l={live?.agentMail} />
             {live && !live.agentMail.up ? (
-              <button onClick={restartAgentMail} disabled={busy !== null} style={ghostBtn}>
+              <button className="btn small ghost" onClick={restartAgentMail} disabled={busy !== null}>
                 {busy === "restart" ? "Restarting…" : "Restart agent_mail"}
               </button>
             ) : null}
@@ -252,7 +260,7 @@ export function CoordinationPanel() {
         </section>
 
         {/* PLANNING GATE — the other hero element */}
-        <section style={card}>
+        <section className={`${styles.card} ${styles.planning}`} style={card}>
           <div style={monoLabel}>Planning gate</div>
           {(state?.locks ?? []).length === 0 ? (
             <p style={{ color: T.mute, fontSize: 13, marginTop: 8 }}>No repo is being planned right now.</p>
@@ -269,7 +277,7 @@ export function CoordinationPanel() {
                       <span style={{ color: T.sage }}>held {l.heldMinutes}m</span>
                     )}
                   </div>
-                  <button onClick={() => releaseLock(l.repo)} disabled={busy !== null} style={l.expired ? warnBtn : ghostBtn}>
+                  <button className={`btn small ${l.expired ? "danger" : "ghost"}`} onClick={() => releaseLock(l.repo)} disabled={busy !== null}>
                     {busy === `release:${l.repo}` ? "Releasing…" : "Release lock"}
                   </button>
                 </div>
@@ -287,7 +295,7 @@ export function CoordinationPanel() {
         </section>
 
         {/* SESSIONS */}
-        <section style={card}>
+        <section className={`${styles.card} ${styles.sessions}`} style={card}>
           <div style={monoLabel}>Active sessions (by repo)</div>
           {Object.keys(sessionsByRepo).length === 0 ? (
             <p style={{ color: T.mute, fontSize: 13, marginTop: 8 }}>No sessions active in the last few hours.</p>
@@ -317,7 +325,7 @@ export function CoordinationPanel() {
         </section>
 
         {/* RECENT DECISIONS & INTENTS */}
-        <section style={card}>
+        <section className={styles.card} style={card}>
           <div style={monoLabel}>Recent intents &amp; decisions</div>
           {(state?.recentIntents ?? []).length === 0 ? (
             <p style={{ color: T.mute, fontSize: 13, marginTop: 8 }}>Nothing recorded recently.</p>
@@ -331,7 +339,7 @@ export function CoordinationPanel() {
         </section>
 
         {/* FILE LEASES (channel 2) */}
-        <section style={card}>
+        <section className={styles.card} style={card}>
           <div style={monoLabel}>File leases (agent_mail)</div>
           {(state?.leases ?? []).length === 0 ? (
             <p style={{ color: T.mute, fontSize: 13, marginTop: 8 }}>No active file leases for this repo.</p>
@@ -346,7 +354,7 @@ export function CoordinationPanel() {
         </section>
 
         {/* HOOK HEARTBEAT + VERIFY */}
-        <section style={card}>
+        <section className={`${styles.card} ${styles.heartbeat}`} style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div>
               <div style={monoLabel}>Hook heartbeat</div>
@@ -359,13 +367,14 @@ export function CoordinationPanel() {
                 <p style={{ fontSize: 13, marginTop: 8, color: T.mute }}>No hook injections recorded yet.</p>
               )}
             </div>
-            <button onClick={runCanary} disabled={busy !== null} style={primaryBtn}>
+            <button className="btn primary" onClick={runCanary} disabled={busy !== null}>
               {busy === "canary" ? "Verifying…" : "Verify now"}
             </button>
           </div>
         </section>
+        </div>
 
-        <p style={{ ...monoLabel, marginTop: 14 }}>
+        <p className={styles.stateStamp} style={monoLabel}>
           {state?.timestamp ? `state @ ${new Date(state.timestamp).toLocaleTimeString()}` : ""}
           {state?.unreachable ? " · STATE SOURCE UNREACHABLE" : ""}
         </p>
@@ -387,7 +396,3 @@ function LiveDot({ label, l }: { label: string; l?: Liveness }) {
     </span>
   );
 }
-
-const ghostBtn: React.CSSProperties = { fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "6px 12px", background: "#fff", border: `1px solid ${T.rule}`, color: T.ink, cursor: "pointer" };
-const primaryBtn: React.CSSProperties = { ...ghostBtn, background: T.ink, color: T.paper, borderColor: T.ink };
-const warnBtn: React.CSSProperties = { ...ghostBtn, borderColor: T.alarm, color: T.alarm };

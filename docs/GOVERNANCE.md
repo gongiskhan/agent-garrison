@@ -149,10 +149,9 @@ target milestone, or `Out of scope` with a rationale.
 
 ## 6. License
 
-The license is open and not yet selected for the v1 release. The
-default in `CONTRIBUTING.md` is MIT pending an explicit decision; see
-[DECISIONS.md](./DECISIONS.md). No `LICENSE` file is committed yet —
-adding one is the act that closes the decision.
+The license is **MIT**, selected 2026-07-01 (see
+[DECISIONS.md](./DECISIONS.md)). A `LICENSE` file is committed at the repo
+root and `package.json` declares `"license": "MIT"`.
 
 ## 7. Decision log
 

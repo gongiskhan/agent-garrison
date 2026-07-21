@@ -17,6 +17,9 @@ declare module "*/automations/lib/store.mjs" {
   export function saveRun(record: any): Promise<any>;
   export function getRun(runId: string): Promise<any | null>;
   export function listRuns(automationId?: string): Promise<any[]>;
+  export function writeStepEvidence(runId: string, stepIndex: number, base64Jpeg: string): Promise<string>;
+  export function saveMatrixRun(record: any): Promise<any>;
+  export function getMatrixRun(matrixId: string): Promise<any | null>;
 }
 declare module "*/automations/lib/template-vars.mjs" {
   export function interpolate(template: string, scope: any): string;
@@ -24,6 +27,16 @@ declare module "*/automations/lib/template-vars.mjs" {
 }
 declare module "*/automations/lib/engine.mjs" {
   export function runAutomation(opts: any): Promise<any>;
+  export function runAutomationMatrix(opts: any): Promise<any>;
+  export function getAutomation(id: string): Promise<any | null>;
+}
+declare module "*/automations/lib/assertions.mjs" {
+  export const ASSERTION_KINDS: string[];
+  export function isAssertionKind(kind: string): boolean;
+  export function needsRemoteProbe(kind: string): boolean;
+  export function compareCount(actual: number, op: string, value: number): boolean;
+  export function evaluateTextContains(assertion: any, observation: any): boolean;
+  export function evaluateUrlMatches(assertion: any, observation: any): boolean;
 }
 declare module "*/automations/lib/fingerprint.mjs" {
   export function fingerprintFromParts(parts: any): any;
@@ -38,13 +51,16 @@ declare module "*/automations/lib/cache.mjs" {
   export function writeAssertionCache(input: any): Promise<any>;
 }
 declare module "*/automations/lib/browser-orchestrator.mjs" {
-  export function runBrowserStep(opts: any): Promise<any>;
+  export function runBrowserStep(opts: { automationId: string; step: any; deps: any; bypassCache?: boolean }): Promise<any>;
 }
 declare module "*/automations/lib/discuss.mjs" {
   export function slugify(name: string): string;
+  export function freshAutomationSlug(): string;
+  export function automationBriefsDir(): string;
+  export function automationBriefPath(slug: string): string;
   export function buildAutomationKickoff(opts?: any): string;
   export function buildAutomationDiscussUrl(opts?: any): string;
-  export function buildDiscussParams(opts?: any): { mode: string; context: string; kickoff: string };
+  export function buildDiscussParams(opts?: any): { mode: string; context: string; kickoff: string; thread: string; title?: string };
 }
 declare module "*/automations/lib/command-shape.mjs" {
   export function computeCommandShape(argv: string[]): string;
@@ -63,9 +79,13 @@ declare module "*/automations/lib/browser-client.mjs" {
   export function browserBaseUrl(): string | null;
   export function makeBrowserClient(opts?: any): {
     readonly tabId: string | null;
+    close(): Promise<void>;
     navigate(url: string): Promise<string>;
     observe(opts?: { screenshot?: boolean }): Promise<any>;
     execute(action: any): Promise<any>;
+    assert(assertion: any): Promise<any>;
+    setViewport(vp: any): Promise<any>;
+    evalJs(js: string): Promise<any>;
   };
 }
 declare module "*/mcp-gateway/scripts/lib/tools.mjs" {

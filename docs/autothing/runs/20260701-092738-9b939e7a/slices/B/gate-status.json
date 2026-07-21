@@ -1,0 +1,47 @@
+{
+  "slice": "B",
+  "title": "Improver review UI: ecosystem-status panel, verify-probe extension, reapply-failed status support",
+  "updatedAt": "2026-07-01T12:20:00Z",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run tests/improver-*.test.ts", "exit": 0, "at": "2026-07-01T11:44:58Z", "summary": "79 passed, 18 files" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-07-01T11:44:58Z", "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "at": "2026-07-01T11:39:11Z", "summary": "clean" },
+    "build": { "cmd": "node fittings/seed/improver/ui/build.mjs", "exit": 0, "at": "2026-07-01T11:44:58Z", "summary": "esbuild bundle succeeds" },
+    "review": {
+      "verdict": "findings-fixed",
+      "by": "claude/code-review (2 finder angles, scaled to diff size)",
+      "at": "2026-07-01T11:39:00Z",
+      "summary": "Fixed: reapply-failed UI dead-end (Reject enabled), stale Ecosystem panel after Run Now (lifted state), duplicated phase-orchestration (lib/ecosystem-phases.mjs), skipped-badge color/text mismatch, 2 weak tests strengthened."
+    },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "low",
+      "at": "2026-07-01T11:44:20Z",
+      "lastReport": "docs/autothing/runs/20260701-092738-9b939e7a/slices/A/codex-review-sliceB-r2.json",
+      "overrides": []
+    },
+    "codexPwTest": {
+      "result": "blocked(environment)",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-07-01T11:50:00Z",
+      "report": "docs/autothing/runs/20260701-092738-9b939e7a/slices/A/codex-pwtest-sliceB.json",
+      "notes": "Codex's Playwright pass could not launch ANY browser engine (Chromium/Firefox/WebKit all aborted at OS-level Mach-port/bootstrap_check_in, before any page loaded) - a sandbox environment block, not a product defect. Codex's static review (codexReview, 2 rounds, clean approve) already covered these exact files. Additionally verified live myself via claude-in-chrome against the real server (seeded with 1 pending/1 applied/1 reapply-failed proposal): the reapply-failed badge renders in a distinct orange color with the failure reason text, Approve is disabled and Reject is enabled for it, clicking Reject transitions it to 'rejected' with zero console errors, the Ecosystem tab renders both cards correctly (skipped/1-failed), and the Autonomy tab confirms rejecting the reapply-failed entry left the rule's autonomy state (auto, streak 3/5, rejected 0) completely untouched - the exact behavior the Codex-driven fix was meant to guarantee."
+    },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-07-01T12:20:00Z",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/improver/2026-07-01_12-16-36/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/improver/2026-07-01_12-16-36"
+    }
+  },
+  "blockers": [],
+  "notes": "Codex round-1 findings (real): (1) high - EcosystemPane crashed on a structurally incomplete sweep entry (sweep.failed.length with no array guard) - fixed with a normalized failedList. (2) medium - doReject() recorded a rule-level 'reject' autonomy outcome even for a reapply-failed dismissal, silently corrupting autonomy/streak state - fixed with a wasPending guard, only recording the outcome for a genuine pending->reject transition. New regression test tests/improver-reject-reapply-failed.test.ts. Round 2: clean approve."
+}

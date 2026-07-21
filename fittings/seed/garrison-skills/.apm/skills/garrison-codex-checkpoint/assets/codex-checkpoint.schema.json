@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "findings"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["clean", "issues-found"],
+      "description": "clean = Codex can find no material violation of the given invariants in the named scope. issues-found = at least one material, defensible violation remains."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Terse assessment of this scope only — not the whole repo."
+    },
+    "findings": {
+      "type": "array",
+      "description": "Material invariant violations only, each grounded in the named scope's files. Empty when verdict is clean.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["invariant", "severity", "title", "file", "line_start", "line_end", "recommendation", "confidence"],
+        "properties": {
+          "invariant": { "type": "string", "minLength": 1, "description": "Which named invariant this finding violates (quote it)." },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "title": { "type": "string", "minLength": 1 },
+          "file": { "type": "string", "minLength": 1 },
+          "line_start": { "type": "integer", "minimum": 1 },
+          "line_end": { "type": "integer", "minimum": 1 },
+          "recommendation": { "type": "string", "minLength": 1 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

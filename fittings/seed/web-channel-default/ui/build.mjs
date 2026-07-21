@@ -7,6 +7,7 @@ import { build } from "esbuild";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { emitPwaAssets } from "./pwa-assets.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const DIST = path.resolve(HERE, "..", "dist");
@@ -27,6 +28,10 @@ await build({
 });
 
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
+// The PCM capture worklet is loaded at runtime via AudioContext.audioWorklet
+// .addModule("/pcm-worklet.js"), so it must ship as a standalone static asset
+// (NOT bundled into the main module — worklets run in a separate global scope).
+copyFileSync(path.join(HERE, "pcm-worklet.js"), path.join(DIST, "pcm-worklet.js"));
 
 // web-channel.css = the shared claude-chat stylesheet FIRST, then the
 // web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
@@ -45,5 +50,11 @@ if (existsSync(chatCssPath)) {
   } catch { /* ignore */ }
 }
 writeFileSync(path.join(DIST, "web-channel.css"), `/* === @garrison/claude-chat (base) === */\n${chatCss}\n\n/* === web-channel skin (override layer) === */\n${skinCss}\n`);
+
+// PWA surface: manifest + service worker + generated icons (192/512/apple-touch
+// + svg) into dist/. Generated here so the icons never drift from their source
+// mark and no binary blobs are checked into the repo.
+const pwaAssets = await emitPwaAssets({ srcDir: HERE, distDir: DIST });
+console.log(`[web-channel:build] wrote ${pwaAssets.length} PWA asset(s) (manifest, sw, icons)`);
 
 console.log("[web-channel:build] wrote dist/");

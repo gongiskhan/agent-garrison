@@ -1,0 +1,50 @@
+{
+  "slice": "S6a",
+  "kind": "api",
+  "commits": [
+    "466b35b",
+    "014983e"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s6a-impl",
+      "at": "2026-07-13T15:39:11Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T15:39:11Z",
+      "detail": "typecheck clean (excl S3c WIP), lint+gitleaks clean, validate-fitting 4/4"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T15:39:11Z",
+      "detail": "10 mocked-Deepgram tests: STT relay, streaming TTS, lifecycle, key-never-leaks, latency"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T15:50:26Z",
+      "detail": "4 findings (Metadata key-forward + 3 unbounded pre-open buffers) fixed 014983e"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T15:50:26Z",
+      "detail": "all 6 vectors clean; pre-buffer note already fixed"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched",
+      "note": "voice attended checklist at S6c/WS7"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional (api relay)"
+    },
+    "walkthrough": {
+      "status": "pending",
+      "note": "voice walkthrough at S6b/c"
+    }
+  }
+}

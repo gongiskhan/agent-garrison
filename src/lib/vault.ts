@@ -67,7 +67,12 @@ function runtime(): VaultRuntime {
 // alternate Garrison home) can point it elsewhere via GARRISON_VAULT_PATH
 // without clobbering the real data/vault.json. Defaults to the canonical path.
 function vaultFilePath(): string {
-  return process.env.GARRISON_VAULT_PATH ?? VAULT_PATH;
+  if (process.env.GARRISON_VAULT_PATH) return process.env.GARRISON_VAULT_PATH;
+  // An alternate Garrison home is an isolation boundary, not merely a place
+  // for status files. Reusing the repository vault with a different home's
+  // master key makes the isolated instance both collide and fail to unlock.
+  if (process.env.GARRISON_HOME) return path.join(process.env.GARRISON_HOME, "vault.json");
+  return VAULT_PATH;
 }
 
 // Legacy dev passphrase — used ONLY to migrate an existing scrypt-format vault

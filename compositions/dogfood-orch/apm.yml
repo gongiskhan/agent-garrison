@@ -111,6 +111,8 @@ x-garrison:
             bind_host: 127.0.0.1
       surfaces:
         - id: screen-share-default
-          config: {}
+          config:
+            port: 7079
+            bind_host: 127.0.0.1
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md

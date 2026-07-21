@@ -1,0 +1,52 @@
+[
+  {
+    "beat": "ac1",
+    "criterionId": "AC-1",
+    "criterion": "The Ports UI renders the host's listening ports (the live ss scan).",
+    "timestamp": 2.033,
+    "frame": "frames/beat-00-ac1.png",
+    "assert": ".app-header .count contains \"listening\" (highlighted)",
+    "observed": "Header count '51 listening · 32 exposed · 19 loopback' highlighted above a table of real host listeners (22, 53, 443, 631, 3702, 3733, 5903, 7077-7089, ...) with Port/Bind/Label/PID/Actions columns.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac2",
+    "criterionId": "AC-2",
+    "criterion": "A Garrison-owned port is LABELED from its ui-fittings status file (shows its name, not just a pid).",
+    "timestamp": 6.893,
+    "frame": "frames/beat-01-ac2.png",
+    "assert": "tr:has-text(\"demo-fitting\") .label-text contains \"demo-fitting\" (highlighted)",
+    "observed": "Row 46001 (0.0.0.0) Label cell highlighted reading 'demo-fitting' with a 'fitting' source chip; the pid (3328070) sits separately in the PID column. Labeled from the seeded ui-fittings/demo-fitting.json, not the bare process name.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac3",
+    "criterionId": "AC-3",
+    "criterion": "Loopback-only listeners carry the loopback badge; tailnet-reachable rows offer an open-URL action while loopback rows hide it.",
+    "timestamp": 11.572,
+    "frame": "frames/beat-02-ac3.png",
+    "assert": "tr:has-text(\"demo-local\") .chip-loopback contains \"loopback\" (highlighted)",
+    "observed": "demo-local (46002, 127.0.0.1) shows a highlighted 'loopback' chip and NO Open link (only Browser pane / Copy URL / Kill). demo-fitting (46001, 0.0.0.0, 'all interfaces') directly above DOES show an 'Open' link. Contrast confirmed.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac4",
+    "criterionId": "AC-4",
+    "criterion": "Copy URL action present on rows.",
+    "timestamp": 16.601,
+    "frame": "frames/beat-03-ac4.png",
+    "assert": "tr:has-text(\"demo-fitting\") button:text-is(\"Copy URL\") contains \"Copy URL\" (highlighted)",
+    "observed": "Row 46001 Actions column shows a highlighted 'Copy URL' button alongside Open / Browser pane / Kill.",
+    "result": "pass"
+  },
+  {
+    "beat": "ac5",
+    "criterionId": "AC-5",
+    "criterion": "Kill action: SIGTERM with confirm, demonstrated only on our own sacrificial server; row gone after rescan.",
+    "timestamp": 22.714,
+    "frame": "frames/beat-04-ac5.png",
+    "assert": ".banner-notice contains \"Sent SIGTERM\" (highlighted); tr:has-text(\"demo-fitting\") reached state=detached before the assert",
+    "observed": "Clicked Kill on demo-fitting (pid 3328070), then the in-app 'Confirm SIGTERM' button (not a native dialog); highlighted notice 'Sent SIGTERM to pid 3328070'. The row detached from the DOM (functional truth) and the header count dropped 51->50 listening / 32->31 exposed, confirming the exposed demo-fitting was killed and the rescan dropped it. Only our own server was targeted.",
+    "result": "pass"
+  }
+]

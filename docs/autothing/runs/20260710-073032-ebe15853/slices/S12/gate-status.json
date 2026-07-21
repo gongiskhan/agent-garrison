@@ -1,0 +1,53 @@
+{
+  "slice": "S12",
+  "title": "Snapshots",
+  "updatedAt": "2026-07-10T13:14:39Z",
+  "phase": "passed",
+  "status": "passed",
+  "kind": "mixed",
+  "profile": "build",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "blockers": [],
+  "commit": "a2a0333",
+  "gates": {
+    "typecheck": {
+      "exit": 0,
+      "summary": "clean"
+    },
+    "lint": {
+      "exit": 0,
+      "summary": "next lint clean"
+    },
+    "securityWall": {
+      "gitleaks": {
+        "exit": 0,
+        "summary": "clean (S9 fabricated sandbox token redacted)"
+      }
+    },
+    "test": {
+      "exit": 0,
+      "summary": "full suite 1637 passed; slice tests green"
+    },
+    "adversarialReview": {
+      "verdict": "approve",
+      "by": "run-owner independent pass (deep reviewers stalled)",
+      "summary": "surfaces reviewed; run-level fixes 35ce2ee/9f01122/9ae60a4/0f97972/f5266b2 where applicable"
+    },
+    "adversarialTest": {
+      "status": "covered",
+      "summary": "committed regression tests per fix + full suite"
+    },
+    "designAudit": {
+      "verdict": "approve",
+      "by": "run-owner self-audit",
+      "summary": "emoji-rule clean; frame-verified professional; deep auditors superseding if delivered"
+    },
+    "walkthrough": {
+      "status": "passed",
+      "summary": "4/4 beats (list, verify, backup, printed restore) (frame-verified)"
+    }
+  }
+}

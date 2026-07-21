@@ -1,0 +1,44 @@
+{
+  "slice": "fitting-ui-coherence",
+  "title": "Own-port Fitting UI coherence (improver restyle; automations/monitor audited)",
+  "updatedAt": "2026-07-02T01:23:00+01:00",
+  "phase": "done",
+  "status": "passed",
+  "kind": "ui",
+  "retries": { "limit": 5, "used": 1 },
+  "gates": {
+    "tests": { "cmd": "npx vitest run", "exit": 0, "at": "2026-07-02T01:08:00+01:00", "summary": "1416 passed incl. new tests/improver-ui-tokens.test.ts (source + dist token/font parity, dark theme banned)" },
+    "typecheck": { "cmd": "npm run typecheck", "exit": 0, "at": "2026-07-02T01:08:00+01:00", "summary": "0 errors" },
+    "lint": { "cmd": "npm run lint", "exit": 0, "at": "2026-07-02T01:08:00+01:00", "summary": "clean" },
+    "build": { "cmd": "node fittings/seed/improver/ui/build.mjs", "exit": 0, "at": "2026-07-02T01:10:00+01:00", "summary": "esbuild dist rebuilt; Next app untouched (slice-2 gate build stands)" },
+    "review": { "verdict": "clean", "by": "claude inline", "at": "2026-07-02T01:08:00+01:00", "summary": "class-name coverage identical (main.tsx untouched); badge tones map to shell pill idiom" },
+    "codexReview": {
+      "verdict": "approve",
+      "rounds": 2,
+      "by": "codex/gpt-5.4",
+      "effort": "low",
+      "at": "2026-07-02T01:10:00+01:00",
+      "lastReport": "docs/autothing/runs/20260701-225923-9ece946d/slices/fitting-ui-codex-review-r2.json",
+      "overrides": [],
+      "notes": "Round 1: 1 real finding (pending/auto badge text below AA contrast on paper) - applied (darker text #7d5410/#755c14 + soft fills). Round 2: clean approve, contrast verified AA."
+    },
+    "codexPwTest": {
+      "result": "pass",
+      "by": "codex/gpt-5.4",
+      "effort": "medium",
+      "at": "2026-07-02T01:11:00+01:00",
+      "report": "docs/autothing/runs/20260701-225923-9ece946d/slices/fitting-ui-codex-pwtest.json",
+      "notes": "Browser launch blocked in the codex sandbox (established this run), so the independent pass ran at the HTTP level against the LIVE 7088: page HTML + fonts, live stylesheet tokens (dark theme absent, badge fixes present), and /api/queue JSON intact."
+    },
+    "designAudit": { "verdict": "clean", "by": "claude vision over live screenshots + walkthrough frames", "at": "2026-07-02T01:20:00+01:00", "issues": [] },
+    "video": {
+      "status": "verified",
+      "verifiedAt": "2026-07-02T01:22:00+01:00",
+      "flagged": false,
+      "link": "http://100.108.210.116:8099/agent-garrison/fitting-ui/2026-07-02_01-17-38/final.mp4",
+      "runDir": "/Users/ggomes/.walkthrough/runs/agent-garrison/fitting-ui/2026-07-02_01-17-38"
+    }
+  },
+  "blockers": [],
+  "notes": "Improver UI restyled from GitHub-dark to Garrison tokens (kanban-style), fonts wired in index.html, dist rebuilt, live server restarted (old backend predated /api/ecosystem-status). Automations dist (down at audit time) already paper-toned; monitor already on-identity - both logged as coherent, no restyle needed."
+}

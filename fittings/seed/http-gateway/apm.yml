@@ -10,16 +10,38 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Local HTTP gateway. All model turns drive interactive Claude Code TUI sessions via @garrison/claude-pty (node-pty + headless xterm). Orchestrator+souls mode uses PTY-backed sessions, channels, worktree passthroughs.
+  summary: Local HTTP gateway. All model turns drive interactive Claude Code TUI sessions via @garrison/claude-pty (node-pty + headless xterm). Orchestrator+souls mode uses PTY-backed sessions and channels.
   config_schema:
     - key: port
       type: integer
-      default: 4777
+      default: 24777
       description: Local gateway port.
     - key: bind_host
       type: string
       default: 127.0.0.1
       description: Local bind address.
+    # Compact controller (S1b). Global defaults; a per-runtime override map may be
+    # carried in the same config object under `compaction` (keys: claude-code,
+    # agent-sdk, openai-agents, codex, opencode) and is projected as JSON to the
+    # gateway. The default focus template lives in the fitting
+    # (scripts/lib/compact-focus-template.mjs); leave compact_focus_template empty
+    # to use it.
+    - key: compact_enabled
+      type: boolean
+      default: true
+      description: Enable the Garrison compact controller (boundary-only /compact of the operative when context usage reaches the threshold).
+    - key: compact_threshold_pct
+      type: integer
+      default: 60
+      description: Context-usage percentage at or above which the controller compacts the operative at a turn/duty boundary.
+    - key: compact_focus_template
+      type: string
+      default: ""
+      description: >-
+        Custom compaction focus template. Placeholders {{card_id}} {{card_title}}
+        {{duty}} {{level}} {{decisions}} {{open_items}} {{files_touched}}
+        {{steering}} are filled from card context; a line whose placeholder is empty
+        is dropped. Leave empty to use the built-in default template.
   consumes:
     - kind: orchestrator
       cardinality: one
@@ -31,13 +53,10 @@ x-garrison:
     Endpoints (orchestrator+souls mode, set GARRISON_SOULS_CONFIG to enable):
       POST /chat, /chat/stream           — user message → Orchestrator stdin (X-Garrison-Origin: ui-tab|channel header sets prefix)
       POST /jobs                          — heartbeat dispatch → Orchestrator
-      POST /sessions/spawn                — spawn a Soul PTY session (headless orchestration or interactive mode)
+      POST /sessions/spawn                — spawn a Soul PTY session (cwd or project selects where it runs; headless orchestration or interactive mode)
       POST /sessions/:id/wait             — block until result (chunked timeout, default 30s)
       POST /sessions/by-soul/:soul/end    — kill a Soul's active subprocess
-      GET  /sessions                      — list active sessions (filters: parent, worktree_id, mode, soul)
+      GET  /sessions                      — list active sessions (filters: parent, mode, soul)
       GET  /channels/:id/stream           — SSE multiplex; replays last 100 events on connect, then live
       GET  /workdirs?soul=<name>          — list directories under the Soul's base_path
-      GET  /worktrees?[project|id]        — proxy to the dev-env Fitting on its own port (default 7086)
-      POST /worktrees                     — create worktree (project, task_title, branch_name?, base_branch?)
-      POST /worktrees/:id/close           — merge|discard|leave_open via gh pr create
     Single-Operative mode (no GARRISON_SOULS_CONFIG): POST /chat, /chat/stream, /jobs, /attachments + GET /health. The engine is the PTY-backed interactive claude TUI (gateway-pty.mjs). /chat/stream emits: open, chunk {text}, done {reply, session_id}, error.

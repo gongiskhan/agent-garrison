@@ -1,0 +1,126 @@
+{
+  "title": "S4 Run engine — kanban board evidence",
+  "project": "agent-garrison",
+  "folder": "run-engine",
+  "video": { "width": 1280, "height": 800, "fps": 30 },
+  "calibrationMs": 0,
+  "segments": [
+    {
+      "type": "browser",
+      "id": "board",
+      "baseURL": "http://127.0.0.1:41981",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 — lists map to a phase, no per-list config",
+          "expectedScreen": "the kanban board: Backlog/To Do/Discuss show a kind·trigger subheader while Plan and Implement columns show a 'phase: …' subheader",
+          "actions": [
+            { "type": "waitFor", "selector": ".board" },
+            { "type": "waitFor", "selector": "text:phase: plan" }
+          ],
+          "assert": { "selector": "text:phase: plan", "highlight": true },
+          "hold": 2200
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac1-lists",
+      "command": "curl -s http://127.0.0.1:41981/lists | jq '.lists[] | select(.id==\"plan\")'",
+      "source": "GET /lists · the Plan list config",
+      "caption": "AC-1 — the Plan list carries only a phase (no skill/taskType/tier/mode)",
+      "expectedScreen": "the Plan list JSON with \"phase\": \"plan\" highlighted and no skill/taskType/tier/mode fields present",
+      "highlight": { "match": "\"phase\": \"plan\"", "note": "the only classification a list carries — skill/taskType/tier/mode resolve from the compiled policy (D15)" },
+      "hold": 2800
+    },
+    {
+      "type": "browser",
+      "id": "compose",
+      "continue": true,
+      "beats": [
+        {
+          "id": "ac2-rail",
+          "caption": "AC-2 — a work kind gives the card its rail (phase plan)",
+          "expectedScreen": "the New card sheet with the full-feature work kind selected and its rail phases as chips: PLAN, IMPLEMENT, REVIEW, ADVERSARIAL-REVIEW, TEST … REPORT",
+          "actions": [
+            { "type": "click", "selector": "button:New card" },
+            { "type": "waitFor", "selector": "#nc-title" },
+            { "type": "fill", "selector": "#nc-title", "text": "Add CSV export" },
+            { "type": "select", "selector": "#nc-project", "value": "__custom__" },
+            { "type": "waitFor", "selector": "#nc-project-custom" },
+            { "type": "fill", "selector": "#nc-project-custom", "text": "acme-app" },
+            { "type": "waitFor", "selector": ".rail-toggles" }
+          ],
+          "assert": { "selector": ".rail-toggles", "highlight": true },
+          "hold": 2400
+        },
+        {
+          "id": "ac2-backlog",
+          "caption": "AC-2 — the card lands in the entry list carrying its work kind",
+          "expectedScreen": "the Backlog column with the new 'Add CSV export' card showing an acme-app and a full-feature chip",
+          "actions": [
+            { "type": "click", "selector": "button:Create card" },
+            { "type": "waitFor", "selector": "text:Add CSV export" }
+          ],
+          "assert": { "selector": "text:Add CSV export", "highlight": true },
+          "hold": 2000
+        }
+      ]
+    },
+    {
+      "type": "browser",
+      "id": "advanced",
+      "continue": true,
+      "beats": [
+        {
+          "id": "ac3",
+          "caption": "AC-3 — with the plan gate evidence, the card advanced Plan → Implement",
+          "expectedScreen": "the 'Add server-side pagination' card in the Implement column, its activity line reading 'Plan → Implement (in-session)' with an engine-owned chip",
+          "actions": [
+            { "type": "waitFor", "selector": "text:Add server-side pagination" }
+          ],
+          "assert": { "selector": "text:Add server-side pagination", "highlight": true },
+          "hold": 2400
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac3-gate",
+      "file": "/tmp/claude-1001/-home-ggomes-dev-garrison/ebe15853-d4b5-48f9-ba9c-86bd29b0059b/scratchpad/s4-sandbox/home/.garrison/runs/acme-app/RUN-AC3-GATED/gate-status.json",
+      "source": "gate-status.json · RUN-AC3-GATED",
+      "caption": "AC-3 — the durable plan-phase gate the engine required before advancing",
+      "expectedScreen": "the run directory's gate-status.json with the gates.plan entry highlighted",
+      "highlight": { "match": "\"plan\": {", "note": "the plan phase's gate entry — its presence in the runDir is what let the card advance (D9)" },
+      "hold": 2800
+    },
+    {
+      "type": "browser",
+      "id": "parked",
+      "continue": true,
+      "beats": [
+        {
+          "id": "ac4",
+          "caption": "AC-4 — advancing WITHOUT gate evidence parks the card needs-attention",
+          "expectedScreen": "the 'Wire the export button' card in the Needs attention column with the red reason 'no durable gate evidence for the plan phase'",
+          "actions": [
+            { "type": "waitFor", "selector": "text:no durable gate evidence" }
+          ],
+          "assert": { "selector": "text:no durable gate evidence", "highlight": true },
+          "hold": 2600
+        }
+      ]
+    },
+    {
+      "type": "evidence",
+      "id": "ac5-403",
+      "command": "curl -s -i -X PATCH -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:41981' -d '{\"list\":\"review\"}' http://127.0.0.1:41981/cards/01KX5TM17CHAMB4FN88SGTC3SF",
+      "source": "PATCH /cards/{id} · manual move of the engine-owned card",
+      "caption": "AC-5 — a manual move into a locked autonomous list is rejected (HTTP 403)",
+      "expectedScreen": "the PATCH response showing 'HTTP/1.1 403 Forbidden' highlighted, with an 'engine-owned' error body below",
+      "highlight": { "match": "403 Forbidden", "note": "the board API rejects a manual move on a card sitting on an autonomous list — engine-owned (D16)" },
+      "hold": 2800
+    }
+  ]
+}

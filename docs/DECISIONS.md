@@ -213,7 +213,7 @@ already present) and per-project `port_pool: {start, end}` in
 `~/.garrison/projects/<id>.yml`. Treat the brief's `3000–3100` as
 illustrative.
 **Source:** [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md) §"Port allocation"; user review 2026-05-16.
-**Status:** Settled.
+**Status:** Superseded 2026-07-10 by "Worktrees removed everywhere; same-branch is the only mode" (D10) - worktrees and the port pool are gone.
 
 ## 2026-05-16 · `mcp-gateway --probe` stays lenient by default; `--strict` opt-in
 
@@ -489,3 +489,129 @@ this class of "starts standalone but not under the runner" bug cannot recur sile
 + /api/fittings/<id>/start + the Views surfacing), not just by running its server.mjs.
 
 **Status:** fixed + verified in the live app.
+
+## 2026-07-01 · improver-nightly cron has never once completed real work
+
+The `improver` Fitting's nightly scheduler job (`improver-nightly`, cron `30 3 * * *`) is
+genuinely registered with the real launchd-backed `scheduler` daemon and has fired every
+night since at least 2026-06-26. Every run crashes with `OperativePtySession: message
+never registered (claude did not accept input)` (a claude-pty PTY bug) inside
+`runSkills()`'s `computeDream()` call, before any proposal/queue writing -
+`review-queue.json` has stayed `[]` for 6+ real nightly executions. Discovered while
+building the ecosystem-update mechanism (run `20260701-092738-9b939e7a`); the new
+ecosystem-update + reapply-sweep phases are wired to run *before* this crash point in
+`main()` so they are unaffected, but the underlying claude-pty bug itself is untouched.
+**Source:** autothing run `docs/autothing/runs/20260701-092738-9b939e7a/`. **Status:**
+Deferred - needs its own investigation/fix pass into `packages/claude-pty/src/session.mjs`'s
+`OperativePtySession`/`runTurn`/`oneShotTurn`.
+
+## 2026-07-01 · duplicate `improver-nightly` scheduler job id across two Fittings
+
+`fittings/seed/improver/scripts/setup.sh` registers a scheduler job named
+`improver-nightly`. A second, wholly separate Fitting, `fittings/seed/improver-nightly/`
+(`faculty: sessions`, its own CLI + `tests/improver-nightly.test.ts`), also registers a
+scheduler job named `improver-nightly` in its own `setup.sh`. If both Fittings were ever
+installed into the same composition, the second `register`/`add` would silently overwrite
+the first's job entry (last-write-wins, confirmed via `scheduler.mjs`'s `add`/`register`
+semantics). Not observed to be currently co-installed in `compositions/default`, so not an
+active bug, but worth a cleanup pass to rename one or consolidate the two Fittings.
+**Source:** autothing run `docs/autothing/runs/20260701-092738-9b939e7a/`. **Status:** Open.
+
+## 2026-07-01 · GARRISON_COMPOSITION_DIR is dead code on every real Fitting-process spawn path
+
+`server.mjs`'s `targetFileFor()` and the new `resolveCompositionDir()` (both in the
+`improver` Fitting) prefer `process.env.GARRISON_COMPOSITION_DIR`, falling back to a
+fixed-depth walk up from the Fitting's own script location. Traced through the actual
+spawn paths: `src/lib/runner.ts`'s `spawnGateway()` sets this var for the ONE gateway
+subprocess, but `runShellCommand()` (setup/verify hooks), `startOwnPortFitting()`
+(own-port servers like improver's `server.mjs`), and the `scheduler` Fitting's
+`spawn('/bin/sh', ['-c', ...])` (the nightly cron's actual invocation path) never set
+it. So every Fitting that reads this var today is silently falling through to its own
+ad-hoc directory-depth guess. The fixed-depth walk also assumes the `_local/<fitting>`
+nesting depth, which `global-composition.ts`'s `depName()` shows does not hold for
+non-local (remote/git-pinned) dependencies - a shape Garrison doesn't have yet but is
+explicitly headed toward. **Source:** autothing run
+`docs/autothing/runs/20260701-092738-9b939e7a/` code review (angle: altitude). **Status:**
+Open - recommend `runner.ts` stamp `GARRISON_COMPOSITION_DIR` onto every Fitting-launched
+process (setup/verify hooks, own-port spawns, and whatever the scheduler daemon execs),
+so Fittings stop reinventing this derivation independently.
+
+## 2026-07-01 · review-queue.json has no locking between server.mjs and cron-fired improver.mjs
+
+`fittings/seed/improver/lib/review-queue.mjs`'s `loadQueue`/`saveQueue` do a plain
+full-file read then full-file rewrite, no locking or compare-and-swap. `review-queue.json`
+is shared across two independent OS processes: the always-on `server.mjs` (port 7088,
+handling UI apply/reject/run-now) and the cron-fired `improver.mjs run-now` (fired by the
+standalone `scheduler` daemon, unrelated process tree). Pre-existing before this session's
+work; the new reapply-sweep phase adds a third writer into the same unguarded file. A
+UI action landing mid-cron-run (or vice versa) can silently lose whichever write finishes
+second. **Source:** autothing run `docs/autothing/runs/20260701-092738-9b939e7a/` code
+review (angle: cross-file tracer). **Status:** Open - a proper fix needs a lock file or
+compare-and-swap around `review-queue.json`, affecting `review-queue.mjs`, `server.mjs`,
+and `improver.mjs` together; out of scope for a single-slice fix.
+
+## 2026-07-01 · Licence selected: MIT
+
+The repo positioning has been "open-source, local-first" since v1 scoping, but no
+LICENSE file existed and GOVERNANCE.md left the licence "open and not yet selected"
+with MIT as the CONTRIBUTING.md default. The public landing page (Standing Order X,
+"Open by default") needs a true licence claim, so the pending default is made real:
+`LICENSE` (MIT, copyright 2026 Gonçalo Gomes) added at the repo root and
+`"license": "MIT"` added to package.json. **Source:** autothing run
+`docs/autothing/runs/20260701-225923-9ece946d/` slice model-coherence, executing the
+landing-page brief's "verify the licence before printing MIT" constraint. **Status:**
+Settled, operator-revertable (delete LICENSE + the package.json field to reopen).
+
+## 2026-07-01 · Model-vs-docs drift fixed; parked seed Fittings stay in place
+
+Coherence audit of the faculty/fitting/capability model found the code
+(`src/lib/types.ts`: 17 faculties, 14 capability kinds) internally consistent, and
+all 27 library-registered seed Fittings parse cleanly with non-empty summaries. The
+drift was in the docs and is fixed: CAPABILITIES.md had live kinds (memory-store,
+automation-runner, channel, monitor, vault) filed under "Dropped kinds (historical)",
+documented dropped kinds (data-source, artifact-store) as live, and lacked sections
+for modes/connector/runtime/screen-share/outpost/voice/view; METADATA.md claimed "14
+faculty ids" and a 6-role list, mis-stated the testing-framework alias target
+(actual: sessions), listed artifact-store as a live kind, and lacked rows for
+own_port/default_port/lifecycle/connector/secret_scope; CLAUDE.md's capability-kind
+list predated modes/automation-runner/connector/runtime. The 19 unregistered seed
+dirs (souls, tier-classifier, coding-subagent, documents, projects-index, testing,
+outpost-actions, ...) keep their legacy faculty ids ON PURPOSE: they are de-listed
+from data/library.json and never parsed (metadata.ts documents this), and
+compositions/dogfood-orch is a legacy artifact referencing them. Moving or rewriting
+parked history adds churn without runtime benefit; the enforced invariant is now
+"every library-registered seed parses cleanly with a summary" via
+tests/model-docs-parity.test.ts. **Source:** autothing run
+`docs/autothing/runs/20260701-225923-9ece946d/` slice model-coherence. **Status:**
+Settled.
+
+## 2026-07-02 · Codex sandbox cannot launch a browser: cross-model dynamic UI pass degraded to HTTP/static for this environment
+
+During autothing run `docs/autothing/runs/20260701-225923-9ece946d/`, every `codex exec`
+attempt to drive a browser (its playwright skill) failed at Chromium launch with
+`bootstrap_check_in ... MachPortRendezvousServer ... Permission denied (1100)` - the Codex
+sandbox blocks the Mach port handshake Chromium needs. Exact failed remediation: retrying with
+writable cache overrides inside `codex exec -s workspace-write -c
+sandbox_workspace_write.network_access=true`; the documented lift (`-s danger-full-access`) is
+denied by the Claude Code auto-mode classifier and must not run unattended. Consequence: the
+shell-overhaul slice's independent cross-model UI pass is recorded as `blocked(environment)`
+(static review fallback + Claude's own committed Playwright spec cover the same acceptance);
+the improver and landing slices got real independent passes at the HTTP level instead.
+**Source:** autothing run 20260701-225923 non-negotiables (self-unblock attempted, external
+cause named). **Status:** Open - revisit if a Codex release restores sandboxed browser launch.
+
+## 2026-07-10 · Worktrees removed everywhere; same-branch is the only mode
+
+GARRISON-FLOW-V2 (D10) removes git worktrees as a Garrison mechanism entirely.
+There are no per-task feature branches, no per-worktree port pools, and no
+Tailscale-URL-per-worktree surfacing. All dev work happens in the project repo
+root on the **current branch**; the dev-env Fitting runs each Claude Code session
+there, and multiple concurrent tasks coordinate by staying off each other's files
+(touch-set overlap and ordering) rather than isolating into branches. The
+orchestrator no longer calls `create_worktree` / `list_worktrees` /
+`close_worktree`; on "ship it" it opens a PR from the current branch via
+`gh pr create`. This **supersedes** the 2026-05-16 "Worktree port pool stays
+50000-54999" decision (the port pool is gone) and retires the worktree/port-pool
+flow described in [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md)
+(kept as a historical design record with a SUPERSEDED banner).
+**Source:** GARRISON-FLOW-V2 S3 sweep; RUN_SPEC / FLOW_PLAN D10. **Status:** Settled.

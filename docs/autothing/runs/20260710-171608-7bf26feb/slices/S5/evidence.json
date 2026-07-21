@@ -1,0 +1,1 @@
+[{"beat":"ac1","criterionId":"S5-AC1","assert":"uxQa binding garrison-ux-qa, designAudit null","result":"pass"},{"beat":"ac2","criterionId":"S5-AC2","assert":"ui-change kind present, docs kind lacks ux-qa","result":"pass"},{"beat":"ac3","criterionId":"S5-AC3","assert":"skill carries severities + threshold rule","result":"pass"}]

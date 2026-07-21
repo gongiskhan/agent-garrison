@@ -33,6 +33,13 @@ export function browserViewUrl(url: string | null | undefined): string {
 //   - any other remote host   -> best-effort loopback-host rebind (LAN/http)
 // Garrison is only reachable off-box via `tailscale serve`, so "remote" is
 // normally the tailnet host; the rebind is a safety fallback.
+//
+// Returns "" when no reachable URL exists. That happens when the page is HTTPS
+// (the tailnet) but the view's port has no `tailscale serve` mapping: the
+// http:// rebind below would be MIXED CONTENT and is blocked by the browser,
+// which showed up as a silently blank iframe rather than an error. Callers must
+// treat "" as "not reachable from here" and say so. Fix the underlying gap by
+// running scripts/tailnet-serve-views.mjs from a prod shell.
 export function resolveViewUrl(view: {
   url: string | null | undefined;
   tailnetUrl?: string | null;
@@ -49,5 +56,10 @@ export function resolveViewUrl(view: {
       // fall through to the rebind fallback
     }
   }
-  return browserViewUrl(url);
+  const rebound = browserViewUrl(url);
+  // Never hand an HTTPS page an http:// URL — the browser blocks it outright.
+  if (window.location.protocol === "https:" && rebound.startsWith("http://")) {
+    return "";
+  }
+  return rebound;
 }

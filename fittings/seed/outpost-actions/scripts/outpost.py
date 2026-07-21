@@ -2,12 +2,17 @@
 """Garrison outpost-actions CLI — invoke operations on remote outpost machines."""
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-OUTPOST_HOST = "http://127.0.0.1:3702"
+OUTPOST_HOST = (
+    os.environ.get("GARRISON_OUTPOST_HOST_URL")
+    or os.environ.get("OUTPOST_HOST_URL")
+    or f"http://127.0.0.1:{os.environ.get('GARRISON_OUTPOST_PORT', '23702')}"
+).rstrip("/")
 DEFAULT_TIMEOUT_MS = 30000
 
 

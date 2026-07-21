@@ -14,14 +14,28 @@
 // server or their ~/.tmux.conf.
 
 import { execFile, execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import url from "node:url";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 
-export const TMUX_SOCKET = "garrison";
+const INSTANCE_ID = String(process.env.GARRISON_INSTANCE_ID || "")
+  .trim()
+  .replace(/[^A-Za-z0-9_-]/g, "_");
+const GARRISON_HOME = process.env.GARRISON_HOME?.trim();
+
+// Main keeps the historical named socket. Isolated instances put the socket
+// itself under their Garrison home, so a boot/reconcile pass cannot enumerate,
+// attach to, or kill another instance's persistent shells.
+export const TMUX_SOCKET_PATH =
+  process.env.GARRISON_TMUX_SOCKET_PATH?.trim() ||
+  (GARRISON_HOME ? path.join(GARRISON_HOME, "tmux", "dev-env.sock") : null);
+export const TMUX_SOCKET =
+  process.env.GARRISON_TMUX_SOCKET?.trim() ||
+  (INSTANCE_ID ? `garrison-${INSTANCE_ID}` : "garrison");
 export const TMUX_CONF = path.resolve(HERE, "tmux.garrison.conf");
-const SESSION_PREFIX = "garrison_";
+export const TMUX_SESSION_PREFIX = INSTANCE_ID ? `garrison_${INSTANCE_ID}_` : "garrison_";
 
 // Foreground commands that mean "a plain shell prompt" — i.e. claude is NOT
 // running in this pane. Anything else (claude is a native `claude` binary) is
@@ -34,6 +48,10 @@ const SHELL_COMMANDS = new Set([
 let available = null; // memoized tmux -V probe
 
 function args(extra) {
+  if (TMUX_SOCKET_PATH) {
+    mkdirSync(path.dirname(TMUX_SOCKET_PATH), { recursive: true });
+    return ["-S", TMUX_SOCKET_PATH, ...extra];
+  }
   return ["-L", TMUX_SOCKET, ...extra];
 }
 
@@ -52,12 +70,12 @@ export function tmuxSessionName(ptyId) {
   // Real ptyIds are `<uuid>-<role>` (hyphens only) and pass through untouched.
   // The replace is defensive against dots/colons/whitespace, which tmux would
   // silently corrupt in a session name.
-  return SESSION_PREFIX + String(ptyId).replace(/[^A-Za-z0-9_-]/g, "_");
+  return TMUX_SESSION_PREFIX + String(ptyId).replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 export function sessionIdRoleFromName(name) {
-  if (typeof name !== "string" || !name.startsWith(SESSION_PREFIX)) return null;
-  const ptyId = name.slice(SESSION_PREFIX.length);
+  if (typeof name !== "string" || !name.startsWith(TMUX_SESSION_PREFIX)) return null;
+  const ptyId = name.slice(TMUX_SESSION_PREFIX.length);
   // Roles: `claude`, the legacy first shell `shell`, and the indexed shells
   // `shell-2`, `shell-3`, … (multiple terminals per session).
   const m = ptyId.match(/^(.+)-(claude|shell(?:-\d+)?)$/);
@@ -108,7 +126,7 @@ export function listGarrisonSessions() {
       args(["list-sessions", "-F", "#{session_name}"]),
       { timeout: 3000, encoding: "utf8" }
     );
-    return out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith(SESSION_PREFIX));
+    return out.split("\n").map((s) => s.trim()).filter((s) => s.startsWith(TMUX_SESSION_PREFIX));
   } catch {
     return []; // no server / no sessions / tmux gone
   }

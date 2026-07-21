@@ -6,19 +6,26 @@ import {
   buildClassifierPrompt,
   parseClassification,
   resolveRoute
-} from "../fittings/seed/model-router/lib/routing-core.mjs";
+} from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
 const config = JSON.parse(
-  readFileSync(join(__dirname, "..", "fittings", "seed", "model-router", "config", "routing.seed.json"), "utf8")
+  readFileSync(join(__dirname, "..", "fittings", "seed", "orchestrator", "config", "routing.seed.json"), "utf8")
 );
 
 describe("Stage A classifier prompt (MR1c)", () => {
-  it("the classifier prompt lists every task type, tier (+definition), exception, and the user task", () => {
+  it("the classifier prompt lists every task type, tier (+definition), guessable exception, and the user task", () => {
     const p = buildClassifierPrompt(config, "fix the failing login test");
     for (const tt of config.taskTypes) expect(p).toContain(tt);
     for (const tier of config.tiers) expect(p).toContain(tier);
     expect(p).toContain(config.tierDefinitions["T2-deep"].slice(0, 20));
-    for (const ex of config.exceptions) expect(p).toContain(ex.id);
+    // Caller-asserted exceptions (internal engine lanes) are matched by id
+    // from the caller's hint — the classifier must never be offered them.
+    const callerAsserted = (ex: any) => /^caller-asserted/i.test(String(ex.when || ""));
+    expect(config.exceptions.some(callerAsserted)).toBe(true); // the seed carries both kinds
+    for (const ex of config.exceptions) {
+      if (callerAsserted(ex)) expect(p).not.toContain(ex.id);
+      else expect(p).toContain(ex.id);
+    }
     expect(p).toContain("fix the failing login test");
     expect(p).toMatch(/JSON/i);
   });
@@ -32,7 +39,7 @@ describe("Stage A classifier prompt (MR1c)", () => {
 describe("Stage A response parser (MR1c)", () => {
   it("parses a clean single-line JSON reply", () => {
     const c = parseClassification('{"taskType":"code","tier":"T2-deep","matchedException":null}', config);
-    expect(c).toEqual({ taskType: "code", tier: "T2-deep", matchedException: null, contextKind: undefined });
+    expect(c).toEqual({ taskType: "code", tier: "T2-deep", matchedException: null, contextKind: undefined, execution: "interactive" }); // D8: parser now emits execution
   });
 
   it("parses JSON embedded in prose", () => {

@@ -125,20 +125,36 @@ function scanSkillsDir(dir, source) {
   return out;
 }
 
+function configuredClaudeHome(opts = {}) {
+  if (typeof opts.claudeHome === "string" && opts.claudeHome.trim()) {
+    return opts.claudeHome.trim();
+  }
+  if (typeof opts.home === "string" && opts.home.trim()) {
+    return join(opts.home.trim(), ".claude");
+  }
+  const isolated =
+    process.env.GARRISON_CLAUDE_HOME?.trim() ||
+    process.env.CLAUDE_CONFIG_DIR?.trim();
+  return isolated || join(homedir(), ".claude");
+}
+
 /**
  * Enumerate all slash commands + skills available for `cwd`.
- * @param {{cwd?: string, home?: string}} opts
+ * `home` is the historical user-home test seam. `claudeHome` names the
+ * config root directly. With neither present, honor the same isolated Claude
+ * home as the PTY/session substrate.
+ * @param {{cwd?: string, home?: string, claudeHome?: string}} opts
  * @returns {Array<{name:string, description:string, source:string, argumentHint?:string}>}
  */
 export function enumerateCommands(opts = {}) {
-  const home = opts.home ?? homedir();
+  const claudeHome = configuredClaudeHome(opts);
   const cwd = opts.cwd;
   const byName = new Map();
   const add = (entry) => byName.set(entry.name, entry); // later writers win
 
   for (const c of BUILTIN_COMMANDS) add(c);
-  for (const s of scanSkillsDir(join(home, ".claude", "skills"), "skill")) add(s);
-  for (const c of scanCommandDir(join(home, ".claude", "commands"), "user")) add(c);
+  for (const s of scanSkillsDir(join(claudeHome, "skills"), "skill")) add(s);
+  for (const c of scanCommandDir(join(claudeHome, "commands"), "user")) add(c);
   if (cwd) {
     for (const s of scanSkillsDir(join(cwd, ".claude", "skills"), "skill")) add(s);
     for (const c of scanCommandDir(join(cwd, ".claude", "commands"), "project")) add(c);
@@ -152,7 +168,8 @@ const cache = new Map();
 const TTL_MS = 30_000;
 
 export function enumerateCommandsCached(opts = {}) {
-  const key = `${opts.home ?? ""}::${opts.cwd ?? ""}`;
+  const resolvedClaudeHome = configuredClaudeHome(opts);
+  const key = `${resolvedClaudeHome}::${opts.cwd ?? ""}`;
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && now - hit.at < TTL_MS) return hit.value;

@@ -318,3 +318,174 @@ describe("setup as ordered steps", () => {
     expect(metadata.setup).toBeUndefined();
   });
 });
+
+// D3/D5 (GARRISON-RUNTIMES-V1): runtime Fittings declare a provider mechanism
+// and a Quarters descriptor. Both are optional, both are STRICT — a typo'd or
+// unknown key inside them is a manifest bug and must fail the parse loudly,
+// never be silently dropped.
+describe("provider_mechanism block (D3)", () => {
+  const runtimeBase = {
+    ...baseMetadata,
+    faculty: "runtimes" as const,
+    component_shape: "cli-skill" as const,
+    provides: [{ kind: "runtime", name: "claude-code" }]
+  };
+
+  it("parses an env mechanism", () => {
+    const m = parseGarrisonMetadata({
+      ...runtimeBase,
+      provider_mechanism: {
+        type: "env",
+        base_url_env: "ANTHROPIC_BASE_URL",
+        auth_env: "ANTHROPIC_AUTH_TOKEN",
+        model_arg: "--model"
+      }
+    });
+    const pm = m.provider_mechanism!;
+    expect(pm.type).toBe("env");
+    if (pm.type === "env") {
+      expect(pm.base_url_env).toBe("ANTHROPIC_BASE_URL");
+    }
+  });
+
+  it("parses a config-file mechanism (codex shape)", () => {
+    const m = parseGarrisonMetadata({
+      ...runtimeBase,
+      provides: [{ kind: "runtime", name: "codex" }],
+      provider_mechanism: {
+        type: "config-file",
+        config_file: "~/.codex/config.toml",
+        config_format: "toml",
+        config_key: "model_providers",
+        model_key: "model"
+      }
+    });
+    const pm = m.provider_mechanism!;
+    expect(pm.type).toBe("config-file");
+    if (pm.type === "config-file") {
+      expect(pm.config_format).toBe("toml");
+    }
+  });
+
+  it("is optional (a runtime with no mechanism is still a target)", () => {
+    const m = parseGarrisonMetadata(runtimeBase);
+    expect(m.provider_mechanism).toBeUndefined();
+  });
+
+  it("rejects an unknown key inside the block (strict, loud)", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...runtimeBase,
+        provider_mechanism: { type: "env", base_url_env: "X", bogus_key: "y" }
+      })
+    ).toThrow(/bogus_key|unrecognized/i);
+  });
+
+  it("rejects an env mechanism that declares no override channel at all", () => {
+    expect(() =>
+      parseGarrisonMetadata({ ...runtimeBase, provider_mechanism: { type: "env" } })
+    ).toThrow(/declares none/);
+  });
+
+  it("rejects a config-file mechanism without config_file + config_format", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...runtimeBase,
+        provider_mechanism: { type: "config-file", config_key: "model_providers" }
+      })
+    ).toThrow(/requires config_file and config_format/);
+  });
+});
+
+describe("quarters_descriptor block (D5)", () => {
+  const runtimeBase = {
+    ...baseMetadata,
+    faculty: "runtimes" as const,
+    component_shape: "cli-skill" as const,
+    provides: [{ kind: "runtime", name: "codex" }]
+  };
+
+  it("parses a deep descriptor (claude-code maps to the registered deep implementation)", () => {
+    const m = parseGarrisonMetadata({
+      ...runtimeBase,
+      provides: [{ kind: "runtime", name: "claude-code" }],
+      quarters_descriptor: { tier: "deep", id: "claude-code" }
+    });
+    expect(m.quarters_descriptor).toEqual({ tier: "deep", id: "claude-code" });
+  });
+
+  it("parses a generic descriptor with native config surfaces", () => {
+    const m = parseGarrisonMetadata({
+      ...runtimeBase,
+      quarters_descriptor: {
+        tier: "generic",
+        id: "codex",
+        home_dir: "~/.codex",
+        settings_files: [{ path: "~/.codex/config.toml", format: "toml" }],
+        context_file: "AGENTS.md",
+        mcp_config: { path: "~/.codex/config.toml", format: "toml", key: "mcp_servers" },
+        log_paths: ["~/.codex/log"]
+      }
+    });
+    expect(m.quarters_descriptor?.home_dir).toBe("~/.codex");
+    expect(m.quarters_descriptor?.settings_files?.[0].format).toBe("toml");
+  });
+
+  it("rejects a generic descriptor without home_dir (loud, never a silent fallback)", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...runtimeBase,
+        quarters_descriptor: { tier: "generic", id: "codex" }
+      })
+    ).toThrow(/requires home_dir/);
+  });
+
+  it("rejects unknown keys inside the descriptor (strict, loud)", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...runtimeBase,
+        quarters_descriptor: { tier: "deep", id: "claude-code", surprise: true }
+      })
+    ).toThrow(/surprise|unrecognized/i);
+  });
+
+  it("rejects a non-kebab-case descriptor id", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...runtimeBase,
+        quarters_descriptor: { tier: "deep", id: "Claude Code" }
+      })
+    ).toThrow(/kebab-case/);
+  });
+});
+
+// Determinism-ratchet guard for the S1 codex finding: the parsed types must
+// narrow on their discriminants. If the TS unions drift loose again (or the
+// zod schemas stop inferring the arms), the `const cf: string` / `const hd:
+// string` assignments below become compile errors and tsc fails the wall.
+describe("discriminated narrowing guard (S1 ratchet)", () => {
+  it("narrows provider_mechanism and quarters_descriptor on their discriminants", () => {
+    const m = parseGarrisonMetadata({
+      ...baseMetadata,
+      faculty: "runtimes" as const,
+      component_shape: "cli-skill" as const,
+      provides: [{ kind: "runtime", name: "codex" }],
+      provider_mechanism: { type: "config-file", config_file: "~/.codex/config.toml", config_format: "toml" },
+      quarters_descriptor: { tier: "generic", id: "codex", home_dir: "~/.codex" }
+    });
+    const pm = m.provider_mechanism!;
+    expect(pm.type).toBe("config-file");
+    if (pm.type === "config-file") {
+      const cf: string = pm.config_file;
+      const fmt: "json" | "toml" = pm.config_format;
+      expect(cf).toContain("config.toml");
+      expect(fmt).toBe("toml");
+    }
+    const qd = m.quarters_descriptor!;
+    expect(qd.tier).toBe("generic");
+    if (qd.tier === "generic") {
+      const hd: string = qd.home_dir;
+      expect(hd).toBe("~/.codex");
+    }
+  });
+});

@@ -1,0 +1,56 @@
+name: snapshots-default
+version: 0.1.0
+description: Off-site restic backups of the Garrison state for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: sessions
+  cardinality_hint: single
+  component_shape: script
+  platforms:
+    - all
+  summary: >-
+    Off-site, encrypted backups of everything Garrison depends on - ~/.garrison
+    (the runs evidence home), ~/.claude, and the projects root - using restic to
+    a GCS backend. Scheduling runs on a systemd user timer (daily 03:00 + weekly
+    prune), DELIBERATELY independent of Garrison so backups survive Garrison being
+    down. The restic password and the GCS service-account key come from the Vault
+    (secret_scope), with a 0600 fallback env file at ~/.garrison/snapshots/env.
+    Restore is never automated: the Snapshots view prints the exact
+    `restic restore` command to copy.
+  config_schema:
+    - key: snapshots_bucket
+      type: string
+      description: >-
+        GCS bucket name for the restic repository. The repository resolves to
+        gs:<bucket>:/garrison unless RESTIC_REPOSITORY is set explicitly.
+        Delivered to the scripts as SNAPSHOTS_BUCKET via the Vault or the
+        fallback env file.
+    - key: projects_root
+      type: path
+      default: ~/dev
+      description: >-
+        Projects directory included in the backup set. Overridden per-machine
+        via SNAPSHOTS_PROJECTS_ROOT in the environment; defaults to ~/dev.
+  provides: []
+  consumes:
+    - kind: vault
+      cardinality: optional-one
+  secret_scope:
+    - RESTIC_PASSWORD
+    - GOOGLE_APPLICATION_CREDENTIALS
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: bash apm_modules/_local/snapshots-default/scripts/probe.sh --probe
+    expect: ok
+    timeout_ms: 10000
+  ui:
+    views:
+      - id: snapshots
+        placement: sidebar-surface
+        entry: ./ui/Snapshots.tsx
+        route: /

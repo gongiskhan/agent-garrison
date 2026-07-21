@@ -1,0 +1,533 @@
+{
+  "runAt": "2026-07-12T19:46:48.089Z",
+  "env": {
+    "node": "v20.19.4",
+    "opencode": "1.17.15",
+    "codex": "authed (~/.codex/auth.json present)",
+    "claude": "/home/ggomes/.local/bin/claude",
+    "ollama": "up (qwen2.5:3b)"
+  },
+  "order": [
+    "opencode",
+    "codex",
+    "claude-code"
+  ],
+  "primaries": {
+    "opencode": {
+      "boot": {
+        "status": "pass",
+        "engine": "opencode",
+        "elapsedMs": 41601,
+        "reply": "pong",
+        "note": "RoutedGateway(primary=opencode) booted; operative adapter \"opencode\" served one turn in 41.6s"
+      },
+      "cells": {
+        "agent-sdk-runtime": {
+          "status": "pass",
+          "note": "delegate round-trip ok over ollama/qwen2.5:3b; summary \"Sure, here are the JSON objects for each function call descr\""
+        },
+        "automations": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7090 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "basic-memory": {
+          "status": "pass",
+          "note": "read ok via 'basic-memory project list' (7 lines)"
+        },
+        "browser-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7084 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "claude-code-runtime": {
+          "status": "verify-only",
+          "note": "no delegate bridge (primary-only runtime); health via probe"
+        },
+        "codex-runtime": {
+          "status": "verify-only",
+          "note": "codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed)"
+        },
+        "deepgram-voice": {
+          "status": "pass",
+          "note": "catalog parsed: 2 actions (0 mutating), no external calls"
+        },
+        "dev-env": {
+          "status": "pass",
+          "note": "own-port server live on :7086/health (HTTP 200)"
+        },
+        "file-browser": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7091 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "gemini-runtime": {
+          "status": "degraded",
+          "note": "bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation"
+        },
+        "http-gateway": {
+          "status": "pass",
+          "note": "RoutedGateway booted with the opencode primary + served a turn (this column's boot)"
+        },
+        "improver": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7093 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "kanban-loop": {
+          "status": "verify-only",
+          "note": "own-port fitting; no port in composition config (not started by harness)"
+        },
+        "modes": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "monitor-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7077 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "opencode-runtime": {
+          "status": "degraded",
+          "note": "delegate over ollama/qwen2.5:3b did not return a summary (small-local-model quality / transport): delegation failed after retry: opencode run produced no assistant text (exit 0); raw output: {\"type\":\"step_start\",\"timestamp\":1783885246812,\"sessionID\":\"ses_0a8275b62ffe3xrsp72TAfQGXA\",\"part\":{\"id\":\"prt_f57d8b140001iaPFl4wfLDNG2T\",\"messageID\":\"msg_f57d8a646001JA5sgE0VcCHGLV\",\"sessionID\":\"ses_"
+        },
+        "orchestrator": {
+          "status": "pass",
+          "note": "own-port server live on :7087/health (HTTP 200)"
+        },
+        "outpost-tailscale-host": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7082 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "ports-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7088 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "power-default": {
+          "status": "pass",
+          "note": "own-port server live on :7092/health (HTTP 200)"
+        },
+        "scheduler": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "screen-share-default": {
+          "status": "verify-only",
+          "note": "own-port fitting; no port in composition config (not started by harness)"
+        },
+        "slack-channel": {
+          "status": "pass",
+          "note": "catalog parsed: 2 actions (1 mutating), no external calls"
+        },
+        "snapshots-default": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "taste": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "trello": {
+          "status": "pass",
+          "note": "catalog parsed: 6 actions (4 mutating), no external calls"
+        },
+        "vault-git-sync": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "web-channel-default": {
+          "status": "pass",
+          "note": "own-port server live on :7083/health (HTTP 200)"
+        }
+      }
+    },
+    "codex": {
+      "boot": {
+        "status": "pass",
+        "engine": "codex",
+        "elapsedMs": 5783,
+        "reply": "pong",
+        "note": "RoutedGateway(primary=codex) booted; operative adapter \"codex\" served one turn in 5.8s"
+      },
+      "cells": {
+        "agent-sdk-runtime": {
+          "status": "pass",
+          "note": "delegate round-trip ok over ollama/qwen2.5:3b; summary \"It looks like the `mkdir` operation encountered a permission\""
+        },
+        "automations": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7090 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "basic-memory": {
+          "status": "pass",
+          "note": "read ok via 'basic-memory project list' (7 lines)"
+        },
+        "browser-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7084 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "claude-code-runtime": {
+          "status": "verify-only",
+          "note": "no delegate bridge (primary-only runtime); health via probe"
+        },
+        "codex-runtime": {
+          "status": "pass",
+          "note": "codex delegate round-trip ok (budgeted single call); summary \"pong\""
+        },
+        "deepgram-voice": {
+          "status": "pass",
+          "note": "catalog parsed: 2 actions (0 mutating), no external calls"
+        },
+        "dev-env": {
+          "status": "pass",
+          "note": "own-port server live on :7086/health (HTTP 200)"
+        },
+        "file-browser": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7091 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "gemini-runtime": {
+          "status": "degraded",
+          "note": "bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation"
+        },
+        "http-gateway": {
+          "status": "pass",
+          "note": "RoutedGateway booted with the codex primary + served a turn (this column's boot)"
+        },
+        "improver": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7093 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "kanban-loop": {
+          "status": "verify-only",
+          "note": "own-port fitting; no port in composition config (not started by harness)"
+        },
+        "modes": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "monitor-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7077 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "opencode-runtime": {
+          "status": "pass",
+          "note": "delegate round-trip ok over ollama/qwen2.5:3b; summary \"It seems that you don't have the necessary permissions to cr\""
+        },
+        "orchestrator": {
+          "status": "pass",
+          "note": "own-port server live on :7087/health (HTTP 200)"
+        },
+        "outpost-tailscale-host": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7082 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "ports-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7088 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "power-default": {
+          "status": "pass",
+          "note": "own-port server live on :7092/health (HTTP 200)"
+        },
+        "scheduler": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "screen-share-default": {
+          "status": "verify-only",
+          "note": "own-port fitting; no port in composition config (not started by harness)"
+        },
+        "slack-channel": {
+          "status": "pass",
+          "note": "catalog parsed: 2 actions (1 mutating), no external calls"
+        },
+        "snapshots-default": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "taste": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "trello": {
+          "status": "pass",
+          "note": "catalog parsed: 6 actions (4 mutating), no external calls"
+        },
+        "vault-git-sync": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "web-channel-default": {
+          "status": "pass",
+          "note": "own-port server live on :7083/health (HTTP 200)"
+        }
+      }
+    },
+    "claude-code": {
+      "boot": {
+        "status": "pass",
+        "engine": "claude-code",
+        "elapsedMs": 28941,
+        "reply": "pong",
+        "note": "RoutedGateway(primary=claude-code) booted; operative adapter \"claude-code\" served one turn in 28.9s"
+      },
+      "cells": {
+        "agent-sdk-runtime": {
+          "status": "pass",
+          "note": "delegate round-trip ok over ollama/qwen2.5:3b; summary \"It looks like you're encountering a permissions issue while \""
+        },
+        "automations": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7090 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "basic-memory": {
+          "status": "pass",
+          "note": "read ok via 'basic-memory project list' (7 lines)"
+        },
+        "browser-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7084 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "claude-code-runtime": {
+          "status": "verify-only",
+          "note": "no delegate bridge (primary-only runtime); health via probe"
+        },
+        "codex-runtime": {
+          "status": "verify-only",
+          "note": "codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed)"
+        },
+        "deepgram-voice": {
+          "status": "pass",
+          "note": "catalog parsed: 2 actions (0 mutating), no external calls"
+        },
+        "dev-env": {
+          "status": "pass",
+          "note": "own-port server live on :7086/health (HTTP 200)"
+        },
+        "file-browser": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7091 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "gemini-runtime": {
+          "status": "degraded",
+          "note": "bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation"
+        },
+        "http-gateway": {
+          "status": "pass",
+          "note": "RoutedGateway booted with the claude-code primary + served a turn (this column's boot)"
+        },
+        "improver": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7093 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "kanban-loop": {
+          "status": "verify-only",
+          "note": "own-port fitting; no port in composition config (not started by harness)"
+        },
+        "modes": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "monitor-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7077 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "opencode-runtime": {
+          "status": "degraded",
+          "note": "delegate over ollama/qwen2.5:3b did not return a summary (small-local-model quality / transport): delegation failed after retry: opencode run produced no assistant text (exit 0); raw output: {\"type\":\"step_start\",\"timestamp\":1783885697523,\"sessionID\":\"ses_0a82078d8ffeFvT37nCCDum"
+        },
+        "orchestrator": {
+          "status": "pass",
+          "note": "own-port server live on :7087/health (HTTP 200)"
+        },
+        "outpost-tailscale-host": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7082 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "ports-default": {
+          "status": "verify-only",
+          "note": "own-port server not running on :7088 (harness does not 'up' the composition); verify hook is the health signal"
+        },
+        "power-default": {
+          "status": "pass",
+          "note": "own-port server live on :7092/health (HTTP 200)"
+        },
+        "scheduler": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "screen-share-default": {
+          "status": "verify-only",
+          "note": "own-port fitting; no port in composition config (not started by harness)"
+        },
+        "slack-channel": {
+          "status": "pass",
+          "note": "catalog parsed: 2 actions (1 mutating), no external calls"
+        },
+        "snapshots-default": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "taste": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "trello": {
+          "status": "pass",
+          "note": "catalog parsed: 6 actions (4 mutating), no external calls"
+        },
+        "vault-git-sync": {
+          "status": "pass",
+          "note": "manifest parsed + verify hook ok"
+        },
+        "web-channel-default": {
+          "status": "pass",
+          "note": "own-port server live on :7083/health (HTTP 200)"
+        }
+      }
+    }
+  },
+  "fittingOrder": [
+    "agent-sdk-runtime",
+    "automations",
+    "basic-memory",
+    "browser-default",
+    "claude-code-runtime",
+    "codex-runtime",
+    "deepgram-voice",
+    "dev-env",
+    "file-browser",
+    "gemini-runtime",
+    "http-gateway",
+    "improver",
+    "kanban-loop",
+    "modes",
+    "monitor-default",
+    "opencode-runtime",
+    "orchestrator",
+    "outpost-tailscale-host",
+    "ports-default",
+    "power-default",
+    "scheduler",
+    "screen-share-default",
+    "slack-channel",
+    "snapshots-default",
+    "taste",
+    "trello",
+    "vault-git-sync",
+    "web-channel-default"
+  ],
+  "fittingMeta": {
+    "agent-sdk-runtime": {
+      "faculty": "runtimes",
+      "action": "runtime-delegate"
+    },
+    "automations": {
+      "faculty": "observability",
+      "action": "http-health"
+    },
+    "basic-memory": {
+      "faculty": "memory",
+      "action": "memory-read"
+    },
+    "browser-default": {
+      "faculty": "surfaces",
+      "action": "http-health"
+    },
+    "claude-code-runtime": {
+      "faculty": "runtimes",
+      "action": "runtime-delegate"
+    },
+    "codex-runtime": {
+      "faculty": "runtimes",
+      "action": "runtime-delegate"
+    },
+    "deepgram-voice": {
+      "faculty": "connectors",
+      "action": "catalog-parse"
+    },
+    "dev-env": {
+      "faculty": "sessions",
+      "action": "http-health"
+    },
+    "file-browser": {
+      "faculty": "sessions",
+      "action": "http-health"
+    },
+    "gemini-runtime": {
+      "faculty": "runtimes",
+      "action": "runtime-delegate"
+    },
+    "http-gateway": {
+      "faculty": "gateway",
+      "action": "gateway-boot"
+    },
+    "improver": {
+      "faculty": "observability",
+      "action": "http-health"
+    },
+    "kanban-loop": {
+      "faculty": "observability",
+      "action": "http-health"
+    },
+    "modes": {
+      "faculty": "modes",
+      "action": "manifest"
+    },
+    "monitor-default": {
+      "faculty": "observability",
+      "action": "http-health"
+    },
+    "opencode-runtime": {
+      "faculty": "runtimes",
+      "action": "runtime-delegate"
+    },
+    "orchestrator": {
+      "faculty": "orchestrator",
+      "action": "http-health"
+    },
+    "outpost-tailscale-host": {
+      "faculty": "surfaces",
+      "action": "http-health"
+    },
+    "ports-default": {
+      "faculty": "surfaces",
+      "action": "http-health"
+    },
+    "power-default": {
+      "faculty": "surfaces",
+      "action": "http-health"
+    },
+    "scheduler": {
+      "faculty": "observability",
+      "action": "manifest"
+    },
+    "screen-share-default": {
+      "faculty": "surfaces",
+      "action": "http-health"
+    },
+    "slack-channel": {
+      "faculty": "channels",
+      "action": "catalog-parse"
+    },
+    "snapshots-default": {
+      "faculty": "sessions",
+      "action": "manifest"
+    },
+    "taste": {
+      "faculty": "design",
+      "action": "manifest"
+    },
+    "trello": {
+      "faculty": "connectors",
+      "action": "catalog-parse"
+    },
+    "vault-git-sync": {
+      "faculty": "sessions",
+      "action": "manifest"
+    },
+    "web-channel-default": {
+      "faculty": "channels",
+      "action": "http-health"
+    }
+  },
+  "budget": {
+    "codexDelegateConsumed": true
+  }
+}

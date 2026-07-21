@@ -10,7 +10,7 @@ x-garrison:
   component_shape: script
   platforms:
     - claude-code
-  summary: Runs the worktree project's native test command (npm/pytest/cargo/go test).
+  summary: Runs the project's native test command (npm/pytest/cargo/go test).
   provides:
     - kind: agent-skill
       name: testing

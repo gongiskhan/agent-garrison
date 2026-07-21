@@ -13,6 +13,15 @@ Claude Code outside Garrison, claude.ai conversations) for a single
 machine, then layer autonomy and tasks on top, then expand outward
 to other machines and to personal-assistant use cases.
 
+> **Superseded 2026-07-10 (GARRISON-FLOW-V2 D10):** Garrison no longer
+> spins up per-task git branches or worktrees. All dev work happens in the
+> project repo root on the **current branch**; concurrent tasks coordinate by
+> staying off each other's files (touch-set overlap and ordering), not by
+> isolating into branches. Forward-looking "worktree view" / "spawn a
+> worktree" language below predates this decision - read it as "the dev-env
+> session view" / "start a session". Dated "we shipped worktrees" entries in
+> the history and decision-log sections are kept verbatim as history.
+
 -----
 
 ## North star
@@ -20,7 +29,7 @@ to other machines and to personal-assistant use cases.
 A single Operative running locally that:
 
 1. Hosts the user's full development workflow inside Garrison —
-   worktrees, terminals, Claude Code sessions, an embedded browser
+   terminals, Claude Code sessions on the current branch, an embedded browser
    for both human and agent inspection, session monitoring,
    screen-share — all as Fittings, all rendered as views in
    Garrison's shell.
@@ -32,11 +41,11 @@ A single Operative running locally that:
    package evidence → report. Each step is a single-responsibility
    runner with its own session and its own model choice. Evidence
    bundles land in the Artifact Store; reports surface in the
-   originating surface and the worktree view.
+   originating surface and the dev-env session view.
 1. Lets me drive that pipeline from the phone via an improved web
    channel: I'm walking around with my phone, I ask the Operative
-   to spawn a worktree and start work on something, it does; I get
-   back to the desk and the worktree view shows me exactly what's
+   to kick off a session and start work on something, it does; I get
+   back to the desk and the dev-env session view shows me exactly what's
    running. Cross-surface continuity is real, not a hack.
 1. Replaces my claude.ai PM/Architect discussions with conversations
    inside Garrison. The Operative captures decisions and plans into
@@ -178,7 +187,7 @@ is hit). Stable, documented, headless-compatible.
 When the planner has produced a plan plus an explicit acceptance
 criteria block, the orchestrator spawns the executor session as
 `claude -p "/goal <acceptance criteria + 'or stop after N turns'>"`
-in the target worktree at the tier-2-chosen model. The session keeps
+in the project repo on the current branch at the tier-2-chosen model. The session keeps
 running until the evaluator agrees the criteria hold or the turn
 ceiling is reached.
 
@@ -319,8 +328,8 @@ opportunistically when one needs richer UI than v1 can carry.
 **Status: largely shipped; refining for daily use.**
 
 **Outcome:** The user can do a full day of development work on
-`agent-garrison` itself entirely inside Garrison's shell. Worktrees,
-terminals, Claude Code sessions, browser inspection, session
+`agent-garrison` itself entirely inside Garrison's shell. Current-branch
+Claude Code sessions, terminals, browser inspection, session
 monitoring, screen-share — all rendered as views inline. No external
 IDE, terminal, or browser tooling needed for the dev workflow.
 
@@ -330,7 +339,7 @@ Per the old Phase 5 and Phase 5.5 work, fully decomposed after the
 2026-05-17 Workbench dissolution into flat sibling Faculties, then
 re-consolidated where noted (2026-06-11 Dev Env consolidation):
 
-- **`dev-env` Fitting (consolidated 2026-06-11, port 7086)** — the
+- **`dev-env` Fitting (consolidated 2026-06-11, port 27086)** — the
   former `terminal-armory-default` (xterm.js + PTY backend,
   multi-session, busy/idle indicators, launch presets),
   `worktree-management-sequoias` (git worktree CRUD, deterministic
@@ -339,8 +348,8 @@ re-consolidated where noted (2026-06-11 Dev Env consolidation):
   badges driven by Claude Code hook events) Fittings collapsed
   into one tabbed surface: every Claude Code session is a tab
   holding a Claude PTY + shell PTY (left) and the live browser
-  pane (right), with a quick-prompt bar and worktree / PR /
-  commit-and-push actions in the menu. The `workspaces` Fitting
+  pane (right), with a quick-prompt bar and PR / commit-and-push
+  actions on the current branch in the menu. The `workspaces` Fitting
   was deleted outright with no successor.
 - **`screen-share` Faculty + `screen-share-default` Fitting** —
   macOS screen capture surface watchable from any Garrison client.
@@ -362,23 +371,24 @@ re-consolidated where noted (2026-06-11 Dev Env consolidation):
    implementing and refining. Operative-side ergonomics: the
    Operative can proactively grab screenshots, console output,
    network logs, and drive the browser without disrupting the user.
-1. **Worktree view UX polish.** Buttons to open Claude Code with
+1. **Dev-env session view UX polish.** Buttons to open Claude Code with
    the right flags (continue / new prompt / specific tier-aware
    model), navigation between views inline, "this is the view that
-   matters right now" affordances. The goal is to make the worktree
-   view the natural starting point of every dev task.
+   matters right now" affordances. The goal is to make the dev-env
+   session view the natural starting point of every dev task.
 1. **Sequoias retirement (T8 from Phase 5) — landed 2026-06-11.**
    The Dev Env consolidation closed this: terminal, worktree
    management, and session view collapsed into the `dev-env`
-   Fitting, the standalone Sequoias app is no longer used, and
-   `dev-env` is the only worktree manager.
+   Fitting, and the standalone Sequoias app is no longer used.
+   (Superseded 2026-07-10: worktree management was removed entirely;
+   `dev-env` runs sessions on the current branch.)
 1. **Daily-use smoke pass.** A deliberate week of working on
    agent-garrison entirely inside Garrison. Bugs surface, polish
    gets applied, the experience is real-world hardened.
 
 ### Stage 1 done when
 
-- I open Garrison in the morning. I create or pick a worktree from
+- I open Garrison in the morning. I start or pick a session from
   the dev-env view. Each Claude Code session is a tab with its
   Claude PTY and a shell PTY, the browser pane alongside to test
   the running dev server. Session status badges tell me what's
@@ -394,7 +404,7 @@ re-consolidated where noted (2026-06-11 Dev Env consolidation):
   focuses when CDP reports a focused text field. The May 25
   research flagged this as a pattern that needs implementation
   verification.
-- Browser Fitting context isolation — separate profiles per worktree
+- Browser Fitting context isolation — separate profiles per session
   vs one shared instance with separate contexts. Lean: one Chromium,
   many contexts, profiles persisted per named context under
   `~/.garrison/profiles/`.
@@ -405,24 +415,24 @@ re-consolidated where noted (2026-06-11 Dev Env consolidation):
 
 **Status: design locked 2026-05-26; implementation pending.**
 
-**Outcome:** Every dev task the user initiates from a worktree view
+**Outcome:** Every dev task the user initiates from a dev-env session view
 runs through a fixed pipeline. The pipeline is composed of
 single-responsibility runners: classify → (plan + classify-again
 if non-trivial) → execute under `/goal` → validate → test →
 package evidence → report. Each step gets its own session with its
 own model and effort, chosen for that step's actual cost/quality
 tradeoff. Evidence bundles land in the Artifact Store; reports
-surface in both the originating surface and the worktree view.
+surface in both the originating surface and the dev-env session view.
 
 This is the disciplined dev workflow. The user drives it manually
-from worktree views in Stage 2 (no autonomous spawning yet —
+from dev-env session views in Stage 2 (no autonomous spawning yet —
 that's Stage 3). The full pipeline must be solid before Stages 3, 4,
 or 5 can build on top of it.
 
 ### The pipeline
 
 ```
-[user intent from a worktree view]
+[user intent from a dev-env session view]
    │
    ▼
 [Classify-1]
@@ -453,16 +463,16 @@ provider) doing one thing.
     underlying skill is "judge complexity from inputs" with
     different inputs). Easy to split if they diverge later.
 - **Planner (Faculty: `planner`; separate session per call).** Spawns
-  its own Claude Code session, Opus with extended thinking, in the
-  worktree. Reads the intent + repo context, produces:
+  its own Claude Code session, Opus with extended thinking, on the
+  current branch. Reads the intent + repo context, produces:
   - A plan (markdown) — the architectural / file-by-file reasoning.
   - An **acceptance criteria block** — structured, machine-readable,
     intended to be lifted verbatim into the `/goal` condition.
   Planner's prompt has the discipline of writing both baked in.
   Output artifact lands in the Artifact Store under
-  `dev-evidence/<worktree>/<run-id>/plan.md`.
-- **Executor (existing Claude Code session in worktree, wrapped in
-  `/goal`).** Spawned per the surface-aware orchestration brief
+  `dev-evidence/<session>/<run-id>/plan.md`.
+- **Executor (existing Claude Code session on the current branch,
+  wrapped in `/goal`).** Spawned per the surface-aware orchestration brief
   (2026-05-13), tier-aware respawn applies. The wrapping is
   `claude -p "/goal <acceptance criteria + 'or stop after N turns'>"`
   in headless mode. When `/goal` reports back (success or give-up),
@@ -477,18 +487,18 @@ provider) doing one thing.
   orchestration over deterministic things plus schema-shaped
   judgment.
 - **Test runner (Faculty: `testing`; deterministic).** Runs whatever
-  the worktree declares: `pnpm test`, project-specific commands.
+  the project declares: `pnpm test`, project-specific commands.
   Bash, no LLM. Output captured as a single artifact.
 - **Evidence packager (Faculty: `evidence` — see open question;
   deterministic script).** Gathers prompt, classified tier(s), plan,
   acceptance criteria, full diff, test output, validator output,
   any screenshots/recordings produced during the run, optional full
   session transcript (gitignored by default). Bundles into the
-  Artifact Store under `dev-evidence/<worktree>/<timestamp>/`.
+  Artifact Store under `dev-evidence/<session>/<timestamp>/`.
 - **Reporter (Orchestrator Fitting's job).** Surfaces the result
   with a link to the evidence bundle. Routes by origin (per the
-  May 13 surface-aware brief): worktree-origin → worktree view;
-  channel-origin → channel; **and always to the worktree view as
+  May 13 surface-aware brief): session-origin → dev-env session view;
+  channel-origin → channel; **and always to the session view as
   well**, deduped by run ID. (Decided 2026-05-26: report lands in
   both.)
 
@@ -536,14 +546,14 @@ rules. Summary in context:
 
 ### Stage 2 done when
 
-- I type "implement X in Y worktree" in a worktree view.
+- I type "implement X" in a dev-env session view.
   Classify-1 fires. Trivial → straight to execute. Non-trivial →
   planner runs in a separate Opus session, writes plan +
   acceptance criteria, classify-2 reads it, picks executor model.
   Executor runs under `/goal`. Validator runs in a separate
   cheap-model session, returns pass/fail per criterion. Test runner
   runs deterministic tests. Evidence packager bundles everything
-  into the Artifact Store. Report surfaces in worktree view (and
+  into the Artifact Store. Report surfaces in the session view (and
   chat if chat-initiated).
 - When `/goal` gives up, the orchestrator gets the evaluator's last
   reason and decides recovery.
@@ -554,7 +564,7 @@ rules. Summary in context:
 
 ### Out of scope for Stage 2
 
-- Orchestrator spawning worktrees or pipelines autonomously
+- Orchestrator spawning sessions or pipelines autonomously
   (Stage 3).
 - Mobile/channel-initiated pipelines (Stage 3).
 - Document writing during PM/Architect discussions (Stage 4).
@@ -596,10 +606,10 @@ rules. Summary in context:
 
 **Status:** scoped; depends on Stage 2 being solid.
 
-**Outcome:** The orchestrator can spawn worktrees and kick off
+**Outcome:** The orchestrator can spawn sessions and kick off
 pipelines on the user's behalf. The user drives this from mobile
 via an improved web channel. When the user gets to the desk, the
-worktree views show what's running and the user continues inline.
+dev-env session views show what's running and the user continues inline.
 Cross-surface continuity (mobile → desk) is the headline experience.
 
 ### Scope
@@ -610,8 +620,8 @@ Cross-surface continuity (mobile → desk) is the headline experience.
    pipeline, real status feedback. Visual polish, mobile keyboard
    handling, threading, evidence bundle linking.
 1. **Orchestrator gains pipeline-invocation capability.** The
-   orchestrator can call out: "spawn a worktree from branch X, run
-   the disciplined pipeline against intent Y." All the Stage 2
+   orchestrator can call out: "start a session on the current branch,
+   run the disciplined pipeline against intent Y." All the Stage 2
    plumbing is reused; the orchestrator is just a new *initiator*
    of the same pipeline.
 1. **One orchestrator per user, origin-tagged turns** (per the
@@ -624,10 +634,10 @@ Cross-surface continuity (mobile → desk) is the headline experience.
 
 ### Stage 3 done when
 
-- I'm walking around with my phone. I message the operative: "spawn
-  a worktree for the screen-share Fitting bug fix and start work."
+- I'm walking around with my phone. I message the operative: "start
+  a session for the screen-share Fitting bug fix and start work."
   The orchestrator does it. The pipeline runs. The phone shows me
-  status. I get back to the desk and the worktree views show me
+  status. I get back to the desk and the dev-env session views show me
   exactly what's happening; I can take over inline.
 - A mid-session tier escalation works: simple bug fix turns out to
   need a redesign, classifier-2 says Opus, executor respawns with
@@ -637,10 +647,10 @@ Cross-surface continuity (mobile → desk) is the headline experience.
 
 - Web channel UX choices — how much polish is "enough" before
   Stage 3 ships vs continuing to refine in parallel.
-- Worktree-spawning permission model. Does the orchestrator
-  unilaterally spawn worktrees, or does it ask first? Lean:
+- Session-spawning permission model. Does the orchestrator
+  unilaterally spawn sessions, or does it ask first? Lean:
   unilateral for tier ≤ 2; asks for tier ≥ 3.
-- "Take over inline" UX — how does the worktree view know which
+- "Take over inline" UX — how does the dev-env session view know which
   orchestrator-initiated run to surface as the active one?
 
 -----
@@ -677,8 +687,8 @@ for long-form discussion.
 1. **Improved chat UX for long-form discussions.** Phone and desktop
    both support real-back-and-forth conversations, document linking
    inline, easy reference to past discussions.
-1. **Document → worktree-view referencing.** Pin a document while
-   working in a worktree; the operative can read it as context.
+1. **Document → session-view referencing.** Pin a document while
+   working in a session; the operative can read it as context.
 
 ### Stage 4 done when
 
@@ -687,7 +697,7 @@ for long-form discussion.
   "I've captured this in a document — see
   `garrison://documents/<id>`." I click through, read it, edit if
   needed. Later, when I'm ready, I pin the document and start work
-  on it through a worktree view + Stage 2 pipeline. The whole
+  on it through a dev-env session view + Stage 2 pipeline. The whole
   flow happens inside Garrison, no claude.ai.
 
 ### Stage 4 v2 (deferred to Stage 5 transition)
@@ -872,12 +882,12 @@ Append-only. Each decision dated and short.
   "orchestrator-is-the-spine" principle.
 - **2026-05-26** — Evidence bundles include the full session
   transcript (gitignored by default, optional to surface). Lands in
-  Artifact Store under `dev-evidence/<worktree>/<timestamp>/`.
+  Artifact Store under `dev-evidence/<session>/<timestamp>/`.
   Default contents: original prompt, classified tier(s), plan +
   acceptance criteria, full diff, test command output, validator
   output, screenshots/recordings, summary.
 - **2026-05-26** — Report routing: both the originating surface
-  (channel or worktree view) AND the worktree view, deduped by run
+  (channel or session view) AND the dev-env session view, deduped by run
   ID.
 - **2026-05-26** — Audit items flagged: existing tier-classifier
   work and the May 12 `mcp-gateway` Fitting brief both predate the
@@ -982,7 +992,7 @@ Anything raised in conversation but not yet resolved. Re-sectioned
 - Browser Fitting iPad keyboard handling (May 25 research flagged
   this).
 - Browser Fitting context isolation — one Chromium with many named
-  contexts (lean) vs separate instances per worktree.
+  contexts (lean) vs separate instances per session.
 - Sequoias retirement gate — closed 2026-06-11 by the Dev Env
   consolidation; Sequoias retired outright.
 
@@ -1000,7 +1010,7 @@ Anything raised in conversation but not yet resolved. Re-sectioned
 - Audit of existing tier-classifier work and May 12 `mcp-gateway`
   brief for compatibility with two-stage classifier.
 - Classifier-1 model — Haiku (lean).
-- Planner artifact location — `dev-evidence/<worktree>/<run-id>/`
+- Planner artifact location — `dev-evidence/<session>/<run-id>/`
   (lean) vs project-relative `docs/plans/` vs Documents Fitting
   proper.
 
@@ -1008,9 +1018,9 @@ Anything raised in conversation but not yet resolved. Re-sectioned
 
 - Web channel UX polish bar — how much before Stage 3 ships vs
   parallel iteration.
-- Worktree-spawning permission model — unilateral for tier ≤ 2,
+- Session-spawning permission model — unilateral for tier ≤ 2,
   asks for tier ≥ 3 (lean).
-- "Take over inline" UX — how the worktree view surfaces the
+- "Take over inline" UX — how the dev-env session view surfaces the
   active orchestrator-initiated run.
 
 ### Stage 4

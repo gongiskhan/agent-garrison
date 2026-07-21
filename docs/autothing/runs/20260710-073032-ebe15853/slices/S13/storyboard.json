@@ -1,0 +1,50 @@
+{
+  "title": "S13 Power fitting UI — evidence",
+  "project": "agent-garrison",
+  "folder": "power",
+  "video": { "width": 390, "height": 844, "fps": 30 },
+  "segments": [
+    {
+      "type": "browser",
+      "id": "power",
+      "baseURL": "http://127.0.0.1:7490",
+      "startPath": "/",
+      "beats": [
+        {
+          "id": "ac1",
+          "caption": "AC-1 - state + 6 live busy signals",
+          "expectedScreen": "the Power page (sticky header shows POWER and a BUSY badge) with the Busy signals list rendering all six rows and live values: Working sessions 1 working, In-flight cards 0 in flight, Presence heartbeat, SSH sessions, Load average, Keep Awake",
+          "actions": [ { "type": "waitFor", "selector": ".signal-list" } ],
+          "assert": { "selector": ".signal-list", "text": "Working sessions", "highlight": true },
+          "hold": 2200
+        },
+        {
+          "id": "ac2",
+          "caption": "AC-2 - seeded session holds box BUSY",
+          "expectedScreen": "the BUSY badge in the header and the hero reading 'Box is busy / a signal is holding it awake' — the countdown is held (not counting down) because a signal blocks",
+          "assert": { "selector": ".hero", "text": "Box is busy", "highlight": true },
+          "hold": 1600
+        },
+        {
+          "id": "ac3",
+          "caption": "AC-3 - Keep Awake pinned 1h (blocks suspend)",
+          "expectedScreen": "the Keep Awake panel switched to an active pin reading 'until <time>' with a Cancel button, after tapping 1h",
+          "actions": [
+            { "type": "waitFor", "selector": "button:1h" },
+            { "type": "click", "selector": "button:1h" }
+          ],
+          "assert": { "selector": ".keep-active", "text": "until", "highlight": true },
+          "hold": 1800
+        },
+        {
+          "id": "ac4",
+          "caption": "AC-4 - usable at 390x844: full-width touch target",
+          "expectedScreen": "the page on a narrow 390px phone viewport with the full-width Suspend Now button highlighted as a large single-column touch target below the hero",
+          "actions": [ { "type": "waitFor", "selector": "button:Suspend Now" } ],
+          "assert": { "selector": "button:Suspend Now", "highlight": true },
+          "hold": 1600
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "slice": "S7", "kind": "mixed",
+  "implement": { "status": "passed", "summary": "collapse (s7-collapse: D18 execution stripped, D19 every-task cards + quick strip, D20 overrides) + rename (s7-rename: D21 skills/bindings/hooks/user-scope/docs, A5 transition-safe)" },
+  "securityWall": { "gitleaks": 0, "semgrep": 0 },
+  "test": { "status": "passed", "exit": 0, "summary": "typecheck 0; full suite 1856; 100+ new tests committed (quick cards, feedback queue, hook scenarios)" },
+  "fence": { "sha": "1ee58c1+1ffe292" },
+  "adversarialReview": { "verdict": "approve", "loopBacks": 1, "summary": "F1 stale-attach inline bypass + F2 override regex -> fixed -> RECHECK approve (re-walked repros)" },
+  "adversarialTest": { "verdict": "pass", "summary": "5/5 criteria vs real code: execution absent, quick->Done + significant->Plan, override records, A5 hook transition, in-flight card survival" },
+  "codexSliceReview": { "status": "degraded", "reason": "codex-unavailable" },
+  "designAudit": { "verdict": "clean", "summary": "quick-tasks strip + locked engine-card visuals, both viewports" },
+  "video": { "status": "verified", "mode": "evidence", "beatsVerified": 3, "sha256": "e8f02e095924f8b0671fe46b8382bcfd3d7c6133d879adc84b25648d295dd3f7", "path": "/home/ggomes/.walkthrough/runs/agent-garrison/flow-v2/s7-autonomy-collapse/2026-07-11_02-48-05/final.mp4" }
+}

@@ -1,12 +1,19 @@
 # Agent Garrison Faculties
 
-## Current model: 9 roles (Quarters pivot, the 2026-06-18 sessions split, the 2026-06-22 modes faculty)
+## Current model: 17 faculties (9 core roles + 7 capability faculties + connectors)
 
 Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
 roles in the 2026-06-07 Quarters pivot; on 2026-06-18 the overloaded `sessions`
 role was split into three (sessions / runtimes / surfaces), bringing the total
-to eight; `modes` was added 2026-06-22 (the Gary/Joe/James identity layer),
-bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
+to eight; `modes` was added 2026-06-22, bringing the core roles to **nine**.
+On 2026-06-24 seven optional capability faculties landed (`knowledge`,
+`research`, `building`, `code-intelligence`, `design`, `browser-qa`,
+`coordination`) and on 2026-06-26 `connectors` — **17 in total**, enforced by
+`facultyIds` in `src/lib/types.ts`:
+
+> Note: the `modes` faculty's capability was superseded by `identity`
+> (2026-07-13, MARATHON-V3 D7). The faculty id remains; the Fitting that fills
+> it is `identity-gary`, not a `modes` Fitting.
 
 - **orchestrator** — the governing behaviour spine; projected to
   `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive
@@ -26,8 +33,8 @@ bringing it to nine, enforced by `facultyIds` in `src/lib/types.ts`:
 - **sessions** — the working dev session and its records, headlined since the
   2026-06-11 Dev Env consolidation by the **dev-env** Fitting: a tabbed surface
   where each Claude Code session gets a Claude PTY + shell PTY alongside a live
-  browser pane, with worktrees and session status built in. The artifact store
-  backs it.
+  browser pane, with session status built in. Sessions run in the project repo
+  root on the current branch. The artifact store backs it.
 - **surfaces** — the auxiliary own-port live viewers split out of `sessions` on
   2026-06-18: screen-share, the standalone browser, and remote Outpost bridges.
   Each is detected via the `own_port` flag and linked from the sidebar Views
@@ -255,10 +262,10 @@ canonical example.
 - Purpose: read-only visibility into everything Garrison spawns — PIDs, status, ports, network connections, working directory, redacted env, captured stdout/stderr.
 - Cardinality: single.
 - Shapes: `plugin`, `script`.
-- Config: bind port (default `7077`), log retention (default 24 h after PID death), redaction patterns for env keys.
+- Config: bind port (default `27077`), log retention (default 24 h after PID death), redaction patterns for env keys.
 - Discovery: parent-PID descendant walk via `ps -ax`; per-PID details via `ps -o ...` and `lsof -i -P -n`. macOS-first; Linux adapter deferred.
 - Log capture: shared spawn helper at `src/lib/spawn.ts` tees stdout/stderr to `~/.garrison/logs/<pid>/`. Processes Garrison did not spawn appear in the card grid via PID observation but have no captured log content.
-- Example: `monitor-default` Fitting under `fittings/seed/monitor-default/`, serving its own React UI on port 7077.
+- Example: `monitor-default` Fitting under `fittings/seed/monitor-default/`, serving its own React UI on port 27077.
 - Failure modes: port conflict on the default (Fitting falls back via `findFreePort`), nested-spawn log loss for processes outside the shared helper, stale `~/.garrison/logs/<pid>/` directories.
 
 The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary (orchestrator, agent-skill, memory-store, automation-runner, vault). The expansion is recorded in [DECISIONS.md](./DECISIONS.md) (2026-05-16 entry). See [UI-FITTINGS.md](./UI-FITTINGS.md) for the per-Fitting-own-UI-on-own-port pattern the Monitor's default Fitting follows.
@@ -268,11 +275,11 @@ The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary
 - Purpose: mobile-first browser chat surface for talking to the Operative ("Gary") from a phone on the same LAN. Distinct from the desktop Next.js shell; this is the planned successor to the deleted built-in chat.
 - Cardinality: single.
 - Shapes: `plugin`, `script`.
-- Config: bind port (default `7083`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose to the LAN), optional `gateway_url` override.
+- Config: bind port (default `27083`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose to the LAN), optional `gateway_url` override.
 - Capability: provides `kind: channel` (`name: web`). The Orchestrator routes to it like any channel — the http-gateway's `POST /chat/stream` is the inbound call, `GET /channels/web/stream` carries replies.
 - Streaming: web-channel proxies the gateway's SSE endpoints unchanged. The browser opens an `EventSource` on `/api/stream` for live + last-100-events replay, and `POST /api/chat` to send a turn.
 - Monitor link: at runtime, web-channel reads `~/.garrison/ui-fittings/monitor-default.json` to detect Monitor and surfaces a header link if present. No hard `consumes: monitor` — discovery is opportunistic.
-- Example: `web-channel-default` Fitting under `fittings/seed/web-channel-default/`, serving its React UI on port 7083.
+- Example: `web-channel-default` Fitting under `fittings/seed/web-channel-default/`, serving its React UI on port 27083.
 - Failure modes: port conflict on the default (Fitting falls back via `findFreePort`), `bind_host: 0.0.0.0` exposes the surface to anyone on the LAN with no auth (mirrors gateway posture; documented limitation), one-sided history (channel ring buffer only publishes assistant text events — user turns do not replay), Operative markdown is rendered via `marked` + `dangerouslySetInnerHTML` without further sanitization (acceptable under the single-user trusted-operative posture; flag this when adding multi-user surfaces or untrusted channel inputs).
 
 ## 17. Browser
@@ -280,11 +287,11 @@ The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary
 - Purpose: headless browser substrate Garrison owns and exposes over HTTP/WS. Hosts a Playwright-launched Chromium, streams per-tab JPEG screencast, dispatches mouse/key/touch input, and reverse-proxies Chromium's built-in DevTools so iPad Safari over Tailscale gets the full Chrome DevTools UI. Targets two consumers: the Dev Env Fitting's per-session browser pane (the successor to the retired terminal Fitting's split-pane, which replaced its old `<iframe>` pointed at the user's dev server) and future Operative-side Fittings that want to drive a browser via raw CDP.
 - Cardinality: single.
 - Shapes: `plugin`, `script`.
-- Config: bind port (default `7084`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose over Tailscale), viewport dimensions (default `1600x1200`), JPEG quality (default `70`), `every_nth_frame` (default `1`).
+- Config: bind port (default `27084`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose over Tailscale), viewport dimensions (default `1600x1200`), JPEG quality (default `70`), `every_nth_frame` (default `1`).
 - HTTP endpoints: `GET /health`, `GET /tabs`, `POST /tabs {url}`, `POST /tabs/:id/nav {url}`, `POST /tabs/:id/{back,forward,reload}`, `DELETE /tabs/:id`, `GET /devtools/*` (reverse-proxy to Chromium's rdp HTTP server — serves the official `inspector.html` and asset bundles), `GET /canvas/:tabId` (HTML page: `<canvas>` + URL bar + DevTools button), `GET /` (tabs list / + new tab).
 - WS endpoints: `/viewport/:tabId` (Garrison-viewport-v1: JSON `{type:"frame", b64, meta}` + client ACKs), `/input/:tabId` (Garrison-input-v1: `mouse|key|touch|wheel|insertText`; server emits `{type:"focusedField", editable}` to drive iPad hidden-input focus), `/cdp/:tabId` (raw CDP passthrough to Chromium's per-target WS).
-- Open DevTools: `<fitting-url>/devtools/inspector.html?ws=<fitting-host>:7084/cdp/<tabId>` — Chromium serves the full DevTools frontend (loaded from `chrome-devtools-frontend.appspot.com`), and the CSP allows same-origin WS, so the connection through `/cdp/<tabId>` works over Tailscale.
-- Example: `browser-default` Fitting under `fittings/seed/browser-default/`, serving its React UI on port 7084.
+- Open DevTools: `<fitting-url>/devtools/inspector.html?ws=<fitting-host>:27084/cdp/<tabId>` — Chromium serves the full DevTools frontend (loaded from `chrome-devtools-frontend.appspot.com`), and the CSP allows same-origin WS, so the connection through `/cdp/<tabId>` works over Tailscale.
+- Example: `browser-default` Fitting under `fittings/seed/browser-default/`, serving its React UI on port 27084.
 - Launch detail: Playwright's `chromium.launch()` uses chrome-headless-shell with `--remote-debugging-pipe`, which does not expose Chromium's HTTP CDP server. The Fitting spawns the full Chrome-for-Testing binary directly via `child_process.spawn` (`chromium.executablePath()` returns the right binary) with `--headless=new --remote-debugging-port=<picked>`, then attaches Playwright via `chromium.connectOverCDP`. v1 supports one viewer per tab; a second `/canvas/:tabId` viewer detaches the first's screencast.
 - Failure modes: port conflict (fallback via `findFreePort` on both the fitting port and Chromium's rdp port), missing full Chromium binary (setup runs `npx playwright install chromium`; override via `BROWSER_CHROMIUM_PATH`), CSP blocking the DevTools WS (mitigated by `--remote-allow-origins=*`), iOS Safari background-tab WebSocket drop (mitigated by client `visibilitychange` reconnect), DevTools frontend CDN unreachable (clients without internet won't load `inspector.html`'s scripts — a vendored alternative is v2 work).
 

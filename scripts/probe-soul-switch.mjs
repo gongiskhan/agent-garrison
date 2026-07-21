@@ -14,7 +14,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { OperativePtySession } from "../packages/claude-pty/src/index.mjs";
-import { buildContextCarryover } from "../fittings/seed/model-router/lib/stage-b.mjs";
+import { buildContextCarryover } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 
 const CODEWORD = "GARRISON-ZEBRA-42";
 const MODEL = process.env.GARRISON_INTEGRATION_MODEL || "sonnet";

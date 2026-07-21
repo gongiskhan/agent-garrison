@@ -16,7 +16,8 @@ if [ -f package.json ]; then
 fi
 
 # Ensure the machine-local automations dir exists.
-mkdir -p "${GARRISON_AUTOMATIONS_DIR:-$HOME/.garrison/automations}/briefs"
-mkdir -p "${GARRISON_AUTOMATIONS_DIR:-$HOME/.garrison/automations}/runs"
+garrison_home="${GARRISON_HOME:-$HOME/.garrison}"
+mkdir -p "${GARRISON_AUTOMATIONS_DIR:-$garrison_home/automations}/briefs"
+mkdir -p "${GARRISON_AUTOMATIONS_DIR:-$garrison_home/automations}/runs"
 
 echo "automations setup ok"

@@ -1,0 +1,51 @@
+{
+  "slice": "S3a",
+  "kind": "api",
+  "commits": [
+    "bf173ec",
+    "7240e84",
+    "1688f74"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "at": "2026-07-13T14:51:05Z",
+      "by": "lead-inline"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T14:51:05Z",
+      "detail": "typecheck+lint+gitleaks clean; docs-parity ratchet fixed"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T14:51:05Z",
+      "detail": "25 resolver-duties tests green (22 + 3 codex regressions)"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "detail": "3 findings, all accepted+fixed+regression-tested (attempt 2); first call unable-to-verify (bwrap), retried with V1 sandbox pattern",
+      "durationMs": 260000
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "at": "2026-07-13T14:55:02Z",
+      "detail": "finding 1 (strict schemas) fixed in 1688f74 + regression test; finding 2 (recursion depth) accepted-minor: unrealistic depth for local single-user compose, reviewer non-blocking"
+    },
+    "adversarialTest": {
+      "status": "pending",
+      "note": "api slice — batched run-level pass (Part 8.2)"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending",
+      "note": "api slice — asciinema"
+    }
+  }
+}

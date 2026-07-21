@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 // @ts-ignore — pure .mjs
-import { buildContextCarryover, buildRespawnOpts } from "../fittings/seed/model-router/lib/stage-b.mjs";
+import { buildContextCarryover, buildRespawnOpts } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
+// @ts-ignore — pure .mjs (policy heart)
+import { SEED_PROVIDERS } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 // @ts-ignore — pure .mjs
 import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
@@ -16,7 +18,7 @@ import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/g
 // the fallback deterministically; scripts/probe-soul-switch.mjs proves it live.
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SEED = JSON.parse(readFileSync(join(REPO_ROOT, "fittings/seed/model-router/config/routing.seed.json"), "utf8"));
+const SEED = JSON.parse(readFileSync(join(REPO_ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8"));
 
 class FakeSession {
   cfg: any;
@@ -81,9 +83,9 @@ describe("U4 — buildContextCarryover (the fallback summary)", () => {
   });
 
   it("buildRespawnOpts flags providerLaunch for a non-anthropic provider", () => {
-    const ollama = buildRespawnOpts({ provider: "ollama-local", model: "qwen2.5-coder" }, { baseEnv: {}, secrets: {} });
+    const ollama = buildRespawnOpts({ provider: "ollama-local", model: "qwen2.5-coder" }, { baseEnv: {}, secrets: {}, providers: SEED_PROVIDERS });
     expect(ollama.providerLaunch).toBe(true);
-    const plan = buildRespawnOpts({ provider: "anthropic-plan", model: "opus" }, { baseEnv: {} });
+    const plan = buildRespawnOpts({ provider: "anthropic-plan", model: "opus" }, { baseEnv: {}, providers: SEED_PROVIDERS });
     expect(plan.providerLaunch).toBe(false);
   });
 });

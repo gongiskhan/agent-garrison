@@ -325,7 +325,11 @@ export function replyRouteToken(route: Pick<ResolvedRoute, "target" | "matchedRu
 }
 
 export function findRoutingConfigPath(entries: LibraryEntry[]): string | null {
-  const entry = entries.find((candidate) => candidate.id === "model-router" && candidate.localPath);
+  // The orchestrator fitting was renamed from model-router (GARRISON-UNIFY-V1
+  // S2); accept the legacy id so a not-yet-migrated composition still resolves.
+  const entry = entries.find(
+    (candidate) => (candidate.id === "orchestrator" || candidate.id === "model-router") && candidate.localPath
+  );
   if (!entry?.localPath) return null;
   const configPath = path.resolve(ROOT_DIR, entry.localPath, "routing.json");
   if (!configPath.startsWith(ROOT_DIR + path.sep)) return null;

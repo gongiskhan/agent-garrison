@@ -1,0 +1,25 @@
+{
+  "name": "quarters-guided",
+  "title": "Quarters - your ~/.claude control surface",
+  "route": "/quarters",
+  "fitting": "quarters",
+  "mode": "guided",
+  "steps": [
+    {
+      "id": "expand",
+      "caption": "Quarters groups your config by runtime. Click this section header to expand it.",
+      "selector": "raw-css:[data-testid^=\"quarters-section-toggle-\"]",
+      "spotlight": true,
+      "assert": {
+        "selector": "raw-css:[data-testid^=\"quarters-section-toggle-\"]",
+        "state": "expanded"
+      }
+    },
+    {
+      "id": "cards",
+      "caption": "Expanded. Each card opens a native config surface - skills, hooks, MCPs, settings. That is the guided tour; press Exit to finish.",
+      "selector": "raw-css:[data-testid^=\"quarters-card-\"]",
+      "spotlight": true
+    }
+  ]
+}

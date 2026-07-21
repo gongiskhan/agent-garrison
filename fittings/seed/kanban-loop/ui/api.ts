@@ -8,15 +8,68 @@ export interface DispatchError {
   message: string;
 }
 
+// Per-turn routing attribution (the gateway's `done` event surfaces which
+// runtime/model/tier actually served a routed phase turn; null in souls mode). Stamped
+// on a `routed` event by the engine and surfaced on the card front as `lastRoute`.
+// Every field is nullable — attribution is best-effort, never load-bearing.
+export interface RouteStamp {
+  targetId: string | null;
+  runtime: string | null;
+  provider: string | null;
+  model: string | null;
+  /** Policy-requested reasoning effort. */
+  effort?: string | null;
+  /** True/false only when the serving runtime reported application truth. */
+  effortApplied?: boolean | null;
+  tier: string | null;
+  phase?: string | null;
+}
+
 // One entry on a card's execution timeline (the Activity feed). `kind` drives the
 // icon + accent: created | moved | recovered | dispatch | routed | parked | deferred |
 // failed | inference. `detail` is the long form (e.g. the operative's full reply on a
-// parked event).
+// parked event). `route` is present on a `routed` event when the turn routed (runtime/
+// model attribution shown in the Activity timeline).
 export interface CardEvent {
   at: string;
   kind: string;
   message: string;
   detail?: string | null;
+  route?: RouteStamp | null;
+}
+
+// The wait a card sits under while an earlier overlapping run stabilises/finishes
+// (set by the engine at plan completion; cleared on release or a manual Start
+// override). `until` names the release point the UI shows in the callout.
+export interface WaitingOn {
+  cardId: string;
+  cardTitle?: string | null;
+  grade: string;
+  reason: string;
+  until: string;
+  thenTo?: string;
+  rerun?: boolean;
+  since?: string;
+}
+
+// The card's LATEST commit fence (S2, Q5) — the board shows the most recent one as a
+// subtle chip; the full chain is not projected.
+export interface FenceSummary {
+  phase: string | null;
+  sha: string | null;
+  at: string | null;
+}
+
+// The abandonment prepared-revert descriptor (S2, Q7), thinned for the UI: its state,
+// the commit COUNT, up to 20 short shas (for the detail's commit list), the
+// conflictRisk count, and when it was prepared. A revert is only confirmable while
+// state === "prepared"; "applied"/"conflict" are terminal states shown as a tag.
+export interface PreparedRevertSummary {
+  state: "prepared" | "applied" | "conflict" | string;
+  commits: number;
+  commitShas: string[];
+  conflictRisk: number;
+  preparedAt: string | null;
 }
 
 export interface CardSummary {
@@ -34,12 +87,38 @@ export interface CardSummary {
   sessionIds: string[];
   briefPath: string | null;
   videoUrl: string | null;
+  // S4 (D2/D17): run-policy fields — the work kind naming the card's rail, the
+  // per-card phase toggle map (false = OFF, rendered dimmed, never hidden), the
+  // tier, and who registered the run.
+  workKind?: string | null;
+  phases?: Record<string, boolean> | null;
+  tier?: string | null;
+  origin?: string | null;
+  // D19: a quick card is a trivial-plan task the gateway ran inline and
+  // auto-advanced to Done. The Done column groups quick cards under a collapsed
+  // "quick tasks" strip.
+  quick?: boolean;
   // The last dispatch failure: set on a transport defer or a gateway-unreachable
   // auto-dispatch; null after a successful run. The UI shows a badge + Retry.
   lastDispatchError: DispatchError | null;
   // Why a card is parked in the needs-attention column, and the list it came from.
   attentionReason: string | null;
   parkedFrom: string | null;
+  // Coordination (GARRISON-FLOW-V2 S1): when this card is deferred behind an
+  // overlapping same-project run, waitingOn names the blocker + why + the release
+  // point; stabilityAt marks its own first-review stability; blocking lists the
+  // cards waiting on THIS one (so a blocker can show "blocks N"). The UI renders a
+  // waiting callout + chips in amber, distinct from the parked red.
+  waitingOn?: WaitingOn | null;
+  stabilityAt?: string | null;
+  planCompletedAt?: string | null;
+  blocking?: string[];
+  // Coordination (GARRISON-FLOW-V2 S2): the latest commit fence (a subtle sha chip on
+  // the card front) and the abandonment prepared-revert descriptor (the parked
+  // revert-confirm block + the detail's commit list). Both null on a card with no
+  // fences / no abandonment.
+  fences?: FenceSummary | null;
+  preparedRevert?: PreparedRevertSummary | null;
   // ── execution visibility ──────────────────────────────────────────────────
   // A short task description (card front tooltip + operative context); the operative's
   // last reply snippet (what it actually said); the most-recent timeline event + count
@@ -49,10 +128,16 @@ export interface CardSummary {
   description?: string;
   lastReply?: string | null;
   lastEvent?: CardEvent | null;
+  // Per-phase runtime/model attribution for the card front: the most recent routed
+  // event's route stamp, or null when no turn has routed yet / souls mode. The board
+  // renders a small "<phase> @ <model>" chip from it.
+  lastRoute?: RouteStamp | null;
   eventCount?: number;
   runningSince?: string | null;
   liveTail?: string | null;
   inferState?: string | null;
+  // S3c: a mid-run revisit steering directive is pending (unapplied) on this card.
+  steeringPending?: boolean;
   updated: string | null;
 }
 
@@ -62,6 +147,9 @@ export interface BoardRuntime {
   webChannelUrl: string | null;
   gatewayBaseUrl: string | null;
   noGateway: boolean;
+  /** Absolute kanban-store cards dir, so Discuss can hand the web channel an absolute,
+   *  card-owned brief path (<cardsAbsDir>/<cardId>/brief.md). */
+  cardsAbsDir?: string | null;
 }
 
 export interface ListView {
@@ -71,10 +159,9 @@ export interface ListView {
   kind: string;
   trigger: string;
   interactive: boolean;
-  skill: string | null;
-  taskType: string | null;
-  tier: string | null;
-  mode: string | null;
+  // D15: a list maps to a PHASE NAME and nothing else — skill/taskType/tier/mode
+  // resolve from the compiled Orchestrator policy, never per list.
+  phase?: string | null;
   terminal: boolean;
   notifyOnEntry: boolean;
   validNext: string[];
@@ -89,6 +176,8 @@ export interface BoardView {
 
 export interface ArtifactRef {
   kind: "serve" | "href" | "missing";
+  /** The opaque ref token (e.g. "brief", "plan", "log:1") — used to PUT edits back. */
+  ref?: string;
   path?: string;
   url?: string;
   href?: string;
@@ -104,6 +193,7 @@ export interface CardLinks {
   plan: ArtifactRef | null;
   brief: ArtifactRef | null;
   gateMarkers: ArtifactRef | null;
+  gates: ArtifactRef[];
   evidenceIndex: ArtifactRef | null;
   // The always-on evidence bundle (screenshots + an evidence.md log) the pipeline
   // produces even when the heavy video is skipped. Images render inline; the rest links.
@@ -127,16 +217,22 @@ export interface ListConfig {
   beatCron: string | null;
   interactive: boolean;
   terminal: boolean;
-  skill: string | null;
+  // D15: skill/taskType/tier/mode are GONE — a list maps to a phase name and
+  // nothing else; resolution lives in the compiled Orchestrator policy.
+  phase?: string | null;
   executePrompt: string;
   routerPrompt: string;
-  mode: string | null;
-  // taskType/tier are no longer edited in the UI — a card routes through the
-  // orchestrator, which classifies the tier itself. Kept on the type for back-compat
-  // with the server payload (the fields persist but are inert).
-  taskType: string | null;
-  tier: string | null;
   validNext: string[];
+}
+
+// The board's GET /policy passthrough (D17): enough of the compiled policy to
+// offer work kinds + per-card phase toggles at card creation.
+export interface PolicyView {
+  workKinds: Record<string, { phasePlan: string; description?: string }>;
+  phasePlans: Record<string, { phases: Array<string | { id: string; on?: boolean }>; evidence?: string }>;
+  defaultWorkKind: string | null;
+  phases: string[];
+  phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
 }
 
 export interface ListsView {
@@ -150,15 +246,11 @@ export interface ListsView {
 // the rest with a 400).
 export interface ListConfigPatch {
   title?: string;
-  skill?: string | null;
   executePrompt?: string;
   routerPrompt?: string;
   validNext?: string[];
   trigger?: string;
   beatCron?: string | null;
-  mode?: string | null;
-  taskType?: string | null;
-  tier?: string | null;
   rev?: number; // board-level optimistic-concurrency token from GET /lists
 }
 
@@ -219,8 +311,13 @@ export const api = {
   projects: () => jfetch<ProjectsView>("/projects"),
   skills: () => jfetch<SkillsView>("/skills"),
   // Title is optional — the server infers it from the description when blank.
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean }) =>
+  // workKind + phases (D17): the policy phase plan this run follows and the
+  // per-card toggle map (false = OFF, recorded off, never silent).
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; continues?: string }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
+  // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
+  // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
+  policy: () => jfetch<PolicyView>("/policy"),
   patch: (id: string, body: Record<string, unknown>) =>
     jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -234,6 +331,20 @@ export const api = {
     jfetch<{ card: CardSummary; advanced?: string; outcome?: unknown }>(
       `/cards/${encodeURIComponent(id)}/start`,
       { method: "POST" }
+    ),
+  // Abandon a card: build a PREPARED (not applied) revert of its trailer-attributed
+  // commits and park it in needs-attention. Human-only on the server.
+  abandon: (id: string) =>
+    jfetch<{ card: CardSummary; preparedRevert: PreparedRevertSummary | null }>(
+      `/cards/${encodeURIComponent(id)}/abandon`,
+      { method: "POST" }
+    ),
+  // Apply a card's prepared revert — an EXPLICIT confirm the server also requires
+  // ({ confirm: true }); never auto-applied. Returns the descriptor's new state.
+  revert: (id: string) =>
+    jfetch<{ card: CardSummary; preparedRevert: PreparedRevertSummary | null; reverted?: string[] }>(
+      `/cards/${encodeURIComponent(id)}/revert`,
+      { method: "POST", body: JSON.stringify({ confirm: true }) }
     ),
   inferProject: (id: string) =>
     jfetch<{ card: CardSummary; inferring?: boolean; note?: string }>(

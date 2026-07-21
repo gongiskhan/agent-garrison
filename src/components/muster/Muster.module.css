@@ -1,0 +1,1881 @@
+/* Muster page (S5a) - the control-plane config surface. Built entirely on the
+   Garrison theme tokens (globals.css :root): --paper/--ink/--sage/--brass/--rule
+   /--mute/--alarm/--warn. Sharp corners throughout (radius 0, matching .btn/.pill
+   /.tile), one accent family per role: sage = set/valid/armed, brass = labels,
+   alarm = unmet/violation. Interactive controls hold a >=44px touch target. The
+   whole layout collapses to a single column with zero horizontal overflow at
+   390px. Light-only, matching the app's single locked theme. */
+
+/* Muster is a command console over the composition. A sticky command bar carries
+   identity + run-readiness + the composition switch; a section rail swaps a single
+   active panel (Duties / Fittings / Orchestrator / Decisions) so the page is one
+   focused surface, never an endless scroll of everything at once. Garrison tokens
+   throughout: serif display for names, mono for labels/ids/targets, sage = ready/
+   valid/armed, brass = accents, alarm = fault. Sharp corners, light-only. */
+.console {
+  width: 100%;
+  max-width: 1180px;
+  /* min-width:0 so that, when the app shell lays the main area out as a flex
+     child, the console can shrink below its content's min-content instead of
+     forcing horizontal page overflow on narrow (mobile) viewports. */
+  min-width: 0;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+/* ── command bar (sticky) ───────────────────────────────────────────────── */
+.commandBar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px 28px;
+  flex-wrap: wrap;
+  padding: 24px 0 16px;
+  background: linear-gradient(var(--paper) 62%, rgba(251, 248, 241, 0.9));
+  border-bottom: 1px solid var(--rule);
+}
+.commandBar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 112px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--brass), var(--brass-2));
+}
+.identity {
+  min-width: 0;
+}
+.kicker {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: 7px;
+}
+.title {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(26px, 2.6vw, 34px);
+  letter-spacing: -0.016em;
+  line-height: 1.02;
+  margin: 0;
+  color: var(--ink);
+}
+.titleId {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--mute);
+  margin-top: 8px;
+}
+
+.command {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* readiness pill in the command bar */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pillReady {
+  border: 1px solid var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+.pillNotReady {
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.pillDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.pillReady .pillDot {
+  box-shadow: 0 0 0 3px rgba(61, 98, 73, 0.16);
+}
+
+/* composition switcher */
+.switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.switcherLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.select {
+  min-height: 44px;
+  min-width: 230px;
+  max-width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+}
+.select:hover {
+  border-color: var(--ink-mute);
+}
+.select:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+/* ── readiness ledger (blocking notice + per-rule checklist) ─────────────── */
+.readiness {
+  padding: 16px 0 2px;
+}
+
+.blocking {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 15px;
+  border: 1px solid rgba(155, 54, 45, 0.3);
+  background: var(--alarm-soft);
+  color: var(--alarm);
+  margin-bottom: 14px;
+}
+.blocking h5 {
+  margin: 0 0 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.blocking p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.blockGlyph {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.rulePills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rulePill {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  padding: 5px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule-2);
+  background: white;
+}
+.rulePill.met {
+  border-color: var(--sage);
+  color: var(--sage);
+}
+.rulePill.unmet {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.ruleMark {
+  width: 12px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* ── section scaffold ───────────────────────────────────────────────────── */
+.section {
+  margin-top: 30px;
+}
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.sectionLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass);
+  font-weight: 500;
+}
+.sectionCount {
+  color: var(--mute);
+  font-weight: 400;
+}
+
+/* ── section rail (tabs) ────────────────────────────────────────────────── */
+/* The four working areas ARE the page's table of contents - full display-serif
+   headings, not fine print, so it is obvious there is more to configure here. */
+.sectionNav {
+  display: flex;
+  gap: 30px;
+  margin: 18px 0 26px;
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sectionNav::-webkit-scrollbar {
+  display: none;
+}
+.navItem {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 10px 2px 13px;
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.navItem::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+.navItem:hover {
+  color: var(--ink);
+}
+.navItem:hover::after {
+  background: var(--rule-2);
+}
+.navActive {
+  color: var(--ink);
+}
+.navActive::after,
+.navActive:hover::after {
+  background: var(--sage);
+}
+.navCount {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border: 1px solid var(--rule-2);
+  color: var(--mute);
+  transform: translateY(-1px);
+}
+.navActive .navCount {
+  border-color: var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+
+/* ── stage (the single active panel) ────────────────────────────────────── */
+.stage {
+  min-width: 0;
+}
+.stageHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.stageTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.stageLead {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--mute);
+  max-width: 560px;
+}
+.stageTools {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* duties panel: the duty list + a sticky targets rail on wide screens */
+.dutiesPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 28px;
+  align-items: start;
+}
+.dutiesMain {
+  min-width: 0;
+}
+.traySide {
+  position: sticky;
+  top: 96px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 15px 15px 17px;
+}
+.trayHeading {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: 4px;
+}
+/* the tray, inside the rail, is a borderless vertical stack of full-width chips */
+.traySide .tray {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+.traySide .trayHint {
+  font-size: 11px;
+  margin: 0 0 12px;
+  max-width: none;
+}
+.traySide .targetChip {
+  width: 100%;
+}
+
+/* ── targets tray ───────────────────────────────────────────────────────── */
+.trayHint {
+  font-size: 11.5px;
+  color: var(--mute);
+  margin: 0 0 10px;
+  line-height: 1.5;
+  max-width: 640px;
+}
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  margin-bottom: 18px;
+}
+.targetChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: grab;
+  text-align: left;
+  font: inherit;
+  touch-action: none;
+}
+.targetChip:hover {
+  border-color: var(--ink);
+}
+.targetChip.armed {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+  box-shadow: inset 0 0 0 1px var(--sage);
+}
+.targetChip.dragging {
+  opacity: 0.4;
+}
+.targetChip.nonAgentic {
+  border-style: dashed;
+}
+.chipMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border: 1px solid currentColor;
+  color: var(--sage);
+  flex-shrink: 0;
+}
+.targetChip.nonAgentic .chipMark {
+  color: var(--warn);
+}
+.chipBody {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.chipId {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.chipRuntime {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--mute);
+  letter-spacing: 0.02em;
+}
+
+/* ── duty list ──────────────────────────────────────────────────────────── */
+.dutyList {
+  display: grid;
+  gap: 8px;
+}
+.dutyRow {
+  border: 1px solid var(--rule);
+  background: white;
+}
+.dutyRow.expanded {
+  border-color: var(--rule-2);
+}
+.dutyHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.dutyToggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  font: inherit;
+}
+.dutyToggle:hover {
+  background: var(--paper-2);
+}
+.caret {
+  color: var(--mute);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.caret.open {
+  transform: rotate(90deg);
+}
+.dutyName {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+.dutySummary {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--mute);
+  letter-spacing: 0.02em;
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.dutyViolation {
+  color: var(--alarm);
+}
+.removeBtn {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--mute);
+  cursor: pointer;
+}
+.removeBtn:hover {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+
+/* ── levels ─────────────────────────────────────────────────────────────── */
+.levels {
+  border-top: 1px solid var(--rule);
+  padding: 4px 14px 12px;
+  background: var(--paper);
+}
+.level {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.level:last-child {
+  border-bottom: none;
+}
+.levelTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brass);
+  padding-top: 2px;
+}
+.levelRail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.levelRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--rule-2);
+  cursor: pointer;
+}
+.level:hover .levelRemove {
+  color: var(--mute);
+}
+.levelRemove:hover {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.levelBody {
+  min-width: 0;
+}
+/* The level's routing criterion - editable in place (the Dispatcher routes by
+   it). Reads as text at rest; reveals itself as a field on hover/focus. */
+.levelDescInput {
+  display: block;
+  width: 100%;
+  margin: 0 0 9px;
+  padding: 3px 6px 3px 0;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--mute);
+  line-height: 1.5;
+}
+.levelDescInput:hover {
+  border-bottom-color: var(--rule-2);
+  color: var(--ink);
+}
+.levelDescInput:focus {
+  outline: none;
+  border-bottom: 1px dashed var(--sage);
+  color: var(--ink);
+}
+.addLevelBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  margin: 10px 0 2px 64px;
+  padding: 5px 12px;
+  border: 1px dashed var(--rule-2);
+  background: transparent;
+  color: var(--mute);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.addLevelBtn:hover {
+  border-color: var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+
+/* leaf cell */
+.leafCell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.skillChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 5px 10px;
+  border: 1px solid var(--sage-2);
+  background: var(--sage-soft);
+  color: var(--sage);
+  font-size: 12px;
+}
+.skillChip .metaMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  /* 0.75 dropped sage-on-sage-soft to 3.8:1 at 8.5px */
+  opacity: 0.85;
+}
+.dropTarget {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 5px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+.dropTarget:hover {
+  border-color: var(--ink);
+}
+.dropTarget.set {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.dropTarget.over {
+  border-color: var(--brass);
+  box-shadow: inset 0 0 0 2px var(--brass-2);
+}
+.dropTarget.armable {
+  border-style: dashed;
+  border-color: var(--brass);
+}
+.dropTarget.invalid {
+  border-color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.dropLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dropValue {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.dropEmpty {
+  font-size: 12.5px;
+  color: var(--mute);
+  font-style: italic;
+}
+
+/* effort segments */
+.efforts {
+  display: inline-flex;
+  border: 1px solid var(--rule-2);
+}
+.effortSeg {
+  min-height: 44px;
+  padding: 4px 9px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  background: white;
+  border: none;
+  border-left: 1px solid var(--rule);
+  color: var(--mute);
+  cursor: pointer;
+}
+.effortSeg:first-child {
+  border-left: none;
+}
+.effortSeg.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.cellNote {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--alarm);
+  line-height: 1.45;
+  margin-top: 2px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.cellNote .noteMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* composite level */
+.composite {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+.compositeLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.seqChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  min-height: 34px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper-2);
+  font-size: 12px;
+  color: var(--ink);
+}
+.seqArrow {
+  color: var(--mute);
+}
+.seqLevel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--brass);
+}
+
+/* ── add-duty picker ────────────────────────────────────────────────────── */
+.addBtn {
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.addBtn:hover {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+.addPanel {
+  border: 1px solid var(--rule-2);
+  background: white;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.addPanelHead {
+  font-size: 11.5px;
+  color: var(--mute);
+  margin: 0 0 9px;
+}
+.addOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.addOption {
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12.5px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+}
+.addOption:hover {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.addOptionSub {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--mute);
+}
+.addEmpty {
+  font-size: 11.5px;
+  color: var(--mute);
+  font-style: italic;
+}
+
+/* ── states (loading / empty / error) ──────────────────────────────────── */
+.stateBox {
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+  padding: 30px 24px;
+  text-align: center;
+}
+.stateTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 18px;
+  margin-bottom: 5px;
+  color: var(--ink);
+}
+.stateBody {
+  font-size: 13px;
+  color: var(--mute);
+  margin: 0 auto;
+  max-width: 440px;
+  line-height: 1.55;
+}
+.skelLine {
+  height: 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: musterShimmer 1.4s ease-in-out infinite;
+}
+.skelRow {
+  height: 52px;
+  margin-bottom: 8px;
+  border: 1px solid var(--rule);
+  background: linear-gradient(100deg, var(--paper-2) 40%, var(--paper-3) 50%, var(--paper-2) 60%);
+  background-size: 200% 100%;
+  animation: musterShimmer 1.4s ease-in-out infinite;
+}
+@keyframes musterShimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -80% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skelLine, .skelRow { animation: none; }
+  .caret { transition: none; }
+}
+
+.saving {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+/* drag overlay ghost */
+.dragGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border: 1px solid var(--sage);
+  background: var(--sage-soft);
+  color: var(--ink);
+  font-size: 12.5px;
+  box-shadow: 0 8px 20px rgba(24, 33, 28, 0.18);
+}
+
+/* ═══ Standing Fittings section (S5b) ═══════════════════════════════════════
+   The non-duty half of Muster: infrastructure faculty slots. Same theme tokens,
+   sharp corners, sage=set/primary, brass=labels, alarm=orphan. Every control
+   holds a >=44px target; the grid collapses to one column at 640px. */
+.standingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 10px;
+}
+.standingSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.standingSearch input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+.standingSearch button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--mute);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.slotCard {
+  border: 1px solid var(--rule);
+  background: white;
+  display: flex;
+  flex-direction: column;
+}
+.slotHead {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.slotHeadTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.slotName {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+.slotCardinality {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+  border: 1px solid var(--rule);
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.slotRole {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.45;
+  margin: 5px 0 0;
+}
+
+.slotFittings {
+  display: flex;
+  flex-direction: column;
+}
+.fittingBlock {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.fittingBlock:last-child {
+  border-bottom: none;
+}
+.fittingHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fittingName {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.fittingSummary {
+  margin: 6px 0 0;
+  color: var(--mute);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.shapeTag,
+.cloneTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--rule);
+  color: var(--mute);
+  background: var(--paper);
+}
+.cloneTag {
+  color: var(--brass);
+  border-color: var(--brass);
+  background: transparent;
+}
+.primaryTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--sage);
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+.healthPip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.healthDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mute-2);
+  flex-shrink: 0;
+}
+.healthPip.up .healthDot {
+  background: var(--sage-2);
+}
+.healthPip.down .healthDot {
+  background: var(--alarm);
+}
+
+/* config form (config_schema-driven; mirrors the Compose ConfigInput branches).
+   Folded by default behind the Configuration toggle - identity scans first. */
+.cfgToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 4px 8px 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cfgToggle:hover {
+  color: var(--ink);
+}
+.cfgCount {
+  font-size: 9.5px;
+  padding: 0 5px;
+  border: 1px solid var(--rule-2);
+  color: var(--mute);
+}
+.configForm {
+  margin-top: 4px;
+  padding: 10px 0 4px 19px;
+  border-left: 2px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.cfgField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cfgLabel {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--ink-mute);
+}
+.cfgControl {
+  min-height: 44px;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  width: 100%;
+}
+.cfgControl:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.cfgCheckRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.cfgCheckRow input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--sage);
+}
+.cfgCheckVal {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  color: var(--mute);
+}
+.cfgHint {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.4;
+}
+.cfgEmpty {
+  font-size: 11px;
+  color: var(--mute);
+  font-style: italic;
+  margin-top: 8px;
+}
+
+/* runtime controls (primary + test) */
+.runtimeControls {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.primaryBtn {
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.primaryBtn:hover:not(:disabled) {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.primaryBtn:disabled {
+  cursor: default;
+  border-color: var(--sage);
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+.testBtn {
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.testBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+.testResult {
+  flex-basis: 100%;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 9px 11px;
+  margin-top: 2px;
+}
+.checkRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.checkMark {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  width: 12px;
+  flex-shrink: 0;
+}
+.checkRow.ok .checkMark {
+  color: var(--sage);
+}
+.checkRow.bad .checkMark {
+  color: var(--alarm);
+}
+.checkDetail {
+  color: var(--mute);
+}
+.testNote {
+  font-size: 10.5px;
+  color: var(--mute);
+  line-height: 1.45;
+  margin: 7px 0 0;
+  font-style: italic;
+}
+
+/* empty slot + slot footer */
+.slotEmpty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--mute);
+  font-style: italic;
+}
+.slotFoot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.slotFootBtn {
+  min-height: 44px;
+  padding: 7px 12px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.slotFootBtn:hover {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+
+/* orphan banner (reference-loss offer) */
+.orphanBanner {
+  border: 1px solid rgba(155, 54, 45, 0.35);
+  background: var(--alarm-soft);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.orphanHead {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--alarm);
+  margin: 0 0 8px;
+}
+.orphanRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 7px 0;
+  border-top: 1px solid rgba(155, 54, 45, 0.18);
+}
+.orphanRowText {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.45;
+  min-width: 0;
+}
+.orphanRowText b {
+  color: var(--alarm);
+}
+.orphanBtns {
+  display: flex;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.orphanBtn {
+  min-height: 40px;
+  padding: 6px 11px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.orphanBtn.remove {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+.orphanBtn.remove:hover {
+  background: white;
+  box-shadow: inset 0 0 0 1px var(--alarm);
+}
+.orphanBtn.keep:hover {
+  border-color: var(--ink);
+}
+
+/* picker + create-runtime modal */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 33, 28, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+.modal {
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  width: min(560px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(24, 33, 28, 0.3);
+}
+.modalHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+.modalTitle {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--ink);
+}
+.modalSub {
+  font-size: 11px;
+  color: var(--mute);
+  margin-top: 3px;
+}
+.modalClose {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--mute);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.modalClose:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.pickerSearch {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--ink);
+  font-family: inherit;
+}
+.pickerSearch:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.pickerList {
+  overflow-y: auto;
+  padding: 10px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.pickerItem {
+  border: 1px solid var(--rule-2);
+  background: white;
+  padding: 11px 13px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 44px;
+}
+.pickerItem:hover {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.pickerItem.current {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+}
+.pickerItemTop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pickerItemName {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.pickerItemSummary {
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.45;
+}
+.pickerEmpty {
+  padding: 20px 16px 24px;
+  text-align: center;
+  color: var(--mute);
+  font-size: 12.5px;
+}
+.newIdRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 16px 0;
+}
+.modalError {
+  margin: 10px 16px 0;
+  font-size: 11.5px;
+  color: var(--alarm);
+  line-height: 1.45;
+}
+.modalFoot {
+  padding: 14px 16px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .standingGrid {
+    grid-template-columns: 1fr;
+  }
+  .modalBackdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+  .modal {
+    width: 100%;
+    max-height: 100vh;
+    border: none;
+  }
+  .orphanRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .orphanBtns {
+    justify-content: flex-end;
+  }
+}
+
+/* Fortress operations redesign (2026-07)
+   Muster is the composition's command table. The shell now uses dark command
+   chrome around warm dossier surfaces, so this central workspace carries the
+   same hierarchy instead of reading as a long settings form. */
+.console {
+  max-width: 1440px;
+  padding: 24px clamp(22px, 4vw, 58px) 112px;
+}
+
+.commandBar {
+  position: relative;
+  isolation: isolate;
+  top: auto;
+  min-height: 0;
+  align-items: flex-end;
+  margin: 0 0 22px;
+  padding: clamp(20px, 2.6vw, 30px) clamp(20px, 3vw, 36px);
+  overflow: hidden;
+  border: 0;
+  color: var(--paper);
+  background:
+    linear-gradient(112deg, rgba(14, 22, 17, 0.985), rgba(27, 43, 33, 0.95)),
+    var(--shell);
+  box-shadow: 0 28px 64px rgba(25, 35, 28, 0.14);
+}
+
+.commandBar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.2;
+  background-image:
+    linear-gradient(rgba(205, 162, 73, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(205, 162, 73, 0.2) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(90deg, transparent, #000 55%, transparent);
+}
+
+.commandBar::after {
+  left: clamp(20px, 3vw, 36px);
+  bottom: 0;
+  width: 112px;
+  height: 3px;
+  background: var(--brass-2);
+}
+
+.identity {
+  max-width: 760px;
+}
+
+.kicker {
+  margin-bottom: 7px;
+  color: var(--brass-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+}
+
+/* Utility surface, not a landing page: the composition name harmonises with the
+   shell's .head h1 scale instead of running as a display banner. */
+.title {
+  max-width: 26ch;
+  color: var(--paper);
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 500;
+  line-height: 1.03;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.titleId {
+  margin-top: 8px;
+  color: rgba(242, 235, 220, 0.72);
+  font-size: 11px;
+}
+
+.command {
+  align-items: flex-end;
+}
+
+.switcherLabel {
+  color: rgba(242, 235, 220, 0.72);
+}
+
+.select {
+  border-color: rgba(242, 235, 220, 0.22);
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--paper);
+}
+
+.select:hover,
+.select:focus {
+  border-color: var(--brass-2);
+}
+
+.select option {
+  background: var(--shell);
+  color: var(--paper);
+}
+
+.statusPill {
+  min-height: 44px;
+  background: transparent;
+  backdrop-filter: blur(10px);
+}
+
+.pillReady {
+  border-color: #80aa8e;
+  color: #b4cdbb;
+  background: rgba(68, 111, 82, 0.12);
+}
+
+.pillNotReady {
+  /* the base --alarm border is only ~2.1:1 on the dark bar - lift it to the same
+     light-alarm family as the label so the fault state reads at a glance */
+  border-color: #c9736a;
+  color: #e1a89e;
+  background: rgba(155, 54, 45, 0.1);
+}
+
+.readiness {
+  padding: 0 0 6px;
+}
+
+.rulePills {
+  gap: 6px;
+}
+
+.rulePill {
+  min-height: 32px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.sectionNav {
+  gap: clamp(20px, 4vw, 50px);
+  margin: 12px 0 18px;
+  border-bottom-color: var(--rule-2);
+}
+
+.navItem {
+  min-height: 50px;
+  padding: 10px 2px 13px;
+  font-size: clamp(17px, 1.7vw, 21px);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.navItem::after {
+  height: 3px;
+}
+
+.navActive::after,
+.navActive:hover::after {
+  background: var(--brass);
+}
+
+.navCount {
+  border-color: transparent;
+  background: var(--paper-2);
+}
+
+.navActive .navCount {
+  border-color: var(--brass);
+  color: var(--brass);
+  background: transparent;
+}
+
+.stage {
+  padding: clamp(18px, 3vw, 34px);
+  border-top: 3px solid var(--ink);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 20px 52px rgba(31, 42, 34, 0.075);
+}
+
+.stageHead {
+  margin-bottom: 24px;
+}
+
+.stageLead {
+  max-width: 670px;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.dutiesPanel {
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 0.34fr);
+  gap: clamp(22px, 3.5vw, 48px);
+}
+
+.traySide {
+  top: 24px;
+  padding: 18px;
+  border: 0;
+  border-top: 3px solid var(--brass);
+  background: var(--paper-2);
+}
+
+.trayHeading {
+  margin-bottom: 7px;
+  font-weight: 600;
+}
+
+.dutyRow,
+.slotCard,
+.targetChip,
+.addPanel,
+.stateBox {
+  background: var(--surface);
+}
+
+.dutyRow {
+  border-left: 2px solid transparent;
+  transition: border-color 180ms ease, transform 180ms ease, background-color 180ms ease;
+}
+
+.dutyRow:hover {
+  border-left-color: var(--brass);
+}
+
+.dutyRow.expanded {
+  border-left-color: var(--sage);
+  box-shadow: 0 14px 30px rgba(31, 42, 34, 0.06);
+}
+
+.dutyToggle,
+.targetChip,
+.slotCard,
+.pickerItem,
+.addOption {
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.targetChip:hover,
+.slotCard:hover,
+.pickerItem:hover,
+.addOption:hover {
+  transform: translateY(-1px);
+}
+
+.standingGrid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 350px), 1fr));
+  gap: 14px;
+}
+
+.slotCard {
+  border-top: 2px solid var(--ink);
+  box-shadow: 0 12px 30px rgba(31, 42, 34, 0.05);
+}
+
+.slotHead {
+  padding: 16px;
+}
+
+.slotName {
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.fittingBlock {
+  padding: 15px 16px;
+}
+
+@media (max-width: 720px) {
+  .console {
+    padding: 0 14px 80px;
+  }
+
+  .commandBar {
+    min-height: 0;
+    margin-inline: -14px;
+    padding: 22px 18px 20px;
+  }
+
+  .command {
+    align-items: stretch;
+  }
+
+  .title {
+    font-size: clamp(23px, 6.5vw, 30px);
+  }
+
+  .sectionNav {
+    margin-top: 6px;
+  }
+
+  .navItem {
+    min-height: 48px;
+    font-size: 17px;
+  }
+
+  .stage {
+    margin-inline: -4px;
+    padding: 18px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slotFootBtn,
+  .primaryBtn,
+  .testBtn,
+  .pickerItem {
+    transition: none;
+  }
+}
+
+/* ── mobile collapse (<= 640px): single column, no horizontal overflow ──── */
+/* collapse the duties two-column at tablet width - the 296px rail needs room */
+@media (max-width: 900px) {
+  .dutiesPanel {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .traySide {
+    position: static;
+  }
+  .traySide .tray {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .traySide .targetChip {
+    width: auto;
+  }
+}
+
+/* ── mobile (<= 640px): single column, zero horizontal overflow ─────────── */
+@media (max-width: 640px) {
+  .console {
+    padding: 0 14px 72px;
+  }
+  .commandBar {
+    padding: 18px 0 14px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .identity {
+    min-width: 0;
+  }
+  .command {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .statusPill {
+    align-self: flex-start;
+  }
+  .switcher {
+    width: 100%;
+    min-width: 0;
+  }
+  .select {
+    width: 100%;
+    min-width: 0;
+  }
+  .stage,
+  .dutiesMain {
+    min-width: 0;
+  }
+  .sectionNav {
+    margin: 12px 0 18px;
+    gap: 20px;
+  }
+  .navItem {
+    min-height: 44px;
+    padding: 9px 2px 11px;
+    font-size: 16px;
+  }
+  .dutySummary {
+    display: none;
+  }
+  .level {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .levelTag {
+    padding-top: 0;
+  }
+  .levelRail {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  .addLevelBtn {
+    margin-left: 0;
+  }
+  .tray {
+    padding: 10px;
+  }
+  .targetChip {
+    max-width: 100%;
+  }
+  .chipId,
+  .dropValue {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

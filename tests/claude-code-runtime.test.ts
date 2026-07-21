@@ -62,10 +62,10 @@ describe("claude-code-runtime fitting (S1)", () => {
     expect(entry!.localPath).toBe("fittings/seed/claude-code-runtime");
   });
 
-  it("the Runtime-Faculty peer set is all selectable in the library (claude-code/agent-sdk/codex/gemini)", async () => {
+  it("the Runtime-Faculty peer set is all selectable in the library (claude-code/agent-sdk/codex/gemini/opencode)", async () => {
     const lib = await readLibrary();
     const ids = new Set(lib.map((e) => e.id));
-    for (const peer of ["claude-code-runtime", "agent-sdk-runtime", "codex-runtime", "gemini-runtime"]) {
+    for (const peer of ["claude-code-runtime", "agent-sdk-runtime", "codex-runtime", "gemini-runtime", "opencode-runtime"]) {
       expect(ids.has(peer), `${peer} should be a selectable runtime in data/library.json`).toBe(true);
     }
   });
@@ -77,5 +77,78 @@ describe("claude-code-runtime fitting (S1)", () => {
       throw new Error(`expected a clean resolve; got ${JSON.stringify(result.errors, null, 2)}`);
     }
     expect(result.ok).toBe(true);
+  });
+});
+
+// S1 (GARRISON-RUNTIMES-V1): the fitting declares its provider mechanism (D3)
+// and Quarters descriptor (D5), and the seed composition selects it so existing
+// setups resolve with claude-code as an explicit first-class runtime.
+describe("claude-code-runtime RUNTIMES-V1 metadata (S1)", () => {
+  it("declares the env provider mechanism (ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / --model)", async () => {
+    const m = await loadSeed("claude-code-runtime");
+    expect(m.provider_mechanism).toEqual({
+      type: "env",
+      base_url_env: "ANTHROPIC_BASE_URL",
+      auth_env: "ANTHROPIC_AUTH_TOKEN",
+      model_arg: "--model"
+    });
+  });
+
+  it("declares the deep claude-code Quarters descriptor", async () => {
+    const m = await loadSeed("claude-code-runtime");
+    expect(m.quarters_descriptor).toEqual({ tier: "deep", id: "claude-code" });
+  });
+
+  it("is selected in the default composition's runtimes faculty", async () => {
+    interface CompositionManifest {
+      dependencies?: { apm?: Array<{ path?: string }> };
+      "x-garrison"?: {
+        composition?: { selections?: Record<string, Array<{ id: string }>> };
+      };
+    }
+    const comp = await readYamlFile<CompositionManifest>(
+      path.resolve(__dirname, "..", "compositions", "default", "apm.yml")
+    );
+    expect(comp).toBeTruthy();
+    const deps = comp!.dependencies?.apm ?? [];
+    expect(
+      deps.some((d) => d.path === "../../fittings/seed/claude-code-runtime"),
+      "default composition should depend on the claude-code-runtime seed"
+    ).toBe(true);
+    const runtimes = comp!["x-garrison"]?.composition?.selections?.runtimes ?? [];
+    expect(
+      runtimes.some((r) => r.id === "claude-code-runtime"),
+      "default composition should select claude-code-runtime under runtimes"
+    ).toBe(true);
+  });
+});
+
+// S6 (GARRISON-RUNTIMES-V1): codex + gemini ship generic Quarters descriptors
+// pointing at their REAL native surfaces (verified against the installed CLIs).
+describe("codex + gemini quarters descriptors (S6)", () => {
+  it("codex: generic tier over ~/.codex — config.toml (toml) + AGENTS.md + mcp_servers + logs", async () => {
+    const m = await loadSeed("codex-runtime");
+    const qd = m.quarters_descriptor!;
+    expect(qd.tier).toBe("generic");
+    if (qd.tier === "generic") {
+      expect(qd.home_dir).toBe("~/.codex");
+      expect(qd.settings_files?.[0]).toMatchObject({ path: "~/.codex/config.toml", format: "toml" });
+      expect(qd.context_file).toBe("AGENTS.md");
+      expect(qd.mcp_config).toMatchObject({ path: "~/.codex/config.toml", format: "toml", key: "mcp_servers" });
+      expect(qd.categories).toEqual(["settings", "context", "mcps", "logs"]);
+    }
+    expect(m.provider_mechanism).toMatchObject({ type: "config-file", config_key: "model_providers" });
+  });
+
+  it("gemini: generic tier over ~/.gemini — settings.json (json) + GEMINI.md + mcpServers + logs", async () => {
+    const m = await loadSeed("gemini-runtime");
+    const qd = m.quarters_descriptor!;
+    expect(qd.tier).toBe("generic");
+    if (qd.tier === "generic") {
+      expect(qd.home_dir).toBe("~/.gemini");
+      expect(qd.settings_files?.[0]).toMatchObject({ path: "~/.gemini/settings.json", format: "json" });
+      expect(qd.context_file).toBe("GEMINI.md");
+      expect(qd.mcp_config).toMatchObject({ path: "~/.gemini/settings.json", format: "json", key: "mcpServers" });
+    }
   });
 });

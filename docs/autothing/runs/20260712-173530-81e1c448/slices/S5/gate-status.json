@@ -1,0 +1,14 @@
+{
+  "slice": "S5", "title": "WS5 Garrison Assistant Fitting", "kind": "mixed", "status": "passed",
+  "gates": {
+    "implement": { "status": "passed", "at": "2026-07-12T20:41:19Z", "evidence": "commits 9cb023b..d0ff2a2 + I4-recheck fix; lead-built after impl-s5 stall, impl-s5 finalized own-port + doc" },
+    "test": { "status": "passed", "at": "2026-07-12T20:41:19Z", "evidence": "assistant 8/8 (manifest+answer+guide+interview+I2/I4/I5 hardening); own-port 70/70; full suite 2089 green; validate-fitting 4/4" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T20:41:19Z", "evidence": "gitleaks clean, semgrep 0, no new deps; index symlink-contained; no Anthropic endpoint" },
+    "adversarialReview": { "status": "passed", "verdict": "approve", "at": "2026-07-12T20:41:19Z", "evidence": "slices/S5/review.md — fresh reviewer booted the server, verified all 3 modes live + every source path real + no artifact mutation + no network" },
+    "codexSliceReview": { "status": "passed", "verdict": "needs-work->fixed->resolved", "actualModel": "gpt-5.5", "at": "2026-07-12T20:41:19Z", "evidence": "3 findings (I2 index symlink, I4 malformed-input 500, I5 queue-clobber) → d0ff2a2 → I4 residual (non-string text) → fixed → recheck resolved" },
+    "adversarialTest": { "status": "passed", "at": "2026-07-12T20:41:19Z", "evidence": "fresh reviewer drove every endpoint independently (review-s5)" },
+    "design": { "status": "passed", "at": "2026-07-12T20:41:19Z", "evidence": "API-first; UI stub (interactive UI is WS6/WS9 territory); no emoji" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T20:41:19Z", "video": { "mode": "asciinema", "path": "docs/autothing/runs/20260712-173530-81e1c448/slices/S5/assistant-demo.cast", "sha256": "b8905952638f16f7d7a01e9ce99b4f331d783f88a90480848561286e5be30259", "bytes": 1278, "evidence": "live 3-mode demo: 3 grounded answers w/ real sources; tour launch by name; adaptive interview → 2 provenance-assistant proposals pending/approvable in the queue" } }
+  },
+  "sentinel": "MARATHON-WS5 OK"
+}

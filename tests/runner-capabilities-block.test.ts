@@ -133,6 +133,51 @@ describe("renderCapabilitiesBlock", () => {
     );
   });
 
+  it("includes a derived view provider's for_consumers when it declares no provides (own_port surface)", () => {
+    // The file-browser pattern: provides: [] but an own-port surface plus
+    // for_consumers guidance (the artifact-surface contract). The resolver
+    // derives its `view` capability; the assembly must derive the matching
+    // provider line or the guidance never reaches the Operative.
+    const fileBrowser = entry(
+      "file-browser-fixture",
+      "surfaces",
+      "script",
+      "single",
+      [],
+      "Workspace file browser",
+      "Write run outputs and documents under the workspace root."
+    );
+    fileBrowser.metadata.own_port = true;
+    const block = renderCapabilitiesBlock([fileBrowser]);
+    expect(block).toContain("- view:file-browser-fixture");
+    expect(block).toContain("Workspace file browser");
+    expect(block).toContain("  Write run outputs and documents under the workspace root.");
+  });
+
+  it("does NOT derive a view provider when for_consumers is absent", () => {
+    const silent = entry("silent-view", "surfaces", "script", "single", [], "Silent view fitting");
+    silent.metadata.own_port = true;
+    const block = renderCapabilitiesBlock([silent]);
+    expect(block).toContain("no Faculties currently installed");
+  });
+
+  it("does NOT duplicate a declared provider's guidance with a derived view line", () => {
+    const declared = entry(
+      "monitor-fixture",
+      "observability",
+      "script",
+      "single",
+      [{ kind: "monitor", name: "vitals" }],
+      "System vitals",
+      "Check vitals before long runs."
+    );
+    declared.metadata.own_port = true;
+    const block = renderCapabilitiesBlock([declared]);
+    expect(block).toContain("- monitor:vitals");
+    expect(block).not.toContain("- view:monitor-fixture");
+    expect(block.match(/Check vitals before long runs\./g)).toHaveLength(1);
+  });
+
   it("includes only declared providers, not consumers", () => {
     const entries = [
       entry(

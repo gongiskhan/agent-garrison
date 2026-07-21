@@ -1,0 +1,24 @@
+id: vault
+title: Vault
+path: /vault
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The Vault page communicates security state and empty-state actions
+      clearly; its lifecycle table and controls remain readable and contained at
+      this viewport.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

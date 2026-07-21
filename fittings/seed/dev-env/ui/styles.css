@@ -36,6 +36,9 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tab.stale { opacity: 0.5; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+/* Orchestrator placement chip ("<mode> · <model>") — a quiet pill after the label. */
+.tab-placement { flex-shrink: 0; font-size: 9px; line-height: 1; letter-spacing: 0.02em; padding: 2px 5px; border-radius: 8px; background: var(--bg-2); color: var(--mute); border: 1px solid var(--border); white-space: nowrap; }
+.tab.active .tab-placement { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9); border-color: rgba(255,255,255,0.28); }
 .tab .close { color: var(--mute); padding: 0 2px; cursor: pointer; font-size: 14px; line-height: 1; }
 .tab .close:hover { color: var(--alarm); }
 .tab.active .close { color: rgba(255,255,255,0.7); }
@@ -188,6 +191,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 /* ---- Mobile (≤720px): one pane full-screen; Claude | Shell | Browser tabs ---- */
 @media (max-width: 720px) {
   .header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  .tabs-empty { white-space: normal; min-width: 0; }
   .terminals-col { flex: 1 !important; }
   .browser-pane-host { flex: 1 !important; }
   .claude-pane, .terminals-deck { flex: 1 !important; border-bottom: none; }
@@ -198,6 +202,8 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 
 /* Claude pane Terminal|Chat view toggle (Phase 2 rich chat). */
 .claude-view-toggle { display: inline-flex; gap: 2px; margin-left: 1em; margin-right: 8px; flex: 0 0 auto; }
+/* Placement attribution next to the Claude view toggle ("<mode> · <model>"). */
+.pane-placement { flex: 0 0 auto; margin-right: 8px; font-size: 10px; letter-spacing: 0.02em; padding: 2px 7px; border-radius: 9px; background: var(--bg); color: var(--mute); border: 1px solid var(--border); white-space: nowrap; }
 .claude-view-toggle button {
   font-size: 11px; padding: 3px 9px; border: 1px solid var(--border, #d6cdba);
   background: var(--surface, #f4ede0); color: var(--text-dim, #66695f); cursor: pointer;
@@ -241,3 +247,190 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .sp-dot.busy, .sp-dot.working { background: var(--amber); }
 .sp-dot.idle { background: var(--sage); }
 .sp-dot.waiting { background: var(--alarm); }
+
+/* ── Fortress operations-room refit ────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --bg: #f2eee3;
+  --bg-2: #e8e1d1;
+  --panel: #f7f3e9;
+  --border: #c9bea8;
+  --text: #182019;
+  /* Muted ink must clear 4.5:1 on the paper tones (--bg / --bg-2 / --panel);
+     #62685f only reached ~4.4:1 on --bg-2, which the 9-11px mono labels sit on. */
+  --mute: #565b54;
+  --sage: #45634b;
+  --accent: #344f39;
+  --alarm: #913e35;
+  --alarm-soft: #f1dfda;
+  --amber: #9b7a3d;
+  --brass: #c3a15a;
+  --olive: #273126;
+  --olive-2: #344135;
+  --term-bg: #111612;
+  --sans: "Avenir Next", Avenir, "Barlow", "DIN Alternate", "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style", "Source Serif 4", "Palatino Linotype", Georgia, serif;
+  --mono: "SFMono-Regular", "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+}
+
+html, body {
+  min-height: 100dvh;
+  height: 100dvh;
+  font-family: var(--sans);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(39, 49, 38, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 49, 38, 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+  text-wrap: pretty;
+}
+::selection { background: rgba(195, 161, 90, 0.3); }
+:focus-visible {
+  outline: 2px solid var(--brass) !important;
+  outline-offset: 2px;
+}
+button, input, select, textarea, .tab {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+button:active, .tab:active { transform: translateY(1px); }
+
+.header {
+  min-height: 54px;
+  padding: 8px 12px;
+  background: var(--olive);
+  color: #f4eddd;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 28px rgba(28, 34, 26, 0.16);
+}
+.header .btn, .header .tab, .header .segmented button,
+.header .term-theme button {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(238, 229, 210, 0.18);
+  color: #e9e1d0;
+}
+.header .btn:hover:not(:disabled), .header .tab:hover,
+.header .segmented button:hover, .header .term-theme button:hover {
+  border-color: var(--brass);
+  background: rgba(195, 161, 90, 0.12);
+  /* Must be restated: the base `.term-theme button:hover:not(.active)` rule
+     ties on specificity and would otherwise paint --text (near-black) on olive. */
+  color: #f5efdf;
+}
+.header .tab.active, .header .segmented button.on,
+.header .term-theme button.active, .sessions-btn.on {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--olive);
+  font-weight: 650;
+}
+.tab-placement, .pane-placement {
+  border-radius: 2px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.menu, .sessions-panel, .modal {
+  background: #f5f0e5;
+  border-color: var(--border);
+  border-radius: 2px;
+  box-shadow: 0 24px 56px rgba(27, 34, 26, 0.28);
+}
+.menu button, .sp-row { border-radius: 1px; }
+.menu button:hover:not(:disabled), .sp-row:hover:not(:disabled) {
+  background: var(--olive);
+  color: #f5efdf;
+}
+.quick-prompt-row, .pane-strip, .app-pane-header, .term-leaf-strip {
+  background: var(--bg-2);
+  border-color: var(--border);
+}
+.pane-strip, .sp-head {
+  color: var(--mute);
+  font-family: var(--mono);
+  letter-spacing: 0.12em;
+}
+.btn, .tab, .segmented, .term-theme, .quick-prompt input,
+.app-pane-url, .app-pane-url-input {
+  border-radius: 2px;
+}
+.btn.primary {
+  background: var(--olive);
+  border-color: var(--olive);
+  color: #f5efdf;
+}
+.btn.primary:hover:not(:disabled) { background: var(--olive-2); }
+.btn.danger { background: var(--alarm); border-color: var(--alarm); }
+.terminals-deck-empty, .empty-state {
+  background: rgba(232, 225, 209, 0.62);
+  color: var(--mute);
+}
+.pane-overlay {
+  background: rgba(17, 22, 18, 0.94);
+  backdrop-filter: blur(8px);
+}
+.modal h2 {
+  font-family: var(--serif);
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.modal-overlay { background: rgba(24, 31, 24, 0.7); backdrop-filter: blur(3px); }
+.toast {
+  background: var(--olive);
+  color: #f5efdf;
+  border-color: var(--brass);
+  border-radius: 2px;
+}
+
+/* ── Header legibility on the olive bar ────────────────────────────────────
+   Everything inside .header sits on --olive or on the brass active chip, so
+   the light-surface defaults (--mute ink, white-on-brass) fail AA there.
+   Each selector is deliberately deeper than the base rule it corrects. */
+.header .tabs-empty { color: #c7bfae; }
+.header .tab .close { color: #c7bfae; }
+.header .tab .close:hover { color: #e0a79c; }
+.header .spinner { border-color: #c7bfae; border-top-color: transparent; }
+.header .tab .tab-placement {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(238, 229, 210, 0.22);
+  color: #d7cfbc;
+}
+/* Active tab = brass; light text on brass is ~2:1, so flip to olive ink. */
+.header .tab.active .close { color: var(--olive); }
+.header .tab.active .close:hover { color: #6d2b24; }
+.header .tab.active .spinner { border-color: var(--olive); border-top-color: transparent; }
+.header .tab.active .tab-placement {
+  background: rgba(39, 49, 38, 0.14);
+  border-color: rgba(39, 49, 38, 0.3);
+  color: var(--olive);
+}
+
+/* ── Scrollbars: near-invisible, still scrollable ──────────────────────────*/
+:root { --sb-thumb: rgba(24, 32, 25, 0.16); --sb-thumb-hover: rgba(24, 32, 25, 0.34); }
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Dark containers get the paper-toned thumb: the olive header strip, the
+   terminal panes (xterm's own viewport scrolls) and the dark chat view. */
+.header, .tabs, .pane-body, .xterm-mount, .pane-overlay, .cc-root {
+  --sb-thumb: rgba(240, 234, 220, 0.18);
+  --sb-thumb-hover: rgba(240, 234, 220, 0.36);
+}
+.cc-root[data-theme="light"] {
+  --sb-thumb: rgba(24, 32, 25, 0.16);
+  --sb-thumb-hover: rgba(24, 32, 25, 0.34);
+}
+
+@media (pointer: coarse) {
+  button, .btn, .tab, .segmented button, .term-theme button { min-height: 44px; }
+  .pane-close, .tab .close { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

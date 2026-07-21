@@ -3,7 +3,10 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 
-const TAILSCALE_SELF_PATH = path.join(os.homedir(), ".garrison", "tailscale-self.json");
+const TAILSCALE_SELF_PATH = path.join(
+  process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison"),
+  "tailscale-self.json"
+);
 const TAILSCALE_MAC_APP_BINARY = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
 
 let cachedHostname: string | null = null;

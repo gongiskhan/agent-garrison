@@ -1,11 +1,19 @@
 # v1 Definition of Done
 
+> **STALE — predates the 2026-06-07 Quarters pivot.** This checklist still
+> counts 14 Faculties, six seed Fittings, a `soul` in the prompt assembly, and
+> Trello as a `data-source` (a kind dropped 2026-06-26). The *shape* of the
+> DoD — observable, verify-backed criteria — still stands; the specific counts
+> and names do not. For current state read
+> [`GARRISON_ROADMAP.md`](./GARRISON_ROADMAP.md) and
+> [`../CLAUDE.md`](../CLAUDE.md).
+
 Each item is observable. If it cannot be pointed at, it does not count.
 
 Status legend: `[x]` verified, `[~]` partially verified, `[ ]` open.
 Per-phase evidence lives under [`phases/`](./phases/).
 
-- [x] A single command, for example `npm start`, brings up the Garrison UI on `localhost:3000` with no auth.
+- [x] A single command, for example `npm start`, brings up the Garrison UI on `localhost:27777` with no auth.
 - [x] Compose tab renders all 14 Faculties (Artifact Store added in Phase 3) in spec order. Cardinality rules are enforced at compose time. Fitting-shape mismatches are caught at compose time, not runtime.
 - [x] Vault round-trips: secret entered in UI, page reload, secret still there. `data/vault.json` is unreadable without Garrison. No plain-text secrets on disk.
 - [x] All six original seed Fittings are installed in the Fittings Registry and pickable under the correct Faculty. (Phase 1+ added: Slack channel, Soul, Personal Operative orchestrator, Documents, Artifact Store, Coding sub-agent, Google Calendar, Morning briefing, Projects index, Scheduler.)
@@ -66,7 +74,7 @@ top-level Faculties whose Fittings served their own React UI on their
 own HTTP port (Monitor pattern). The 2026-06-07 Quarters pivot
 collapsed the flat Faculties into 6 roles, and the 2026-06-11 Dev Env
 consolidation folded terminal/worktree-management/session-view into
-the single `dev-env` Fitting (port 7086); `screen-share` stands alone.
+the single `dev-env` Fitting (port 27086); `screen-share` stands alone.
 Sequoias decomposition shipped under the 5.5 follow-up; the standalone
 Sequoias app is fully retired as of the consolidation.
 

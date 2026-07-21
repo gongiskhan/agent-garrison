@@ -1,0 +1,46 @@
+{
+  "slice": "S1b",
+  "kind": "api",
+  "commits": [
+    "dcc16a6",
+    "c99494c"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s1b-impl",
+      "at": "2026-07-13T15:04:39Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T15:04:39Z",
+      "detail": "typecheck+lint clean"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T15:04:39Z",
+      "detail": "16 regression tests: race, empty-as-success x2, contract copy"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "approve-equiv",
+      "note": "S1b not codex-reviewed per-slice (feature profile, non-boundary); adv-review sufficient"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "at": "2026-07-13T15:15:50Z",
+      "detail": "retryKeepsContext wired into un-park handler (c99494c) + unit test"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+name: duty-review
+version: 0.1.0
+description: >-
+  The Review duty — code-review the current change for correctness bugs and
+  reuse/simplification/efficiency cleanups. Owns the garrison-review skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f1): provides exactly one duty, owns its skill.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `review` duty and owns the garrison-review skill. A same-model
+    code review of the current diff for correctness bugs and quality cleanups
+    (reuse, simplification, efficiency).
+  provides:
+    - kind: duty
+      name: review
+  consumes: []
+  duties:
+    - id: review
+      title: Review
+      description: Code-review the current change for correctness bugs and quality cleanups.
+      levels:
+        - description: >-
+            Standard review — same-model pass over the current diff surfacing correctness bugs and
+            reuse/simplification/efficiency findings.
+          cell:
+            skill: garrison-review
+            target: cc-sonnet
+            effort: medium
+  verify:
+    command: test -f apm_modules/_local/duty-review/.apm/skills/garrison-review/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `review` duty owns the garrison-review skill — a same-model review of the
+    current diff for correctness and quality. The default level targets an agentic
+    runtime; the composition may override the (target, effort) cell.

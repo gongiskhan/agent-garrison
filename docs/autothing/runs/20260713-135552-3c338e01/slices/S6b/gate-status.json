@@ -1,0 +1,53 @@
+{
+  "slice": "S6b",
+  "kind": "mixed",
+  "commits": [
+    "060e588",
+    "f018a20",
+    "16584e7",
+    "2e744a9",
+    "0c54a95"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s6b-impl",
+      "at": "2026-07-13T19:45:21Z",
+      "note": "subagent committed core against rule (060e588/f018a20 accepted, content green); lead committed wiring 16584e7"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T19:45:21Z",
+      "detail": "typecheck clean, lint clean (em-dashes fixed), bundle rebuilt"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T19:45:21Z",
+      "detail": "37 unit (voice-machine 23 + voice-latency 14) + 4 fake-media Playwright; state machine fully covered"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T19:54:47Z",
+      "detail": "deadlock (sending-timeout) + playback-ctx leak fixed 2e744a9"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "at": "2026-07-13T19:54:47Z",
+      "detail": "same deadlock via busy-watch (immediate re-arm) 0c54a95; barge-in meaningfulness = accepted non-blocking note (always-open-capture tradeoff)"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched",
+      "note": "attended iPhone checklist at S6c"
+    },
+    "design": {
+      "status": "deferred-to-ux-gate",
+      "note": "WS7 UX gate"
+    },
+    "walkthrough": {
+      "status": "deferred-to-ux-gate"
+    }
+  }
+}

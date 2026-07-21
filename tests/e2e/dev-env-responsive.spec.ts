@@ -26,7 +26,6 @@ const DIST = path.join(REPO_ROOT, "fittings", "seed", "dev-env", "dist");
 const CANNED_SESSION = {
   id: "e2e-sess-1",
   branch: "main",
-  worktreePath: "/tmp/devenv-e2e-proj",
   projectName: "devenv-e2e",
   projectPath: "/tmp/devenv-e2e-proj",
   lastStatus: "idle",
@@ -35,7 +34,6 @@ const CANNED_SESSION = {
   title: "devenv-e2e",
   source: "test",
   dirty: false,
-  isWorktree: false,
   external: false,
   openedInDevEnv: true,
   claudeClosed: false,

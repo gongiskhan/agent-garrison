@@ -1,0 +1,12 @@
+{
+  "slice": "S2d", "kind": "mixed", "status": "passed",
+  "gates": {
+    "test": { "status": "passed", "at": "2026-07-12T20:12:02Z", "evidence": "runtime-degradations.test.ts 4/4; typecheck 0; lint 0; /api/runtime/active live returns claude-code default (no notice) correctly" },
+    "securityWall": { "status": "passed", "at": "2026-07-12T20:12:02Z", "evidence": "gitleaks clean, semgrep 0, no new deps" },
+    "adversarialReview": { "status": "passed", "verdict": "self-review", "at": "2026-07-12T20:12:02Z", "evidence": "small additive surface (pure module + read-only API + client notice); no boundary logic" },
+    "codexSliceReview": { "status": "skipped", "reason": "no-boundary-code (advisory doc + read-only API + display component)" },
+    "design": { "status": "passed", "at": "2026-07-12T20:12:02Z", "evidence": "advisory notice, no emoji, links to doc; sweeps in WS9" },
+    "walkthrough": { "status": "passed", "at": "2026-07-12T20:12:02Z", "video": { "mode": "evidence-doc", "path": "docs/RUNTIME_DEGRADATIONS.md", "evidence": "degradations doc committed; UI notice renders only on non-claude primary (verified: default→no notice)" } }
+  },
+  "sentinel": "MARATHON-WS2D OK"
+}

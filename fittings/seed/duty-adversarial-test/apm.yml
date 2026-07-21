@@ -1,0 +1,45 @@
+name: duty-adversarial-test
+version: 0.1.0
+description: >-
+  The Adversarial Test duty — an independent, fresh-context functional test that
+  drives the running app against only the slice's acceptance criteria with its own
+  probes. Owns the garrison-adversarial-test skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting (S3f1): provides exactly one duty, owns its skill.
+  faculty: building
+  cardinality_hint: single
+  component_shape: skill
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `adversarial-test` duty and owns the garrison-adversarial-test
+    skill. A fresh-context session that has seen neither the diff nor the committed
+    test drives the running app through the acceptance criteria with its own probes.
+  provides:
+    - kind: duty
+      name: adversarial-test
+  consumes: []
+  duties:
+    - id: adversarial-test
+      title: Adversarial Test
+      description: Independently drive the running app against the slice's acceptance with fresh-context probes.
+      levels:
+        - description: >-
+            Standard independent test — a decorrelated fresh-context session writes and runs its own
+            probes against only the acceptance criteria and returns pass/fail.
+          cell:
+            skill: garrison-adversarial-test
+            target: cc-sonnet
+            effort: high
+  verify:
+    command: test -f apm_modules/_local/duty-adversarial-test/.apm/skills/garrison-adversarial-test/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `adversarial-test` duty owns the garrison-adversarial-test skill — an
+    independent fresh-context functional test that writes its own probes against
+    only the acceptance criteria. The default level targets an agentic runtime; the
+    composition may override the (target, effort) cell.

@@ -22,7 +22,7 @@ x-garrison:
       description: Absolute, per-machine path where job execution output is appended (override via GARRISON_SCHEDULER_LOG).
     - key: health_port
       type: integer
-      default: 7088
+      default: 27099
       description: Port the daemon's /health endpoint binds on 127.0.0.1 (override via GARRISON_SCHEDULER_HEALTH_PORT or `daemon --health-port`). A busy port is tolerated; the daemon keeps ticking without /health.
   provides:
     - kind: automation-runner

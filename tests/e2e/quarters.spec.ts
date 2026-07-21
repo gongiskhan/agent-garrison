@@ -5,14 +5,25 @@ function appErrors(errors: string[]): string[] {
 }
 
 test("Quarters: index lists categories over the real ~/.claude; surfaces resolve", async ({ page }) => {
+  // This acceptance path intentionally cold-navigates six independently
+  // compiled Next routes; mobile's full-matrix budget can exceed 30 seconds.
+  test.setTimeout(60_000);
   const errors: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(m.text());
   });
 
-  // Index renders all 10 category cards with state.
+  // Index renders all 10 category cards with state. Since RUNTIMES-V1 (D6)
+  // the default composition selects several runtimes, so the index shows
+  // collapsible sections (all collapsed) — expand the Claude Code section to
+  // reach the classic deep grid, which is unchanged inside it.
   await page.goto("/quarters");
   await expect(page.getByRole("heading", { name: "Quarters", level: 1 })).toBeVisible();
+  const ccToggle = page.getByTestId("quarters-section-toggle-claude-code-runtime");
+  await expect(ccToggle).toBeVisible();
+  if ((await ccToggle.getAttribute("aria-expanded")) !== "true") {
+    await ccToggle.click();
+  }
   await expect(page.getByTestId("quarters-grid")).toBeVisible();
   for (const slug of ["settings", "context", "skills", "hooks", "mcps", "plugins", "scripts", "plans", "logs", "sessions"]) {
     await expect(page.getByTestId(`quarters-card-${slug}`)).toBeVisible();

@@ -1,1 +1,0 @@
-{"result":"pass","summary":"Desktop and mobile responsive dev-env shell checks passed with no console errors.","steps":["open desktop page at 1400x900","snapshot desktop layout","open mobile page at 390x844","snapshot mobile initial layout","click 'Browser' tab","snapshot mobile browser tab","click 'Claude' tab","snapshot mobile Claude tab after return"],"failures":[]}

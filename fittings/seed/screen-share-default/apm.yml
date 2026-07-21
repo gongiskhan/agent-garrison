@@ -1,6 +1,6 @@
 name: screen-share-default
 version: 0.2.0
-description: macOS screenshot capture — ~1fps JPEG polling viewer for phone/remote access. Stand-alone Fitting with own React UI on its own port.
+description: Screen capture (macOS screencapture, Linux scrot/import fallback) — ~1fps JPEG polling viewer for phone/remote access. Stand-alone Fitting with own React UI on its own port.
 target: claude
 type: hybrid
 includes: auto
@@ -8,16 +8,16 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: single
   own_port: true
-  default_port: 7079
+  default_port: 27079
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Stand-alone UI server (default port 7079) that runs screencapture -x in a polling loop and exposes the latest JPEG frame. Requires Screen Recording permission for the process that starts it.
+  summary: Stand-alone UI server (default port 27079) that runs screencapture -x in a polling loop and exposes the latest JPEG frame. Requires Screen Recording permission for the process that starts it.
   config_schema:
     - key: port
       type: integer
-      default: 7079
-      description: HTTP port the screen-share server binds to. Falls back to next free port when in use.
+      default: 27079
+      description: HTTP port the screen-share server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
       default: 127.0.0.1
@@ -48,4 +48,4 @@ x-garrison:
       POST   /start               - begin capture loop
       POST   /stop                - stop capture loop
       GET    /frame               - latest JPEG bytes (Content-Type: image/jpeg) or 404
-    macOS only (uses `screencapture -x`). Screen Recording permission needed for the launching process.
+    macOS uses `screencapture -x` (Screen Recording permission needed for the launching process); Linux falls back to scrot / ImageMagick import when a display exists (headless boxes yield no frames — inherent, not an error).

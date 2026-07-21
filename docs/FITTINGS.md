@@ -51,7 +51,7 @@ verify:
 - Faculty: `heartbeat`
 - Shape: `script`
 - Package: `fittings/seed/loop-heartbeat`
-- Config schema: `cadence_minutes` integer, default `40`; `gateway_url` string, default `http://127.0.0.1:4777/jobs`.
+- Config schema: `cadence_minutes` integer, default `40`; `gateway_url` string, default `http://127.0.0.1:24777/jobs`.
 - Provides: `automation-runner:loop-heartbeat`.
 - Consumes: `orchestrator` (one).
 - Verify example:
@@ -67,7 +67,7 @@ verify:
 - Faculty: `gateway`
 - Shape: `script`
 - Package: `fittings/seed/http-gateway`
-- Config schema: `port` integer, default `4777`; `bind_host` string, default `127.0.0.1`.
+- Config schema: `port` integer, default `24777`; `bind_host` string, default `127.0.0.1`.
 - Consumes: `orchestrator` (one).
 - Verify example:
 
@@ -178,13 +178,13 @@ text where applicable.
 - `gemini-runtime` — runtime Fitting bridging Gemini CLI. Provides
   `runtime:gemini`.
 - `deepgram-voice` — voice channel Fitting using Deepgram STT/TTS. Provides
-  `voice:deepgram`. Own-port headless backend on `7085`.
+  `voice:deepgram`. Own-port headless backend on `27085`.
 
 The Phase 5 / 5.5 Sequoias decomposition shipped `worktrees-sequoias`,
 `session-view-sequoias`, and `terminal-armory-default` into the seed
 set; the 2026-06-11 Dev Env consolidation replaced all three with a
 single `dev-env` Fitting (`fittings/seed/dev-env`, `sessions` role,
-own-port UI on `7086`, providing the singleton `dev-env` capability).
+own-port UI on `27086`, providing the singleton `dev-env` capability).
 Each Claude Code session is a tab pairing a Claude PTY and a shell PTY
 with the live browser pane, which consumes the separate `browser`
 Fitting. The Workbench shell area was dissolved 2026-05-17; the
@@ -193,7 +193,7 @@ section.
 
 The Monitor Faculty (2026-05-16) adds `monitor-default`, which is the
 first Fitting to ship with its own React UI on its own port (default
-`7077`). The pattern that governs UI-bearing Fittings — own server,
+`27077`). The pattern that governs UI-bearing Fittings — own server,
 own port, status file at `~/.garrison/ui-fittings/<id>.json`,
 consumed by URL link with a health check — is documented in
 [UI-FITTINGS.md](./UI-FITTINGS.md) and is canonical for every future

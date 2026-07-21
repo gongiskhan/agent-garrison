@@ -1,0 +1,444 @@
+.commandDeck {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(18rem, 0.65fr);
+  gap: clamp(1.5rem, 3vw, 3rem);
+  align-items: end;
+  margin: 0 0 1.6rem;
+  padding: clamp(1.5rem, 2.6vw, 2.4rem);
+  overflow: hidden;
+  color: var(--paper, #eee8dc);
+  background:
+    linear-gradient(115deg, rgba(14, 22, 17, 0.98), rgba(24, 38, 29, 0.94)),
+    var(--shell, #101813);
+  box-shadow: 0 1.75rem 4rem rgba(23, 32, 25, 0.16);
+}
+
+.commandDeck::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(rgba(211, 170, 84, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(211, 170, 84, 0.18) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+  mask-image: linear-gradient(90deg, transparent 2%, #000 52%, transparent);
+}
+
+.commandDeck::after {
+  content: "01";
+  position: absolute;
+  right: -0.04em;
+  bottom: -0.28em;
+  z-index: -1;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(3.5rem, 6vw, 5.5rem);
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(244, 237, 221, 0.035);
+}
+
+.commandCopy {
+  max-width: 48rem;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.8rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+  color: var(--brass-2, #c79a43);
+}
+
+.commandCopy h1 {
+  max-width: 18ch;
+  margin: 0;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 500;
+  letter-spacing: -0.022em;
+  line-height: 1.06;
+  text-wrap: balance;
+}
+
+.commandCopy p {
+  max-width: 39rem;
+  margin: 0.85rem 0 0;
+  font-size: clamp(0.92rem, 1.1vw, 1rem);
+  line-height: 1.55;
+  color: rgba(244, 239, 226, 0.72);
+}
+
+.commandControls {
+  display: grid;
+  gap: 1.1rem;
+  align-self: stretch;
+  align-content: end;
+}
+
+.commandReadout {
+  display: grid;
+  min-height: 5.6rem;
+  padding: 1rem 1.1rem;
+  border-top: 1px solid rgba(207, 160, 70, 0.72);
+  border-bottom: 1px solid rgba(245, 239, 226, 0.13);
+  background: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(12px);
+}
+
+.commandReadout span,
+.commandReadout small {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.52);
+}
+
+.commandReadout strong {
+  align-self: end;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.4rem, 1.9vw, 1.8rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: var(--paper, #eee8dc);
+}
+
+.commandActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.commandActions :global(.btn.primary) {
+  border-color: var(--brass-2, #c79a43);
+  background: var(--brass-2, #c79a43);
+  color: var(--shell, #101813);
+}
+
+.commandActions :global(.btn.primary:hover:not(:disabled)) {
+  border-color: #dfb35f;
+  background: #dfb35f;
+}
+
+/* The deck is dark olive, so the shell's dark-red .btn.danger ink drops to
+   ~2.2:1 here. Lift both border and label to the palette's light alarm tone. */
+.commandActions :global(.btn.danger) {
+  border-color: rgba(229, 166, 157, 0.55);
+  background: rgba(255, 255, 255, 0.02);
+  color: #e5a69d;
+}
+
+.commandActions :global(.btn.danger:hover:not(:disabled)) {
+  border-color: #e5a69d;
+  background: rgba(200, 102, 89, 0.16);
+  color: #f3cdc7;
+}
+
+.operativeDossier {
+  position: relative;
+  margin-top: 1.75rem;
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--ink);
+  background: var(--surface, #f8f4eb);
+  box-shadow: 0 1.2rem 2.8rem rgba(34, 44, 36, 0.08);
+}
+
+.operativeDossier::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 7rem;
+  height: 3px;
+  background: var(--brass-2, #c79a43);
+}
+
+.dossierHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.55rem 1.7rem 1.35rem;
+}
+
+.dossierHead h2 {
+  margin: 0;
+  font-size: clamp(1.3rem, 1.8vw, 1.65rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.manifestPath {
+  margin-top: 0.4rem;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.025em;
+  color: var(--mute);
+}
+
+.stat {
+  min-height: 7.2rem;
+  padding: 1.2rem 1.7rem 1.35rem;
+}
+
+.statLabel,
+.statSub {
+  font-family: var(--font-mono), monospace;
+  color: var(--mute);
+}
+
+.statLabel {
+  margin-bottom: 0.45rem;
+  font-size: 0.61rem;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.statValue {
+  font-size: clamp(1.3rem, 1.6vw, 1.7rem);
+  font-weight: 550;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.statOk {
+  color: var(--sage);
+}
+
+.statSub {
+  margin-top: 0.45rem;
+  font-size: 0.67rem;
+}
+
+.intelligenceGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 0.8fr));
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1rem;
+}
+
+.panel {
+  min-height: 100%;
+  padding: 1.2rem 1.25rem 1.35rem;
+  border-top: 1px solid var(--rule-2);
+  background: color-mix(in srgb, var(--surface, #f8f4eb) 86%, transparent);
+}
+
+.panelFeature {
+  grid-row: span 2;
+  border-top-color: var(--brass);
+}
+
+.panelTight {
+  padding: 0;
+}
+
+.panelTitle {
+  margin: 0 0 0.9rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.panelTight .panelTitle {
+  margin: 0;
+  padding: 1rem 1.25rem 0.8rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.quick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 4.85rem;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color 180ms ease, color 180ms ease, padding 180ms ease;
+}
+
+.quick:last-child {
+  border-bottom: 0;
+}
+
+.quick:hover {
+  padding-left: 1.45rem;
+  background: var(--paper-2);
+}
+
+.quickName {
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.quickSummary {
+  margin-top: 0.15rem;
+  color: var(--mute);
+  font-size: 0.8rem;
+}
+
+.quickAlarm {
+  color: var(--alarm);
+}
+
+.quickArrow {
+  font-family: var(--font-mono), monospace;
+  color: var(--brass);
+  transition: transform 180ms ease;
+}
+
+.quick:hover .quickArrow {
+  transform: translateX(0.2rem);
+}
+
+.readyRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.47rem 0;
+  border-bottom: 1px dotted var(--rule);
+  font-size: 0.86rem;
+}
+
+.readyRow:last-child {
+  border-bottom: 0;
+}
+
+.readyValue {
+  flex: 0 0 auto;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.readyOk {
+  color: var(--sage);
+}
+
+.readyAlarm {
+  color: var(--alarm);
+}
+
+.runtimeSection {
+  margin-top: 2.5rem;
+}
+
+.runtimeHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 0 0.8rem;
+  border-bottom: 1px solid var(--ink);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.runtimeHeading small {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--mute);
+}
+
+.bootstrapFailure {
+  max-width: 46rem;
+  margin: 10vh auto 0;
+  padding: clamp(1.75rem, 4vw, 2.75rem);
+  border-top: 3px solid var(--alarm);
+  background: var(--surface, #f8f4eb);
+  box-shadow: 0 1.5rem 4rem rgba(24, 33, 28, 0.12);
+}
+
+.bootstrapFailure h1 {
+  margin: 0 0 1rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 500;
+  line-height: 1.06;
+  letter-spacing: -0.022em;
+}
+
+.bootstrapFailure p {
+  margin: 0 0 1.5rem;
+  color: var(--alarm);
+}
+
+@media (max-width: 980px) {
+  .commandDeck {
+    grid-template-columns: 1fr;
+  }
+
+  .commandControls {
+    grid-template-columns: minmax(15rem, 0.65fr) 1fr;
+    align-items: end;
+  }
+
+  .intelligenceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panelFeature {
+    grid-row: auto;
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .commandDeck {
+    margin-inline: -1.125rem;
+    padding: 2.5rem 1.25rem 2rem;
+  }
+
+  .commandCopy h1 {
+    font-size: clamp(1.7rem, 7vw, 2.2rem);
+  }
+
+  .commandControls,
+  .intelligenceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .commandActions :global(.btn) {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .dossierHead {
+    grid-template-columns: 1fr;
+  }
+
+  .dossierHead :global(.pill) {
+    justify-self: start;
+  }
+
+  .runtimeHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick,
+  .quickArrow {
+    transition: none;
+  }
+}

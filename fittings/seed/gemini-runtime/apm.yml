@@ -25,6 +25,38 @@ x-garrison:
     - kind: runtime
       name: gemini
   consumes: []
+  # D3 (GARRISON-RUNTIMES-V1): provider/model overrides for the Gemini engine
+  # apply through its native settings file (~/.gemini/settings.json) or env;
+  # the settings file is the declared mechanism (model key at the top level).
+  provider_mechanism:
+    type: config-file
+    config_file: ~/.gemini/settings.json
+    config_format: json
+    model_key: model
+  # D5/P6: the generic Quarters tier renders the Gemini engine's native config
+  # surfaces from this descriptor — as installed (FINDING-E6): settings.json is
+  # the settings + MCP surface (mcpServers), GEMINI.md is the context-file
+  # convention, ~/.gemini/tmp holds the tailable session output.
+  quarters_descriptor:
+    tier: generic
+    id: gemini
+    home_dir: ~/.gemini
+    settings_files:
+      - path: ~/.gemini/settings.json
+        format: json
+        label: settings.json — settings + MCP servers (mcpServers)
+    context_file: GEMINI.md
+    mcp_config:
+      path: ~/.gemini/settings.json
+      format: json
+      key: mcpServers
+    log_paths:
+      - ~/.gemini/tmp
+    categories:
+      - settings
+      - context
+      - mcps
+      - logs
   setup:
     command: echo gemini-runtime-ready
     idempotent: true

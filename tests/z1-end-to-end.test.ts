@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { waitExit } from "./helpers/wait-exit";
 import { writeVaultSecrets, scopedSecrets } from "@/lib/vault";
 import { resetMasterKeyCache, masterKeySource } from "@/lib/keychain";
 // REAL feature code under test — no mocks of Garrison's own logic.
@@ -30,7 +31,9 @@ import { runAction as googleRunAction } from "../fittings/seed/google/scripts/co
 
 const REPO = path.resolve(__dirname, "..");
 const BROWSER_START = path.join(REPO, "fittings", "seed", "browser-default", "scripts", "start.mjs");
-const BROWSER_PORT = 7198;
+// Unique across the test suite - automations-mcp owns 7198, and with strict
+// port binding a collision means one spawn refuses to start (no auto-shift).
+const BROWSER_PORT = 7199;
 const TOKEN = "ya29.SUPER-SECRET-google-access-token-DO-NOT-EVER-LOG-1234567890";
 const DOC_PAGE = "data:text/html,<h1>Q3 Report</h1><p>Revenue up 20%25.</p>";
 
@@ -54,13 +57,18 @@ beforeAll(async () => {
   resetMasterKeyCache();
   await writeVaultSecrets([{ key: "GOOGLE_ACCESS_TOKEN", value: TOKEN }]);
 
-  browser = spawn("node", [BROWSER_START, "--port", String(BROWSER_PORT), "--host", "127.0.0.1"], { stdio: "ignore" });
+  browser = spawn("node", [BROWSER_START, "--port", String(BROWSER_PORT), "--host", "127.0.0.1"], {
+    stdio: "ignore",
+    // Status file goes to the test sandbox, never the live ~/.garrison slot.
+    env: { ...process.env, GARRISON_HOME: path.dirname(vaultPath) }
+  });
   process.env.GARRISON_BROWSER_URL = `http://127.0.0.1:${BROWSER_PORT}`;
   await waitHealthy(process.env.GARRISON_BROWSER_URL, 15000);
 }, 30000);
 
-afterAll(() => {
+afterAll(async () => {
   if (browser && !browser.killed) browser.kill("SIGTERM");
+  await waitExit(browser);
   browser = null;
   delete process.env.GARRISON_BROWSER_URL;
   delete process.env.GARRISON_VAULT_PATH;

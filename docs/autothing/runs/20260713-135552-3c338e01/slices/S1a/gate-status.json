@@ -1,0 +1,50 @@
+{
+  "slice": "S1a",
+  "kind": "ui",
+  "commits": [
+    "38370f2",
+    "a3af96b"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "at": "2026-07-13T14:51:05Z",
+      "by": "s1a-impl"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T14:51:05Z",
+      "detail": "typecheck clean; lint 0 errors (2 pre-existing JSX errors fixed in passing); dist rebuilt"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T14:51:05Z",
+      "detail": "tests/kanban-add-card.test.ts 4/4 hermetic"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T14:55:02Z",
+      "detail": "reentrancy guard + saving reset fixed in a3af96b"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T14:58:04Z",
+      "detail": "XSS-safe, state resets, a11y ok; double-submit fixed pre-review in a3af96b. Note: committed test is server-contract only — UI Playwright coverage deferred to batched run-level pass"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched",
+      "note": "BacklogAddCard UI probe → run-level batched pass (S7/Part 8.2)"
+    },
+    "design": {
+      "status": "pending",
+      "note": "UX gate at WS7 covers Muster+board redesign"
+    },
+    "walkthrough": {
+      "status": "pending",
+      "note": "board shared-runtime walkthrough batched"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+lockfile_version: '1'
+generated_at: '2026-07-16T06:48:07.987297+00:00'
+dependencies: []
+local_deployed_files:
+- .claude/skills/garrison-drill
+- .claude/skills/garrison-drill/SKILL.md
+local_deployed_file_hashes:
+  .claude/skills/garrison-drill/SKILL.md: sha256:ccfbdabbf4b099ed2d9b4f0cd70745218fced48f5030bd53e57471101dd1e2a9

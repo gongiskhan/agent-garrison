@@ -9,7 +9,7 @@ x-garrison:
   cardinality_hint: single
   component_shape: plugin
   own_port: true
-  default_port: 7091
+  default_port: 27091
   lifecycle: operative-bound
   platforms:
     - claude-code
@@ -21,8 +21,8 @@ x-garrison:
       description: The workspace root the browser is confined to. Never escapes this dir (path-traversal-safe).
     - key: port
       type: integer
-      default: 7091
-      description: HTTP port; falls back to the next free port.
+      default: 27091
+      description: HTTP port; the server exits non-zero when it is taken (no auto-shift).
   provides: []
   consumes: []
   ui:
@@ -40,7 +40,17 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    A mobile-first File Browser surface (own port). Browse/view/edit files under a
-    scoped workspace root. Linkable from the sidebar Views. Replaces the
-    artifact-store: write run outputs / documents under the workspace root and the
-    user can read them on phone or desktop.
+    The Files view is the artifact surface. To hand the user a file, write it
+    with a plain filesystem write (mkdir -p the folder, write the file - no
+    API involved) under `~/.garrison/files/<namespace>/` (or
+    `$GARRISON_FILEBROWSER_ROOT` when set). Namespaces:
+
+    - `documents/` - user-facing markdown, reports, specs
+    - `recordings/` - audio, video, screen captures
+    - `runs/` - run outputs, logs, evidence from automated work
+    - `uploads/` - files the user supplied
+
+    Prefix filenames with the ISO date (`2026-07-10-feature-spec.md`) so
+    listings sort chronologically. The user views everything in the Files view
+    (sidebar Views) on phone or desktop: markdown renders, images display
+    inline, text files are editable.

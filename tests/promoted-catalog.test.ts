@@ -142,7 +142,7 @@ describe("promoted catalog — discovery join", () => {
   it("matches a matcher-less hook by its bare event name (the real discovery format)", () => {
     const model = fakeModel([{ surface: "hook", name: "SessionStart" }]);
     const view = resolvePromotedFittings(model);
-    // codegraph + autothing + coordination all reference a SessionStart hook.
+    // codegraph + garrison + coordination all reference a SessionStart hook.
     const member = view.fittings.find((f) => f.id === "codegraph")?.members.find((m) => m.name === "SessionStart");
     expect(member?.present).toBe(true);
   });
@@ -178,12 +178,12 @@ describe("promoted catalog — faculty grouping by Agent/Dev tier", () => {
     expect(all.length).toBeGreaterThan(0);
   });
 
-  it("places office documents under the Agent Knowledge faculty and autothing under the Dev Software Building faculty", () => {
+  it("places office documents under the Agent Knowledge faculty and garrison under the Dev Software Building faculty", () => {
     const view = resolvePromotedFittings(fakeModel([]));
     const knowledge = view.agent.find((g) => g.faculty === "knowledge");
     expect(knowledge?.fittings.some((f) => f.id === "document-skills")).toBe(true);
     const building = view.dev.find((g) => g.faculty === "building");
-    expect(building?.fittings.some((f) => f.id === "autothing")).toBe(true);
+    expect(building?.fittings.some((f) => f.id === "garrison")).toBe(true);
   });
 });
 

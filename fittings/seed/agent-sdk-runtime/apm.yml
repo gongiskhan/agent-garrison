@@ -1,6 +1,6 @@
 name: agent-sdk-runtime
 version: 0.1.0
-description: Agent SDK runtime (Runtime Faculty) — a secondary runtime reachable ONLY via a non-Anthropic base URL (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy). Implements the RuntimeAdapter contract over the Claude Agent SDK behind THE FENCE (default-deny Anthropic billing) and THE HARNESS (per-target promptMode).
+description: Agent SDK runtime (Runtime Faculty) — a first-class secondary runtime routable to the Anthropic endpoint (Max subscription) as well as third-party Anthropic-compatible endpoints (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy). Implements the RuntimeAdapter contract over the Claude Agent SDK with THE HARNESS (per-target promptMode).
 target: claude
 type: hybrid
 includes: auto
@@ -14,18 +14,17 @@ x-garrison:
     A secondary Runtime fitting. Implements the RuntimeAdapter contract over the
     Claude Agent SDK (structured request/response, native tool-call handling — no
     PTY, no terminal scraping) and ships a runtime-bridge exposing the uniform
-    delegate(task_spec) -> {summary, artifacts} tool. Two load-bearing properties:
-    THE FENCE hard-refuses to launch unless the EFFECTIVE resolved base URL is
-    non-Anthropic (default-deny against the API credit pool; settings.json #217
-    aware); THE HARNESS wires the full claude_code preset + CLAUDE.md + skills for
-    coding roles, or a lean system string for chat roles, per the target's
-    promptMode. Max-plan Claude stays on the Claude Code PTY runtime — this runtime
-    is the home for everything reached by base URL.
+    delegate(task_spec) -> {summary, artifacts} tool. It is first-class routable to
+    any provider in the table — the Anthropic endpoint on the Max subscription
+    (OAuth, billed to the plan) as well as third-party endpoints reached by base
+    URL. THE HARNESS is the one load-bearing property: it wires the full
+    claude_code preset + CLAUDE.md + skills for coding roles, or a lean system
+    string for chat roles, per the target's promptMode.
   config_schema:
     - key: provider
       type: string
       default: ollama-local
-      description: One of ollama-local | zai-glm | deepseek | minimax | llm-proxy. All REQUIRE a non-Anthropic base URL (THE FENCE enforces it).
+      description: One of anthropic | ollama-local | zai-glm | deepseek | minimax | llm-proxy. `anthropic` uses the Max subscription (OAuth); the rest set a base URL + auth token.
     - key: model
       type: string
       default: ""
@@ -37,17 +36,21 @@ x-garrison:
     - key: maxTurns
       type: number
       default: 12
-      description: Cap on the agentic loop — SDK sessions have no default turn limit and burn paid credits until stopped.
-    - key: acceptApiBilling
-      type: boolean
-      default: false
-      description: DEFAULT-OFF override that allows Anthropic billing. Never auto-set; when on, the cost is stated in words in the UI/log.
+      description: Cap on the agentic loop — SDK sessions have no default turn limit, so an unbounded loop would run until stopped.
   provides:
     - kind: runtime
       name: agent-sdk
   consumes:
     - kind: vault
       cardinality: optional-one
+  # D3 (GARRISON-RUNTIMES-V1): the Agent SDK engine takes provider overrides
+  # through the same Anthropic-compatible env contract as Claude Code (the SDK
+  # reads ANTHROPIC_BASE_URL/AUTH_TOKEN); the model is a per-spawn argument.
+  provider_mechanism:
+    type: env
+    base_url_env: ANTHROPIC_BASE_URL
+    auth_env: ANTHROPIC_AUTH_TOKEN
+    model_env: GARRISON_MODEL
   setup:
     command: npm install --no-audit --no-fund
     idempotent: true
@@ -63,12 +66,11 @@ x-garrison:
       delegate(task_spec) -> {summary, artifacts}
     The task spec (JSON: task, paths, constraints, provider, model, promptMode,
     baseUrl, maxTurns, budgetTokens, expectedSchema) is passed via STDIN (never
-    argv). THE FENCE refuses to launch unless the effective base URL is
-    non-Anthropic (set acceptApiBilling: true to override — it bills the API
-    credit pool at full rates). Each provider carries a capability record; an
-    MCP-dependent or vision task is refused at a target that cannot serve it
-    (e.g. deepseek = text + tool use only). Full output lands in the Artifact
-    Store; the return is a schema-validated summary + artifact paths; every
-    delegation is appended to decisions.jsonl.
+    argv). The provider selects the endpoint — `anthropic` (Max subscription,
+    OAuth) or a third-party base-URL provider. Each provider carries a capability
+    record; an MCP-dependent or vision task is refused at a target that cannot
+    serve it (e.g. deepseek = text + tool use only). Full output lands in the
+    Artifact Store; the return is a schema-validated summary + artifact paths;
+    every delegation is appended to decisions.jsonl.
     CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
     Probe: node scripts/bridge.mjs --probe   → prints "ok"

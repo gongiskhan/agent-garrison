@@ -1,0 +1,5 @@
+[
+ {"beat":"ac1","criterionId":"S1-AC1","assert":".state-callout.waiting text 'medium overlap, until stability' highlighted on the Plan card","result":"pass"},
+ {"beat":"ac2","criterionId":"S1-AC2","assert":"blocks 1 chip highlighted on the blocker card","result":"pass"},
+ {"beat":"ac3","criterionId":"S1-AC3","assert":"detail sheet timeline event 'Plan complete; waiting on ... until stability' highlighted","result":"pass"}
+]

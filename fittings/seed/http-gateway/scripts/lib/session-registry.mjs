@@ -43,7 +43,6 @@ export class SessionRegistry {
     const out = [];
     for (const s of this.sessions.values()) {
       if (filter.parent && s.parentSessionId !== filter.parent) continue;
-      if (filter.worktreeId && s.worktreeId !== filter.worktreeId) continue;
       if (filter.mode && s.mode !== filter.mode) continue;
       if (filter.soul && s.soul !== filter.soul) continue;
       out.push(serialize(s));
@@ -120,7 +119,6 @@ function serialize(s) {
     cwd: s.cwd,
     channel: s.channel,
     parent_session_id: s.parentSessionId,
-    worktree_id: s.worktreeId,
     tier: s.tier,
     tier_flags: s.tierFlags,
     terminal_tab_id: s.terminalTabId,

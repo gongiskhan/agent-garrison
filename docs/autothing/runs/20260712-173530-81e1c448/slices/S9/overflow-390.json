@@ -1,0 +1,38 @@
+[
+  {
+    "route": "/",
+    "scrollW": 390,
+    "clientW": 390,
+    "innerW": 390,
+    "pointerCoarse": true,
+    "horizontalOverflowPx": 0,
+    "ok": true
+  },
+  {
+    "route": "/compose",
+    "scrollW": 390,
+    "clientW": 390,
+    "innerW": 390,
+    "pointerCoarse": true,
+    "horizontalOverflowPx": 0,
+    "ok": true
+  },
+  {
+    "route": "/quarters",
+    "scrollW": 390,
+    "clientW": 390,
+    "innerW": 390,
+    "pointerCoarse": true,
+    "horizontalOverflowPx": 0,
+    "ok": true
+  },
+  {
+    "route": "/vault",
+    "scrollW": 390,
+    "clientW": 390,
+    "innerW": 390,
+    "pointerCoarse": true,
+    "horizontalOverflowPx": 0,
+    "ok": true
+  }
+]

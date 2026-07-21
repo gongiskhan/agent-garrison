@@ -1,0 +1,69 @@
+{
+  "runId": "20260713-135552-3c338e01",
+  "project": "agent-garrison",
+  "brief": "GARRISON-MARATHON-V3",
+  "profile": "build",
+  "gatesConfig": {
+    "test": true,
+    "adversarialReview": true,
+    "adversarialTest": true,
+    "codexSliceReview": true,
+    "design": true,
+    "walkthrough": true,
+    "deliberateRed": true,
+    "mutation": true,
+    "report": true,
+    "foundation": true,
+    "codexCheckpoint": true,
+    "askQuestions": false
+  },
+  "slices": {
+    "S3a": "passed",
+    "S1a": "passed",
+    "S2b": "passed",
+    "S1b": "passed",
+    "S2a": "passed",
+    "S3b1": "passed",
+    "S3c": "passed",
+    "S6a": "passed",
+    "S3e": "passed",
+    "S3d": "passed",
+    "S3f1": "passed",
+    "S3f3": "passed",
+    "S3f2a": "passed",
+    "S3f2b": "passed",
+    "S4a": "passed",
+    "S5a": "passed",
+    "S4b": "passed",
+    "S5b": "passed",
+    "S6b": "passed",
+    "S5c": "passed",
+    "S6c": "passed"
+  },
+  "globalGate": {
+    "status": "completed-with-blockers",
+    "startedAt": "2026-07-13T14:24:53Z",
+    "lastUpdate": "2026-07-13T15:50:26Z",
+    "decidedAt": "2026-07-13T20:48:39Z",
+    "builtinSecurityReview": {
+      "status": "issues-fixed",
+      "detail": "gitleaks 0-introduced + semgrep per-slice clean"
+    },
+    "codexCheckpoint": {
+      "status": "issues-fixed",
+      "findings": 4,
+      "fixed": 3,
+      "accepted": 1
+    },
+    "blockers": [
+      "exhaustive per-skill live-fire not run (per-slice tests + duty-fitting validation cover each; live-operative sweep pending)",
+      "full 9-parameter UX-gate printout partial (390px/interaction measured via e2e; full aggregation pending)",
+      "3 mobile muster-orchestrator e2e fail on async-load+collapse timing (product proven on desktop e2e + 68 units)",
+      "per-slice walkthrough videos not recorded",
+      "voice attended checklist ATTENDED-PENDING (non-gating)"
+    ]
+  },
+  "runLog": "RUN_LOG.md",
+  "runSpec": "docs/autothing/runs/20260713-135552-3c338e01/RUN_SPEC.md",
+  "flowPlan": "docs/autothing/runs/20260713-135552-3c338e01/FLOW_PLAN.md"
+}

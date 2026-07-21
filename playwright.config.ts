@@ -45,12 +45,20 @@ export default defineConfig({
   webServer: {
     command: `npx next dev --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}/`,
-    reuseExistingServer: !process.env.CI,
+    // Never reuse a stray server on this port: an externally-started process
+    // may run with the live ~/.claude and the shared .next/ dist dir, which is
+    // exactly what the sandbox env + NEXT_DIST_DIR isolation exist to prevent.
+    // A busy port fails fast instead of silently testing the wrong server.
+    reuseExistingServer: false,
     timeout: 60_000,
     env: {
       GARRISON_STATE_PATH: TEST_STATE_FILE,
       GARRISON_CLAUDE_HOME: CLAUDE_SANDBOX,
       GARRISON_HOME: GARRISON_SANDBOX,
+      // Two `next dev` processes sharing one .next/ poison each other's route
+      // cache (the live launchd server owns .next/), so the e2e sandbox server
+      // gets its own dist dir. next.config.mjs reads this env var.
+      NEXT_DIST_DIR: ".next-e2e",
       NODE_ENV: process.env.NODE_ENV ?? "development"
     },
     stdout: "ignore",

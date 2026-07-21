@@ -1,0 +1,56 @@
+{
+  "slice": "S7",
+  "mode": "evidence",
+  "project": "agent-garrison",
+  "folder": "flow-v2/s7-autonomy-collapse",
+  "title": "S7 - Autonomy collapse: Done quick-tasks strip + engine lock",
+  "video": "final.mp4",
+  "duration": 16.767,
+  "flagged": false,
+  "verifiedAt": "2026-07-11T01:50:25.770Z",
+  "beats": [
+    {
+      "beat": "ac1",
+      "criterionId": "AC1",
+      "caption": "AC1 - Done groups quick tasks under a collapsed strip (count 3)",
+      "expectedScreen": "the Done column with a collapsed 'quick tasks' strip and a count badge reading 3",
+      "timestamp": 2.122,
+      "frame": "frames/beat-00-ac1.png",
+      "assert": {
+        "selector": ".quick-strip .count",
+        "text": "3",
+        "highlight": true
+      },
+      "result": "pass",
+      "visionVerified": true
+    },
+    {
+      "beat": "ac2",
+      "criterionId": "AC2",
+      "caption": "AC2 - Expanding the strip reveals the quick cards",
+      "expectedScreen": "the expanded quick-tasks strip listing the quick card 'Rename staleTimeout to idleTimeout'",
+      "timestamp": 7.704,
+      "frame": "frames/beat-01-ac2.png",
+      "assert": {
+        "selector": "text:Rename staleTimeout to idleTimeout",
+        "highlight": true
+      },
+      "result": "pass",
+      "visionVerified": true
+    },
+    {
+      "beat": "ac3",
+      "criterionId": "AC3",
+      "caption": "AC3 - The engine card in Review is engine-owned (locked, no Move control)",
+      "expectedScreen": "the running card in Review showing an 'engine-owned' chip and a running pill, with only Watch/Open",
+      "timestamp": 12.507,
+      "frame": "frames/beat-02-ac3.png",
+      "assert": {
+        "selector": "text:engine-owned",
+        "highlight": true
+      },
+      "result": "pass",
+      "visionVerified": true
+    }
+  ]
+}

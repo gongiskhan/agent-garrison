@@ -1,0 +1,24 @@
+id: drill-view
+title: Drill view
+path: /fitting/drill
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The embedded Drill surface loads as a usable product view with clear
+      navigation and status, without exposing raw API data, blank content,
+      overflow, or confusing nested chrome.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

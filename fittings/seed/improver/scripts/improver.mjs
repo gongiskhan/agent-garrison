@@ -37,6 +37,9 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
+import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
+import { runCoordinationRule } from "../lib/coordination-rule.mjs";
+import { runFeedbackRule } from "../lib/feedback-rule.mjs";
 import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
@@ -46,6 +49,10 @@ import { snapshotSkill, restoreSkill } from "../lib/snapshot.mjs";
 import { runGates, splitFrontmatter } from "../lib/gates.mjs";
 import { buildNewContent, applyWithRetry } from "../lib/apply-core.mjs";
 import { loadAutonomy, saveAutonomy, setRuleAutonomy, isAuto } from "../lib/review-queue.mjs";
+import { readEcosystemUpdateLog } from "../lib/ecosystem-update.mjs";
+import { readReapplySweepLog } from "../lib/reapply-sweep.mjs";
+import { runEcosystemPhases } from "../lib/ecosystem-phases.mjs";
+import { resolveCompositionDir } from "../lib/composition-dir.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -64,12 +71,15 @@ function claudeHome() {
   return o && o.length ? o : path.join(os.homedir(), ".claude");
 }
 
-// Parse a MEMORY.md index into {title, hook} entries (shared shape with harvest).
+// Parse a MEMORY.md index into {title, hook, line} entries (shared shape with
+// harvest). `line` is the 1-based source line — carried so the Improver can cite
+// a real file:line in a proposal's evidence (shadcn/improve pattern 1).
 function parseMemory(md) {
   const out = [];
-  for (const line of String(md).split("\n")) {
-    const m = line.match(/^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:—|-)?\s*(.*)$/);
-    if (m) out.push({ title: m[1].trim(), hook: (m[3] || "").trim() });
+  const rows = String(md).split("\n");
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i].match(/^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:—|-)?\s*(.*)$/);
+    if (m) out.push({ title: m[1].trim(), hook: (m[3] || "").trim(), line: i + 1 });
   }
   return out;
 }
@@ -324,6 +334,48 @@ async function runSkills() {
     writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
     queue = upsertQueue(queue, p);
   }
+  // ── orchestrator-policy rule (GARRISON-UNIFY-V1 S15, D38) ──
+  // Reads the friction log + run outcomes and proposes policy edits (work
+  // kinds, phase plans, matrix cells, skill bindings) into the SAME queue —
+  // rendered as ghost edits in the composer, never auto-applied.
+  try {
+    const policyRule = runOrchestratorPolicyRule({ now });
+    for (const p of policyRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(`ORCHESTRATOR-POLICY — proposals=${policyRule.proposals.length} (runs=${policyRule.inputs.runs}, frictionLines=${policyRule.inputs.frictionLines})`);
+  } catch (err) {
+    console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
+  }
+  // ── coordination rule (GARRISON-FLOW-V2 S6, D17) ──
+  // Watches attributed interference + ordering decisions + touch-set-prediction
+  // misses on the kanban cards and proposes threshold / lease-list / prediction
+  // edits into the SAME queue — rendered as composer ghost edits, never auto-applied.
+  try {
+    const coordRule = runCoordinationRule({ now });
+    for (const p of coordRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(`COORDINATION — proposals=${coordRule.proposals.length} (cards=${coordRule.inputs.cards})`);
+  } catch (err) {
+    console.error("coordination rule failed (skipped):", err?.message || err);
+  }
+  // ── feedback rule (GARRISON-FLOW-V2 S8, D27) ──
+  // Consumes the shared feedback queue (probe/retrospective/override records) as
+  // HIGH-WEIGHT evidence and proposes phase-plan / matrix / kind-matcher edits into
+  // the SAME queue — composer ghost edits, never auto-applied.
+  try {
+    const feedbackRule = runFeedbackRule({ now });
+    for (const p of feedbackRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(`FEEDBACK — proposals=${feedbackRule.proposals.length} (records=${feedbackRule.inputs.records})`);
+  } catch (err) {
+    console.error("feedback rule failed (skipped):", err?.message || err);
+  }
   writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2), "utf8");
   writeFileSync(REPORT_FILE, JSON.stringify({ ...memRun.report, dream: dream.housekeeping }, null, 2), "utf8");
 
@@ -436,13 +488,40 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--probe")) {
     runImprover({}); // core runs on empty inputs without throwing
+    // Tolerant reads - both return [] when the file doesn't exist yet (a
+    // fresh install runs verify hours before the first nightly firing), and
+    // only a genuine thrown error (not "absent") should fail this probe.
+    await readEcosystemUpdateLog(DATA_DIR);
+    await readReapplySweepLog(DATA_DIR);
     console.log("ok");
     return 0;
   }
+  if (args[0] === "reconcile") {
+    // shadcn/improve pattern 4 — reconcile the review queue against reality:
+    // verify applied entries still hold, refresh drifted pending, retire stale.
+    const { loadQueue, saveQueue } = await import("../lib/review-queue.mjs");
+    const { reconcile } = await import("../lib/shadcn-patterns.mjs");
+    const queue = await loadQueue(QUEUE_FILE);
+    const r = reconcile(queue, { repoRoot: resolveCompositionDir(), now: new Date().toISOString() });
+    await saveQueue(QUEUE_FILE, r.queue);
+    return 0;
+  }
+
   if (args[0] !== "run-now") {
-    console.error("usage: improver.mjs run-now [improver-nightly] | --probe");
+    console.error("usage: improver.mjs run-now [improver-nightly] | reconcile | --probe");
     return 2;
   }
+
+  // Ecosystem-update + reapply-sweep: deterministic, non-LLM phases that run on
+  // every invocation regardless of mode, independent of the (unrelated,
+  // currently broken) dream-phase crash later in runSkills() - see
+  // docs/autothing/runs/20260701-092738-9b939e7a/FLOW_PLAN.md.
+  await runEcosystemPhases({
+    compositionDir: resolveCompositionDir(),
+    stateDir: DATA_DIR,
+    queuePath: QUEUE_FILE,
+    reconcileFn: recordingReconcile,
+  });
 
   if (process.env.IMPROVER_PROJECTS_DIR) {
     return await runSkills();

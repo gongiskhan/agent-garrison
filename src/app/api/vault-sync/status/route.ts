@@ -6,7 +6,10 @@ import { homedir } from "node:os";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STATUS_PATH = path.join(homedir(), ".garrison", "vault-sync-status.json");
+const STATUS_PATH = path.join(
+  process.env.GARRISON_HOME?.trim() || path.join(homedir(), ".garrison"),
+  "vault-sync-status.json"
+);
 // sync.py writes to this same path (~/.garrison/vault-sync-status.json).
 
 export async function GET() {

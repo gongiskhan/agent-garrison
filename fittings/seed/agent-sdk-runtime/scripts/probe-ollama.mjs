@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // probe-ollama.mjs — the LIVE agent-sdk + ollama-local tool-call round trip
 // (BRIEF acceptance: sdk-ollama-live-ok). Uses the REAL Agent SDK (default client
-// factory → lib/sdk-client.mjs), THE FENCE (non-Anthropic base URL), and THE
-// HARNESS (full claude_code preset), drives ONE turn that must include a real
-// tool-call round trip (Read), and reads the SDK's STRUCTURED messages — no
-// scraping. Free + local; env-gated so it never runs in the normal suite.
+// factory → lib/sdk-client.mjs) and THE HARNESS (full claude_code preset), drives
+// ONE turn that must include a real tool-call round trip (Read), and reads the
+// SDK's STRUCTURED messages — no scraping. Free + local; env-gated so it never
+// runs in the normal suite.
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -30,7 +30,7 @@ async function run() {
     permissionMode: "bypassPermissions"
   });
   console.log(
-    `[probe] fence=${session.fence.state} | baseUrl=${session.baseUrl} | preset=${session.harness.preset} | settingSources=${JSON.stringify(
+    `[probe] baseUrl=${session.baseUrl} | preset=${session.harness.preset} | settingSources=${JSON.stringify(
       session.harness.settingSources
     )} | caps.mcp=${session.capabilities.mcp}`
   );

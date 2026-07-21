@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drill fixture — Builder</title>
+<style>
+  body { font-family: sans-serif; margin: 0; padding: 16px; }
+  [hidden] { display: none !important; }
+  .bar-track { width: 100%; height: 16px; background: #eee; border-radius: 8px; overflow: hidden; }
+  .bar-fill { height: 100%; background: #2f4a3a; width: 0%; transition: width 0.1s linear; }
+  /* D5/self-test-item-9: an INTENTIONAL mobile-only bug — the cancel button
+     should stay visible at every width but is wrongly hidden below 500px. */
+  @media (max-width: 500px) {
+    [data-testid="cancel-btn"] { display: none; }
+  }
+</style>
+</head>
+<body>
+  <h1 data-testid="heading">New build</h1>
+  <div data-testid="idle-panel"></div>
+  <div data-testid="building-panel" hidden></div>
+  <div data-testid="complete-panel" hidden></div>
+  <script>
+    let pct = 0;
+    let timer = null;
+
+    const IDLE_HTML = '<button data-testid="start-build-btn">Start build</button>';
+    const BUILDING_HTML = '<div class="bar-track"><div class="bar-fill" data-testid="progress-bar" role="progressbar"></div></div>' +
+      '<span data-testid="progress-pct">0%</span><button data-testid="cancel-btn">Cancel</button>';
+    const COMPLETE_HTML = '<p data-testid="build-complete">Build complete</p>';
+
+    // Panels are mounted/emptied (not just CSS-hidden) so the DOM shape
+    // genuinely differs between idle/building/complete — a real SPA
+    // conditionally renders its screens, it doesn't just toggle visibility
+    // on a permanently-present tree. That's what lets the state matcher's
+    // shape-similarity signal actually discriminate between states.
+    function render() {
+      const heading = document.querySelector('[data-testid="heading"]');
+      const idle = document.querySelector('[data-testid="idle-panel"]');
+      const building = document.querySelector('[data-testid="building-panel"]');
+      const complete = document.querySelector('[data-testid="complete-panel"]');
+      idle.hidden = pct > 0;
+      building.hidden = pct <= 0 || pct >= 100;
+      complete.hidden = pct < 100;
+      if (idle.hidden) idle.innerHTML = ""; else if (!idle.firstElementChild) idle.innerHTML = IDLE_HTML;
+      if (building.hidden) building.innerHTML = ""; else if (!building.firstElementChild) building.innerHTML = BUILDING_HTML;
+      if (complete.hidden) complete.innerHTML = ""; else if (!complete.firstElementChild) complete.innerHTML = COMPLETE_HTML;
+      if (!building.hidden) {
+        building.querySelector('[data-testid="progress-bar"]').style.width = pct + "%";
+        building.querySelector('[data-testid="progress-pct"]').textContent = pct + "%";
+      }
+      // Distinct headings per state (a real app's idle/in-progress/done
+      // screens read differently) so the state matcher's route+heading
+      // pre-filter can actually discriminate between them.
+      heading.textContent = pct <= 0 ? "New build" : pct >= 100 ? "Build complete" : "Build in progress";
+      bindHandlers();
+    }
+
+    // Re-attach handlers after every render since mount/unmount replaces
+    // the underlying nodes (old listeners go with them).
+    function bindHandlers() {
+      const startBtn = document.querySelector('[data-testid="start-build-btn"]');
+      if (startBtn) startBtn.onclick = start;
+      const cancelBtn = document.querySelector('[data-testid="cancel-btn"]');
+      if (cancelBtn) cancelBtn.onclick = cancel;
+    }
+
+    function start() {
+      if (timer) return;
+      pct = 1;
+      render();
+      timer = setInterval(() => {
+        pct = Math.min(100, pct + 10);
+        render();
+        if (pct >= 100) { clearInterval(timer); timer = null; }
+      }, 150);
+    }
+
+    function cancel() {
+      if (timer) clearInterval(timer);
+      timer = null; pct = 0; render();
+    }
+
+    // Deterministic test hook (D5 "reproducible"): jump straight to a given
+    // progress percentage without waiting on the real timer.
+    window.__drillSetProgress = (p) => { if (timer) { clearInterval(timer); timer = null; } pct = p; render(); };
+
+    render();
+  </script>
+</body>
+</html>

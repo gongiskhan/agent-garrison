@@ -8,20 +8,19 @@
  *   - On demand, spawns Soul PTY sessions or opens
  *     a TrenchesPanel-style tab via Garrison Next.js (interactive mode).
  *   - Multiplexes events to channel SSE subscribers.
- *   - Exposes /sessions/* and /worktrees/* endpoints used by the
- *     garrison-control MCP tools.
+ *   - Exposes /sessions/* endpoints used by the garrison-control MCP tools.
  *
  * When GARRISON_SOULS_CONFIG is not set, the gateway runs gateway-pty.mjs.
  *
  * Environment (orchestrator mode):
  *   GARRISON_SOULS_CONFIG          JSON blob with orchestratorFittingId, orchestrator, souls
  *   GARRISON_ORCHESTRATOR_FITTING_ID
- *   GARRISON_MCP_GATEWAY_BASE_URL  e.g. http://127.0.0.1:9876
+ *   GARRISON_MCP_GATEWAY_BASE_URL  e.g. http://127.0.0.1:29876
  *   GARRISON_MCP_GATEWAY_TOKEN     bearer
- *   GARRISON_NEXT_BASE_URL         http://127.0.0.1:3000
+ *   GARRISON_NEXT_BASE_URL         http://127.0.0.1:27777
  *   GARRISON_COMPOSITION_DIR       composition working directory
  *   GARRISON_GATEWAY_HOST          (default 127.0.0.1)
- *   GARRISON_GATEWAY_PORT          (default 4777)
+ *   GARRISON_GATEWAY_PORT          (default 24777)
  *
  * Single-operative mode respects:
  *   GARRISON_SYSTEM_PROMPT_PATH, GARRISON_MODEL, GARRISON_PERMISSION_MODE
@@ -44,22 +43,17 @@ import {
   writeInterrupt,
   writePromptTempFile
 } from "./lib/spawn-soul.mjs";
-import { WorktreesProxy } from "./lib/worktrees-passthrough.mjs";
+import { resolveProjectPath } from "./lib/project-source.mjs";
 import { buildOrchestratorTurn } from "./lib/orchestrator-prefix.mjs";
 import { resolveMode, buildSwitchEntry, appendSwitchLog } from "./lib/mode-resolver.mjs";
 import { shouldRespawnForTier } from "./lib/tier-compare.mjs";
-import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir } from "./lib/gateway-routing.mjs";
+import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir, classifyByKeywords } from "./lib/gateway-routing.mjs";
 import { resolveSoulsHint } from "./lib/souls-route.mjs";
-import { createSerializer, withTimeout } from "./lib/serializer.mjs";
-
-// One orchestrator turn at a time (single PTY stdin) — see lib/serializer.mjs. The
-// safety timeout is well above any real turn so a live turn is never cut short; it
-// only rescues the queue (and the awaiting HTTP request) from a wedged turn.
-const ORCH_TURN_MAX_MS = 30 * 60 * 1000;
-const enqueueOrchestratorTurn = createSerializer({ maxHoldMs: ORCH_TURN_MAX_MS });
+import { CardRegistrar, isTaskShaped, isCardOriginatedChannel, heuristicClassify, isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
+import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
-const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
+const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "24777");
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const MCP_GATEWAY_BASE_URL = process.env.GARRISON_MCP_GATEWAY_BASE_URL ?? "";
 const MCP_GATEWAY_TOKEN = process.env.GARRISON_MCP_GATEWAY_TOKEN ?? "";
@@ -74,9 +68,6 @@ const ORCHESTRATOR_MODE = Boolean(SOULS_CONFIG_RAW);
 const registry = new SessionRegistry();
 const channels = new ChannelHub();
 const watcher = new JsonlWatcher();
-// Proxies the dev-env Fitting's /worktrees endpoints (default 7086); the
-// NEXT_BASE_URL argument is legacy and ignored by the proxy.
-const worktrees = new WorktreesProxy(NEXT_BASE_URL);
 
 let soulsConfig = null;
 let orchestratorSessionId = null;
@@ -93,6 +84,12 @@ let mcpConfigPath = null;
 // model-router fitting is absent (hint is then ignored, exact prior behavior).
 let routingConfig = null;
 let resolveRouteFn = null;
+// The whole routing-core module (isSignificantAutonomous, buildAutonomousCardPayload)
+// for D19 carding in souls mode. Null when the model-router fitting is absent.
+let routingCore = null;
+// D19 board client + per-conversation card memory (souls mode). Constructed at
+// boot; works without the model-router (heuristic classification, default payload).
+const cardRegistrar = new CardRegistrar({ logFn: (e) => logEvent("stdout", e) });
 
 // ───────────────────────────────────────────────────────── HTTP plumbing
 
@@ -181,12 +178,128 @@ async function loadRoutingForSouls() {
     const core = await loadRoutingCore(COMPOSITION_DIR);
     routingConfig = loadRoutingConfig(COMPOSITION_DIR, core.dir);
     resolveRouteFn = core.resolveRoute;
+    routingCore = core;
+    // The card payload builder rides the same core (D8 card creation).
+    cardRegistrar.buildPayload = core.buildAutonomousCardPayload ?? null;
     logEvent("stdout", { kind: "souls-routing-loaded", active_profile: routingConfig?.activeProfile ?? null });
   } catch (err) {
     routingConfig = null;
     resolveRouteFn = null;
+    routingCore = null;
     logEvent("stderr", { kind: "souls-routing-load-failed", error: err.message });
   }
+}
+
+// ─────────────────────────────────────────────── D19 carding (souls mode)
+
+// D19: "EVERY task-shaped turn is a card" — the souls-mode twin of the carding
+// block in gateway-pty.mjs runRoutedTurn. Souls mode has no warm LLM classifier,
+// so classification is deterministic: an explicit valid {taskType,tier} hint is
+// honored first, then the routing config's keyword exceptions, then the
+// heuristic fallback. Returns:
+//   null                                → not a card turn; forward as usual
+//   { handled: true, reply, card }      → significant run registered; reply with
+//                                         the card link, do NOT forward the turn
+//   { handled: false, quickCardId, sessionKey }
+//                                       → quick card registered; forward inline,
+//                                         then completeQuickTurnCard() at the end
+async function maybeCardChannelTurn({ channel, body, message }) {
+  // Engine dispatches + system beats are already cards; a context-bearing turn
+  // is anchored to a host fitting's object (the Kanban Discuss thread, an
+  // Automations run) — neither registers a new card here.
+  if (isCardOriginatedChannel(channel)) return null;
+  if (body?.context !== undefined && body.context !== null) return null;
+
+  let classification = null;
+  const hint = routingConfig && resolveRouteFn ? resolveSoulsHint(body, routingConfig, resolveRouteFn) : null;
+  if (hint) classification = hint.classification;
+  if (!classification && routingConfig) classification = classifyByKeywords(message, routingConfig);
+  if (!classification) classification = heuristicClassify(message);
+  if (!isTaskShaped(classification)) return null;
+
+  // Attach follow-ups only within an IDENTIFIED conversation (S7 review F1c):
+  // no session id → no attach → each task-shaped turn registers fresh.
+  const sessionKey = typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null;
+  const attached = sessionKey ? await cardRegistrar.attachedCard(sessionKey, classification) : null;
+  if (attached) {
+    logEvent("stdout", { kind: "card-attached", id: attached.cardId, taskType: classification.taskType });
+    return null; // the turn continues the live card's conversation inline
+  }
+
+  const naturalSignificant =
+    typeof routingCore?.isSignificantAutonomous === "function" && routingCore.isSignificantAutonomous(classification);
+  // D20: a conversational override in the operator's words reclassifies the plan.
+  // When it FLIPS the natural resolution, record ONE override event to the
+  // Improver queue carrying both resolutions (agreement is never recorded).
+  const override = detectOverride(message);
+  let significant = naturalSignificant;
+  if (override) {
+    significant = override.plan === "full";
+    if (significant !== naturalSignificant) {
+      const resolution = (sig) => ({
+        taskType: classification.taskType,
+        tier: classification.tier,
+        workKind: null,
+        plan: sig ? "full" : "quick"
+      });
+      try {
+        await appendFeedback(
+          buildOverrideRecord({
+            session_id: sessionKey,
+            answer: override.answer,
+            original: resolution(naturalSignificant),
+            applied: resolution(significant)
+          })
+        );
+        logEvent("stdout", { kind: "override-feedback", answer: override.answer, applied: significant ? "full" : "quick" });
+      } catch (err) {
+        logEvent("stderr", { kind: "override-feedback-failed", error: err.message });
+      }
+    }
+  }
+
+  if (significant) {
+    const card = await cardRegistrar.createAutonomousCard(message, classification, {});
+    if (card) {
+      cardRegistrar.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: classification.taskType });
+      logEvent("stdout", { kind: "run-card", id: card.id, url: card.url });
+      const reply =
+        `Registered as a run — the board's run engine will drive it through the pipeline.\n` +
+        `Card: ${card.url}`;
+      return { handled: true, reply, card };
+    }
+    return null; // board unavailable → fall through inline (never hard-block)
+  }
+  const card = await cardRegistrar.createAutonomousCard(message, classification, { quick: true, targetList: "implement" });
+  if (card) {
+    cardRegistrar.rememberCard(sessionKey, { cardId: card.id, quick: true, taskType: classification.taskType });
+    logEvent("stdout", { kind: "quick-card", id: card.id, url: card.url });
+    return { handled: false, quickCardId: card.id, sessionKey };
+  }
+  return null; // board unavailable → run inline without a card
+}
+
+// D19: a quick card runs inline; advance it Implement → Done when the turn
+// finished HONESTLY. Two ways it did NOT: an "[operative error]" reply leaves the
+// card visible in Implement (not a lying Done); an EMPTY reply (nothing but
+// whitespace) is a FAILURE, not a pass — route it to needs-attention with the
+// failure contract instead of advancing. Only a real, non-empty reply reaches
+// Done. On any non-Done outcome the session slot still releases so the next task
+// starts a fresh card.
+async function completeQuickTurnCard(carded, replyText) {
+  if (!carded?.quickCardId) return;
+  if (isEmptyQuickReply(replyText)) {
+    await cardRegistrar.parkQuickCard(carded.quickCardId, quickEmptyFailureReason());
+    logEvent("stdout", { kind: "quick-card-empty-parked", id: carded.quickCardId, reason: "empty reply — routed to needs-attention" });
+    cardRegistrar.forgetCard(carded.sessionKey);
+    return;
+  }
+  if (typeof replyText === "string" && replyText.startsWith("[operative error]")) {
+    logEvent("stdout", { kind: "quick-card-left-open", id: carded.quickCardId, reason: "operative error reply" });
+    return;
+  }
+  await cardRegistrar.completeQuickCard(carded.quickCardId);
+  cardRegistrar.forgetCard(carded.sessionKey);
 }
 
 async function writeSharedMcpConfig() {
@@ -207,8 +320,7 @@ async function writeSharedMcpConfig() {
           GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
           // mcp-gateway falls back to discovering tools from the composition
           // when this URL is set; keep it pointed at the http-gateway so
-          // talk_to / create_worktree / list_worktrees etc. can dispatch
-          // back through us.
+          // talk_to / list_active_sessions etc. can dispatch back through us.
           GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`
         }
       }
@@ -272,6 +384,9 @@ async function bootOrchestrator() {
       logEvent("stdout", { kind: "orchestrator-exit", code });
       state.status = code === 0 ? "completed" : "killed";
       registry.resolveWaiters(sessionUuid);
+      // Drop the handle so the next inbound turn reboots the orchestrator
+      // instead of queueing into a dead adapter forever.
+      if (orchestratorChild === state.child) orchestratorChild = null;
     }
   });
   state.status = "running";
@@ -280,6 +395,21 @@ async function bootOrchestrator() {
   await persistOrchestratorSessionId(sessionUuid);
   logEvent("stdout", { kind: "orchestrator-booted", session_id: sessionUuid, resume });
   return state;
+}
+
+// Reboot-on-demand: the orchestrator child can die (resume wedge, crash,
+// /exit) — any inbound turn first makes sure a live adapter exists. Single
+// boot at a time; concurrent turns await the same boot.
+let orchestratorBooting = null;
+async function ensureOrchestrator() {
+  if (orchestratorChild && !orchestratorChild.dead && !orchestratorChild.killed) return;
+  if (!orchestratorBooting) {
+    logEvent("stdout", { kind: "orchestrator-reboot", reason: orchestratorChild ? "dead" : "absent" });
+    orchestratorBooting = bootOrchestrator().finally(() => {
+      orchestratorBooting = null;
+    });
+  }
+  await orchestratorBooting;
 }
 
 function handleOrchestratorEvent(state, ev) {
@@ -302,7 +432,7 @@ async function spawnSoulSession(opts) {
     tierFlags = [],
     mode,
     cwd,
-    worktreeId,
+    project,
     parentSessionId,
     // Default to the orchestrator's current turn channel so a delegated soul
     // streams back to whoever is listening (voice/web), not the dead "main".
@@ -328,23 +458,19 @@ async function spawnSoulSession(opts) {
       session_id: existing.sessionId,
       status: existing.status,
       mode: existing.mode,
-      channel: existing.channel,
-      worktree_id: existing.worktreeId
+      channel: existing.channel
     };
   }
 
   const sessionUuid = providedUuid ?? randomUUID();
-  // Resolve cwd in priority: explicit cwd → worktree path lookup → base_path.
-  // Without this, a soul bound to a worktree would spawn in its base_path
-  // (e.g. ~/code) and write changes in the wrong place.
+  // Resolve cwd in priority: explicit cwd → named project's repo root → base_path.
+  // A soul runs at the project checkout on its current branch; without an
+  // explicit cwd or project it falls back to the soul's configured base_path.
   let resolvedCwd = cwd;
-  if (!resolvedCwd && worktreeId) {
-    try {
-      const wt = await worktrees.getById(worktreeId);
-      if (wt?.worktreePath) resolvedCwd = wt.worktreePath;
-    } catch (err) {
-      logEvent("stderr", { kind: "worktree-cwd-lookup-failed", worktree_id: worktreeId, error: err?.message });
-    }
+  if (!resolvedCwd && project) {
+    const projectPath = resolveProjectPath(project);
+    if (projectPath) resolvedCwd = projectPath;
+    else logEvent("stderr", { kind: "project-cwd-lookup-failed", project });
   }
   if (!resolvedCwd) resolvedCwd = spawnConfig.resolvedBasePath;
   const promptTempPath = await writePromptTempFile(sessionUuid, spawnConfig.promptPath);
@@ -357,7 +483,6 @@ async function spawnSoulSession(opts) {
     cwd: resolvedCwd,
     channel,
     parentSessionId,
-    worktreeId,
     tier,
     tierFlags
   });
@@ -374,7 +499,6 @@ async function spawnSoulSession(opts) {
         message,
         mcpConfigPath,
         soul,
-        worktreeId,
         resume: false,
         promptPath: promptTempPath
       });
@@ -424,51 +548,13 @@ async function spawnSoulSession(opts) {
     if (message) writeUserTurn(state.child, message);
   }
 
-  // If this soul is bound to a worktree, persist the binding into the
-  // session state so the Monitor (and Interactive session-view) can surface
-  // soul/tier/branch metadata on top of raw PIDs.
-  if (worktreeId) {
-    void persistWorktreeBinding({
-      worktreeId,
-      soul,
-      sessionId: sessionUuid,
-      mode: resolvedMode,
-      tier,
-      tierFlags,
-      terminalTabId: state.terminalTabId
-    });
-  }
-
   return {
     session_id: sessionUuid,
     status: state.status,
     mode: state.mode,
     channel: state.channel,
-    worktree_id: state.worktreeId,
     terminal_tab_id: state.terminalTabId
   };
-}
-
-async function persistWorktreeBinding(binding) {
-  if (!NEXT_BASE_URL) return;
-  try {
-    await fetch(new URL("/api/interactive/sessions/binding", NEXT_BASE_URL), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        worktreeId: binding.worktreeId,
-        soul: binding.soul,
-        sessionId: binding.sessionId,
-        mode: binding.mode,
-        tier: binding.tier,
-        tierFlags: binding.tierFlags,
-        terminalTabId: binding.terminalTabId,
-        spawnedAt: new Date().toISOString()
-      })
-    });
-  } catch (err) {
-    logEvent("stderr", { kind: "binding-persist-failed", error: err?.message });
-  }
 }
 
 async function respawnExisting(existing, { tier, tierFlags, message, soul, spawnConfig }) {
@@ -492,7 +578,6 @@ async function respawnExisting(existing, { tier, tierFlags, message, soul, spawn
       status: "running",
       mode: existing.mode,
       channel: existing.channel,
-      worktree_id: existing.worktreeId,
       terminal_tab_id: existing.terminalTabId,
       respawned: true
     };
@@ -534,7 +619,6 @@ async function respawnExisting(existing, { tier, tierFlags, message, soul, spawn
     status: "running",
     mode: existing.mode,
     channel: existing.channel,
-    worktree_id: existing.worktreeId,
     respawned: true
   };
 }
@@ -555,15 +639,15 @@ function killSessionBySoul(soul) {
 const modeByChannel = new Map();
 
 async function forwardChatToOrchestrator({ origin, channel, message, body }) {
+  await ensureOrchestrator();
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
   }
-  // Serialize: only one turn writes to the orchestrator's stdin (and holds
-  // currentOrchestratorChannel / the waiter) at a time — concurrent turns
-  // otherwise interleave and cross-resolve. The queue releases when this turn's
-  // result lands (or the safety timeout fires).
-  return enqueueOrchestratorTurn(async (release) => {
   // Remember this turn's channel so souls delegated during it inherit it.
+  // NB: turns are no longer serialized (main's per-turn correlation replaced the
+  // branch's queue), so this module-level latch is last-write-wins. Voice is a
+  // single speaker in practice; threading the channel through the turn itself is
+  // the proper fix if concurrent channels ever share one orchestrator.
   currentOrchestratorChannel = channel;
   // Honor an EXPLICIT {taskType,tier} classification hint (the Kanban Loop §10
   // contract) the same way PTY mode's preRoute does. Null when the hint is
@@ -623,20 +707,24 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending, routeHint });
   const orchState = registry.get(orchestratorSessionId);
   if (orchState) orchState.lastSummary = null;
-  writeUserTurn(orchestratorChild, turn);
-  // Await THIS turn's result INSIDE the serialized section (with a safety timeout
-  // so a wedged turn can't hang the queue forever), then release so the next turn
-  // can write. Returns the result object, or null for fire-and-forget (no waiter).
-  // NB: don't return the raw waiter promise here — enqueue's `await fn()` would
-  // unwrap it, so the caller would get the result, not a thenable.
-  const waiter = orchState ? registry.addWaiter(orchestratorSessionId) : null;
-  try {
-    if (!waiter) return null;
-    return await withTimeout(waiter, ORCH_TURN_MAX_MS, () => ({ summary: "(o turno do orquestrador excedeu o tempo limite)" }));
-  } finally {
-    release();
+  // Honor an explicit per-turn timeout (the Kanban Loop sends a generous one:
+  // a real garrison-* phase turn runs far longer than the PTY's 5-min default).
+  const timeoutMs =
+    typeof body?.timeoutMs === "number" && Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
+      ? body.timeoutMs
+      : undefined;
+  const turnPromise = writeUserTurn(orchestratorChild, turn, { timeoutMs });
+  if (!turnPromise) {
+    // The adapter died between ensureOrchestrator and the write — fail the
+    // request instead of handing back a waiter that can never resolve.
+    throw new Error("orchestrator is not accepting turns (operative process died)");
   }
-  });
+  // PER-TURN correlation: resolve with THIS turn's own reply. The registry's
+  // session-scoped waiters cross replies whenever two turns are in flight
+  // (the Kanban tick dispatches several cards concurrently) — one card would
+  // receive another card's verdict. This supersedes the branch's whole-turn
+  // serializer: correlation is per turn, so turns no longer have to queue.
+  return Promise.resolve(turnPromise).then((text) => ({ status: "completed", summary: text ?? "" }));
 }
 
 // ────────────────────────────────────────────────────────────── HTTP server
@@ -682,8 +770,17 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
       const channel = String(body.channel ?? "main");
-      const result = await forwardChatToOrchestrator({ origin, channel, message, body });
-      if (result) {
+      // D19: a task-shaped channel turn is a card. Significant → registered for
+      // the run engine, reply carries the card link (the turn does not run here).
+      const carded = await maybeCardChannelTurn({ channel, body, message });
+      if (carded?.handled) {
+        sendJson(response, 200, { reply: carded.reply, session_id: orchestratorSessionId, card: carded.card.id, cardUrl: carded.card.url });
+        return;
+      }
+      const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
+      if (waiter) {
+        const result = await waiter;
+        await completeQuickTurnCard(carded, result.summary);
         sendJson(response, 200, { reply: result.summary, session_id: orchestratorSessionId });
       } else {
         sendJson(response, 200, { ack: true, session_id: orchestratorSessionId });
@@ -761,9 +858,18 @@ const server = http.createServer(async (request, response) => {
       request.on("close", teardown);
 
       try {
-        const result = await forwardChatToOrchestrator({ origin, channel, message, body });
-        if (result) {
-          sseWrite(response, "done", { reply: result.summary });
+        // D19: a task-shaped channel turn is a card (same contract as /chat).
+        const carded = await maybeCardChannelTurn({ channel, body, message });
+        if (carded?.handled) {
+          sseWrite(response, "chunk", { text: carded.reply });
+          sseWrite(response, "done", { reply: carded.reply, card: carded.card.id, cardUrl: carded.card.url });
+        } else {
+          const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
+          if (waiter) {
+            const result = await waiter;
+            await completeQuickTurnCard(carded, result.summary);
+            sseWrite(response, "done", { reply: result.summary });
+          }
         }
       } catch (err) {
         sseWrite(response, "error", { error: err.message });
@@ -811,7 +917,7 @@ const server = http.createServer(async (request, response) => {
         tierFlags: Array.isArray(body.tier_flags) ? body.tier_flags : [],
         mode: body.mode,
         cwd: body.cwd,
-        worktreeId: body.worktree_id,
+        project: body.project,
         parentSessionId: body.parent_session_id,
         channel: body.channel,
         sessionUuid: body.session_id,
@@ -848,7 +954,6 @@ const server = http.createServer(async (request, response) => {
     if (method === "GET" && url.pathname === "/sessions") {
       const filter = {
         parent: url.searchParams.get("parent") || undefined,
-        worktreeId: url.searchParams.get("worktree_id") || undefined,
         mode: url.searchParams.get("mode") || undefined,
         soul: url.searchParams.get("soul") || undefined
       };
@@ -903,35 +1008,6 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    if (method === "GET" && url.pathname === "/worktrees") {
-      const project = url.searchParams.get("project") || undefined;
-      const id = url.searchParams.get("id") || undefined;
-      try {
-        const data = id ? await worktrees.getById(id) : await worktrees.list(project);
-        sendJson(response, 200, data);
-      } catch (err) { sendJson(response, 502, { error: err.message }); }
-      return;
-    }
-
-    if (method === "POST" && url.pathname === "/worktrees") {
-      const body = await readJsonBody(request);
-      try {
-        const data = await worktrees.create(body);
-        sendJson(response, 201, data);
-      } catch (err) { sendJson(response, 502, { error: err.message }); }
-      return;
-    }
-
-    if (method === "POST" && /^\/worktrees\/([^/]+)\/close$/.test(url.pathname)) {
-      const id = url.pathname.split("/")[2];
-      const body = await readJsonBody(request).catch(() => ({}));
-      try {
-        const data = await worktrees.close({ id, ...body });
-        sendJson(response, 200, data);
-      } catch (err) { sendJson(response, 502, { error: err.message }); }
-      return;
-    }
-
     sendJson(response, 404, { error: "not found", path: url.pathname });
   } catch (err) {
     logEvent("stderr", { kind: "request-failed", path: url.pathname, error: err.message });
@@ -951,6 +1027,13 @@ async function main() {
   soulsConfig = await loadSoulsConfig();
   await loadRoutingForSouls();
   mcpConfigPath = await writeSharedMcpConfig();
+  // Node's http.Server defaults requestTimeout to 5 min — that would abort a
+  // long /chat turn (a real Kanban garrison-* phase runs far longer) at the
+  // socket layer regardless of the caller's per-turn timeout. Long turns are
+  // governed by the turn/waiter lifecycle, not the HTTP server.
+  server.requestTimeout = 0;
+  server.headersTimeout = 0;
+  server.timeout = 0;
   server.listen(PORT, HOST, async () => {
     logEvent("stdout", {
       kind: "listening",
@@ -959,8 +1042,10 @@ async function main() {
       mode: "orchestrator",
       composition_dir: COMPOSITION_DIR
     });
-    // Boot orchestrator after server is listening so /health works while it spins up.
-    try { await bootOrchestrator(); } catch (err) {
+    // Boot orchestrator after server is listening so /health works while it
+    // spins up. ensureOrchestrator so an early /chat shares this boot instead
+    // of racing a second one.
+    try { await ensureOrchestrator(); } catch (err) {
       logEvent("stderr", { kind: "orchestrator-boot-failed", error: err.message });
     }
   });

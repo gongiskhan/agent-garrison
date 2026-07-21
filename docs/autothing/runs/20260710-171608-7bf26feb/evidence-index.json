@@ -1,0 +1,110 @@
+{
+  "runId": "20260710-171608-7bf26feb",
+  "project": "agent-garrison",
+  "brief": "GARRISON-FLOW-V2",
+  "createdAt": "2026-07-10T17:58:16Z",
+  "gatesConfig": {
+    "test": true,
+    "adversarialReview": true,
+    "adversarialTest": true,
+    "codexSliceReview": true,
+    "design": true,
+    "walkthrough": true,
+    "deliberateRed": true,
+    "mutation": true,
+    "report": true,
+    "foundation": true,
+    "codexCheckpoint": true,
+    "askQuestions": false,
+    "profile": "build"
+  },
+  "slices": {
+    "S3": {
+      "status": "passed",
+      "at": "2026-07-10T19:15:44Z",
+      "gateStatus": "slices/S3/gate-status.json",
+      "video": "http://100.88.165.46:8099/agent-garrison/flow-v2/s3-worktree-sweep/2026-07-10_20-12-43/final.mp4"
+    },
+    "S1": {
+      "status": "passed",
+      "at": "2026-07-10T21:07:04Z",
+      "gateStatus": "slices/S1/gate-status.json",
+      "video": "http://100.88.165.46:8099/agent-garrison/flow-v2/s1-coordination-ordering/2026-07-10_22-05-38/final.mp4"
+    },
+    "S4": {
+      "status": "passed",
+      "at": "2026-07-10T23:54:26Z"
+    },
+    "S2": {
+      "status": "passed",
+      "at": "2026-07-10T23:54:26Z"
+    },
+    "S5": {
+      "status": "passed",
+      "at": "2026-07-10T23:54:26Z"
+    },
+    "S9": {
+      "status": "passed",
+      "at": "2026-07-10T23:54:26Z"
+    },
+    "S6": {
+      "status": "passed",
+      "at": "2026-07-11T01:10:43Z"
+    },
+    "S7": {
+      "status": "passed",
+      "at": "2026-07-11T02:17:57Z"
+    },
+    "S8": {
+      "status": "passed",
+      "at": "2026-07-11T02:17:57Z"
+    }
+  },
+  "globalGate": {
+    "status": "completed-with-blockers",
+    "at": "2026-07-11T05:13:57Z",
+    "blockers": [
+      {
+        "gate": "codex-checkpoint",
+        "cause": "external: codex 401 Unauthorized - not logged in, no OPENAI_API_KEY, no ~/.codex/auth.json",
+        "failedCommand": "echo \"Reply OK\" | codex exec -s read-only -m gpt-5.5 -",
+        "remediation": "set an OpenAI API key with a budget cap, then re-run the checkpoint"
+      }
+    ],
+    "builtinSecurityReview": {
+      "status": "clean",
+      "findings": 0
+    },
+    "securityWall": {
+      "gitleaks": 0,
+      "semgrep": 0,
+      "depAudit": "12 pre-existing advisories, root deps unchanged by this run"
+    },
+    "deliberateRed": {
+      "plants": 4,
+      "caught": 4
+    },
+    "mutation": {
+      "mutants": 3,
+      "killed": 3,
+      "ratchet": "killer test added for the surviving mutant"
+    },
+    "suite": {
+      "tests": 1861,
+      "typecheck": 0
+    },
+    "slicesPassed": 9,
+    "videos": "9/9 verified"
+  },
+  "runLog": "../../../RUN_LOG.md",
+  "runSpec": "RUN_SPEC.md",
+  "flowPlan": "FLOW_PLAN.md",
+  "landing": "LANDING.md",
+  "report": {
+    "status": "not-sent",
+    "reason": "no AUTOTHING_SLACK_WEBHOOK_URL configured",
+    "artifactsUrl": "http://100.88.165.46:8091/20260710-171608-7bf26feb/",
+    "galleryUrl": "http://100.88.165.46:8099/",
+    "at": "2026-07-11T05:15:32Z"
+  }
+}

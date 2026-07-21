@@ -1,0 +1,24 @@
+id: composition
+title: Composition
+path: /muster
+mode: steps
+areas: []
+steps:
+  - id: ux-functional-smoke
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The Composition page makes the selected composition, readiness, duties,
+      targets, and editing affordances understandable and usable without visual
+      collisions or unexplained controls.
+    tags:
+      - dogfood
+      - ux
+      - smoke
+    judgment: true
+states: []

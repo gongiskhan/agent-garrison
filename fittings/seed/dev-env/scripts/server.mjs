@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// dev-env backend — the consolidated Dev Env Fitting (port 7086). One server
-// folds the three retired dev-work Fittings into a single surface:
+// dev-env backend — the consolidated Dev Env Fitting (port 27086). One server
+// folds the retired dev-work Fittings into a single surface:
 //   - PTY terminals (ptys.mjs, from terminal-armory-default)
-//   - session state + Claude Code hook receiver (state.mjs, from
-//     session-view-sequoias) — every Claude Code session becomes a tab
-//   - git worktree CRUD (worktrees.mjs, from worktree-management-sequoias)
+//   - session state + Claude Code hook receiver + session CRUD (state.mjs,
+//     from session-view-sequoias) — every Claude Code session becomes a tab,
+//     same-branch, at its project's repo root
 // Scaffolding (routing, WS upgrade, status file, static serving) follows the
 // terminal donor.
 
@@ -56,39 +56,36 @@ import {
   aggregateSessions,
   applyHookEvent,
   cleanupState,
-  getDirty,
-  hasLiveClaudeProcess,
-  isBroadRoot,
-  liveRegistryRows,
-  migrateOpenSet,
-  openSessionByClaudeId,
-  readStateFile,
-  runWorkingIdleFallback,
-  setDirtyCheckTtl,
-  setSessionOpen
-} from "./state.mjs";
-import { listHistory } from "./claude-sessions.mjs";
-import { tailnetUrlForPort } from "./tailnet.mjs";
-import {
   createProjectSession,
-  createWorktree,
   deleteSession,
   expandHome,
   findSessionById,
-  isWorktreePath,
+  getDirty,
+  hasLiveClaudeProcess,
+  isBroadRoot,
   listProjects,
-  listWorktreesEnriched,
+  liveRegistryRows,
+  migrateOpenSet,
+  openSessionByClaudeId,
   readDevRoot,
-  removeSessionRecord,
+  readStateFile,
+  runWorkingIdleFallback,
+  setDirtyCheckTtl,
   setPaneClosed,
+  setSessionOpen,
+  setSessionPlacement,
   writeDevRoot
-} from "./worktrees.mjs";
+} from "./state.mjs";
+import { listHistory } from "./claude-sessions.mjs";
+import { tailnetUrlForPort } from "./tailnet.mjs";
 
 const FITTING_ID = "dev-env";
-const DEFAULT_PORT = 7086;
+const DEFAULT_PORT = 27086;
 
 const HOME = os.homedir();
-const STATUS_ROOT = path.join(HOME, ".garrison", "ui-fittings");
+// GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
+// own-port fitting follows so spawned test instances never touch live status files.
+const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
 const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
@@ -97,8 +94,8 @@ const EXTERNAL_STATUSES = new Set(["working", "waiting", "starting"]);
 
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.DEV_ENV_PORT || DEFAULT_PORT),
-    host: process.env.DEV_ENV_HOST || "127.0.0.1",
+    port: Number(process.env.GARRISON_DEVENV_PORT || process.env.DEV_ENV_PORT || DEFAULT_PORT),
+    host: process.env.GARRISON_DEVENV_BIND_HOST || process.env.DEV_ENV_HOST || "127.0.0.1",
     defaultShell: process.env.DEV_ENV_SHELL || process.env.SHELL || "/bin/zsh",
     dirtyTtlMs: Number(process.env.DEV_ENV_DIRTY_TTL_MS || 10_000),
     // PTY backing: auto (tmux if installed, else direct), on (require tmux),
@@ -262,7 +259,6 @@ function assembleSessions() {
     out.push({
       id: row.id,
       branch: row.branch,
-      worktreePath: row.worktreePath,
       projectName: row.projectName,
       projectPath: row.projectPath,
       lastStatus,
@@ -270,14 +266,14 @@ function assembleSessions() {
       claudeSessionId: row.claudeSessionId,
       title: row.title,
       source: row.source,
-      dirty: getDirty(row.worktreePath),
-      isWorktree: isWorktreePath(row.worktreePath),
+      dirty: getDirty(row.projectPath),
       external,
-      excluded: isExcluded(row.worktreePath),
-      isBroadRoot: isBroadRoot(row.worktreePath),
-      liveProcess: hasLiveClaudeProcess(row.worktreePath, row.claudeSessionId),
+      excluded: isExcluded(row.projectPath),
+      isBroadRoot: isBroadRoot(row.projectPath),
+      liveProcess: hasLiveClaudeProcess(row.projectPath, row.claudeSessionId),
       openedInDevEnv: row.openedInDevEnv === true,
       claudeClosed: Boolean(row.panesClosed?.claude),
+      placement: row.placement ?? null,
       claudePty,
       terminals
     });
@@ -346,7 +342,7 @@ async function handleBrowserTarget(_req, res) {
       return jsonRes(res, 404, { error: "browser status file invalid" });
     }
     // When this dev-env page is reached over Tailscale, the browser fitting's
-    // raw http://host:7084 is mixed-content-blocked. Hand the UI the browser
+    // raw http://host:27084 is mixed-content-blocked. Hand the UI the browser
     // fitting's HTTPS tailnet URL (from `tailscale serve`) so its canvas + the
     // same-origin wss the canvas opens both proxy over Tailscale.
     const tailnetUrl =
@@ -478,7 +474,7 @@ async function handleEnsurePty(req, res, sessionId) {
   if (!found) return jsonRes(res, 404, { error: `session id not found: ${sessionId}` });
   try {
     ensurePty({
-      session: { id: sessionId, worktreePath: found.worktreePath },
+      session: { id: sessionId, projectPath: found.projectPath },
       role,
       resume: body.resume === true,
       resumeId: role === "claude" ? found.claudeSessionId || null : null
@@ -500,7 +496,7 @@ async function handleCreateTerminal(req, res, sessionId) {
   if (!found) return jsonRes(res, 404, { error: `session id not found: ${sessionId}` });
   try {
     const role = allocateTerminalRole(sessionId);
-    ensurePty({ session: { id: sessionId, worktreePath: found.worktreePath }, role });
+    ensurePty({ session: { id: sessionId, projectPath: found.projectPath }, role });
     jsonRes(res, 201, { ok: true, role, pty: ptySummary(sessionId, role) });
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -613,9 +609,9 @@ async function handleDeleteSession(req, res, sessionId) {
 
 // Ask Garrison's orchestrator front door to place a session: returns
 // { mode, promptPath, model, effort, role }. Base URL overridable via
-// GARRISON_BASE_URL (default the local Garrison Next app on 7777).
+// GARRISON_BASE_URL (default the local Garrison Next app on 27777).
 async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
   // forward the active composition when we know it (GARRISON_COMPOSITION_ID), so a
   // non-default composition is placed against ITS live modes/routing; the route
   // defaults to "default" when absent (the single-composition case).
@@ -656,19 +652,27 @@ async function handleCreateSession(req, res) {
   const body = (await readBody(req)) || {};
   try {
     const { session, existed } = await createProjectSession({ path: body.path, title: body.title });
-    const stub = { id: session.id, worktreePath: session.worktreePath };
+    const stub = { id: session.id, projectPath: session.projectPath };
     const externalNow =
       existed &&
       ptySummary(session.id, "claude").state !== "running" &&
       EXTERNAL_STATUSES.has(session.lastStatus);
     if (!externalNow) {
       const wantContinue = body.continue === true || body.resume === true;
-      // Start THROUGH the orchestrator (deliverable #3) when asked: resolve the
-      // face + composed mode prompt + model from /api/orchestrator/place and
-      // launch claude with those. Any failure (Garrison down, modes not installed)
-      // falls back cleanly to a bare session.
+      // GARRISON-UNIFY-V1 S7 (D22): the ORCHESTRATED path is the DEFAULT —
+      // every new session carries the composed mode prompt + model from
+      // /api/orchestrator/place. A plain, unorchestrated session remains
+      // available behind ONE explicit action (body.plain === true — the UI
+      // labels it "plain claude, for debugging Garrison itself") and its use
+      // is LOGGED. Any placement failure (Garrison down, modes not installed)
+      // still falls back cleanly to a bare session — Garrison's own failures
+      // must be debuggable from inside dev-env.
       let orchestrated = null;
-      if (body.orchestrated === true || typeof body.mode === "string") {
+      let placementSpec = null;
+      const wantPlain = body.plain === true;
+      if (wantPlain) {
+        console.log(`[dev-env] PLAIN session requested for ${session.projectPath} (unorchestrated escape hatch, D22) — logged`);
+      } else {
         try {
           const spec = await placeViaOrchestrator({
             channel: "dev-env",
@@ -681,9 +685,13 @@ async function handleCreateSession(req, res) {
           // failure.
           if (spec && typeof spec.promptPath === "string" && isReadableFile(spec.promptPath)) {
             orchestrated = { appendPromptFiles: [spec.promptPath], model: spec.model || null };
+            placementSpec = spec; // stamp attribution onto the record below (chip source)
           }
         } catch {
           orchestrated = null; // graceful fallback to a bare session
+        }
+        if (!orchestrated) {
+          console.log(`[dev-env] orchestrated placement unavailable for ${session.projectPath} — bare-session fallback`);
         }
       }
       ensurePty({
@@ -693,6 +701,23 @@ async function handleCreateSession(req, res) {
         resumeId: session.claudeSessionId || null,
         orchestrated
       });
+      // Persist placement attribution ONLY when the session was actually
+      // orchestrated (a readable mode prompt was threaded in). The bare-session
+      // fallback leaves placement null → no chip, matching the silent-fallback
+      // contract. Best-effort: a state-write failure must not fail the session.
+      if (orchestrated && placementSpec) {
+        try {
+          await setSessionPlacement(session.id, {
+            mode: placementSpec.mode ?? null,
+            model: placementSpec.model ?? null,
+            role: placementSpec.role ?? null,
+            targetId: placementSpec.targetId ?? null,
+            runtime: placementSpec.runtime ?? null
+          });
+        } catch (err) {
+          console.warn(`[dev-env] failed to persist placement for ${session.id}: ${err?.message ?? err}`);
+        }
+      }
     }
     // No default shell terminal — the deck starts empty; the user opens
     // terminals on demand via the + button.
@@ -708,8 +733,9 @@ async function handleCreateSession(req, res) {
 
 // POST /sessions/:id/close — tab close = kill PTYs + UNPIN (openedInDevEnv:false)
 // but KEEP the record so the session stays in History and can be resumed. (DELETE
-// /sessions/:id is the separate "truly remove + drop the git worktree" path.) A
-// late dying-claude hook only updates lastStatus on the kept record; it never
+// /sessions/:id is the separate "truly remove the record" path — it tombstones
+// and drops the record, never touching git or the directory.) A late
+// dying-claude hook only updates lastStatus on the kept record; it never
 // re-pins, so the tab stays closed.
 async function handleCloseSession(req, res, sessionId) {
   try {
@@ -750,37 +776,6 @@ async function handleHook(req, res, queryParams = {}) {
   const result = await applyHookEvent(event, body);
   if (result.ok === false) return jsonRes(res, 400, { error: result.error });
   jsonRes(res, 200, result);
-}
-
-// POST /worktrees — create + record + spawn BOTH PTYs before responding, so
-// the new tab appears (with live panes) on the UI's next poll. The flat
-// legacy fields stay top-level for gateway-passthrough compatibility; the
-// assembled DevEnvSession rides along under `session`.
-async function handleCreateWorktree(req, res) {
-  const body = (await readBody(req)) || {};
-  try {
-    const created = await createWorktree(body);
-    const sessionStub = { id: created.id, worktreePath: created.worktreePath };
-    ensurePty({ session: sessionStub, role: "claude" });
-    // Pin the worktree session as a tab so it survives a reboot like any other.
-    await setSessionOpen(created.id, true);
-    // No default shell terminal — opened on demand via the deck's + button.
-    const session = assembleSessions().find((s) => s.id === created.id) ?? null;
-    jsonRes(res, 201, { ...created, session });
-  } catch (err) {
-    jsonRes(res, err.status ?? 500, { error: err.message });
-  }
-}
-
-async function handleListWorktrees(req, res, queryParams) {
-  const repoPath = expandHome(queryParams.repoPath || "");
-  if (!repoPath) return jsonRes(res, 400, { error: "repoPath required" });
-  try {
-    const worktrees = await listWorktreesEnriched(repoPath);
-    jsonRes(res, 200, { worktrees, projectPath: repoPath });
-  } catch (err) {
-    jsonRes(res, 500, { error: err.message });
-  }
 }
 
 async function handleListProjects(req, res, queryParams) {
@@ -861,7 +856,7 @@ function handleClaudeStatus(req, res, sessionId) {
 
 function handleClaudeCommands(req, res, sessionId) {
   const found = findSessionById(sessionId);
-  const cwd = found?.worktreePath;
+  const cwd = found?.projectPath;
   jsonRes(res, 200, { commands: enumerateCommandsCached(cwd ? { cwd } : {}) });
 }
 
@@ -910,7 +905,7 @@ function handleClaudeInterrupt(req, res, sessionId) {
 }
 
 // ─────────────────────────── voice proxy (/voice/* and /sessions/:id/voice/*)
-// Thin same-origin bridge to the deepgram-voice fitting (port 7085) so the
+// Thin same-origin bridge to the deepgram-voice fitting (port 27085) so the
 // browser never needs to cross-origin to it. The voice URL is rediscovered from
 // the status file on EVERY request (the port can change / the fitting can come
 // and go); if the file is missing or its /health fails we return 503 with a
@@ -1043,18 +1038,36 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort) {
+// Fail fast BEFORE the expensive pre-listen work (PTY rehydration): probe the
+// configured port once and refuse to start when it is taken.
+async function assertPortFree(port, host) {
   const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, "127.0.0.1");
-    });
-    if (free) return port;
+  const free = await new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
+  });
+  if (!free) {
+    console.error(`[dev-env] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+    process.exit(1);
   }
-  return null;
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// The status file is a single tracking slot. If it names another live process,
+// this boot is a duplicate - refuse instead of silently stealing the slot.
+function assertStatusSlotFree() {
+  let recorded;
+  try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
+  const pid = Number(recorded?.pid);
+  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && pidAlive(pid)) {
+    console.error(`[dev-env] ${STATUS_FILE} is held by live pid ${pid} - refusing to overwrite another instance's status file`);
+    process.exit(1);
+  }
 }
 
 async function writeStatusFile(opts) {
@@ -1093,13 +1106,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   setTmuxMode(tmuxOn);
   console.log(`[dev-env] PTY backing: ${tmuxOn ? "tmux (sessions survive restarts)" : "node-pty (direct)"}`);
   console.log(`[dev-env] tab exclusions: ${loadExcludes().length} pattern(s) active`);
-  const free = await findFreePort(opts.port);
-  if (free === null) { console.error(`[dev-env] no free port from ${opts.port}`); process.exit(1); }
-  const liveOpts = { ...opts, port: free };
-  if (free !== DEFAULT_PORT) {
+  assertStatusSlotFree();
+  await assertPortFree(opts.port, opts.host);
+  const liveOpts = { ...opts };
+  if (liveOpts.port !== DEFAULT_PORT) {
     // The installed Claude Code hooks curl the port baked at install time
     // (inherited limitation of the hook contract).
-    console.warn(`[dev-env] live port ${free} differs from default ${DEFAULT_PORT} — installed hooks still POST to the baked port`);
+    console.warn(`[dev-env] configured port ${liveOpts.port} differs from default ${DEFAULT_PORT} - installed hooks still POST to the baked port`);
   }
 
   const server = http.createServer(async (req, res) => {
@@ -1120,6 +1133,24 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
+      // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
+      // same-origin; we relay to the Power fitting's own-port server via its
+      // status file. Power absent → 204 silently (advisory).
+      if (pathname === "/power-heartbeat" && method === "POST") {
+        try {
+          const statusFile = path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "ui-fittings", "power-default.json");
+          const st = JSON.parse(readFileSync(statusFile, "utf8"));
+          const base = st.url || `http://127.0.0.1:${st.port}`;
+          await fetch(`${base}/presence`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source: "dev-env" }),
+            signal: AbortSignal.timeout(1500)
+          });
+        } catch { /* advisory */ }
+        res.statusCode = 204;
+        return res.end();
+      }
       if (pathname === "/sessions" && method === "GET") return handleListSessions(req, res);
       if (pathname === "/sessions" && method === "POST") return await handleCreateSession(req, res);
       if (pathname === "/sessions/cleanup" && method === "POST") return await handleCleanup(req, res);
@@ -1146,12 +1177,6 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         if (action === "tts" && method === "POST") return await handleVoiceTts(req, res);
         if (action === "stt" && method === "POST") return await handleVoiceStt(req, res);
       }
-
-      if (pathname === "/worktrees" && method === "GET") return await handleListWorktrees(req, res, parsed.query);
-      if (pathname === "/worktrees" && method === "POST") return await handleCreateWorktree(req, res);
-
-      const wtDelMatch = pathname.match(/^\/worktrees\/([^/]+)$/);
-      if (wtDelMatch && method === "DELETE") return await handleDeleteSession(req, res, decodeURIComponent(wtDelMatch[1]));
 
       const ptyKillMatch = pathname.match(/^\/sessions\/([^/]+)\/ptys\/(claude|shell(?:-\d+)?)$/);
       if (ptyKillMatch && method === "DELETE") {
@@ -1291,13 +1316,20 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   // visible tab → keep it open). After this every record carries the flag, so
   // the tab strip is rebuilt from persistence — surviving a reboot.
   const migrated = await migrateOpenSet((session) => {
-    if (hasLiveClaudeProcess(session.worktreePath, session.claudeSessionId)) return true;
+    if (hasLiveClaudeProcess(session.projectPath, session.claudeSessionId)) return true;
     if (ptySummary(session.id, "claude").state === "running") return true;
     const t = Date.parse(session.lastStatusAt || "");
     return Number.isFinite(t) && Date.now() - t < 90 * 60 * 1000;
   });
   if (migrated > 0) console.log(`[dev-env] migrated ${migrated} session(s) into the open-set`);
 
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`[dev-env] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`);
+      process.exit(1);
+    }
+    throw err;
+  });
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);

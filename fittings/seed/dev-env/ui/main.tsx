@@ -30,7 +30,7 @@ function writeClaudeView(sessionId: string, v: "terminal" | "chat") {
   try { localStorage.setItem(`${LS_CLAUDE_VIEW}.${sessionId}`, v); } catch {}
 }
 import { BrowserPane, type WiredInfo } from "./browser-pane";
-import { NewWorktreeDialog, StartSessionDialog, ConfirmDeleteDialog, SettingsDialog, Toast } from "./dialogs";
+import { StartSessionDialog, SettingsDialog, Toast } from "./dialogs";
 import { SessionsPanel } from "./session-panels";
 import { getMode, setMode, type TermMode } from "./terminal-theme";
 
@@ -117,7 +117,6 @@ interface TerminalSummary {
 interface DevEnvSession {
   id: string;
   branch: string;
-  worktreePath: string;
   projectName: string;
   projectPath: string;
   lastStatus: string;
@@ -126,15 +125,45 @@ interface DevEnvSession {
   title: string | null;
   source: string;
   dirty: boolean | null;
-  isWorktree: boolean;
   external: boolean;
   excluded?: boolean;
   isBroadRoot?: boolean;
   liveProcess?: boolean;
   openedInDevEnv?: boolean;
   claudeClosed: boolean;
+  placement?: SessionPlacement | null;
   claudePty: PtySummary;
   terminals: TerminalSummary[];
+}
+
+// Orchestrator-placement attribution stamped on the record at session creation
+// (server-side, from POST /api/orchestrator/place). Null on plain/unorchestrated
+// sessions and on records that predate placement.
+interface SessionPlacement {
+  mode: string | null;
+  model: string | null;
+  role: string | null;
+  targetId: string | null;
+  runtime: string | null;
+}
+
+// Compact "<mode> · <model>" label for the placement chip (e.g. "james · sonnet").
+// Falls back to whichever half is present; returns null when neither is.
+function placementLabel(p: SessionPlacement | null | undefined): string | null {
+  if (!p) return null;
+  const parts = [p.mode, p.model].filter((x): x is string => typeof x === "string" && x.length > 0);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+// Tooltip detail for the placement chip: runtime · target · role, each shown
+// only when present.
+function placementTitle(p: SessionPlacement | null | undefined): string {
+  if (!p) return "";
+  const bits: string[] = [];
+  if (p.runtime) bits.push(`runtime ${p.runtime}`);
+  if (p.targetId) bits.push(`target ${p.targetId}`);
+  if (p.role) bits.push(`role ${p.role}`);
+  return bits.join(" · ");
 }
 
 const LS_SELECTED = "garrison.devenv.selected";
@@ -153,9 +182,7 @@ const ACTIVE_WINDOW_MS = 90 * 60 * 1000;
 // say it's working right now, or it fired any hook in the last 90 minutes.
 // `waiting` is NOT inherently active — the server never decays it, so a
 // days-old unanswered Notification would pin a tab forever; recency covers
-// the live case. Same for worktree rows: adopted-but-untouched worktrees are
-// exactly the ledger noise, and Dev-Env-created ones stay visible through
-// their PTYs. Everything else hides behind the menu's Show-all toggle.
+// the live case. Everything else hides behind the menu's Show-all toggle.
 function isActiveSession(s: DevEnvSession): boolean {
   if (s.claudePty.state !== "none" || s.terminals.length > 0) return true;
   if (s.lastStatus === "working" || s.lastStatus === "starting") return true;
@@ -189,7 +216,7 @@ function basename(p: string): string {
 }
 
 // True when `child` lives strictly below `parent` (not the same dir). Paths are
-// the canonical worktree paths the server already realpath-resolves, so a plain
+// the canonical project paths the server already realpath-resolves, so a plain
 // boundary-aware prefix compare is enough.
 function isStrictSubpath(child: string, parent: string): boolean {
   if (!child || !parent || child === parent) return false;
@@ -209,7 +236,7 @@ function nestedSessionIds(base: DevEnvSession[]): Set<string> {
     if (alwaysShow(child)) continue; // a real running session is never folded away
     for (const parent of base) {
       if (parent.id === child.id || parent.isBroadRoot) continue;
-      if (isStrictSubpath(child.worktreePath, parent.worktreePath)) {
+      if (isStrictSubpath(child.projectPath, parent.projectPath)) {
         hidden.add(child.id);
         break;
       }
@@ -219,14 +246,13 @@ function nestedSessionIds(base: DevEnvSession[]): Set<string> {
 }
 
 // Label priority: explicit title; on a default/detached branch the folder
-// name (projectName carries repo/subdir for hook-created rows); otherwise
-// the worktree dir name for worktrees, else the branch name.
+// name (projectName carries repo/subdir for hook-created rows); otherwise the
+// branch name.
 function tabLabel(s: DevEnvSession): string {
-  const folder = s.projectName || basename(s.worktreePath) || s.id;
+  const folder = s.projectName || basename(s.projectPath) || s.id;
   let raw: string;
   if (s.title) raw = s.title;
   else if (!s.branch || s.branch === "main" || s.branch === "master" || s.branch === "detached") raw = folder;
-  else if (s.isWorktree) raw = basename(s.worktreePath) || s.branch;
   else raw = s.branch;
   return raw.length > 30 ? raw.slice(0, 29) + "…" : raw;
 }
@@ -682,7 +708,7 @@ function SessionWorkspace({
     const check = async () => {
       let ok = false;
       try {
-        const res = await fetch(`/app-port?cwd=${encodeURIComponent(session.worktreePath)}`);
+        const res = await fetch(`/app-port?cwd=${encodeURIComponent(session.projectPath)}`);
         ok = res.ok;
       } catch {}
       if (cancelled) return;
@@ -697,7 +723,7 @@ function SessionWorkspace({
     void check();
     const id = window.setInterval(check, 4000);
     return () => { cancelled = true; window.clearInterval(id); };
-  }, [active, isMobile, browserPref, session.worktreePath]);
+  }, [active, isMobile, browserPref, session.projectPath]);
   // Desktop: the browser pane lives in the split, shown only while wanted
   // (forced open, or an app.port is detected for this cwd). Mobile: every pane
   // is a header tab, so the browser pane is always mounted for the active
@@ -750,6 +776,11 @@ function SessionWorkspace({
                 Chat
               </button>
             </div>
+            {placementLabel(session.placement) && (
+              <span className="pane-placement" title={placementTitle(session.placement)}>
+                {placementLabel(session.placement)}
+              </span>
+            )}
             {claudeView === "terminal" && (
               <QuickPromptBar
                 sessionId={session.id}
@@ -866,7 +897,7 @@ function SessionWorkspace({
       {browserMounted && (
         <div className="browser-pane-host" style={{ display: showBrowser ? "flex" : "none" }}>
           <BrowserPane
-            cwd={session.worktreePath}
+            cwd={session.projectPath}
             active={active}
             onWired={onWired}
             onManualNav={() => onPinBrowserOpen(session.id)}
@@ -901,7 +932,7 @@ function App() {
   const [browserPref, setBrowserPref] = useState<Record<string, "open" | "closed">>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [dialog, setDialog] = useState<null | "new-worktree" | "start-session" | "continue-session" | "confirm-delete" | "settings">(null);
+  const [dialog, setDialog] = useState<null | "start-session" | "continue-session" | "settings">(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const toastTimer = useRef<number | null>(null);
@@ -943,6 +974,28 @@ function App() {
     const t = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(t);
   }, [refresh]);
+
+  // Presence heartbeat (GARRISON-UNIFY-V1 S14, D34): POST /power-heartbeat
+  // (same-origin relay to the Power fitting) every 60s, ONLY while visible AND
+  // interacted-with in the last 5 minutes. Self-contained by design.
+  useEffect(() => {
+    let lastInput = Date.now();
+    const markInput = () => { lastInput = Date.now(); };
+    window.addEventListener("pointerdown", markInput, { passive: true });
+    window.addEventListener("keydown", markInput, { passive: true });
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastInput > 5 * 60_000) return;
+      void fetch("/power-heartbeat", { method: "POST" }).catch(() => {});
+    };
+    const t = window.setInterval(beat, 60_000);
+    beat();
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("pointerdown", markInput);
+      window.removeEventListener("keydown", markInput);
+    };
+  }, []);
 
   // Auto-select: keep the stored selection while it exists; fall back to the
   // first VISIBLE session. The selected session always stays visible even
@@ -1213,35 +1266,16 @@ function App() {
     if (ok) toast("Sent to Claude");
   }
 
-  async function deleteSelected() {
-    setDialog(null);
-    if (!selected) return;
-    const idx = sessions.findIndex((s) => s.id === selected.id);
-    try {
-      const res = await fetch(`/sessions/${encodeURIComponent(selected.id)}`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast(data?.error ?? `delete failed: HTTP ${res.status}`);
-        return;
-      }
-      const neighbor = sessions[idx + 1] ?? sessions[idx - 1] ?? null;
-      setSelectedId(neighbor ? neighbor.id : null);
-      await refresh();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   async function openAppInNewTab() {
     setMenuOpen(false);
     if (!selected) return;
-    const wired = wiredByCwd.current.get(selected.worktreePath);
+    const wired = wiredByCwd.current.get(selected.projectPath);
     if (wired?.canvasUrl) {
       window.open(wired.canvasUrl, "_blank", "noopener");
       return;
     }
     try {
-      const res = await fetch(`/app-port?cwd=${encodeURIComponent(selected.worktreePath)}`);
+      const res = await fetch(`/app-port?cwd=${encodeURIComponent(selected.projectPath)}`);
       if (res.ok) {
         const { port } = await res.json();
         window.open(`http://${window.location.hostname}:${port}`, "_blank", "noopener");
@@ -1321,9 +1355,6 @@ function App() {
               <button type="button" onClick={() => { setMenuOpen(false); setDialog("continue-session"); }}>
                 Continue session…
               </button>
-              <button type="button" onClick={() => { setMenuOpen(false); setDialog("new-worktree"); }}>
-                New worktree…
-              </button>
               <button type="button" onClick={() => void clearStale()}>
                 Clear stale sessions
               </button>
@@ -1376,14 +1407,6 @@ function App() {
               <button type="button" disabled={!selected} onClick={() => void openAppInNewTab()}>
                 Open app in browser tab
               </button>
-              {selected?.isWorktree && (
-                <>
-                  <div className="menu-sep" />
-                  <button type="button" className="danger" onClick={() => { setMenuOpen(false); setDialog("confirm-delete"); }}>
-                    Delete worktree
-                  </button>
-                </>
-              )}
             </div>
           )}
         </div>
@@ -1404,24 +1427,29 @@ function App() {
               key={s.id}
               className={`tab ${s.id === selectedId ? "active" : ""} ${s.lastStatus === "stale" ? "stale" : ""}`}
               onClick={() => select(s.id)}
-              title={`${s.worktreePath}\n${s.lastStatus}${s.external ? " · external" : ""}`}
+              title={`${s.projectPath}\n${s.lastStatus}${s.external ? " · external" : ""}`}
             >
               {s.lastStatus === "working" && <span className="spinner" aria-hidden="true" />}
               {s.lastStatus === "waiting" && <span className="badge-waiting" aria-hidden="true" />}
               <span className="tab-label">{tabLabel(s)}</span>
+              {placementLabel(s.placement) && (
+                <span className="tab-placement" title={placementTitle(s.placement)}>
+                  {placementLabel(s.placement)}
+                </span>
+              )}
               {s.dirty === true && <span className="dirty-dot" title="Uncommitted changes" />}
               <span
                 className="close"
-                title="Close tab (terminals die; the directory and worktree stay)"
+                title="Close tab (terminals die; the directory stays)"
                 onClick={(e) => { e.stopPropagation(); void closeTab(s.id); }}
               >
                 ×
               </span>
             </span>
           ))}
-          {sessions.length === 0 && <span className="tabs-empty">No sessions — create a worktree or start claude anywhere.</span>}
+          {sessions.length === 0 && <span className="tabs-empty">No sessions - start a session or run claude anywhere.</span>}
           {sessions.length > 0 && visibleSessions.length === 0 && (
-            <span className="tabs-empty">No active sessions — {hiddenCount} hidden.</span>
+            <span className="tabs-empty">No active sessions - {hiddenCount} hidden.</span>
           )}
         </div>
         <button
@@ -1495,8 +1523,8 @@ function App() {
           <div className="empty-state">
             <p>No active sessions.</p>
             <div className="pane-overlay-row">
-              <button type="button" className="btn primary" onClick={() => setDialog("new-worktree")}>
-                New worktree…
+              <button type="button" className="btn primary" onClick={() => setDialog("start-session")}>
+                New session…
               </button>
               {hiddenCount > 0 && (
                 <button type="button" className="btn" onClick={() => toggleShowAll()}>
@@ -1508,18 +1536,6 @@ function App() {
         )}
       </div>
 
-      {dialog === "new-worktree" && (
-        <NewWorktreeDialog
-          initialRepoPath={selected?.projectPath}
-          onClose={() => setDialog(null)}
-          onCreated={(id) => {
-            setSelectedId(id);
-            setVisited((v) => new Set(v).add(id));
-            void refresh();
-          }}
-          onError={(m) => toast(m)}
-        />
-      )}
       {dialog === "start-session" && (
         <StartSessionDialog
           initialRepoPath={selected?.projectPath}
@@ -1543,14 +1559,6 @@ function App() {
             void refresh();
           }}
           onError={(m) => toast(m)}
-        />
-      )}
-      {dialog === "confirm-delete" && selected && (
-        <ConfirmDeleteDialog
-          label={tabLabel(selected)}
-          detail={selected.worktreePath}
-          onClose={() => setDialog(null)}
-          onConfirm={() => void deleteSelected()}
         />
       )}
       {dialog === "settings" && (

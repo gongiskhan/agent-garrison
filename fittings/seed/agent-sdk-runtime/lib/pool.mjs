@@ -37,9 +37,7 @@ export function agentSdkPoolEntry(target = {}, opts = {}) {
       compositionDir: target.compositionDir,
       maxTurns: target.maxTurns,
       budgetTokens: target.budgetTokens,
-      acceptApiBilling: !!target.acceptApiBilling,
-      secrets: target.secrets ?? null,
-      settingsJson: target.settingsJson
+      secrets: target.secrets ?? null
     }
   };
 }

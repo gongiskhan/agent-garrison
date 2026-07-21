@@ -26,6 +26,41 @@ x-garrison:
     - kind: runtime
       name: codex
   consumes: []
+  # D3 (GARRISON-RUNTIMES-V1): provider overrides for the Codex engine apply
+  # through its native config file, not env — the model_providers table plus
+  # the top-level model key in ~/.codex/config.toml.
+  provider_mechanism:
+    type: config-file
+    config_file: ~/.codex/config.toml
+    config_format: toml
+    config_key: model_providers
+    model_key: model
+  # D5/P6: the generic Quarters tier renders the Codex engine's native config
+  # surfaces from this descriptor — honest labels for what each file IS, as
+  # verified against the real installed CLI (FINDING-E6): config.toml is the
+  # settings + MCP surface (mcp_servers tables), AGENTS.md is the context-file
+  # convention, ~/.codex/log + sessions hold the tailable output.
+  quarters_descriptor:
+    tier: generic
+    id: codex
+    home_dir: ~/.codex
+    settings_files:
+      - path: ~/.codex/config.toml
+        format: toml
+        label: config.toml — model, personality, projects trust, MCP servers
+    context_file: AGENTS.md
+    mcp_config:
+      path: ~/.codex/config.toml
+      format: toml
+      key: mcp_servers
+    log_paths:
+      - ~/.codex/log
+      - ~/.codex/sessions
+    categories:
+      - settings
+      - context
+      - mcps
+      - logs
   setup:
     command: echo codex-runtime-ready
     idempotent: true
@@ -45,3 +80,10 @@ x-garrison:
     + artifact paths; every delegation is appended to decisions.jsonl.
     CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
     Probe: node scripts/bridge.mjs --probe   → prints "ok"
+
+    Context telemetry and compaction (degradation). Codex runs stateless — one
+    `codex exec` per turn with the prompt on stdin — so no context accumulates across
+    turns and compaction is structurally moot (there is no long-lived session to
+    compact). The `codex exec` text output carries no usage/token counters that this
+    adapter parses today, so a delegated Codex turn reports no context %, no peak
+    context, and no compactions.

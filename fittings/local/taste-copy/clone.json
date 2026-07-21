@@ -1,0 +1,14 @@
+{
+  "cloned_from": "taste@0.1.0",
+  "clonedAt": "2026-07-12T19:40:43.925Z",
+  "files": {
+    ".apm/skills/design-taste-frontend/LICENSE": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df",
+    ".apm/skills/design-taste-frontend/SKILL.md": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89",
+    ".apm/skills/redesign-existing-projects/LICENSE": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df",
+    ".apm/skills/redesign-existing-projects/SKILL.md": "98ad3e5b051bfb71b2795f7e8a6aa0d32b51ee095606c098a4b2822ac07926c9",
+    "LICENSE": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df",
+    "apm.yml": "eff0901fc1c005d5c6106e839b7df8590d6974f5bac95c557748a6f28a9254b1",
+    "scripts/check-upstream.mjs": "5dcfffc97cd24db3a9e5edeb523d179bbdbb90194f108d0d1f3a91181558dc8b",
+    "upstream.json": "22b17795f1595057959bdfbbf1b5574780587375423e77f4d556527162bfefc7"
+  }
+}

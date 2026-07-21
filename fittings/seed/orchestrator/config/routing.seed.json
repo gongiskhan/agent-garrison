@@ -1,0 +1,758 @@
+{
+  "version": 2,
+  "activeProfile": "balanced",
+  "primaryRuntime": "claude-code-runtime",
+  "taskTypes": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "security-review",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report",
+    "probe-question",
+    "code",
+    "research",
+    "writing",
+    "image",
+    "video",
+    "ops",
+    "other"
+  ],
+  "tiers": [
+    "T0-trivial",
+    "T1-standard",
+    "T2-deep"
+  ],
+  "tierDefinitions": {
+    "T0-trivial": "A one-shot answer or a single mechanical edit: a rename, a typo, a fact lookup, a one-line config tweak. No multi-file reasoning, no design choices.",
+    "T1-standard": "Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused refactor, a normal review. Some reasoning across a few files; outcome is checkable by a test.",
+    "T2-deep": "High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear cause, a security-sensitive change, a multi-subsystem migration. Warrants the strongest model, full gates, and recorded evidence."
+  },
+  "providers": [
+    {
+      "id": "anthropic-plan",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "Max OAuth, no base URL, no key"
+    },
+    {
+      "id": "anthropic",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
+    },
+    {
+      "id": "ollama-local",
+      "kind": "local",
+      "baseUrl": "http://localhost:11434",
+      "dummyToken": "ollama",
+      "notes": "local Ollama Anthropic-compatible endpoint"
+    },
+    {
+      "id": "deepseek",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.deepseek.com/anthropic",
+      "vaultKey": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "zai-glm",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.z.ai/api/anthropic",
+      "vaultKey": "ZAI_API_KEY"
+    }
+  ],
+  "exceptions": [
+    {
+      "id": "ex-secrets",
+      "when": "the prompt involves secrets, credentials, auth tokens, or the vault",
+      "target": "cc-sonnet-med"
+    },
+    {
+      "id": "ex-automation-vision-adversarial",
+      "when": "caller-asserted: an internal automation vision turn requests an independent adversarial verdict",
+      "target": "cc-opus-high"
+    },
+    {
+      "id": "ex-automation-vision",
+      "when": "caller-asserted: an internal automation vision turn must inspect a local browser screenshot",
+      "target": "cc-sonnet-med"
+    },
+    {
+      "id": "ex-drill-curation",
+      "when": "caller-asserted: Drill Spotter evidence curation, batch-judging captured frames into the Debrief reel",
+      "target": "cc-sonnet-med"
+    },
+    {
+      "id": "ex-image",
+      "when": "the prompt asks to generate, edit, or analyze an image",
+      "target": "sec-gemini"
+    },
+    {
+      "id": "ex-video",
+      "when": "the prompt asks to generate or edit a video",
+      "target": "sec-gemini"
+    }
+  ],
+  "targets": [
+    {
+      "id": "cc-fable-xhigh",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "anthropic-plan",
+      "model": "fable",
+      "effort": "xhigh",
+      "authMode": "subscription"
+    },
+    {
+      "id": "cc-opus-high",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "anthropic-plan",
+      "model": "opus",
+      "effort": "high",
+      "authMode": "subscription"
+    },
+    {
+      "id": "cc-sonnet-high",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "anthropic-plan",
+      "model": "sonnet",
+      "effort": "high",
+      "authMode": "subscription"
+    },
+    {
+      "id": "cc-sonnet-med",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "anthropic-plan",
+      "model": "sonnet",
+      "effort": "medium",
+      "authMode": "subscription"
+    },
+    {
+      "id": "cc-haiku-low",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "anthropic-plan",
+      "model": "haiku",
+      "effort": "low",
+      "authMode": "subscription"
+    },
+    {
+      "id": "agent-sdk-haiku-fast",
+      "type": "runtime-target",
+      "runtime": "agent-sdk",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5",
+      "effort": "low",
+      "promptMode": "full",
+      "authMode": "subscription"
+    },
+    {
+      "id": "cc-ollama-qwen",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "ollama-local",
+      "model": "qwen2.5-coder",
+      "effort": "medium",
+      "authMode": "local"
+    },
+    {
+      "id": "cc-ollama-deepseek",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "ollama-local",
+      "model": "deepseek-coder-v2",
+      "effort": "medium",
+      "authMode": "local"
+    },
+    {
+      "id": "sec-gemini",
+      "type": "secondary",
+      "runtime": "gemini",
+      "authMode": "api-key"
+    },
+    {
+      "id": "sec-codex",
+      "type": "secondary",
+      "runtime": "codex",
+      "authMode": "api-key"
+    },
+    {
+      "id": "codex-gpt55-high",
+      "type": "secondary",
+      "runtime": "codex",
+      "model": "gpt-5.5",
+      "effort": "high",
+      "authMode": "api-key"
+    },
+    {
+      "id": "classifier",
+      "type": "runtime-target",
+      "runtime": "claude-code",
+      "provider": "anthropic-plan",
+      "model": "haiku",
+      "effort": "low",
+      "pinned": true,
+      "authMode": "subscription"
+    },
+    {
+      "id": "sdk-ollama-probe",
+      "type": "runtime-target",
+      "runtime": "agent-sdk",
+      "provider": "ollama-local",
+      "model": "qwen2.5:3b",
+      "promptMode": "lean",
+      "effort": "low",
+      "authMode": "local"
+    }
+  ],
+  "profiles": {
+    "balanced": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "cc-sonnet-med"
+        },
+        "columns": {
+          "T2-deep": "cc-opus-high"
+        },
+        "rows": {
+          "plan": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "implement": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med",
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "review": {
+            "default": "cc-fable-xhigh",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "adversarial-review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "test": {
+            "default": "cc-sonnet-med",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "cc-sonnet-high",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "cc-sonnet-med",
+            "cells": {}
+          },
+          "validate": {
+            "default": "cc-sonnet-high",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "codex-gpt55-high",
+            "cells": {}
+          },
+          "report": {
+            "default": "agent-sdk-haiku-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "sdk-ollama-probe",
+            "cells": {}
+          },
+          "code": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low",
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "research": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "image": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "video": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "agent-sdk-haiku-fast"
+            }
+          },
+          "ops": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "agent-sdk-haiku-fast"
+            }
+          },
+          "other": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "cc-haiku-low",
+        "cc-sonnet-med",
+        "cc-opus-high"
+      ],
+      "disciplineOverrides": {}
+    },
+    "economy": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "cc-ollama-qwen"
+        },
+        "columns": {
+          "T2-deep": "cc-ollama-qwen"
+        },
+        "rows": {
+          "plan": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "implement": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "review": {
+            "default": "cc-haiku-low",
+            "cells": {}
+          },
+          "adversarial-review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "test": {
+            "default": "cc-sonnet-med",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "cc-sonnet-high",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "cc-sonnet-med",
+            "cells": {}
+          },
+          "validate": {
+            "default": "cc-sonnet-high",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "codex-gpt55-high",
+            "cells": {}
+          },
+          "report": {
+            "default": "cc-haiku-low",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "sdk-ollama-probe",
+            "cells": {}
+          },
+          "code": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "research": {
+            "default": "cc-ollama-qwen",
+            "cells": {}
+          },
+          "image": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "video": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "ops": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "other": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "cc-haiku-low",
+        "cc-ollama-qwen",
+        "cc-ollama-qwen"
+      ],
+      "disciplineOverrides": {
+        "T2-deep": {
+          "review": "self-review",
+          "testing": "tests",
+          "evidence": "text",
+          "distribution": "none"
+        }
+      },
+      "exceptionOverrides": {
+        "ex-secrets": "cc-haiku-low"
+      }
+    },
+    "premium": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "cc-opus-high"
+        },
+        "columns": {
+          "T2-deep": "cc-opus-high"
+        },
+        "rows": {
+          "plan": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "implement": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "adversarial-review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "test": {
+            "default": "cc-sonnet-med",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "cc-sonnet-high",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "cc-fable-xhigh",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "cc-sonnet-med",
+            "cells": {}
+          },
+          "validate": {
+            "default": "cc-sonnet-high",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "codex-gpt55-high",
+            "cells": {}
+          },
+          "report": {
+            "default": "cc-haiku-low",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "sdk-ollama-probe",
+            "cells": {}
+          },
+          "code": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "research": {
+            "default": "cc-opus-high",
+            "cells": {}
+          },
+          "image": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "video": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "ops": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "other": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "cc-sonnet-med",
+        "cc-opus-high",
+        "cc-opus-high"
+      ],
+      "disciplineOverrides": {},
+      "exceptionOverrides": {
+        "ex-secrets": "cc-opus-high"
+      }
+    }
+  },
+  "discipline": {
+    "T0-trivial": {
+      "review": "none",
+      "testing": "none",
+      "evidence": "none",
+      "distribution": "none"
+    },
+    "T1-standard": {
+      "review": "self-review",
+      "testing": "tests",
+      "evidence": "text",
+      "distribution": "none"
+    },
+    "T2-deep": {
+      "review": "review-by:default",
+      "testing": "full-gates",
+      "evidence": "video",
+      "distribution": "link"
+    }
+  },
+  "continuations": [
+    {
+      "id": "cont-plan",
+      "when": "plan",
+      "then": [
+        {
+          "verb": "ask",
+          "arg": "Implement this plan?"
+        },
+        {
+          "verb": "route",
+          "arg": "cc-sonnet-med"
+        }
+      ]
+    },
+    {
+      "id": "cont-report",
+      "when": "report",
+      "then": [
+        {
+          "verb": "store"
+        },
+        {
+          "verb": "ask",
+          "arg": "Act on this report?"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "security-review",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report"
+  ],
+  "phasePlans": {
+    "implement-only-text": {
+      "phases": [
+        "implement"
+      ],
+      "evidence": "text"
+    },
+    "implement-only-logs": {
+      "phases": [
+        "implement"
+      ],
+      "evidence": "logs"
+    },
+    "implement-test": {
+      "phases": [
+        "implement",
+        "test"
+      ],
+      "evidence": "logs"
+    },
+    "ui-change": {
+      "phases": [
+        "implement",
+        "review",
+        "ux-qa",
+        "walkthrough"
+      ],
+      "evidence": "video"
+    },
+    "full": {
+      "phases": [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "ux-qa",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ],
+      "evidence": "video"
+    },
+    "manual-only": {
+      "phases": [],
+      "evidence": "none"
+    }
+  },
+  "workKinds": {
+    "docs-change": {
+      "phasePlan": "implement-only-text",
+      "description": "Documentation or prose-only change"
+    },
+    "api-change": {
+      "phasePlan": "implement-test",
+      "description": "API/backend change with tests, no walkthrough"
+    },
+    "video-edit": {
+      "phasePlan": "implement-only-logs",
+      "description": "Video production/edit work"
+    },
+    "ui-change": {
+      "phasePlan": "ui-change",
+      "description": "UI change through review + UX QA + a walkthrough"
+    },
+    "full-feature": {
+      "phasePlan": "full",
+      "description": "Feature work through the full gated pipeline"
+    },
+    "personal": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Personal task - rides backlog/todo/done by hand, no agent phases"
+    },
+    "channel": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge"
+    }
+  },
+  "defaultWorkKind": "full-feature",
+  "phaseSkills": {
+    "bindings": {
+      "plan": "garrison-plan",
+      "implement": "garrison-implement",
+      "review": "garrison-review",
+      "adversarial-review": "garrison-adversarial-review",
+      "security-review": "garrison-security-review",
+      "test": "garrison-test",
+      "adversarial-test": "garrison-adversarial-test",
+      "ux-qa": "garrison-ux-qa",
+      "walkthrough": "garrison-walkthrough",
+      "validate": "garrison-validate",
+      "codex-checkpoint": "garrison-codex-checkpoint",
+      "report": "garrison-report"
+    },
+    "overrides": {}
+  },
+  "projects": {
+    "agent-garrison": {
+      "security_sensitive": false,
+      "profile": {
+        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:27777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
+      }
+    }
+  },
+  "uxQa": {
+    "severityThreshold": "major"
+  },
+  "coordination": {
+    "enabled": true,
+    "thresholds": {
+      "heavyFiles": 3,
+      "heavyRatio": 0.5
+    },
+    "exclusiveLeases": [
+      "apm.lock.yaml",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock"
+    ],
+    "fences": {
+      "enabled": true,
+      "trailer": "Garrison-Card"
+    },
+    "leaseTtlMinutes": 60,
+    "serializeWhenUnavailable": true
+  }
+}

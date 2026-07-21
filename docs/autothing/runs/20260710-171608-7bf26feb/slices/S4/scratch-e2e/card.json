@@ -1,0 +1,225 @@
+{
+  "id": "01KX7RCN0FRGY4SFB7GEKDJ2JT",
+  "title": "Add a multiply function with a test",
+  "description": "Add a multiply(a, b) function to src/ mirroring src/add.mjs, with a node:test covering it. Keep the repo's existing ESM + node --test conventions.",
+  "project": "flow-scratch",
+  "list": "done",
+  "status": "ok",
+  "iterations": 7,
+  "rev": 16,
+  "cost": null,
+  "goalMode": true,
+  "acceptance": "npm test passes with multiply covered; multiply(3,4)===12 and multiply(7,0)===0.",
+  "workKind": "full-feature",
+  "phases": null,
+  "tier": "T1-standard",
+  "origin": "gap10-e2e",
+  "outpost": null,
+  "events": [
+    {
+      "at": "2026-07-11T04:53:51.247Z",
+      "kind": "created",
+      "message": "Created in todo (project flow-scratch)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.254Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Plan (garrison-plan) — run 1",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.269Z",
+      "kind": "routed",
+      "message": "Plan → Implement",
+      "detail": "Plan written: one slice (S1), two new files, acceptance is the repo's own test command.\n\nimplement"
+    },
+    {
+      "at": "2026-07-11T04:53:51.261Z",
+      "kind": "fence",
+      "message": "Fence anchor for plan at 531ba56f21 (no touch-set changes to commit)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.272Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Implement (garrison-implement) — run 2",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.328Z",
+      "kind": "routed",
+      "message": "Implement → Review",
+      "detail": "Wrote src/multiply.mjs + test/multiply.test.mjs; node --check exit 0.\n\nreview"
+    },
+    {
+      "at": "2026-07-11T04:53:51.302Z",
+      "kind": "fence",
+      "message": "Fenced implement: committed touch-set (b7e1af29c5)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.330Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Review (garrison-review) — run 3",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.346Z",
+      "kind": "routed",
+      "message": "Review → Adversarial Review",
+      "detail": "Review: mirrors the existing add.mjs convention, ESM, no side effects. Clean.\n\nadversarial-review"
+    },
+    {
+      "at": "2026-07-11T04:53:51.336Z",
+      "kind": "stability",
+      "message": "Stability point: first review passed — overlapping cards waiting on stability may start"
+    },
+    {
+      "at": "2026-07-11T04:53:51.337Z",
+      "kind": "fence",
+      "message": "Fence anchor for review at b7e1af29c5 (no touch-set changes to commit)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.348Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Adversarial Review (garrison-adversarial-review) — run 4",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.393Z",
+      "kind": "routed",
+      "message": "Adversarial Review → Test",
+      "detail": "Adversarial review: export surface probed independently (exit 0); no issues found.\n\ntest"
+    },
+    {
+      "at": "2026-07-11T04:53:51.383Z",
+      "kind": "fence",
+      "message": "Fence anchor for adversarial-review at b7e1af29c5 (no touch-set changes to commit)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.395Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Test (garrison-test) — run 5",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.813Z",
+      "kind": "routed",
+      "message": "Test → Adversarial Test",
+      "detail": "npm test green (exit 0), npm run lint green.\n\nadversarial-test"
+    },
+    {
+      "at": "2026-07-11T04:53:51.803Z",
+      "kind": "fence",
+      "message": "Fence anchor for test at b7e1af29c5 (no touch-set changes to commit)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.816Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Adversarial Test (garrison-adversarial-test) — run 6",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.865Z",
+      "kind": "routed",
+      "message": "Adversarial Test → Walkthrough",
+      "detail": "Independent probe passed: acceptance holds: multiply(3,4)=12 multiply(7,0)=0\n\nwalkthrough"
+    },
+    {
+      "at": "2026-07-11T04:53:51.855Z",
+      "kind": "fence",
+      "message": "Fence anchor for adversarial-test at b7e1af29c5 (no touch-set changes to commit)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.867Z",
+      "kind": "dispatch",
+      "message": "Dispatched to the operative on Walkthrough (garrison-walkthrough) — run 7",
+      "detail": null
+    },
+    {
+      "at": "2026-07-11T04:53:51.883Z",
+      "kind": "routed",
+      "message": "Walkthrough → Validate",
+      "detail": "Evidence bundle written to <runDir>/evidence/evidence.md (no UI surface, so no video).\n\nvalidate"
+    },
+    {
+      "at": "2026-07-11T04:53:51.874Z",
+      "kind": "fence",
+      "message": "Fence anchor for walkthrough at b7e1af29c5 (no touch-set changes to commit)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.896Z",
+      "kind": "routed",
+      "message": "Validate → Done (in-session)"
+    },
+    {
+      "at": "2026-07-11T04:53:51.887Z",
+      "kind": "fence",
+      "message": "Fence anchor for validate at b7e1af29c5 (no touch-set changes to commit)"
+    }
+  ],
+  "lastReply": "Evidence bundle written to <runDir>/evidence/evidence.md (no UI surface, so no video).\n\nvalidate",
+  "runningSince": null,
+  "runId": "01KX7RCN0NSE1TGS40CNDBC1K8",
+  "runDir": "/tmp/claude-1001/-home-ggomes-dev-garrison/7bf26feb-ecd4-489b-b7bf-c4711bba8ff8/scratchpad/gap10/runs/flow-scratch/01KX7RCN0NSE1TGS40CNDBC1K8",
+  "sliceId": null,
+  "sessionIds": [],
+  "briefPath": null,
+  "videoUrl": null,
+  "waitingOn": null,
+  "stabilityAt": "2026-07-11T04:53:51.336Z",
+  "planCompletedAt": "2026-07-11T04:53:51.260Z",
+  "blocking": [],
+  "fences": [
+    {
+      "phase": "plan",
+      "sha": "531ba56f2135746a551ca2151007c1eb8137b66f",
+      "at": "2026-07-11T04:53:51.261Z",
+      "empty": true
+    },
+    {
+      "phase": "implement",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.302Z",
+      "empty": false
+    },
+    {
+      "phase": "review",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.337Z",
+      "empty": true
+    },
+    {
+      "phase": "adversarial-review",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.383Z",
+      "empty": true
+    },
+    {
+      "phase": "test",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.803Z",
+      "empty": true
+    },
+    {
+      "phase": "adversarial-test",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.855Z",
+      "empty": true
+    },
+    {
+      "phase": "walkthrough",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.874Z",
+      "empty": true
+    },
+    {
+      "phase": "validate",
+      "sha": "b7e1af29c53d95c2348dd4922e123ec50820580c",
+      "at": "2026-07-11T04:53:51.887Z",
+      "empty": true
+    }
+  ],
+  "preparedRevert": null,
+  "created": "2026-07-11T04:53:51.247Z",
+  "updated": "2026-07-11T04:53:51.896Z",
+  "lastDispatchError": null
+}

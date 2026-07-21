@@ -1,0 +1,48 @@
+{
+  "slice": "S3c",
+  "kind": "api",
+  "commits": [
+    "120e50a",
+    "f12747c"
+  ],
+  "gates": {
+    "implement": {
+      "status": "passed",
+      "by": "s3c-impl",
+      "at": "2026-07-13T15:41:14Z"
+    },
+    "wall": {
+      "status": "passed",
+      "at": "2026-07-13T15:41:14Z",
+      "detail": "typecheck clean, lint clean, 27 router-migrate tests + routing suites green"
+    },
+    "test": {
+      "status": "passed",
+      "at": "2026-07-13T15:41:14Z",
+      "detail": "27 tests: effort-shed+dedupe, precedence match, by-name rewrite, profile fold+siblings, retained cells, compat validation, idempotence"
+    },
+    "codexSliceReview": {
+      "status": "passed",
+      "verdict": "needs-work→fixed",
+      "actualModel": "gpt-5.5-high",
+      "at": "2026-07-13T15:56:11Z",
+      "detail": "backup-before-write ordering fixed f12747c + regression test"
+    },
+    "adversarialReview": {
+      "status": "passed",
+      "verdict": "approve",
+      "at": "2026-07-13T15:50:26Z",
+      "detail": "precedence preserves runtime behavior; effort-shed correct; retained cells + sibling divergence verified"
+    },
+    "adversarialTest": {
+      "status": "deferred-batched"
+    },
+    "design": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "walkthrough": {
+      "status": "pending"
+    }
+  }
+}

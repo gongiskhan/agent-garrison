@@ -77,9 +77,8 @@ writeFileSync(
       url: "http://127.0.0.1:0",
       pid: process.pid,
       startedAt: new Date().toISOString(),
-      // Echo a projected config env var so a test can prove eager boot forwarded
-      // apm.yml config into the spawn (null when unset — the pre-fix behavior).
-      whisperModel: process.env.WHISPER_MODEL ?? null
+      gatewayUrl: process.env.GARRISON_GATEWAY_URL ?? null,
+      compositionId: process.env.GARRISON_COMPOSITION_ID ?? null
     },
     null,
     2
@@ -253,27 +252,6 @@ describe("eager boot (Layer 3)", () => {
     console.log(`EAGER_BOOT_OK ${FIXTURE_ID}`);
   });
 
-  it("projects selected config into the own-port spawn env (CONFIG_PROJECTED_OK)", async () => {
-    await setEagerBoot(FIXTURE_ID, true);
-
-    // Without config projection the fitting ran on server defaults — the bug that
-    // silently dropped local-voice's whisper_model/stt_engine on a server-lifecycle
-    // boot. Pass config the way production resolves it from the compositions.
-    const summary = await runEagerBoot({
-      library: [ownPortEntry],
-      configById: new Map([[FIXTURE_ID, { whisper_model: "large-v3", port: 7099 }]])
-    });
-    expect(summary.booted).toEqual([FIXTURE_ID]);
-
-    await waitFor(() => existsSync(statusFile()), "fixture status file");
-    const status = readJson<{ pid: number; whisperModel: string | null }>(statusFile());
-    livePids.push(status.pid);
-    // The projected config env (whisper_model → WHISPER_MODEL) reached the child;
-    // `port` is in OWN_PORT_CONFIG_ENV_SKIP so it must NOT collide as PORT here.
-    expect(status.whisperModel).toBe("large-v3");
-    console.log(`CONFIG_PROJECTED_OK ${FIXTURE_ID}`);
-  });
-
   it("toggle off -> runEagerBoot leaves it cold; opening lazily still restores state (LAZY_RESTORE_OK)", async () => {
     await writeViewState(FIXTURE_ID, "sess-2", { cwd: "/tmp/lazy-place" });
     await setEagerBoot(FIXTURE_ID, true);
@@ -300,6 +278,35 @@ describe("eager boot (Layer 3)", () => {
     const marker = readJson<{ active: string[] }>(markerFile());
     expect(marker.active).toContain("sess-2");
     console.log(`LAZY_RESTORE_OK ${FIXTURE_ID}`);
+  });
+
+  it("passes the runner-provided extraEnv to the spawned fitting (eager respawns are not gatewayless)", async () => {
+    await setEagerBoot(FIXTURE_ID, true);
+
+    const summary = await runEagerBoot({
+      library: [ownPortEntry],
+      extraEnv: {
+        GARRISON_GATEWAY_URL: "http://127.0.0.1:49777",
+        GARRISON_COMPOSITION_ID: "default"
+      },
+      // Per-fitting env (the runner's own operative-bound env) wins over the
+      // flat fallback, keeping the fingerprints of both callers identical.
+      extraEnvById: {
+        [FIXTURE_ID]: {
+          GARRISON_GATEWAY_URL: "http://127.0.0.1:48777",
+          GARRISON_COMPOSITION_ID: "default"
+        }
+      }
+    });
+    expect(summary.booted).toEqual([FIXTURE_ID]);
+
+    await waitFor(() => existsSync(statusFile()), "fixture status file");
+    const status = readJson<{ pid: number; gatewayUrl: string | null; compositionId: string | null }>(
+      statusFile()
+    );
+    livePids.push(status.pid);
+    expect(status.gatewayUrl).toBe("http://127.0.0.1:48777");
+    expect(status.compositionId).toBe("default");
   });
 
   it("prefs round-trip on disk; invalid ids are rejected", async () => {

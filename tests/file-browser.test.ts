@@ -25,9 +25,14 @@ async function waitHealthy(ms: number) {
   return false;
 }
 
+let scratchHome: string;
+
 beforeAll(async () => {
   root = mkdtempSync(path.join(tmpdir(), "garrison-fb-"));
   outside = mkdtempSync(path.join(tmpdir(), "garrison-fb-out-"));
+  // Scratch GARRISON_HOME so the test never reads or writes the real
+  // ~/.garrison status slot (the server refuses to clobber a live pid's slot).
+  scratchHome = mkdtempSync(path.join(tmpdir(), "garrison-fb-home-"));
   mkdirSync(path.join(root, "reports"));
   writeFileSync(path.join(root, "reports", "q3.md"), "# Q3\n\nrevenue up");
   writeFileSync(path.join(root, "notes.txt"), "hello");
@@ -36,7 +41,7 @@ beforeAll(async () => {
   symlinkSync(outside, path.join(root, "linkdir")); // symlinked dir -> outside
   symlinkSync(path.join(outside, "target.txt"), path.join(root, "linkfile.txt")); // symlinked file -> outside
   srv = spawn("node", [START], {
-    env: { ...process.env, GARRISON_FILEBROWSER_ROOT: root, FILEBROWSER_UI_PORT: String(PORT), FILEBROWSER_UI_HOST: "127.0.0.1" },
+    env: { ...process.env, GARRISON_HOME: scratchHome, GARRISON_FILEBROWSER_ROOT: root, FILEBROWSER_UI_PORT: String(PORT), FILEBROWSER_UI_HOST: "127.0.0.1" },
     stdio: "ignore"
   });
   await waitHealthy(8000);
@@ -47,6 +52,7 @@ afterAll(() => {
   srv = null;
   rmSync(root, { recursive: true, force: true });
   rmSync(outside, { recursive: true, force: true });
+  rmSync(scratchHome, { recursive: true, force: true });
 });
 
 describe("file-browser fitting (D1)", () => {

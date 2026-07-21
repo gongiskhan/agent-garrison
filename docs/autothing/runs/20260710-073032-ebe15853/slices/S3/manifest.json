@@ -1,0 +1,105 @@
+{
+  "project": "agent-garrison",
+  "folder": "orchestrator-composer",
+  "title": "S3 Orchestrator Composer - evidence (8 criteria)",
+  "createdAt": "2026-07-10T11:47:54.704Z",
+  "video": {
+    "width": 1280,
+    "height": 2960,
+    "fps": 30
+  },
+  "duration": 47.267,
+  "calibrationMs": 0,
+  "flagged": false,
+  "note": "beats ac1-ac7 recorded at desktop viewport 1280x2960; ac8 recorded at iPhone viewport 390x844 and letterboxed into the shared 1280x2960 canvas (viewport-emulated).",
+  "beats": [
+    {
+      "id": "ac1",
+      "segId": "clip-0-compose.mp4",
+      "caption": "AC-1 - four surfaces: tray, 18x3 matrix, rails, try-it",
+      "expectedScreen": "the full Orchestrator Composer top-to-bottom: a TARGETS tray of cards each with an effort dial, an 18-row MATRIX with T0-trivial / T1-standard / T2-deep columns, four WORK-KIND RAILS, and a TRY IT strip - all four surfaces visible",
+      "expectFailure": false,
+      "tStart": 0.665,
+      "tMid": 1.679,
+      "tEnd": 2.692,
+      "criterionId": "AC-1"
+    },
+    {
+      "id": "ac2",
+      "segId": "clip-0-compose.mp4",
+      "caption": "AC-2 - drag set implement x T2-deep to cc-sonnet-med",
+      "expectedScreen": "the matrix implement row, T2-deep (rightmost) column cell highlighted with a yellow box, reading a Claude Code 'sonnet' token with effort 'medium' (the cc-sonnet-med target dropped onto it)",
+      "expectFailure": false,
+      "tStart": 2.692,
+      "tMid": 4.092,
+      "tEnd": 8.533,
+      "criterionId": "AC-2"
+    },
+    {
+      "id": "ac3",
+      "segId": "clip-1-ac3.mp4",
+      "caption": "AC-3 - the drop recompiled policy.json (model sonnet)",
+      "expectedScreen": "a JSON panel of policy.json's implement T2-deep entry, the \"model\": \"sonnet\" line highlighted, alongside \"targetId\": \"cc-sonnet-med\"",
+      "expectFailure": false,
+      "tStart": 8.533,
+      "tMid": 9.933,
+      "tEnd": 11.333,
+      "criterionId": "AC-3"
+    },
+    {
+      "id": "ac4",
+      "segId": "clip-2-interact.mp4",
+      "caption": "AC-4 - effort dial retuned cc-haiku-low to medium",
+      "expectedScreen": "the cc-haiku-low target card in the tray with its effort dial's 'medium' segment now the active (accent) segment, highlighted with a yellow box",
+      "expectFailure": false,
+      "tStart": 12.641,
+      "tMid": 14.041,
+      "tEnd": 17.87,
+      "criterionId": "AC-4"
+    },
+    {
+      "id": "ac5",
+      "segId": "clip-2-interact.mp4",
+      "caption": "AC-5 - toggled test off in api-change (dimmed, still shown)",
+      "expectedScreen": "the api-change work-kind rail with its 'test' phase chip now dimmed (off) but still present in the rail next to the other chips - off, never hidden",
+      "expectFailure": false,
+      "tStart": 17.87,
+      "tMid": 19.27,
+      "tEnd": 26.068,
+      "criterionId": "AC-5"
+    },
+    {
+      "id": "ac6",
+      "segId": "clip-2-interact.mp4",
+      "caption": "AC-6 - dry-run resolved the full rail",
+      "expectedScreen": "the try-it output: kind/tier/type pills (kind: full-feature, tier: T1-standard, type: implement) above a resolved rail of phase chips, each chip showing a skill name and a model/effort target",
+      "expectFailure": false,
+      "tStart": 26.068,
+      "tMid": 27.468,
+      "tEnd": 31.526,
+      "criterionId": "AC-6"
+    },
+    {
+      "id": "ac7",
+      "segId": "clip-2-interact.mp4",
+      "caption": "AC-7 - Improver proposals: nothing auto-applies",
+      "expectedScreen": "the Improver proposals panel highlighted at the top of the composer, showing one policy-edit proposal (the test gate failed in 2/3 full-feature runs) with Accept and Dismiss buttons - review before applying",
+      "expectFailure": false,
+      "tStart": 31.526,
+      "tMid": 32.926,
+      "tEnd": 38.733,
+      "criterionId": "AC-7"
+    },
+    {
+      "id": "ac8",
+      "segId": "clip-0-phone.mp4",
+      "caption": "AC-8 - iPhone 390x844: matrix scrolls in its own container",
+      "expectedScreen": "the composer at iPhone width (390px): a single-column layout with the topbar and profile buttons wrapped, and the 18-row matrix inside its own container whose T1-standard / T2-deep columns are cut off at the container's right edge (it scrolls horizontally on its own), with no page-level horizontal overflow",
+      "expectFailure": false,
+      "tStart": 39.371,
+      "tMid": 40.771,
+      "tEnd": 47.266,
+      "criterionId": "AC-8"
+    }
+  ]
+}

@@ -58,10 +58,10 @@ export function AgentSDKPanel() {
         <div className="head">
           <h1>AgentSDK Runtime</h1>
           <p className="ld">
-            The Claude Agent SDK runtime — reachable ONLY via a non-Anthropic base URL (Ollama / Z.ai / DeepSeek /
-            MiniMax / LLM proxy). Shows the provider table + capability records, THE FENCE state (default-deny Anthropic
-            billing), and THE HARNESS state (which preset, whether CLAUDE.md loads, whether skills mount). Max-plan Claude
-            stays on the Claude Code PTY runtime.
+            The Claude Agent SDK runtime — first-class routable to the Anthropic endpoint on the Max subscription as well
+            as third-party Anthropic-compatible endpoints (Ollama / Z.ai / DeepSeek / MiniMax / LLM proxy). Shows the
+            provider table + capability records + auth mode, and THE HARNESS state (which preset, whether CLAUDE.md loads,
+            whether skills mount).
           </p>
         </div>
 
@@ -76,23 +76,10 @@ export function AgentSDKPanel() {
 
         {state ? (
           <div style={{ display: "grid", gap: 16 }} data-testid="agentsdk-panel">
-            {/* THE FENCE */}
-            <section style={card} data-testid="fence-state">
-              <h3 style={h3}>THE FENCE — default-deny Anthropic billing</h3>
-              <p style={{ ...mute, marginTop: 0 }}>{state.fence.note}</p>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, marginTop: 8 }}>
-                <tbody>
-                  {state.fence.demos.map((d) => (
-                    <tr key={d.label} style={{ borderTop: "1px solid var(--rule)" }}>
-                      <td style={{ padding: "6px 8px 6px 0" }}>{d.label}</td>
-                      <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
-                        <Flag on={d.blocked} yes="BLOCKED" no="allowed" />
-                      </td>
-                      <td style={{ padding: "6px 0", color: "var(--mute)" }}>{d.detail}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Runtime freedom note */}
+            <section style={card} data-testid="runtime-note">
+              <h3 style={h3}>Runtime freedom (D29)</h3>
+              <p style={{ ...mute, marginTop: 0 }}>{state.note}</p>
             </section>
 
             {/* THE HARNESS */}
@@ -130,7 +117,7 @@ export function AgentSDKPanel() {
                     <th style={{ padding: "4px 8px" }}>vault key</th>
                     <th style={{ padding: "4px 8px" }}>serves</th>
                     <th style={{ padding: "4px 8px" }}>effort</th>
-                    <th style={{ padding: "4px 8px" }}>fence</th>
+                    <th style={{ padding: "4px 8px" }}>auth mode</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -138,14 +125,12 @@ export function AgentSDKPanel() {
                     <tr key={p.id} style={{ borderTop: "1px solid var(--rule)" }}>
                       <td style={{ padding: "6px 8px 6px 0" }}><code>{p.id}</code></td>
                       <td style={{ padding: "6px 8px", color: "var(--mute)" }}>
-                        {p.configurable ? <em>configurable</em> : p.baseUrl}
+                        {p.baseUrl === null ? <em>Anthropic default</em> : p.configurable ? <em>configurable</em> : p.baseUrl}
                       </td>
                       <td style={{ padding: "6px 8px", color: "var(--mute)" }}>{p.vaultKey ?? "—"}</td>
                       <td style={{ padding: "6px 8px", color: "var(--mute)" }}>{caps(p.capabilities)}</td>
                       <td style={{ padding: "6px 8px" }}>{p.capabilities.effort}</td>
-                      <td style={{ padding: "6px 8px" }}>
-                        <Flag on={!p.blocked} yes="non-anthropic" no="blocked" />
-                      </td>
+                      <td style={{ padding: "6px 8px" }} data-testid={`authmode-${p.id}`}>{p.authMode}</td>
                     </tr>
                   ))}
                 </tbody>

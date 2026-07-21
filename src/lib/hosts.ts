@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
-const GARRISON_DIR = path.join(homedir(), ".garrison");
+const GARRISON_DIR = process.env.GARRISON_HOME?.trim() || path.join(homedir(), ".garrison");
 const HOSTS_PATH = path.join(GARRISON_DIR, "hosts.json");
 
 const HostSchema = z.object({

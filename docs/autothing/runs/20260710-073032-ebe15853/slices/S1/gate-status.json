@@ -1,0 +1,101 @@
+{
+  "slice": "S1",
+  "title": "Policy core",
+  "updatedAt": "2026-07-10T08:33:23Z",
+  "phase": "passed",
+  "status": "passed",
+  "kind": "api",
+  "profile": "build",
+  "retries": {
+    "limit": 5,
+    "used": 0
+  },
+  "blockers": [],
+  "gates": {
+    "typecheck": {
+      "cmd": "npm run typecheck",
+      "exit": 0,
+      "at": "2026-07-10T08:16:47Z",
+      "summary": "clean"
+    },
+    "lint": {
+      "cmd": "npm run lint",
+      "exit": 0,
+      "at": "2026-07-10T08:16:47Z",
+      "summary": "no warnings or errors"
+    },
+    "securityWall": {
+      "gitleaks": {
+        "exit": 0,
+        "summary": "no leaks (red-proven: planted ghp_/AKIA secrets flagged, exit 1)"
+      },
+      "semgrep": {
+        "exit": 0,
+        "summary": "clean on lib/ + model-router.ts"
+      },
+      "depAudit": {
+        "exit": 0,
+        "summary": "ws fixed via npm audit fix; remaining 4 advisories are the pre-existing Next.js chain (DECISION logged, FOLLOWUP)"
+      }
+    },
+    "test": {
+      "cmd": "npm test",
+      "exit": 0,
+      "at": "2026-07-10T08:16:47Z",
+      "summary": "1424 passed; only the 4 PRE-EXISTING baseline failures remain (autothing-validate x3 in S5 scope, z1, browser-observe); 15 new policy tests + 39 updated routing tests green"
+    },
+    "compileCheck": {
+      "cmd": "node scripts/compile.mjs --check",
+      "exit": 0,
+      "summary": "routing-compile-ok, byte-stable, policyBytes=20870 (red-proven: unknown target -> exit 1)"
+    },
+    "probe": {
+      "cmd": "node scripts/probe.mjs --probe",
+      "exit": 0,
+      "summary": "ok"
+    },
+    "adversarialTest": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "designAudit": {
+      "status": "skipped",
+      "reason": "kind-conditional"
+    },
+    "codexSliceReview": {
+      "status": "degraded",
+      "reason": "codex-unavailable",
+      "actualModel": null,
+      "detail": "401 Unauthorized \u2014 no API key or ChatGPT OAuth on this box"
+    },
+    "adversarialReview": {
+      "verdict": "approve",
+      "by": "fresh-context general-purpose agent",
+      "actualModel": "claude-fable-5-lineage",
+      "summary": "81 v1->v2 migration checks 0 mismatches; all gate commands green; 2 minor findings applied (ORCHESTRATOR_POLICY_OK sentinel, PUT compile-before-persist)",
+      "findings": [
+        "MINOR sentinel (fixed)",
+        "MINOR PUT ordering (fixed)",
+        "INFO review default re-tuned per D1"
+      ]
+    },
+    "video": {
+      "status": "verified",
+      "mode": "asciinema (api slice)",
+      "link": "docs/autothing/runs/20260710-073032-ebe15853/slices/S1/evidence.cast",
+      "videoBytes": 1412,
+      "videoSha256": "46771a54d0766fa619ceb60676d1b42d10453f076544798a466840aeab391ca5",
+      "verifiedBy": "content assertion (sentinel strings present in the cast)",
+      "at": "2026-07-10T10:16:09Z"
+    }
+  },
+  "commits": [
+    "8d0a7c9",
+    "843dd78",
+    "86128b2"
+  ],
+  "tags": [
+    "run-20260710-073032-s1-implement",
+    "run-20260710-073032-s1-wall"
+  ]
+}

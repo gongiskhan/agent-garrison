@@ -5,6 +5,19 @@
 //   - the dispatch routes through the orchestrator (no per-list {taskType,tier} hint)
 //     and leads the prompt with the list's mode — buildCardPrompt + processCard
 import { describe, it, expect } from "vitest";
+
+// S4: the run engine reads the compiled Orchestrator policy for gate-evidence
+// enforcement + phase classification. These tests exercise the PURE transition
+// mechanics, so pin the policy path at a nonexistent file (policy-less mode);
+// the policy-driven behavior is covered in tests/run-engine.test.ts.
+process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
+// S6 (D19): runDirs mint ABSOLUTE under the evidence home — sandbox it so
+// tests never write the real ~/.garrison/runs.
+import { mkdtempSync as __mkdtemp } from "node:fs";
+import { tmpdir as __tmpdir } from "node:os";
+import { join as __join } from "node:path";
+process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
+
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,7 +64,7 @@ function fakeBoard() {
       { id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual", validNext: ["todo"] },
       {
         id: "test", title: "Test", order: 1, kind: "agent", trigger: "scheduler-beat",
-        beatCron: "0 */5 * * *", skill: "autothing-test", mode: "joe", validNext: ["done"]
+        beatCron: "0 */5 * * *", skill: "garrison-test", mode: "joe", validNext: ["done"]
       },
       { id: "done", title: "Done", order: 2, kind: "manual", trigger: "manual", terminal: true, validNext: [] }
     ]
@@ -109,26 +122,29 @@ describe("discover — listProjects / listSkills (dev-env parity)", () => {
   });
   it("lists skills (dir with SKILL.md) and reads the frontmatter description", () => {
     const home = tmp("kanban-claude-");
-    mkdirSync(join(home, "skills", "autothing-plan"), { recursive: true });
-    writeFileSync(join(home, "skills", "autothing-plan", "SKILL.md"), "---\nname: autothing-plan\ndescription: Plan a slice.\n---\nbody");
+    mkdirSync(join(home, "skills", "garrison-plan"), { recursive: true });
+    writeFileSync(join(home, "skills", "garrison-plan", "SKILL.md"), "---\nname: garrison-plan\ndescription: Plan a slice.\n---\nbody");
     mkdirSync(join(home, "skills", "no-manifest"), { recursive: true }); // no SKILL.md → excluded
     const out = listSkills(home);
-    expect(out.map((s: any) => s.name)).toEqual(["autothing-plan"]);
+    expect(out.map((s: any) => s.name)).toEqual(["garrison-plan"]);
     expect(out[0].description).toBe("Plan a slice.");
   });
 });
 
-describe("buildCardPrompt — leads with the list's mode", () => {
-  it("starts the prompt with the mode so the gateway switches the operative's face", () => {
+describe("buildCardPrompt — no per-list mode lead (D15: mode is the gateway's job)", () => {
+  it("never leads with a mode name; the policy-bound skill line is injected instead", () => {
     const board = seedBoard();
-    const list = board.lists.find((l: any) => l.id === "implement"); // mode: joe
-    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"] });
-    expect(prompt.startsWith("joe,")).toBe(true);
+    const list = board.lists.find((l: any) => l.id === "implement");
+    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"], skill: "garrison-implement", phase: "implement" });
+    expect(prompt.startsWith("# Work item:")).toBe(true);
+    expect(prompt).toContain("`garrison-implement`");
+    expect(prompt).toContain("gate-status entry");
   });
-  it("omits the mode lead when the list has no mode", () => {
-    const list = { id: "x", kind: "agent", mode: null, executePrompt: "", routerPrompt: "" };
+  it("omits the skill line when no policy binding resolves", () => {
+    const list = { id: "x", kind: "agent", executePrompt: "", routerPrompt: "" };
     const prompt = buildCardPrompt({ list, card: { title: "T" }, validNext: ["y"] });
     expect(prompt.startsWith("# Work item:")).toBe(true);
+    expect(prompt).not.toContain("gate-status entry under the run directory");
   });
 });
 
