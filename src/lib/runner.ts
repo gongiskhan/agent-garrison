@@ -871,7 +871,7 @@ export function setupConfigEnv(
 export { ownPortConfigEnv } from "./own-port-lifecycle";
 
 export async function runFittingSetup(
-  entry: { id: string; metadata: GarrisonMetadata },
+  entry: { id: string; metadata: GarrisonMetadata; localPath?: string },
   compositionDir: string,
   config: Record<string, unknown> = {}
 ): Promise<SetupResult> {
@@ -879,7 +879,16 @@ export async function runFittingSetup(
   if (!steps || steps.length === 0) {
     return { ok: true, stdout: "", stderr: "", exitCode: 0 };
   }
-  const fittingDir = path.join(compositionDir, "apm_modules", "_local", entry.id);
+  // Setup must run where the RUNTIME lives. startOwnPortFitting spawns the
+  // fitting from its seed dir (ROOT_DIR + entry.localPath), so a setup that
+  // builds into the apm_modules copy produces artifacts nothing ever serves —
+  // observed 2026-07-21: a HUD change deployed, up() rebuilt
+  // apm_modules/_local/jarvis-os/dist, and prod kept serving the seed dist
+  // from five days earlier. The installed copy remains the fallback for
+  // fittings without a local seed (registry installs).
+  const fittingDir = entry.localPath
+    ? path.resolve(ROOT_DIR, entry.localPath)
+    : path.join(compositionDir, "apm_modules", "_local", entry.id);
   const env = setupConfigEnv(entry.id, config);
   // Run each step in order; abort on the first non-zero exit (aggregating
   // output so the caller logs the full trail up to the failure).
