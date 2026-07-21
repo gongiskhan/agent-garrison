@@ -504,6 +504,15 @@ function hostOf(urlish: string): string {
 
 // ── component ────────────────────────────────────────────────────────────────
 
+// DEV vs PROD at a glance. The HUD binds the profile-shifted fitting port
+// (dev 7092 / prod 8092 / codex 27092), so the port the page was LOADED from
+// already carries the instance - no server round-trip needed. Only the dev
+// instance is badged: prod is the always-on wall surface and stays clean.
+const IS_DEV_INSTANCE = (() => {
+  const port = Number(window.location.port);
+  return Number.isInteger(port) && port >= 7000 && port < 8000;
+})();
+
 function App() {
   const [mode, setModeRaw] = useState<CoreMode>("idle");
   const [voiceAvailable, setVoiceAvailable] = useState(false);
@@ -2240,6 +2249,11 @@ function App() {
 
   return (
     <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}${panelsOpen ? " panels-open" : ""}`}>
+      {IS_DEV_INSTANCE && (
+        <div className="jarvis-instance-badge" aria-label="instancia de desenvolvimento">
+          DEV
+        </div>
+      )}
       <div
         className="jarvis-core"
         onClick={onToggle}

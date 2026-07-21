@@ -2326,3 +2326,28 @@ a.yt-btn { text-decoration: none; }
   border-color: hsl(var(--accent-h) 60% 60% / 0.7);
   box-shadow: 0 0 12px hsl(var(--accent-h) 60% 50% / 0.2);
 }
+
+/* DEV instance badge — fixed top-center so it reads from across the room on
+   the wall HUD. Amber to match Garrisons own DEV chrome
+
+/* DEV instance badge - fixed top-center so it reads from across the room on
+   the wall HUD. Amber to match the Garrison app DEV chrome; prod stays clean
+   (no badge). */
+.jarvis-instance-badge {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 3px 14px 2px;
+  border-radius: 4px;
+  background: #d99e2b;
+  color: #1c1503;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  pointer-events: none;
+  opacity: 0.92;
+}
