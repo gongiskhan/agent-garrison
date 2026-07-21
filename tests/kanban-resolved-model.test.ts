@@ -553,8 +553,8 @@ describe("duty cells projection (the duties->router repoint input)", () => {
     }
   ];
   const targets = [
-    { id: "sdk-haiku", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", params: { type: "runtime-target" } },
-    { id: "cc-sonnet", runtime: "agent-sdk", model: "sonnet", provider: "anthropic", params: { type: "runtime-target", promptMode: "coding", maxTurns: 100 } }
+    { id: "sdk-haiku", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", params: { type: "runtime-target" } as Record<string, string | number | boolean> },
+    { id: "cc-sonnet", runtime: "agent-sdk", model: "sonnet", provider: "anthropic", params: { type: "runtime-target", promptMode: "coding", maxTurns: 100 } as Record<string, string | number | boolean> }
   ];
 
   it("joins each leaf level's cell with its target spec; composite levels have no cell", () => {
