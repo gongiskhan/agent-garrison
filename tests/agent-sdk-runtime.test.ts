@@ -49,6 +49,41 @@ describe("Runtime freedom — the Agent SDK reaches Anthropic + third-party endp
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
+  // RUNTIME-ACCOUNTS-V1: named-account pin on the subscription path.
+  it("anthropic + target.account → token vars from ANTHROPIC_ACCOUNT__<name>", () => {
+    const TOKEN = "sk-ant-oat01-test-token-work1";
+    const { env, baseUrl, vaultKey } = buildSdkEnv(
+      { provider: "anthropic", account: "work1" },
+      { secrets: { ANTHROPIC_ACCOUNT__work1: TOKEN } }
+    );
+    expect(baseUrl).toBe(null);
+    expect(vaultKey).toBe("ANTHROPIC_ACCOUNT__work1");
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+    expect(env.ANTHROPIC_API_KEY).toBe("");
+  });
+
+  it("anthropic + account with no vault token FAILS LOUD (absent and locked)", () => {
+    expect(() => buildSdkEnv({ provider: "anthropic", account: "ghost" }, { secrets: {} })).toThrow(/ANTHROPIC_ACCOUNT__ghost/);
+    expect(() => buildSdkEnv({ provider: "anthropic", account: "ghost" }, { secrets: null })).toThrow(/LOCKED/);
+  });
+
+  it("anthropic WITHOUT account inherits the launching session's pin; third-party never does", () => {
+    const TOKEN = "sk-ant-oat01-test-token-work1";
+    const pinned = { GARRISON_ACCOUNT: "work1", ANTHROPIC_AUTH_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: TOKEN };
+    const { env } = buildSdkEnv({ provider: "anthropic" }, { baseEnv: pinned });
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+    const third = buildSdkEnv(
+      { provider: "deepseek", model: "deepseek-chat" },
+      { baseEnv: pinned, secrets: { DEEPSEEK_API_KEY: "sk-dk" } }
+    );
+    expect(third.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-dk");
+    expect(third.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(third.env.GARRISON_ACCOUNT).toBeUndefined();
+  });
+
   it("authModeFor reports subscription / api-key / local per provider", () => {
     expect(authModeFor({ provider: "anthropic" })).toBe("subscription");
     expect(authModeFor({ provider: "ollama-local" })).toBe("local");

@@ -643,6 +643,9 @@ export interface StandingFittingView {
   isPrimaryRuntime: boolean;
   configSchema: ConfigSchemaField[];
   config: Record<string, string | number | boolean>;
+  // RUNTIME-ACCOUNTS-V1 D6: a runtime's native login declaration, surfaced as
+  // a guided-PTY button in the config form. Absent on most fittings.
+  login?: { command: string; env_var?: string; storage_hint?: string };
 }
 
 // A pickable library entry for a slot's swap picker (the D9 library picker,
@@ -711,7 +714,8 @@ export function buildStandingPayload(args: {
         providesRuntime: providesKind(entry, "runtime"),
         isPrimaryRuntime: facultyId === "runtimes" && entry.id === args.composition.primaryRuntime,
         configSchema: entry.metadata.config_schema,
-        config: sanitizeConfig(selection.config ?? {})
+        config: sanitizeConfig(selection.config ?? {}),
+        ...(entry.metadata.login ? { login: entry.metadata.login } : {})
       });
     }
     const candidates: StandingCandidate[] = args.library

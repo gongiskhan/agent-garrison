@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
 import styles from "./Muster.module.css";
 
 type ConfigValue = string | number | boolean;
@@ -41,6 +42,7 @@ interface StandingFittingView {
   isPrimaryRuntime: boolean;
   configSchema: ConfigSchemaField[];
   config: Record<string, ConfigValue>;
+  login?: { command: string; env_var?: string; storage_hint?: string };
 }
 
 interface StandingCandidate {
@@ -627,7 +629,7 @@ function FittingBlock({
         </p>
       ) : null}
 
-      {fitting.configSchema.length > 0 ? (
+      {fitting.configSchema.length > 0 || fitting.login ? (
         <>
           <button
             type="button"
@@ -652,6 +654,12 @@ function FittingBlock({
                   onChange={(value) => onConfig(field, value)}
                 />
               ))}
+              {fitting.login ? (
+                <div className={styles.cfgField}>
+                  <span className={styles.cfgLabel}>native login</span>
+                  <GenericLoginPanel fittingId={fitting.id} storageHint={fitting.login.storage_hint} />
+                </div>
+              ) : null}
             </div>
           ) : null}
         </>
@@ -746,6 +754,18 @@ function ConfigField({
       {field.required ? " *" : ""}
     </span>
   );
+
+  // RUNTIME-ACCOUNTS-V1: the "account" key renders as the account selector +
+  // guided login flow (registry-driven options; mirrors Compose ConfigInput).
+  if (field.key === "account") {
+    return (
+      <div className={styles.cfgField} data-testid={testId}>
+        {label}
+        <AccountField value={String(value)} onChange={(next) => onChange(next)} />
+        {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
+      </div>
+    );
+  }
 
   if (field.type === "boolean") {
     const on = Boolean(value);

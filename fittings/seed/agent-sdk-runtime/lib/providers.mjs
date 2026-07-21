@@ -138,20 +138,49 @@ export function buildSdkEnv(target = {}, opts = {}) {
   const baseUrl = resolveProviderBaseUrl(target);
   const secrets = opts.secrets ?? null;
 
-  const env = { ...(opts.baseEnv ?? {}) };
+  const baseEnv = opts.baseEnv ?? {};
+  const env = { ...baseEnv };
   // Clear any inherited Anthropic env (a stray third-party base URL / key must
   // never leak; MiniMax & others take precedence otherwise).
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_BASE_URL;
   delete env.ANTHROPIC_AUTH_TOKEN;
+  // RUNTIME-ACCOUNTS-V1: an inherited account token must never leak into a
+  // target with a different — or no — account.
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete env.GARRISON_ACCOUNT;
 
   // Anthropic on the Max subscription: no base URL override, no key — the SDK
   // falls back to the stored OAuth credentials (D29), billed to the plan.
   // Force the key EMPTY (not merely deleted): the delete above only cleans
   // opts.baseEnv, and the SDK inherits the PROCESS env underneath — a stray
   // ANTHROPIC_API_KEY there would silently bill the API pool instead.
+  //
+  // RUNTIME-ACCOUNTS-V1: target.account pins the session to a named account —
+  // the vault secret ANTHROPIC_ACCOUNT__<name> (mirror of
+  // src/lib/account-env.ts) injected as ANTHROPIC_AUTH_TOKEN, which the
+  // spawned Claude Code binary honors ABOVE its stored /login credentials
+  // (verified live, 2.1.216). Without an explicit account the launching
+  // session's pin (baseEnv.GARRISON_ACCOUNT + token) is inherited, so a
+  // delegate turn runs under the same account as the session that asked.
   if (spec.anthropic) {
     env.ANTHROPIC_API_KEY = "";
+    const account = String(target.account ?? "").trim();
+    if (account) {
+      const accountKey = `ANTHROPIC_ACCOUNT__${account}`;
+      const vaultLocked = secrets === null;
+      const token = vaultLocked ? undefined : secrets[accountKey];
+      if (!token) throw new MissingProviderKeyError(`${target.provider} (account "${account}")`, accountKey, vaultLocked);
+      env.ANTHROPIC_AUTH_TOKEN = token;
+      env.CLAUDE_CODE_OAUTH_TOKEN = token;
+      env.GARRISON_ACCOUNT = account;
+      return { env, baseUrl: null, vaultKey: accountKey };
+    }
+    if (baseEnv.GARRISON_ACCOUNT && baseEnv.ANTHROPIC_AUTH_TOKEN) {
+      env.ANTHROPIC_AUTH_TOKEN = baseEnv.ANTHROPIC_AUTH_TOKEN;
+      env.CLAUDE_CODE_OAUTH_TOKEN = baseEnv.CLAUDE_CODE_OAUTH_TOKEN ?? baseEnv.ANTHROPIC_AUTH_TOKEN;
+      env.GARRISON_ACCOUNT = baseEnv.GARRISON_ACCOUNT;
+    }
     return { env, baseUrl: null, vaultKey: null };
   }
 

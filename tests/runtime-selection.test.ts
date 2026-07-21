@@ -247,3 +247,65 @@ describe("buildPrimaryRuntimeEnv loud paths (S2 ratchet)", () => {
     expect(env.ANTHROPIC_BASE_URL).toBe("http://proxy:4000");
   });
 });
+
+// ── RUNTIME-ACCOUNTS-V1: account pin on the plan path ────────────────────────
+describe("buildPrimaryRuntimeEnv account pin (RUNTIME-ACCOUNTS-V1)", () => {
+  const TOKEN = "sk-ant-oat01-test-token-work1";
+  const lookup = (key: string) => (key === "ANTHROPIC_ACCOUNT__work1" ? TOKEN : undefined);
+  const withAccount = (config: Record<string, string>) =>
+    resolvePrimaryRuntime({
+      primaryRuntimeId: "claude-code-runtime",
+      runtimeEntries: [{ ...ccRuntime, config }]
+    });
+
+  it("anthropic-plan + account → both token vars, empty API key, marker, NO providerLaunch", () => {
+    const { env, providerLaunch, account } = buildPrimaryRuntimeEnv(
+      withAccount({ account: "work1" }),
+      lookup,
+      POLICY_PROVIDERS
+    );
+    expect(account).toBe("work1");
+    expect(providerLaunch).toBe(false); // AUTH_TOKEN is never stripped by claude-pty; no base URL in play
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+    expect(env.ANTHROPIC_API_KEY).toBe("");
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
+  it("FAILS LOUD when the selected account's token does not resolve (locked/absent vault)", () => {
+    expect(() =>
+      buildPrimaryRuntimeEnv(withAccount({ account: "ghost" }), lookup, POLICY_PROVIDERS)
+    ).toThrow(/account "ghost".*ANTHROPIC_ACCOUNT__ghost/s);
+  });
+
+  it("a non-plan provider ignores the account (no token vars leak into a provider launch)", () => {
+    const { env, providerLaunch } = buildPrimaryRuntimeEnv(
+      withAccount({ account: "work1", provider: "zai-glm" }),
+      (key) => (key === providerById("zai-glm").vaultKey ? "sk-zai" : lookup(key)),
+      POLICY_PROVIDERS
+    );
+    expect(providerLaunch).toBe(true);
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("sk-zai");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.GARRISON_ACCOUNT).toBeUndefined();
+  });
+
+  it("no account configured → historical plan env untouched", () => {
+    const { env, account } = buildPrimaryRuntimeEnv(withAccount({}), lookup, POLICY_PROVIDERS);
+    expect(account).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+
+  it("deriveRuntimeTargets carries the account onto fitted targets (both engines)", () => {
+    const targets = deriveRuntimeTargets([
+      { ...ccRuntime, config: { account: "work1" } },
+      { ...sdkRuntime, config: { account: "personal" } },
+      { id: "no-account", provides: [{ kind: "runtime", name: "claude-code" }], config: {} }
+    ]);
+    expect(targets[0]).toMatchObject({ id: "fitted-claude-code-runtime", account: "work1" });
+    expect(targets[1]).toMatchObject({ id: "fitted-agent-sdk-runtime", type: "secondary", account: "personal" });
+    expect("account" in targets[2]).toBe(false);
+  });
+});

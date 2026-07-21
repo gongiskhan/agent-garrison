@@ -399,7 +399,16 @@ export const garrisonMetadataSchema = z.object({
   duties: z.array(dutySchema).optional(),
   secret_scope: z.array(z.string().min(1)).optional(),
   provider_mechanism: providerMechanismSchema.optional(),
-  quarters_descriptor: quartersDescriptorSchema.optional()
+  quarters_descriptor: quartersDescriptorSchema.optional(),
+  // RUNTIME-ACCOUNTS-V1 D6: a runtime's native login command (best-effort
+  // generic flow; the Anthropic runtimes use the account registry instead).
+  login: z
+    .object({
+      command: z.string().min(1),
+      env_var: z.string().min(1).optional(),
+      storage_hint: z.string().min(1).optional()
+    })
+    .optional()
 })
   // Duty cross-field rules live ON the schema (not only in
   // parseGarrisonMetadata) so a direct schema user cannot parse an invalid

@@ -6,6 +6,11 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): Codex's native login. The
+  # config UI runs this in a guided PTY; credentials land in Codex's own store.
+  login:
+    command: codex login
+    storage_hint: "~/.codex/auth.json (ChatGPT OAuth; one account at a time)"
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:

@@ -44,6 +44,8 @@ import {
 import { garrisonDir } from "./claude-home";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
 import { claimComposition, releaseComposition } from "./composition-owner";
+import { accountTokenForSpawn, setAccountNeedsRelogin } from "./accounts";
+import { accountVaultKey } from "./account-env";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
@@ -99,6 +101,10 @@ interface RunnerRecord {
   watcher?: FSWatcher;
   restartTimer?: NodeJS.Timeout;
   gateway?: GatewayInfo;
+  // RUNTIME-ACCOUNTS-V1 D5: the account the running operative is pinned to,
+  // so an auth failure in the log stream can flag it needs-relogin (once).
+  activeAccount?: string;
+  authFailureFlagged?: boolean;
 }
 
 interface RunnerRuntime {
@@ -384,11 +390,43 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     const providersList = await resolveProvidersList(composition.directory, (message) =>
       appendLog(compositionId, "stderr", message)
     );
-    const { env: primaryEnv, providerLaunch: primaryProviderLaunch } = buildPrimaryRuntimeEnv(
-      primaryRuntime,
-      (key) => primaryVaultEnv[key],
-      providersList
-    );
+    // RUNTIME-ACCOUNTS-V1: the account token is NOT in the fitting's
+    // secret_scope (account names are dynamic), so it is delivered explicitly
+    // here — audit-recorded like every other vault read — and merged into the
+    // lookup that buildPrimaryRuntimeEnv resolves ANTHROPIC_ACCOUNT__* through.
+    const primaryAccount = String(primaryRuntime.config.account ?? "").trim();
+    const primaryProviderId = String(primaryRuntime.config.provider ?? "anthropic-plan");
+    const primaryOnPlan =
+      primaryProviderId === "anthropic-plan" ||
+      providersList.find((p) => p && p.id === primaryProviderId)?.kind === "anthropic-plan";
+    const accountEnv: Record<string, string> = {};
+    if (primaryAccount && primaryOnPlan) {
+      accountEnv[accountVaultKey(primaryAccount)] = await accountTokenForSpawn(
+        primaryAccount,
+        primaryRuntime.runtimeId
+      );
+    }
+    const { env: primaryEnv, providerLaunch: primaryProviderLaunch, account: pinnedAccount } =
+      buildPrimaryRuntimeEnv(
+        primaryRuntime,
+        (key) => primaryVaultEnv[key] ?? accountEnv[key],
+        providersList
+      );
+    record.activeAccount = pinnedAccount;
+    record.authFailureFlagged = false;
+    if (pinnedAccount) {
+      appendLog(
+        compositionId,
+        "runner",
+        `Primary runtime ${primaryRuntime.runtimeId} pinned to Anthropic account "${pinnedAccount}"`
+      );
+    } else if (primaryAccount) {
+      appendLog(
+        compositionId,
+        "stderr",
+        `Runtime account "${primaryAccount}" is configured but the selected provider is not the Anthropic plan — account ignored for this launch.`
+      );
+    }
     if (primaryProviderLaunch) {
       appendLog(
         compositionId,
@@ -1992,9 +2030,32 @@ function updateState(compositionId: string, update: Partial<RunnerState>): void 
   record.state = { ...record.state, ...update, compositionId };
 }
 
+// RUNTIME-ACCOUNTS-V1 D5: an auth failure surfacing in a session's log stream
+// while the operative is pinned to a named account flags that account
+// needs-relogin (once per up; setup tokens are replaced, never refreshed).
+const ACCOUNT_AUTH_FAILURE_RE = /401 .*(bearer|oauth|authenticat)|Failed to authenticate/i;
+
 function appendLog(compositionId: string, stream: LogEvent["stream"], message: string): void {
   const record = getRecord(compositionId);
   for (const line of message.split(/\r?\n/).filter((value) => value.length > 0)) {
+    if (
+      record.activeAccount &&
+      !record.authFailureFlagged &&
+      (stream === "stdout" || stream === "stderr") &&
+      ACCOUNT_AUTH_FAILURE_RE.test(line)
+    ) {
+      record.authFailureFlagged = true;
+      const account = record.activeAccount;
+      void setAccountNeedsRelogin(account, true)
+        .then(() =>
+          appendLog(
+            compositionId,
+            "runner",
+            `Auth failure observed under account "${account}" — flagged needs-relogin (re-run setup-token from the runtime config).`
+          )
+        )
+        .catch(() => undefined);
+    }
     const event: LogEvent = { ts: new Date().toISOString(), stream, message: line };
     record.logs.push(event);
     record.logBytes += Buffer.byteLength(line);

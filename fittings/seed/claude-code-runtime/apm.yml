@@ -48,6 +48,10 @@ x-garrison:
       type: string
       default: ""
       description: Advanced — explicit ANTHROPIC_BASE_URL override. Leave empty to use the provider's registered base URL. Ignored for anthropic-plan.
+    - key: account
+      type: string
+      default: ""
+      description: RUNTIME-ACCOUNTS-V1 — named Anthropic account for this runtime (anthropic-plan only). Empty = the machine's own login. Values come from the Garrison account registry; the token (vault ANTHROPIC_ACCOUNT__<name>) is injected at spawn, so switching accounts is config-only and applies to new sessions.
   provides:
     - kind: runtime
       name: claude-code

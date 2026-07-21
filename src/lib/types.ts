@@ -413,6 +413,18 @@ export interface GarrisonMetadata {
   // D5: the Quarters descriptor this runtime ships — deep (registered
   // implementation by id) or generic (descriptor-rendered native-config surface).
   quarters_descriptor?: QuartersDescriptor;
+  // RUNTIME-ACCOUNTS-V1 D6: how a (non-Anthropic) runtime logs in natively.
+  // The UI runs `command` in a PTY with the same guided surface as the
+  // Anthropic setup-token flow; env_var/storage_hint document where the
+  // resulting credential lives. Best-effort — absent on most Fittings.
+  login?: RuntimeLoginSpec;
+}
+
+// D6: a runtime Fitting's native login declaration.
+export interface RuntimeLoginSpec {
+  command: string;
+  env_var?: string;
+  storage_hint?: string;
 }
 
 // D3: the declared provider-override mechanism of a runtime Fitting.

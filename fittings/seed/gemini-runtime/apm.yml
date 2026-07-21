@@ -6,6 +6,12 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): Gemini CLI native auth.
+  # The CLI prompts Google OAuth on first interactive start; run it in the
+  # guided PTY and follow the flow.
+  login:
+    command: gemini
+    storage_hint: "~/.gemini/oauth_creds.json (Google OAuth; one account at a time)"
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:

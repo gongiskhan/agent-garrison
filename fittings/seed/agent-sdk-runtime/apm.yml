@@ -37,6 +37,10 @@ x-garrison:
       type: number
       default: 12
       description: Cap on the agentic loop — SDK sessions have no default turn limit, so an unbounded loop would run until stopped.
+    - key: account
+      type: string
+      default: ""
+      description: RUNTIME-ACCOUNTS-V1 — named Anthropic account for this runtime (provider anthropic only). Empty = inherit the launching session's account, else the machine's own login. Values come from the Garrison account registry; the token (vault ANTHROPIC_ACCOUNT__<name>) is injected at spawn.
   provides:
     - kind: runtime
       name: agent-sdk
