@@ -9,4 +9,4 @@ voice-server/*.onnx
 voice-server/*.bin
 
 # Piper voices (~60MB each, e.g. pt_PT) — fetched by scripts/setup.sh.
-voice-server/piper-voices/
+voice-server/piper-voices
