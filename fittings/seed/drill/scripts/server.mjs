@@ -23,7 +23,7 @@ import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
 import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
-import { runInline, getRun as getAutomationRun, getStepEvidence, checkAutomationsHealth } from "../lib/automations-client.mjs";
+import { runInline, getRun as getAutomationRun, getStepEvidence, ensureAutomationsUp } from "../lib/automations-client.mjs";
 import {
   legacyInfrastructureFailure,
   terminalFromAutomationRun,
@@ -1132,28 +1132,25 @@ async function handle(req, res) {
         return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
       }
 
-      // One run-level preflight prevents a missing Automations fitting from
-      // being retried once per Book step. Every planned coordinate is still
-      // attached to the single grouped incident so the report is honest
-      // about the affected coverage.
-      try {
-        await checkAutomationsHealth();
-      } catch (err) {
-        const terminal = terminalFromTransportError(err);
-        if (jobs.length === 0) addSystemicIncident(null, terminal);
-        else for (const job of jobs) addSystemicIncident(job, terminal);
-        openCircuit(terminal);
-        record.endedAt = new Date().toISOString();
-        await saveDrillRun(record);
-        return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
+      // S31: persist and claim the record BEFORE the engine preflight (endedAt
+      // null = running) so the history table, /api/runs/active, a poller and a
+      // second-device Results view all see in-flight state even while the
+      // self-heal below is still bringing the engine up - and so the
+      // one-run-per-project guard has no multi-second blind window to race
+      // through. The re-check + registerActiveRun pair is synchronous (no
+      // await between them): a duplicate POST that slipped past the earlier
+      // guard during the book/jobs awaits lands here on the claimed entry.
+      const claimed = [...activeRuns.values()].find(
+        (entry) => !entry.done && (entry.record.project ?? null) === root
+      );
+      if (claimed) {
+        return send(res, 409, {
+          error: `a run is already executing for this project - wait for it to finish (run ${claimed.record.id})`,
+          runId: claimed.record.id
+        });
       }
-
-      // S31: persist the record BEFORE execution starts (endedAt null =
-      // running) so the history table, a poller, and the crash-recovery boot
-      // sweep all see in-flight state; register the live entry that feeds the
-      // progress SSE stream.
-      await saveDrillRun(record);
       const live = registerActiveRun(record);
+      await saveDrillRun(record);
       publishRunEvent(record.id, {
         type: "run_started",
         runId: record.id,
@@ -1166,6 +1163,30 @@ async function handle(req, res) {
 
       const execute = async () => {
       try {
+      // One run-level preflight prevents a missing Automations fitting from
+      // being retried once per Book step. Every planned coordinate is still
+      // attached to the single grouped incident so the report is honest
+      // about the affected coverage. ensureAutomationsUp first self-heals a
+      // redeploy-killed engine via Garrison's on-demand lifecycle start; it
+      // runs inside execute() so a background caller gets its response and
+      // live panel immediately while the heal proceeds, instead of a request
+      // pending for the whole engine boot.
+      try {
+        await ensureAutomationsUp();
+      } catch (err) {
+        const terminal = terminalFromTransportError(err);
+        if (jobs.length === 0) addSystemicIncident(null, terminal);
+        else for (const job of jobs) addSystemicIncident(job, terminal);
+        openCircuit(terminal);
+        record.endedAt = new Date().toISOString();
+        record.summary = {
+          steps: record.pages.length,
+          failed: 0,
+          infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+        };
+        await saveDrillRun(record);
+        return; // the finally below publishes run_finished
+      }
       // Evidence capture (Drill Evidence v0.1, D1/D5): one browser capture
       // session per run — video for multi-check (Full Drill) runs unless the
       // caller toggles it, per-check offset manifest whenever the session came
@@ -1774,6 +1795,9 @@ async function handle(req, res) {
       try { viewport = resolveViewport(viewportId); } catch (err) { return send(res, 400, { error: err.message }); }
       const sessionId = `live-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const dir = path.join(drillHomeDir(), "live", sessionId);
+      // Same self-heal as the run preflight; on failure the replay loop
+      // surfaces the per-step transport error as a warning.
+      await ensureAutomationsUp().catch(() => {});
       let session;
       try {
         session = await captureCall("/capture/start", {
