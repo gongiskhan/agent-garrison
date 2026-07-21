@@ -74,8 +74,18 @@ function parseArgs(argv) {
 // win at runtime even when LOCAL_VOICE_PYTHON is set — that env only picks the
 // interpreter setup.sh uses to BUILD the venv, not the runtime interpreter.
 function resolvePython(opts) {
-  const venv = path.join(VOICE_SERVER_DIR, ".venv", "bin", "python");
-  if (existsSync(venv)) return venv;
+  // The venv lives OUTSIDE the package tree (default ~/.cache/garrison-local-voice/venv,
+  // override via LOCAL_VOICE_VENV) so apm install -- which deep-copies the fitting and
+  // hard-fails on any symlink escaping the package root -- never trips on the venv python
+  // symlink. A legacy in-package .venv is still honored for older installs.
+  const external = path.join(
+    process.env.LOCAL_VOICE_VENV || path.join(os.homedir(), ".cache", "garrison-local-voice", "venv"),
+    "bin",
+    "python"
+  );
+  if (existsSync(external)) return external;
+  const legacy = path.join(VOICE_SERVER_DIR, ".venv", "bin", "python");
+  if (existsSync(legacy)) return legacy;
   if (opts.pythonBin) return opts.pythonBin;
   return "python3";
 }

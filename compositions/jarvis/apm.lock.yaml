@@ -1,12 +1,16 @@
 lockfile_version: '1'
-generated_at: '2026-07-15T16:10:47.006917+00:00'
-apm_version: 0.20.0
+generated_at: '2026-07-16T17:43:29.925978+00:00'
+apm_version: 0.25.0
 dependencies:
 - repo_url: _local/dev-env
+  name: dev-env
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
 - repo_url: _local/garrison-orchestrator
+  name: garrison-orchestrator
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
@@ -15,6 +19,8 @@ dependencies:
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/google
+  name: google
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/google-calendar
@@ -24,6 +30,8 @@ dependencies:
   source: local
   local_path: ../../fittings/seed/google
 - repo_url: _local/http-gateway
+  name: http-gateway
+  version: 0.2.0
   package_type: apm_package
   deployed_files:
   - .claude/rules/http-gateway.md
@@ -32,26 +40,38 @@ dependencies:
   source: local
   local_path: ../../fittings/seed/http-gateway
 - repo_url: _local/jarvis-os
+  name: jarvis-os
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/jarvis-os
 - repo_url: _local/kanban-loop
+  name: kanban-loop
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/kanban-loop
 - repo_url: _local/knowledge
+  name: knowledge
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/knowledge
 - repo_url: _local/local-voice
+  name: local-voice
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/local-voice
 - repo_url: _local/spotify
+  name: spotify
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/spotify
 - repo_url: _local/trello
+  name: trello
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/rules/trello-data-source.md
@@ -62,3 +82,67 @@ dependencies:
     .claude/skills/trello/SKILL.md: sha256:98db910b886112716671873c3c2faea81a12cbb1ed880bebb6091fb36e4d06ee
   source: local
   local_path: ../../fittings/seed/trello
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/commands/garrison-orchestrator.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/garrison-orchestrator
+  active_owner: ../../fittings/seed/garrison-orchestrator
+  content_hash: sha256:8fa88e3463ba6744f48726fd4ecf7255b2694abb76d6617bb6f6b452b4525f02
+- kind: project-relative
+  target: claude
+  value: .claude/rules/http-gateway.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/http-gateway
+  active_owner: ../../fittings/seed/http-gateway
+  content_hash: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+- kind: project-relative
+  target: claude
+  value: .claude/rules/trello-data-source.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/trello
+  active_owner: ../../fittings/seed/trello
+  content_hash: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
+- kind: project-relative
+  target: claude
+  value: .claude/skills/google-calendar
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/google
+  active_owner: ../../fittings/seed/google
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/google-calendar/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/google
+  active_owner: ../../fittings/seed/google
+  content_hash: sha256:8818d0a97c2b3ace35aba433114df755746a1b3983f5f27e07f4a8348c83e9c8
+- kind: project-relative
+  target: claude
+  value: .claude/skills/trello
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/trello
+  active_owner: ../../fittings/seed/trello
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/trello/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/trello
+  active_owner: ../../fittings/seed/trello
+  content_hash: sha256:98db910b886112716671873c3c2faea81a12cbb1ed880bebb6091fb36e4d06ee

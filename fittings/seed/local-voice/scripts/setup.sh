@@ -10,7 +10,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VS="$HERE/../voice-server"
-VENV="$VS/.venv"
+# venv lives OUTSIDE the package tree: apm install deep-copies the fitting and
+# hard-fails on any symlink escaping the package root (the venv python is such a
+# symlink). Default to a stable per-user cache; override with LOCAL_VOICE_VENV.
+VENV="${LOCAL_VOICE_VENV:-$HOME/.cache/garrison-local-voice/venv}"
 PY="${LOCAL_VOICE_PYTHON:-python3}"
 
 KOKORO_ONNX="$VS/kokoro-v1.0.onnx"
@@ -22,10 +25,22 @@ if ! command -v "$PY" >/dev/null 2>&1; then
   echo "[local-voice:setup] ERROR: '$PY' not found. Install Python 3.10+ (or set LOCAL_VOICE_PYTHON)." >&2
   exit 1
 fi
+# Check the version here, not just that the binary exists. On 3.9 (still the
+# macOS system python3) the deps below have no valid resolution and pip dies 40
+# lines later with a bare "ResolutionImpossible" naming kokoro-onnx — which says
+# nothing about the real cause.
+if ! "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+  PY_VER="$("$PY" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null || echo "unknown")"
+  echo "[local-voice:setup] ERROR: '$PY' is Python $PY_VER; the voice-server deps need 3.10+." >&2
+  echo "[local-voice:setup]   Point LOCAL_VOICE_PYTHON at a newer interpreter, e.g." >&2
+  echo "[local-voice:setup]     LOCAL_VOICE_PYTHON=\"\$(uv python find 3.12)\"" >&2
+  exit 1
+fi
 
 # 1. venv
 if [ ! -x "$VENV/bin/python" ]; then
   echo "[local-voice:setup] creating venv at $VENV"
+  mkdir -p "$(dirname "$VENV")"
   "$PY" -m venv "$VENV"
 fi
 VPY="$VENV/bin/python"
@@ -83,7 +98,26 @@ if [ "$STT_ENGINE_LC" = "whisper-cpp" ] || [ "$STT_ENGINE_LC" = "whispercpp" ] |
   fi
   WCPP_MODEL="${WHISPER_CPP_MODEL:-$HOME/.cache/whisper-cpp/ggml-large-v3.bin}"
   mkdir -p "$(dirname "$WCPP_MODEL")"
-  fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin" "$WCPP_MODEL"
+  # Derive the URL from the configured filename. Only stock ggerganov checkpoints
+  # exist upstream; a fine-tune (ggml-WhisperLv3-FT-EP-f16.bin) has no ggml build
+  # to fetch, and pulling large-v3 into its name would silently swap the weights —
+  # no error, just 50.8% WER where the fine-tune measures 25.6%. Fail loud instead.
+  WCPP_NAME="$(basename "$WCPP_MODEL")"
+  case "$WCPP_NAME" in
+    ggml-tiny*.bin|ggml-base*.bin|ggml-small*.bin|ggml-medium*.bin|ggml-large-v[123]*.bin)
+      fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WCPP_NAME" "$WCPP_MODEL"
+      ;;
+    *)
+      if [ ! -f "$WCPP_MODEL" ]; then
+        echo "[local-voice:setup] ERROR: '$WCPP_NAME' is not a stock whisper.cpp checkpoint," >&2
+        echo "[local-voice:setup]   and there is nothing upstream to fetch it from. Convert it" >&2
+        echo "[local-voice:setup]   and place it at: $WCPP_MODEL" >&2
+        echo "[local-voice:setup]   See README.md → 'Converting a Hugging Face fine-tune to ggml'." >&2
+        exit 1
+      fi
+      echo "[local-voice:setup] present: $WCPP_NAME (local fine-tune — nothing to fetch)"
+      ;;
+  esac
   # Silero VAD model (~885KB) — strips non-speech so whisper doesn't hallucinate
   # a trailing word into end-of-clip silence. Note the repo: ggml-org/whisper-vad
   # (the whisper.cpp repo path 404s for this file).

@@ -64,6 +64,40 @@ European-Portuguese voice (`piper-voices/pt_PT-tugão-medium.onnx` ~63MB).
   PT/FR/ES/IT without it via its bundled grapheme-to-phoneme, but installing
   `espeak-ng` improves non-English pronunciation. Not required.
 
+### Converting a Hugging Face fine-tune to ggml
+
+`setup.sh` only fetches **stock** whisper.cpp checkpoints (`ggml-large-v3.bin`,
+`ggml-small.en.bin`, …), because those are the only ones published upstream. Point
+`whisper_cpp_model` at anything else — as the `jarvis` composition does with the
+European-Portuguese `ggml-WhisperLv3-FT-EP-f16.bin` — and setup fails loud rather
+than fetching stock weights under the fine-tune's name. Build it once:
+
+```bash
+# 1. The fine-tune (safetensors, ~6.2GB F32). Do this on a box with ≳16GB RAM —
+#    the conversion loads the whole model, which an 8GB Mac will swap through.
+git clone https://huggingface.co/inesc-id/WhisperLv3-FT-EP-CPP
+
+# 2. INESC ships only config.json + safetensors, but the converter also reads the
+#    tokenizer. Take it from the base model — the fine-tune doesn't change it
+#    (both are large-v3: d_model 1280, vocab_size 51866).
+cd WhisperLv3-FT-EP-CPP
+for f in vocab.json added_tokens.json merges.txt; do
+  curl -fsSLO "https://huggingface.co/openai/whisper-large-v3/resolve/main/$f"
+done
+cd ..
+
+# 3. Convert. Needs torch + transformers, and openai/whisper for its mel filters.
+git clone https://github.com/openai/whisper
+git clone https://github.com/ggml-org/whisper.cpp
+python whisper.cpp/models/convert-h5-to-ggml.py ./WhisperLv3-FT-EP-CPP ./whisper ./out
+
+# 4. Install under the name the composition expects.
+mv out/ggml-model.bin ~/.cache/whisper-cpp/ggml-WhisperLv3-FT-EP-f16.bin
+```
+
+Keep a copy off the host. This file is **not reproducible from this repo alone**,
+and re-deriving it costs a multi-GB download plus the conversion.
+
 ### Measured latency (Phase 0, this host — Apple Silicon CPU int8)
 
 STT (multilingual `small`) ~1.7s for a ~4s clip; language auto-detected with
