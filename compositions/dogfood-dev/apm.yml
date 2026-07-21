@@ -101,7 +101,6 @@ x-garrison:
             model: ''
             promptMode: coding
             maxTurns: 100
-            account: auto
       design:
         - id: taste
           config: {}
