@@ -22,7 +22,7 @@ describe("reapOrphanedRuns", () => {
     const stale = new Date(now - ORPHAN_RUNNING_MS - 60_000).toISOString();
     const card = await makeRunning(root, stale);
 
-    const reaped = await reapOrphanedRuns(root, { now });
+    const reaped = await reapOrphanedRuns(root, { nowMs: now });
     expect(reaped).toEqual([card.id]);
 
     const after = await loadCard(root, card.id);
@@ -36,7 +36,7 @@ describe("reapOrphanedRuns", () => {
   it("parks a running card with a missing runningSince", async () => {
     const root = tmp();
     const card = await makeRunning(root, null);
-    const reaped = await reapOrphanedRuns(root, { now: Date.parse("2026-07-06T12:00:00Z") });
+    const reaped = await reapOrphanedRuns(root, { nowMs: Date.parse("2026-07-06T12:00:00Z") });
     expect(reaped).toEqual([card.id]);
     expect((await loadCard(root, card.id)).status).toBe("needs-attention");
   });
@@ -46,7 +46,7 @@ describe("reapOrphanedRuns", () => {
     const now = Date.parse("2026-07-06T12:00:00Z");
     const recent = new Date(now - 5 * 60_000).toISOString(); // 5 min ago
     const card = await makeRunning(root, recent);
-    const reaped = await reapOrphanedRuns(root, { now });
+    const reaped = await reapOrphanedRuns(root, { nowMs: now });
     expect(reaped).toEqual([]);
     expect((await loadCard(root, card.id)).status).toBe("running");
   });
@@ -54,7 +54,7 @@ describe("reapOrphanedRuns", () => {
   it("ignores non-running cards", async () => {
     const root = tmp();
     await createCard(root, { title: "idle", list: "todo" });
-    const reaped = await reapOrphanedRuns(root, { now: Date.now() });
+    const reaped = await reapOrphanedRuns(root, { nowMs: Date.now() });
     expect(reaped).toEqual([]);
   });
 });

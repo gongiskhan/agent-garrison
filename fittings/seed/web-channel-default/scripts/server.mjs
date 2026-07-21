@@ -32,13 +32,7 @@ function garrisonDir() {
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
 const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
-// Voice backend the channel proxies /api/voice/{stt,tts,health} to. Pointed at
-// the fully-local Fitting (faster-whisper STT + Piper/Kokoro TTS, bilingual
-// PT/EN) — deepgram-voice is no longer used. local-voice exposes the same
-// POST /stt and POST /tts contract, so the proxy is unchanged. (The streaming
-// /api/voice/stream path is deepgram-only and unused by this UI, which does
-// push-to-talk batch /voice/stt via claude-chat.)
-const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "local-voice.json");
+const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 
 const CHANNEL_ID = "web";
 

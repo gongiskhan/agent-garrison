@@ -109,9 +109,14 @@ Deepgram path. See `scripts/spike/voice-multilingual.mjs`.
 
 ## Config (env / `config_schema`)
 
-`port`, `bind_host`, `kokoro_voice` (`KOKORO_VOICE`), `kokoro_speed`
-(`KOKORO_SPEED`), `whisper_model` (`WHISPER_MODEL`), `lang_voices`
-(`LANG_VOICES`), `wake_word` (`WAKE_WORD`), `python_bin` (`LOCAL_VOICE_PYTHON`).
+Garrison projects composition config into the spawn env as
+`GARRISON_LOCALVOICE_<KEY>` (fitting id without separators, key upper-cased) —
+`port` → `GARRISON_LOCALVOICE_PORT`, `whisper_model` →
+`GARRISON_LOCALVOICE_WHISPER_MODEL`, and so on for every `config_schema` key.
+Bare names (`WHISPER_MODEL`, `KOKORO_VOICE`, …) are the PYTHON voice-server's
+own env contract; the Node wrapper translates config into them when it spawns
+the child. Host env keeps its own names: `LOCAL_VOICE_PYTHON` (setup
+interpreter), `LOCAL_VOICE_VENV`, `LOCAL_VOICE_AUTH_TOKEN`, `GARRISON_HOME`.
 
 - `whisper_model` defaults to `small` (**multilingual**, auto-detects the spoken
   language). The `*.en` checkpoints (`small.en`…) are English-only — use them

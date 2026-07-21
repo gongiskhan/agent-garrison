@@ -38,23 +38,36 @@ const VOICE_SERVER_DIR = path.resolve(HERE, "..", "voice-server");
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "local-voice.json");
 
+// Composition config arrives from Garrison's own-port runner NAMESPACED:
+// GARRISON_<ID>_<KEY> — the fitting id stripped of every non-alphanumeric, the
+// config_schema key's separators normalised to "_", both upper-cased (see
+// ownPortConfigEnv in src/lib/own-port-lifecycle.ts, which is the authority).
+// local-voice + `whisper_model` → GARRISON_LOCALVOICE_WHISPER_MODEL. Bare names
+// are NOT delivered any more. Only host/machine env keeps its own name
+// (LOCAL_VOICE_PYTHON, LOCAL_VOICE_VENV, LOCAL_VOICE_AUTH_TOKEN, GARRISON_HOME).
+const cfg = (key) => process.env[`GARRISON_LOCALVOICE_${key}`];
+
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.LOCAL_VOICE_PORT || 7090),
-    host: process.env.LOCAL_VOICE_HOST || "127.0.0.1",
-    pythonBin: process.env.LOCAL_VOICE_PYTHON || "",
-    // The Python reads these from env directly; we pass them through and only
-    // force WAKE_WORD off by default (the Fable default is "on", but v1 is
-    // push-to-talk and the mic would hear our own TTS).
-    kokoroVoice: process.env.KOKORO_VOICE || "bm_george",
-    kokoroSpeed: process.env.KOKORO_SPEED || "1.0",
+    port: Number(cfg("PORT") || 7090),
+    host: cfg("BIND_HOST") || "127.0.0.1",
+    // config_schema `python_bin`. LOCAL_VOICE_PYTHON is HOST env (the
+    // interpreter setup.sh builds the venv with), not composition config, so it
+    // stays bare and still wins over the built-in default.
+    pythonBin: cfg("PYTHON_BIN") || process.env.LOCAL_VOICE_PYTHON || "",
+    // The Python child reads these under their BARE names (its own env
+    // contract); spawnPython translates config → bare. We only force wake_word
+    // off by default (the Fable default is "on", but v1 is push-to-talk and the
+    // mic would hear our own TTS).
+    kokoroVoice: cfg("KOKORO_VOICE") || "bm_george",
+    kokoroSpeed: cfg("KOKORO_SPEED") || "1.0",
     // Multilingual by default — `small` auto-detects the spoken language so the
     // Operative can be addressed in PT/FR/EN/… (use `small.en` for English-only).
-    whisperModel: process.env.WHISPER_MODEL || "small",
+    whisperModel: cfg("WHISPER_MODEL") || "small",
     // JSON map ISO-lang → { voice, klang } for per-language TTS voice. Empty =
     // the voice-server's built-in defaults (en/pt/fr/es/it).
-    langVoices: process.env.LANG_VOICES || "",
-    wakeWord: process.env.WAKE_WORD || "off",
+    langVoices: cfg("LANG_VOICES") || "",
+    wakeWord: cfg("WAKE_WORD") || "off",
     // Optional shared secret required for OFF-BOX access to the STT/TTS/events
     // endpoints. Loopback (the jarvis-os proxy) never needs it. Unset + a
     // non-loopback bind = off-box access is denied outright (secure default).
@@ -129,18 +142,21 @@ function wsOriginAllowed(request) {
   } catch { return false; }
 }
 
-async function findFreePort(startPort, host) {
+// PRIVATE loopback port for the supervised Python child. It is never this
+// fitting's canonical port and is never published in the status file, so
+// letting the OS hand out an ephemeral one is correct. The PUBLIC port is bound
+// EXACTLY — Garrison's canonical-port contract: no scan, no shift, EADDRINUSE
+// exits 1 (see startServer).
+async function reserveInternalPort() {
   const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, host);
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
     });
-    if (free) return port;
-  }
-  return null;
+  });
 }
 
 async function readBinaryBody(req, limit = 25 * 1024 * 1024) {
@@ -327,12 +343,33 @@ async function handleTts(req, res, ctx) {
   upstream.end();
 }
 
+// config_schema keys the voice-server reads under BARE names — it is a
+// SEPARATE process with its own env contract, so Garrison's namespaced form has
+// to be translated here. This wrapper is the only thing that knows both.
+const PY_CONFIG_KEYS = [
+  "PAUSE_COMMA", "PAUSE_CLAUSE", "PAUSE_SENTENCE", "PAUSE_QUESTION", "PAUSE_ELLIPSIS",
+  "PAUSE_PARA", "MIN_CLAUSE", "WHISPER_LANG", "STT_ENGINE", "WHISPER_CPP_MODEL",
+  "WHISPER_CPP_NO_TIMESTAMPS", "STT_NORMALIZE_GAIN", "TTS_FORCE_LANG", "PIPER_VOICES",
+  "WAKE_THRESHOLD"
+];
+
+// Unset/empty config never shadows the voice-server's own default.
+function pyConfigEnv() {
+  const env = {};
+  for (const key of PY_CONFIG_KEYS) {
+    const value = cfg(key);
+    if (value !== undefined && value !== "") env[key] = value;
+  }
+  return env;
+}
+
 function spawnPython(ctx) {
   const python = resolvePython(ctx);
   const child = spawn(python, ["server.py"], {
     cwd: VOICE_SERVER_DIR,
     env: {
       ...process.env,
+      ...pyConfigEnv(),
       VOICE_PY_PORT: String(ctx.pyPort),
       KOKORO_VOICE: ctx.kokoroVoice,
       KOKORO_SPEED: ctx.kokoroSpeed,
@@ -374,17 +411,16 @@ async function clearStatusFile() {
 }
 
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
-  const port = await findFreePort(opts.port, opts.host);
-  if (port === null) {
-    console.error(`[local-voice] no free port found starting from ${opts.port}`);
+  // The configured port is CANONICAL: bind it or exit. Never scan for a free
+  // one — a silent shift makes this instance answer for another and orphans the
+  // status-file slot consumers discover us through.
+  const port = opts.port;
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    console.error(`[local-voice] invalid port ${opts.port}`);
     process.exit(1);
   }
-  // Internal port for the Python child — well clear of the public range.
-  const pyPort = await findFreePort(7600, "127.0.0.1");
-  if (pyPort === null) {
-    console.error("[local-voice] no free internal port for the voice-server");
-    process.exit(1);
-  }
+  // Internal port for the Python child — OS-assigned, private to this pair.
+  const pyPort = await reserveInternalPort();
 
   const ctx = { ...opts, port, pyPort, pyReady: false };
 
@@ -482,6 +518,19 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     });
   });
 
+  // Canonical-port contract: refuse to start when the port is taken. Do NOT
+  // touch the status file here — it belongs to whoever already owns the port.
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `[local-voice] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
+      );
+      shuttingDown = true;
+      try { pyChild.kill("SIGTERM"); } catch {}
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(port, opts.host, async () => {
     await writeStatusFile(ctx);
     console.log(

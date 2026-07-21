@@ -43,7 +43,7 @@ const VOICE_STATUS_FILES = [
 ];
 // Kanban Loop discovery: the HUD's Tasks panel mirrors the board and creates
 // cards by reaching the kanban-loop Fitting server-to-server (its own port,
-// discovered here — not hardcoded, since findFreePort may bump 7089).
+// discovered here — not hardcoded, since its port is configurable).
 const KANBAN_STATUS_FILE = path.join(STATUS_ROOT, "kanban-loop.json");
 // Connector CLIs (spotify/google/trello): sibling fittings when installed under
 // apm_modules/_local, seed paths in dev. Connectors self-resolve their tokens
@@ -68,14 +68,25 @@ const DEVENV_STATUS_FILE = path.join(STATUS_ROOT, "dev-env.json");
 // is an alternative front-end to the web channel, not a second concurrent one.
 const CHANNEL_ID = "web";
 
+// Composition config arrives from Garrison's own-port runner NAMESPACED:
+// GARRISON_<ID>_<KEY> — the fitting id stripped of every non-alphanumeric, the
+// config_schema key's separators normalised to "_", both upper-cased (see
+// ownPortConfigEnv in src/lib/own-port-lifecycle.ts, which is the authority).
+// jarvis-os + `vad_redemption_ms` → GARRISON_JARVISOS_VAD_REDEMPTION_MS. Bare
+// names are NOT delivered any more. The runner-injected GARRISON_* env
+// (GATEWAY_URL, DEVENV_URL, GATEWAY_HOST/PORT, COMPOSITION_ID, HOME) is not
+// composition config and keeps its own names.
+const cfg = (key) => process.env[`GARRISON_JARVISOS_${key}`];
+
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.JARVIS_PORT || 7092),
-    host: process.env.JARVIS_HOST || "127.0.0.1",
-    gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
+    port: Number(cfg("PORT") || 7092),
+    host: cfg("BIND_HOST") || "127.0.0.1",
+    // config_schema `gateway_url` overrides; else the runner-injected gateway.
+    gatewayUrl: cfg("GATEWAY_URL") || process.env.GARRISON_GATEWAY_URL || "",
     devEnvUrl: process.env.GARRISON_DEVENV_URL || "",
-    tlsCert: process.env.JARVIS_TLS_CERT || "",
-    tlsKey: process.env.JARVIS_TLS_KEY || ""
+    tlsCert: cfg("TLS_CERT") || "",
+    tlsKey: cfg("TLS_KEY") || ""
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -200,13 +211,13 @@ function handleEndpointing(res) {
     return Number.isFinite(n) && n > 0 && n <= 1 ? n : d;
   };
   jsonRes(res, 200, {
-    redemptionMs: num(process.env.VAD_REDEMPTION_MS, 550),
-    minMs: num(process.env.ENDPOINT_MIN_MS, 350),
-    maxMs: num(process.env.ENDPOINT_MAX_MS, 2600),
-    bargeinProb: prob(process.env.BARGEIN_PROB, 0.55),
-    bargeinConfirmMs: num0(process.env.BARGEIN_CONFIRM_MS, 350),
+    redemptionMs: num(cfg("VAD_REDEMPTION_MS"), 550),
+    minMs: num(cfg("ENDPOINT_MIN_MS"), 350),
+    maxMs: num(cfg("ENDPOINT_MAX_MS"), 2600),
+    bargeinProb: prob(cfg("BARGEIN_PROB"), 0.55),
+    bargeinConfirmMs: num0(cfg("BARGEIN_CONFIRM_MS"), 350),
     // 0 disables the hands-free inactivity standby (session stays armed forever)
-    idleTimeoutMs: num0(process.env.WAKE_IDLE_TIMEOUT_S, 90) * 1000
+    idleTimeoutMs: num0(cfg("WAKE_IDLE_TIMEOUT_S"), 90) * 1000
   });
 }
 
@@ -225,11 +236,11 @@ async function runRead(cmd, args, cwd, timeout = 4000) {
   return stdout.trim();
 }
 
-// PROJECT_ROOT env (config_schema project_root) wins; otherwise whatever repo
+// config_schema `project_root` (GARRISON_JARVISOS_PROJECT_ROOT) wins; otherwise whatever repo
 // the server itself runs inside (the Fitting installs under the composition,
 // which lives in the project checkout, so this resolves without config).
 async function resolveProjectRoot() {
-  const fromEnv = process.env.PROJECT_ROOT?.trim();
+  const fromEnv = cfg("PROJECT_ROOT")?.trim();
   if (fromEnv) return existsSync(fromEnv) ? fromEnv : null;
   try { return await runRead("git", ["rev-parse", "--show-toplevel"], process.cwd()); }
   catch { return null; }
@@ -306,7 +317,7 @@ async function computeWorkspaceRoot(opts) {
   const last = readPersistedWorkspace();
   if (last && existsSync(last)) return { root: last, source: "last" };
   // 3. explicit static override
-  const fromEnv = process.env.PROJECT_ROOT?.trim();
+  const fromEnv = cfg("PROJECT_ROOT")?.trim();
   if (fromEnv && existsSync(fromEnv)) return { root: fromEnv, source: "env" };
   // 4. no active project — do NOT fall back to this server's own repo
   return { root: null, source: "none" };
@@ -1302,20 +1313,6 @@ function serveStatic(req, res, distDir) {
   createReadStream(filePath).pipe(res);
 }
 
-async function findFreePort(startPort, host) {
-  const net = await import("node:net");
-  for (let port = startPort; port < startPort + 50; port++) {
-    const free = await new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.once("error", () => resolve(false));
-      srv.once("listening", () => srv.close(() => resolve(true)));
-      srv.listen(port, host);
-    });
-    if (free) return port;
-  }
-  return null;
-}
-
 async function writeStatusFile(opts) {
   await mkdir(STATUS_ROOT, { recursive: true });
   await writeFile(STATUS_FILE, JSON.stringify({
@@ -1334,9 +1331,12 @@ async function clearStatusFile() {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
 
-  const free = await findFreePort(opts.port, opts.host);
-  if (free === null) {
-    console.error(`[jarvis-os] no free port found starting from ${opts.port}`);
+  // The configured port is CANONICAL: bind it or exit. Never scan for a free
+  // one — a silent shift makes this instance answer for another and orphans the
+  // status-file slot the HUD is discovered through.
+  const port = opts.port;
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    console.error(`[jarvis-os] invalid port ${opts.port}`);
     process.exit(1);
   }
   // Optional TLS so mobile browsers get a secure context (getUserMedia / mic
@@ -1352,7 +1352,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       tls = null;
     }
   }
-  const liveOpts = { ...opts, port: free, scheme: tls ? "https" : "http" };
+  const liveOpts = { ...opts, port, scheme: tls ? "https" : "http" };
 
   const requestHandler = async (req, res) => {
     try {
@@ -1366,7 +1366,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/project" && method === "GET") return handleProject(res, liveOpts);
       if (pathname === "/api/diff" && method === "GET") return handleDiff(res, liveOpts);
       if (pathname === "/api/ambient" && method === "GET") return handleAmbient(res);
-      if (pathname === "/api/ui-config" && method === "GET") return jsonRes(res, 200, { ambient_after_s: Math.max(0, Number(process.env.AMBIENT_AFTER_S || 180) || 0) });
+      if (pathname === "/api/ui-config" && method === "GET") return jsonRes(res, 200, { ambient_after_s: Math.max(0, Number(cfg("AMBIENT_AFTER_S") || 180) || 0) });
       if (pathname === "/api/music" && method === "GET") return handleMusic(res);
       if (pathname === "/api/music/cmd" && method === "POST") return handleMusicCmd(req, res);
       if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
@@ -1457,6 +1457,17 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || "", upstreamPath));
   });
 
+  // Canonical-port contract: refuse to start when the port is taken. Do NOT
+  // touch the status file here — it belongs to whoever already owns the port.
+  server.once("error", (err) => {
+    if (err?.code === "EADDRINUSE") {
+      console.error(
+        `[jarvis-os] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(liveOpts.port, liveOpts.host, async () => {
     await writeStatusFile(liveOpts);
     console.log(`[jarvis-os] listening on ${liveOpts.scheme}://${liveOpts.host}:${liveOpts.port} (gateway=${liveOpts.gatewayUrl})`);

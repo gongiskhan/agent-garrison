@@ -20,9 +20,7 @@ dependencies:
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
-    - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/kanban-loop
-    - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/opencode-runtime
@@ -71,36 +69,6 @@ x-garrison:
             port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
-        - id: local-voice
-          config:
-            port: 7094
-            bind_host: 127.0.0.1
-            kokoro_voice: bm_george
-            kokoro_speed: 1
-            whisper_model: large-v3
-            whisper_lang: pt
-            tts_force_lang: pt
-            stt_engine: whisper-cpp
-            whisper_cpp_model: ~/.cache/whisper-cpp/ggml-large-v3.bin
-            stt_normalize_gain: 'on'
-            lang_voices: ''
-            piper_voices: ''
-            wake_word: 'off'
-            python_bin: ''
-        - id: jarvis-os
-          config:
-            port: 7097
-            bind_host: 127.0.0.1
-            gateway_url: ''
-            tls_cert: ''
-            tls_key: ''
-            vad_redemption_ms: 550
-            endpoint_min_ms: 350
-            endpoint_max_ms: 2600
-            bargein_confirm_ms: 350
-            bargein_prob: 0.55
-            wake_idle_timeout_s: 90
-            project_root: ''
       gateway:
         - id: http-gateway
           config:

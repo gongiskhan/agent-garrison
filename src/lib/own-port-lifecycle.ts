@@ -209,30 +209,6 @@ export async function vaultEnvForEntry(entry: LibraryEntry): Promise<Record<stri
 // GARRISON_GATEWAY_URL — projecting an (often empty) apm.yml value would clobber it.
 const OWN_PORT_CONFIG_ENV_SKIP = new Set(["port", "bind_host", "host", "gateway_url"]);
 
-// Project an own-port Fitting's SELECTED config into the runtime spawn env under
-// bare UPPER_SNAKE names (whisper_lang → WHISPER_LANG, kokoro_voice → KOKORO_VOICE),
-// which is what the Fitting servers actually read. Without this the apm.yml config
-// is decorative at runtime — the process runs on its server.mjs defaults, which is
-// why pinning the STT language (whisper_lang) never took effect. Empty strings are
-// skipped so an unset apm.yml value can't override a sensible default; objects and
-// the collision-prone keys above are skipped too.
-//
-// NOTE: none of these keys are in TRACKED_ENV_KEYS, so adding this env to a spawn
-// changes the delivered config but NOT the env-drift fingerprint — a caller can
-// safely project config without perturbing the heal/restart decision.
-export function ownPortConfigEnv(config: Record<string, unknown>): Record<string, string> {
-  const norm = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(config ?? {})) {
-    if (value === undefined || value === null) continue;
-    if (typeof value === "object") continue;
-    if (OWN_PORT_CONFIG_ENV_SKIP.has(key)) continue;
-    const str = String(value);
-    if (str === "") continue;
-    env[norm(key)] = str;
-  }
-  return env;
-}
 
 export interface StartResult {
   ok: boolean;

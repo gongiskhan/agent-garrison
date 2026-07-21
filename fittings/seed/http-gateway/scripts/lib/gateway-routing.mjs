@@ -53,6 +53,11 @@ function promptIdle(lines) {
 // again. Escape is the last-resort fallback for an unrecognised picker.
 async function injectSlash(session, command, timeoutMs) {
   session.writeKeys(command + "\r");
+  // A session without a screen reader (Garrison's routing stubs, and any caller
+  // driving a non-TUI transport) can't be polled for the confirm modal. Degrade
+  // to Garrison's plain behaviour — write the command and let the caller's
+  // settle wait cover the re-render — instead of throwing on session.screen().
+  if (typeof session.screen !== "function") return true;
   const end = Date.now() + timeoutMs;
   let escaped = false;
   while (Date.now() < end) {
