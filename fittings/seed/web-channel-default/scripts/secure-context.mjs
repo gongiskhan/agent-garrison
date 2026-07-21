@@ -32,7 +32,7 @@ function parseArgs(argv) {
   const out = {
     check: argv.includes("--check"),
     serve: argv.includes("--serve"),
-    port: Number(process.env.WEB_CHANNEL_PORT || 27083)
+    port: Number(process.env.WEB_CHANNEL_PORT || 7083)
   };
   const pi = argv.indexOf("--port");
   if (pi !== -1 && argv[pi + 1]) out.port = Number(argv[pi + 1]);
@@ -76,7 +76,7 @@ function tailnetUrlForPort(port, status) {
 }
 
 // Deterministic serve port, matching scripts/tailnet-serve-views.mjs so the two
-// helpers agree and stay idempotent (27083 -> 8483).
+// helpers agree and stay idempotent (7083 -> 8483).
 function pickServePort(localPort, used) {
   let p = 8400 + (localPort % 1000);
   while (used.has(p) || p === 8443 || p === 8444 || p === 8445 || p === 443) p += 1;
@@ -84,7 +84,7 @@ function pickServePort(localPort, used) {
 }
 
 // Report the secure-context posture for the given port. Never throws.
-export function checkSecureContext(port = 27083) {
+export function checkSecureContext(port = 7083) {
   const methods = [];
   const tlsCert = process.env.WEB_CHANNEL_TLS_CERT?.trim();
   const tlsKey = process.env.WEB_CHANNEL_TLS_KEY?.trim();

@@ -41,7 +41,7 @@ function parseArgs(argv) {
     // Port precedence (house convention, same as improver/ports-default):
     // runner-projected composition config first (per-instance, e.g. main=7083
     // vs codex=27083), then the legacy explicit env (tests), then the default.
-    port: Number(process.env.GARRISON_WEBCHANNELDEFAULT_PORT || process.env.WEB_CHANNEL_PORT || 27083),
+    port: Number(process.env.GARRISON_WEBCHANNELDEFAULT_PORT || process.env.WEB_CHANNEL_PORT || 7083),
     host: process.env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST || process.env.WEB_CHANNEL_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
     tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
@@ -57,7 +57,7 @@ function parseArgs(argv) {
   }
   if (!out.gatewayUrl) {
     const h = process.env.GARRISON_GATEWAY_HOST || "127.0.0.1";
-    const p = process.env.GARRISON_GATEWAY_PORT || "24777";
+    const p = process.env.GARRISON_GATEWAY_PORT || "4777";
     out.gatewayUrl = `http://${h}:${p}`;
   }
   return out;

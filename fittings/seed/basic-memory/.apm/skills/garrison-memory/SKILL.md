@@ -49,7 +49,7 @@ so the index does not rot:
   notes, resolving contradictions, and rewriting relative dates ("yesterday",
   "last week") to absolute ones. Each proposal cites the real source note
   path(s); a fabricated path is dropped. Proposals land in the Improver's review
-  queue (`:27093`) under rule `memory-dream` and apply to the vault only on
+  queue (`:7093`) under rule `memory-dream` and apply to the vault only on
   approval.
 
 The dream pass runs on ONE machine (the `memory_primary` one) so machines

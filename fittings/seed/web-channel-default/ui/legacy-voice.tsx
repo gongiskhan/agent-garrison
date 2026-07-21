@@ -114,7 +114,7 @@ function MessageBubble({
       const fittingId = match[1];
       const rest = match[2] ? `/${match[2]}` : "";
       // Open the parent shell route. Web-channel is typically a different
-      // origin from the Garrison Next.js shell (port 27083 vs 27777), so we
+      // origin from the Garrison Next.js shell (port 7083 vs 7777), so we
       // can't navigate same-origin — show the URL in a new tab for the user
       // to resolve manually.
       window.open(`/fitting/${fittingId}${rest}`, "_blank", "noopener,noreferrer");

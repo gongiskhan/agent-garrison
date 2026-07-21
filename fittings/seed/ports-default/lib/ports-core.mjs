@@ -20,7 +20,7 @@ export function bareAddress(address) {
 }
 
 // Split an "address:port" token into { address, port }. Handles:
-//   IPv4:            127.0.0.1:27077 / 0.0.0.0:23702 / 10.0.0.4:8080
+//   IPv4:            127.0.0.1:7077 / 0.0.0.0:23702 / 10.0.0.4:8080
 //   IPv4 wildcard:   *:21118
 //   iface scope:     127.0.0.53%lo:53
 //   IPv6 bracketed:  [::1]:631 / [::]:22 / [fd7a:115c::a52f]:443

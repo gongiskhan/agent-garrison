@@ -78,7 +78,7 @@ function internalToken() {
 }
 
 async function defaultConnectorAuthEnv(connectorId, fetchImpl) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
   const res = await fetchImpl(`${base}/api/connectors/${encodeURIComponent(connectorId)}/auth-env`, {
     method: "POST",
     headers: { "x-garrison-internal": internalToken() }
@@ -149,7 +149,7 @@ function defaultRunCommand({ command, argv, cwd, timeoutMs = 300000, onChunk }) 
 // mechanism R12's "a different model set in the composition" needs, with no
 // caller-specific naming baked into the engine itself.
 async function visionResolve(observation, step, mode, contextTag, fetchImpl = globalThis.fetch) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
   let res;
   try {
     res = await fetchImpl(`${base}/api/automations/vision`, {
@@ -233,7 +233,7 @@ function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, 
 }
 
 function browserViewportUrl() {
-  return process.env.GARRISON_BROWSER_URL || "http://127.0.0.1:27084/viewport";
+  return process.env.GARRISON_BROWSER_URL || "http://127.0.0.1:7084/viewport";
 }
 
 // ── the run loop ────────────────────────────────────────────────────────────

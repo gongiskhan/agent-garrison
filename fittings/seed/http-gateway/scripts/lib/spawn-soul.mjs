@@ -267,7 +267,7 @@ export function writeUserTurn(child, content, turnOpts) {
 
 /**
  * Interactive-mode spawn: POST to Garrison Next.js's /api/interactive/spawn-soul-tab.
- * The endpoint opens a session tab in the Dev Env Fitting (port 27086), constructs the
+ * The endpoint opens a session tab in the Dev Env Fitting (port 7086), constructs the
  * claude command (incorporating tier flags), and types the initial prompt over
  * PTY. Returns a terminal_tab_id which the caller stores on the SessionState
  * so subsequent respawns / kills can target the same tab.

@@ -692,6 +692,29 @@ describe("Codex secondary-instance isolation", () => {
     }
   });
 
+  // 2026-07-21: THIRTEEN seeds still carried codex-family (2xxxx) default
+  // ports — legacy of this checkout’s codex-secondary past. A 2xxxx default is
+  // never right in a committed seed: dev’s offset is 0, so the committed value
+  // is what every profile starts from, and no offset moves 27xxx out of the
+  // codex range. The sweep renumbered them all (-20000); this pins the family.
+  it("keeps every seed fitting’s canonical port in the base family", () => {
+    for (const id of readdirSync(path.join(ROOT, "fittings", "seed"))) {
+      const apmFile = path.join(ROOT, "fittings", "seed", id, "apm.yml");
+      if (!existsSync(apmFile)) continue;
+      const meta = readYaml(apmFile)["x-garrison"] ?? {};
+      const schema = Array.isArray(meta.config_schema)
+        ? meta.config_schema.find((entry: { key?: string }) => entry?.key === "port")
+        : undefined;
+      const canonical =
+        typeof meta.default_port === "number" ? meta.default_port : schema?.default;
+      if (typeof canonical !== "number") continue;
+      expect(
+        canonical < 20000,
+        `${id} claims canonical port ${canonical} — codex family; commit the base (7xxx) value`
+      ).toBe(true);
+    }
+  });
+
   it("ships selected operative instructions without executable primary-home literals", () => {
     const browserSkill = readFileSync(
       path.join(ROOT, "fittings", "seed", "browser-default", ".apm", "skills", "garrison-browser", "SKILL.md"),

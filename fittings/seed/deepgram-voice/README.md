@@ -1,7 +1,7 @@
 # deepgram-voice
 
 Voice Fitting (channels role, own-port). A stand-alone server (default port
-**27085**) that proxies
+**7085**) that proxies
 [Deepgram](https://deepgram.com) speech-to-text and text-to-speech so the API
 key stays on the host and never reaches the browser.
 

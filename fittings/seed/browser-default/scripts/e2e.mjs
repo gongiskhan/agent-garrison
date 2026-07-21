@@ -1,8 +1,8 @@
 // End-to-end verification of the canvas reliability fixes.
-// Run with the Fitting up on BROWSER_BASE (default http://127.0.0.1:27084).
+// Run with the Fitting up on BROWSER_BASE (default http://127.0.0.1:7084).
 import { chromium as test } from "playwright";
 
-const BASE = process.env.BROWSER_BASE || "http://127.0.0.1:27084";
+const BASE = process.env.BROWSER_BASE || "http://127.0.0.1:7084";
 
 async function createTab(url) {
   const res = await fetch(`${BASE}/tabs`, {

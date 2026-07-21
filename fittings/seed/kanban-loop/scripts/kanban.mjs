@@ -487,9 +487,9 @@ export function batchGatewayRunFn(gatewayUrl) {
 }
 
 // The gateway URL the tick dispatches through: explicit env, else the conventional
-// :24777 (matching the board server + web channel). The runner injects the live URL.
+// :4777 (matching the board server + web channel). The runner injects the live URL.
 function resolveGatewayUrl() {
-  return process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`;
+  return process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`;
 }
 
 // The scheduler tick runs out-of-band (launchd) with no operative, so PING the gateway

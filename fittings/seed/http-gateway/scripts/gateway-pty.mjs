@@ -54,7 +54,7 @@ import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedb
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
-const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "24777");
+const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
 const SYSTEM_PROMPT_PATH = process.env.GARRISON_SYSTEM_PROMPT_PATH ?? "";
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const COMPOSITION_ID = process.env.AGENT_GARRISON_COMPOSITION ?? path.basename(COMPOSITION_DIR);
@@ -552,7 +552,7 @@ async function loadDispatcher() {
     const controlBase =
       process.env.GARRISON_CONTROL_URL ??
       process.env.GARRISON_BASE_URL ??
-      `http://127.0.0.1:${process.env.GARRISON_APP_PORT ?? "27777"}`;
+      `http://127.0.0.1:${process.env.GARRISON_APP_PORT ?? "7777"}`;
     const r = await fetch(`${controlBase}/api/garrison-control`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) throw new Error(`garrison-control ${r.status}`);
     const j = await r.json();

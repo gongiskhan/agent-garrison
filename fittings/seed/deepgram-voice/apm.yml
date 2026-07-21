@@ -1,6 +1,6 @@
 name: deepgram-voice
 version: 0.1.0
-description: Voice Fitting (channels role, own-port). Stand-alone server on port 27085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
+description: Voice Fitting (channels role, own-port). Stand-alone server on port 7085 that proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side. Channels consume it for push-to-talk and read-aloud.
 target: claude
 type: hybrid
 includes: auto
@@ -8,7 +8,7 @@ x-garrison:
   faculty: connectors
   cardinality_hint: single
   own_port: true
-  default_port: 27085
+  default_port: 7085
   component_shape: plugin
   platforms:
     - all
@@ -16,7 +16,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 27085
+      default: 7085
       description: HTTP port the voice server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

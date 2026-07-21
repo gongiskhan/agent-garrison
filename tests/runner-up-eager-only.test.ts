@@ -113,9 +113,21 @@ describe("up boots only eager views", () => {
 });
 
 describe("operativeEnvForFitting (manual Views start env parity)", () => {
-  it("returns null when no composition is running", async () => {
+  // 2026-07-21: this used to pin `null` when no composition is running — which
+  // meant a Views start while the composition was starting/failed/stopped
+  // spawned the fitting ENV-LESS, so it bound its hardcoded default port
+  // unshifted (prod's jarvis-os landed on dev's 7092 and crash-looped). The
+  // contract now: composition config is static, so it still projects from the
+  // ACTIVE composition; only the live GARRISON_GATEWAY_URL needs a running
+  // record and must be absent here.
+  it("projects the active composition's static config when no composition is running", async () => {
     delete (globalThis as Record<string, unknown>).__agentGarrisonRunner;
-    expect(await operativeEnvForFitting(PLAIN_ID)).toBeNull();
+    const env = await operativeEnvForFitting(PLAIN_ID);
+    expect(env).not.toBeNull();
+    expect(env?.GARRISON_COMPOSITION_ID).toBeDefined();
+    expect(env?.GARRISON_GATEWAY_URL).toBeUndefined();
+    // A fitting no composition selects still yields null.
+    expect(await operativeEnvForFitting("not-a-selected-fitting")).toBeNull();
   });
 
   it("returns the runner env — gateway URL + composition id — for a running composition's fitting", async () => {

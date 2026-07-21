@@ -21,7 +21,7 @@ import { readFile as readFileAsync } from "node:fs/promises";
 // catalog still lets the planner use api_call/local_command/browser steps.
 async function discoverCatalog() {
   try {
-    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
+    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
     const res = await fetch(`${base}/api/library`);
     if (!res.ok) return [];
     const data = await res.json();
@@ -91,7 +91,7 @@ function publishEvent(runId, event) {
 }
 
 const FITTING_ID = "automations";
-const DEFAULT_PORT = 27090;
+const DEFAULT_PORT = 7080;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -306,7 +306,7 @@ async function handle(req, res) {
       const slug = name ? undefined : freshAutomationSlug();
       const params = buildDiscussParams({ name, slug });
       const qs = new URLSearchParams(params).toString();
-      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777").replace(/\/+$/, "");
+      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777").replace(/\/+$/, "");
       return send(res, 200, { fittingId: channel.id, params, url: `${base}/embed/${channel.id}?${qs}` });
     }
     // Plan an automation from a Discuss brief, routed through the Model Router.
@@ -471,8 +471,8 @@ export function createServer() {
 
 export async function startServer() {
   // Port precedence (house convention, same as improver/ports-default): the
-  // runner-projected composition config first (per-instance, e.g. main=7090
-  // vs codex=27090), then the legacy explicit env (tests), then the default.
+  // runner-projected composition config first (per-instance, e.g. main=7080
+  // vs codex=27080), then the legacy explicit env (tests), then the default.
   const host = process.env.GARRISON_AUTOMATIONS_BIND_HOST || process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_AUTOMATIONS_PORT || process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
   assertStatusSlotFree();

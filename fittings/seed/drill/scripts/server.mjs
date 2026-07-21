@@ -319,7 +319,7 @@ function resolveMutationRoot(explicit) {
 }
 
 const FITTING_ID = "drill";
-const DEFAULT_PORT = 27096;
+const DEFAULT_PORT = 7096;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);

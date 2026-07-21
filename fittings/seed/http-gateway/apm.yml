@@ -14,7 +14,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 24777
+      default: 4777
       description: Local gateway port.
     - key: bind_host
       type: string

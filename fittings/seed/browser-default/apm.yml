@@ -8,15 +8,15 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: single
   own_port: true
-  default_port: 27084
+  default_port: 7084
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Headless Chromium substrate (default port 27084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Persistent profile by default (login continuity across restarts); opt-in stealth.
+  summary: Headless Chromium substrate (default port 7084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Persistent profile by default (login continuity across restarts); opt-in stealth.
   config_schema:
     - key: port
       type: integer
-      default: 27084
+      default: 7084
       description: HTTP port the Browser Fitting binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: persistent_profile
       type: boolean

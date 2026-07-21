@@ -65,10 +65,11 @@ export function hostPowerActionsDisabled(env = process.env) {
   return env.GARRISON_DISABLE_HOST_DAEMONS === "1";
 }
 
-// 27092, not 27090: the automations engine holds 27090 as its canonical port, and
+// 7094: 7092 belongs to jarvis-os and 7090 to local-voice in the unified base
+// family (2026-07-21 renumbering), and
 // own-port servers bind exactly or exit 1 (no findFreePort shift since 07ba683).
 const DEFAULT_CONFIG = {
-  port: 27092,
+  port: 7094,
   bind_host: "127.0.0.1",
   idle_minutes: 30,
   load_threshold: 1.0,

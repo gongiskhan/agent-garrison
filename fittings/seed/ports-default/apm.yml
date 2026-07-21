@@ -1,6 +1,6 @@
 name: ports-default
 version: 0.1.0
-description: Ports Fitting for Agent Garrison — lists every listening TCP port on this box, labels each from the ui-fitting status files / owning process, and offers open-in-browser and guarded kill actions. Serves its own React UI on its own port (default 27088).
+description: Ports Fitting for Agent Garrison — lists every listening TCP port on this box, labels each from the ui-fitting status files / owning process, and offers open-in-browser and guarded kill actions. Serves its own React UI on its own port (default 7088).
 target: claude
 type: hybrid
 includes: auto
@@ -8,15 +8,15 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: single
   own_port: true
-  default_port: 27088
+  default_port: 7088
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Scans listening TCP sockets (`ss -tlnpH` on Linux, `lsof -iTCP -sTCP:LISTEN -P -n` on macOS) every few seconds and on demand, labelling each port from the ~/.garrison/ui-fittings/*.json status files (fittingId), then the owning pid + command line. Each row shows the bind address with a loopback badge, an open-over-tailnet link (hidden for loopback binds), open-in-Browser-pane, copy URL, and a guarded kill (SIGTERM, then SIGKILL). Serves a phone-friendly React UI on its own port (default 27088).
+  summary: Scans listening TCP sockets (`ss -tlnpH` on Linux, `lsof -iTCP -sTCP:LISTEN -P -n` on macOS) every few seconds and on demand, labelling each port from the ~/.garrison/ui-fittings/*.json status files (fittingId), then the owning pid + command line. Each row shows the bind address with a loopback badge, an open-over-tailnet link (hidden for loopback binds), open-in-Browser-pane, copy URL, and a guarded kill (SIGTERM, then SIGKILL). Serves a phone-friendly React UI on its own port (default 7088).
   config_schema:
     - key: port
       type: integer
-      default: 27088
+      default: 7088
       description: HTTP port the Ports server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

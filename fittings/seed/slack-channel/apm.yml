@@ -18,7 +18,7 @@ x-garrison:
       description: Local port the Slack webhook receiver binds to.
     - key: gateway_url
       type: string
-      default: http://127.0.0.1:24777
+      default: http://127.0.0.1:4777
       description: Garrison HTTP gateway base URL.
     - key: chat_timeout_ms
       type: integer

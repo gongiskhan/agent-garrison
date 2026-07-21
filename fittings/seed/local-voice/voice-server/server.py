@@ -20,6 +20,7 @@ Run: .venv\\Scripts\\python.exe server.py   (or start-voice-server.vbs)
 
 import asyncio
 import atexit
+import signal
 import glob
 import io
 import json
@@ -266,6 +267,18 @@ def load_whisper():
             print(f"whisper cuda failed ({e}); falling back to cpu int8")
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8"), "cpu"
 
+def _reap_whisper_cpp():
+    global _whisper_cpp_proc
+    proc = _whisper_cpp_proc
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
 def start_whisper_cpp():
     """Spawn whisper-server (whisper.cpp, Metal GPU) as a supervised child and
     return (proc, port). The model stays warm in the child; /stt proxies to it.
@@ -310,7 +323,14 @@ def start_whisper_cpp():
     _whisper_cpp_proc = subprocess.Popen(
         args, stdout=_whisper_cpp_log, stderr=subprocess.STDOUT
     )
-    atexit.register(lambda: _whisper_cpp_proc and _whisper_cpp_proc.terminate())
+    # atexit alone is NOT enough: the fitting wrapper stops us with SIGTERM,
+    # and Python's default SIGTERM handling skips atexit — every up/down cycle
+    # orphaned one whisper-server holding a ~3 GB model (observed: five of
+    # them starving an 8 GB box until startup timed out). Route the signals
+    # through sys.exit so BOTH paths reap the child.
+    atexit.register(_reap_whisper_cpp)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
     # Wait until the HTTP port answers (model load + Metal init).
     base = f"http://127.0.0.1:{_whisper_cpp_port}"
     for _ in range(120):
@@ -322,6 +342,10 @@ def start_whisper_cpp():
             return
         except Exception:
             time.sleep(0.5)
+    # Reap the half-started child NOW: raising here aborts uvicorn startup, and
+    # an abandoned whisper-server would keep the model resident while Garrison
+    # heal-restarts us — the next attempt then times out even harder.
+    _reap_whisper_cpp()
     raise RuntimeError(f"whisper-server did not become ready in time (see {log_path})")
 
 

@@ -12,7 +12,7 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries, type CompositionV4 } from "./compositions";
 import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
-import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
+import { compositionEnvById, readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import {
   isOperativeBound,
   listSpawnRecordIds,
@@ -789,7 +789,24 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
   }
-  return null;
+  // No RUNNING composition selects this fitting — but its composition config is
+  // STATIC, so project it from the active composition instead of returning
+  // nothing. Without this, a Views start while the composition is starting,
+  // failed or stopped spawned the fitting env-less: it fell back to its
+  // hardcoded seed default port, unshifted by the profile — invisible on a
+  // single-instance box, a cross-instance port collision (and a crash loop:
+  // failed -> env-less start -> failed) with prod and dev side by side, which
+  // is exactly how prod's jarvis-os landed on dev's 7092 on 2026-07-21.
+  // The live GARRISON_GATEWAY_URL is the only entry that genuinely needs a
+  // running record; callers merge vault env separately (route fallback).
+  const projected = await compositionEnvById();
+  const config = projected.byId[fittingId];
+  if (!config) return null;
+  // The running path merges vault secrets above; the fallback must too, or a
+  // vault-consuming fitting started while its composition is down comes up
+  // keyless (the route only adds vault env when this function returns null).
+  const entry = (await readLibrary()).find((e) => e.id === fittingId);
+  return { ...(entry ? await vaultEnvForEntry(entry) : {}), ...config };
 }
 
 // Exported for the eager-lifecycle vitest gate; the app reaches this through

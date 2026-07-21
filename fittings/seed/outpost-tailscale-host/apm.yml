@@ -1,6 +1,6 @@
 name: outpost-tailscale-host
 version: 0.2.0
-description: Garrison Outpost — remote Mac bridge. Stand-alone Fitting with own React UI on its own port (default 27082); proxies to the outpost-host daemon on 127.0.0.1:23702.
+description: Garrison Outpost — remote Mac bridge. Stand-alone Fitting with own React UI on its own port (default 7082); proxies to the outpost-host daemon on 127.0.0.1:23702.
 target: claude
 type: hybrid
 includes: auto
@@ -8,15 +8,15 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: multi
   own_port: true
-  default_port: 27082
+  default_port: 7082
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Outpost bridge for Tailscale-connected remote Macs. UI server on port 27082 lists registered outposts, surfaces connection status, and forwards RPC calls to the outpost-host daemon.
+  summary: Outpost bridge for Tailscale-connected remote Macs. UI server on port 7082 lists registered outposts, surfaces connection status, and forwards RPC calls to the outpost-host daemon.
   config_schema:
     - key: port
       type: integer
-      default: 27082
+      default: 7082
       description: HTTP port the outpost UI server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

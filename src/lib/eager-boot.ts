@@ -135,7 +135,7 @@ export interface EagerBootOptions {
 // prod and dev running side by side it is fatal — prod's eager fittings bound
 // codex's ports and answered for the wrong instance. Best-effort: a composition
 // that cannot be read must not stop the boot, it just yields no projection.
-async function compositionEnvById(): Promise<{
+export async function compositionEnvById(): Promise<{
   byId: Record<string, Record<string, string>>;
   compositionId: string | null;
 }> {

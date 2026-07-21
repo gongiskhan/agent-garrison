@@ -2239,10 +2239,10 @@ function parseArgs(argv) {
     cwd: projectRoot(),
     // Default to the gateway's conventional URL (like the web channel) so the board can
     // dispatch agent-list runs even when GARRISON_GATEWAY_URL isn't explicitly injected.
-    // The runner injects the live URL; this default covers the common :24777 gateway.
+    // The runner injects the live URL; this default covers the common :4777 gateway.
     gatewayUrl:
       process.env.GARRISON_GATEWAY_URL ||
-      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`,
+      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`,
     cap: Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10)
   };
   for (let i = 0; i < argv.length; i++) {

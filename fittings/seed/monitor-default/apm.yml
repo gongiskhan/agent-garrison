@@ -11,11 +11,11 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Walks the Garrison process tree, captures stdout/stderr from spawn-helper-wrapped children, and serves a React UI on its own port (default 27077). Also shows a system-vitals panel (CPU load, memory, per-mount disk usage, network throughput, and the state of garrison-* systemd user units on Linux). Strictly read-only and display-only; never kills, signals, pauses, starts, or restarts processes or units.
+  summary: Walks the Garrison process tree, captures stdout/stderr from spawn-helper-wrapped children, and serves a React UI on its own port (default 7077). Also shows a system-vitals panel (CPU load, memory, per-mount disk usage, network throughput, and the state of garrison-* systemd user units on Linux). Strictly read-only and display-only; never kills, signals, pauses, starts, or restarts processes or units.
   config_schema:
     - key: port
       type: integer
-      default: 27077
+      default: 7077
       description: HTTP port the Monitor server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

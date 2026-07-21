@@ -11,7 +11,7 @@
 //   node heartbeat.mjs daemon    # tick every cadence_minutes until killed
 
 const cadenceMinutes = Number(process.env.GARRISON_HEARTBEAT_MINUTES ?? "40");
-const gatewayUrl = process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:24777/jobs";
+const gatewayUrl = process.env.GARRISON_GATEWAY_URL ?? "http://127.0.0.1:4777/jobs";
 
 const TICK_PAYLOAD = {
   kind: "heartbeat-tick",

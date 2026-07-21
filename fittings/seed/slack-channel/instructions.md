@@ -89,7 +89,7 @@ Or DM the bot directly. The reply lands threaded under your message.
 - **401 bad signature** — system clock drift. The adapter rejects
   requests older than 5 minutes.
 - **No reply** — check the gateway is up (`curl
-  http://127.0.0.1:24777/health` returns `ok`).
+  http://127.0.0.1:4777/health` returns `ok`).
 - **Reply takes minutes** — long tool-using turns can; the gateway
   serializes turns through its `inflight` chain, so concurrent
   Slack messages will queue.

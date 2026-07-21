@@ -8,7 +8,7 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: single
   own_port: true
-  default_port: 27092
+  default_port: 7094
   component_shape: plugin
   # DETACHED on purpose: the idle watcher must outlive any single operative. If it
   # were operative-bound it would stop on `down`, and then the box could never
@@ -25,14 +25,14 @@ x-garrison:
     request, broadcasts a 10-second warning to connected clients, runs `sync`, then POSTs
     the Compute Engine suspend call using the metadata-server token (no SDK, no gcloud).
     Also detects resume (wall-vs-monotonic divergence) and health-probes the other
-    own-port fittings. Serves a mobile-first React UI (default port 27092) with the live
+    own-port fittings. Serves a mobile-first React UI (default port 7094) with the live
     countdown, a two-step Suspend Now button, the Keep Awake pin, per-signal live values,
     and today/7-day awake-hours. NOTE on this box: the default service-account token lacks
     the compute scope, so the suspend POST returns 403 and the UI surfaces that honestly.
   config_schema:
     - key: port
       type: integer
-      default: 27092
+      default: 7094
       description: HTTP port the Power server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

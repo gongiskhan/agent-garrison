@@ -39,10 +39,10 @@ anyway. Long-running turns are tolerated by the gateway's
 
 ## Default port
 
-The default bind is `127.0.0.1:24777` (set in `apm.yml`). Override
+The default bind is `127.0.0.1:4777` (set in `apm.yml`). Override
 via the `port` and `bind_host` config keys per composition. Channel
 Fittings should read the gateway URL from `GATEWAY_URL` (env) and
-fall back to `http://127.0.0.1:24777`.
+fall back to `http://127.0.0.1:4777`.
 
 ## Execution layer — the warm pool, HOT vs BOOT (s2 / pool-collapse)
 

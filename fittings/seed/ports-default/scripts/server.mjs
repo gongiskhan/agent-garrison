@@ -38,7 +38,7 @@ const FITTING_ID = "ports-default";
 // decorative. The runner-projected name wins; the bare name stays for standalone use.
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 27088),
+    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 7088),
     host: process.env.GARRISON_PORTSDEFAULT_BIND_HOST || process.env.PORTS_BIND_HOST || "127.0.0.1",
     parentPid: Number(process.env.GARRISON_PARENT_PID || 0),
     scanMs: Number(
