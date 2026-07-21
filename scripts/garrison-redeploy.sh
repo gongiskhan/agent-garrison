@@ -80,6 +80,19 @@ if ! curl -sf -o /dev/null --max-time 3 "$BASE/api/compositions"; then
   exit 1
 fi
 
+# --- 3b. unlock the vault on the fresh server -------------------------------
+# The vault is keychain-sealed (no passphrase), so unlocking is non-interactive
+# by design. A fresh server process boots LOCKED, and up() fails loud on a
+# locked vault whenever the composition pins an account (a named pin throws,
+# account: auto HOLDs with every token unreadable) - so unlock BEFORE up. This
+# also heals any vault-consuming fitting the eager boot started keyless. A
+# vault this key cannot open (legacy passphrase seal) stays locked and up()
+# reports it exactly as before.
+say "unlocking the vault (keychain-sealed)"
+curl -sf -X POST --max-time 15 -H 'content-type: application/json' -d '{}' \
+  "$BASE/api/vault/unlock" >/dev/null \
+  || echo "[redeploy] vault unlock failed - up may HOLD on account: auto"
+
 # --- 4. bring the operative + eager fittings back on the new code -----------
 say "starting operative + eager fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null

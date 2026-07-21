@@ -20,6 +20,43 @@ interface AccountInfo {
   needs_relogin?: boolean;
   status: "ready" | "missing-token" | "vault-locked";
   ageDays: number | null;
+  enabled: boolean;
+  ceiling: number;
+}
+
+interface UsageWindow {
+  pct: number;
+  resetAt: string | null;
+  status: string | null;
+}
+
+interface AccountUsage {
+  fiveHour: UsageWindow;
+  weekly: UsageWindow;
+  status: string | null;
+  probedAt: string;
+  error?: string;
+}
+
+interface JudgedCandidate {
+  name: string;
+  enabled: boolean;
+  ceiling: number;
+  tokenReady: boolean;
+  usage: AccountUsage | null;
+  effectivePct: number | null;
+  eligible: boolean;
+  reason: string | null;
+}
+
+interface PaymasterPayload {
+  accounts: AccountInfo[];
+  decision: {
+    pick: string | null;
+    candidates: JudgedCandidate[];
+    nearestResetAt: string | null;
+  };
+  settings: { freshnessTtlMinutes: number; probeIntervalMinutes: number };
 }
 
 interface LoginStatus {
@@ -80,12 +117,15 @@ export function AccountField({
           style={{ flex: 1 }}
         >
           <option value="">machine login (default)</option>
+          <option value="auto">auto - Paymaster picks by usage</option>
           {accounts.map((account) => (
             <option key={account.name} value={account.name}>
               {accountOptionLabel(account)}
             </option>
           ))}
-          {value && !selected ? <option value={value}>{value} · not in registry</option> : null}
+          {value && value !== "auto" && !selected ? (
+            <option value={value}>{value} · not in registry</option>
+          ) : null}
         </select>
         <button
           type="button"
@@ -122,6 +162,14 @@ export function AccountField({
           {selected.needs_relogin ? " · a session under this account hit an auth error; re-login." : ""}
         </div>
       ) : null}
+      {value === "auto" ? (
+        <div className="hint" data-testid="account-auto-hint">
+          Each operative spawn runs on the least-utilized eligible account (enabled + under
+          ceiling); when every account is over ceiling the spawn holds instead of burning the
+          window. Delegate sessions ride the operative&apos;s account.
+        </div>
+      ) : null}
+      <PaymasterPanel autoSelected={value === "auto"} onPolicyChange={refresh} />
       {dialogOpen ? (
         <LoginDialog
           initialName={dialogName}
@@ -135,6 +183,303 @@ export function AccountField({
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+// PAYMASTER D11: the panel - every account's enabled toggle, ceiling editor,
+// 5h/weekly utilization bars with reset countdowns, token age, probe freshness,
+// and which account auto would pick right now. Autosaves (no Save buttons):
+// toggles PATCH immediately, ceilings debounce. Numbers only - token values
+// never reach the browser.
+
+function formatCountdown(resetAt: string | null, now: number): string {
+  if (!resetAt) return "";
+  const ms = Date.parse(resetAt) - now;
+  if (!Number.isFinite(ms)) return "";
+  if (ms <= 0) return "resets now";
+  const totalMinutes = Math.round(ms / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `resets in ${days}d ${hours}h`;
+  if (hours > 0) return `resets in ${hours}h ${String(minutes).padStart(2, "0")}m`;
+  return `resets in ${minutes}m`;
+}
+
+function formatAgo(iso: string, now: number): string {
+  const ms = now - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function UsageBar({
+  label,
+  window: win,
+  ceiling,
+  now
+}: {
+  label: string;
+  window: UsageWindow | null;
+  ceiling: number;
+  now: number;
+}) {
+  const pct = win ? Math.min(100, Math.max(0, win.pct)) : null;
+  const over = pct !== null && pct >= ceiling;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 120 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+        <span className="hint">{label}</span>
+        <span style={over ? { color: "var(--alarm, #a33)", fontWeight: 600 } : undefined}>
+          {pct === null ? "-" : `${pct}%`}
+        </span>
+      </div>
+      <div
+        style={{
+          position: "relative",
+          height: 6,
+          background: "var(--rule, #e2ddd2)",
+          borderRadius: 3,
+          overflow: "hidden"
+        }}
+      >
+        {pct !== null ? (
+          <div
+            style={{
+              position: "absolute",
+              inset: "0 auto 0 0",
+              width: `${pct}%`,
+              background: over ? "var(--alarm, #a33)" : "var(--ink, #6b5d3f)",
+              borderRadius: 3
+            }}
+          />
+        ) : null}
+        {ceiling < 100 ? (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: `${Math.min(100, Math.max(0, ceiling))}%`,
+              width: 2,
+              background: "var(--alarm, #a33)",
+              opacity: 0.7
+            }}
+            title={`ceiling ${ceiling}%`}
+          />
+        ) : null}
+      </div>
+      <span className="hint" style={{ fontSize: 10.5 }}>
+        {win ? formatCountdown(win.resetAt, now) : "no data"}
+      </span>
+    </div>
+  );
+}
+
+function PaymasterPanel({
+  autoSelected,
+  onPolicyChange
+}: {
+  autoSelected: boolean;
+  onPolicyChange?: () => void;
+}) {
+  const [data, setData] = useState<PaymasterPayload | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [ceilingDrafts, setCeilingDrafts] = useState<Record<string, string>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingCeilingRef = useRef<Record<string, number>>({});
+
+  const load = useCallback(async (refresh = false) => {
+    try {
+      const response = await fetch(`/api/accounts/paymaster${refresh ? "?refresh=1" : ""}`);
+      if (!response.ok) return;
+      setData((await response.json()) as PaymasterPayload);
+      setNow(Date.now());
+    } catch {
+      /* transient - the panel keeps its last numbers */
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const poll = setInterval(() => void load(), 60_000);
+    // Stable objects; entries are mutated in place.
+    const timers = debounceRef.current;
+    const pending = pendingCeilingRef.current;
+    return () => {
+      clearInterval(poll);
+      for (const timer of Object.values(timers)) clearTimeout(timer);
+      // No-Save-button autosave: an edit made moments before unmount must
+      // still persist - flush pending ceiling saves (fetch survives unmount).
+      for (const [name, pct] of Object.entries(pending)) {
+        void fetch(`/api/accounts/${encodeURIComponent(name)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ceiling: pct })
+        }).catch(() => undefined);
+      }
+    };
+  }, [load]);
+
+  const patchPolicy = useCallback(
+    async (name: string, body: { enabled?: boolean; ceiling?: number }) => {
+      try {
+        await fetch(`/api/accounts/${encodeURIComponent(name)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        void load();
+        onPolicyChange?.();
+      } catch {
+        /* transient */
+      }
+    },
+    [load, onPolicyChange]
+  );
+
+  if (!data || data.accounts.length === 0) return null;
+
+  const byName = new Map(data.decision.candidates.map((candidate) => [candidate.name, candidate]));
+
+  return (
+    <div
+      data-testid="paymaster-panel"
+      style={{
+        border: "1px solid var(--rule)",
+        padding: "10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        marginTop: 2
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 12.5 }}>Paymaster</strong>
+        <span className="hint" data-testid="paymaster-pick">
+          {data.decision.pick
+            ? `auto would pick: ${data.decision.pick}`
+            : `auto would HOLD - every account over ceiling${
+                data.decision.nearestResetAt
+                  ? ` (nearest ${formatCountdown(data.decision.nearestResetAt, now) || "reset pending"})`
+                  : ""
+              }`}
+        </span>
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="btn"
+          data-testid="paymaster-probe-now"
+          disabled={probing}
+          onClick={() => {
+            setProbing(true);
+            void load(true).finally(() => setProbing(false));
+          }}
+        >
+          {probing ? "Probing…" : "Probe now"}
+        </button>
+      </div>
+      {data.accounts.map((account) => {
+        const candidate = byName.get(account.name);
+        const usage = candidate?.usage ?? null;
+        const ceilingDraft = ceilingDrafts[account.name] ?? String(account.ceiling);
+        return (
+          <div
+            key={account.name}
+            data-testid={`paymaster-row-${account.name}`}
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "flex-start",
+              opacity: account.enabled ? 1 : 0.55
+            }}
+          >
+            <div style={{ width: 150, display: "flex", flexDirection: "column", gap: 2 }}>
+              <span className="font-mono" style={{ fontSize: 12 }}>
+                {account.name}
+                {autoSelected && data.decision.pick === account.name ? " (pick)" : ""}
+              </span>
+              <span className="hint" style={{ fontSize: 10.5 }}>
+                {account.label ? `${account.label} · ` : ""}
+                {account.ageDays !== null ? `token ${account.ageDays}d old` : "token age unknown"}
+              </span>
+              <span className="hint" style={{ fontSize: 10.5 }}>
+                {usage
+                  ? `probed ${formatAgo(usage.probedAt, now)}${usage.error ? " · STALE (probe failing)" : ""}`
+                  : "never probed"}
+                {account.needs_relogin ? " · RE-LOGIN NEEDED" : ""}
+              </span>
+              {candidate && !candidate.eligible ? (
+                <span style={{ fontSize: 10.5, color: "var(--alarm, #a33)" }}>{candidate.reason}</span>
+              ) : null}
+            </div>
+            <label
+              className="hint"
+              style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 2 }}
+            >
+              <input
+                type="checkbox"
+                checked={account.enabled}
+                data-testid={`paymaster-enabled-${account.name}`}
+                onChange={(event) => void patchPolicy(account.name, { enabled: event.target.checked })}
+              />
+              enabled
+            </label>
+            <label className="hint" style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 2 }}>
+              ceiling
+              <input
+                className="text"
+                type="number"
+                min={0}
+                max={100}
+                value={ceilingDraft}
+                data-testid={`paymaster-ceiling-${account.name}`}
+                style={{ width: 58 }}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setCeilingDrafts((drafts) => ({ ...drafts, [account.name]: next }));
+                  const prior = debounceRef.current[account.name];
+                  if (prior) clearTimeout(prior);
+                  const pct = Number(next);
+                  // An emptied field must NOT autosave ceiling 0 (0 blocks the
+                  // account entirely) - hold until a real number is typed.
+                  if (next.trim() === "" || !Number.isFinite(pct)) {
+                    delete pendingCeilingRef.current[account.name];
+                    return;
+                  }
+                  pendingCeilingRef.current[account.name] = pct;
+                  debounceRef.current[account.name] = setTimeout(() => {
+                    delete pendingCeilingRef.current[account.name];
+                    void patchPolicy(account.name, { ceiling: pct }).then(() => {
+                      // Drop the draft so the input resyncs to the
+                      // server-normalized value (clamped/rounded, CLI edits).
+                      setCeilingDrafts((drafts) => {
+                        const { [account.name]: _saved, ...rest } = drafts;
+                        return rest;
+                      });
+                    });
+                  }, 600);
+                }}
+              />
+              %
+            </label>
+            <UsageBar label="5h" window={usage?.fiveHour ?? null} ceiling={account.ceiling} now={now} />
+            <UsageBar label="weekly" window={usage?.weekly ?? null} ceiling={account.ceiling} now={now} />
+          </div>
+        );
+      })}
+      <span className="hint" style={{ fontSize: 10.5 }}>
+        Live header probes under each account&apos;s own token - background every{" "}
+        {data.settings.probeIntervalMinutes}m, re-probed at spawn when older than{" "}
+        {data.settings.freshnessTtlMinutes}m. Limits are shared with claude.ai chat and Desktop for
+        the same account.
+      </span>
     </div>
   );
 }

@@ -173,6 +173,15 @@ export function buildPrimaryRuntimeEnv(
   const applyAccountPin = (): { env: Record<string, string>; providerLaunch: false; account?: string } => {
     const account = String(config.account ?? "").trim();
     if (!account) return { env, providerLaunch: false };
+    // PAYMASTER: "auto" is resolved to a concrete account by the runner BEFORE
+    // this pure builder runs. Seeing the literal here means a caller skipped
+    // that step - fail loud instead of reading ANTHROPIC_ACCOUNT__auto.
+    if (account === "auto") {
+      throw new Error(
+        `primary runtime ${descriptor.runtimeId}: account "auto" reached the env builder unresolved - ` +
+          `the runner must resolve it via the Paymaster before building the spawn env.`
+      );
+    }
     const key = accountVaultKey(account);
     const token = secretLookup(key);
     if (!token) {
@@ -264,7 +273,13 @@ export function deriveRuntimeTargets(runtimeEntries: RuntimeEntry[]): RouterTarg
     // RUNTIME-ACCOUNTS-V1: carry the fitting's selected account onto the
     // derived target so the gateway's launch-env builders (stage-b /
     // agent-sdk) pin routed sessions to the same account as the fitting.
-    const account = String(config.account ?? "").trim();
+    // PAYMASTER: "auto" never lands on a derived target - the rotation
+    // decision is made ONCE per operative spawn (in the runner) and delegate
+    // sessions inherit that account through the launch env (sticky sessions,
+    // D10). The literal "auto" would otherwise be read as a vault key name by
+    // the fitting-side launch-env builders.
+    const rawAccount = String(config.account ?? "").trim();
+    const account = rawAccount === "auto" ? "" : rawAccount;
     if (engine === "claude-code") {
       return {
         id: `fitted-${entry.id}`,

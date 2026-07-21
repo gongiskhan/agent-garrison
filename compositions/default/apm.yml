@@ -85,7 +85,8 @@ x-garrison:
             dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
-          config: {}
+          config:
+            account: auto
         - id: garrison-call
           config: {}
         - id: codex-runtime

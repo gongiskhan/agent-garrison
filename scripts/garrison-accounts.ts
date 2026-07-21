@@ -10,12 +10,34 @@
 // (GARRISON_HOME decides both the vault and the registry file; see
 // scripts/garrison-instance.sh env).
 
-import { addAccount, listAccounts, removeAccount } from "../src/lib/accounts";
+import { addAccount, listAccounts, removeAccount, setAccountPolicy } from "../src/lib/accounts";
+import {
+  candidatesFrom,
+  formatDecisionLines,
+  readUsageCache,
+  refreshUsage,
+  resolvePaymaster
+} from "../src/lib/paymaster";
 
 function usage(): never {
-  console.error("usage: tsx scripts/garrison-accounts.ts <list | add <name> [--label <label>] | remove <name>>");
+  console.error(
+    "usage: tsx scripts/garrison-accounts.ts <list | add <name> [--label <label>] | remove <name>\n" +
+      "         | enable <name> | disable <name> | set-ceiling <name> <percent>\n" +
+      "         | usage [--refresh] | resolve>"
+  );
   console.error("       `add` reads the token from STDIN (pipe or paste + Ctrl-D); token never in argv.");
+  console.error("       `usage` prints cached Paymaster numbers (--refresh probes live); `resolve` prints auto's pick.");
   process.exit(2);
+}
+
+async function paymasterDecision(refresh: boolean) {
+  let accounts = await listAccounts();
+  const cache = refresh
+    ? await refreshUsage({ ttlMs: 0, force: true, accounts })
+    : await readUsageCache();
+  // A live refresh can flip needs_relogin either way - re-list for eligibility.
+  if (refresh) accounts = await listAccounts();
+  return resolvePaymaster(candidatesFrom(accounts, cache));
 }
 
 async function readStdin(): Promise<string> {
@@ -37,10 +59,38 @@ async function main(): Promise<void> {
     for (const account of accounts) {
       const age = account.ageDays === null ? "age unknown" : `${account.ageDays}d old`;
       const flags = account.needs_relogin ? " NEEDS-RELOGIN" : "";
+      const policy = `${account.enabled ? "enabled" : "DISABLED"} ceiling ${account.ceiling}%`;
       console.log(
-        `${account.name.padEnd(20)} ${account.status.padEnd(13)} ${age}${account.label ? `  (${account.label})` : ""}${flags}`
+        `${account.name.padEnd(20)} ${account.status.padEnd(13)} ${age}  ${policy}${account.label ? `  (${account.label})` : ""}${flags}`
       );
     }
+    return;
+  }
+
+  if (command === "enable" || command === "disable") {
+    if (!name) usage();
+    await setAccountPolicy(name, { enabled: command === "enable" });
+    console.log(`account "${name}" ${command}d`);
+    return;
+  }
+
+  if (command === "set-ceiling") {
+    const pct = Number(process.argv[4]);
+    if (!name || !Number.isFinite(pct)) usage();
+    const meta = await setAccountPolicy(name, { ceiling: pct });
+    console.log(`account "${name}" ceiling set to ${meta.ceiling ?? 100}%`);
+    return;
+  }
+
+  if (command === "usage" || command === "resolve") {
+    const refresh = command === "resolve" || process.argv.includes("--refresh");
+    const decision = await paymasterDecision(refresh);
+    for (const line of formatDecisionLines(decision)) console.log(line);
+    console.log(
+      decision.pick
+        ? `auto would pick: ${decision.pick}`
+        : `auto would HOLD (no eligible account)${decision.nearestResetAt ? ` - nearest reset ${decision.nearestResetAt}` : ""}`
+    );
     return;
   }
 

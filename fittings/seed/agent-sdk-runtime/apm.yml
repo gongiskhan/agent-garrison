@@ -40,7 +40,7 @@ x-garrison:
     - key: account
       type: string
       default: ""
-      description: RUNTIME-ACCOUNTS-V1 — named Anthropic account for this runtime (provider anthropic only). Empty = inherit the launching session's account, else the machine's own login. Values come from the Garrison account registry; the token (vault ANTHROPIC_ACCOUNT__<name>) is injected at spawn.
+      description: RUNTIME-ACCOUNTS-V1 - Anthropic account for this runtime (provider anthropic only). Empty = inherit the launching session's account, else the machine's own login. "auto" = as primary, the Paymaster picks the least-utilized eligible account at spawn (holds when all are over ceiling); as a delegate target it inherits the operative's account (the rotation decision is made once per operative session). Values come from the Garrison account registry; the token (vault ANTHROPIC_ACCOUNT__<name>) is injected at spawn.
   provides:
     - kind: runtime
       name: agent-sdk

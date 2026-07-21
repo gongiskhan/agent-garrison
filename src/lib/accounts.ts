@@ -25,7 +25,29 @@ export interface AccountMeta {
   created_at: string;
   /** Set when a session under this account surfaced an auth failure (D5). */
   needs_relogin?: boolean;
+  /** PAYMASTER D7: absent = true. Disabled accounts are never picked by auto. */
+  enabled?: boolean;
+  /**
+   * PAYMASTER D7: utilization ceiling percent (one number, applied to BOTH the
+   * 5-hour and weekly windows). Absent = 100.
+   */
+  ceiling?: number;
 }
+
+export const DEFAULT_CEILING = 100;
+
+/** PAYMASTER D8: probe cadence knobs, stored in the registry file. */
+export interface PaymasterSettings {
+  /** Auto-resolution re-probes an account whose cache is older than this. */
+  freshnessTtlMinutes: number;
+  /** Background probe interval keeping the panel numbers live. */
+  probeIntervalMinutes: number;
+}
+
+const DEFAULT_PAYMASTER_SETTINGS: PaymasterSettings = {
+  freshnessTtlMinutes: 3,
+  probeIntervalMinutes: 10
+};
 
 export type AccountStatus = "ready" | "missing-token" | "vault-locked";
 
@@ -33,11 +55,18 @@ export interface AccountInfo extends AccountMeta {
   status: AccountStatus;
   /** Whole days since created_at (token age); null when unknown. */
   ageDays: number | null;
+  /** Defaults applied: absent enabled = true, absent ceiling = 100. */
+  enabled: boolean;
+  ceiling: number;
 }
 
 interface RegistryFile {
   version: 1;
   accounts: AccountMeta[];
+  paymaster?: {
+    freshness_ttl_minutes?: number;
+    probe_interval_minutes?: number;
+  };
 }
 
 function registryPath(): string {
@@ -48,15 +77,54 @@ async function readRegistry(): Promise<RegistryFile> {
   try {
     const parsed = JSON.parse(await fs.readFile(registryPath(), "utf8")) as RegistryFile;
     if (!Array.isArray(parsed.accounts)) return { version: 1, accounts: [] };
-    return { version: 1, accounts: parsed.accounts.filter((a) => a && isValidAccountName(a.name)) };
+    return {
+      version: 1,
+      accounts: parsed.accounts.filter((a) => a && isValidAccountName(a.name)),
+      ...(parsed.paymaster ? { paymaster: parsed.paymaster } : {})
+    };
   } catch {
     return { version: 1, accounts: [] };
   }
 }
 
+/** Clamp a ceiling percent to a sane 0–100 integer-ish value. */
+export function normalizeCeiling(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_CEILING;
+  return Math.min(100, Math.max(0, Math.round(n * 10) / 10));
+}
+
+/** D8: probe cadence - registry-file overrides over the defaults. */
+export async function readPaymasterSettings(): Promise<PaymasterSettings> {
+  const registry = await readRegistry();
+  const ttl = Number(registry.paymaster?.freshness_ttl_minutes);
+  const interval = Number(registry.paymaster?.probe_interval_minutes);
+  return {
+    freshnessTtlMinutes:
+      Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_PAYMASTER_SETTINGS.freshnessTtlMinutes,
+    probeIntervalMinutes:
+      Number.isFinite(interval) && interval > 0
+        ? interval
+        : DEFAULT_PAYMASTER_SETTINGS.probeIntervalMinutes
+  };
+}
+
 async function writeRegistry(registry: RegistryFile): Promise<void> {
   await fs.mkdir(path.dirname(registryPath()), { recursive: true });
   await writeFileAtomic(registryPath(), `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
+}
+
+// Registry mutations are read-modify-write on one file. Concurrent mutators -
+// e.g. two 401 probes flagging needs_relogin in the same refresh fan-out, or a
+// panel PATCH racing a probe flag - would each read the same snapshot and the
+// last write would silently drop the other's change. One in-process queue
+// serializes them (Garrison is a single server process per instance).
+let registryMutationChain: Promise<unknown> = Promise.resolve();
+
+function withRegistryLock<T>(mutation: () => Promise<T>): Promise<T> {
+  const run = registryMutationChain.then(mutation, mutation);
+  registryMutationChain = run.catch(() => undefined);
+  return run;
 }
 
 // The vault's account keys, or null when the vault is locked. A locked vault is
@@ -97,14 +165,23 @@ export async function listAccounts(): Promise<AccountInfo[]> {
         : vaultKeys.has(accountVaultKey(meta.name))
           ? "ready"
           : "missing-token",
-    ageDays: ageDaysOf(meta.created_at)
+    ageDays: ageDaysOf(meta.created_at),
+    enabled: meta.enabled !== false,
+    ceiling: normalizeCeiling(meta.ceiling ?? DEFAULT_CEILING)
   }));
   if (vaultKeys) {
     const known = new Set(registry.accounts.map((a) => a.name));
     for (const key of vaultKeys) {
       const name = accountNameFromVaultKey(key);
       if (!name || known.has(name)) continue;
-      out.push({ name, created_at: "", status: "ready", ageDays: null });
+      out.push({
+        name,
+        created_at: "",
+        status: "ready",
+        ageDays: null,
+        enabled: true,
+        ceiling: DEFAULT_CEILING
+      });
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -117,7 +194,15 @@ export async function listAccounts(): Promise<AccountInfo[]> {
  * restarts. Throws on an invalid name or a value that is clearly not an
  * Anthropic token.
  */
-export async function addAccount(options: {
+export function addAccount(options: {
+  name: string;
+  token: string;
+  label?: string;
+}): Promise<AccountMeta> {
+  return withRegistryLock(() => addAccountLocked(options));
+}
+
+async function addAccountLocked(options: {
   name: string;
   token: string;
   label?: string;
@@ -132,6 +217,11 @@ export async function addAccount(options: {
   if (!looksLikeAnthropicToken(token)) {
     throw new Error("value does not look like an Anthropic token (expected sk-ant-…)");
   }
+  // Defense-in-depth: the registry file is PLAINTEXT. A token mis-pasted into
+  // the label field would persist outside the vault and echo to the browser.
+  if (options.label && looksLikeAnthropicToken(options.label)) {
+    throw new Error("label looks like a token - labels are stored in plaintext; use the token field.");
+  }
   const secrets = await readVaultSecrets(); // throws "Vault is locked" — fail loud
   const key = accountVaultKey(name);
   const next = secrets.filter((s) => s.key !== key);
@@ -139,18 +229,77 @@ export async function addAccount(options: {
   await writeVaultSecrets(next);
 
   const registry = await readRegistry();
+  // Re-login replaces the token and restamps created_at, but the account's
+  // Paymaster policy (enabled/ceiling) and label survive.
+  const prior = registry.accounts.find((a) => a.name === name);
   const meta: AccountMeta = {
     name,
-    ...(options.label?.trim() ? { label: options.label.trim() } : {}),
-    created_at: new Date().toISOString()
+    ...(options.label?.trim()
+      ? { label: options.label.trim() }
+      : prior?.label
+        ? { label: prior.label }
+        : {}),
+    created_at: new Date().toISOString(),
+    ...(prior?.enabled === false ? { enabled: false } : {}),
+    ...(prior?.ceiling !== undefined ? { ceiling: prior.ceiling } : {})
   };
   registry.accounts = [...registry.accounts.filter((a) => a.name !== name), meta];
   await writeRegistry(registry);
   return meta;
 }
 
+/**
+ * PAYMASTER D7/D11: update an account's selection policy (enabled/ceiling) or
+ * label. Registry metadata only - never touches the vault. Creates a metadata
+ * row for a vault-only account so its policy has somewhere to live.
+ */
+export function setAccountPolicy(
+  name: string,
+  patch: { enabled?: boolean; ceiling?: number; label?: string }
+): Promise<AccountMeta> {
+  return withRegistryLock(() => setAccountPolicyLocked(name, patch));
+}
+
+async function setAccountPolicyLocked(
+  name: string,
+  patch: { enabled?: boolean; ceiling?: number; label?: string }
+): Promise<AccountMeta> {
+  if (!isValidAccountName(name)) {
+    throw new Error(`invalid account name "${name}"`);
+  }
+  const registry = await readRegistry();
+  const existing = registry.accounts.find((a) => a.name === name);
+  const base: AccountMeta = existing ?? { name, created_at: "" };
+  const next: AccountMeta = { ...base };
+  if (patch.enabled !== undefined) {
+    if (patch.enabled) delete next.enabled;
+    else next.enabled = false;
+  }
+  if (patch.ceiling !== undefined) {
+    const ceiling = normalizeCeiling(patch.ceiling);
+    if (ceiling === DEFAULT_CEILING) delete next.ceiling;
+    else next.ceiling = ceiling;
+  }
+  if (patch.label !== undefined) {
+    const label = patch.label.trim();
+    // Same plaintext-registry guard as addAccount: never store a token shape.
+    if (looksLikeAnthropicToken(label)) {
+      throw new Error("label looks like a token - labels are stored in plaintext; use the token field.");
+    }
+    if (label) next.label = label;
+    else delete next.label;
+  }
+  registry.accounts = [...registry.accounts.filter((a) => a.name !== name), next];
+  await writeRegistry(registry);
+  return next;
+}
+
 /** Remove an account: vault token + registry metadata. */
-export async function removeAccount(name: string): Promise<void> {
+export function removeAccount(name: string): Promise<void> {
+  return withRegistryLock(() => removeAccountLocked(name));
+}
+
+async function removeAccountLocked(name: string): Promise<void> {
   const key = accountVaultKey(name);
   try {
     const secrets = await readVaultSecrets();
@@ -166,8 +315,18 @@ export async function removeAccount(name: string): Promise<void> {
   await writeRegistry(registry);
 }
 
-/** D5: flag/unflag an account after an observed session auth failure. */
-export async function setAccountNeedsRelogin(name: string, needsRelogin: boolean): Promise<void> {
+/**
+ * D5: flag/unflag an account after an observed auth failure (session 401 or
+ * Paymaster probe 401). Flagging a vault-only account (no metadata row yet)
+ * CREATES its row - a silently unflaggable account would stay a deterministic
+ * dead pick for auto selection.
+ */
+export function setAccountNeedsRelogin(name: string, needsRelogin: boolean): Promise<void> {
+  return withRegistryLock(() => setAccountNeedsReloginLocked(name, needsRelogin));
+}
+
+async function setAccountNeedsReloginLocked(name: string, needsRelogin: boolean): Promise<void> {
+  if (!isValidAccountName(name)) return;
   const registry = await readRegistry();
   let changed = false;
   registry.accounts = registry.accounts.map((a) => {
@@ -178,6 +337,10 @@ export async function setAccountNeedsRelogin(name: string, needsRelogin: boolean
     else delete next.needs_relogin;
     return next;
   });
+  if (needsRelogin && !registry.accounts.some((a) => a.name === name)) {
+    registry.accounts = [...registry.accounts, { name, created_at: "", needs_relogin: true }];
+    changed = true;
+  }
   if (changed) await writeRegistry(registry);
 }
 

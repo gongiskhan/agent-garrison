@@ -308,4 +308,23 @@ describe("buildPrimaryRuntimeEnv account pin (RUNTIME-ACCOUNTS-V1)", () => {
     expect(targets[1]).toMatchObject({ id: "fitted-agent-sdk-runtime", type: "secondary", account: "personal" });
     expect("account" in targets[2]).toBe(false);
   });
+
+  // PAYMASTER: the rotation decision is made once per operative spawn; "auto"
+  // must never leak onto derived targets (the launch-env builders would read it
+  // as the literal vault key ANTHROPIC_ACCOUNT__auto) - delegates inherit the
+  // operative's resolved account via the launch env instead.
+  it('deriveRuntimeTargets omits account "auto" so delegates inherit the operative pin', () => {
+    const targets = deriveRuntimeTargets([
+      { ...ccRuntime, config: { account: "auto" } },
+      { ...sdkRuntime, config: { account: "auto" } }
+    ]);
+    expect("account" in targets[0]).toBe(false);
+    expect("account" in targets[1]).toBe(false);
+  });
+
+  it('buildPrimaryRuntimeEnv FAILS LOUD on an unresolved literal "auto"', () => {
+    expect(() =>
+      buildPrimaryRuntimeEnv(withAccount({ account: "auto" }), lookup, POLICY_PROVIDERS)
+    ).toThrow(/auto.*unresolved|Paymaster/s);
+  });
 });
