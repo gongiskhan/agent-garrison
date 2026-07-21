@@ -312,6 +312,17 @@ export function normalizedInfraErrors(record) {
 export function publicRunRecord(record) {
   return {
     ...record,
+    // Verify-session linkage (S31): the wire shape drops the host transcript
+    // path - clients reach transcripts only through the confined
+    // /api/runs/:id/session-stream route.
+    ...(record.sessions
+      ? {
+          sessions: record.sessions.map(({ transcriptPath, ...rest }) => ({
+            ...rest,
+            hasTranscript: !!(rest.slice || transcriptPath)
+          }))
+        }
+      : {}),
     findings: productFindings(record),
     infraErrors: normalizedInfraErrors(record)
   };

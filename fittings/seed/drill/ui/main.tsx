@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed } from "lucide-react";
+import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench } from "lucide-react";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -1984,12 +1984,25 @@ interface DrillRun {
   plannedChecks?: number;
   executedChecks?: number;
   circuit?: RunCircuit | null;
+  sessions?: RunSessionInfo[];
   feedback: Record<string, Array<{ id: string; note: string; at: string }>>;
   overrides: Record<string, { verdict: string; note: string; at: string }>;
   observations: Observation[];
   findings: Finding[];
   infraErrors?: InfraError[];
   evidence?: RunEvidence | null;
+}
+
+// Verify-session linkage (S31): the Claude sessions that resolved this run's
+// vision checks. Transcript bytes ride only the confined session-stream route.
+interface RunSessionInfo {
+  id: string;
+  firstAt?: string;
+  lastAt?: string;
+  checks?: number;
+  slice?: string;
+  events?: number;
+  hasTranscript?: boolean;
 }
 
 interface DrillRunSummary {
@@ -2841,7 +2854,7 @@ interface DebriefViewProps {
   dispatch: () => void;
   triage: (findingId: string, status: "confirmed" | "dismissed") => void;
 }
-type DebriefTab = "screenshots" | "video" | "live";
+type DebriefTab = "screenshots" | "video" | "live" | "session";
 function DebriefView({
   run, pages, steps, evidenceIndex, issues, confirmedCount, dispatchableCount,
   dispatchedCard, dispatchMode, setDispatchMode, dispatching, dispatch, triage
@@ -3190,6 +3203,11 @@ function DebriefView({
             <button role="tab" aria-selected={tab === "live"} className={"dr-db-tab experimental" + (tab === "live" ? " on" : "")} title="Experimental - replays the app live at a check's state" onClick={() => setTab("live")}>
               <Eye size={13} /> Live Browser <span className="dr-db-exp-chip">experimental</span>
             </button>
+            {(run.sessions?.length ?? 0) > 0 && (
+              <button role="tab" aria-selected={tab === "session"} className={"dr-db-tab" + (tab === "session" ? " on" : "")} title="The Claude session(s) that resolved this run's vision checks" onClick={() => setTab("session")}>
+                <MessageSquare size={13} /> Session{(run.sessions?.length ?? 0) > 1 ? "s" : ""}
+              </button>
+            )}
           </div>
 
           {tab === "screenshots" && (
@@ -3230,6 +3248,9 @@ function DebriefView({
               warnings={liveWarnings}
               onWarnings={setLiveWarnings}
             />
+          )}
+          {tab === "session" && (
+            <SessionViewer runId={run.id} sessions={run.sessions ?? []} live={false} />
           )}
         </section>
       </div>
@@ -3569,6 +3590,397 @@ function ClassicRunDetail({
   );
 }
 
+// ─── Live run observability + session viewer (S31) ─────────────────────────
+// The Run page's answer to "is anything happening?": a live panel fed by the
+// server's per-run SSE stream (checks ticking in with screenshots) plus a
+// Claude-desktop-style transcript of the verify session(s) - tool calls
+// collapsed, screenshots inline, click-through when a run used more than one
+// session. The same viewer replays stored transcripts on finished runs.
+
+interface SessionImage { mediaType: string; data: string }
+interface SessionBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: string;
+  toolUseId?: string | null;
+  isError?: boolean;
+  images?: SessionImage[];
+}
+interface SessionEvent {
+  id: string | null;
+  role: string;
+  ts: number | null;
+  toolResultsOnly?: boolean;
+  blocks: SessionBlock[];
+}
+
+function SessionTextBlock({ text, role }: { text: string; role: string }) {
+  // Long prompts (the routed VERIFY instructions) collapse to their first
+  // line - the desktop-app "show more" idiom without the chrome.
+  if (role === "user" && text.length > 280) {
+    const head = text.slice(0, 140).split("\n")[0];
+    return (
+      <details className="dr-session-longtext">
+        <summary>{head}…</summary>
+        <pre className="dr-session-pre">{text}</pre>
+      </details>
+    );
+  }
+  return <pre className="dr-session-text">{text}</pre>;
+}
+
+function SessionToolBlock({ block, result }: { block: SessionBlock; result: SessionBlock | undefined }) {
+  const hint = (block.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
+  return (
+    <div className="dr-session-toolwrap">
+      <details className="dr-session-tool">
+        <summary>
+          <Wrench size={11} aria-hidden="true" />
+          <b>{block.name}</b>
+          <span className="dr-session-tool-hint">{hint}</span>
+          {result?.isError && <span className="chip alarm">error</span>}
+        </summary>
+        {block.input && <pre className="dr-session-pre">{block.input}</pre>}
+        {result?.text && <pre className="dr-session-pre result">{result.text}</pre>}
+      </details>
+      {(result?.images ?? []).map((image, index) => (
+        <img
+          key={index}
+          className="dr-session-img"
+          src={`data:${image.mediaType};base64,${image.data}`}
+          alt={`${block.name ?? "tool"} result image ${index + 1}`}
+          loading="lazy"
+        />
+      ))}
+    </div>
+  );
+}
+
+function SessionStream({ runId, sessionId, live }: { runId: string; sessionId: string; live: boolean }) {
+  const [events, setEvents] = useState<SessionEvent[]>([]);
+  const [title, setTitle] = useState<string | null>(null);
+  const [status, setStatus] = useState<"connecting" | "streaming" | "ended" | "unavailable">("connecting");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+
+  useEffect(() => {
+    setEvents([]);
+    setTitle(null);
+    setStatus("connecting");
+    stickRef.current = true;
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?session=${encodeURIComponent(sessionId)}`);
+    source.onmessage = (message) => {
+      let payload: any;
+      try { payload = JSON.parse(message.data); } catch { return; }
+      if (payload.type === "init") {
+        setEvents(payload.events ?? []);
+        if (payload.title) setTitle(payload.title);
+        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
+      } else if (payload.type === "events") {
+        if (payload.title) setTitle(payload.title);
+        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
+      } else if (payload.type === "end") {
+        setStatus((current) => (current === "unavailable" ? current : "ended"));
+        source.close();
+      }
+    };
+    source.onerror = () => {
+      // The server ends the stream itself after `end`; an earlier transport
+      // error should read as "stream over", not an eternal spinner.
+      setStatus((current) => (current === "unavailable" ? current : "ended"));
+      source.close();
+    };
+    return () => source.close();
+  }, [runId, sessionId]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [events]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
+
+  const resultsByToolUse = useMemo(() => {
+    const map = new Map<string, SessionBlock>();
+    for (const event of events) {
+      for (const block of event.blocks) {
+        if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
+      }
+    }
+    return map;
+  }, [events]);
+
+  return (
+    <div className="dr-session">
+      <div className="dr-session-head">
+        <MessageSquare size={13} aria-hidden="true" />
+        <b>{title ?? "Verify session"}</b>
+        <span className="mono dr-session-id">{sessionId.slice(0, 8)}</span>
+        {live && status === "streaming" && <span className="chip sage">live</span>}
+        {status === "connecting" && <span className="chip">connecting…</span>}
+        {status === "unavailable" && <span className="chip brass">transcript unavailable</span>}
+      </div>
+      <div className="dr-session-scroll" ref={scrollRef} onScroll={onScroll}>
+        {events.length === 0 && (
+          <div className="dr-empty">
+            {status === "connecting"
+              ? "Opening the session stream…"
+              : status === "unavailable"
+                ? "No transcript was captured for this session (the gateway did not report one)."
+                : live
+                  ? "Waiting for the first session activity…"
+                  : "No session activity fell inside this run's window."}
+          </div>
+        )}
+        {events.filter((event) => !event.toolResultsOnly).map((event, index) => (
+          <div key={event.id ?? `event-${index}`} className={"dr-session-turn " + (event.role === "user" ? "user" : "assistant")}>
+            <span className="dr-session-role">{event.role === "user" ? "Prompt" : "Assistant"}</span>
+            {event.blocks.map((block, blockIndex) => {
+              if (block.type === "text") return <SessionTextBlock key={blockIndex} text={block.text ?? ""} role={event.role} />;
+              if (block.type === "thinking") {
+                return (
+                  <details key={blockIndex} className="dr-session-thinking">
+                    <summary>Thinking</summary>
+                    <pre className="dr-session-pre">{block.text}</pre>
+                  </details>
+                );
+              }
+              if (block.type === "tool_use") {
+                return <SessionToolBlock key={blockIndex} block={block} result={block.toolUseId ? resultsByToolUse.get(block.toolUseId) : undefined} />;
+              }
+              return null;
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SessionViewer({ runId, sessions, live }: { runId: string; sessions: RunSessionInfo[]; live: boolean }) {
+  const [selected, setSelected] = useState<string | null>(sessions[0]?.id ?? null);
+  const sessionKey = sessions.map((session) => session.id).join(",");
+  useEffect(() => {
+    if (sessions.length === 0) { setSelected(null); return; }
+    setSelected((current) => (current && sessions.some((session) => session.id === current) ? current : sessions[0].id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the id list
+  }, [sessionKey]);
+  if (sessions.length === 0) {
+    return (
+      <div className="dr-empty">
+        No verify sessions recorded{live ? " yet - the first vision-resolved check opens one" : " for this run. Cached and deterministic checks run without a model session"}.
+      </div>
+    );
+  }
+  return (
+    <div className="dr-session-viewer">
+      {sessions.length > 1 && (
+        <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Verify sessions">
+          {sessions.map((session, index) => (
+            <button
+              key={session.id}
+              role="tab"
+              aria-selected={selected === session.id}
+              className={"chip click" + (selected === session.id ? " ink active" : "")}
+              onClick={() => setSelected(session.id)}
+            >
+              Session {index + 1}
+              <span className="dr-count">{session.checks ?? 0} check{(session.checks ?? 0) === 1 ? "" : "s"}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {selected && <SessionStream key={selected} runId={runId} sessionId={selected} live={live} />}
+    </div>
+  );
+}
+
+interface LiveCheckRow {
+  index: number;
+  total: number;
+  pageId: string;
+  stepId: string;
+  viewportId: string;
+  kind: string;
+  code?: string;
+  message?: string;
+  reasoning?: string;
+  durationMs?: number;
+  screenshot?: string;
+  failureScreenshot?: string;
+  sessionId?: string;
+}
+
+function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; startedAt: string | null; onFinished: (runId: string) => void }) {
+  const [planned, setPlanned] = useState<number | null>(null);
+  const [current, setCurrent] = useState<{ index: number; total: number; pageId: string; stepId: string; viewportId: string; description?: string } | null>(null);
+  const [checks, setChecks] = useState<LiveCheckRow[]>([]);
+  const [circuit, setCircuit] = useState<{ code?: string; message?: string; skippedChecks?: number } | null>(null);
+  const [runStartedAt, setRunStartedAt] = useState<string | null>(startedAt);
+  const [streamLost, setStreamLost] = useState(false);
+  const [, setTick] = useState(0);
+  const finishedRef = useRef(false);
+  const streamLostRef = useRef(false);
+  const onFinishedRef = useRef(onFinished);
+  useEffect(() => { onFinishedRef.current = onFinished; });
+
+  // Elapsed clock - re-render once a second while the panel is up.
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    finishedRef.current = false;
+    streamLostRef.current = false;
+    setChecks([]);
+    setCurrent(null);
+    setCircuit(null);
+    setStreamLost(false);
+    setPlanned(null);
+    setRunStartedAt(startedAt);
+    const finish = () => {
+      if (finishedRef.current) return;
+      finishedRef.current = true;
+      onFinishedRef.current(runId);
+    };
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events`);
+    source.onmessage = (message) => {
+      let event: any;
+      try { event = JSON.parse(message.data); } catch { return; }
+      if (streamLostRef.current) {
+        streamLostRef.current = false;
+        setStreamLost(false);
+      }
+      if (event.type === "run_started") {
+        setPlanned(event.plannedChecks ?? null);
+        if (event.startedAt) setRunStartedAt(event.startedAt);
+      } else if (event.type === "check_started") {
+        setCurrent(event);
+      } else if (event.type === "check_finished") {
+        setCurrent(null);
+        // Keyed on the check index: EventSource auto-reconnects after a
+        // transport blip and the server replays its whole buffer - a blind
+        // prepend would duplicate every row.
+        setChecks((rows) => rows.some((row) => row.index === event.index)
+          ? rows.map((row) => (row.index === event.index ? event : row))
+          : [event, ...rows]);
+      } else if (event.type === "circuit_opened") {
+        setCircuit(event);
+      } else if (event.type === "run_finished" || event.type === "run_unknown") {
+        source.close();
+        finish();
+      }
+    };
+    source.onerror = () => {
+      streamLostRef.current = true;
+      setStreamLost(true);
+    };
+    // Poll fallback: only when the stream broke - the disk record persists
+    // incrementally, so endedAt appearing there is the finish signal.
+    const poll = setInterval(() => {
+      if (finishedRef.current || !streamLostRef.current) return;
+      apiGet(`/api/runs/${encodeURIComponent(runId)}`)
+        .then((response) => {
+          if (response.run?.endedAt) {
+            source.close();
+            finish();
+          }
+        })
+        .catch(() => { /* transient - keep polling */ });
+    }, 5000);
+    return () => {
+      source.close();
+      clearInterval(poll);
+    };
+  }, [runId]);
+
+  const elapsedMs = runStartedAt ? Date.now() - new Date(runStartedAt).getTime() : null;
+  const elapsed = elapsedMs !== null && Number.isFinite(elapsedMs) && elapsedMs >= 0
+    ? elapsedMs < 60_000
+      ? `${Math.floor(elapsedMs / 1000)}s elapsed`
+      : `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s elapsed`
+    : null;
+
+  // Sessions derive from the (deduplicated) check rows, in first-use order.
+  const sessions = useMemo<RunSessionInfo[]>(() => {
+    const byId = new Map<string, RunSessionInfo>();
+    for (const check of [...checks].sort((a, b) => a.index - b.index)) {
+      if (!check.sessionId) continue;
+      const existing = byId.get(check.sessionId);
+      if (existing) existing.checks = (existing.checks ?? 0) + 1;
+      else byId.set(check.sessionId, { id: check.sessionId, checks: 1 });
+    }
+    return [...byId.values()];
+  }, [checks]);
+
+  return (
+    <div className="dr-sec card dr-live-run" role="region" aria-label="Run in progress">
+      <div className="dr-card-heading">
+        <div>
+          <b>Run in progress</b>
+          <p>Checks stream in as they execute; the verify session is live below. Closing this page does not stop the run.</p>
+        </div>
+        <span className="mono dr-run-id">{runId}</span>
+      </div>
+      <div className="dr-db-live-progress" role="status" aria-live="polite">
+        <span className="dr-db-spinner" aria-hidden="true" />
+        <div>
+          <b>
+            {circuit
+              ? `Circuit opened${circuit.code ? ` - ${circuit.code}` : ""}`
+              : current
+                ? `Check ${current.index}/${current.total}: ${current.description ?? current.stepId}`
+                : checks.length > 0
+                  ? `Executed ${checks.length}/${planned ?? checks[0]?.total ?? "?"} checks`
+                  : "Starting run…"}
+          </b>
+          <p>
+            {current ? `${current.pageId} · ${current.stepId} · ${current.viewportId}` : "Waiting for the next check…"}
+            {elapsed ? ` · ${elapsed}` : ""}
+            {streamLost ? " · live stream lost - polling the run record" : ""}
+          </p>
+        </div>
+      </div>
+      {circuit && (
+        <div className="dr-inline-error" role="alert">
+          <span>{circuit.message ?? "The run circuit opened."}{Number.isFinite(circuit.skippedChecks) ? ` Remaining ${circuit.skippedChecks} checks were skipped.` : ""}</span>
+        </div>
+      )}
+      {checks.length > 0 && (
+        <div className="dr-live-checks" aria-label="Executed checks">
+          {checks.slice(0, 40).map((check) => {
+            const shot = check.failureScreenshot ?? check.screenshot;
+            return (
+              <div key={`${check.index}-${check.pageId}-${check.stepId}-${check.viewportId}`} className="dr-live-check" title={check.reasoning ?? check.message ?? undefined}>
+                <span className={`chip ${check.kind === "passed" ? "sage" : check.kind === "product-failure" ? "alarm" : "brass"}`}>
+                  {check.kind === "passed" ? "pass" : check.kind === "product-failure" ? "fail" : check.kind}
+                </span>
+                <span className="dr-live-check-name">
+                  {check.pageId} · {check.stepId} <span className="mono">[{check.viewportId}]</span>
+                </span>
+                {Number.isFinite(check.durationMs) && <span className="dr-live-check-ms mono">{((check.durationMs ?? 0) / 1000).toFixed(1)}s</span>}
+                {shot && (
+                  <a className="dr-live-check-shot" href={evidenceFileUrl(runId, shot)} target="_blank" rel="noreferrer">
+                    <img src={evidenceFileUrl(runId, shot)} alt={`${check.stepId} screenshot`} loading="lazy" />
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="dr-live-session-wrap">
+        <div className="dr-lbl">Verify session</div>
+        <SessionViewer runId={runId} sessions={sessions} live />
+      </div>
+    </div>
+  );
+}
+
 function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }: {
   initialRun: { pageIds: string[]; viewports: string[] } | null;
   onConsumeInitialRun: () => void;
@@ -3635,6 +4047,10 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [deleteArm, setDeleteArm] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [pendingGate, setPendingGate] = useState<{ plan: Array<{ pageId: string; viewportId: string; steps: Array<{ id: string; description: string; mode: string }> }>; resume: unknown } | null>(null);
+  // S31: the in-flight run this view is watching live. Runs execute in the
+  // background server-side; the panel attaches to the run's SSE event stream.
+  const [watchRunId, setWatchRunId] = useState<string | null>(null);
+  const [watchStartedAt, setWatchStartedAt] = useState<string | null>(null);
 
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")])
@@ -3653,11 +4069,32 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         setRunsLoaded(true);
         setError(e.message);
       });
+    // A run started before this mount (another tab, another device, a page
+    // reload) is still observable - re-attach instead of looking idle.
+    apiGet("/api/runs/active")
+      .then((response) => {
+        const active = (response.runs ?? [])[0];
+        if (active?.id) {
+          setWatchRunId((current) => current ?? active.id);
+          setWatchStartedAt((current) => current ?? active.startedAt ?? null);
+        }
+      })
+      .catch(() => { /* older server without the active route */ });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch
   useEffect(load, []);
 
+  // The watched run finished: detach the live panel, load the final record
+  // into the detail view, and refresh the history table.
+  const onWatchedRunFinished = (finishedRunId: string) => {
+    setWatchRunId(null);
+    setWatchStartedAt(null);
+    void openRun(finishedRunId);
+    load();
+  };
+
   const startRun = async (pageIdsArg?: string[], viewportsArg?: string[], stateArg?: string) => {
+    if (running || watchRunId) { setError("a run is already in progress - wait for it to finish"); return; }
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
     if (pageIds.length === 0 || viewports.length === 0) { setError("select at least one page and one viewport"); return; }
@@ -3686,12 +4123,20 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       // through the project's run skill" and wait, not a wall of failures.
       await ensureAppUp(setPhase);
       setPhase(null);
-      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill" });
+      // background:true (S31): the server returns the in-flight record
+      // immediately and the live panel streams progress - no minutes-long
+      // blocking POST between the click and the first feedback.
+      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill", background: true });
       if (r.held) {
         // A5/R7/S22: gated autonomy pauses with a plan diff before running.
         setPendingGate({ plan: r.plan, resume: r.resume });
       } else {
         setRun(r.run);
+        if (r.background && r.run?.id) {
+          setWatchRunId(r.run.id);
+          setWatchStartedAt(r.run.startedAt ?? null);
+          onRunViewed(r.run.id);
+        }
         load();
       }
     } catch (e: any) {
@@ -3703,12 +4148,19 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   };
 
   // The Book view's "Run selected" lands here: preselect its pages and
-  // viewports and start immediately.
+  // viewports and start immediately - unless a run is already in flight
+  // (S31: runs are backgrounded now, so this handoff CAN arrive mid-run;
+  // the selection is kept but the auto-start is skipped, matching the
+  // server's one-run-per-project guard).
   useEffect(() => {
     if (!initialRun || pages.length === 0) return;
     setSelectedPages(new Set(initialRun.pageIds));
     setSelectedViewports(new Set(initialRun.viewports));
     onConsumeInitialRun();
+    if (running || watchRunId) {
+      setNotice("A run is already in progress - your selection is set; start it when the current run finishes.");
+      return;
+    }
     startRun(initialRun.pageIds, initialRun.viewports, "default");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot handoff consume
   }, [initialRun, pages.length]);
@@ -3730,9 +4182,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     if (!pendingGate) return;
     setRunning(true);
     try {
-      const r = await apiPost("/api/runs", pendingGate.resume as any);
+      const r = await apiPost("/api/runs", { ...(pendingGate.resume as Record<string, unknown>), background: true });
       setPendingGate(null);
       setRun(r.run);
+      if (r.background && r.run?.id) {
+        setWatchRunId(r.run.id);
+        setWatchStartedAt(r.run.startedAt ?? null);
+        onRunViewed(r.run.id);
+      }
       load();
     } catch (e: any) {
       setError(e.message);
@@ -3992,10 +4449,16 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
           ))}
         </div>
         <div className="dr-actions dr-run-launch-actions">
-          <button className="btn primary" disabled={running} onClick={() => startRun()}>{running ? (phase ?? "Running…") : "Run selected"}</button>
+          <button className="btn primary" disabled={running || watchRunId !== null} onClick={() => startRun()}>
+            {running ? (phase ?? "Starting…") : watchRunId ? "Run in progress…" : "Run selected"}
+          </button>
           <AppStatusChip />
         </div>
       </div>
+
+      {watchRunId && (
+        <LiveRunPanel runId={watchRunId} startedAt={watchStartedAt} onFinished={onWatchedRunFinished} />
+      )}
 
       <div className="dr-sec card">
         <div className="dr-card-heading">

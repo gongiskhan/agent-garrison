@@ -177,6 +177,18 @@ export async function POST(req: Request) {
     if (typeof gatewayReply.route === "string" && gatewayReply.route) {
       routedVia = gatewayReply.route;
     }
+    // Session linkage: the gateway names the Claude session (and its on-disk
+    // jsonl transcript) that resolved this turn — callers persist it so a
+    // vision verdict stays traceable to the session that produced it.
+    const sessionId =
+      typeof gatewayReply.session_id === "string" && gatewayReply.session_id
+        ? gatewayReply.session_id
+        : null;
+    const transcriptPath =
+      typeof gatewayReply.transcript_path === "string" &&
+      gatewayReply.transcript_path
+        ? gatewayReply.transcript_path
+        : null;
     const text =
       gatewayReply.reply ?? gatewayReply.text ?? gatewayReply.message ?? "";
     try {
@@ -198,7 +210,7 @@ export async function POST(req: Request) {
       ) {
         assertion.role = aliases[assertion.role];
       }
-      return NextResponse.json({ result, routedVia });
+      return NextResponse.json({ result, routedVia, sessionId, transcriptPath });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       return NextResponse.json(

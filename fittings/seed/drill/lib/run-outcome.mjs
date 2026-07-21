@@ -9,6 +9,9 @@ function terminal({
   const recoveryFailure = outcome?.recoveryFailure
     ? fromStructuredFailure(outcome.recoveryFailure, "recovery", outcome.fixerNote, null)
     : null;
+  // Vision session linkage: a completed step carries it inside result.vision,
+  // a failed one at the step-record top level (engine attaches err.visionMeta).
+  const vision = outcome?.result?.vision ?? outcome?.vision ?? null;
   return {
     kind,
     source,
@@ -19,6 +22,16 @@ function terminal({
     ...(outcome?.evidencePath ? { evidencePath: outcome.evidencePath } : {}),
     ...(outcome?.durationMs !== undefined ? { durationMs: outcome.durationMs } : {}),
     ...(outcome?.result?.reasoning ? { reasoning: String(outcome.result.reasoning) } : {}),
+    ...(vision?.sessionId
+      ? {
+          session: {
+            id: String(vision.sessionId),
+            ...(vision.transcriptPath
+              ? { transcriptPath: String(vision.transcriptPath) }
+              : {})
+          }
+        }
+      : {}),
     ...(recoveryFailure ? { recoveryFailure } : {})
   };
 }

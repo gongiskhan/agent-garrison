@@ -148,7 +148,7 @@ function defaultRunCommand({ command, argv, cwd, timeoutMs = 300000, onChunk }) 
 // it at a different model than the caller's default vision resolution — the
 // mechanism R12's "a different model set in the composition" needs, with no
 // caller-specific naming baked into the engine itself.
-async function visionResolve(observation, step, mode, contextTag, fetchImpl = globalThis.fetch) {
+async function visionResolve(observation, step, mode, contextTag, fetchImpl = globalThis.fetch, onMeta = null) {
   const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
   let res;
   try {
@@ -181,6 +181,16 @@ async function visionResolve(observation, step, mode, contextTag, fetchImpl = gl
     if (!json || !Object.prototype.hasOwnProperty.call(json, "result")) {
       throw new Error("vision response did not include result");
     }
+    // Session linkage: the vision route names the Claude session (and jsonl
+    // transcript) that produced this resolution — surfaced via onMeta so the
+    // step record can carry it without changing the result contract.
+    if (onMeta && (json.sessionId || json.transcriptPath)) {
+      onMeta({
+        sessionId: json.sessionId ?? null,
+        transcriptPath: json.transcriptPath ?? null,
+        routedVia: json.routedVia ?? null
+      });
+    }
     return json.result;
   } catch (cause) {
     const error = new Error(`vision invalid response: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -201,27 +211,46 @@ function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, 
   const runBrowser = async ({ step, emit, runId, stepIndex }) => {
     client ??= makeBrowserClient({ viewport, captureSession });
     emit?.({ type: "run_streaming_available", runId, stepIndex, wsUrl: `${browserViewportUrl()}/${client.tabId ?? ""}` });
-    return runBrowserStep({
-      automationId: automation.id,
-      step,
-      bypassCache,
-      deps: {
-        observe: () => client.observe({ screenshot: true }),
-        executeAction: (a) => client.execute(a),
-        navigate: (u) => client.navigate(u),
-        resolveViaVision: ({ observation, step: s }) => visionResolve(observation, s, "action", contextTag),
-        verifyViaVision: ({ observation, step: s }) => visionResolve(observation, s, "verify", contextTag),
-        // Richer deterministic assertions (delta 5): text-contains/url-matches
-        // resolve locally from observe(); count/visible/attribute-equals need a
-        // live Playwright locator, resolved by the Browser fitting.
-        executeAssertion: async (assertion) => {
-          const kind = assertion?.kind || "text-contains";
-          if (kind === "url-matches") return evaluateUrlMatches(assertion, await client.observe());
-          if (needsRemoteProbe(kind)) return !!(await client.assert(assertion)).passed;
-          return evaluateTextContains(assertion, await client.observe());
+    // Per-step vision session linkage: the LAST vision call's session meta is
+    // attached to the step result (success) or the thrown error (failure) so
+    // the run record can trace each resolution to its Claude session.
+    let visionMeta = null;
+    const noteVisionMeta = (meta) => {
+      if (meta && (meta.sessionId || meta.transcriptPath)) visionMeta = meta;
+    };
+    try {
+      const result = await runBrowserStep({
+        automationId: automation.id,
+        step,
+        bypassCache,
+        deps: {
+          observe: () => client.observe({ screenshot: true }),
+          executeAction: (a) => client.execute(a),
+          navigate: (u) => client.navigate(u),
+          resolveViaVision: ({ observation, step: s }) =>
+            visionResolve(observation, s, "action", contextTag, undefined, noteVisionMeta),
+          verifyViaVision: ({ observation, step: s }) =>
+            visionResolve(observation, s, "verify", contextTag, undefined, noteVisionMeta),
+          // Richer deterministic assertions (delta 5): text-contains/url-matches
+          // resolve locally from observe(); count/visible/attribute-equals need a
+          // live Playwright locator, resolved by the Browser fitting.
+          executeAssertion: async (assertion) => {
+            const kind = assertion?.kind || "text-contains";
+            if (kind === "url-matches") return evaluateUrlMatches(assertion, await client.observe());
+            if (needsRemoteProbe(kind)) return !!(await client.assert(assertion)).passed;
+            return evaluateTextContains(assertion, await client.observe());
+          }
         }
+      });
+      return visionMeta && result && typeof result === "object"
+        ? { ...result, vision: visionMeta }
+        : result;
+    } catch (err) {
+      if (visionMeta && err && typeof err === "object" && !err.visionMeta) {
+        err.visionMeta = visionMeta;
       }
-    });
+      throw err;
+    }
   };
   runBrowser.close = async () => {
     if (!client) return;
@@ -502,6 +531,7 @@ export async function runAutomation(opts) {
           durationMs: Date.now() - stepStart,
           error: safeMsg,
           failure,
+          ...(err.visionMeta ? { vision: err.visionMeta } : {}),
           ...(failureEvidencePath ? { evidencePath: failureEvidencePath } : {})
         };
         record.steps.push(rec);
@@ -557,6 +587,7 @@ export async function runAutomation(opts) {
           fixerNote,
           failure,
           recoveryFailure,
+          ...(err.visionMeta ? { vision: err.visionMeta } : {}),
           ...(failureEvidencePath ? { evidencePath: failureEvidencePath } : {})
         });
         await persist(record);
@@ -583,6 +614,7 @@ export async function runAutomation(opts) {
           durationMs: Date.now() - stepStart,
           error: record.error,
           failure,
+          ...(err.visionMeta ? { vision: err.visionMeta } : {}),
           ...(failureEvidencePath ? { evidencePath: failureEvidencePath } : {})
         });
         await persist(record);

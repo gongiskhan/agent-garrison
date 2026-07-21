@@ -1170,6 +1170,7 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     return {
       reply: r.reply,
       session_id: r.session_id ?? null,
+      transcript_path: r.transcript_path ?? null,
       cost_usd: null,
       route: pre.route.targetId,
       runtime: "claude-code",
@@ -1201,6 +1202,7 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     const oneShotMsg = ctxBlock ? `${ctxBlock}\n\n---\n\n${annotated}` : annotated;
     const model = pre.route?.target?.model ?? MODEL;
     let reply = "";
+    let os1 = null;
     try {
       // Stream the disposable session's reply incrementally (same closure shape as
       // the standing path below); the final onChunk(reply, true) after the turn
@@ -1221,7 +1223,7 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
               }
             }
           : undefined;
-      const os1 = await router.runWebOneShot({
+      os1 = await router.runWebOneShot({
         message: oneShotMsg,
         model,
         onScreen: osOnScreen,
@@ -1255,7 +1257,10 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     });
     return {
       reply,
-      session_id: null, // nothing held — a one-shot spawns fresh and disposes
+      // The one-shot session is disposed, but its id + jsonl transcript survive
+      // on disk — callers (e.g. automations vision) link turns to transcripts.
+      session_id: os1?.sessionId ?? null,
+      transcript_path: os1?.transcriptPath ?? null,
       cost_usd: null,
       route: pre.route.targetId,
       honored: null,

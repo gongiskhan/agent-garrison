@@ -25,7 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn } from "@garrison/claude-pty";
+import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -683,6 +683,20 @@ export class RoutedGateway {
     return route?.target?.runtime === "claude-code" && this.primaryEngine !== "claude-code";
   }
 
+  // The on-disk jsonl transcript a Claude CLI session at `cwd` journals to.
+  // Callers (e.g. the automations vision path) use it to link a routed turn to
+  // its session transcript; null when either coordinate is missing.
+  claudeTranscriptPathFor(cwd, sessionId) {
+    if (!cwd || !sessionId) return null;
+    let canonical = cwd;
+    try {
+      canonical = fs.realpathSync(cwd);
+    } catch {
+      // unresolvable path (already gone / permission) — use it as given
+    }
+    return path.join(claudeProjectDirForCwd(canonical), `${sessionId}.jsonl`);
+  }
+
   async getClaudeDelegateAdapter() {
     if (this._claudeDelegateAdapter) return this._claudeDelegateAdapter;
     this._claudeDelegateAdapter = new ClaudeCodeAdapter(this.spawnFn ? { spawnFn: this.spawnFn } : {});
@@ -736,6 +750,10 @@ export class RoutedGateway {
     return {
       reply: response.text,
       session_id: response.sessionId,
+      transcript_path: this.claudeTranscriptPathFor(
+        session.compositionDir ?? this.buildWorkspace ?? this.compositionDir,
+        response.sessionId
+      ),
       route: route.targetId,
       runtime: "claude-code",
       provider,
@@ -949,8 +967,9 @@ export class RoutedGateway {
   async runWebOneShot({ message, model, onScreen, onSession } = {}) {
     const cfg = this._operativeSpawnConfig || {};
     const fn = this._oneShotFn ?? oneShotTurn;
+    const cwd = cfg.compositionDir ?? this.compositionDir;
     const outcome = await fn({
-      cwd: cfg.compositionDir ?? this.compositionDir,
+      cwd,
       appendSystemPromptFile: cfg.appendSystemPromptFile ?? this.appendSystemPromptFile,
       model: model ?? cfg.model,
       permissionMode: cfg.permissionMode ?? "bypassPermissions",
@@ -960,7 +979,12 @@ export class RoutedGateway {
       onScreen,
       onSession
     });
-    return { reply: outcome?.reply ?? "", sessionId: outcome?.sessionId ?? null };
+    const sessionId = outcome?.sessionId ?? null;
+    return {
+      reply: outcome?.reply ?? "",
+      sessionId,
+      transcriptPath: this.claudeTranscriptPathFor(cwd, sessionId)
+    };
   }
 
   // S3b introspection: no standing per-conversation session exists — the pool holds

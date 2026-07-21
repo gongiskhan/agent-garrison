@@ -87,7 +87,9 @@ describe("automation Vision route", () => {
       return new Response(
         JSON.stringify({
           reply: '{"passed":true,"reasoning":"grounded"}',
-          route: "cc-sonnet-med"
+          route: "cc-sonnet-med",
+          session_id: "aaaa1111-bbbb-4ccc-8ddd-eeee22223333",
+          transcript_path: "/home/user/.claude/projects/x/aaaa1111-bbbb-4ccc-8ddd-eeee22223333.jsonl"
         }),
         { status: 200, headers: { "content-type": "application/json" } }
       );
@@ -110,9 +112,13 @@ describe("automation Vision route", () => {
     );
 
     expect(response.status).toBe(200);
+    // Session linkage (S31): the gateway's session id + transcript path ride
+    // through so the automations engine can stamp them on the step record.
     expect(await response.json()).toEqual({
       result: { passed: true, reasoning: "grounded" },
-      routedVia: "cc-sonnet-med"
+      routedVia: "cc-sonnet-med",
+      sessionId: "aaaa1111-bbbb-4ccc-8ddd-eeee22223333",
+      transcriptPath: "/home/user/.claude/projects/x/aaaa1111-bbbb-4ccc-8ddd-eeee22223333.jsonl"
     });
     expect(gatewayBody.channel).toBe("garrison");
     expect(gatewayBody.classification).toEqual({

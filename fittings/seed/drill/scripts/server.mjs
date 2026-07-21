@@ -43,6 +43,9 @@ import {
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
 import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
+import {
+  readJsonlLines, parseTranscriptLines, linesInWindow, noteRunSession, sessionSliceName
+} from "../lib/session-transcript.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
@@ -58,6 +61,90 @@ const authoringTabs = new Map(); // "<root>|<pageId>|<viewportId>" -> tabId
 // auth continuity comes from the capture session's default-context
 // storageState seed.
 let liveReplay = null; // { sessionId, tabId, runId, pageId, stepId, viewportId, startedAt, replayed }
+
+// ── Live run observability (S31) ────────────────────────────────────────────
+// In-flight runs are held here so the UI can discover them (GET
+// /api/runs/active), stream per-check progress (GET /api/runs/:id/events,
+// SSE), and follow the verify sessions live. The disk record is ALSO saved
+// incrementally after every check - this registry only adds the push channel
+// and the current-check pointer; a poller reading the record sees the same
+// state one save behind.
+const activeRuns = new Map(); // runId -> { record, events, listeners, done, current, lastActivityAt }
+const RUN_EVENT_CAP = 4000;
+const FINISHED_RUN_LINGER_MS = 60_000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const SSE_HEADERS = {
+  "content-type": "text/event-stream",
+  "cache-control": "no-cache, no-transform",
+  connection: "keep-alive",
+  "x-accel-buffering": "no"
+};
+
+function registerActiveRun(record) {
+  const entry = {
+    record,
+    events: [],
+    listeners: new Set(),
+    done: false,
+    current: null,
+    lastActivityAt: new Date().toISOString()
+  };
+  activeRuns.set(record.id, entry);
+  return entry;
+}
+
+function publishRunEvent(runId, event) {
+  const entry = activeRuns.get(runId);
+  if (!entry) return;
+  const ev = { at: new Date().toISOString(), ...event };
+  entry.events.push(ev);
+  if (entry.events.length > RUN_EVENT_CAP) entry.events.splice(0, entry.events.length - RUN_EVENT_CAP);
+  entry.lastActivityAt = ev.at;
+  const framed = `data: ${JSON.stringify(ev)}\n\n`;
+  for (const listener of entry.listeners) {
+    try {
+      listener.write(framed);
+    } catch {
+      entry.listeners.delete(listener);
+    }
+  }
+  if (ev.type === "run_finished") {
+    entry.done = true;
+    for (const listener of entry.listeners) {
+      try { listener.end(); } catch { /* already closed */ }
+    }
+    entry.listeners.clear();
+    // Late subscribers can replay the buffer briefly; after that the disk
+    // record is the single (and complete) source.
+    const timer = setTimeout(() => activeRuns.delete(runId), FINISHED_RUN_LINGER_MS);
+    timer.unref?.();
+  }
+}
+
+// Mutating a run record while its background execute() still owns it would
+// be silently clobbered by the next incremental save (and a DELETE would be
+// resurrected by it). Review starts when the run finishes.
+function activeRunMutation(runId) {
+  const entry = activeRuns.get(runId);
+  return entry && !entry.done ? { error: "run is still executing - review it when it finishes" } : null;
+}
+
+function activeRunSnapshot(entry) {
+  const record = entry.record;
+  return {
+    id: record.id,
+    startedAt: record.startedAt,
+    project: record.project ?? null,
+    contextTag: record.contextTag,
+    plannedChecks: record.plannedChecks ?? null,
+    executedChecks: record.executedChecks ?? 0,
+    current: entry.current,
+    lastActivityAt: entry.lastActivityAt,
+    sessions: (record.sessions ?? []).map((session) => ({ id: session.id, checks: session.checks }))
+  };
+}
 
 // The wire shape of the live session: always carries canvasUrl (recomputed —
 // it is derived state, never stored) so a recovered session re-embeds after a
@@ -142,6 +229,26 @@ function enrichTerminalResult(terminal, stepId, hydrated) {
   return enriched;
 }
 
+// S31 wire hygiene: hydrated automation step records carry the verify
+// session's ABSOLUTE transcript path (result.vision / step-level vision).
+// The drill wire keeps only the session id - transcripts leave solely
+// through the confined /api/runs/:id/session-stream route.
+function publicVisionMeta(vision) {
+  if (!vision || typeof vision !== "object") return vision;
+  const { transcriptPath, ...rest } = vision;
+  return rest;
+}
+
+function stripTranscriptPaths(result) {
+  if (!result || typeof result !== "object") return result;
+  let next = result;
+  if (next.vision?.transcriptPath) next = { ...next, vision: publicVisionMeta(next.vision) };
+  if (next.result?.vision?.transcriptPath) {
+    next = { ...next, result: { ...next.result, vision: publicVisionMeta(next.result.vision) } };
+  }
+  return next;
+}
+
 // Merge each (page, step, viewport) entry's own automation-run result (tier,
 // evidence, pass/fail) onto the Drill run record for display. Hydration is
 // optional enrichment only: the terminal snapshot captured from runInline's
@@ -159,7 +266,7 @@ async function assembleRunView(record, { hydrate = true } = {}) {
     // Harness failures render apart from real step verdicts - computed here
     // (not stored) so runs recorded before the classifier existed group
     // correctly too.
-    pages.push({ ...pr, result, infra: isInfraError(pr.error || result?.error) });
+    pages.push({ ...pr, result: stripTranscriptPaths(result), infra: isInfraError(pr.error || result?.error) });
   }
   return publicRunRecord({ ...record, pages });
 }
@@ -915,6 +1022,19 @@ async function handle(req, res) {
       if (planJob && planJob.status === "planning") {
         return send(res, 409, { error: "a plan is authoring this project's Drill Book right now - wait for it to finish, then run" });
       }
+      // S31: one run per project at a time. Two concurrent runs would drive
+      // the same app under test and the same Browser-fitting capture
+      // sessions into each other; with background runs this is one
+      // double-click away, so the server owns the guard.
+      const activeForRoot = [...activeRuns.values()].find(
+        (entry) => !entry.done && (entry.record.project ?? null) === root
+      );
+      if (activeForRoot) {
+        return send(res, 409, {
+          error: `a run is already executing for this project - wait for it to finish (run ${activeForRoot.record.id})`,
+          runId: activeForRoot.record.id
+        });
+      }
       const book = await getDrillBook(root);
 
       // Configurable autonomy gate (A5/R7/S22): "gated" pauses with a plan
@@ -1028,6 +1148,24 @@ async function handle(req, res) {
         return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
       }
 
+      // S31: persist the record BEFORE execution starts (endedAt null =
+      // running) so the history table, a poller, and the crash-recovery boot
+      // sweep all see in-flight state; register the live entry that feeds the
+      // progress SSE stream.
+      await saveDrillRun(record);
+      const live = registerActiveRun(record);
+      publishRunEvent(record.id, {
+        type: "run_started",
+        runId: record.id,
+        startedAt: record.startedAt,
+        plannedChecks: jobs.length,
+        selection: record.selection,
+        project: root,
+        contextTag
+      });
+
+      const execute = async () => {
+      try {
       // Evidence capture (Drill Evidence v0.1, D1/D5): one browser capture
       // session per run — video for multi-check (Full Drill) runs unless the
       // caller toggles it, per-check offset manifest whenever the session came
@@ -1053,6 +1191,16 @@ async function handle(req, res) {
       for (const job of jobs) {
         record.executedChecks += 1;
         const jobStartedAt = Date.now();
+        live.current = {
+          index: record.executedChecks,
+          total: jobs.length,
+          pageId: job.pageId,
+          stepId: job.step.id,
+          viewportId: job.viewportId,
+          description: job.step.description || job.step.id,
+          startedAt: new Date().toISOString()
+        };
+        publishRunEvent(record.id, { type: "check_started", runId: record.id, ...live.current });
         const jobKey = checkKey({ pageId: job.pageId, stepId: job.step.id, viewportId: job.viewportId });
         // Per-check trace chunk (D2): bracket the engine run so the zip holds
         // exactly this check's actions/snapshots.
@@ -1119,6 +1267,32 @@ async function handle(req, res) {
           addSystemicIncident(job, terminal.recoveryFailure);
         }
 
+        // S31: link the verify session, push the check result to live
+        // subscribers, and persist the record incrementally - findings added
+        // below reach disk with the next check's save (or the final one).
+        noteRunSession(record, terminal);
+        const checkArt = capture ? checkArtifacts.at(-1) : null;
+        publishRunEvent(record.id, {
+          type: "check_finished",
+          runId: record.id,
+          index: record.executedChecks,
+          total: jobs.length,
+          pageId: pr.pageId,
+          stepId: pr.stepId,
+          viewportId: pr.viewportId,
+          kind: terminal.kind,
+          code: terminal.code,
+          ...(terminal.message ? { message: terminal.message } : {}),
+          ...(terminal.reasoning ? { reasoning: terminal.reasoning } : {}),
+          ...(terminal.durationMs !== undefined ? { durationMs: terminal.durationMs } : {}),
+          ...(terminal.tier !== undefined ? { tier: terminal.tier } : {}),
+          ...(terminal.session?.id ? { sessionId: terminal.session.id } : {}),
+          ...(checkArt?.screenshot ? { screenshot: checkArt.screenshot } : {}),
+          ...(checkArt?.failureScreenshot ? { failureScreenshot: checkArt.failureScreenshot } : {})
+        });
+        live.current = null;
+        await saveDrillRun(record);
+
         if (terminal.kind === "product-failure") {
           const art = capture ? checkArtifacts.at(-1) : null;
           const timing = capture ? manifestRows.at(-1) : null;
@@ -1142,6 +1316,7 @@ async function handle(req, res) {
         if (terminalOpensCircuit(terminal)) {
           addSystemicIncident(job, terminal);
           openCircuit(terminal, job);
+          publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
           break;
         }
 
@@ -1154,6 +1329,7 @@ async function handle(req, res) {
           pr.terminal = incomplete;
           addSystemicIncident(job, incomplete);
           openCircuit(incomplete, job);
+          publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
           break;
         }
 
@@ -1255,6 +1431,24 @@ async function handle(req, res) {
         failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
         infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
       };
+      // Session transcript slices (S31): store each verify session's
+      // run-window lines with the run's other evidence, so the debrief can
+      // replay the session after the live transcript file moves on (the
+      // gateway reuses delegate sessions across runs) or disappears.
+      for (const session of record.sessions ?? []) {
+        if (!session.transcriptPath) continue;
+        try {
+          const { lines } = await readJsonlLines(session.transcriptPath, 0);
+          const windowed = linesInWindow(lines, record.startedAt, record.endedAt);
+          if (!windowed.length) continue;
+          const name = sessionSliceName(session.id);
+          await atomicWrite(path.join(evidenceRunDir(record.id, root), name), `${windowed.join("\n")}\n`);
+          session.slice = name;
+          session.events = parseTranscriptLines(windowed).events.length;
+        } catch (err) {
+          console.warn(`[drill] session slice for ${session.id} failed: ${err.message}`);
+        }
+      }
       await saveDrillRun(record);
       // Retention (D6): applied on run completion, fire-and-forget — pruning
       // must never delay or fail the run response.
@@ -1280,6 +1474,41 @@ async function handle(req, res) {
           })
           .catch((err) => console.warn(`[drill] curation: ${err.message}`));
       }
+      } catch (err) {
+        // A crash must still land a terminal record: background mode has no
+        // HTTP response to carry the error, and sync callers deserve the
+        // partial record over a 500 with in-flight state stranded on disk.
+        console.error(`[drill] run ${record.id} crashed: ${err.message}`);
+        addInfraError(record, { text: `drill run crashed: ${err.message}`, code: "drill-run-crashed", component: "drill" });
+        if (!record.endedAt) {
+          record.endedAt = new Date().toISOString();
+          record.summary = {
+            steps: record.pages.length,
+            failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
+            infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+          };
+        }
+        await saveDrillRun(record).catch((saveErr) => console.error(`[drill] crash save failed: ${saveErr.message}`));
+      } finally {
+        publishRunEvent(record.id, {
+          type: "run_finished",
+          runId: record.id,
+          endedAt: record.endedAt,
+          summary: record.summary ?? null,
+          ...(record.circuit ? { circuit: record.circuit } : {})
+        });
+      }
+      };
+
+      // background:true (the UI's mode): kick the run and return the
+      // in-flight record immediately - progress rides GET /api/runs/:id/events
+      // and the incremental disk record. The DEFAULT stays synchronous: skill
+      // and heartbeat callers await the finished run through this one POST.
+      if (body.background === true) {
+        void execute().catch((err) => console.error(`[drill] background run ${record.id} failed: ${err.message}`));
+        return send(res, 200, { run: await assembleRunView(record, { hydrate: false }), background: true });
+      }
+      await execute();
       return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
     }
     if (pathname === "/api/runs" && req.method === "GET") {
@@ -1291,6 +1520,132 @@ async function handle(req, res) {
       const scoped = all ? runs : runs.filter((r) => !r.project || r.project === active);
       return send(res, 200, { runs: scoped.map(publicRunRecord) });
     }
+    // S31: in-flight run discovery - a reloaded (or second-device) Results
+    // view finds the running drill here and re-attaches to its event stream.
+    // Scoped to the selected project like GET /api/runs, so a skill-driven
+    // run against ANOTHER repo never hijacks this project's Results view;
+    // ?all=1 lifts the scope.
+    if (pathname === "/api/runs/active" && req.method === "GET") {
+      const all = url.searchParams.get("all") === "1";
+      const activeRoot = drillTargetRoot();
+      const entries = [...activeRuns.values()].filter((entry) => !entry.done);
+      const scoped = all
+        ? entries
+        : entries.filter((entry) => !entry.record.project || entry.record.project === activeRoot);
+      return send(res, 200, { runs: scoped.map(activeRunSnapshot) });
+    }
+    // S31: per-run progress stream. Replays the buffered events, then stays
+    // live until run_finished. For a run not active in this process the
+    // stream reports the terminal state and closes - the client falls back
+    // to the disk record.
+    const runEventsGet = pathname.match(/^\/api\/runs\/([^/]+)\/events$/);
+    if (runEventsGet && req.method === "GET") {
+      const runId = decodeURIComponent(runEventsGet[1]);
+      const entry = activeRuns.get(runId);
+      if (!entry) {
+        let record = null;
+        try { record = await getDrillRun(runId); } catch { record = null; }
+        res.writeHead(200, SSE_HEADERS);
+        res.write(`data: ${JSON.stringify({
+          type: record?.endedAt ? "run_finished" : "run_unknown",
+          runId,
+          at: new Date().toISOString(),
+          ...(record?.endedAt ? { endedAt: record.endedAt, summary: record.summary ?? null } : {})
+        })}\n\n`);
+        return void res.end();
+      }
+      res.writeHead(200, SSE_HEADERS);
+      for (const ev of entry.events) res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      if (entry.done) return void res.end();
+      entry.listeners.add(res);
+      const keepAlive = setInterval(() => {
+        try { res.write(": keep-alive\n\n"); } catch { /* closed */ }
+      }, 15_000);
+      keepAlive.unref?.();
+      req.on("close", () => {
+        clearInterval(keepAlive);
+        entry.listeners.delete(res);
+      });
+      return;
+    }
+    // S31: the verify-session transcript stream. One endpoint serves both
+    // shapes: `init` (everything so far - the stored per-run slice when it
+    // exists, else the live transcript filtered to the run window) followed
+    // by live `events` batches while the run is still executing, then `end`.
+    const runSessionStreamGet = pathname.match(/^\/api\/runs\/([^/]+)\/session-stream$/);
+    if (runSessionStreamGet && req.method === "GET") {
+      const runId = decodeURIComponent(runSessionStreamGet[1]);
+      const sessionId = String(url.searchParams.get("session") ?? "");
+      const entry = activeRuns.get(runId);
+      let record = entry?.record ?? null;
+      if (!record) {
+        try { record = await getDrillRun(runId); } catch { record = null; }
+      }
+      if (!record) return send(res, 404, { error: "not found" });
+      const session = (record.sessions ?? []).find((candidate) => candidate.id === sessionId);
+      if (!session) return send(res, 404, { error: "unknown session for this run" });
+      const sliceFile = session.slice
+        ? path.join(evidenceRunDir(record.id, record.project || drillTargetRoot()), session.slice)
+        : null;
+      const liveEntry = entry && !entry.done ? entry : null;
+
+      res.writeHead(200, SSE_HEADERS);
+      let closed = false;
+      req.on("close", () => { closed = true; });
+      const emit = (payload) => {
+        if (closed) return;
+        try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { closed = true; }
+      };
+      const keepAlive = setInterval(() => {
+        if (closed) return;
+        try { res.write(": keep-alive\n\n"); } catch { closed = true; }
+      }, 15_000);
+      keepAlive.unref?.();
+      try {
+        let offset = 0;
+        let tailPath = null;
+        let initLines = [];
+        if (sliceFile) {
+          try { initLines = (await readJsonlLines(sliceFile, 0)).lines; } catch { initLines = []; }
+        }
+        if (!initLines.length && session.transcriptPath) {
+          try {
+            const read = await readJsonlLines(session.transcriptPath, 0);
+            initLines = linesInWindow(read.lines, record.startedAt, record.endedAt);
+            offset = read.offset;
+            tailPath = session.transcriptPath;
+          } catch { tailPath = null; }
+        }
+        const parsed = parseTranscriptLines(initLines);
+        emit({
+          type: "init",
+          sessionId,
+          title: parsed.title,
+          events: parsed.events,
+          live: !!liveEntry,
+          available: initLines.length > 0 || !!tailPath
+        });
+        // Live tail: new complete transcript lines while the run executes.
+        while (!closed && liveEntry && !liveEntry.done && tailPath) {
+          await sleep(800);
+          try {
+            const read = await readJsonlLines(tailPath, offset);
+            if (read.lines.length) {
+              offset = read.offset;
+              const chunk = parseTranscriptLines(read.lines);
+              if (chunk.events.length || chunk.title) {
+                emit({ type: "events", sessionId, title: chunk.title, events: chunk.events });
+              }
+            }
+          } catch { /* transient read failure - keep polling */ }
+        }
+        emit({ type: "end", sessionId });
+      } finally {
+        clearInterval(keepAlive);
+        try { res.end(); } catch { /* already closed */ }
+      }
+      return;
+    }
     const runGet = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runGet && req.method === "GET") {
       const record = await getDrillRun(decodeURIComponent(runGet[1]));
@@ -1298,6 +1653,8 @@ async function handle(req, res) {
     }
     if (runGet && req.method === "DELETE") {
       const runId = decodeURIComponent(runGet[1]);
+      const busy = activeRunMutation(runId);
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(runId);
       const deleted = await deleteDrillRun(runId);
       if (deleted && record) await removeRunEvidence(runId, record.project || drillTargetRoot());
@@ -1395,6 +1752,8 @@ async function handle(req, res) {
     }
     const liveReplayPost = pathname.match(/^\/api\/runs\/([^/]+)\/live-replay$/);
     if (liveReplayPost && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(liveReplayPost[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(liveReplayPost[1]));
       if (!record) return send(res, 404, { error: "not found" });
       if (liveReplay) {
@@ -1525,6 +1884,8 @@ async function handle(req, res) {
 
     const feedbackMatch = pathname.match(/^\/api\/runs\/([^/]+)\/feedback$/);
     if (feedbackMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(feedbackMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(feedbackMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1542,6 +1903,8 @@ async function handle(req, res) {
     // finding - "a pass you know is wrong becomes a failed finding."
     const overrideMatch = pathname.match(/^\/api\/runs\/([^/]+)\/override$/);
     if (overrideMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(overrideMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(overrideMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1567,6 +1930,8 @@ async function handle(req, res) {
     // D9: a run-level observation - recording it never requires a re-run.
     const obsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/observation$/);
     if (obsMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(obsMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(obsMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1577,6 +1942,8 @@ async function handle(req, res) {
     // Convert an observation into a draft step on its page.
     const obsStepMatch = pathname.match(/^\/api\/runs\/([^/]+)\/observation\/([^/]+)\/convert-step$/);
     if (obsStepMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(obsStepMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(obsStepMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const observation = record.observations.find((o) => o.id === decodeURIComponent(obsStepMatch[2]));
@@ -1596,6 +1963,8 @@ async function handle(req, res) {
     // Convert an observation into a finding.
     const obsFindingMatch = pathname.match(/^\/api\/runs\/([^/]+)\/observation\/([^/]+)\/convert-finding$/);
     if (obsFindingMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(obsFindingMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(obsFindingMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const observation = record.observations.find((o) => o.id === decodeURIComponent(obsFindingMatch[2]));
@@ -1615,6 +1984,8 @@ async function handle(req, res) {
     // D10: triage a finding (proposed -> confirmed | dismissed).
     const findingMatch = pathname.match(/^\/api\/runs\/([^/]+)\/findings\/([^/]+)$/);
     if (findingMatch && req.method === "PATCH") {
+      const busy = activeRunMutation(decodeURIComponent(findingMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(findingMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1682,6 +2053,8 @@ async function handle(req, res) {
     // Only findings NOT already on a card go out - dispatch is idempotent.
     const dispatchMatch = pathname.match(/^\/api\/runs\/([^/]+)\/dispatch$/);
     if (dispatchMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(dispatchMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(dispatchMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1836,6 +2209,40 @@ export async function startServer() {
     for (const rec of reaped) console.log(`[drill] reaped orphaned plan agent pid=${rec.pid} root=${rec.root}`);
   } catch (err) {
     console.error(`[drill] orphan plan-agent sweep failed: ${err.message}`);
+  }
+  // S31: run records persist incrementally while executing (endedAt null =
+  // running). A record still open at boot belonged to a previous server
+  // process - close it honestly so the history table never shows a phantom
+  // "Running" row. This process has no active runs yet, so every open record
+  // is an orphan by construction.
+  try {
+    const orphans = (await listDrillRuns()).filter((record) => !record.endedAt);
+    for (const record of orphans) {
+      addInfraError(record, {
+        text: "drill server restarted mid-run - remaining checks never executed",
+        code: "drill-restarted-mid-run",
+        component: "drill"
+      });
+      record.circuit ??= {
+        component: "drill",
+        code: "drill-restarted-mid-run",
+        message: "drill server restarted mid-run",
+        kind: "infra-failure",
+        openedAt: new Date().toISOString(),
+        afterCheck: record.executedChecks ?? (record.pages ?? []).length,
+        skippedChecks: Math.max(0, (record.plannedChecks ?? 0) - (record.executedChecks ?? 0))
+      };
+      record.endedAt = new Date().toISOString();
+      record.summary = {
+        steps: (record.pages ?? []).length,
+        failed: (record.pages ?? []).filter((entry) => entry.terminal?.kind === "product-failure").length,
+        infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+      };
+      await saveDrillRun(record);
+      console.log(`[drill] closed orphaned in-flight run ${record.id}`);
+    }
+  } catch (err) {
+    console.error(`[drill] orphan run sweep failed: ${err.message}`);
   }
   // Heartbeat dispatch pickup (D10/S29): best-effort periodic sweep - a
   // transient kanban-loop outage must never crash the Drill server.

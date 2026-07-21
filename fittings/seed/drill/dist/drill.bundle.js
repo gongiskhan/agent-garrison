@@ -26360,6 +26360,11 @@ var LocateFixed = createLucideIcon("LocateFixed", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
+// ../../../node_modules/lucide-react/dist/esm/icons/message-square.js
+var MessageSquare = createLucideIcon("MessageSquare", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
+]);
+
 // ../../../node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
@@ -26442,6 +26447,17 @@ var Video = createLucideIcon("Video", [
     }
   ],
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/wrench.js
+var Wrench = createLucideIcon("Wrench", [
+  [
+    "path",
+    {
+      d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+      key: "cbrjhi"
+    }
+  ]
 ]);
 
 // ../../../node_modules/lucide-react/dist/esm/icons/x.js
@@ -28954,6 +28970,11 @@ function DebriefView({
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
             " Live Browser ",
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-exp-chip", children: "experimental" })
+          ] }),
+          (run.sessions?.length ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "session", className: "dr-db-tab" + (tab === "session" ? " on" : ""), title: "The Claude session(s) that resolved this run's vision checks", onClick: () => setTab("session"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13 }),
+            " Session",
+            (run.sessions?.length ?? 0) > 1 ? "s" : ""
           ] })
         ] }),
         tab === "screenshots" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -28997,7 +29018,8 @@ function DebriefView({
             warnings: liveWarnings,
             onWarnings: setLiveWarnings
           }
-        )
+        ),
+        tab === "session" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionViewer, { runId: run.id, sessions: run.sessions ?? [], live: false })
       ] })
     ] })
   ] });
@@ -29315,6 +29337,309 @@ function ClassicRunDetail({
     ] })
   ] });
 }
+function SessionTextBlock({ text, role }) {
+  if (role === "user" && text.length > 280) {
+    const head = text.slice(0, 140).split("\n")[0];
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-session-longtext", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+        head,
+        "\u2026"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre", children: text })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-text", children: text });
+}
+function SessionToolBlock({ block, result }) {
+  const hint = (block.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-toolwrap", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-session-tool", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Wrench, { size: 11, "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: block.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-tool-hint", children: hint }),
+        result?.isError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "error" })
+      ] }),
+      block.input && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre", children: block.input }),
+      result?.text && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre result", children: result.text })
+    ] }),
+    (result?.images ?? []).map((image, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "img",
+      {
+        className: "dr-session-img",
+        src: `data:${image.mediaType};base64,${image.data}`,
+        alt: `${block.name ?? "tool"} result image ${index + 1}`,
+        loading: "lazy"
+      },
+      index
+    ))
+  ] });
+}
+function SessionStream({ runId, sessionId, live }) {
+  const [events, setEvents] = (0, import_react4.useState)([]);
+  const [title, setTitle] = (0, import_react4.useState)(null);
+  const [status, setStatus] = (0, import_react4.useState)("connecting");
+  const scrollRef = (0, import_react4.useRef)(null);
+  const stickRef = (0, import_react4.useRef)(true);
+  (0, import_react4.useEffect)(() => {
+    setEvents([]);
+    setTitle(null);
+    setStatus("connecting");
+    stickRef.current = true;
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?session=${encodeURIComponent(sessionId)}`);
+    source.onmessage = (message) => {
+      let payload;
+      try {
+        payload = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      if (payload.type === "init") {
+        setEvents(payload.events ?? []);
+        if (payload.title) setTitle(payload.title);
+        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
+      } else if (payload.type === "events") {
+        if (payload.title) setTitle(payload.title);
+        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
+      } else if (payload.type === "end") {
+        setStatus((current) => current === "unavailable" ? current : "ended");
+        source.close();
+      }
+    };
+    source.onerror = () => {
+      setStatus((current) => current === "unavailable" ? current : "ended");
+      source.close();
+    };
+    return () => source.close();
+  }, [runId, sessionId]);
+  (0, import_react4.useEffect)(() => {
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [events]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
+  const resultsByToolUse = (0, import_react4.useMemo)(() => {
+    const map = /* @__PURE__ */ new Map();
+    for (const event of events) {
+      for (const block of event.blocks) {
+        if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
+      }
+    }
+    return map;
+  }, [events]);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13, "aria-hidden": "true" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? "Verify session" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-session-id", children: sessionId.slice(0, 8) }),
+      live && status === "streaming" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "live" }),
+      status === "connecting" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "connecting\u2026" }),
+      status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "transcript unavailable" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-scroll", ref: scrollRef, onScroll, children: [
+      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : "No session activity fell inside this run's window." }),
+      events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-role", children: event.role === "user" ? "Prompt" : "Assistant" }),
+        event.blocks.map((block, blockIndex) => {
+          if (block.type === "text") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionTextBlock, { text: block.text ?? "", role: event.role }, blockIndex);
+          if (block.type === "thinking") {
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-session-thinking", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", { children: "Thinking" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre", children: block.text })
+            ] }, blockIndex);
+          }
+          if (block.type === "tool_use") {
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionToolBlock, { block, result: block.toolUseId ? resultsByToolUse.get(block.toolUseId) : void 0 }, blockIndex);
+          }
+          return null;
+        })
+      ] }, event.id ?? `event-${index}`))
+    ] })
+  ] });
+}
+function SessionViewer({ runId, sessions, live }) {
+  const [selected, setSelected] = (0, import_react4.useState)(sessions[0]?.id ?? null);
+  const sessionKey = sessions.map((session) => session.id).join(",");
+  (0, import_react4.useEffect)(() => {
+    if (sessions.length === 0) {
+      setSelected(null);
+      return;
+    }
+    setSelected((current) => current && sessions.some((session) => session.id === current) ? current : sessions[0].id);
+  }, [sessionKey]);
+  if (sessions.length === 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-empty", children: [
+      "No verify sessions recorded",
+      live ? " yet - the first vision-resolved check opens one" : " for this run. Cached and deterministic checks run without a model session",
+      "."
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-viewer", children: [
+    sessions.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-session-tabs", role: "tablist", "aria-label": "Verify sessions", children: sessions.map((session, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "button",
+      {
+        role: "tab",
+        "aria-selected": selected === session.id,
+        className: "chip click" + (selected === session.id ? " ink active" : ""),
+        onClick: () => setSelected(session.id),
+        children: [
+          "Session ",
+          index + 1,
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-count", children: [
+            session.checks ?? 0,
+            " check",
+            (session.checks ?? 0) === 1 ? "" : "s"
+          ] })
+        ]
+      },
+      session.id
+    )) }),
+    selected && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionStream, { runId, sessionId: selected, live }, selected)
+  ] });
+}
+function LiveRunPanel({ runId, startedAt, onFinished }) {
+  const [planned, setPlanned] = (0, import_react4.useState)(null);
+  const [current, setCurrent] = (0, import_react4.useState)(null);
+  const [checks, setChecks] = (0, import_react4.useState)([]);
+  const [circuit, setCircuit] = (0, import_react4.useState)(null);
+  const [runStartedAt, setRunStartedAt] = (0, import_react4.useState)(startedAt);
+  const [streamLost, setStreamLost] = (0, import_react4.useState)(false);
+  const [, setTick] = (0, import_react4.useState)(0);
+  const finishedRef = (0, import_react4.useRef)(false);
+  const streamLostRef = (0, import_react4.useRef)(false);
+  const onFinishedRef = (0, import_react4.useRef)(onFinished);
+  (0, import_react4.useEffect)(() => {
+    onFinishedRef.current = onFinished;
+  });
+  (0, import_react4.useEffect)(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 1e3);
+    return () => clearInterval(timer);
+  }, []);
+  (0, import_react4.useEffect)(() => {
+    finishedRef.current = false;
+    streamLostRef.current = false;
+    setChecks([]);
+    setCurrent(null);
+    setCircuit(null);
+    setStreamLost(false);
+    setPlanned(null);
+    setRunStartedAt(startedAt);
+    const finish = () => {
+      if (finishedRef.current) return;
+      finishedRef.current = true;
+      onFinishedRef.current(runId);
+    };
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events`);
+    source.onmessage = (message) => {
+      let event;
+      try {
+        event = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      if (streamLostRef.current) {
+        streamLostRef.current = false;
+        setStreamLost(false);
+      }
+      if (event.type === "run_started") {
+        setPlanned(event.plannedChecks ?? null);
+        if (event.startedAt) setRunStartedAt(event.startedAt);
+      } else if (event.type === "check_started") {
+        setCurrent(event);
+      } else if (event.type === "check_finished") {
+        setCurrent(null);
+        setChecks((rows) => rows.some((row) => row.index === event.index) ? rows.map((row) => row.index === event.index ? event : row) : [event, ...rows]);
+      } else if (event.type === "circuit_opened") {
+        setCircuit(event);
+      } else if (event.type === "run_finished" || event.type === "run_unknown") {
+        source.close();
+        finish();
+      }
+    };
+    source.onerror = () => {
+      streamLostRef.current = true;
+      setStreamLost(true);
+    };
+    const poll = setInterval(() => {
+      if (finishedRef.current || !streamLostRef.current) return;
+      apiGet(`/api/runs/${encodeURIComponent(runId)}`).then((response) => {
+        if (response.run?.endedAt) {
+          source.close();
+          finish();
+        }
+      }).catch(() => {
+      });
+    }, 5e3);
+    return () => {
+      source.close();
+      clearInterval(poll);
+    };
+  }, [runId]);
+  const elapsedMs = runStartedAt ? Date.now() - new Date(runStartedAt).getTime() : null;
+  const elapsed = elapsedMs !== null && Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs < 6e4 ? `${Math.floor(elapsedMs / 1e3)}s elapsed` : `${Math.floor(elapsedMs / 6e4)}m ${Math.floor(elapsedMs % 6e4 / 1e3)}s elapsed` : null;
+  const sessions = (0, import_react4.useMemo)(() => {
+    const byId = /* @__PURE__ */ new Map();
+    for (const check of [...checks].sort((a, b) => a.index - b.index)) {
+      if (!check.sessionId) continue;
+      const existing = byId.get(check.sessionId);
+      if (existing) existing.checks = (existing.checks ?? 0) + 1;
+      else byId.set(check.sessionId, { id: check.sessionId, checks: 1 });
+    }
+    return [...byId.values()];
+  }, [checks]);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card dr-live-run", role: "region", "aria-label": "Run in progress", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run in progress" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Checks stream in as they execute; the verify session is live below. Closing this page does not stop the run." })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-run-id", children: runId })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-progress", role: "status", "aria-live": "polite", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-spinner", "aria-hidden": "true" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: circuit ? `Circuit opened${circuit.code ? ` - ${circuit.code}` : ""}` : current ? `Check ${current.index}/${current.total}: ${current.description ?? current.stepId}` : checks.length > 0 ? `Executed ${checks.length}/${planned ?? checks[0]?.total ?? "?"} checks` : "Starting run\u2026" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+          current ? `${current.pageId} \xB7 ${current.stepId} \xB7 ${current.viewportId}` : "Waiting for the next check\u2026",
+          elapsed ? ` \xB7 ${elapsed}` : "",
+          streamLost ? " \xB7 live stream lost - polling the run record" : ""
+        ] })
+      ] })
+    ] }),
+    circuit && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-inline-error", role: "alert", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+      circuit.message ?? "The run circuit opened.",
+      Number.isFinite(circuit.skippedChecks) ? ` Remaining ${circuit.skippedChecks} checks were skipped.` : ""
+    ] }) }),
+    checks.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-live-checks", "aria-label": "Executed checks", children: checks.slice(0, 40).map((check) => {
+      const shot = check.failureScreenshot ?? check.screenshot;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-live-check", title: check.reasoning ?? check.message ?? void 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `chip ${check.kind === "passed" ? "sage" : check.kind === "product-failure" ? "alarm" : "brass"}`, children: check.kind === "passed" ? "pass" : check.kind === "product-failure" ? "fail" : check.kind }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-live-check-name", children: [
+          check.pageId,
+          " \xB7 ",
+          check.stepId,
+          " ",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", children: [
+            "[",
+            check.viewportId,
+            "]"
+          ] })
+        ] }),
+        Number.isFinite(check.durationMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-live-check-ms mono", children: [
+          ((check.durationMs ?? 0) / 1e3).toFixed(1),
+          "s"
+        ] }),
+        shot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "dr-live-check-shot", href: evidenceFileUrl(runId, shot), target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: evidenceFileUrl(runId, shot), alt: `${check.stepId} screenshot`, loading: "lazy" }) })
+      ] }, `${check.index}-${check.pageId}-${check.stepId}-${check.viewportId}`);
+    }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-live-session-wrap", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Verify session" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionViewer, { runId, sessions, live: true })
+    ] })
+  ] });
+}
 function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }) {
   const [pages, setPages] = (0, import_react4.useState)([]);
   const [pagesLoaded, setPagesLoaded] = (0, import_react4.useState)(false);
@@ -29364,6 +29689,8 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [deleteArm, setDeleteArm] = (0, import_react4.useState)(null);
   const [dispatching, setDispatching] = (0, import_react4.useState)(false);
   const [pendingGate, setPendingGate] = (0, import_react4.useState)(null);
+  const [watchRunId, setWatchRunId] = (0, import_react4.useState)(null);
+  const [watchStartedAt, setWatchStartedAt] = (0, import_react4.useState)(null);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
       setPages(p.pages);
@@ -29377,9 +29704,27 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       setRunsLoaded(true);
       setError(e.message);
     });
+    apiGet("/api/runs/active").then((response) => {
+      const active = (response.runs ?? [])[0];
+      if (active?.id) {
+        setWatchRunId((current) => current ?? active.id);
+        setWatchStartedAt((current) => current ?? active.startedAt ?? null);
+      }
+    }).catch(() => {
+    });
   };
   (0, import_react4.useEffect)(load, []);
+  const onWatchedRunFinished = (finishedRunId) => {
+    setWatchRunId(null);
+    setWatchStartedAt(null);
+    void openRun(finishedRunId);
+    load();
+  };
   const startRun = async (pageIdsArg, viewportsArg, stateArg) => {
+    if (running || watchRunId) {
+      setError("a run is already in progress - wait for it to finish");
+      return;
+    }
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
     if (pageIds.length === 0 || viewports.length === 0) {
@@ -29405,11 +29750,16 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     try {
       await ensureAppUp(setPhase);
       setPhase(null);
-      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill" });
+      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill", background: true });
       if (r.held) {
         setPendingGate({ plan: r.plan, resume: r.resume });
       } else {
         setRun(r.run);
+        if (r.background && r.run?.id) {
+          setWatchRunId(r.run.id);
+          setWatchStartedAt(r.run.startedAt ?? null);
+          onRunViewed(r.run.id);
+        }
         load();
       }
     } catch (e) {
@@ -29424,6 +29774,10 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     setSelectedPages(new Set(initialRun.pageIds));
     setSelectedViewports(new Set(initialRun.viewports));
     onConsumeInitialRun();
+    if (running || watchRunId) {
+      setNotice("A run is already in progress - your selection is set; start it when the current run finishes.");
+      return;
+    }
     startRun(initialRun.pageIds, initialRun.viewports, "default");
   }, [initialRun, pages.length]);
   (0, import_react4.useEffect)(() => {
@@ -29439,9 +29793,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     if (!pendingGate) return;
     setRunning(true);
     try {
-      const r = await apiPost("/api/runs", pendingGate.resume);
+      const r = await apiPost("/api/runs", { ...pendingGate.resume, background: true });
       setPendingGate(null);
       setRun(r.run);
+      if (r.background && r.run?.id) {
+        setWatchRunId(r.run.id);
+        setWatchStartedAt(r.run.startedAt ?? null);
+        onRunViewed(r.run.id);
+      }
       load();
     } catch (e) {
       setError(e.message);
@@ -29654,10 +30013,11 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         v.id
       )) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions dr-run-launch-actions", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: () => startRun(), children: running ? phase ?? "Running\u2026" : "Run selected" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running || watchRunId !== null, onClick: () => startRun(), children: running ? phase ?? "Starting\u2026" : watchRunId ? "Run in progress\u2026" : "Run selected" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
       ] })
     ] }),
+    watchRunId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveRunPanel, { runId: watchRunId, startedAt: watchStartedAt, onFinished: onWatchedRunFinished }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -30237,6 +30597,7 @@ lucide-react/dist/esm/icons/flag.js:
 lucide-react/dist/esm/icons/layout-grid.js:
 lucide-react/dist/esm/icons/list-filter.js:
 lucide-react/dist/esm/icons/locate-fixed.js:
+lucide-react/dist/esm/icons/message-square.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/notebook-pen.js:
 lucide-react/dist/esm/icons/pause.js:
@@ -30248,6 +30609,7 @@ lucide-react/dist/esm/icons/smartphone.js:
 lucide-react/dist/esm/icons/tablet.js:
 lucide-react/dist/esm/icons/terminal.js:
 lucide-react/dist/esm/icons/video.js:
+lucide-react/dist/esm/icons/wrench.js:
 lucide-react/dist/esm/icons/x.js:
 lucide-react/dist/esm/lucide-react.js:
   (**

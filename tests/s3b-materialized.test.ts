@@ -143,7 +143,9 @@ describe("RoutedGateway.runWebOneShot (injectable one-shot; nothing held)", () =
       },
     });
     const out = await gw.runWebOneShot({ message: "CONTEXT\n\n---\n\nhello there", model: "opus" });
-    expect(out).toEqual({ reply: "one-shot answer", sessionId: null });
+    // transcriptPath is null here because the injected one-shot returned no
+    // session id (S31 links transcripts only when a real session ran).
+    expect(out).toEqual({ reply: "one-shot answer", sessionId: null, transcriptPath: null });
     expect(captured.cwd).toBe("/tmp/comp");
     expect(captured.model).toBe("opus");
     expect(captured.permissionMode).toBe("bypassPermissions");

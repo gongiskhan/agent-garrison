@@ -965,3 +965,99 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
   --sb-thumb: rgba(215, 227, 220, 0.16);
   --sb-thumb-hover: rgba(215, 227, 220, 0.32);
 }
+
+/* ── Live run panel + session viewer (S31) ──────────────────────────────────
+   The Run page's in-flight surface: check rows streaming in with evidence
+   thumbnails, and a Claude-desktop-style transcript of the verify session
+   (collapsed tool calls, inline screenshots). Same field-manual idiom -
+   sharp corners, paper surfaces, brass/sage/alarm tones, AA ink on paper. */
+
+.dr-live-run .dr-db-live-progress { margin-bottom: 10px; }
+
+.dr-live-checks {
+  border: 1px solid var(--rule);
+  background: white;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.dr-live-check {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-bottom: 1px dashed var(--rule);
+  font-size: 11.5px; color: var(--ink-2); min-width: 0;
+}
+.dr-live-check:last-child { border-bottom: none; }
+.dr-live-check-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-live-check-name .mono { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+.dr-live-check-ms { flex: none; font-family: var(--mono); font-size: 10px; color: var(--mute); }
+.dr-live-check-shot { flex: none; display: block; line-height: 0; }
+.dr-live-check-shot img {
+  height: 34px; width: 56px; object-fit: cover; object-position: top;
+  border: 1px solid var(--rule-2); display: block; background: var(--paper-2);
+}
+.dr-live-session-wrap .dr-lbl { margin-bottom: 6px; }
+
+.dr-session-viewer { min-width: 0; }
+.dr-session-tabs { margin-bottom: 8px; }
+.dr-session { border: 1px solid var(--rule-2); background: white; }
+.dr-session-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--rule);
+  background: var(--paper-2); color: var(--ink);
+}
+.dr-session-head b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-session-head svg { flex: none; color: var(--sage-2); }
+.dr-session-id { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+.dr-session-scroll {
+  max-height: 460px; overflow-y: auto; padding: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.dr-session-turn { min-width: 0; }
+.dr-session-turn.user { border-left: 2px solid var(--rule-2); padding-left: 8px; }
+.dr-session-turn.assistant { border-left: 2px solid var(--sage-2); padding-left: 8px; }
+.dr-session-role {
+  display: block; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mute); margin-bottom: 3px;
+}
+.dr-session-text, .dr-session-pre {
+  margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
+  white-space: pre-wrap; word-break: break-word; font-family: var(--sans);
+}
+.dr-session-pre {
+  font-family: var(--mono); font-size: 10.5px;
+  background: var(--paper); border: 1px solid var(--rule);
+  padding: 6px 8px; margin-top: 4px; max-height: 240px; overflow-y: auto;
+}
+.dr-session-pre.result { border-left: 2px solid var(--sage-2); }
+.dr-session-longtext summary, .dr-session-thinking summary, .dr-session-tool summary {
+  cursor: pointer; font-size: 11px; color: var(--ink-mute);
+}
+.dr-session-longtext summary { font-style: italic; }
+.dr-session-thinking { margin: 4px 0; }
+.dr-session-thinking summary { color: var(--mute); font-style: italic; }
+.dr-session-thinking .dr-session-pre { color: var(--mute); }
+.dr-session-toolwrap { margin: 4px 0; min-width: 0; }
+.dr-session-tool summary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border: 1px solid var(--rule); background: var(--paper-2);
+  min-width: 0;
+}
+.dr-session-tool summary b { font-size: 11px; color: var(--ink); flex: none; }
+.dr-session-tool summary svg { flex: none; color: var(--warn-ink); }
+.dr-session-tool-hint {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 9.5px; color: var(--mute);
+}
+.dr-session-img {
+  display: block; margin-top: 6px; max-width: 100%; max-height: 340px;
+  border: 1px solid var(--rule-2); background: var(--paper-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-db-spinner { animation-duration: 2.4s; }
+}
+
+@media (max-width: 760px) {
+  .dr-session-scroll { max-height: 55vh; }
+  .dr-live-check-name { white-space: normal; }
+}
