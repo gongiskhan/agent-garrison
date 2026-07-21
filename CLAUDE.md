@@ -398,6 +398,8 @@ standalone unit on the same jobs file double-fires every scheduled job.
 ## What to read next, by intent
 
 - Spec / shape of v1 → [`docs/SPEC.md`](./docs/SPEC.md).
+- Instance ports, lifecycles, when changes reach prod / fittings restart →
+  [`docs/INSTANCES.md`](./docs/INSTANCES.md).
 - Adding or auditing a Fitting →
   [`docs/METADATA.md`](./docs/METADATA.md),
   [`docs/FITTINGS.md`](./docs/FITTINGS.md),
