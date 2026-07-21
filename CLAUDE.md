@@ -393,9 +393,9 @@ which does, in order: commit in the dev tree -> fast-forward the prod tree ->
 `npm install` in prod **only if the lockfile moved** -> `prod:redeploy`. A
 commit that is not promoted has changed nothing the user can see.
 
-Promoting is **local only**. Pushing to GitHub is opt-in
-(`npm run promote -- --push "msg"`): landing code on prod and publishing it are
-different decisions, and publishing must never be a silent side effect.
+Promoting also **pushes to GitHub by default** (best-effort — offline never
+blocks the deploy; commits are authored as gabrielsvarela1). Skip it with
+`npm run promote -- --no-push "msg"`.
 
 ### Deploying — HARD RULE: commit is not landed until prod is redeployed
 

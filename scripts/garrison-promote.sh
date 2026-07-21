@@ -18,15 +18,16 @@
 #
 # Steps:
 #   1. commit every change in the dev tree
-#   2. push to origin — ONLY with --push. "Commit" here means "land it on prod",
-#      which is entirely local; publishing to GitHub is a separate decision and
-#      must never be a silent side effect of deploying.
+#   2. push to origin (best-effort: offline must never block the deploy).
+#      Default since 2026-07-21 at the user's request — every promoted commit
+#      is also their GitHub backup, authored as gabrielsvarela1 via the repo
+#      git config + the mac's SSH key. Opt out with --no-push.
 #   3. fast-forward prod onto the new dev commit
 #   4. npm install in prod, but only if the lockfile actually moved
 #   5. prod redeploy: build -> down -> restart -> up
 #
 # Usage: scripts/garrison-promote.sh "commit message"
-#        scripts/garrison-promote.sh --push "commit message"   # also push to GitHub
+#        scripts/garrison-promote.sh --no-push "commit message"   # skip the GitHub push
 #        scripts/garrison-promote.sh --deploy-only     # prod already has it; just redeploy
 
 set -euo pipefail
@@ -34,7 +35,7 @@ set -euo pipefail
 DEV_TREE="${GARRISON_DEV_TREE:-$HOME/dev/agent-garrison-dev}"
 PROD_TREE="${GARRISON_PROD_TREE:-$HOME/dev/agent-garrison}"
 
-push=0
+push=1
 deploy_only=0
 message=""
 while [ $# -gt 0 ]; do

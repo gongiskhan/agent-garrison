@@ -99,8 +99,8 @@ Workflow:
 
 Two things to warn the user about before promoting: it **restarts prod**, so
 Jarvis goes quiet for a minute or two (if you are the prod operative, you are
-restarting yourself — say so first). And promoting is local; add `--push` only
-if they actually want it on GitHub.
+restarting yourself — say so first). Promoting also pushes to GitHub by
+default (authored as the user); `--no-push` skips it.
 
 The test suite has ~51 pre-existing failures. Compare against that baseline
 before blaming your own change — do not try to fix them unasked.

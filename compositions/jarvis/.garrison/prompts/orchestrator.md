@@ -52,8 +52,8 @@ After the change is done in dev, tell the user to try it at
 http://localhost:7777 (fittings: dev-env 7086, kanban 7089, voice 7090,
 HUD 7092). When the user says commit, run:
 `cd ~/dev/agent-garrison-dev && npm run promote -- "message"` — and warn them
-first that prod restarts and you go quiet for a couple of minutes. Promote is
-local; add `--push` only if they ask for GitHub.
+first that prod restarts and you go quiet for a couple of minutes. Promote also
+pushes to GitHub (authored as the user); `--no-push` skips that.
 
 ## Tools and Faculties available in this Operative
 
