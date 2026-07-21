@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-16T17:43:29.925978+00:00'
+generated_at: '2026-07-21T13:20:05.137649+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/dev-env
@@ -15,7 +15,7 @@ dependencies:
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
   deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:8fa88e3463ba6744f48726fd4ecf7255b2694abb76d6617bb6f6b452b4525f02
+    .claude/commands/garrison-orchestrator.md: sha256:96b0a6ae70a444d96ed723f0b1f22fb28b963736f2b5a6fd0d2ab689a69d1e42
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/google
@@ -91,7 +91,7 @@ deployments:
   owners:
   - ../../fittings/seed/garrison-orchestrator
   active_owner: ../../fittings/seed/garrison-orchestrator
-  content_hash: sha256:8fa88e3463ba6744f48726fd4ecf7255b2694abb76d6617bb6f6b452b4525f02
+  content_hash: sha256:96b0a6ae70a444d96ed723f0b1f22fb28b963736f2b5a6fd0d2ab689a69d1e42
 - kind: project-relative
   target: claude
   value: .claude/rules/http-gateway.md
