@@ -50,6 +50,18 @@ echo "[local-voice:setup] installing Python deps (this can take a few minutes)"
 "$VPY" -m pip install --quiet --upgrade pip
 "$VPY" -m pip install --quiet -r "$VS/requirements.txt"
 
+# Expand a leading "~/" in a config-supplied path. Composition config reaches us
+# as a variable value, and the shell does NOT expand ~ there — so "~/.cache/x"
+# stays literal and every -f test against it fails. Only the leading ~/ form is
+# handled; that is the only shape apm.yml uses.
+expand_tilde() {
+  case "$1" in
+    "~/"*) printf '%s/%s' "$HOME" "${1#\~/}" ;;
+    "~")   printf '%s' "$HOME" ;;
+    *)     printf '%s' "$1" ;;
+  esac
+}
+
 # 3. Kokoro model files (~325MB + ~28MB) — only fetch when missing
 fetch() {
   local url="$1" out="$2"
@@ -82,8 +94,16 @@ fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx.json" "$PIPER_DIR/pt_PT-tugao
 # 5. whisper.cpp (Metal GPU STT) — only when selected as the STT engine. Runs
 #    large-v3 on the Apple GPU via a supervised whisper-server, ~3x faster than
 #    faster-whisper's CPU path. Needs the `whisper-server` binary + the ggml
-#    model. Skipped entirely when STT_ENGINE is the default faster-whisper.
-STT_ENGINE_LC="$(printf '%s' "${STT_ENGINE:-faster-whisper}" | tr '[:upper:]' '[:lower:]')"
+#    model. Skipped entirely when the engine is the default faster-whisper.
+#
+# Composition config reaches a SETUP hook as LOCAL_VOICE_<KEY> (setupConfigEnv in
+# src/lib/runner.ts prefixes with the fitting id) — NOT as the bare name, and not
+# as the GARRISON_LOCALVOICE_<KEY> form the running server gets from
+# ownPortConfigEnv. Reading the bare name here meant `stt_engine: whisper-cpp`
+# and `wake_word: on` never reached setup at all: no ggml model was ever fetched
+# and openWakeWord was never installed. The bare name is kept as a fallback only
+# so a hand-run `bash scripts/setup.sh` still works.
+STT_ENGINE_LC="$(printf '%s' "${LOCAL_VOICE_STT_ENGINE:-${STT_ENGINE:-faster-whisper}}" | tr '[:upper:]' '[:lower:]')"
 if [ "$STT_ENGINE_LC" = "whisper-cpp" ] || [ "$STT_ENGINE_LC" = "whispercpp" ] || [ "$STT_ENGINE_LC" = "cpp" ]; then
   echo "[local-voice:setup] STT engine = whisper-cpp — ensuring whisper-server + model"
   if ! command -v whisper-server >/dev/null 2>&1; then
@@ -96,7 +116,7 @@ if [ "$STT_ENGINE_LC" = "whisper-cpp" ] || [ "$STT_ENGINE_LC" = "whispercpp" ] |
       exit 1
     fi
   fi
-  WCPP_MODEL="${WHISPER_CPP_MODEL:-$HOME/.cache/whisper-cpp/ggml-large-v3.bin}"
+  WCPP_MODEL="$(expand_tilde "${LOCAL_VOICE_WHISPER_CPP_MODEL:-${WHISPER_CPP_MODEL:-$HOME/.cache/whisper-cpp/ggml-large-v3.bin}}")"
   mkdir -p "$(dirname "$WCPP_MODEL")"
   # Derive the URL from the configured filename. Only stock ggerganov checkpoints
   # exist upstream; a fine-tune (ggml-WhisperLv3-FT-EP-f16.bin) has no ggml build
@@ -121,7 +141,7 @@ if [ "$STT_ENGINE_LC" = "whisper-cpp" ] || [ "$STT_ENGINE_LC" = "whispercpp" ] |
   # Silero VAD model (~885KB) — strips non-speech so whisper doesn't hallucinate
   # a trailing word into end-of-clip silence. Note the repo: ggml-org/whisper-vad
   # (the whisper.cpp repo path 404s for this file).
-  WCPP_VAD="${WHISPER_CPP_VAD_MODEL:-$HOME/.cache/whisper-cpp/ggml-silero-vad.bin}"
+  WCPP_VAD="$(expand_tilde "${WHISPER_CPP_VAD_MODEL:-$HOME/.cache/whisper-cpp/ggml-silero-vad.bin}")"
   fetch "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin" "$WCPP_VAD"
   echo "[local-voice:setup] whisper-cpp ready ($(whisper-server --help >/dev/null 2>&1 && echo binary-ok))"
 fi
@@ -131,7 +151,7 @@ fi
 #    on the onnxruntime already in the venv, and add just what it imports.
 #    Models (~7MB: melspec + embedding + hey_jarvis, ONNX) land in
 #    site-packages/openwakeword/resources/models; skipped once present.
-WAKE_LC="$(printf '%s' "${WAKE_WORD:-off}" | tr '[:upper:]' '[:lower:]')"
+WAKE_LC="$(printf '%s' "${LOCAL_VOICE_WAKE_WORD:-${WAKE_WORD:-off}}" | tr '[:upper:]' '[:lower:]')"
 if [ "$WAKE_LC" = "on" ] || [ "$WAKE_LC" = "1" ] || [ "$WAKE_LC" = "true" ]; then
   echo "[local-voice:setup] wake word on — ensuring openWakeWord + hey_jarvis model"
   "$VPY" -m pip install --quiet --no-deps openwakeword
