@@ -229,14 +229,16 @@ function UsageBar({
   ceiling: number;
   now: number;
 }) {
+  // The bar clamps to 0-100 for geometry; the LABEL shows the real percent -
+  // a scorched window reads 102%, not a reassuring 100%.
   const pct = win ? Math.min(100, Math.max(0, win.pct)) : null;
-  const over = pct !== null && pct >= ceiling;
+  const over = win !== null && win.pct >= ceiling;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 120 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: "1 1 130px", minWidth: 120 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
         <span className="hint">{label}</span>
         <span style={over ? { color: "var(--alarm, #a33)", fontWeight: 600 } : undefined}>
-          {pct === null ? "-" : `${pct}%`}
+          {win === null ? "-" : `${win.pct}%`}
         </span>
       </div>
       <div
@@ -397,10 +399,13 @@ function PaymasterPanel({
               display: "flex",
               gap: 12,
               alignItems: "flex-start",
+              // The panel renders inside narrow fitting-card columns - wrap
+              // instead of clipping the usage bars off the card edge.
+              flexWrap: "wrap",
               opacity: account.enabled ? 1 : 0.55
             }}
           >
-            <div style={{ width: 150, display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ flex: "1 1 150px", minWidth: 150, display: "flex", flexDirection: "column", gap: 2 }}>
               <span className="font-mono" style={{ fontSize: 12 }}>
                 {account.name}
                 {autoSelected && data.decision.pick === account.name ? " (pick)" : ""}
