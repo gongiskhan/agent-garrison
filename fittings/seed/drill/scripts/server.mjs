@@ -1894,6 +1894,11 @@ async function handle(req, res) {
       );
       if (!entry?.automationRunId) return send(res, 404, { error: "evidence not found" });
       try {
+        // Evidence bytes live engine-side, so a finished run's thumbnails
+        // 502 whenever the engine is down (every redeploy) - self-heal it
+        // here too, with a shorter bound since a debrief render fans out
+        // many parallel evidence requests that would each hold a socket.
+        await ensureAutomationsUp({ timeoutMs: 15000 });
         const bytes = await getStepEvidence(entry.automationRunId, stepId);
         if (!bytes) return send(res, 404, { error: "evidence not found" });
         res.statusCode = 200;
