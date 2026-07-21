@@ -139,6 +139,9 @@ async function handlePair(req, res, opts) {
 
 async function handleUnregisterOutpost(req, res, opts, name) {
   const result = await proxyJson(`${opts.outpostHostUrl}/registry/${encodeURIComponent(name)}`, { method: "DELETE" });
+  // Also drop the config-sync target so the healer stops pushing to a
+  // decommissioned outpost (the two stores are otherwise independent).
+  try { removeTarget(name); } catch { /* best effort */ }
   jsonRes(res, result.status, result.data);
 }
 
@@ -188,6 +191,7 @@ function pushLine(job, line) {
 }
 
 function finishJob(job, exitCode) {
+  if (job.done) return; // a spawn "error" + "close" can both fire; finish once
   job.done = true;
   job.exitCode = exitCode;
   const payload = `event: done\ndata: ${JSON.stringify({ exitCode })}\n\n`;

@@ -249,18 +249,23 @@ describe("SSH target validation (S9 provisioning RCE guard)", () => {
 
 // OUTPOST-CONFIG-SYNC: mirror the portable ~/.claude subset onto outposts.
 describe("config-sync: buildRsyncArgs", () => {
-  it("mirrors a portable directory with --delete/--safe-links/--mkpath, excludes, and a BatchMode ssh transport", () => {
+  it("mirrors a portable directory with --delete/--safe-links, excludes, and a BatchMode ssh transport", () => {
     const args = buildRsyncArgs({ claudeDir: "/home/u/.claude", user: "me", host: "100.64.0.1", kind: "dir", name: "skills" });
     const s = args.join(" ");
     expect(args).toContain("--delete");        // mirror: host removals (e.g. autothing) propagate
     expect(args).toContain("--safe-links");    // drop unsafe symlinks (skills/cmux-* -> ../../.agents)
-    expect(args).toContain("--mkpath");        // create .claude/skills/ on a fresh outpost
+    expect(args).not.toContain("--mkpath");    // rsync 3.2.3+ only; Macs may be older -> ensureRemoteDirs instead
     expect(args).toContain("-rlpt");
     expect(args).toContain("/home/u/.claude/skills/");        // trailing slash: sync CONTENTS
     expect(args).toContain("me@100.64.0.1:.claude/skills/");  // remote path is home-relative
     expect(s).toContain("-e ssh -o BatchMode=yes");           // key auth, never a password prompt
     expect(s).toContain("--exclude .git/");
     expect(s).toContain("--exclude state/");
+  });
+
+  it("brackets an IPv6 host so rsync's host:path split survives the colons", () => {
+    const args = buildRsyncArgs({ claudeDir: "/home/u/.claude", user: "me", host: "fd7a:115c::1", kind: "dir", name: "skills" });
+    expect(args).toContain("me@[fd7a:115c::1]:.claude/skills/");
   });
 
   it("copies a portable file WITHOUT --delete (would nuke siblings in the parent dir)", () => {

@@ -4,8 +4,10 @@
 //
 // This is the piece provision-outpost.sh explicitly left as a TODO ("skills
 // bundle — skipped"). The host is the single source of truth for config; each
-// portable directory is MIRRORED (rsync --delete) so a removal on the host
-// (e.g. retiring the autothing skill) propagates to the outposts.
+// portable directory is MIRRORED (rsync --delete) so removing an item INSIDE a
+// portable dir (e.g. retiring the autothing skill under skills/) propagates to
+// the outposts. Deleting an entire portable dir on the host is skipped (not
+// mirrored as an empty dir) - it is treated as "nothing to sync for that dir".
 //
 // Deliberately NOT synced: settings.json / plugins / mcp.json (machine-specific
 // hook ports, absolute installPaths, model tokens), and everything ephemeral
@@ -66,8 +68,13 @@ const SSH_OPTS = [
  * @returns {string[]} rsync argv (no shell)
  */
 export function buildRsyncArgs({ claudeDir, user, host, kind, name }) {
-  const target = `${user}@${host}`;
-  const base = ["--timeout=30", "--mkpath", "-e", SSH_OPTS];
+  // Bracket IPv6 literals so rsync's host:path split doesn't break on the colons.
+  const rhost = host.includes(":") ? `[${host}]` : host;
+  const target = `${user}@${rhost}`;
+  // No --mkpath here: that flag is rsync 3.2.3+ only and macOS outposts may ship
+  // an older rsync (2.6.9) or openrsync. ensureRemoteDirs() pre-creates the
+  // .claude/<dir> tree over ssh instead, keeping the flag set portable.
+  const base = ["--timeout=30", "-e", SSH_OPTS];
   if (kind === "file") {
     // Single file: no --delete (would nuke siblings), preserve perms+times.
     return [...base, "-pt", path.join(claudeDir, name), `${target}:.claude/${name}`];
@@ -109,6 +116,34 @@ function runRsync(args, { timeoutMs = 45000 } = {}) {
 }
 
 /**
+ * Pre-create the portable dir tree on the outpost so rsync (run WITHOUT --mkpath,
+ * for old-rsync/openrsync compatibility) never fails on a missing parent. The dir
+ * names are module constants, so the remote `mkdir -p` carries no user input.
+ */
+function ensureRemoteDirs(user, host, { timeoutMs = 20000 } = {}) {
+  const rhost = host.includes(":") ? `[${host}]` : host;
+  const target = `${user}@${rhost}`;
+  const dirs = [".claude", ...PORTABLE_DIRS.map((d) => `.claude/${d}`)];
+  const args = [
+    "-o", "BatchMode=yes",
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "ConnectTimeout=15",
+    target,
+    `mkdir -p ${dirs.join(" ")}`,
+  ];
+  return new Promise((resolve) => {
+    let err = "";
+    let settled = false;
+    const done = (ok, error) => { if (!settled) { settled = true; resolve({ ok, error }); } };
+    const child = spawn("ssh", args, { stdio: ["ignore", "ignore", "pipe"] });
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} done(false, "ssh mkdir timed out"); }, timeoutMs);
+    child.stderr.on("data", (b) => { err += b.toString("utf8"); });
+    child.on("error", (e) => { clearTimeout(timer); done(false, e.message); });
+    child.on("close", (code) => { clearTimeout(timer); done(code === 0, code === 0 ? undefined : (err.trim() || `ssh exit ${code}`)); });
+  });
+}
+
+/**
  * Sync the portable config subset to one target. Returns a per-item summary.
  * @param {{ name?:string, sshUser:string, sshHost:string }} target
  * @param {{ claudeDir?:string, at?:string }} [opts]
@@ -121,20 +156,32 @@ export async function syncTarget(target, opts = {}) {
   if (!isValidSshTarget(user, host)) {
     return { name: target.name, ok: false, at, error: "invalid ssh user or host", items: [] };
   }
+
+  // Discover what exists locally FIRST, so an outpost with nothing to sync (and
+  // the test sandbox) never pays for an ssh round-trip.
+  const dirs = PORTABLE_DIRS.filter((n) => safeIsDir(path.join(claudeDir, n)));
+  const files = PORTABLE_FILES.filter((n) => existsSync(path.join(claudeDir, n)));
+  if (dirs.length === 0 && files.length === 0) {
+    return { name: target.name, ok: true, at, error: undefined, items: [] };
+  }
+
+  // One ssh round-trip to pre-create the dir tree (replaces --mkpath). If we
+  // cannot even reach the outpost, fail the whole target with the ssh error
+  // rather than emitting one identical rsync failure per item.
+  const prep = await ensureRemoteDirs(user, host);
+  if (!prep.ok) {
+    return { name: target.name, ok: false, at, error: prep.error || "could not reach outpost over ssh", items: [] };
+  }
+
   const items = [];
   let ok = true;
-
-  for (const name of PORTABLE_DIRS) {
-    const src = path.join(claudeDir, name);
-    if (!existsSync(src) || !safeIsDir(src)) continue;
+  for (const name of dirs) {
     const r = await runRsync(buildRsyncArgs({ claudeDir, user, host, kind: "dir", name }));
     const itemOk = r.code === 0;
     ok = ok && itemOk;
     items.push({ name, ok: itemOk, error: itemOk ? undefined : (r.error || r.out || "failed") });
   }
-  for (const name of PORTABLE_FILES) {
-    const src = path.join(claudeDir, name);
-    if (!existsSync(src)) continue;
+  for (const name of files) {
     const r = await runRsync(buildRsyncArgs({ claudeDir, user, host, kind: "file", name }));
     const itemOk = r.code === 0;
     ok = ok && itemOk;
@@ -142,7 +189,7 @@ export async function syncTarget(target, opts = {}) {
   }
 
   const firstErr = items.find((i) => !i.ok)?.error;
-  return { name: target.name, ok, at, error: ok ? undefined : (firstErr || "no portable config found"), items };
+  return { name: target.name, ok, at, error: ok ? undefined : (firstErr || "sync failed"), items };
 }
 
 function safeIsDir(p) {
@@ -211,8 +258,20 @@ function recordSync(name, result, file = TARGETS_FILE) {
   writeTargets(map, file);
 }
 
-/** Sync every registered target; persist per-target lastSync status. */
-export async function syncAll(opts = {}) {
+// Serialize ALL sync operations. The watcher (debounced), the periodic healer,
+// a manual POST /sync and the per-provision initial sync can otherwise overlap,
+// running two `rsync --delete` into the same remote .claude/<dir>/ at once
+// (interleaved delete/write, spurious failures). Chaining them keeps at most one
+// sync in flight; the debounce already coalesces watcher bursts so the queue
+// never grows unbounded.
+let syncChain = Promise.resolve();
+function serialize(task) {
+  const next = syncChain.then(task, task);
+  syncChain = next.catch(() => {});
+  return next;
+}
+
+async function doSyncAll(opts) {
   const file = opts.file || TARGETS_FILE;
   const map = readTargets(file);
   const names = Object.keys(map);
@@ -227,8 +286,7 @@ export async function syncAll(opts = {}) {
   return { at, count: names.length, ok: results.every((r) => r.ok), results };
 }
 
-/** Sync a single named target; persist its lastSync status. */
-export async function syncOne(name, opts = {}) {
+async function doSyncOne(name, opts) {
   const file = opts.file || TARGETS_FILE;
   const map = readTargets(file);
   const t = map[name];
@@ -236,4 +294,14 @@ export async function syncOne(name, opts = {}) {
   const r = await syncTarget({ name, sshUser: t.sshUser, sshHost: t.sshHost }, { claudeDir: opts.claudeDir });
   recordSync(name, r, file);
   return r;
+}
+
+/** Sync every registered target; persist per-target lastSync status. Serialized. */
+export function syncAll(opts = {}) {
+  return serialize(() => doSyncAll(opts));
+}
+
+/** Sync a single named target; persist its lastSync status. Serialized. */
+export function syncOne(name, opts = {}) {
+  return serialize(() => doSyncOne(name, opts));
 }
