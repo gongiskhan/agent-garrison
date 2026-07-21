@@ -86,12 +86,17 @@ prod_head="$(git -C "$PROD_TREE" rev-parse HEAD)"
 if [ "$dev_head" = "$prod_head" ]; then
   say "prod is already at $(git -C "$PROD_TREE" rev-parse --short HEAD) — redeploying only"
 else
-  # Prod's working copy must be pristine. If it isn't, someone edited prod
-  # directly; fast-forwarding would silently destroy that work.
-  if [ -n "$(git -C "$PROD_TREE" status --porcelain)" ]; then
-    git -C "$PROD_TREE" --no-pager status --short >&2
-    die "prod tree has local edits (above). Prod is read-only — move that work to $DEV_TREE and retry."
+  # Prod must have no edits to TRACKED files: those are hand edits a
+  # fast-forward would collide with, and prod is read-only by rule. Untracked
+  # files are only a warning — git refuses an ff that would overwrite one and
+  # never deletes them, so they cannot be lost (first hit: the ignored-pattern
+  # gap that left a model symlink untracked until the very commit fixing it).
+  if [ -n "$(git -C "$PROD_TREE" status --porcelain -uno)" ]; then
+    git -C "$PROD_TREE" --no-pager status --short -uno >&2
+    die "prod tree has local edits to tracked files (above). Prod is read-only — move that work to $DEV_TREE and retry."
   fi
+  untracked="$(git -C "$PROD_TREE" status --porcelain | grep -c "^??" || true)"
+  [ "$untracked" = 0 ] || say "note: $untracked untracked file(s) in prod (not touched by the fast-forward)"
 
   lock_before="$(git -C "$PROD_TREE" rev-parse HEAD:package-lock.json 2>/dev/null || echo none)"
 
