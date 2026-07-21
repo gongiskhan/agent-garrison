@@ -310,8 +310,8 @@ describe("S2a.2b — adapter-resume retires the old operative cleanly (codex fin
   });
 });
 
-describe("S2a.3 — classifier falls back to the primary adapter when claude-code is absent", () => {
-  it("non-claude primary + claude-code unresolvable → classifier-fallback logged, primary adapter classifies", async () => {
+describe("S2a.3 — classifier resolution per primary engine", () => {
+  it("agent-sdk primary → classifier runs LEAN on the same engine (no PTY), even with claude-code absent", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-classifier-"));
     const fakePrimary: any = { id: "agent-sdk", spawn: async () => ({ alive: true }) };
     const events: any[] = [];
@@ -325,14 +325,12 @@ describe("S2a.3 — classifier falls back to the primary adapter when claude-cod
       logFn: (e: any) => events.push(e),
     });
 
-    const fallback = events.find((e) => e.kind === "classifier-fallback");
-    expect(fallback).toMatchObject({ from: "claude-code", to: "agent-sdk" });
-
-    // the built pool's classifier runtime now uses the PRIMARY adapter, not a
-    // fresh ClaudeCodeAdapter, with the primary's spawn config
+    // no "fallback" — classifying on the primary engine IS the design for agent-sdk
+    expect(events.some((e) => e.kind === "classifier-fallback")).toBe(false);
     const classifierRt = gw.pool.runtimes.find((r: any) => r.id === "classifier");
     expect(classifierRt.adapter).toBe(fakePrimary);
-    expect(classifierRt.spawnConfig).toMatchObject({ provider: "anthropic" });
+    // lean + the cheap classifier model, NOT the operative's coding harness
+    expect(classifierRt.spawnConfig).toMatchObject({ provider: "anthropic", model: "haiku", promptMode: "lean" });
     // the operative also runs on the primary adapter (sanity)
     const operativeRt = gw.pool.runtimes.find((r: any) => r.id === "operative");
     expect(operativeRt.adapter).toBe(fakePrimary);
@@ -340,7 +338,7 @@ describe("S2a.3 — classifier falls back to the primary adapter when claude-cod
     gw.shutdown?.();
   });
 
-  it("non-claude primary + claude-code resolvable → classifier STAYS on claude-code (byte-identical default)", async () => {
+  it("agent-sdk primary + claude-code RESOLVABLE → classifier still avoids the PTY (a wedged PTY classifier would block every pre-route)", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-classifier-cc-"));
     const fakePrimary: any = { id: "agent-sdk", spawn: async () => ({ alive: true }) };
     const events: any[] = [];
@@ -349,6 +347,27 @@ describe("S2a.3 — classifier falls back to the primary adapter when claude-cod
       primaryEngine: "agent-sdk",
       agentSdkAdapter: fakePrimary,
       operativeSpawnConfig: { compositionDir: tmp, model: "sonnet" },
+      claudeCodeResolvable: true,
+      logFn: (e: any) => events.push(e),
+    });
+
+    expect(events.some((e) => e.kind === "classifier-fallback")).toBe(false);
+    const classifierRt = gw.pool.runtimes.find((r: any) => r.id === "classifier");
+    expect(classifierRt.adapter).toBe(fakePrimary);
+    expect(classifierRt.spawnConfig).toMatchObject({ model: "haiku", promptMode: "lean" });
+
+    gw.shutdown?.();
+  });
+
+  it("codex primary + claude-code resolvable → classifier STAYS on claude-code (byte-identical default)", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-classifier-codex-"));
+    const fakeExec: any = { id: "codex", spawn: async () => ({ alive: true }) };
+    const events: any[] = [];
+    const gw: any = await createRoutedGateway({
+      compositionDir: tmp,
+      primaryEngine: "codex",
+      secondaryAdapters: new Map([["codex", fakeExec]]),
+      operativeSpawnConfig: { compositionDir: tmp, model: "gpt-5-codex" },
       claudeCodeResolvable: true,
       logFn: (e: any) => events.push(e),
     });
@@ -386,5 +405,51 @@ describe("S2a — agent-sdk primary honors its configured provider", () => {
   it("preserves the byte-identical anthropic default when no provider is named", async () => {
     const resolved = await resolvePrimaryAdapter("agent-sdk", ctx());
     expect(resolved.spawnConfig.provider).toBe("anthropic");
+  });
+
+  it("seeds the agent-sdk primary spawn env from the gateway process env (config-dir + account pin survive the SDK's env replacement)", async () => {
+    const resolved = await resolvePrimaryAdapter("agent-sdk", ctx());
+    // The Agent SDK replaces the subprocess env with options.env; an empty
+    // baseEnv would strip CLAUDE_CONFIG_DIR / PATH / HOME and the Paymaster
+    // account token. It must inherit the gateway's own process env.
+    expect(resolved.spawnConfig.env).toBe(process.env);
+  });
+});
+
+// The classifier de-PTY (agent-sdk primary): classify() drives the classifier
+// session through its ADAPTER when the session has no runTurn (an agent-sdk
+// session), instead of throwing `session.runTurn is not a function` and
+// defaulting every turn to other/T1.
+describe("classify() drives an adapter-backed classifier session (no runTurn)", () => {
+  it("uses the classifier adapter's sendTurn/awaitResponse and parses the reply", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-sdk-classify-"));
+    const captured: string[] = [];
+    // A fake agent-sdk adapter: spawn returns a session WITHOUT runTurn; the turn
+    // runs via sendTurn/awaitResponse (like the Claude delegate lane).
+    const fakeSdk: any = {
+      id: "agent-sdk",
+      spawn: async (cfg: any) => ({ alive: true, config: cfg }),
+      awaitReady: async () => {},
+      sendTurn: async (_s: any, text: string) => { captured.push(text); },
+      awaitResponse: async () => ({
+        text: JSON.stringify({ taskType: "research", tier: "T1-standard", matchedException: null, contextKind: "unit" }),
+      }),
+    };
+    const gw: any = await createRoutedGateway({
+      compositionDir: tmp,
+      primaryEngine: "agent-sdk",
+      agentSdkAdapter: fakeSdk,
+      operativeSpawnConfig: { compositionDir: tmp, model: "sonnet" },
+      claudeCodeResolvable: false,
+      logFn: () => {},
+    });
+    await gw.start();
+    // A message with no deterministic-keyword match → the LLM classifier path.
+    const cls = await gw.classify("tell me what the weather is like today");
+    expect(cls.taskType).toBe("research");
+    expect(cls.tier).toBe("T1-standard");
+    // proves the adapter path ran (the classifier session had no runTurn)
+    expect(captured.length).toBe(1);
+    gw.shutdown?.();
   });
 });

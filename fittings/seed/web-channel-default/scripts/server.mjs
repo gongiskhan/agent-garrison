@@ -448,6 +448,37 @@ async function handleClaudeProxy(req, res, opts, subpath, method) {
   upstream.end();
 }
 
+// Attach/paste uploads: proxy /api/attachments to the gateway's POST /attachments
+// (filename + base64 content in, {path, bytes} out — the gateway saves the file
+// to disk under its own uploads dir; Claude reads it back by path). Base64
+// inflates payloads ~33%, so this needs a bigger body cap than the default
+// readJsonBody limit — matched to the gateway's own 10MB MAX_UPLOAD_BYTES plus
+// headroom for the JSON envelope.
+const MAX_ATTACHMENT_BODY = 14 * 1024 * 1024;
+async function handleAttachments(req, res, opts) {
+  let payload;
+  try {
+    payload = JSON.stringify(await readJsonBody(req, MAX_ATTACHMENT_BODY));
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const target = new URL("/attachments", opts.gatewayUrl);
+  const headers = { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) };
+  const upstream = http.request(
+    { method: "POST", hostname: target.hostname, port: target.port, path: target.pathname, headers },
+    (up) => {
+      res.statusCode = up.statusCode || 502;
+      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (err) => {
+    try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
+  });
+  upstream.write(payload);
+  upstream.end();
+}
+
 async function readJsonBody(req, limit = 256 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -980,6 +1011,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/claude/mode" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "mode", "POST");
       if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
       if (pathname === "/api/claude/answer" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "answer", "POST");
+      if (pathname === "/api/attachments" && method === "POST") return handleAttachments(req, res, liveOpts);
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;

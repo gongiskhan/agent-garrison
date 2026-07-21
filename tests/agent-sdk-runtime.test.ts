@@ -132,9 +132,27 @@ describe("THE HARNESS — per-target promptMode (harness-ok)", () => {
     expect(h.skillsMounted).toBe(false);
   });
 
-  it("never loads 'user' settings (defence-in-depth for #217)", () => {
+  it("never loads 'user' settings in full/lean (defence-in-depth for #217)", () => {
     expect(buildHarness("full").settingSources).not.toContain("user");
     expect(buildHarness("lean").settingSources).not.toContain("user");
+  });
+
+  it("coding → claude_code preset + the user's real Claude Code profile (settingSources[user,project])", () => {
+    const h = buildHarness("coding");
+    expect(h.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
+    expect(h.settingSources).toEqual(["user", "project"]);
+    expect(h.preset).toBe("claude_code");
+    expect(h.claudeMdLoaded).toBe(true);
+    expect(h.skillsMounted).toBe(true);
+    expect(h.disallowedTools).toEqual([]);
+  });
+
+  it("coding supports preset + append like full", () => {
+    expect(buildHarness("coding", { append: "garrison rules" }).systemPrompt).toEqual({
+      type: "preset",
+      preset: "claude_code",
+      append: "garrison rules"
+    });
   });
 
   it("lean disables ALL built-in tools (pure chat → small models answer, not hallucinate); full keeps tools", () => {
@@ -287,6 +305,30 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.capabilities.provider).toBe("anthropic");
     const opts = adapter.buildQueryOptions(s);
     expect(opts.env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
+  it("honors promptMode coding on the Anthropic subscription path (user profile loads)", async () => {
+    const adapter = adapterYielding([]);
+    const s = await adapter.spawn({
+      provider: "anthropic",
+      model: "sonnet",
+      compositionDir: "/work",
+      promptMode: "coding",
+    });
+    expect(s.harness.promptMode).toBe("coding");
+    expect(adapter.buildQueryOptions(s).settingSources).toEqual(["user", "project"]);
+  });
+
+  it("downgrades promptMode coding to full for a base-URL provider (the #217 guard)", async () => {
+    const adapter = adapterYielding([]);
+    const s = await adapter.spawn({
+      provider: "ollama-local",
+      model: "qwen3:8b",
+      compositionDir: "/work",
+      promptMode: "coding",
+    });
+    expect(s.harness.promptMode).toBe("full");
+    expect(adapter.buildQueryOptions(s).settingSources).toEqual(["project"]);
   });
 
   it("forwards requested effort to the SDK only for a supported Anthropic target", async () => {

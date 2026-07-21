@@ -150,6 +150,17 @@ export function buildPrimaryRuntimeEnv(
     env.GARRISON_MODEL = String(config.model);
   }
 
+  // The agent-sdk primary honors the fitting's harness knobs (claude-code
+  // ignores both: the PTY has no promptMode and no turn cap). Without these,
+  // the gateway's operative spawn always fell back to the adapter defaults
+  // (full / 12) no matter what the composition configured.
+  if (config.promptMode !== undefined && String(config.promptMode).length > 0) {
+    env.GARRISON_PRIMARY_PROMPT_MODE = String(config.promptMode);
+  }
+  if (config.maxTurns !== undefined && Number(config.maxTurns) > 0) {
+    env.GARRISON_PRIMARY_MAX_TURNS = String(Number(config.maxTurns));
+  }
+
   // The providers section is REQUIRED on every path — including the default
   // anthropic-plan one, which needs no provider data but must still fail loud
   // when the call-site plumbing is broken (matching stage-b's buildLaunchEnv;

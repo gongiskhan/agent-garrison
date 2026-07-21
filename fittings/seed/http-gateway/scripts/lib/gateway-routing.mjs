@@ -602,12 +602,18 @@ export class RoutedGateway {
       maxTurns: t.maxTurns ?? 12,
       budgetTokens: t.budgetTokens ?? null,
       secrets: this.secrets ?? null,
+      // Inherit the gateway process env (PATH/HOME/CLAUDE_CONFIG_DIR + the
+      // Paymaster account pin) — the SDK replaces the subprocess env, so an
+      // empty baseEnv would strip config-dir isolation and the account token.
+      env: process.env,
       permissionMode: "bypassPermissions",
     };
     // Every target-owned execution knob participates in session identity. A live
     // manifest edit from lean → full (or maxTurns/tool-policy changes) must spawn
     // a session with the new harness instead of reusing an incompatible warm one.
-    const key = JSON.stringify({ targetId: route.targetId, ...spawnArgs, secrets: undefined });
+    // env/secrets are excluded: the whole process env would bloat the key and
+    // change on any unrelated env mutation, needlessly churning warm sessions.
+    const key = JSON.stringify({ targetId: route.targetId, ...spawnArgs, secrets: undefined, env: undefined });
     let session = this._agentSdkSessions.get(key);
     if (!session || session.alive === false) {
       session = await adapter.spawn(spawnArgs);
@@ -1117,6 +1123,25 @@ export class RoutedGateway {
     }
   }
 
+  // Drive ONE classification turn on the warm classifier session, whatever engine
+  // backs it. A claude-code (PTY) classifier session exposes runTurn directly; an
+  // agent-sdk classifier session (when the primary is agent-sdk) has no runTurn —
+  // it is driven through its adapter's sendTurn/awaitResponse, exactly like the
+  // Claude delegate lane. Returns the reply text (empty string on no output).
+  async _runClassifierTurn(prompt) {
+    const session = this.classifier.session;
+    if (typeof session.runTurn === "function") {
+      const r = await session.runTurn({ message: prompt, timeoutMs: 60_000 });
+      return r?.reply ?? "";
+    }
+    const adapter =
+      (typeof this.pool?.adapterFor === "function" && this.pool.adapterFor(this.classifierRuntimeId)) || null;
+    if (!adapter) throw new Error("classifier session has no runTurn and no adapter to drive it");
+    await adapter.sendTurn(session, prompt);
+    const out = await adapter.awaitResponse(session);
+    return out?.text ?? "";
+  }
+
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
   async classify(message) {
     // Deterministic keyword fast-path first (skips the LLM classifier + its drift).
@@ -1130,8 +1155,7 @@ export class RoutedGateway {
     let reply = "";
     try {
       await this.ensureClassifier();
-      const r = await this.classifier.session.runTurn({ message: prompt, timeoutMs: 60_000 });
-      reply = r.reply ?? "";
+      reply = await this._runClassifierTurn(prompt);
     } catch (err) {
       this.logFn({ kind: "classify-failed", error: err?.message });
     }
@@ -1746,6 +1770,16 @@ export async function resolvePrimaryAdapter(engine, ctx) {
         model: operativeSpawnConfig.model,
         promptMode: operativeSpawnConfig.promptMode ?? "full",
         compositionDir,
+        // The Agent SDK REPLACES the subprocess environment with options.env
+        // (it does not merge process.env underneath). Seed baseEnv from the
+        // gateway's own process env so the claude subprocess keeps PATH / HOME /
+        // CLAUDE_CONFIG_DIR (dev-instance isolation) AND inherits the Paymaster
+        // account pin the runner set on this process (GARRISON_ACCOUNT +
+        // ANTHROPIC_AUTH_TOKEN/CLAUDE_CODE_OAUTH_TOKEN). buildSdkEnv strips the
+        // ANTHROPIC_* keys and re-derives them per provider, so this is safe for
+        // an off-Anthropic primary too. Mirrors the codex/gemini exec path.
+        env: process.env,
+        ...(Number(operativeSpawnConfig.maxTurns) > 0 ? { maxTurns: Number(operativeSpawnConfig.maxTurns) } : {}),
         ...(operativeSpawnConfig.baseUrl ? { baseUrl: operativeSpawnConfig.baseUrl } : {}),
         ...(operativeSpawnConfig.leanPrompt ? { leanPrompt: operativeSpawnConfig.leanPrompt } : {}),
         ...(operativeSpawnConfig.secrets ? { secrets: operativeSpawnConfig.secrets } : {}),
@@ -1850,14 +1884,31 @@ function classifierFallbackConfig(primarySpawnConfig, opts = {}) {
 }
 
 // Resolve the { adapter, spawnConfig } that back the CLASSIFIER pool entry.
-// Default (claude-code resolvable): the cheap claude-code haiku session, exactly
-// as before. Non-claude primary + claude-code ABSENT: fall back to the primary
-// adapter and log the fallback loudly.
+// claude-code primary: the operative adapter serves the classifier, exactly as
+// before. agent-sdk primary: classify on the SAME engine — a lean, cheap SDK
+// session on the classifier model — instead of spinning a Claude Code PTY just
+// for classification (the point of an agent-sdk primary is no PTY dependency;
+// a wedged PTY classifier would block every turn's pre-route). Other non-claude
+// primaries (codex/gemini/opencode) keep the cheap PTY classifier when the CLI
+// is present, and fall back to the primary adapter loudly when it is not.
 export function resolveClassifierAdapter(ctx) {
   const { primary, primaryEngine, spawnFn, classifierSpawnConfig, opts, logFn } = ctx;
   if (primary.claude) {
     // claude-code primary → the operative adapter also serves the classifier.
     return { adapter: primary.adapter, spawnConfig: classifierSpawnConfig };
+  }
+  if (primaryEngine === "agent-sdk") {
+    // Lean drops the appended orchestrator prompt and disables tools, so a
+    // classification turn is a pure completion on the cheap model. The primary's
+    // provider/secrets carry over; the account pin inherits via the process env.
+    return {
+      adapter: primary.adapter,
+      spawnConfig: {
+        ...primary.spawnConfig,
+        model: classifierSpawnConfig?.model ?? "haiku",
+        promptMode: "lean",
+      },
+    };
   }
   if (claudeCodeResolvable({ spawnFn, primaryEngine, opts })) {
     // non-claude primary but claude-code IS resolvable → keep the cheap haiku

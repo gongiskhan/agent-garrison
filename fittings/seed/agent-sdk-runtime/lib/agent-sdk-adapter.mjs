@@ -17,7 +17,7 @@
 // the sole SDK-importing module (lib/sdk-client.mjs). Tests inject `createClient`,
 // so the unit-test path never loads the SDK.
 import { buildHarness } from "./harness.mjs";
-import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord } from "./providers.mjs";
+import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
 
 async function defaultCreateClient(args) {
   const mod = await import("./sdk-client.mjs");
@@ -91,7 +91,14 @@ export class AgentSdkAdapter {
   }
 
   async spawn(config = {}) {
-    const harness = buildHarness(config.promptMode ?? "full", {
+    // `coding` (claude_code preset + the user's ~/.claude profile) is only
+    // honored on the Anthropic subscription path — a third-party base-URL
+    // provider downgrades to `full` so the user settings env block can never
+    // redirect its endpoint (the #217 trap).
+    const requestedMode = config.promptMode ?? "full";
+    const promptMode =
+      requestedMode === "coding" && !isAnthropicProvider(config.provider) ? "full" : requestedMode;
+    const harness = buildHarness(promptMode, {
       leanPrompt: config.leanPrompt,
       append: config.appendSystemPrompt
     });

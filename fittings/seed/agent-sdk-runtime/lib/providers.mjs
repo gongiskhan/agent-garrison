@@ -91,6 +91,14 @@ export const SDK_PROVIDERS = {
 
 export const FULL_CAPABILITIES = FULL_CAPS;
 
+// True for providers on the Anthropic subscription path (no base-URL override).
+// The `coding` harness mode — which loads the user's ~/.claude settings, env
+// block included — is only honored for these providers; anywhere else a user
+// env could silently redirect the endpoint (the #217 trap).
+export function isAnthropicProvider(provider) {
+  return SDK_PROVIDERS[provider]?.anthropic === true;
+}
+
 export class MissingProviderKeyError extends Error {
   constructor(provider, vaultKey, vaultLocked) {
     super(

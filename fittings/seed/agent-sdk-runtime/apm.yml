@@ -32,7 +32,7 @@ x-garrison:
     - key: promptMode
       type: string
       default: full
-      description: full = claude_code preset + settingSources[project] + skills (coding roles); lean = minimal system string, no CLAUDE.md/skills (chat roles, lower token floor).
+      description: full = claude_code preset + settingSources[project] + skills; coding = full PLUS the user's real ~/.claude profile (settingSources[user,project] - Anthropic providers only, others downgrade to full); lean = minimal system string, no CLAUDE.md/skills (chat roles, lower token floor).
     - key: maxTurns
       type: number
       default: 12

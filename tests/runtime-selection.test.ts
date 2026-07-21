@@ -104,6 +104,25 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
     expect(env.GARRISON_MODEL).toBe("sonnet");
   });
 
+  it("threads the agent-sdk primary's harness knobs (promptMode/maxTurns) into the spawn env", () => {
+    const d: ReturnType<typeof resolvePrimaryRuntime> = {
+      runtimeId: "agent-sdk-runtime",
+      engine: "agent-sdk",
+      isDefault: false,
+      config: { provider: "anthropic", promptMode: "coding", maxTurns: 100 }
+    };
+    const { env } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
+    expect(env.GARRISON_PRIMARY_PROMPT_MODE).toBe("coding");
+    expect(env.GARRISON_PRIMARY_MAX_TURNS).toBe("100");
+  });
+
+  it("sets no harness-knob env when the config leaves them unset (claude-code default)", () => {
+    const d = resolvePrimaryRuntime({ primaryRuntimeId: undefined, runtimeEntries: [] });
+    const { env } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
+    expect(env.GARRISON_PRIMARY_PROMPT_MODE).toBeUndefined();
+    expect(env.GARRISON_PRIMARY_MAX_TURNS).toBeUndefined();
+  });
+
   it("runs the Claude Code engine against ollama-local with a dummy token (no vault)", () => {
     const d = resolvePrimaryRuntime({
       primaryRuntimeId: "claude-code-runtime",

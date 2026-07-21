@@ -39,8 +39,8 @@ dependencies:
 x-garrison:
   composition:
     schema: 4
-    id: default
-    name: Dogfood Operative
+    id: dogfood-dev
+    name: Dogfood Dev
     global_config:
       projects_root: ~/dev
       vault: default

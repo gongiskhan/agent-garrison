@@ -48,7 +48,9 @@ async function waitHealthy(ms: number) {
 // graceful chromium teardown, so an HTTP probe going dark proves nothing
 // about the profile being released. A null exitCode+signalCode afterwards
 // means waitExit hit its SIGKILL fallback - i.e. the shutdown hung.
-async function waitGone(child: ChildProcess | null, ms = 25000) {
+// 60s, not 25s: chromium teardown regularly exceeds 25s when the full suite
+// saturates the box, and this assertion is about NEVER exiting, not exiting fast.
+async function waitGone(child: ChildProcess | null, ms = 60000) {
   await waitExit(child, ms);
   expect((child!.exitCode ?? child!.signalCode) !== null).toBe(true);
 }

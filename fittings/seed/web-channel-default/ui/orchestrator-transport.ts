@@ -153,5 +153,18 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
       }).catch(() => {});
     },
     async fetchCommands() { return []; },
+    async uploadFile(file) {
+      // POSTs to /api/attachments, which the web-channel server proxies to the
+      // gateway's POST /attachments (saves the bytes to disk, returns the path
+      // Claude reads back via the Read tool — no inline base64 image blocks).
+      const res = await fetch(`${b}/attachments`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ filename: file.name, content_base64: file.base64 }),
+      });
+      if (!res.ok) throw new Error(`attachments ${res.status}`);
+      const j = await res.json().catch(() => ({}));
+      return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : undefined };
+    },
   };
 }

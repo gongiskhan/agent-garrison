@@ -383,6 +383,18 @@ export interface ChatSendMeta {
 }
 type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
 
+// A file the user pasted/dropped/picked into the composer, mid-upload or done.
+// `path` is null until the upload settles; `previewUrl` (image paste only) is
+// an objectURL revoked on removal/send so it never leaks.
+interface PendingAttachment {
+  id: string;
+  name: string;
+  path: string | null;
+  uploading: boolean;
+  error: string | null;
+  previewUrl: string | null;
+}
+
 // Pure decision used by `send`: build the optional per-send meta from the
 // current opaque context/mode, or return undefined when BOTH are absent so a
 // context-unaware transport is invoked with exactly one argument (its previous
@@ -493,6 +505,86 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [input, setInput] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
+  // ── Attachments (paste / drop / pick a file) — gated on the transport
+  // actually exposing uploadFile; a transport that omits it (e.g. dev-env's
+  // server has no /attachments backend yet) hides the affordance entirely. ──
+  const canAttach = typeof transport.uploadFile === "function";
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentsRef = useRef<PendingAttachment[]>(attachments);
+  attachmentsRef.current = attachments;
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadOne = useCallback(
+    (file: File) => {
+      const id = nextId();
+      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+      setAttachments((prev) => [...prev, { id, name: file.name || "pasted-image.png", path: null, uploading: true, error: null, previewUrl }]);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result ?? "");
+        const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+        transport
+          .uploadFile!({ name: file.name || "pasted-image.png", mime: file.type || "application/octet-stream", base64 })
+          .then((up) => {
+            setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, path: up.path, uploading: false } : a)));
+          })
+          .catch((err) => {
+            setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, uploading: false, error: err?.message ?? "upload failed" } : a)));
+          });
+      };
+      reader.onerror = () => {
+        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, uploading: false, error: "read failed" } : a)));
+      };
+      reader.readAsDataURL(file);
+    },
+    [transport]
+  );
+
+  const handleFiles = useCallback(
+    (files: FileList | File[]) => {
+      if (!canAttach) return;
+      Array.from(files).forEach(uploadOne);
+    },
+    [canAttach, uploadOne]
+  );
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => {
+      const found = prev.find((a) => a.id === id);
+      if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  }, []);
+
+  const onComposerPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!canAttach) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        handleFiles(files);
+      }
+    },
+    [canAttach, handleFiles]
+  );
+
+  const onComposerDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      if (canAttach && e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
+    },
+    [canAttach, handleFiles]
+  );
   // D21: the Autonomous toggle (feature-gated; default off). A ref mirrors the
   // state so the send callback reads the CURRENT value without re-binding.
   const [autonomousOn, setAutonomousOn] = useState(false);
@@ -758,15 +850,35 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const modeRef = useRef<string | undefined>(mode);
   modeRef.current = mode;
 
+  // A send fired (via Enter) while an attachment is still uploading is DEFERRED,
+  // not dropped: the intended text is stashed here and re-fired by the effect
+  // below once no upload is in flight, so "type + paste + Enter fast" still
+  // carries the image instead of silently sending textless and then piggybacking
+  // the attachment onto the user's next unrelated message.
+  const pendingSendRef = useRef<{ text: string; opts?: { hideUser?: boolean } } | null>(null);
+
   const send = useCallback(
     (text: string, opts?: { hideUser?: boolean }) => {
+      // Hold the turn until every in-flight upload settles (resolved or errored),
+      // so its path is present when we build the attachment suffix.
+      if (attachmentsRef.current.some((a) => a.uploading)) {
+        pendingSendRef.current = { text, opts };
+        setInput("");
+        return;
+      }
       const t = text.trim();
-      if (!t) return;
+      const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
+      const attachmentSuffix = ready.length
+        ? `\n\n${ready.length === 1 ? "Attached file" : "Attached files"}:\n${ready.map((a) => `- ${a.path}`).join("\n")}`
+        : "";
+      const full = `${t}${attachmentSuffix}`.trim();
+      if (!full) return;
       // Effort directive (Think / Think hard / Ultrathink) is prepended to the
-      // wire text only - the transcript shows what the user actually typed.
+      // wire text only - the transcript shows what the user actually typed
+      // (attachments included, since they're user-visible content).
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
-      const wire = dir ? `${dir}\n\n${t}` : t;
-      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
+      const wire = dir ? `${dir}\n\n${full}` : full;
+      setTurns((prev) => [...prev, { id: nextId(), user: full, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
       setBusy(true);
       pinnedRef.current = true;
       // Pass opaque context/mode as an optional second arg ONLY when present, so
@@ -777,9 +889,25 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
       p.catch(() => {});
       setInput("");
+      if (ready.length) {
+        const sentIds = new Set(ready.map((a) => a.id));
+        ready.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); });
+        setAttachments((prev) => prev.filter((a) => !sentIds.has(a.id)));
+      }
     },
     [transport, effortOn]
   );
+
+  // Fire a deferred send once every upload has settled. Clearing the ref before
+  // the call keeps this from re-queuing (the re-entrant send sees no uploads and
+  // proceeds through the normal path).
+  useEffect(() => {
+    if (!pendingSendRef.current) return;
+    if (attachments.some((a) => a.uploading)) return;
+    const queued = pendingSendRef.current;
+    pendingSendRef.current = null;
+    send(queued.text, queued.opts);
+  }, [attachments, send]);
 
   // Auto-send the opening message ONCE on mount, when a host provided one - so the
   // operative can start proactively (Kanban Discuss seeds a "James, analyse this
@@ -1484,10 +1612,72 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             </button>
           </div>
         )}
-        <div className="cc-composerrow">
+        {attachments.length > 0 && (
+          <div className="cc-attachments">
+            {attachments.map((a) => (
+              <div key={a.id} className={`cc-attachment-chip${a.error ? " cc-attachment-chip-error" : ""}`} title={a.error ?? a.name}>
+                {a.previewUrl ? (
+                  <img src={a.previewUrl} alt="" className="cc-attachment-thumb" />
+                ) : (
+                  <svg className="cc-attachment-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4 2h6l3 3v9H4z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                  </svg>
+                )}
+                <span className="cc-attachment-name">{a.name}</span>
+                {a.uploading && <span className="cc-mic-spin" aria-hidden="true" />}
+                {a.error && <span className="cc-attachment-err" aria-hidden="true">!</span>}
+                <span
+                  className="cc-attachment-x"
+                  role="button"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => removeAttachment(a.id)}
+                >
+                  ×
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div
+          className={`cc-composerrow${dragOver ? " cc-composerrow-dragover" : ""}`}
+          onDragOver={(e) => { if (canAttach) { e.preventDefault(); setDragOver(true); } }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onComposerDrop}
+        >
           {typeof composerAdornment === "function"
             ? composerAdornment({ send: (text: string) => send(text), busy, lastReply: settledReply })
             : composerAdornment}
+          {canAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="cc-hidden-file-input"
+                onChange={(e) => {
+                  if (e.target.files?.length) handleFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="cc-mic"
+                title="Attach a file"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M11 4.5 5.8 9.7a2.2 2.2 0 0 0 3.1 3.1L14 7.7a3.6 3.6 0 1 0-5.1-5.1L3.8 7.7a5 5 0 0 0 7.1 7.1"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </>
+          )}
           {feat.voice && (
             <button
               type="button"
@@ -1525,13 +1715,19 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onComposerPaste}
           />
           {busy ? (
             <button className="cc-stop" onClick={() => transport.interrupt().catch(() => {})} title="Stop (Esc)">
               <span className="cc-stopsq" /> Stop
             </button>
           ) : (
-            <button className="cc-send" onClick={() => send(input)} disabled={!input.trim()} title="Send">
+            <button
+              className="cc-send"
+              onClick={() => send(input)}
+              disabled={(!input.trim() && !attachments.some((a) => a.path)) || attachments.some((a) => a.uploading)}
+              title="Send"
+            >
               Send
             </button>
           )}

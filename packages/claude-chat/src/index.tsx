@@ -22,4 +22,5 @@ export type {
   ToolQuestionOption,
   QuestionAnswer,
   RouteAttribution,
+  UploadedAttachment,
 } from "./transport";

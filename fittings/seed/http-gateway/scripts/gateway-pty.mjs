@@ -652,6 +652,12 @@ async function initRouting() {
       // uses providerLaunch env). Makes an ollama-local / z.ai / … primary run
       // on its own provider spec instead of defaulting to "anthropic".
       provider: PRIMARY_SDK_PROVIDER,
+      // Harness knobs from the primary fitting's selection config (runner env);
+      // agent-sdk only — claude-code has no promptMode and no turn cap.
+      ...(process.env.GARRISON_PRIMARY_PROMPT_MODE ? { promptMode: process.env.GARRISON_PRIMARY_PROMPT_MODE } : {}),
+      ...(Number(process.env.GARRISON_PRIMARY_MAX_TURNS) > 0
+        ? { maxTurns: Number(process.env.GARRISON_PRIMARY_MAX_TURNS) }
+        : {}),
     },
     classifierSpawnConfig: {
       compositionDir: COMPOSITION_DIR,
@@ -1528,6 +1534,12 @@ async function dispatchDiscussIntercept(body) {
 
 const UPLOADS_DIR = path.join(COMPOSITION_DIR, ".garrison", "uploads");
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+// The wire body is JSON carrying the file as base64 (≈4/3 inflation) plus the
+// `{"filename":"…","content_base64":"…"}` envelope. Sizing the request-body cap
+// at MAX_UPLOAD_BYTES undercounts by a third, so a file well under 10MB was
+// rejected mid-stream. Cap the body at the base64 size + envelope slack instead,
+// and let saveAttachment enforce the real 10MB limit on the DECODED bytes.
+const MAX_ATTACHMENT_BODY_BYTES = Math.ceil(MAX_UPLOAD_BYTES * 4 / 3) + 256 * 1024;
 
 function sendJson(response, status, body) {
   response.statusCode = status;
@@ -1745,7 +1757,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/attachments") {
-      const body = await readJsonBody(request, MAX_UPLOAD_BYTES + 256_000);
+      const body = await readJsonBody(request, MAX_ATTACHMENT_BODY_BYTES);
       const filename = String(body.filename ?? "").trim();
       const contentBase64 = String(body.content_base64 ?? "");
       if (!filename || !contentBase64) {

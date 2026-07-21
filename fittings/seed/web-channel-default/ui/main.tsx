@@ -642,7 +642,7 @@ function App() {
 
   if (threaded) return <ThreadedApp url={url} />;
   // Explicit ?console=1: the rich operative console (live PTY surface).
-  return <ClaudeChat transport={createHttpTransport("/api")} title="Operative" composerAdornment={voiceAdornment} />;
+  return <ClaudeChat transport={createHttpTransport("/api", { uploads: true })} title="Operative" composerAdornment={voiceAdornment} />;
 }
 
 const root = createRoot(document.getElementById("root")!);

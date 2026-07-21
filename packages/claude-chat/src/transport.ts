@@ -80,6 +80,13 @@ export interface SlashCommand {
   argumentHint?: string;
 }
 
+/** Result of uploading a file via {@link ChatTransport.uploadFile}. */
+export interface UploadedAttachment {
+  /** Where the host saved the file — Claude reads it back by path (no inline bytes). */
+  path: string;
+  bytes?: number;
+}
+
 export interface ChatTransport {
   /**
    * The base path this transport posts to (e.g. "/sessions/:id" in dev-env, ""
@@ -108,10 +115,23 @@ export interface ChatTransport {
    * keystrokes. Optional so transports that never surface `tool` events stay valid.
    */
   answerQuestion?(answer: QuestionAnswer): Promise<void>;
+  /**
+   * Upload a pasted/dropped/picked file so its path can be referenced in the
+   * next message. Optional — a transport that omits this hides the
+   * composer's attach affordance (paste/drop/file-picker) entirely. The
+   * upload lands as a plain file on disk; Claude Code reads it back by path
+   * rather than receiving inline base64 image blocks.
+   */
+  uploadFile?(file: { name: string; mime: string; base64: string }): Promise<UploadedAttachment>;
 }
 
-/** HTTP transport against a `<base>/claude/*` surface (default base "/api"). */
-export function createHttpTransport(base = "/api"): ChatTransport {
+/**
+ * HTTP transport against a `<base>/claude/*` surface (default base "/api").
+ * `opts.uploads` opts into the attach affordance for hosts that expose a
+ * `<base>/attachments` upload endpoint (the web channel); hosts without one
+ * (dev-env sessions) leave it off so the composer never shows a dead control.
+ */
+export function createHttpTransport(base = "/api", opts?: { uploads?: boolean }): ChatTransport {
   const b = base.replace(/\/$/, "");
   const post = async (path: string, body?: unknown) => {
     const res = await fetch(`${b}/claude/${path}`, {
@@ -196,5 +216,23 @@ export function createHttpTransport(base = "/api"): ChatTransport {
       const j = await res.json().catch(() => ({ commands: [] }));
       return (j.commands ?? []) as SlashCommand[];
     },
+    ...(opts?.uploads
+      ? {
+          async uploadFile(file: { name: string; mime: string; base64: string }): Promise<UploadedAttachment> {
+            // Same wire shape as the orchestrator transport: the host proxies
+            // <base>/attachments to the gateway's POST /attachments, which saves
+            // the bytes to disk and returns the path Claude reads back via the
+            // Read tool — no inline base64 image blocks.
+            const res = await fetch(`${b}/attachments`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ filename: file.name, content_base64: file.base64 }),
+            });
+            if (!res.ok) throw new Error(`attachments ${res.status}`);
+            const j = await res.json().catch(() => ({}));
+            return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : undefined };
+          },
+        }
+      : {}),
   };
 }

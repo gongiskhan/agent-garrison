@@ -554,7 +554,7 @@ describe("duty cells projection (the duties->router repoint input)", () => {
   ];
   const targets = [
     { id: "sdk-haiku", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", params: { type: "runtime-target" } },
-    { id: "cc-sonnet", runtime: "claude-code", model: "sonnet", provider: "anthropic-plan", params: { type: "runtime-target" } }
+    { id: "cc-sonnet", runtime: "agent-sdk", model: "sonnet", provider: "anthropic", params: { type: "runtime-target", promptMode: "coding", maxTurns: 100 } }
   ];
 
   it("joins each leaf level's cell with its target spec; composite levels have no cell", () => {
@@ -566,10 +566,16 @@ describe("duty cells projection (the duties->router repoint input)", () => {
       runtime: "agent-sdk",
       model: "claude-haiku-4-5",
       provider: "anthropic",
-      type: "runtime-target"
+      type: "runtime-target",
+      promptMode: null,
+      maxTurns: null
     });
     expect(model.cells.code["2"].model).toBe("sonnet");
     expect(model.cells.code["2"].effort).toBe("medium");
+    // Agent-SDK harness knobs travel with the cell so the duty repoint keeps the
+    // coding profile + turn cap instead of falling back to full/12.
+    expect(model.cells.code["2"].promptMode).toBe("coding");
+    expect(model.cells.code["2"].maxTurns).toBe(100);
     // The composite duty's only level is a sequence — no cell projected.
     expect(model.cells).not.toHaveProperty("pipeline");
   });
@@ -582,7 +588,9 @@ describe("duty cells projection (the duties->router repoint input)", () => {
       runtime: null,
       model: null,
       provider: null,
-      type: null
+      type: null,
+      promptMode: null,
+      maxTurns: null
     });
   });
 });
