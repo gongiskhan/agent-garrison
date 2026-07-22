@@ -2421,8 +2421,12 @@ function ReelCarousel({
 
   // Re-init and snap to the start whenever the source list changes (scope
   // change, show-all toggle) so a stale index never points past the new list.
+  // Skip when frames is empty: the component early-returns its empty state
+  // WITHOUT the emblaRef viewport, so the carousel node is unmounted and
+  // reInit() would read children off a missing root node and crash. When
+  // frames refills the viewport remounts and re-inits fresh.
   useEffect(() => {
-    if (!emblaApi) return;
+    if (!emblaApi || frames.length === 0) return;
     emblaApi.reInit();
     emblaApi.scrollTo(0, true);
     setSelected(0);

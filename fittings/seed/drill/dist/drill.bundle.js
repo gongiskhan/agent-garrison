@@ -28317,7 +28317,7 @@ function ReelCarousel({
   const [playing, setPlaying] = (0, import_react4.useState)(true);
   const [held, setHeld] = (0, import_react4.useState)(false);
   (0, import_react4.useEffect)(() => {
-    if (!emblaApi) return;
+    if (!emblaApi || frames.length === 0) return;
     emblaApi.reInit();
     emblaApi.scrollTo(0, true);
     setSelected(0);
