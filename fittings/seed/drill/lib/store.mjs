@@ -72,6 +72,9 @@ export function defaultDrillBook() {
     viewports: ["desktop"], // S19 viewport matrix selection
     globalRules: "", // A9, S1 S12
     dispatch: "manual", // D10/S29: "manual" | "heartbeat" | "immediate"
+    // Optional login for gated apps: { loginPath?, steps: [<action>], success?, cacheMinutes? }.
+    // Null (no login) is the default; see compile.mjs (hasAuth/compileAuthLogin).
+    auth: null,
     pages: [] // [{id, title, path, mode: "steps"|"whole", selected}]
   };
 }

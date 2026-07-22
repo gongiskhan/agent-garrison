@@ -36,6 +36,20 @@ declare module "*/drill/lib/compile.mjs" {
   export function selectSteps(page: any, opts?: any): any[];
   export function compileReachPath(state: any): any[];
   export function compileStepAutomation(book: any, page: any, step: any, opts?: { blind?: boolean }): any;
+  export function hasAuth(book: any): boolean;
+  export function resolveAuthUrl(book: any): string;
+  export function normalizeAuthSteps(book: any): { id: string; description: string }[];
+  export function authSuccess(book: any): string | null;
+  export function compileAuthProbe(book: any): any | null;
+  export function compileAuthLogin(book: any): any;
+  export const AUTH_LOGIN_ID: string;
+  export const AUTH_PROBE_ID: string;
+  export const AUTH_VERIFY_STEP: string;
+}
+declare module "*/drill/lib/auth-state.mjs" {
+  export function authFingerprint(auth: any): string;
+  export function readAuthState(root: string): Promise<any | null>;
+  export function writeAuthState(root: string, state: any): Promise<any>;
 }
 declare module "*/drill/lib/automations-client.mjs" {
   export function automationsBaseUrl(): string | null;

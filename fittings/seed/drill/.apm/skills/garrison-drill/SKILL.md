@@ -94,6 +94,16 @@ boot-time pin:
 - **Loaded-machine waits.** Emitted specs (Phase 5, graduation) carry generous
   waits for boot/login-class steps (60-90s). A pure timeout re-runs once in
   isolation; if it passes alone, fix the spec's wait, not the verdict.
+- **Login-gated apps (auth).** If the app needs a login to reach its pages, the
+  Drill Book's `auth` block carries the login — `loginPath`, the ordered login
+  `steps`, and a `success` signal — with REAL test credentials (committed,
+  test-only, never production). The runner logs in ONCE before the checks, in
+  the shared browser context, so the session persists across runs (a cheap
+  probe reuses it; the full flow re-runs only on a miss or a `cacheMinutes`
+  refresh). A login failure collapses into ONE incident with the checks
+  skipped — it NEVER reports N page failures for one auth problem. Author `auth`
+  during Plan whenever a page is unreachable without a session; never leave a
+  gated app to fail every check on its login screen.
 - **Flaky/env re-run.** A flaky or environment failure re-runs once in
   isolation before it counts against the run, and never consumes a fix budget.
 - **Findings must be reproducible, never an impression.** A fail carries the

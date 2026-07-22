@@ -121,7 +121,10 @@ function planPrompt(root, { brief, runSkill }) {
         `Mode: FULL PLAN. Author the Drill Book for the ENTIRE project on your best judgment - the works:`,
         `every real user-facing page, what matters on it, how to verify it (functionality, UX quality,`,
         `visual polish, responsive behavior), and the page states worth pinning (logged out, empty,`,
-        `populated, error). If a Book already exists, extend and correct it - never discard manual work.`
+        `populated, error). If a Book already exists, extend and correct it - never discard manual work.`,
+        `If the app is login-gated (its pages are unreachable without a session), you MUST author the`,
+        `Book's auth block with real test credentials - otherwise every check just lands on the login`,
+        `screen and the whole run fails for one auth reason.`
       ];
   return [
     `You are Drill's planning stage: author the page-level visual QA plan (the Drill Book) for the app in this repo.`,
@@ -145,6 +148,15 @@ function planPrompt(root, { brief, runSkill }) {
     `  viewports: [desktop]         (add tablet/mobile ONLY when the app clearly targets them)`,
     `  globalRules: <short prose rules that apply to every page - tone, brand, layout invariants; "" if none>`,
     `  dispatch: manual             (keep existing)`,
+    `  auth: <OMIT unless the app requires login to reach its real pages - otherwise EVERY check just sees the login screen and fails>`,
+    `    loginPath: </login>              (the login route, resolved against app.url; omit if login is at the app root)`,
+    `    steps:                           (ordered login actions, each a concrete instruction an agent executes on the login page)`,
+    `      - fill the "Email" field with <the test email>`,
+    `      - fill the "Password" field with <the test password>`,
+    `      - click the "Sign in" button`,
+    `    success: <a visible signal that proves login worked, e.g. "the app sidebar is visible and no login form remains" - lets the runner cheaply re-check the cached session instead of re-logging-in every run>`,
+    `    cacheMinutes: 720                (optional; proactively re-run the full login flow once the cached session is older than this)`,
+    `    (Use REAL working TEST credentials - they are committed with the Book and only ever run against the local/test app, never production. Discover them from the repo: seed/fixture users, .env.example, test setup, or the run skill. If you cannot find working test credentials, still author loginPath+steps+success with placeholders and note it - a login flow the user can fill in beats no auth at all.)`,
     `  pages: [{ id, title, path, mode: steps, selected: true }]   (the ledger: one entry per page FILE, and each entry's id MUST equal that file's id - same charset rule as below)`,
     ``,
     `drills/pages/<pageId>.yml fields (EVERY step field below is REQUIRED on every step - a step missing a field may be skipped or misrouted by the runner):`,

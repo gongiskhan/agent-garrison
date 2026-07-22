@@ -18,7 +18,11 @@ import {
 } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
-import { selectSteps, compileStepAutomation } from "../lib/compile.mjs";
+import {
+  selectSteps, compileStepAutomation,
+  hasAuth, resolveAuthUrl, authSuccess, compileAuthProbe, compileAuthLogin, AUTH_VERIFY_STEP
+} from "../lib/compile.mjs";
+import { readAuthState, writeAuthState, authFingerprint } from "../lib/auth-state.mjs";
 import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
 import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
@@ -121,6 +125,73 @@ function publishRunEvent(runId, event) {
     const timer = setTimeout(() => activeRuns.delete(runId), FINISHED_RUN_LINGER_MS);
     timer.unref?.();
   }
+}
+
+// Establish the app's authenticated session ONCE before a run's checks (A-auth).
+// Runs in the SHARED browser context (no captureSession) so the login persists
+// to the browser fitting's persistent profile and the run's capture session —
+// created after this — seeds already-logged-in. A cheap probe reuses the cached
+// session; the full login flow runs only on a miss or a Book-configured TTL
+// refresh. Auth is infrastructure to reach the tested state, not a spec, so it
+// never bypasses its own action/assertion cache even during a blind run.
+// Returns { ok: true, via } or { ok: false, terminal, infra }.
+async function ensureAuthenticated(book, { contextTag, viewport, root }) {
+  const success = authSuccess(book);
+  const fingerprint = authFingerprint(book.auth);
+  const prior = await readAuthState(root);
+  const ttlMin = Number(book.auth?.cacheMinutes);
+  const ttlMs = Number.isFinite(ttlMin) && ttlMin > 0 ? ttlMin * 60000 : null;
+  // A prior record only counts when it was written under THIS auth config — a
+  // changed login (different user/flow) must never be satisfied by the old
+  // session. loggedInAt is anchored to the last FULL login, so cacheMinutes
+  // measures real session age, not time-since-last-probe.
+  const priorFresh = prior && prior.fingerprint === fingerprint && prior.loggedInAt;
+  const stale = ttlMs && priorFresh ? Date.now() - Date.parse(prior.loggedInAt) > ttlMs : false;
+  // Force the full login flow when there is no fresh same-config record (first
+  // run, or the login config changed) OR the cached session is past its TTL —
+  // only then is the cheap probe trustworthy. This also skips the wasteful
+  // probe on the very first run (nothing to reuse yet).
+  const mustFlow = stale || !priorFresh;
+
+  const runAuth = async (automation, expectStep) => {
+    try {
+      const response = await runInline({ automation, contextTag, bypassCache: false, viewport, sync: true });
+      const run = response?.run;
+      if (expectStep) return terminalFromAutomationRun(run, expectStep);
+      // No success signal to verify: a completed run is our only pass evidence.
+      return run?.status === "completed"
+        ? { kind: "passed", source: "auth", code: "completed", component: "auth" }
+        : terminalFromAutomationRun(run, automation.steps.at(-1)?.id);
+    } catch (err) {
+      return terminalFromTransportError(err);
+    }
+  };
+
+  // Probe first: cheap reuse of the persistent session (navigate + a cached
+  // assertion). A cache hit advances lastProbedAt only — never loggedInAt — so
+  // the TTL clock keeps ticking against the last real login.
+  if (success && !mustFlow) {
+    const probe = await runAuth(compileAuthProbe(book), AUTH_VERIFY_STEP);
+    if (probe.kind === "passed") {
+      await writeAuthState(root, { ...prior, via: "cache", lastProbedAt: new Date().toISOString(), fingerprint }).catch(() => {});
+      return { ok: true, via: "cache" };
+    }
+    // A transport/infra outage on the probe is NOT an auth failure — surface it
+    // so the caller attributes the incident to the down component, not "auth".
+    if (probe.kind === "infra-failure") return { ok: false, terminal: probe, authRejected: false };
+    // product-failure / blocked / incomplete = inconclusive -> run the flow.
+  }
+
+  const flow = await runAuth(compileAuthLogin(book), success ? AUTH_VERIFY_STEP : null);
+  if (flow.kind === "passed") {
+    await writeAuthState(root, { loggedInAt: new Date().toISOString(), via: "flow", fingerprint }).catch(() => {});
+    return { ok: true, via: "flow" };
+  }
+  // Only a product-level negative — the flow ran but the app did not grant a
+  // session / the success signal was not met — is a genuine auth-config problem.
+  // Infra / incomplete / blocked (engine down, app down, MFA pause) keep their
+  // REAL component so the incident is never misattributed to the auth block.
+  return { ok: false, terminal: flow, authRejected: flow.kind === "product-failure" };
 }
 
 // Mutating a run record while its background execute() still owns it would
@@ -1197,6 +1268,51 @@ async function handle(req, res) {
         .map((job) => job.viewport)
         .filter((vp) => vp && vp.width && vp.height)
         .reduce((best, vp) => (!best || vp.width * vp.height > best.width * best.height ? vp : best), null);
+
+      // Authenticated runs (A-auth): log in ONCE before any check so every
+      // check's fresh navigate lands on the real page, not the login screen.
+      // This runs in the shared browser context BEFORE captureStart, so the
+      // session persists to the persistent profile and the run's capture
+      // session seeds already-logged-in. A login failure collapses into ONE
+      // grouped incident + circuit (checks skipped) instead of N product
+      // failures for one auth problem. The blind adversarial pass authenticates
+      // too — it is blind to specs, not to the login.
+      if (hasAuth(book)) {
+        publishRunEvent(record.id, { type: "auth_started", runId: record.id, loginUrl: resolveAuthUrl(book) });
+        const auth = await ensureAuthenticated(book, { contextTag, viewport: sessionViewport || jobs[0]?.viewport, root });
+        if (!auth.ok) {
+          // Only a genuine login rejection (auth.authRejected — the flow ran but
+          // the app did not grant a session) is blamed on the auth block. An
+          // engine/app/harness failure during login keeps its REAL component
+          // (auth.terminal) so the incident is not misattributed to "auth" and
+          // the user is not misdirected to drills/drillbook.yml. Both "blocked"
+          // and the passed-through infra/incomplete kinds render in the
+          // harness-degraded banner and open the circuit.
+          const terminal = auth.authRejected
+            ? {
+                kind: "blocked",
+                source: "auth",
+                code: "auth-failed",
+                component: "auth",
+                message: `Login did not reach the authenticated state before any check ran: ${auth.terminal?.message ?? "the success signal was not met"} — ${jobs.length} check(s) skipped. Check the app is running and the auth block (steps/success) in drills/drillbook.yml.`
+              }
+            : auth.terminal;
+          for (const job of jobs) addSystemicIncident(job, terminal);
+          openCircuit(terminal);
+          record.endedAt = new Date().toISOString();
+          record.summary = {
+            steps: record.pages.length,
+            failed: 0,
+            infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+          };
+          await saveDrillRun(record);
+          publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
+          publishRunEvent(record.id, { type: "auth_failed", runId: record.id, component: terminal.component, message: terminal.message });
+          return; // the finally below publishes run_finished
+        }
+        publishRunEvent(record.id, { type: "auth_ok", runId: record.id, via: auth.via });
+      }
+
       const capture = await captureStart({
         runId: record.id,
         root,
@@ -1798,6 +1914,12 @@ async function handle(req, res) {
       // Same self-heal as the run preflight; on failure the replay loop
       // surfaces the per-step transport error as a warning.
       await ensureAutomationsUp().catch(() => {});
+      // Authenticated apps: establish the session in the shared context before
+      // the held capture session is created, so the replay tab seeds
+      // logged-in (best-effort — the replay loop reports per-step issues).
+      if (hasAuth(book)) {
+        await ensureAuthenticated(book, { contextTag: "drill", viewport, root }).catch(() => {});
+      }
       let session;
       try {
         session = await captureCall("/capture/start", {
