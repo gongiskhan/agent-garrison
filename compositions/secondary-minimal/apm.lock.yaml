@@ -1,0 +1,27 @@
+lockfile_version: '1'
+generated_at: '2026-07-21T18:22:21.678439+00:00'
+apm_version: 0.24.0
+dependencies:
+- repo_url: _local/improver
+  name: improver
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/improver
+- repo_url: _local/scheduler
+  name: scheduler
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/scheduler
+  - .claude/skills/scheduler/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/scheduler/SKILL.md: sha256:64e38be28851d8f659554b170ca117dd7d4be238480802f87f6f5ea197ec7423
+  source: local
+  local_path: ../../fittings/seed/scheduler
+- repo_url: _local/vault-git-sync
+  name: vault-git-sync
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/vault-git-sync
