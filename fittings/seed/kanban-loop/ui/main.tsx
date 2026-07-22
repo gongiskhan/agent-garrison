@@ -8,7 +8,7 @@
 // interactive list (Discuss), or shows the linked static logs when nothing is
 // live — it never tmux-attaches (the pooled gateway operative is raw node-pty).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   api,
@@ -37,8 +37,12 @@ import {
   ActivityIcon,
   SparkIcon,
   ChatIcon,
+  TerminalIcon,
+  WrenchIcon,
   BoardMark
 } from "./icons";
+import { TerminalPane } from "./terminal-pane";
+import { rewriteHostUrl } from "./host-rewrite";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
 // the card as an OPAQUE context blob; James (the operative) reads it.
@@ -47,25 +51,95 @@ import { buildDiscussUrl } from "../scripts/discuss.mjs";
 
 const ITERATION_CAP = 10;
 
-// Bare http(s) URLs inside plain-text bodies (e.g. a drill fix card carrying
-// evidence links) render as real links; all other text stays literal — the
-// body remains plain text, never markup.
+// localPort → HTTPS tailnet URL, fetched once from the same-origin /host-map
+// endpoint and read by linkifyText below. Module-level (the render is a pure
+// function, not a component), with a bumping rev so the first paint's host-rebind
+// fallback upgrades to the exact serve URL once the map lands. `onServeMap`
+// notifies subscribers (App) to re-render.
+let serveMap: Record<number, string> = {};
+let serveMapRev = 0;
+const serveMapSubs = new Set<() => void>();
+let hostMapPromise: Promise<void> | null = null;
+function loadHostMap(): Promise<void> {
+  if (!hostMapPromise) {
+    hostMapPromise = fetch("/host-map")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.map && typeof d.map === "object") {
+          serveMap = d.map as Record<number, string>;
+          serveMapRev++;
+          for (const fn of serveMapSubs) { try { fn(); } catch { /* ignore */ } }
+        }
+      })
+      .catch(() => {});
+  }
+  return hostMapPromise;
+}
+function hostCtx() {
+  return {
+    hostname: typeof window !== "undefined" ? window.location.hostname : "",
+    protocol: typeof window !== "undefined" ? window.location.protocol : "",
+    serveMap
+  };
+}
+
+// The known-root substrings that gate a bare absolute path being treated as a
+// servable file (so an arbitrary "/etc/passwd" in prose is NOT linkified).
+const FILE_PATH_ROOT_HINTS = [".garrison/uploads/", "/runs/", "/evidence/", "/.claude/"];
+const IMG_EXT_RE = /\.(png|jpe?g|webp|gif|svg)$/i;
+const FILE_EXT_RE = /\.[A-Za-z0-9]{1,8}$/;
+function fileUrl(p: string): string {
+  return `/file?path=${encodeURIComponent(p)}`;
+}
+
+// Bare http(s) URLs and absolute file paths inside plain-text bodies (e.g. a
+// drill fix card carrying evidence links, or a ClaudeChat attachment path) render
+// as real links; http(s) URLs are host-rewritten (loopback → the client's
+// reachable form) and image file paths render inline. Everything else stays
+// literal — the body remains plain text, never markup.
 function linkifyText(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
-  const re = /https?:\/\/[^\s<>"')\]]+/g;
+  // Match an http(s) URL OR an absolute filesystem path (no whitespace). The
+  // path branch is gated below on a known root or a file extension.
+  const re = /(https?:\/\/[^\s<>"')\]]+)|(\/[^\s<>"'`)\]]+)/g;
+  const ctx = hostCtx();
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
+    const token = m[0];
     if (m.index > last) parts.push(text.slice(last, m.index));
-    parts.push(
-      <a key={m.index} href={m[0]} target="_blank" rel="noopener noreferrer">
-        {m[0]}
-      </a>
-    );
-    last = m.index + m[0].length;
+    last = m.index + token.length;
+    if (m[1]) {
+      // http(s) URL — rewrite loopback targets to a client-reachable form.
+      const href = rewriteHostUrl(token, ctx);
+      if (!href) { parts.push(token); continue; } // unreachable (https page, http-only) → literal
+      parts.push(
+        <a key={m.index} href={href} target="_blank" rel="noopener noreferrer">{token}</a>
+      );
+      continue;
+    }
+    // Absolute path — only linkify when it looks like a real servable file:
+    // under a known root OR carrying a file extension. No whitespace (the regex
+    // already stops at it).
+    const p = token;
+    const known = FILE_PATH_ROOT_HINTS.some((h) => p.includes(h));
+    if (!known && !FILE_EXT_RE.test(p)) { parts.push(token); continue; }
+    if (IMG_EXT_RE.test(p)) {
+      parts.push(<img key={m.index} className="linkified-img" src={fileUrl(p)} alt={p.split("/").pop() || p} loading="lazy" />);
+    } else {
+      parts.push(<a key={m.index} href={fileUrl(p)} target="_blank" rel="noopener noreferrer">{p.split("/").pop() || p}</a>);
+    }
   }
   if (last < text.length) parts.push(text.slice(last));
   return parts;
+}
+
+// Strip the ClaudeChat-appended attachment block ("\n\nAttached file(s):\n- …")
+// off a description so the rendered body doesn't duplicate the Attachments
+// section. Mirrors the server's parseAttachments header + contiguous-list scan.
+function stripAttachmentBlock(description: string): string {
+  const idx = description.search(/\n*Attached files?:\n- \//i);
+  return idx >= 0 ? description.slice(0, idx).replace(/\s+$/, "") : description;
 }
 
 function listClass(list: ListView): string {
@@ -219,6 +293,7 @@ function Card({
   onStart,
   onMove,
   onWatch,
+  onTerminal,
   onOpen,
   onInfer,
   onDiscuss,
@@ -231,6 +306,7 @@ function Card({
   onStart: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
   onWatch: (c: CardSummary) => void;
+  onTerminal: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
   onInfer: (c: CardSummary) => void;
   onDiscuss: (c: CardSummary) => void;
@@ -417,9 +493,19 @@ function Card({
             <ChatIcon /> Discuss
           </button>
         ) : (
-          <button className="btn small" onClick={() => onWatch(card)}>
-            <WatchIcon /> Watch
-          </button>
+          <>
+            <button className="btn small" onClick={() => onWatch(card)}>
+              <WatchIcon /> Watch
+            </button>
+            {/* Terminal opens an interactive shell in the card's project cwd.
+                Only when the card resolves to a project (else the shell would
+                open at the board's own dir, which isn't what you came for). */}
+            {card.project && (
+              <button className="btn small" title="open an interactive shell in this card's project" onClick={() => onTerminal(card)}>
+                <TerminalIcon /> Terminal
+              </button>
+            )}
+          </>
         )}
         {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
             seeded from this card's handoff packet. */}
@@ -931,7 +1017,7 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
   );
 }
 
-function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: () => void; onChanged: () => void }) {
+function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { cardId: string; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1032,14 +1118,18 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
 
   const { card, links, decisionLog } = detail;
   const events = detail.events ?? [];
+  const attachments = detail.attachments ?? [];
   const running = card.status === "running";
   const parked = card.status === "needs-attention";
   // Evidence is expected from Walkthrough onward — so at those stages we show the
   // Evidence section even when empty, surfacing the GAP (the user looks here for proof).
   const evidence = links.evidence ?? [];
   const showEvidence = evidence.length > 0 || ["walkthrough", "validate", "done"].includes(card.list);
+  // The description body without the ClaudeChat attachment block (which renders in
+  // its own Attachments section below).
+  const descBody = card.description ? stripAttachmentBlock(card.description) : "";
   return (
-    <Sheet title={card.title} onClose={onClose}>
+    <Sheet title={card.title} onClose={onClose} size="mid">
       <div className="detail-meta">
         {card.project
           ? <span className="chip">proj: {card.project}</span>
@@ -1049,6 +1139,18 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
         {card.goalMode && <span className="chip goal">goalMode</span>}
         {card.runId && <span className="chip">run: {card.runId.slice(0, 8)}</span>}
         {card.sliceId && <span className="chip">slice: {card.sliceId}</span>}
+      </div>
+
+      {/* Header actions: open the rich Log (Watch) or an interactive Terminal. */}
+      <div className="detail-actions">
+        <button className="btn small" onClick={() => onWatch?.(card)}>
+          <WatchIcon /> Watch (Log)
+        </button>
+        {card.project && (
+          <button className="btn small" onClick={() => onTerminal?.(card)}>
+            <TerminalIcon /> Terminal
+          </button>
+        )}
       </div>
 
       {/* Current-state callout — the single most important "what's going on" line. */}
@@ -1126,13 +1228,36 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
         </div>
       )}
 
-      {card.description && card.description.trim() && (
+      {descBody.trim() && (
         <div className="detail-desc">
           <div className="dd-title">Description</div>
           {/* pre-wrap: multi-line bodies (drill fix cards list one finding
               per line with indented evidence links) keep their line structure
               in the plain-text render. */}
-          <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(card.description)}</p>
+          <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(descBody)}</p>
+        </div>
+      )}
+
+      {/* ATTACHMENTS (issue #2) — files the user attached via ClaudeChat, parsed
+          out of the description. Images render inline (click to enlarge); other
+          files link out. Same-origin serve URLs. */}
+      {attachments.length > 0 && (
+        <div className="evidence">
+          <div className="dd-title">Attachments</div>
+          <div className="ev-grid">
+            {attachments.map((a) => (
+              a.image ? (
+                <button key={a.i} type="button" className="ev-shot" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, image: true })} title={a.name}>
+                  <img src={a.url} alt={a.name} loading="lazy" />
+                  <span className="ev-name">{a.name}</span>
+                </button>
+              ) : (
+                <a key={a.i} className="ev-file" href={a.url} target="_blank" rel="noreferrer" title={a.name}>
+                  <LinkIcon /> {a.name}
+                </a>
+              )
+            ))}
+          </div>
         </div>
       )}
 
@@ -1251,27 +1376,227 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
 // over SSE, or replays the linked static logs when nothing is live. The
 // interactive Discuss list does NOT use this - it has its own
 // Discuss button that opens a James-mode session (see App.onDiscuss).
-function WatchSheet({
-  card,
-  onClose
-}: {
-  card: CardSummary;
-  onClose: () => void;
-}) {
-  // Terminal is the default view for a RUNNING card (the live session is what
-  // you came to see); an idle/parked card opens on its logs.
-  const [tab, setTab] = useState<"terminal" | "log">(card.status === "running" ? "terminal" : "log");
-  const [lines, setLines] = useState<string>("");
-  const [live, setLive] = useState<boolean | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const [screen, setScreen] = useState<string[] | null>(null);
-  const [termLive, setTermLive] = useState<boolean | null>(null);
-  const scrRef = useRef<HTMLDivElement | null>(null);
+// ── session transcript view (rich Log) ──────────────────────────────────────
+// Ported from the drill fitting (SessionStream / SessionViewer): the operative's
+// actual turns, tool calls and screenshots, streamed live over
+// /cards/:id/session-stream while the card runs, or replayed once when idle.
 
-  // The terminal stream connects only while its tab is showing - the screen
-  // render costs a poll per client on the gateway side.
+interface SessionImage { mediaType: string; data: string }
+interface SessionBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: string;
+  toolUseId?: string | null;
+  isError?: boolean;
+  images?: SessionImage[];
+}
+interface SessionEvent {
+  id: string | null;
+  role: string;
+  ts: number | null;
+  toolResultsOnly?: boolean;
+  blocks: SessionBlock[];
+}
+
+function SessionTextBlock({ text, role }: { text: string; role: string }) {
+  // Long prompts (the routed phase instructions) collapse to their first line —
+  // the desktop-app "show more" idiom without the chrome.
+  if (role === "user" && text.length > 280) {
+    const head = text.slice(0, 140).split("\n")[0];
+    return (
+      <details className="dr-session-longtext">
+        <summary>{head}…</summary>
+        <pre className="dr-session-pre">{text}</pre>
+      </details>
+    );
+  }
+  return <pre className="dr-session-text">{text}</pre>;
+}
+
+function SessionToolBlock({ block, result }: { block: SessionBlock; result: SessionBlock | undefined }) {
+  const hint = (block.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
+  return (
+    <div className="dr-session-toolwrap">
+      <details className="dr-session-tool">
+        <summary>
+          <WrenchIcon />
+          <b>{block.name}</b>
+          <span className="dr-session-tool-hint">{hint}</span>
+          {result?.isError && <span className="chip alarm">error</span>}
+        </summary>
+        {block.input && <pre className="dr-session-pre">{block.input}</pre>}
+        {result?.text && <pre className="dr-session-pre result">{result.text}</pre>}
+      </details>
+      {(result?.images ?? []).map((image, index) => (
+        <img
+          key={index}
+          className="dr-session-img"
+          src={`data:${image.mediaType};base64,${image.data}`}
+          alt={`${block.name ?? "tool"} result image ${index + 1}`}
+          loading="lazy"
+        />
+      ))}
+    </div>
+  );
+}
+
+// One session's live/replayed transcript, consuming the default-`message` SSE
+// framing the kanban server emits (init / events / end), pairing each tool_use
+// with its later tool_result via a toolUseId map.
+function SessionStream({ cardId, i, live }: { cardId: string; i: number; live: boolean }) {
+  const [events, setEvents] = useState<SessionEvent[]>([]);
+  const [title, setTitle] = useState<string | null>(null);
+  const [status, setStatus] = useState<"connecting" | "streaming" | "ended" | "unavailable">("connecting");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+
   useEffect(() => {
-    if (tab !== "terminal") return;
+    setEvents([]);
+    setTitle(null);
+    setStatus("connecting");
+    stickRef.current = true;
+    const source = new EventSource(`/cards/${encodeURIComponent(cardId)}/session-stream?i=${i}`);
+    source.onmessage = (message) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let payload: any;
+      try { payload = JSON.parse(message.data); } catch { return; }
+      if (payload.type === "init") {
+        setEvents(payload.events ?? []);
+        if (payload.title) setTitle(payload.title);
+        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
+      } else if (payload.type === "events") {
+        if (payload.title) setTitle(payload.title);
+        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
+      } else if (payload.type === "end") {
+        setStatus((current) => (current === "unavailable" ? current : "ended"));
+        source.close();
+      }
+    };
+    source.onerror = () => {
+      // The server ends the stream itself after `end`; an earlier transport
+      // error should read as "stream over", not an eternal spinner.
+      setStatus((current) => (current === "unavailable" ? current : "ended"));
+      source.close();
+    };
+    return () => source.close();
+  }, [cardId, i]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [events]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
+
+  const resultsByToolUse = useMemo(() => {
+    const map = new Map<string, SessionBlock>();
+    for (const event of events) {
+      for (const block of event.blocks) {
+        if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
+      }
+    }
+    return map;
+  }, [events]);
+
+  return (
+    <div className="dr-session">
+      <div className="dr-session-head">
+        <ChatIcon />
+        <b>{title ?? `Session ${i + 1}`}</b>
+        {live && status === "streaming" && <span className="chip sage">live</span>}
+        {status === "connecting" && <span className="chip">connecting…</span>}
+        {status === "unavailable" && <span className="chip brass">transcript unavailable</span>}
+      </div>
+      <div className="dr-session-scroll" ref={scrollRef} onScroll={onScroll}>
+        {events.length === 0 && (
+          <div className="dr-empty">
+            {status === "connecting"
+              ? "Opening the session stream…"
+              : status === "unavailable"
+                ? "No transcript is available for this session — use the Raw tab for the phase log."
+                : live
+                  ? "Waiting for the first session activity…"
+                  : "No session activity was captured for this run."}
+          </div>
+        )}
+        {events.filter((event) => !event.toolResultsOnly).map((event, index) => (
+          <div key={event.id ?? `event-${index}`} className={"dr-session-turn " + (event.role === "user" ? "user" : "assistant")}>
+            <span className="dr-session-role">{event.role === "user" ? "Prompt" : "Assistant"}</span>
+            {event.blocks.map((block, blockIndex) => {
+              if (block.type === "text") return <SessionTextBlock key={blockIndex} text={block.text ?? ""} role={event.role} />;
+              if (block.type === "thinking") {
+                return (
+                  <details key={blockIndex} className="dr-session-thinking">
+                    <summary>Thinking</summary>
+                    <pre className="dr-session-pre">{block.text}</pre>
+                  </details>
+                );
+              }
+              if (block.type === "tool_use") {
+                return <SessionToolBlock key={blockIndex} block={block} result={block.toolUseId ? resultsByToolUse.get(block.toolUseId) : undefined} />;
+              }
+              return null;
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Chip-per-session picker (defaults to the LAST, most-recent session) over the
+// card's sessionIds, mounting one SessionStream for the selected index.
+function SessionViewer({ cardId, sessionIds, live }: { cardId: string; sessionIds: string[]; live: boolean }) {
+  const count = sessionIds.length;
+  const [selected, setSelected] = useState<number>(count > 0 ? count - 1 : 0);
+  useEffect(() => {
+    // Default to the most-recent session; re-clamp if the count shrinks.
+    setSelected((cur) => (cur >= 0 && cur < count ? cur : Math.max(0, count - 1)));
+  }, [count]);
+  if (count === 0) {
+    return <div className="dr-empty">No session transcript yet for this card — use the Raw tab for its phase log.</div>;
+  }
+  return (
+    <div className="dr-session-viewer">
+      {count > 1 && (
+        <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Sessions">
+          {sessionIds.map((_sid, index) => (
+            <button
+              key={index}
+              role="tab"
+              aria-selected={selected === index}
+              className={"chip click" + (selected === index ? " ink active" : "")}
+              onClick={() => setSelected(index)}
+            >
+              Session {index + 1}
+            </button>
+          ))}
+        </div>
+      )}
+      <SessionStream key={selected} cardId={cardId} i={selected} live={live} />
+    </div>
+  );
+}
+
+// ── terminal modal — interactive shell PTY at the card's project cwd ─────────
+// A real terminal (xterm + node-pty over /io) opened in the card's project, PLUS
+// a read-only "operative screen" pane shown ONLY when the gateway reports a live
+// PTY session (the default agent-sdk operative has none, so the shell alone is
+// the expected experience). Uses its own fixed-height scrim/modal (NOT a Sheet)
+// because xterm needs a real, non-collapsing height.
+function TerminalModal({ card, onClose }: { card: CardSummary; onClose: () => void }) {
+  const [screen, setScreen] = useState<string[] | null>(null);
+  const [termLive, setTermLive] = useState<boolean>(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // The gateway's live operative PTY render (read-only), shown only when live.
+  useEffect(() => {
     const es = new EventSource("/operative/screen");
     es.addEventListener("mode", (e) => {
       try { setTermLive(JSON.parse((e as MessageEvent).data).live !== false); } catch { setTermLive(false); }
@@ -1281,7 +1606,51 @@ function WatchSheet({
     });
     es.onerror = () => { setTermLive(false); };
     return () => es.close();
-  }, [tab]);
+  }, []);
+  const ptyId = `card-${card.id}-shell`;
+  return (
+    <div className="term-scrim" onClick={onClose}>
+      <div className="term-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`Terminal for ${card.title}`}>
+        <div className="art-head">
+          <span className="art-title">card {card.id.slice(0, 6)} · {card.project || "no project"}</span>
+          <span className="art-spacer" />
+          <button type="button" className="art-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="term-body">
+          <TerminalPane ptyId={ptyId} isActive={true} />
+        </div>
+        {termLive && screen && (
+          <div className="term-operative">
+            <div className="term-operative-head">operative screen · read-only</div>
+            <pre>{screen.join("\n")}</pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── watch sheet — rich Log (session transcript) primary, Raw phase log fallback ─
+// The Log tab renders the operative's rich session transcript(s); the Raw tab
+// keeps the card's phase log over SSE (the fallback for cards with no session
+// yet). The live operative TERMINAL moved to its own Terminal modal. The
+// interactive Discuss list does NOT use this — it opens a James-mode session.
+function WatchSheet({
+  card,
+  onClose
+}: {
+  card: CardSummary;
+  onClose: () => void;
+}) {
+  const hasSession = (card.sessionIds?.length ?? 0) > 0;
+  // Default to the rich Log (session transcript) when the card has a session;
+  // otherwise the Raw phase log. The live operative TERMINAL moved to its own
+  // Terminal modal.
+  const [tab, setTab] = useState<"session" | "raw">(hasSession ? "session" : "raw");
+  const [lines, setLines] = useState<string>("");
+  const [live, setLive] = useState<boolean | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const scrRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const es = new EventSource(api.watchUrl(card.id));
@@ -1321,42 +1690,34 @@ function WatchSheet({
   });
 
   return (
-    <Sheet title={`Watch: ${card.title}`} onClose={onClose}>
+    <Sheet title={`Watch: ${card.title}`} onClose={onClose} size="wide">
       {card.status === "needs-attention" && card.attentionReason && (
         <div className="state-callout parked" style={{ marginTop: 0 }}>{card.attentionReason}</div>
       )}
       <div className="watch">
         <div className="wbar">
           <span className="wtabs">
-            <button className={`wtab${tab === "terminal" ? " on" : ""}`} onClick={() => setTab("terminal")}
-              title="the operative session's live terminal screen">Terminal</button>
-            <button className={`wtab${tab === "log" ? " on" : ""}`} onClick={() => setTab("log")}
-              title="this card's phase log">Log</button>
+            <button className={`wtab${tab === "session" ? " on" : ""}`} onClick={() => setTab("session")}
+              title="the operative's rich session transcript">Log</button>
+            <button className={`wtab${tab === "raw" ? " on" : ""}`} onClick={() => setTab("raw")}
+              title="this card's raw phase log">Raw</button>
           </span>
           card {card.id.slice(0, 6)} · {card.list}
-          {tab === "terminal" ? (
-            <span className={`live${termLive ? "" : " off"}`}>
-              {termLive === null ? "connecting…" : termLive ? "live session" : "no live session"}
-            </span>
-          ) : (
+          {tab === "raw" && (
             <span className={`live${live ? "" : " off"}`}>
               {live === null ? "connecting…" : live ? "live" : "static logs"}
             </span>
           )}
         </div>
-        {tab === "terminal" ? (
-          <div className="wterm">
-            {screen
-              ? <pre>{screen.join("\n")}</pre>
-              : <span className="wterm-empty">{termLive === false ? "No live operative session - start a run, or check the gateway." : "connecting to the operative session…"}</span>}
-          </div>
+        {tab === "session" ? (
+          <SessionViewer cardId={card.id} sessionIds={card.sessionIds ?? []} live={card.status === "running"} />
         ) : (
           <div className="wscr" ref={scrRef}>
             {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
           </div>
         )}
       </div>
-      {tab === "log" && done && (
+      {tab === "raw" && done && (
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           stream ended: {done}
         </p>
@@ -1651,7 +2012,7 @@ function ListConfigSheet({
 }
 
 // ── generic modal sheet ─────────────────────────────────────────────────────
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: React.ReactNode; size?: "default" | "mid" | "wide" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -1659,7 +2020,7 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
   }, [onClose]);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="sh-head">
           <h3>{title}</h3>
           <button className="btn small" onClick={onClose} aria-label="Close"><CloseIcon /></button>
@@ -1676,6 +2037,7 @@ type Overlay =
   | { kind: "move"; card: CardSummary }
   | { kind: "detail"; cardId: string }
   | { kind: "watch"; card: CardSummary }
+  | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
   | null;
 
@@ -1686,6 +2048,15 @@ function App() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Re-render when the /host-map lands so linkifyText upgrades loopback URLs to
+  // their exact serve form (serveMapRev is read only to force the dependency).
+  const [, setServeRev] = useState(serveMapRev);
+  useEffect(() => {
+    const bump = () => setServeRev(serveMapRev);
+    serveMapSubs.add(bump);
+    void loadHostMap();
+    return () => { serveMapSubs.delete(bump); };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -1895,6 +2266,7 @@ function App() {
                         }
                       }}
                       onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                      onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
                       onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
                       onContinue={onContinue}
                     />
@@ -1932,13 +2304,22 @@ function App() {
         <MoveSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onMoved={() => void load()} />
       )}
       {overlay?.kind === "detail" && (
-        <DetailSheet cardId={overlay.cardId} onClose={() => setOverlay(null)} onChanged={() => void load()} />
+        <DetailSheet
+          cardId={overlay.cardId}
+          onClose={() => setOverlay(null)}
+          onChanged={() => void load()}
+          onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+          onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+        />
       )}
       {overlay?.kind === "watch" && (
         <WatchSheet
           card={overlay.card}
           onClose={() => setOverlay(null)}
         />
+      )}
+      {overlay?.kind === "terminal" && (
+        <TerminalModal card={overlay.card} onClose={() => setOverlay(null)} />
       )}
       {overlay?.kind === "config" && board && (
         <ListConfigSheet listId={overlay.listId} board={board} onClose={() => setOverlay(null)} onSaved={() => void load()} />

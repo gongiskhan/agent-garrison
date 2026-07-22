@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1087,7 +1087,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState7(initialState) {
+        function useState8(initialState) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState);
         }
@@ -1095,11 +1095,11 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer, initialArg, init);
         }
-        function useRef5(initialValue) {
+        function useRef6(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect7(create, deps) {
+        function useEffect8(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create, deps);
         }
@@ -1115,7 +1115,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo3(create, deps) {
+        function useMemo4(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create, deps);
         }
@@ -1882,15 +1882,15 @@ var require_react_development = __commonJS({
         exports.useContext = useContext;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect7;
+        exports.useEffect = useEffect8;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect;
-        exports.useMemo = useMemo3;
+        exports.useMemo = useMemo4;
         exports.useReducer = useReducer;
-        exports.useRef = useRef5;
-        exports.useState = useState7;
+        exports.useRef = useRef6;
+        exports.useState = useState8;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../../node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../../node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../../node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../../node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../../node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../../node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../../node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../../node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../../node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../../node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../../node_modules/@xterm/xterm/lib/xterm.js
+// ../../../node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "../../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// ../../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
+// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "../../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// ../../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "../../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// ../../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30684,19 +30684,19 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx8 = jsxWithValidationDynamic;
-        var jsxs7 = jsxWithValidationStatic;
+        var jsx9 = jsxWithValidationDynamic;
+        var jsxs8 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx8;
-        exports.jsxs = jsxs7;
+        exports.jsx = jsx9;
+        exports.jsxs = jsxs8;
       })();
     }
   }
 });
 
-// ../../../../node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../../../../node_modules/highlight.js/lib/core.js
+// ../../../node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "../../../../node_modules/highlight.js/lib/core.js"(exports, module) {
+  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -31923,9 +31923,9 @@ var require_core = __commonJS({
           error(LANGUAGE_NOT_FOUND.replace("{}", languageName));
           throw new Error('Unknown language: "' + languageName + '"');
         }
-        const md2 = compileLanguage(language);
+        const md3 = compileLanguage(language);
         let result = "";
-        let top = continuation || md2;
+        let top = continuation || md3;
         const continuations = {};
         const emitter = new options2.__emitter(options2);
         processContinuations();
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// main.tsx
-var import_react7 = __toESM(require_react());
+// ui/main.tsx
+var import_react8 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// terminal-theme.ts
+// ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// chat-pane.tsx
-var import_react3 = __toESM(require_react());
+// ui/chat-pane.tsx
+var import_react4 = __toESM(require_react());
 
-// ../../../../packages/claude-chat/src/ClaudeChat.tsx
-var import_react2 = __toESM(require_react(), 1);
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
+var import_react3 = __toESM(require_react(), 1);
 
-// ../../../../node_modules/marked/lib/marked.esm.js
+// ../../../node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// ../../../../node_modules/highlight.js/es/core.js
+// ../../../node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// ../../../../node_modules/highlight.js/es/languages/typescript.js
+// ../../../node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// ../../../../node_modules/highlight.js/es/languages/javascript.js
+// ../../../node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/python.js
+// ../../../node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/bash.js
+// ../../../node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/json.js
+// ../../../node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/css.js
+// ../../../node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/xml.js
+// ../../../node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/markdown.js
+// ../../../node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/yaml.js
+// ../../../node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/sql.js
+// ../../../node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/rust.js
+// ../../../node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/go.js
+// ../../../node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// ../../../../node_modules/highlight.js/es/languages/diff.js
+// ../../../node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// ../../../../packages/claude-chat/src/chat-theme.ts
+// ../../../packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -39880,7 +39880,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// ../../../../packages/claude-chat/src/voice.ts
+// ../../../packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -39923,7 +39923,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// ../../../../packages/claude-chat/src/sanitize.ts
+// ../../../packages/claude-chat/src/sanitize.ts
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -39996,9 +39996,211 @@ function routeChipFromAttribution(route) {
   return { label, title: title || void 0 };
 }
 
-// ../../../../packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/host-rewrite.ts
+var LOOPBACK = /^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i;
+function rewriteHostUrl(raw, ctx) {
+  if (!raw || !LOOPBACK.test(raw)) return raw;
+  const hostname = ctx?.hostname ?? "";
+  const protocol = ctx?.protocol ?? "";
+  const serveMap = ctx?.serveMap ?? {};
+  if (!hostname || hostname === "127.0.0.1" || hostname === "localhost") return raw;
+  let u;
+  try {
+    u = new URL(raw);
+  } catch {
+    return raw;
+  }
+  const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+  const base = serveMap[String(port)];
+  if (base) {
+    try {
+      const b = new URL(base);
+      u.protocol = b.protocol;
+      u.host = b.host;
+      return u.toString();
+    } catch {
+    }
+  }
+  const rebound = raw.replace(LOOPBACK, `$1${hostname}`);
+  if (protocol === "https:" && rebound.startsWith("http://")) return "";
+  return rebound;
+}
+var IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+var ABS_PATH = /^\/(?:[\w.@+~-]+\/)+[\w.@+~-]+\.[A-Za-z0-9]{1,8}/;
+var KNOWN_ROOT = /(?:^|\/)\.garrison\/|\/uploads\/|\/runs\//;
+function isImagePath(p) {
+  return IMAGE_EXT.test(p);
+}
+function shouldLinkifyPath(p) {
+  return isImagePath(p) || KNOWN_ROOT.test(p);
+}
+function fileHref(absPath) {
+  return `/file?path=${encodeURIComponent(absPath)}`;
+}
+function basename(p) {
+  const parts = p.split("/");
+  return parts[parts.length - 1] || p;
+}
+function escAttr(s) {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escText(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function filePathHtml(absPath) {
+  const href = escAttr(fileHref(absPath));
+  if (isImagePath(absPath)) {
+    return `<img src="${href}" alt="${escAttr(basename(absPath))}" loading="lazy" class="cc-inline-img" />`;
+  }
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer">${escText(basename(absPath))}</a>`;
+}
+function filePathMarkedExtension() {
+  return {
+    name: "garrisonFilePath",
+    level: "inline",
+    start(src) {
+      const idx = src.search(/\/(?:[\w.@+~-]+\/)+[\w.@+~-]+\.[A-Za-z0-9]{1,8}/);
+      return idx < 0 ? void 0 : idx;
+    },
+    tokenizer(src) {
+      const m = ABS_PATH.exec(src);
+      if (!m) return void 0;
+      const path = m[0];
+      if (!shouldLinkifyPath(path)) return void 0;
+      return { type: "garrisonFilePath", raw: path, path };
+    },
+    renderer(token) {
+      return filePathHtml(token.path);
+    }
+  };
+}
+
+// ../../../packages/claude-chat/src/SessionTranscript.tsx
+var import_react2 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
+md.use({
+  renderer: {
+    // The transcript is injected via dangerouslySetInnerHTML; marked doesn't
+    // sanitize, so escape any raw HTML in a text block.
+    html({ text }) {
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  }
+});
+md.use({ extensions: [filePathMarkedExtension()] });
+function TextBlock({ text, role }) {
+  if (role === "user" && text.length > 280) {
+    const head = text.slice(0, 140).split("\n")[0];
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("details", { className: "cc-session-longtext", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("summary", { children: [
+        head,
+        "\u2026"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: md.parse(text) } })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: md.parse(text || "") } });
+}
+function ToolBlock({ block: block2, result }) {
+  const hint = (block2.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-session-toolwrap", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("details", { className: "cc-session-tool", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("summary", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-session-tool-ico", "aria-hidden": "true", children: "\u2699" }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("b", { children: block2.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-session-tool-hint", children: hint }),
+        result?.isError && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-session-err", children: "error" })
+      ] }),
+      block2.input && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("pre", { className: "cc-session-pre", children: block2.input }),
+      result?.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("pre", { className: "cc-session-pre cc-session-result", children: result.text })
+    ] }),
+    (result?.images ?? []).map((image, index) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "img",
+      {
+        className: "cc-session-img",
+        src: `data:${image.mediaType};base64,${image.data}`,
+        alt: `${block2.name ?? "tool"} result image ${index + 1}`,
+        loading: "lazy"
+      },
+      index
+    ))
+  ] });
+}
+function SessionStream({ url, live }) {
+  const [events, setEvents] = (0, import_react2.useState)([]);
+  const [status, setStatus] = (0, import_react2.useState)("connecting");
+  const scrollRef = (0, import_react2.useRef)(null);
+  const stickRef = (0, import_react2.useRef)(true);
+  (0, import_react2.useEffect)(() => {
+    setEvents([]);
+    setStatus("connecting");
+    stickRef.current = true;
+    const source = new EventSource(url);
+    source.onmessage = (message) => {
+      let payload;
+      try {
+        payload = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      if (payload.type === "init") {
+        setEvents(payload.events ?? []);
+        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
+      } else if (payload.type === "events") {
+        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
+      } else if (payload.type === "end") {
+        setStatus((current) => current === "unavailable" ? current : "ended");
+        source.close();
+      }
+    };
+    source.onerror = () => {
+      setStatus((current) => current === "unavailable" ? current : "ended");
+      source.close();
+    };
+    return () => source.close();
+  }, [url]);
+  (0, import_react2.useEffect)(() => {
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [events]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
+  const resultsByToolUse = (0, import_react2.useMemo)(() => {
+    const map = /* @__PURE__ */ new Map();
+    for (const event of events) {
+      for (const block2 of event.blocks) {
+        if (block2.type === "tool_result" && block2.toolUseId) map.set(block2.toolUseId, block2);
+      }
+    }
+    return map;
+  }, [events]);
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-session", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-session-scroll", ref: scrollRef, onScroll, children: [
+    events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-session-empty", children: status === "connecting" ? "Opening the transcript\u2026" : status === "unavailable" ? "No rich transcript yet \u2014 send a message, then reopen." : live ? "Waiting for the first activity\u2026" : "No transcript activity." }),
+    events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-session-role", children: event.role === "user" ? "You" : "Assistant" }),
+      event.blocks.map((block2, blockIndex) => {
+        if (block2.type === "text") return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(TextBlock, { text: block2.text ?? "", role: event.role }, blockIndex);
+        if (block2.type === "thinking") {
+          return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("details", { className: "cc-session-thinking", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("summary", { children: "Thinking" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("pre", { className: "cc-session-pre", children: block2.text })
+          ] }, blockIndex);
+        }
+        if (block2.type === "tool_use") {
+          return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ToolBlock, { block: block2, result: block2.toolUseId ? resultsByToolUse.get(block2.toolUseId) : void 0 }, blockIndex);
+        }
+        return null;
+      })
+    ] }, event.id ?? `event-${index}`))
+  ] }) });
+}
+
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+var md2 = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
   typescript,
   javascript: javascript2,
@@ -40037,7 +40239,7 @@ function isSafeHref(url) {
   if (/^\/\//.test(u)) return true;
   return /^(?:https?:|mailto:|tel:)/i.test(u);
 }
-md.use({
+md2.use({
   renderer: {
     // Neutralize RAW HTML in the assistant stream. The parsed markdown is
     // injected via dangerouslySetInnerHTML, and marked does NOT sanitize, so a
@@ -40056,6 +40258,11 @@ md.use({
         url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
       }
       if (!isSafeHref(url)) return text;
+      if (/^https?:\/\//i.test(url)) {
+        const reachable = rewriteHostUrl(url, hostCtx());
+        if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
+        url = reachable;
+      }
       const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
       const t = title ? ` title="${escapeAttr(title)}"` : "";
       return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
@@ -40085,6 +40292,25 @@ md.use({
     }
   }
 });
+md2.use({ extensions: [filePathMarkedExtension()] });
+var chatServeMap = {};
+var hostMapPromise = null;
+function loadHostMap() {
+  if (!hostMapPromise) {
+    hostMapPromise = fetch("/host-map").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.map && typeof d.map === "object") chatServeMap = d.map;
+    }).catch(() => {
+    });
+  }
+  return hostMapPromise;
+}
+function hostCtx() {
+  return {
+    hostname: typeof window !== "undefined" ? window.location.hostname : "",
+    protocol: typeof window !== "undefined" ? window.location.protocol : "",
+    serveMap: chatServeMap
+  };
+}
 function QuestionBlock({
   q,
   answered,
@@ -40092,16 +40318,16 @@ function QuestionBlock({
   onSelect,
   onOther
 }) {
-  const [otherOpen, setOtherOpen] = (0, import_react2.useState)(false);
-  const [otherText, setOtherText] = (0, import_react2.useState)("");
+  const [otherOpen, setOtherOpen] = (0, import_react3.useState)(false);
+  const [otherText, setOtherText] = (0, import_react3.useState)("");
   const locked = Boolean(answered) || Boolean(answering);
   const title = q.header?.trim() || q.question?.trim() || "Choose an option";
   const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title;
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-question", role: "group", "aria-label": title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-question-title", children: title }),
-    showSub && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-question-sub", children: q.question }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-question-opts", children: [
-      q.options.map((o) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-question", role: "group", "aria-label": title, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-question-title", children: title }),
+    showSub && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-question-sub", children: q.question }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-question-opts", children: [
+      q.options.map((o) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
         "button",
         {
           type: "button",
@@ -40110,16 +40336,16 @@ function QuestionBlock({
           "aria-pressed": answered === o.label,
           onClick: () => onSelect(o.label),
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-question-opt-label", children: o.label }),
-            o.description && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-question-opt-desc", children: o.description })
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-question-opt-label", children: o.label }),
+            o.description && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-question-opt-desc", children: o.description })
           ]
         },
         o.label
       )),
-      !locked && !otherOpen && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "cc-question-other", onClick: () => setOtherOpen(true), children: "Other..." })
+      !locked && !otherOpen && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-question-other", onClick: () => setOtherOpen(true), children: "Other..." })
     ] }),
-    !locked && otherOpen && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-question-otherrow", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    !locked && otherOpen && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-question-otherrow", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "input",
         {
           className: "cc-question-otherinput",
@@ -40135,7 +40361,7 @@ function QuestionBlock({
           }
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "button",
         {
           type: "button",
@@ -40146,7 +40372,7 @@ function QuestionBlock({
         }
       )
     ] }),
-    answered && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user cc-question-answer", children: answered })
+    answered && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-user cc-question-answer", children: answered })
   ] });
 }
 var MODELS = [
@@ -40188,31 +40414,31 @@ var THEME_ICONS = [
   {
     mode: "light",
     label: "Light",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
       ] })
     ] })
   },
   {
     mode: "dark",
     label: "Dark",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
   },
   {
     mode: "system",
     label: "System",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
     ] })
   }
 ];
@@ -40227,34 +40453,104 @@ function buildSendMeta(context, mode3, autonomous) {
   if (hasAutonomous) meta.autonomous = true;
   return meta;
 }
-function ClaudeChat({ transport, composerAdornment, title, features, context, mode: mode3, initialMessage, initialMessageHidden, initialHistory, onTurnComplete }) {
+function ClaudeChat({ transport, composerAdornment, title, features, context, mode: mode3, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl }) {
   const feat = features ?? {};
-  const seededTurns = (0, import_react2.useMemo)(
+  const seededTurns = (0, import_react3.useMemo)(
     () => (initialHistory ?? []).map((h) => ({ id: nextId(), user: h.user, assistant: h.assistant, streaming: false, hideUser: h.hideUser })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
-  const [turns, setTurns] = (0, import_react2.useState)(seededTurns);
-  const [status, setStatus] = (0, import_react2.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
-  const [busy, setBusy] = (0, import_react2.useState)(false);
-  const [conn, setConn] = (0, import_react2.useState)("reconnecting");
-  const [screen, setScreen] = (0, import_react2.useState)([]);
-  const [showRaw, setShowRaw] = (0, import_react2.useState)(false);
-  const [input, setInput] = (0, import_react2.useState)("");
-  const [commands, setCommands] = (0, import_react2.useState)([]);
-  const [menuIdx, setMenuIdx] = (0, import_react2.useState)(0);
-  const [autonomousOn, setAutonomousOn] = (0, import_react2.useState)(false);
-  const autonomousRef = (0, import_react2.useRef)(false);
-  (0, import_react2.useEffect)(() => {
+  const [turns, setTurns] = (0, import_react3.useState)(seededTurns);
+  const [status, setStatus] = (0, import_react3.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
+  const [busy, setBusy] = (0, import_react3.useState)(false);
+  const [conn, setConn] = (0, import_react3.useState)("reconnecting");
+  const [screen, setScreen] = (0, import_react3.useState)([]);
+  const [showRaw, setShowRaw] = (0, import_react3.useState)(false);
+  const [showTranscript, setShowTranscript] = (0, import_react3.useState)(false);
+  const [input, setInput] = (0, import_react3.useState)("");
+  const [commands, setCommands] = (0, import_react3.useState)([]);
+  const [menuIdx, setMenuIdx] = (0, import_react3.useState)(0);
+  const canAttach = typeof transport.uploadFile === "function";
+  const [attachments, setAttachments] = (0, import_react3.useState)([]);
+  const attachmentsRef = (0, import_react3.useRef)(attachments);
+  attachmentsRef.current = attachments;
+  const [dragOver, setDragOver] = (0, import_react3.useState)(false);
+  const fileInputRef = (0, import_react3.useRef)(null);
+  const uploadOne = (0, import_react3.useCallback)(
+    (file) => {
+      const id = nextId();
+      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+      setAttachments((prev) => [...prev, { id, name: file.name || "pasted-image.png", path: null, uploading: true, error: null, previewUrl }]);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result ?? "");
+        const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+        transport.uploadFile({ name: file.name || "pasted-image.png", mime: file.type || "application/octet-stream", base64 }).then((up) => {
+          setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, path: up.path, uploading: false } : a));
+        }).catch((err) => {
+          setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, uploading: false, error: err?.message ?? "upload failed" } : a));
+        });
+      };
+      reader.onerror = () => {
+        setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, uploading: false, error: "read failed" } : a));
+      };
+      reader.readAsDataURL(file);
+    },
+    [transport]
+  );
+  const handleFiles = (0, import_react3.useCallback)(
+    (files) => {
+      if (!canAttach) return;
+      Array.from(files).forEach(uploadOne);
+    },
+    [canAttach, uploadOne]
+  );
+  const removeAttachment = (0, import_react3.useCallback)((id) => {
+    setAttachments((prev) => {
+      const found = prev.find((a) => a.id === id);
+      if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  }, []);
+  const onComposerPaste = (0, import_react3.useCallback)(
+    (e) => {
+      if (!canAttach) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files = [];
+      for (const item of Array.from(items)) {
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        handleFiles(files);
+      }
+    },
+    [canAttach, handleFiles]
+  );
+  const onComposerDrop = (0, import_react3.useCallback)(
+    (e) => {
+      e.preventDefault();
+      setDragOver(false);
+      if (canAttach && e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
+    },
+    [canAttach, handleFiles]
+  );
+  const [autonomousOn, setAutonomousOn] = (0, import_react3.useState)(false);
+  const autonomousRef = (0, import_react3.useRef)(false);
+  (0, import_react3.useEffect)(() => {
     autonomousRef.current = autonomousOn;
   }, [autonomousOn]);
-  const scrollRef = (0, import_react2.useRef)(null);
-  const pinnedRef = (0, import_react2.useRef)(true);
-  const taRef = (0, import_react2.useRef)(null);
+  const scrollRef = (0, import_react3.useRef)(null);
+  const pinnedRef = (0, import_react3.useRef)(true);
+  const taRef = (0, import_react3.useRef)(null);
   const themeOn = Boolean(feat.theme);
-  const [themeMode, setThemeMode] = (0, import_react2.useState)(() => getChatMode());
-  const [scheme, setScheme] = (0, import_react2.useState)(() => resolvedChatScheme());
-  (0, import_react2.useEffect)(() => {
+  const [themeMode, setThemeMode] = (0, import_react3.useState)(() => getChatMode());
+  const [scheme, setScheme] = (0, import_react3.useState)(() => resolvedChatScheme());
+  (0, import_react3.useEffect)(() => {
     if (!themeOn) return;
     const off = subscribeChatTheme(() => {
       setThemeMode(getChatMode());
@@ -40262,11 +40558,21 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
     });
     return off;
   }, [themeOn]);
+  const [, setHostMapReady] = (0, import_react3.useState)(false);
+  (0, import_react3.useEffect)(() => {
+    let alive = true;
+    loadHostMap().then(() => {
+      if (alive) setHostMapReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const effortOn = Boolean(feat.effort);
-  const [effort, setEffort] = (0, import_react2.useState)(() => readEffort());
-  const effortRef = (0, import_react2.useRef)(effort);
+  const [effort, setEffort] = (0, import_react3.useState)(() => readEffort());
+  const effortRef = (0, import_react3.useRef)(effort);
   effortRef.current = effort;
-  const pickEffort = (0, import_react2.useCallback)((id) => {
+  const pickEffort = (0, import_react3.useCallback)((id) => {
     setEffort(id);
     try {
       localStorage.setItem(LS_EFFORT, id);
@@ -40274,27 +40580,27 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
     }
   }, []);
   const voiceOn = Boolean(feat.voice);
-  const voiceClient = (0, import_react2.useMemo)(
+  const voiceClient = (0, import_react3.useMemo)(
     () => voiceOn ? createVoiceClient(transport.base ?? "") : null,
     [voiceOn, transport]
   );
-  const [voiceHealth, setVoiceHealth] = (0, import_react2.useState)({ available: false });
-  const [readAloud, setReadAloud] = (0, import_react2.useState)(false);
-  const [recording, setRecording] = (0, import_react2.useState)(false);
-  const [transcribing, setTranscribing] = (0, import_react2.useState)(false);
-  const [speaking, setSpeaking] = (0, import_react2.useState)(false);
-  const [paused, setPaused] = (0, import_react2.useState)(false);
-  const [ttsLoading, setTtsLoading] = (0, import_react2.useState)(false);
-  const [speakingId, setSpeakingId] = (0, import_react2.useState)(null);
-  const [voiceError, setVoiceError] = (0, import_react2.useState)(null);
-  const recorderRef = (0, import_react2.useRef)(null);
-  const streamRef = (0, import_react2.useRef)(null);
-  const recBusyRef = (0, import_react2.useRef)(false);
-  const voiceMountedRef = (0, import_react2.useRef)(true);
-  const audioRef = (0, import_react2.useRef)(null);
-  const audioUrlRef = (0, import_react2.useRef)(null);
-  const lastSpokenRef = (0, import_react2.useRef)("");
-  (0, import_react2.useEffect)(() => {
+  const [voiceHealth, setVoiceHealth] = (0, import_react3.useState)({ available: false });
+  const [readAloud, setReadAloud] = (0, import_react3.useState)(false);
+  const [recording, setRecording] = (0, import_react3.useState)(false);
+  const [transcribing, setTranscribing] = (0, import_react3.useState)(false);
+  const [speaking, setSpeaking] = (0, import_react3.useState)(false);
+  const [paused, setPaused] = (0, import_react3.useState)(false);
+  const [ttsLoading, setTtsLoading] = (0, import_react3.useState)(false);
+  const [speakingId, setSpeakingId] = (0, import_react3.useState)(null);
+  const [voiceError, setVoiceError] = (0, import_react3.useState)(null);
+  const recorderRef = (0, import_react3.useRef)(null);
+  const streamRef = (0, import_react3.useRef)(null);
+  const recBusyRef = (0, import_react3.useRef)(false);
+  const voiceMountedRef = (0, import_react3.useRef)(true);
+  const audioRef = (0, import_react3.useRef)(null);
+  const audioUrlRef = (0, import_react3.useRef)(null);
+  const lastSpokenRef = (0, import_react3.useRef)("");
+  (0, import_react3.useEffect)(() => {
     if (!voiceOn || !voiceClient) return;
     let cancelled = false;
     const probe = () => voiceClient.health().then((h) => {
@@ -40309,9 +40615,9 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
     };
   }, [voiceOn, voiceClient]);
   const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
-  const [copied, setCopied] = (0, import_react2.useState)(false);
-  const [elapsed, setElapsed] = (0, import_react2.useState)(0);
-  (0, import_react2.useEffect)(() => {
+  const [copied, setCopied] = (0, import_react3.useState)(false);
+  const [elapsed, setElapsed] = (0, import_react3.useState)(0);
+  (0, import_react3.useEffect)(() => {
     if (!busy) {
       setElapsed(0);
       return;
@@ -40320,7 +40626,7 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
     const id = window.setInterval(() => setElapsed((e) => e + 1), 1e3);
     return () => window.clearInterval(id);
   }, [busy]);
-  const workingHint = (0, import_react2.useMemo)(() => {
+  const workingHint = (0, import_react3.useMemo)(() => {
     const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
     if (!row) return "";
     const paren = /\(([^)]*(?:interrupt|tokens)[^)]*)\)/i.exec(row);
@@ -40328,15 +40634,15 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
     const tail = row.includes("\u2026") ? row.split("\u2026").pop() : row;
     return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
   }, [status.rows]);
-  const [copiedId, setCopiedId] = (0, import_react2.useState)(null);
-  const copyMsg = (0, import_react2.useCallback)((id, text) => {
+  const [copiedId, setCopiedId] = (0, import_react3.useState)(null);
+  const copyMsg = (0, import_react3.useCallback)((id, text) => {
     void writeClipboard(text).then((ok) => {
       if (!ok) return;
       setCopiedId(id);
       window.setTimeout(() => setCopiedId((c) => c === id ? null : c), 1300);
     });
   }, []);
-  const onCodeCopyClick = (0, import_react2.useCallback)((e) => {
+  const onCodeCopyClick = (0, import_react3.useCallback)((e) => {
     const btn = e.target.closest?.(".cc-codecopy");
     if (!btn) return;
     const block2 = btn.closest(".cc-codeblock");
@@ -40350,7 +40656,7 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
       }, 1300);
     });
   }, []);
-  const applyAssistant = (0, import_react2.useCallback)((text) => {
+  const applyAssistant = (0, import_react3.useCallback)((text) => {
     setTurns((prev) => {
       if (prev.length === 0) {
         return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true }];
@@ -40362,7 +40668,7 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
       return copy;
     });
   }, []);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     const off = transport.connect((ev) => {
       switch (ev.type) {
         case "hello": {
@@ -40425,24 +40731,24 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
     });
     return off;
   }, [transport, applyAssistant]);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     transport.fetchCommands().then(setCommands).catch(() => setCommands([]));
   }, [transport]);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     if (pinnedRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [turns, busy]);
-  const onScroll = (0, import_react2.useCallback)(() => {
+  const onScroll = (0, import_react3.useCallback)(() => {
     const el = scrollRef.current;
     if (!el) return;
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
-  const slashQuery = (0, import_react2.useMemo)(() => {
+  const slashQuery = (0, import_react3.useMemo)(() => {
     const m = /^\/([\w:-]*)$/.exec(input.trim());
     return m ? m[1].toLowerCase() : null;
   }, [input]);
-  const filtered = (0, import_react2.useMemo)(() => {
+  const filtered = (0, import_react3.useMemo)(() => {
     if (slashQuery === null) return [];
     return commands.filter((c) => c.name.toLowerCase().includes(slashQuery)).sort((a, b) => {
       const ap = a.name.toLowerCase().startsWith(slashQuery) ? 0 : 1;
@@ -40450,20 +40756,32 @@ function ClaudeChat({ transport, composerAdornment, title, features, context, mo
       return ap - bp || a.name.localeCompare(b.name);
     }).slice(0, 8);
   }, [commands, slashQuery]);
-  (0, import_react2.useEffect)(() => setMenuIdx(0), [slashQuery]);
-  const contextRef = (0, import_react2.useRef)(context);
+  (0, import_react3.useEffect)(() => setMenuIdx(0), [slashQuery]);
+  const contextRef = (0, import_react3.useRef)(context);
   contextRef.current = context;
-  const modeRef = (0, import_react2.useRef)(mode3);
+  const modeRef = (0, import_react3.useRef)(mode3);
   modeRef.current = mode3;
-  const send = (0, import_react2.useCallback)(
+  const pendingSendRef = (0, import_react3.useRef)(null);
+  const send = (0, import_react3.useCallback)(
     (text, opts) => {
+      if (attachmentsRef.current.some((a) => a.uploading)) {
+        pendingSendRef.current = { text, opts };
+        setInput("");
+        return;
+      }
       const t = text.trim();
-      if (!t) return;
+      const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
+      const attachmentSuffix = ready.length ? `
+
+${ready.length === 1 ? "Attached file" : "Attached files"}:
+${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
+      const full = `${t}${attachmentSuffix}`.trim();
+      if (!full) return;
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}
 
-${t}` : t;
-      setTurns((prev) => [...prev, { id: nextId(), user: t, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
+${full}` : full;
+      setTurns((prev) => [...prev, { id: nextId(), user: full, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
       setBusy(true);
       pinnedRef.current = true;
       const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0);
@@ -40472,18 +40790,32 @@ ${t}` : t;
       p.catch(() => {
       });
       setInput("");
+      if (ready.length) {
+        const sentIds = new Set(ready.map((a) => a.id));
+        ready.forEach((a) => {
+          if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+        });
+        setAttachments((prev) => prev.filter((a) => !sentIds.has(a.id)));
+      }
     },
     [transport, effortOn]
   );
-  const kickedRef = (0, import_react2.useRef)(false);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
+    if (!pendingSendRef.current) return;
+    if (attachments.some((a) => a.uploading)) return;
+    const queued = pendingSendRef.current;
+    pendingSendRef.current = null;
+    send(queued.text, queued.opts);
+  }, [attachments, send]);
+  const kickedRef = (0, import_react3.useRef)(false);
+  (0, import_react3.useEffect)(() => {
     if (kickedRef.current) return;
     const msg = (initialMessage ?? "").trim();
     if (!msg) return;
     kickedRef.current = true;
     send(msg, { hideUser: initialMessageHidden });
   }, [initialMessage]);
-  const runCommand = (0, import_react2.useCallback)(
+  const runCommand = (0, import_react3.useCallback)(
     (line) => {
       const fn = transport.sendCommand ?? transport.sendMessage;
       fn.call(transport, line).catch(() => {
@@ -40491,14 +40823,14 @@ ${t}` : t;
     },
     [transport]
   );
-  const switchModel = (0, import_react2.useCallback)(
+  const switchModel = (0, import_react3.useCallback)(
     (id) => {
       setStatus((s) => ({ ...s, model: id }));
       runCommand(`/model ${id}`);
     },
     [runCommand]
   );
-  const copyLast = (0, import_react2.useCallback)(async () => {
+  const copyLast = (0, import_react3.useCallback)(async () => {
     const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
     if (!last) return;
     const cleanText = sanitizeAssistantText(last.assistant).text;
@@ -40507,7 +40839,7 @@ ${t}` : t;
       window.setTimeout(() => setCopied(false), 1400);
     }
   }, [turns]);
-  const teardownAudio = (0, import_react2.useCallback)(() => {
+  const teardownAudio = (0, import_react3.useCallback)(() => {
     const a = audioRef.current;
     if (a) {
       a.onended = null;
@@ -40523,7 +40855,7 @@ ${t}` : t;
       audioUrlRef.current = null;
     }
   }, []);
-  const speak = (0, import_react2.useCallback)(
+  const speak = (0, import_react3.useCallback)(
     async (text, turnId) => {
       if (!voiceClient || !text.trim()) return;
       teardownAudio();
@@ -40567,14 +40899,14 @@ ${t}` : t;
     },
     [voiceClient, teardownAudio]
   );
-  const stopSpeaking = (0, import_react2.useCallback)(() => {
+  const stopSpeaking = (0, import_react3.useCallback)(() => {
     teardownAudio();
     setSpeaking(false);
     setPaused(false);
     setTtsLoading(false);
     setSpeakingId(null);
   }, [teardownAudio]);
-  const togglePause = (0, import_react2.useCallback)(() => {
+  const togglePause = (0, import_react3.useCallback)(() => {
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) {
@@ -40584,16 +40916,16 @@ ${t}` : t;
       setPaused(true);
     }
   }, []);
-  const persistedRef = (0, import_react2.useRef)(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
-  const onTurnCompleteRef = (0, import_react2.useRef)(onTurnComplete);
+  const persistedRef = (0, import_react3.useRef)(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
+  const onTurnCompleteRef = (0, import_react3.useRef)(onTurnComplete);
   onTurnCompleteRef.current = onTurnComplete;
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
-  const settledReply = (0, import_react2.useMemo)(() => {
+  const settledReply = (0, import_react3.useMemo)(() => {
     if (!latestAssistant || latestAssistant.streaming) return null;
     const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
     return text ? { id: latestAssistant.id, text } : null;
   }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     const cb = onTurnCompleteRef.current;
     if (!cb || !latestAssistant || latestAssistant.streaming) return;
     const assistant = latestAssistant.assistant.trim();
@@ -40602,7 +40934,7 @@ ${t}` : t;
     persistedRef.current = latestAssistant.id;
     cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
   }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     if (!readAloud || !voiceUsable || !latestAssistant) return;
     if (latestAssistant.streaming) return;
     const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
@@ -40610,7 +40942,7 @@ ${t}` : t;
     lastSpokenRef.current = text;
     void speak(text, latestAssistant.id);
   }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
-  const startRecording = (0, import_react2.useCallback)(async () => {
+  const startRecording = (0, import_react3.useCallback)(async () => {
     if (!voiceClient || recBusyRef.current) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setVoiceError("Microphone needs a secure context (https or localhost)");
@@ -40681,7 +41013,7 @@ ${t}` : t;
       );
     }
   }, [voiceClient]);
-  const stopRecording = (0, import_react2.useCallback)(() => {
+  const stopRecording = (0, import_react3.useCallback)(() => {
     const rec = recorderRef.current;
     if (rec && rec.state !== "inactive") {
       try {
@@ -40690,7 +41022,7 @@ ${t}` : t;
       }
     }
   }, []);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     return () => {
       voiceMountedRef.current = false;
       recBusyRef.current = false;
@@ -40724,7 +41056,7 @@ ${t}` : t;
       }
     };
   }, []);
-  const pickCommand = (0, import_react2.useCallback)(
+  const pickCommand = (0, import_react3.useCallback)(
     (c) => {
       const next = `/${c.name}${c.argumentHint ? " " : ""}`;
       setInput(next);
@@ -40732,7 +41064,7 @@ ${t}` : t;
     },
     []
   );
-  const onKeyDown = (0, import_react2.useCallback)(
+  const onKeyDown = (0, import_react3.useCallback)(
     (e) => {
       if (slashQuery !== null && filtered.length > 0) {
         if (e.key === "ArrowDown") {
@@ -40767,7 +41099,7 @@ ${t}` : t;
     },
     [slashQuery, filtered, menuIdx, input, send, pickCommand]
   );
-  const onSetMode = (0, import_react2.useCallback)(
+  const onSetMode = (0, import_react3.useCallback)(
     async (mode4) => {
       try {
         const r = await transport.setMode(mode4);
@@ -40777,7 +41109,7 @@ ${t}` : t;
     },
     [transport]
   );
-  const answerQuestion = (0, import_react2.useCallback)(
+  const answerQuestion = (0, import_react3.useCallback)(
     (turnId, toolUseId, choice) => {
       const chosen = choice.label ?? choice.text ?? "";
       setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answered: chosen, answering: true } : t));
@@ -40791,17 +41123,17 @@ ${t}` : t;
     },
     [transport]
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-root", "data-theme": themeOn ? scheme : void 0, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "cc-header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-title", children: title ?? "Claude" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `cc-conn cc-conn-${conn}`, title: `connection: ${conn}` }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-spacer" }),
-      status.model && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-model", title: "Active model", children: status.model }),
-      status.contextPct != null && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "cc-ctx", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-root", "data-theme": themeOn ? scheme : void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "cc-header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-title", children: title ?? "Claude" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-conn cc-conn-${conn}`, title: `connection: ${conn}` }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-spacer" }),
+      status.model && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-model", title: "Active model", children: status.model }),
+      status.contextPct != null && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-ctx", children: [
         status.contextPct,
         "% ctx"
       ] }),
-      themeOn && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-theme", role: "group", "aria-label": "Chat theme", children: THEME_ICONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      themeOn && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-theme", role: "group", "aria-label": "Chat theme", children: THEME_ICONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "button",
         {
           type: "button",
@@ -40818,92 +41150,103 @@ ${t}` : t;
         },
         opt.mode
       )) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "cc-rawtoggle", onClick: () => setShowRaw((v) => !v), title: "Show raw terminal", children: showRaw ? "Hide raw" : "Raw" })
+      transcriptUrl && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        "button",
+        {
+          className: "cc-rawtoggle",
+          onClick: () => setShowTranscript((v) => !v),
+          title: "Show the rich transcript (thinking, tool calls, images)",
+          children: showTranscript ? "Chat" : "Transcript"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "cc-rawtoggle", onClick: () => setShowRaw((v) => !v), title: "Show raw terminal", children: showRaw ? "Hide raw" : "Raw" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-scroll", ref: scrollRef, onScroll, onClick: onCodeCopyClick, children: [
-      turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
-      turns.map((t) => {
-        const clean = sanitizeAssistantText(t.assistant);
-        const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
-        const metaLabel = routeChipLabel(clean.meta);
-        const metaTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
-        const routeLabel = structuredChip?.label ?? metaLabel;
-        const routeTitle = structuredChip ? structuredChip.title : metaTitle;
-        return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-turn", children: [
-          !t.hideUser && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-user", children: t.user }),
-          (clean.text || t.streaming || t.question) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-assistant", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md.parse(clean.text || "") } }),
-            t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
-            t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "cc-working-dots", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {}),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {}),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("i", {})
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-scroll", ref: scrollRef, onScroll, onClick: onCodeCopyClick, children: [
+      showTranscript && transcriptUrl ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SessionStream, { url: transcriptUrl, live: busy }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+        turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
+        turns.map((t) => {
+          const clean = sanitizeAssistantText(t.assistant);
+          const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
+          const metaLabel = routeChipLabel(clean.meta);
+          const metaTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
+          const routeLabel = structuredChip?.label ?? metaLabel;
+          const routeTitle = structuredChip ? structuredChip.title : metaTitle;
+          return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-turn", children: [
+            !t.hideUser && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-user", children: t.user }),
+            (clean.text || t.streaming || t.question) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-assistant", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md2.parse(clean.text || "") } }),
+              t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
+              t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-working-dots", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("i", {}),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("i", {}),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("i", {})
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-working-label", children: "Working" }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
+                workingHint && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-label", children: "Working" }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
-              workingHint && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
-            ] }),
-            t.question && t.question.questions[0] && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              QuestionBlock,
-              {
-                q: t.question.questions[0],
-                answered: t.answered,
-                answering: t.answering,
-                onSelect: (label) => answerQuestion(t.id, t.question.toolUseId, { label }),
-                onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
-              }
-            ),
-            clean.text.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-msgactions", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                "button",
+              t.question && t.question.questions[0] && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                QuestionBlock,
                 {
-                  type: "button",
-                  className: "cc-msgcopy",
-                  title: "Copy this response",
-                  onClick: () => copyMsg(t.id, clean.text),
-                  children: copiedId === t.id ? "Copied" : "Copy"
+                  q: t.question.questions[0],
+                  answered: t.answered,
+                  answering: t.answering,
+                  onSelect: (label) => answerQuestion(t.id, t.question.toolUseId, { label }),
+                  onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
                 }
               ),
-              feat.voice && voiceUsable && (() => {
-                const isThis = speakingId === t.id;
-                const playing = isThis && !paused && !ttsLoading;
-                const label = !isThis ? "Read this response aloud" : ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading";
-                return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              clean.text.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-msgactions", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
                   "button",
                   {
                     type: "button",
-                    className: `cc-speak${isThis ? " cc-speak-active" : ""}`,
-                    title: label,
-                    "aria-label": label,
-                    "aria-pressed": isThis,
-                    onClick: () => isThis ? togglePause() : void speak(clean.text, t.id),
-                    children: playing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
-                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
-                    ] }) : isThis && paused ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
-                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
-                    ] })
+                    className: "cc-msgcopy",
+                    title: "Copy this response",
+                    onClick: () => copyMsg(t.id, clean.text),
+                    children: copiedId === t.id ? "Copied" : "Copy"
                   }
-                );
-              })(),
-              routeLabel && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                "span",
-                {
-                  className: `cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`,
-                  title: routeTitle,
-                  children: routeLabel
-                }
-              )
+                ),
+                feat.voice && voiceUsable && (() => {
+                  const isThis = speakingId === t.id;
+                  const playing = isThis && !paused && !ttsLoading;
+                  const label = !isThis ? "Read this response aloud" : ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading";
+                  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                    "button",
+                    {
+                      type: "button",
+                      className: `cc-speak${isThis ? " cc-speak-active" : ""}`,
+                      title: label,
+                      "aria-label": label,
+                      "aria-pressed": isThis,
+                      onClick: () => isThis ? togglePause() : void speak(clean.text, t.id),
+                      children: playing ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
+                      ] }) : isThis && paused ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                      ] })
+                    }
+                  );
+                })(),
+                routeLabel && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                  "span",
+                  {
+                    className: `cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`,
+                    title: routeTitle,
+                    children: routeLabel
+                  }
+                )
+              ] })
             ] })
-          ] })
-        ] }, t.id);
-      }),
-      showRaw && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("pre", { className: "cc-raw", children: screen.join("\n") })
+          ] }, t.id);
+        })
+      ] }),
+      showRaw && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-raw", children: screen.join("\n") })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusstrip", title: "Claude Code status line", children: status.rows.length > 0 ? status.rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusrow", children: r }, i)) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-statusrow cc-dim", children: "no status" }) }),
-    status.mode !== "unknown" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-modes", children: SWITCHABLE.map((m) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-statusstrip", title: "Claude Code status line", children: status.rows.length > 0 ? status.rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-statusrow", children: r }, i)) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-statusrow cc-dim", children: "no status" }) }),
+    status.mode !== "unknown" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-modes", children: SWITCHABLE.map((m) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "button",
       {
         className: `cc-mode ${status.mode === m ? "cc-mode-active" : ""}`,
@@ -40913,12 +41256,12 @@ ${t}` : t;
       },
       m
     )) }),
-    (feat.model || feat.effort || feat.voice || feat.autonomous) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-toolbar", children: [
-      feat.model && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Model", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-tool-label", children: "Model" }),
+    (feat.model || feat.effort || feat.voice || feat.autonomous) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-toolbar", children: [
+      feat.model && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Model", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-tool-label", children: "Model" }),
         MODELS.map((m) => {
           const active = (status.model ?? "").toLowerCase().includes(m.label.toLowerCase());
-          return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "button",
             {
               type: "button",
@@ -40931,9 +41274,9 @@ ${t}` : t;
           );
         })
       ] }),
-      feat.effort && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Thinking effort", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-tool-label", children: "Effort" }),
-        EFFORTS.map((e) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      feat.effort && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Thinking effort", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-tool-label", children: "Effort" }),
+        EFFORTS.map((e) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           "button",
           {
             type: "button",
@@ -40945,8 +41288,8 @@ ${t}` : t;
           e.id
         ))
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-tool-spacer" }),
-      feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-tool-spacer" }),
+      feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "button",
         {
           type: "button",
@@ -40957,7 +41300,7 @@ ${t}` : t;
           children: "Autonomous"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "button",
         {
           type: "button",
@@ -40967,7 +41310,7 @@ ${t}` : t;
           children: "Compact"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "button",
         {
           type: "button",
@@ -40978,7 +41321,7 @@ ${t}` : t;
           children: copied ? "Copied" : "Copy last"
         }
       ),
-      feat.voice && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      feat.voice && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
         "button",
         {
           type: "button",
@@ -40992,16 +41335,16 @@ ${t}` : t;
             if (!next) stopSpeaking();
           },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { className: "cc-ico", width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
-              voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { className: "cc-ico", width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
+              voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
             ] }),
             "Read aloud"
           ]
         }
       ),
-      feat.voice && voiceUsable && (speaking || ttsLoading) && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-playback", role: "group", "aria-label": "Read-aloud playback", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      feat.voice && voiceUsable && (speaking || ttsLoading) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-playback", role: "group", "aria-label": "Read-aloud playback", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           "button",
           {
             type: "button",
@@ -41009,48 +41352,48 @@ ${t}` : t;
             disabled: ttsLoading,
             title: ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading",
             onClick: togglePause,
-            children: ttsLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-playback-spin", "aria-hidden": "true" }),
+            children: ttsLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-playback-spin", "aria-hidden": "true" }),
               "Preparing"
-            ] }) : paused ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }),
+            ] }) : paused ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }),
               "Resume"
-            ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
               ] }),
               "Pause"
             ] })
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "cc-chip", title: "Stop reading", onClick: stopSpeaking, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "3.5", y: "3.5", width: "9", height: "9", fill: "currentColor" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "cc-chip", title: "Stop reading", onClick: stopSpeaking, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "3.5", y: "3.5", width: "9", height: "9", fill: "currentColor" }) }),
           "Stop"
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composer", children: [
-      slashQuery !== null && filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-slashmenu", children: filtered.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-composer", children: [
+      slashQuery !== null && filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-slashmenu", children: filtered.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
         "button",
         {
           className: `cc-slashitem ${i === menuIdx ? "cc-slashitem-active" : ""}`,
           onMouseEnter: () => setMenuIdx(i),
           onClick: () => pickCommand(c),
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "cc-slashname", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-slashname", children: [
               "/",
               c.name,
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `cc-badge cc-badge-${c.source}`, children: c.source })
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-badge cc-badge-${c.source}`, children: c.source })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-slashdesc", children: c.description || c.argumentHint || "" })
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-slashdesc", children: c.description || c.argumentHint || "" })
           ]
         },
         c.name
       )) }),
-      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-voiceerr", role: "status", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-voiceerr-msg", children: voiceError }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-voiceerr", role: "status", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-voiceerr-msg", children: voiceError }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           "button",
           {
             type: "button",
@@ -41061,47 +41404,122 @@ ${t}` : t;
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-composerrow", children: [
-        typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, lastReply: settledReply }) : composerAdornment,
-        feat.voice && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "button",
+      attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-attachments", children: attachments.map((a) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: `cc-attachment-chip${a.error ? " cc-attachment-chip-error" : ""}`, title: a.error ?? a.name, children: [
+        a.previewUrl ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("img", { src: a.previewUrl, alt: "", className: "cc-attachment-thumb" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { className: "cc-attachment-icon", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 2h6l3 3v9H4z", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinejoin: "round" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-attachment-name", children: a.name }),
+        a.uploading && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }),
+        a.error && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-attachment-err", "aria-hidden": "true", children: "!" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "span",
           {
-            type: "button",
-            className: `cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`,
-            disabled: !voiceUsable || transcribing,
-            "aria-pressed": recording,
-            title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
-            onClick: () => recording ? stopRecording() : void startRecording(),
-            children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
-            ] })
+            className: "cc-attachment-x",
+            role: "button",
+            "aria-label": `Remove ${a.name}`,
+            onClick: () => removeAttachment(a.id),
+            children: "\xD7"
           }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "textarea",
-          {
-            ref: taRef,
-            className: "cc-input",
-            value: input,
-            placeholder: "Message Claude\u2026  (/ for commands)",
-            rows: 1,
-            onChange: (e) => setInput(e.target.value),
-            onKeyDown
-          }
-        ),
-        busy ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { className: "cc-stop", onClick: () => transport.interrupt().catch(() => {
-        }), title: "Stop (Esc)", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-stopsq" }),
-          " Stop"
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "cc-send", onClick: () => send(input), disabled: !input.trim(), title: "Send", children: "Send" })
-      ] })
+        )
+      ] }, a.id)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+        "div",
+        {
+          className: `cc-composerrow${dragOver ? " cc-composerrow-dragover" : ""}`,
+          onDragOver: (e) => {
+            if (canAttach) {
+              e.preventDefault();
+              setDragOver(true);
+            }
+          },
+          onDragLeave: () => setDragOver(false),
+          onDrop: onComposerDrop,
+          children: [
+            typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, lastReply: settledReply }) : composerAdornment,
+            canAttach && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "input",
+                {
+                  ref: fileInputRef,
+                  type: "file",
+                  multiple: true,
+                  className: "cc-hidden-file-input",
+                  onChange: (e) => {
+                    if (e.target.files?.length) handleFiles(e.target.files);
+                    e.target.value = "";
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-mic",
+                  title: "Attach a file",
+                  onClick: () => fileInputRef.current?.click(),
+                  children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                    "path",
+                    {
+                      d: "M11 4.5 5.8 9.7a2.2 2.2 0 0 0 3.1 3.1L14 7.7a3.6 3.6 0 1 0-5.1-5.1L3.8 7.7a5 5 0 0 0 7.1 7.1",
+                      fill: "none",
+                      stroke: "currentColor",
+                      strokeWidth: "1.3",
+                      strokeLinecap: "round",
+                      strokeLinejoin: "round"
+                    }
+                  ) })
+                }
+              )
+            ] }),
+            feat.voice && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "button",
+              {
+                type: "button",
+                className: `cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`,
+                disabled: !voiceUsable || transcribing,
+                "aria-pressed": recording,
+                title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
+                onClick: () => recording ? stopRecording() : void startRecording(),
+                children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                ] })
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "textarea",
+              {
+                ref: taRef,
+                className: "cc-input",
+                value: input,
+                placeholder: "Message Claude\u2026  (/ for commands)",
+                rows: 1,
+                onChange: (e) => setInput(e.target.value),
+                onKeyDown,
+                onPaste: onComposerPaste
+              }
+            ),
+            busy ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "cc-stop", onClick: () => transport.interrupt().catch(() => {
+            }), title: "Stop (Esc)", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-stopsq" }),
+              " Stop"
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "button",
+              {
+                className: "cc-send",
+                onClick: () => send(input),
+                disabled: !input.trim() && !attachments.some((a) => a.path) || attachments.some((a) => a.uploading),
+                title: "Send",
+                children: "Send"
+              }
+            )
+          ]
+        }
+      )
     ] })
   ] });
 }
 
-// ../../../../packages/claude-chat/src/transport.ts
-function createHttpTransport(base = "/api") {
+// ../../../packages/claude-chat/src/transport.ts
+function createHttpTransport(base = "/api", opts) {
   const b = base.replace(/\/$/, "");
   const post = async (path, body) => {
     const res = await fetch(`${b}/claude/${path}`, {
@@ -41177,15 +41595,27 @@ function createHttpTransport(base = "/api") {
       if (!res.ok) return [];
       const j = await res.json().catch(() => ({ commands: [] }));
       return j.commands ?? [];
-    }
+    },
+    ...opts?.uploads ? {
+      async uploadFile(file) {
+        const res = await fetch(`${b}/attachments`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_base64: file.base64 })
+        });
+        if (!res.ok) throw new Error(`attachments ${res.status}`);
+        const j = await res.json().catch(() => ({}));
+        return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : void 0 };
+      }
+    } : {}
   };
 }
 
-// chat-pane.tsx
-var import_jsx_runtime3 = __toESM(require_jsx_runtime());
+// ui/chat-pane.tsx
+var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
-  const transport = (0, import_react3.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+  const transport = (0, import_react4.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
     ClaudeChat,
     {
       transport,
@@ -41195,9 +41625,9 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// browser-pane.tsx
-var import_react4 = __toESM(require_react());
-var import_jsx_runtime4 = __toESM(require_jsx_runtime());
+// ui/browser-pane.tsx
+var import_react5 = __toESM(require_react());
+var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
 var LS_DEVICE = "garrison.devenv.deviceViewport";
 function readDevice() {
@@ -41215,16 +41645,16 @@ function BrowserPane({
   onManualNav,
   onClose
 }) {
-  const [appUrl, setAppUrl] = (0, import_react4.useState)(null);
-  const [canvasUrl, setCanvasUrl] = (0, import_react4.useState)(null);
-  const [browserTabId, setBrowserTabId] = (0, import_react4.useState)(() => tabIdByCwd.get(cwd) ?? null);
-  const [browserBase, setBrowserBase] = (0, import_react4.useState)(null);
-  const [splitError, setSplitError] = (0, import_react4.useState)(null);
-  const [iframeNonce, setIframeNonce] = (0, import_react4.useState)(0);
-  const [iframeBaseUrl, setIframeBaseUrl] = (0, import_react4.useState)(null);
-  const [urlInput, setUrlInput] = (0, import_react4.useState)("");
-  const [manual, setManual] = (0, import_react4.useState)(false);
-  const [device, setDeviceState] = (0, import_react4.useState)(() => readDevice());
+  const [appUrl, setAppUrl] = (0, import_react5.useState)(null);
+  const [canvasUrl, setCanvasUrl] = (0, import_react5.useState)(null);
+  const [browserTabId, setBrowserTabId] = (0, import_react5.useState)(() => tabIdByCwd.get(cwd) ?? null);
+  const [browserBase, setBrowserBase] = (0, import_react5.useState)(null);
+  const [splitError, setSplitError] = (0, import_react5.useState)(null);
+  const [iframeNonce, setIframeNonce] = (0, import_react5.useState)(0);
+  const [iframeBaseUrl, setIframeBaseUrl] = (0, import_react5.useState)(null);
+  const [urlInput, setUrlInput] = (0, import_react5.useState)("");
+  const [manual, setManual] = (0, import_react5.useState)(false);
+  const [device, setDeviceState] = (0, import_react5.useState)(() => readDevice());
   const chooseDevice = (d) => {
     setDeviceState(d);
     try {
@@ -41232,15 +41662,15 @@ function BrowserPane({
     } catch {
     }
   };
-  const urlEditedRef = (0, import_react4.useRef)(false);
-  const iframeRef = (0, import_react4.useRef)(null);
-  const onWiredRef = (0, import_react4.useRef)(onWired);
+  const urlEditedRef = (0, import_react5.useRef)(false);
+  const iframeRef = (0, import_react5.useRef)(null);
+  const onWiredRef = (0, import_react5.useRef)(onWired);
   onWiredRef.current = onWired;
-  const tabIdRef = (0, import_react4.useRef)(null);
+  const tabIdRef = (0, import_react5.useRef)(null);
   tabIdRef.current = browserTabId;
-  const appUrlRef = (0, import_react4.useRef)(null);
+  const appUrlRef = (0, import_react5.useRef)(null);
   appUrlRef.current = appUrl;
-  const manualRef = (0, import_react4.useRef)(false);
+  const manualRef = (0, import_react5.useRef)(false);
   manualRef.current = manual;
   async function resolveAppUrl(opts = {}) {
     const setErr = opts.silent ? () => {
@@ -41336,7 +41766,7 @@ function BrowserPane({
     setCanvasUrl(wired.canvasUrl);
     onWiredRef.current?.({ cwd, appUrl: url, canvasUrl: wired.canvasUrl });
   }
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (!active || canvasUrl || manual) return;
     let cancelled = false;
     void (async () => {
@@ -41350,10 +41780,10 @@ function BrowserPane({
       cancelled = true;
     };
   }, [active, canvasUrl, cwd, manual]);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (canvasUrl && !iframeBaseUrl) setIframeBaseUrl(canvasUrl);
   }, [canvasUrl, iframeBaseUrl]);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (!browserTabId || !browserBase) return;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -41362,7 +41792,7 @@ function BrowserPane({
     } catch {
     }
   }, [browserTabId, browserBase]);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     const onMsg = (e) => {
       if (!browserBase || !browserTabId) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
@@ -41379,7 +41809,7 @@ function BrowserPane({
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [browserBase, browserTabId]);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (!active || manual) return;
     let cancelled = false;
     const id = window.setInterval(async () => {
@@ -41432,9 +41862,9 @@ function BrowserPane({
       "noopener"
     );
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "app-pane", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "app-pane-header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "app-pane", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "app-pane-header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "input",
         {
           type: "text",
@@ -41451,8 +41881,8 @@ function BrowserPane({
           }
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "segmented device-selector", role: "group", "aria-label": "Viewport", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "segmented device-selector", role: "group", "aria-label": "Viewport", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "button",
           {
             type: "button",
@@ -41463,7 +41893,7 @@ function BrowserPane({
             children: "Desktop"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "button",
           {
             type: "button",
@@ -41474,7 +41904,7 @@ function BrowserPane({
             children: "Tablet"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "button",
           {
             type: "button",
@@ -41486,7 +41916,7 @@ function BrowserPane({
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
@@ -41497,11 +41927,11 @@ function BrowserPane({
           children: "DevTools"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "btn", onClick: () => void refreshIframe(), title: "Re-resolve app.port and reload the canvas", children: "Refresh" }),
-      onClose && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "btn pane-close", onClick: onClose, title: "Close browser pane", children: "\xD7" })
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn", onClick: () => void refreshIframe(), title: "Re-resolve app.port and reload the canvas", children: "Refresh" }),
+      onClose && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn pane-close", onClick: onClose, title: "Close browser pane", children: "\xD7" })
     ] }),
-    splitError && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "alert", children: splitError }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: `app-pane-viewport device-${device}`, children: iframeBaseUrl ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    splitError && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "alert", children: splitError }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: `app-pane-viewport device-${device}`, children: iframeBaseUrl ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
       "iframe",
       {
         ref: iframeRef,
@@ -41519,9 +41949,9 @@ function BrowserPane({
         }
       },
       iframeNonce
-    ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "app-pane-empty", children: [
+    ) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "app-pane-empty", children: [
       "No ",
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: "app.port" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "app.port" }),
       " in ",
       cwd,
       " \u2014 type a URL above to browse."
@@ -41529,10 +41959,10 @@ function BrowserPane({
   ] });
 }
 
-// dialogs.tsx
-var import_react5 = __toESM(require_react());
+// ui/dialogs.tsx
+var import_react6 = __toESM(require_react());
 
-// session-request.ts
+// ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "joe", label: "Joe \u2014 dev (default)" },
   { value: "gary", label: "Gary \u2014 assistant" },
@@ -41558,8 +41988,8 @@ function buildSessionRequest({
   return body;
 }
 
-// dialogs.tsx
-var import_jsx_runtime5 = __toESM(require_jsx_runtime());
+// ui/dialogs.tsx
+var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
   onCreated,
@@ -41567,11 +41997,11 @@ function StartSessionDialog({
   initialRepoPath,
   resume = false
 }) {
-  const [projects, setProjects] = (0, import_react5.useState)([]);
-  const [path, setPath] = (0, import_react5.useState)(initialRepoPath ?? "");
-  const [busy, setBusy] = (0, import_react5.useState)(false);
-  const [mode3, setMode2] = (0, import_react5.useState)(DEFAULT_MODE);
-  (0, import_react5.useEffect)(() => {
+  const [projects, setProjects] = (0, import_react6.useState)([]);
+  const [path, setPath] = (0, import_react6.useState)(initialRepoPath ?? "");
+  const [busy, setBusy] = (0, import_react6.useState)(false);
+  const [mode3, setMode2] = (0, import_react6.useState)(DEFAULT_MODE);
+  (0, import_react6.useEffect)(() => {
     void (async () => {
       try {
         const res = await fetch("/projects");
@@ -41608,16 +42038,16 @@ function StartSessionDialog({
       setBusy(false);
     }
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { children: resume ? "Continue session" : "New session" }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "modal-help", children: resume ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h2", { children: resume ? "Continue session" : "New session" }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "modal-help", children: resume ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
       "Opens a tab and resumes the most recent Claude conversation in the chosen project with ",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "claude --continue" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: "claude --continue" }),
       ", at the repo root."
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_jsx_runtime5.Fragment, { children: "Opens a tab with a Claude terminal at the project's repo root." }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_jsx_runtime6.Fragment, { children: "Opens a tab with a Claude terminal at the project's repo root." }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "modal-label", children: [
       "Project",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
         "select",
         {
           className: "project-picker",
@@ -41626,15 +42056,15 @@ function StartSessionDialog({
             if (e.target.value) setPath(e.target.value);
           },
           children: [
-            projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("option", { value: p.path, children: p.name }, p.path)),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("option", { value: "", children: "custom path\u2026" })
+            projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: p.path, children: p.name }, p.path)),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: "", children: "custom path\u2026" })
           ]
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "modal-label", children: [
       "Path",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
         "input",
         {
           type: "text",
@@ -41648,21 +42078,21 @@ function StartSessionDialog({
         }
       )
     ] }),
-    !resume && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
+    !resume && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "modal-label", children: [
       "Orchestrator",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
         "select",
         {
           className: "project-picker",
           value: mode3,
           onChange: (e) => setMode2(e.target.value),
-          children: MODE_OPTIONS.map((m) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("option", { value: m.value, children: m.label }, m.value))
+          children: MODE_OPTIONS.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: m.value, children: m.label }, m.value))
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn", onClick: onClose, children: "Cancel" }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn primary", onClick: () => void submit(), disabled: busy || !path.trim(), children: busy ? resume ? "Continuing\u2026" : "Starting\u2026" : resume ? "Continue" : "Start" })
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "modal-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", className: "btn", onClick: onClose, children: "Cancel" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", className: "btn primary", onClick: () => void submit(), disabled: busy || !path.trim(), children: busy ? resume ? "Continuing\u2026" : "Starting\u2026" : resume ? "Continue" : "Start" })
     ] })
   ] }) });
 }
@@ -41670,11 +42100,11 @@ function SettingsDialog({
   onClose,
   onError
 }) {
-  const [text, setText] = (0, import_react5.useState)("");
-  const [defaults, setDefaults] = (0, import_react5.useState)([]);
-  const [loaded, setLoaded] = (0, import_react5.useState)(false);
-  const [saveState, setSaveState] = (0, import_react5.useState)("idle");
-  (0, import_react5.useEffect)(() => {
+  const [text, setText] = (0, import_react6.useState)("");
+  const [defaults, setDefaults] = (0, import_react6.useState)([]);
+  const [loaded, setLoaded] = (0, import_react6.useState)(false);
+  const [saveState, setSaveState] = (0, import_react6.useState)("idle");
+  (0, import_react6.useEffect)(() => {
     void (async () => {
       try {
         const res = await fetch("/settings/excludes");
@@ -41688,7 +42118,7 @@ function SettingsDialog({
       }
     })();
   }, []);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     if (!loaded) return;
     setSaveState("saving");
     const handle = window.setTimeout(() => {
@@ -41716,21 +42146,21 @@ function SettingsDialog({
       setSaveState("idle");
     }
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { children: "Settings" }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("p", { className: "modal-help", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h2", { children: "Settings" }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "modal-help", children: [
       "Tab exclusions \u2014 cwds matching any line stay out of the tab strip and aren't tracked from hooks. One pattern per line. ",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "**" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: "**" }),
       "/",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "*" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: "*" }),
       " ",
       "are globs; a plain word (e.g. ",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: "memory-compiler" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: "memory-compiler" }),
       ") matches that path segment anywhere. A session with a live terminal here always shows, regardless. Changes save automatically."
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: "modal-label", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "modal-label", children: [
       "Excluded paths",
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
         "textarea",
         {
           className: "settings-textarea",
@@ -41745,9 +42175,9 @@ function SettingsDialog({
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "settings-foot", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "settings-status", children: saveState === "saving" ? "Saving\u2026" : saveState === "saved" ? "Saved" : "" }),
-      defaults.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "settings-foot", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "settings-status", children: saveState === "saving" ? "Saving\u2026" : saveState === "saved" ? "Saved" : "" }),
+      defaults.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
         "button",
         {
           type: "button",
@@ -41757,26 +42187,26 @@ function SettingsDialog({
           children: "Reset to defaults"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "btn primary", onClick: onClose, children: "Done" })
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", className: "btn primary", onClick: onClose, children: "Done" })
     ] })
   ] }) });
 }
 function Toast({ message }) {
   if (!message) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "toast", children: message });
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "toast", children: message });
 }
 
-// session-panels.tsx
-var import_react6 = __toESM(require_react());
-var import_jsx_runtime6 = __toESM(require_jsx_runtime());
-function basename(p) {
+// ui/session-panels.tsx
+var import_react7 = __toESM(require_react());
+var import_jsx_runtime7 = __toESM(require_jsx_runtime());
+function basename2(p) {
   const parts = (p || "").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? p;
 }
 function projectLabel(cwd) {
   if (!cwd) return "(unknown)";
   const parts = cwd.split("/").filter(Boolean);
-  return parts.length >= 2 ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}` : basename(cwd);
+  return parts.length >= 2 ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}` : basename2(cwd);
 }
 function relTime(ms) {
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1e3));
@@ -41801,10 +42231,10 @@ function SessionsPanel({
   onOpen,
   onClose
 }) {
-  const [agents, setAgents] = (0, import_react6.useState)([]);
-  const [history, setHistory] = (0, import_react6.useState)([]);
-  const [loading, setLoading] = (0, import_react6.useState)(true);
-  (0, import_react6.useEffect)(() => {
+  const [agents, setAgents] = (0, import_react7.useState)([]);
+  const [history, setHistory] = (0, import_react7.useState)([]);
+  const [loading, setLoading] = (0, import_react7.useState)(true);
+  (0, import_react7.useEffect)(() => {
     let alive = true;
     (async () => {
       try {
@@ -41824,16 +42254,16 @@ function SessionsPanel({
       alive = false;
     };
   }, []);
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-panel", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sp-section", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sp-head", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "sessions-panel", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "sp-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "sp-head", children: [
         "Agents ",
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sp-count", children: agents.length })
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "sp-count", children: agents.length })
       ] }),
-      !loading && agents.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-empty", children: "No live sessions." }),
-      groupByProject(agents).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sp-group", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-proj", children: proj }),
-        rows.map((a) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+      !loading && agents.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-empty", children: "No live sessions." }),
+      groupByProject(agents).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "sp-group", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-proj", children: proj }),
+        rows.map((a) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
           "button",
           {
             type: "button",
@@ -41844,23 +42274,23 @@ function SessionsPanel({
               onClose();
             },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `sp-dot ${a.status ?? "idle"}`, "aria-hidden": "true" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sp-row-main", children: a.status ?? "live" }),
-              a.isOpen && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sp-tag", children: "open" })
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: `sp-dot ${a.status ?? "idle"}`, "aria-hidden": "true" }),
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "sp-row-main", children: a.status ?? "live" }),
+              a.isOpen && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "sp-tag", children: "open" })
             ]
           },
           a.sessionId
         ))
       ] }, proj))
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-sep" }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sp-section", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-head", children: "History" }),
-      loading && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-empty", children: "Loading\u2026" }),
-      !loading && history.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-empty", children: "No past sessions." }),
-      groupByProject(history).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sp-group", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sp-proj", children: proj }),
-        rows.map((h) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-sep" }),
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "sp-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-head", children: "History" }),
+      loading && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-empty", children: "Loading\u2026" }),
+      !loading && history.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-empty", children: "No past sessions." }),
+      groupByProject(history).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "sp-group", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "sp-proj", children: proj }),
+        rows.map((h) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
           "button",
           {
             type: "button",
@@ -41874,8 +42304,8 @@ function SessionsPanel({
               }
             },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sp-row-main", children: h.title ?? "(untitled session)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sp-time", children: relTime(h.lastActivityAt) })
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "sp-row-main", children: h.title ?? "(untitled session)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "sp-time", children: relTime(h.lastActivityAt) })
             ]
           },
           h.sessionId
@@ -41885,8 +42315,8 @@ function SessionsPanel({
   ] });
 }
 
-// main.tsx
-var import_jsx_runtime7 = __toESM(require_jsx_runtime());
+// ui/main.tsx
+var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {
   try {
@@ -41908,37 +42338,37 @@ var THEME_OPTIONS = [
   {
     mode: "light",
     label: "Light",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
       ] })
     ] })
   },
   {
     mode: "dark",
     label: "Dark",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
   },
   {
     mode: "system",
     label: "System",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
     ] })
   }
 ];
 function TermThemeToggle() {
-  const [mode3, setLocalMode] = (0, import_react7.useState)(() => getMode());
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "term-theme", role: "group", "aria-label": "Terminal theme", children: THEME_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  const [mode3, setLocalMode] = (0, import_react8.useState)(() => getMode());
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "term-theme", role: "group", "aria-label": "Terminal theme", children: THEME_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
     "button",
     {
       type: "button",
@@ -41977,12 +42407,12 @@ var LS_MOBILE_PANE = "garrison.devenv.mobilePane";
 var POLL_MS = 3e3;
 var MOBILE_QUERY = "(max-width: 720px)";
 var ACTIVE_WINDOW_MS = 90 * 60 * 1e3;
-function basename2(p) {
+function basename3(p) {
   const parts = (p || "").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? p;
 }
 function tabLabel(s) {
-  const folder = s.projectName || basename2(s.projectPath) || s.id;
+  const folder = s.projectName || basename3(s.projectPath) || s.id;
   let raw;
   if (s.title) raw = s.title;
   else if (!s.branch || s.branch === "main" || s.branch === "master" || s.branch === "detached") raw = folder;
@@ -41990,8 +42420,8 @@ function tabLabel(s) {
   return raw.length > 30 ? raw.slice(0, 29) + "\u2026" : raw;
 }
 function useIsMobile() {
-  const [mobile, setMobile] = (0, import_react7.useState)(() => window.matchMedia(MOBILE_QUERY).matches);
-  (0, import_react7.useEffect)(() => {
+  const [mobile, setMobile] = (0, import_react8.useState)(() => window.matchMedia(MOBILE_QUERY).matches);
+  (0, import_react8.useEffect)(() => {
     const mq = window.matchMedia(MOBILE_QUERY);
     const onChange = () => setMobile(mq.matches);
     mq.addEventListener("change", onChange);
@@ -42004,8 +42434,8 @@ function QuickPromptBar({
   disabled,
   onSend
 }) {
-  const [text, setText] = (0, import_react7.useState)("");
-  const [busy, setBusy] = (0, import_react7.useState)(false);
+  const [text, setText] = (0, import_react8.useState)("");
+  const [busy, setBusy] = (0, import_react8.useState)(false);
   async function send() {
     const t = text.trim();
     if (!t || busy) return;
@@ -42014,8 +42444,8 @@ function QuickPromptBar({
     setBusy(false);
     if (ok) setText("");
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "quick-prompt", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "quick-prompt", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       "input",
       {
         type: "text",
@@ -42028,7 +42458,7 @@ function QuickPromptBar({
         }
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn", disabled: disabled || busy || !text.trim(), onClick: () => void send(), children: "Send" })
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn", disabled: disabled || busy || !text.trim(), onClick: () => void send(), children: "Send" })
   ] });
 }
 function ClaudePaneOverlay({
@@ -42037,44 +42467,44 @@ function ClaudePaneOverlay({
 }) {
   const { claudePty, external, claudeSessionId } = session;
   if (claudePty.state === "running" && claudePty.claudeAlive === false) {
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "claude exited \u2014 the shell underneath is still alive." }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart claude" })
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "claude exited \u2014 the shell underneath is still alive." }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart claude" })
     ] });
   }
   if (claudePty.state === "running") return null;
   if (claudePty.state === "persisted") {
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "Claude session persisted from a previous Dev Env run." }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "Claude session persisted from a previous Dev Env run." }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
     ] });
   }
   if (claudePty.state === "exited") {
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("p", { children: [
         "Terminal exited with code ",
         claudePty.exitCode ?? "?",
         "."
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart" })
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart" })
     ] });
   }
   if (external) {
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "Claude is running elsewhere for this directory (detected via hooks)." }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: "pane-overlay-warn", children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "Claude is running elsewhere for this directory (detected via hooks)." }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("p", { className: "pane-overlay-warn", children: [
         "Take over starts a second claude here with ",
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { children: "--continue" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { children: "--continue" }),
         "; if the external one is still running, both will be attached to the project."
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Take over (claude --continue)" })
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Take over (claude --continue)" })
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "No Claude terminal for this session yet." }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, false), children: "Start Claude" }),
-      claudeSessionId && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "No Claude terminal for this session yet." }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, false), children: "Start Claude" }),
+      claudeSessionId && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
     ] })
   ] });
 }
@@ -42154,8 +42584,8 @@ function writeTree(sessionId, tree) {
   }
 }
 function SplitHandle({ dir, onResize, onCommit }) {
-  const draggingRef = (0, import_react7.useRef)(false);
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  const draggingRef = (0, import_react8.useRef)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
     "div",
     {
       className: `term-divider ${dir}`,
@@ -42206,16 +42636,16 @@ function TermLeaf({
   onRestart
 }) {
   if (!term) {
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "term-leaf", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "pane-body", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "pane-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "Terminal closing\u2026" }) }) }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "term-leaf", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "pane-body", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "pane-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "Terminal closing\u2026" }) }) }) });
   }
   const running = term.state === "running";
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "term-leaf", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-strip term-leaf-strip", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "term-leaf", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-strip term-leaf-strip", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { children: [
         "term ",
         term.index
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         "button",
         {
           type: "button",
@@ -42226,15 +42656,15 @@ function TermLeaf({
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "pane-body", children: running ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TerminalPane, { ptyId: term.id, isActive: active }, term.id) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "pane-body", children: running ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(TerminalPane, { ptyId: term.id, isActive: active }, term.id) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("p", { children: [
         "Terminal exited",
         term.exitCode != null ? ` (code ${term.exitCode})` : "",
         "."
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => onRestart(term.role), children: "Restart" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn", onClick: () => onClose(term.role), children: "Close" })
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => onRestart(term.role), children: "Restart" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn", onClick: () => onClose(term.role), children: "Close" })
       ] })
     ] }) })
   ] });
@@ -42250,12 +42680,12 @@ function TermTreeView({
   onCommit
 }) {
   if (node.t === "leaf") {
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TermLeaf, { term: termById.get(node.id), active, onClose, onRestart });
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(TermLeaf, { term: termById.get(node.id), active, onClose, onRestart });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: `term-split ${node.dir}`, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "term-split-cell", style: { flexGrow: node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TermTreeView, { node: node.a, path: `${path}a`, active, termById, onClose, onRestart, onResize, onCommit }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(SplitHandle, { dir: node.dir, onResize: (r) => onResize(path, r), onCommit }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "term-split-cell", style: { flexGrow: 1 - node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TermTreeView, { node: node.b, path: `${path}b`, active, termById, onClose, onRestart, onResize, onCommit }) })
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: `term-split ${node.dir}`, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "term-split-cell", style: { flexGrow: node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(TermTreeView, { node: node.a, path: `${path}a`, active, termById, onClose, onRestart, onResize, onCommit }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(SplitHandle, { dir: node.dir, onResize: (r) => onResize(path, r), onCommit }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "term-split-cell", style: { flexGrow: 1 - node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(TermTreeView, { node: node.b, path: `${path}b`, active, termById, onClose, onRestart, onResize, onCommit }) })
   ] });
 }
 function SessionWorkspace({
@@ -42282,8 +42712,8 @@ function SessionWorkspace({
   const claudeKey = `${session.claudePty.id ?? "none"}:${session.claudePty.createdAt ?? ""}`;
   const showClaude = !isMobile || mobilePane === "claude";
   const showDeck = !isMobile || mobilePane === "shell";
-  const [claudeView, setClaudeViewState] = (0, import_react7.useState)(() => readClaudeView(session.id));
-  const setClaudeView = (0, import_react7.useCallback)(
+  const [claudeView, setClaudeViewState] = (0, import_react8.useState)(() => readClaudeView(session.id));
+  const setClaudeView = (0, import_react8.useCallback)(
     (v) => {
       setClaudeViewState(v);
       writeClaudeView(session.id, v);
@@ -42293,20 +42723,20 @@ function SessionWorkspace({
   const termById = new Map(session.terminals.map((t) => [t.id, t]));
   const serverIds = session.terminals.map((t) => t.id);
   const idsKey = serverIds.join("|");
-  const [tree, setTree] = (0, import_react7.useState)(() => reconcileTree(readTree(session.id), serverIds));
-  (0, import_react7.useEffect)(() => {
+  const [tree, setTree] = (0, import_react8.useState)(() => reconcileTree(readTree(session.id), serverIds));
+  (0, import_react8.useEffect)(() => {
     setTree((prev) => {
       const next = reconcileTree(prev, idsKey ? idsKey.split("|") : []);
       return treesEqual(prev, next) ? prev : next;
     });
   }, [idsKey]);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     writeTree(session.id, tree);
   }, [tree, session.id]);
-  const resizeSplit = (0, import_react7.useCallback)((path, r) => {
+  const resizeSplit = (0, import_react8.useCallback)((path, r) => {
     setTree((prev) => prev ? setRatioAt(prev, path, r) : prev);
   }, []);
-  const commitTree = (0, import_react7.useCallback)(() => {
+  const commitTree = (0, import_react8.useCallback)(() => {
     setTree((prev) => {
       writeTree(session.id, prev);
       return prev;
@@ -42314,15 +42744,15 @@ function SessionWorkspace({
   }, [session.id]);
   const hasTerminals = session.terminals.length > 0;
   const mobileLeafId = lastLeafId(tree);
-  const colRef = (0, import_react7.useRef)(null);
-  const claudeDragRef = (0, import_react7.useRef)(false);
-  const [claudeRatio, setClaudeRatio] = (0, import_react7.useState)(() => {
+  const colRef = (0, import_react8.useRef)(null);
+  const claudeDragRef = (0, import_react8.useRef)(false);
+  const [claudeRatio, setClaudeRatio] = (0, import_react8.useState)(() => {
     const v = Number(localStorage.getItem(LS_CLAUDE_RATIO));
     return Number.isFinite(v) && v > 0.15 && v < 0.85 ? v : 0.55;
   });
-  const [hasAppPort, setHasAppPort] = (0, import_react7.useState)(false);
-  const missesRef = (0, import_react7.useRef)(0);
-  (0, import_react7.useEffect)(() => {
+  const [hasAppPort, setHasAppPort] = (0, import_react8.useState)(false);
+  const missesRef = (0, import_react8.useRef)(0);
+  (0, import_react8.useEffect)(() => {
     if (isMobile || !active || browserPref !== void 0) return;
     let cancelled = false;
     const check = async () => {
@@ -42352,8 +42782,8 @@ function SessionWorkspace({
   const browserMounted = desktopBrowserVisible || isMobile && active;
   const showBrowser = isMobile ? mobilePane === "browser" : desktopBrowserVisible;
   const showTerminalsCol = !isMobile || mobilePane !== "browser";
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "workspace", style: { display: active ? "flex" : "none" }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "workspace", style: { display: active ? "flex" : "none" }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
       "div",
       {
         className: "terminals-col",
@@ -42363,7 +42793,7 @@ function SessionWorkspace({
           ...!isMobile && desktopBrowserVisible ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : {}
         },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
             "div",
             {
               className: "claude-pane",
@@ -42372,9 +42802,9 @@ function SessionWorkspace({
                 ...!isMobile && hasTerminals ? { flexGrow: claudeRatio, flexBasis: 0 } : { flexGrow: 1, flexBasis: 0 }
               },
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "quick-prompt-row", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "claude-view-toggle", role: "group", "aria-label": "Claude view", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "quick-prompt-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "claude-view-toggle", role: "group", "aria-label": "Claude view", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                       "button",
                       {
                         type: "button",
@@ -42384,7 +42814,7 @@ function SessionWorkspace({
                         children: "Terminal"
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+                    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                       "button",
                       {
                         type: "button",
@@ -42395,8 +42825,8 @@ function SessionWorkspace({
                       }
                     )
                   ] }),
-                  placementLabel(session.placement) && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "pane-placement", title: placementTitle(session.placement), children: placementLabel(session.placement) }),
-                  claudeView === "terminal" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+                  placementLabel(session.placement) && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "pane-placement", title: placementTitle(session.placement), children: placementLabel(session.placement) }),
+                  claudeView === "terminal" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                     QuickPromptBar,
                     {
                       sessionId: session.id,
@@ -42404,7 +42834,7 @@ function SessionWorkspace({
                       onSend: onInstruct
                     }
                   ),
-                  session.claudePty.state !== "none" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+                  session.claudePty.state !== "none" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                     "button",
                     {
                       type: "button",
@@ -42415,14 +42845,14 @@ function SessionWorkspace({
                     }
                   )
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "pane-body", children: claudeView === "chat" && claudeRunning ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(ChatPane, { sessionId: session.id, branch: session.branch }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-                  claudeRunning && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TerminalPane, { ptyId: session.claudePty.id, isActive: active && showClaude }, claudeKey),
-                  /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(ClaudePaneOverlay, { session, onEnsureClaude })
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "pane-body", children: claudeView === "chat" && claudeRunning ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(ChatPane, { sessionId: session.id, branch: session.branch }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+                  claudeRunning && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(TerminalPane, { ptyId: session.claudePty.id, isActive: active && showClaude }, claudeKey),
+                  /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(ClaudePaneOverlay, { session, onEnsureClaude })
                 ] }) })
               ]
             }
           ),
-          !isMobile && hasTerminals && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+          !isMobile && hasTerminals && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             "div",
             {
               className: "term-divider col claude-deck-divider",
@@ -42464,7 +42894,7 @@ function SessionWorkspace({
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             "div",
             {
               className: "terminals-deck",
@@ -42473,10 +42903,10 @@ function SessionWorkspace({
                 ...!isMobile && hasTerminals ? { flexGrow: 1 - claudeRatio, flexBasis: 0 } : {},
                 ...!isMobile && !hasTerminals ? { flex: "0 0 auto" } : {}
               },
-              children: !hasTerminals ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "terminals-deck-empty", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: "No terminals open" }),
-                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn", onClick: () => onAddTerminal(session.id), children: "+ New terminal" })
-              ] }) : isMobile ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+              children: !hasTerminals ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "terminals-deck-empty", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: "No terminals open" }),
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn", onClick: () => onAddTerminal(session.id), children: "+ New terminal" })
+              ] }) : isMobile ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                 TermLeaf,
                 {
                   term: termById.get(mobileLeafId ?? ""),
@@ -42484,7 +42914,7 @@ function SessionWorkspace({
                   onClose: (role) => onCloseTerminal(session.id, role),
                   onRestart: (role) => onRestartTerminal(session.id, role)
                 }
-              ) : tree && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+              ) : tree && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                 TermTreeView,
                 {
                   node: tree,
@@ -42502,7 +42932,7 @@ function SessionWorkspace({
         ]
       }
     ),
-    !isMobile && desktopBrowserVisible && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    !isMobile && desktopBrowserVisible && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       "div",
       {
         className: "split-divider",
@@ -42515,7 +42945,7 @@ function SessionWorkspace({
         title: "Drag to resize"
       }
     ),
-    browserMounted && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "browser-pane-host", style: { display: showBrowser ? "flex" : "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    browserMounted && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "browser-pane-host", style: { display: showBrowser ? "flex" : "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       BrowserPane,
       {
         cwd: session.projectPath,
@@ -42528,12 +42958,12 @@ function SessionWorkspace({
   ] });
 }
 function App() {
-  const [sessions, setSessions] = (0, import_react7.useState)([]);
-  const [selectedId, setSelectedId] = (0, import_react7.useState)(
+  const [sessions, setSessions] = (0, import_react8.useState)([]);
+  const [selectedId, setSelectedId] = (0, import_react8.useState)(
     () => localStorage.getItem(LS_SELECTED)
   );
-  const [visited, setVisited] = (0, import_react7.useState)(() => /* @__PURE__ */ new Set());
-  const [mobilePane, setMobilePane] = (0, import_react7.useState)(() => {
+  const [visited, setVisited] = (0, import_react8.useState)(() => /* @__PURE__ */ new Set());
+  const [mobilePane, setMobilePane] = (0, import_react8.useState)(() => {
     try {
       const v = localStorage.getItem(LS_MOBILE_PANE);
       if (v === "claude" || v === "shell" || v === "browser") return v;
@@ -42541,35 +42971,35 @@ function App() {
     }
     return "claude";
   });
-  const chooseMobilePane = (0, import_react7.useCallback)((p) => {
+  const chooseMobilePane = (0, import_react8.useCallback)((p) => {
     setMobilePane(p);
     try {
       localStorage.setItem(LS_MOBILE_PANE, p);
     } catch {
     }
   }, []);
-  const [showAll, setShowAll] = (0, import_react7.useState)(() => localStorage.getItem(LS_SHOW_ALL) === "1");
-  const [browserPref, setBrowserPref] = (0, import_react7.useState)({});
-  const [menuOpen, setMenuOpen] = (0, import_react7.useState)(false);
-  const [panelOpen, setPanelOpen] = (0, import_react7.useState)(false);
-  const [dialog, setDialog] = (0, import_react7.useState)(null);
-  const [toastMsg, setToastMsg] = (0, import_react7.useState)(null);
+  const [showAll, setShowAll] = (0, import_react8.useState)(() => localStorage.getItem(LS_SHOW_ALL) === "1");
+  const [browserPref, setBrowserPref] = (0, import_react8.useState)({});
+  const [menuOpen, setMenuOpen] = (0, import_react8.useState)(false);
+  const [panelOpen, setPanelOpen] = (0, import_react8.useState)(false);
+  const [dialog, setDialog] = (0, import_react8.useState)(null);
+  const [toastMsg, setToastMsg] = (0, import_react8.useState)(null);
   const isMobile = useIsMobile();
-  const toastTimer = (0, import_react7.useRef)(null);
-  const ensuredRef = (0, import_react7.useRef)(/* @__PURE__ */ new Set());
-  const wiredByCwd = (0, import_react7.useRef)(/* @__PURE__ */ new Map());
-  const [splitRatio, setSplitRatio] = (0, import_react7.useState)(() => {
+  const toastTimer = (0, import_react8.useRef)(null);
+  const ensuredRef = (0, import_react8.useRef)(/* @__PURE__ */ new Set());
+  const wiredByCwd = (0, import_react8.useRef)(/* @__PURE__ */ new Map());
+  const [splitRatio, setSplitRatio] = (0, import_react8.useState)(() => {
     const v = Number(localStorage.getItem(LS_SPLIT_RATIO));
     return Number.isFinite(v) && v > 0.1 && v < 0.9 ? v : 0.5;
   });
-  const draggingRef = (0, import_react7.useRef)(false);
-  const shellWrapRef = (0, import_react7.useRef)(null);
-  const toast = (0, import_react7.useCallback)((msg) => {
+  const draggingRef = (0, import_react8.useRef)(false);
+  const shellWrapRef = (0, import_react8.useRef)(null);
+  const toast = (0, import_react8.useCallback)((msg) => {
     setToastMsg(msg);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMsg(null), 4e3);
   }, []);
-  const refresh = (0, import_react7.useCallback)(async () => {
+  const refresh = (0, import_react8.useCallback)(async () => {
     try {
       const res = await fetch("/sessions");
       const data = await res.json();
@@ -42582,12 +43012,12 @@ function App() {
     } catch {
     }
   }, []);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     void refresh();
     const t = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(t);
   }, [refresh]);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     let lastInput = Date.now();
     const markInput = () => {
       lastInput = Date.now();
@@ -42613,7 +43043,7 @@ function App() {
     (s) => showAll || s.id === selectedId || s.openedInDevEnv === true
   );
   const hiddenCount = sessions.length - visibleSessions.length;
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     if (visibleSessions.length === 0) return;
     if (!selected) {
       const first = visibleSessions[0];
@@ -42628,7 +43058,7 @@ function App() {
       return next;
     });
   }
-  const openFromPanel = (0, import_react7.useCallback)(
+  const openFromPanel = (0, import_react8.useCallback)(
     async (sessionId, cwd, title) => {
       try {
         const res = await fetch("/sessions/open", {
@@ -42650,13 +43080,13 @@ function App() {
     },
     [refresh, toast]
   );
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     if (selectedId) {
       localStorage.setItem(LS_SELECTED, selectedId);
       setVisited((v) => v.has(selectedId) ? v : new Set(v).add(selectedId));
     }
   }, [selectedId]);
-  const ensurePty = (0, import_react7.useCallback)(
+  const ensurePty = (0, import_react8.useCallback)(
     async (sessionId, role, resume = false) => {
       const key = `${sessionId}:${role}`;
       if (ensuredRef.current.has(key)) return;
@@ -42679,9 +43109,9 @@ function App() {
     },
     [refresh, toast]
   );
-  const selectedIdRef = (0, import_react7.useRef)(selectedId);
+  const selectedIdRef = (0, import_react8.useRef)(selectedId);
   selectedIdRef.current = selectedId;
-  const closePty = (0, import_react7.useCallback)(
+  const closePty = (0, import_react8.useCallback)(
     async (sessionId, role) => {
       try {
         await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys/${role}`, { method: "DELETE" });
@@ -42692,7 +43122,7 @@ function App() {
     },
     [refresh]
   );
-  const addTerminal = (0, import_react7.useCallback)(
+  const addTerminal = (0, import_react8.useCallback)(
     async (sessionId) => {
       try {
         const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/terminals`, { method: "POST" });
@@ -42708,7 +43138,7 @@ function App() {
     },
     [refresh, toast]
   );
-  const closeTerminal = (0, import_react7.useCallback)(
+  const closeTerminal = (0, import_react8.useCallback)(
     async (sessionId, role) => {
       try {
         await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys/${encodeURIComponent(role)}`, { method: "DELETE" });
@@ -42718,7 +43148,7 @@ function App() {
     },
     [refresh]
   );
-  const restartTerminal = (0, import_react7.useCallback)(
+  const restartTerminal = (0, import_react8.useCallback)(
     async (sessionId, role) => {
       try {
         const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys`, {
@@ -42738,7 +43168,7 @@ function App() {
     },
     [refresh, toast]
   );
-  const closeTab = (0, import_react7.useCallback)(
+  const closeTab = (0, import_react8.useCallback)(
     async (sessionId) => {
       const idx = visibleSessions.findIndex((s) => s.id === sessionId);
       try {
@@ -42772,10 +43202,10 @@ function App() {
     },
     [visibleSessions, refresh, toast]
   );
-  const closeBrowser = (0, import_react7.useCallback)((sessionId) => {
+  const closeBrowser = (0, import_react8.useCallback)((sessionId) => {
     setBrowserPref((p) => ({ ...p, [sessionId]: "closed" }));
   }, []);
-  const pinBrowserOpen = (0, import_react7.useCallback)((sessionId) => {
+  const pinBrowserOpen = (0, import_react8.useCallback)((sessionId) => {
     setBrowserPref((p) => p[sessionId] === "open" ? p : { ...p, [sessionId]: "open" });
   }, []);
   function openBrowser() {
@@ -42783,14 +43213,14 @@ function App() {
     if (!selected) return;
     setBrowserPref((p) => ({ ...p, [selected.id]: "open" }));
   }
-  const onEnsureClaude = (0, import_react7.useCallback)(
+  const onEnsureClaude = (0, import_react8.useCallback)(
     (sessionId, resume) => {
       ensuredRef.current.delete(`${sessionId}:claude`);
       void ensurePty(sessionId, "claude", resume);
     },
     [ensurePty]
   );
-  const instruct = (0, import_react7.useCallback)(
+  const instruct = (0, import_react8.useCallback)(
     async (sessionId, text) => {
       try {
         const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/instruct`, {
@@ -42854,7 +43284,7 @@ function App() {
     }
     toast("No app detected for this session (missing app.port).");
   }
-  const onWired = (0, import_react7.useCallback)((info) => {
+  const onWired = (0, import_react8.useCallback)((info) => {
     wiredByCwd.current.set(info.cwd, info);
   }, []);
   function onDividerPointerDown(e) {
@@ -42883,23 +43313,23 @@ function App() {
     }
     localStorage.setItem(LS_SPLIT_RATIO, String(splitRatio));
   }
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     if (!menuOpen) return;
     const close = () => setMenuOpen(false);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, [menuOpen]);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     if (!panelOpen) return;
     const close = () => setPanelOpen(false);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, [panelOpen]);
   const visible = sessions.filter((s) => visited.has(s.id));
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "menu-wrap", onClick: (e) => e.stopPropagation(), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "menu-wrap", onClick: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -42907,33 +43337,33 @@ function App() {
             title: "Menu",
             "aria-label": "Menu",
             onClick: () => setMenuOpen((o) => !o),
-            children: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 14 14", "aria-hidden": "true", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("rect", { x: "1", y: "2", width: "12", height: "1.6", fill: "currentColor" }),
-              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("rect", { x: "1", y: "6.2", width: "12", height: "1.6", fill: "currentColor" }),
-              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("rect", { x: "1", y: "10.4", width: "12", height: "1.6", fill: "currentColor" })
+            children: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 14 14", "aria-hidden": "true", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("rect", { x: "1", y: "2", width: "12", height: "1.6", fill: "currentColor" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("rect", { x: "1", y: "6.2", width: "12", height: "1.6", fill: "currentColor" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("rect", { x: "1", y: "10.4", width: "12", height: "1.6", fill: "currentColor" })
             ] })
           }
         ),
-        menuOpen && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "menu", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => {
+        menuOpen && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "menu", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             setDialog("start-session");
           }, children: "New session\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             setDialog("continue-session");
           }, children: "Continue session\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => void clearStale(), children: "Clear stale sessions" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => void clearStale(), children: "Clear stale sessions" }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             toggleShowAll();
           }, children: showAll ? "Show active only" : `Show all sessions${hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}` }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             setDialog("settings");
           }, children: "Settings\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "menu-sep" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "menu-sep" }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             "button",
             {
               type: "button",
@@ -42944,7 +43374,7 @@ function App() {
               children: "Create PR"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             "button",
             {
               type: "button",
@@ -42955,9 +43385,9 @@ function App() {
               children: "Commit & push"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", disabled: !selected, onClick: () => void menuInstruct("/run"), children: "Run" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "menu-sep" }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", disabled: !selected, onClick: () => void menuInstruct("/run"), children: "Run" }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "menu-sep" }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             "button",
             {
               type: "button",
@@ -42969,7 +43399,7 @@ function App() {
               children: "New terminal"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             "button",
             {
               type: "button",
@@ -42979,11 +43409,11 @@ function App() {
               children: "Open browser"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", disabled: !selected, onClick: () => void openAppInNewTab(), children: "Open app in browser tab" })
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", disabled: !selected, onClick: () => void openAppInNewTab(), children: "Open app in browser tab" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "panel-wrap", onClick: (e) => e.stopPropagation(), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "panel-wrap", onClick: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -42993,10 +43423,10 @@ function App() {
             children: "Sessions"
           }
         ),
-        panelOpen && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(SessionsPanel, { onOpen: openFromPanel, onClose: () => setPanelOpen(false) })
+        panelOpen && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(SessionsPanel, { onOpen: openFromPanel, onClose: () => setPanelOpen(false) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "tabs", children: [
-        visibleSessions.map((s) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "tabs", children: [
+        visibleSessions.map((s) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
           "span",
           {
             className: `tab ${s.id === selectedId ? "active" : ""} ${s.lastStatus === "stale" ? "stale" : ""}`,
@@ -43004,12 +43434,12 @@ function App() {
             title: `${s.projectPath}
 ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: [
-              s.lastStatus === "working" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "spinner", "aria-hidden": "true" }),
-              s.lastStatus === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "badge-waiting", "aria-hidden": "true" }),
-              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tab-label", children: tabLabel(s) }),
-              placementLabel(s.placement) && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tab-placement", title: placementTitle(s.placement), children: placementLabel(s.placement) }),
-              s.dirty === true && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "dirty-dot", title: "Uncommitted changes" }),
-              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+              s.lastStatus === "working" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "spinner", "aria-hidden": "true" }),
+              s.lastStatus === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "badge-waiting", "aria-hidden": "true" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "tab-label", children: tabLabel(s) }),
+              placementLabel(s.placement) && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "tab-placement", title: placementTitle(s.placement), children: placementLabel(s.placement) }),
+              s.dirty === true && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "dirty-dot", title: "Uncommitted changes" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
                 "span",
                 {
                   className: "close",
@@ -43025,14 +43455,14 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           },
           s.id
         )),
-        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "tabs-empty", children: "No sessions - start a session or run claude anywhere." }),
-        sessions.length > 0 && visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "tabs-empty", children: [
+        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "tabs-empty", children: "No sessions - start a session or run claude anywhere." }),
+        sessions.length > 0 && visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { className: "tabs-empty", children: [
           "No active sessions - ",
           hiddenCount,
           " hidden."
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         "button",
         {
           type: "button",
@@ -43045,9 +43475,9 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           children: "+ Terminal"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TermThemeToggle, {}),
-      isMobile && selected && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "segmented", role: "tablist", "aria-label": "Pane", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(TermThemeToggle, {}),
+      isMobile && selected && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "segmented", role: "tablist", "aria-label": "Pane", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -43058,7 +43488,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: "Claude"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -43069,7 +43499,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: "Shell"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -43082,8 +43512,8 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         )
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "shell-wrap", ref: shellWrapRef, children: [
-      visible.map((s) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "shell-wrap", ref: shellWrapRef, children: [
+      visible.map((s) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         SessionWorkspace,
         {
           session: s,
@@ -43107,11 +43537,11 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         },
         s.id
       )),
-      visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "empty-state", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: "No active sessions." }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "pane-overlay-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => setDialog("start-session"), children: "New session\u2026" }),
-          hiddenCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("button", { type: "button", className: "btn", onClick: () => toggleShowAll(), children: [
+      visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "empty-state", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "No active sessions." }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "pane-overlay-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => setDialog("start-session"), children: "New session\u2026" }),
+          hiddenCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { type: "button", className: "btn", onClick: () => toggleShowAll(), children: [
             "Show all sessions (",
             hiddenCount,
             " hidden)"
@@ -43119,7 +43549,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         ] })
       ] })
     ] }),
-    dialog === "start-session" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    dialog === "start-session" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       StartSessionDialog,
       {
         initialRepoPath: selected?.projectPath,
@@ -43132,7 +43562,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         onError: (m) => toast(m)
       }
     ),
-    dialog === "continue-session" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    dialog === "continue-session" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       StartSessionDialog,
       {
         resume: true,
@@ -43146,7 +43576,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         onError: (m) => toast(m)
       }
     ),
-    dialog === "settings" && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    dialog === "settings" && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       SettingsDialog,
       {
         onClose: () => {
@@ -43156,11 +43586,11 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         onError: (m) => toast(m)
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Toast, { message: toastMsg })
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Toast, { message: toastMsg })
   ] });
 }
 var rootEl = document.getElementById("root");
-if (rootEl) (0, import_client.createRoot)(rootEl).render(/* @__PURE__ */ (0, import_jsx_runtime7.jsx)(App, {}));
+if (rootEl) (0, import_client.createRoot)(rootEl).render(/* @__PURE__ */ (0, import_jsx_runtime8.jsx)(App, {}));
 /*! Bundled license information:
 
 react/cjs/react.development.js:

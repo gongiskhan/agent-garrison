@@ -711,6 +711,51 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   }
 }
 
+/* ── Host-aware rendering (issues #1/#3/#4) ───────────────────────────────── */
+/* An operative reply's absolute image paths, rendered inline via /file. */
+.cc-md .cc-inline-img {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border);
+  margin: 6px 0;
+  display: block;
+}
+/* A loopback link with no reachable form from here (not tailnet-published):
+   shown as inert text so the user isn't sent to their own localhost. */
+.cc-unreachable {
+  text-decoration: line-through;
+  color: var(--cc-fg-faint);
+  cursor: not-allowed;
+}
+
+/* ── Rich session transcript (SessionStream) ──────────────────────────────── */
+.cc-session { display: flex; flex-direction: column; min-height: 0; }
+.cc-session-scroll { display: flex; flex-direction: column; gap: 14px; padding: 4px 2px; }
+.cc-session-empty { color: var(--cc-fg-dim); padding: 24px 8px; text-align: center; }
+.cc-session-turn { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--cc-border); border-radius: 10px; background: var(--cc-bg-elev); }
+.cc-session-turn.user { background: transparent; }
+.cc-session-role { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--cc-fg-faint); }
+.cc-session-md { font-size: 14px; line-height: 1.55; }
+.cc-session-md > :first-child { margin-top: 0; }
+.cc-session-md > :last-child { margin-bottom: 0; }
+.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
+.cc-session-pre {
+  margin: 0; padding: 8px 10px; overflow: auto; max-height: 320px;
+  background: var(--cc-code-bg); border: 1px solid var(--cc-code-border);
+  border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+}
+.cc-session-pre.cc-session-result { background: var(--cc-bg-sunk); }
+.cc-session-thinking { border-left: 2px solid var(--cc-border-strong); padding-left: 8px; }
+.cc-session-thinking > summary { cursor: pointer; color: var(--cc-fg-dim); font-style: italic; }
+.cc-session-toolwrap { display: flex; flex-direction: column; gap: 6px; }
+.cc-session-tool { border: 1px solid var(--cc-border); border-radius: 8px; background: var(--cc-bg-sunk); }
+.cc-session-tool > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; }
+.cc-session-tool-ico { color: var(--cc-fg-dim); }
+.cc-session-tool-hint { color: var(--cc-fg-faint); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-session-err { margin-left: auto; color: var(--cc-danger-border); font-size: 11px; text-transform: uppercase; }
+.cc-session-img { max-width: 100%; max-height: 420px; border-radius: 8px; border: 1px solid var(--cc-border); display: block; }
+
 
 /* === web-channel skin (override layer) === */
 /* ============================================================================

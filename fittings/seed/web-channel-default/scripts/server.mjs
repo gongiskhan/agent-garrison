@@ -9,15 +9,17 @@
 // LAN bind: default 127.0.0.1 (mirrors CLAUDE.md "talks only to localhost").
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
-import { createReadStream, existsSync, readFileSync, realpathSync } from "node:fs";
-import { mkdir, readFile, unlink, writeFile, appendFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { mkdir, readFile, readdir, unlink, writeFile, appendFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { listThreads, getThread, ensureThread, appendMessages, deleteThread } from "./threads.mjs";
+import { listThreads, getThread, ensureThread, appendMessages, deleteThread, setThreadSession } from "./threads.mjs";
+import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
+import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -364,6 +366,12 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
       let payload = {};
       try { payload = data ? JSON.parse(data) : {}; } catch { /* ignore */ }
       persistDone(payload?.reply);
+      // Record the Claude session id so the rich-transcript endpoint can find the
+      // on-disk JSONL for this thread (thinking/tool/image blocks the plain-text
+      // stream drops). Best-effort; absent in souls mode.
+      if (threadId && payload?.session_id) {
+        setThreadSession(threadId, String(payload.session_id)).catch(() => {});
+      }
     }
   };
 
@@ -854,6 +862,151 @@ function routeThreads(req, res, pathname, method) {
   return false;
 }
 
+// ── Host-aware URL + file rendering (issues #3/#4) ──────────────────────────
+// Same-origin serve map so the chat's host-rewriter turns a baked loopback link
+// (e.g. a Kanban card URL) into the reachable tailnet URL for wherever the
+// client is. This origin's own `tailscale serve` mapping fronts it.
+async function handleHostMap(res) {
+  let map = new Map();
+  try { map = await getTailnetServeMap(); } catch { /* empty */ }
+  jsonRes(res, 200, { map: Object.fromEntries(map) });
+}
+
+const FILE_IMAGE_MIME = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp"
+};
+const FILE_TEXT_MIME = {
+  ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
+  ".json": "application/json; charset=utf-8", ".log": "text/plain; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8", ".yml": "text/plain; charset=utf-8",
+  ".yaml": "text/plain; charset=utf-8", ".pdf": "application/pdf"
+};
+const FILE_SENSITIVE = /(?:^|\/)(?:\.env(?:\.|$)|id_rsa|id_ed25519|[^/]*\.pem|vault\.json)|\/\.git\//i;
+
+// realpath the target and require it to stay within one of `roots` (realpath
+// collapses any symlink in the chain, so a symlink can't escape).
+function realpathConfined(target, roots) {
+  let real;
+  try { real = realpathSync(target); } catch { return null; }
+  for (const root of roots) {
+    let realRoot;
+    try { realRoot = realpathSync(root); } catch { continue; }
+    if (real === realRoot || real.startsWith(realRoot + path.sep)) return real;
+  }
+  return null;
+}
+
+// Serve an operative reply's absolute file paths (attachments under the
+// composition's .garrison/uploads, run artifacts) as inline images / links.
+// Confined by realpath to Garrison-owned roots; never trusts the raw path.
+function handleFile(req, res) {
+  const parsed = url.parse(req.url || "", true);
+  const raw = typeof parsed.query.path === "string" ? parsed.query.path : "";
+  if (!raw || !path.isAbsolute(raw)) return jsonRes(res, 400, { error: "absolute path required" });
+  if (FILE_SENSITIVE.test(raw)) return jsonRes(res, 403, { error: "forbidden" });
+  const compDir = process.env.GARRISON_COMPOSITION_DIR || process.cwd();
+  const roots = [path.join(compDir, ".garrison", "uploads"), path.join(garrisonDir(), "runs"), compDir];
+  const confined = realpathConfined(raw, roots);
+  if (!confined) return jsonRes(res, 404, { error: "not found or out of bounds" });
+  let stat;
+  try { stat = statSync(confined); } catch { return jsonRes(res, 404, { error: "not found" }); }
+  if (!stat.isFile()) return jsonRes(res, 404, { error: "not a file" });
+  const ext = path.extname(confined).toLowerCase();
+  const image = FILE_IMAGE_MIME[ext];
+  const text = FILE_TEXT_MIME[ext];
+  res.statusCode = 200;
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+  res.setHeader("Cache-Control", "private, max-age=60");
+  if (image) res.setHeader("Content-Type", image);
+  else if (text) res.setHeader("Content-Type", text);
+  else {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(confined).replace(/["\r\n]/g, "")}"`);
+  }
+  createReadStream(confined).pipe(res);
+}
+
+// ── Rich transcript (issue #1 on the web channel) ───────────────────────────
+// Root of Claude Code's per-session JSONL transcripts. Mirrors
+// packages/claude-pty/src/paths.mjs claudeProjectsDir().
+function claudeProjectsRoot() {
+  const override = process.env.GARRISON_CLAUDE_PROJECTS_DIR?.trim();
+  if (override) return override;
+  const home = process.env.GARRISON_CLAUDE_HOME?.trim();
+  if (home) return path.join(home, "projects");
+  return path.join(os.homedir(), ".claude", "projects");
+}
+
+// Find <sessionId>.jsonl by globbing every project dir - session ids are unique,
+// so this sidesteps any cwd-encoding mismatch (the CLAUDE_CONFIG_DIR / SDK-cwd
+// seam) between where the operative journaled and how we'd encode the dir.
+async function findTranscriptBySession(sessionId) {
+  if (!sessionId || !/^[A-Za-z0-9._-]+$/.test(sessionId)) return null;
+  const root = claudeProjectsRoot();
+  let dirs = [];
+  try { dirs = await readdir(root); } catch { return null; }
+  for (const dir of dirs) {
+    const candidate = path.join(root, dir, `${sessionId}.jsonl`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+// SSE stream of a thread's (or an explicit session's) Claude transcript: the
+// structured blocks (text / collapsible thinking / tool calls / inline images)
+// the plain-text chat stream drops. Tails live; the client closes it.
+async function handleSessionStream(req, res) {
+  const parsed = url.parse(req.url || "", true);
+  const threadId = typeof parsed.query.thread === "string" ? parsed.query.thread : null;
+  let sessionId = typeof parsed.query.session === "string" ? parsed.query.session : null;
+  if (!sessionId && threadId) {
+    const thread = await getThread(threadId);
+    sessionId = thread?.claudeSessionId ?? null;
+  }
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  const emit = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
+
+  const abs = sessionId ? await findTranscriptBySession(sessionId) : null;
+  if (!abs) {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    return res.end();
+  }
+  let offset = 0;
+  try {
+    const first = await readJsonlLines(abs, 0);
+    offset = first.offset;
+    const { events, title } = parseTranscriptLines(first.lines);
+    emit({ type: "init", available: true, live: true, title, events });
+  } catch {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    return res.end();
+  }
+  let closed = false;
+  const stop = () => { closed = true; clearInterval(keep); clearInterval(poll); };
+  const keep = setInterval(() => { if (!closed) { try { res.write(": keep-alive\n\n"); } catch { stop(); } } }, 15000);
+  const poll = setInterval(async () => {
+    if (closed) return;
+    try {
+      const next = await readJsonlLines(abs, offset);
+      if (next.lines.length) {
+        offset = next.offset;
+        const { events, title } = parseTranscriptLines(next.lines);
+        if (events.length) emit({ type: "events", title, events });
+      }
+    } catch { /* transient read error; retry next tick */ }
+  }, 800);
+  req.on("close", stop);
+  res.on("close", stop);
+}
+
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
@@ -974,6 +1127,11 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
+      // Host-aware URL/file rendering + rich transcript (issues #1/#3/#4). Root
+      // paths (not /api/*) so they inherit this origin's tailscale serve mapping.
+      if (pathname === "/host-map" && method === "GET") return handleHostMap(res);
+      if (pathname === "/file" && method === "GET") return handleFile(req, res);
+      if (pathname === "/api/session-stream" && method === "GET") return handleSessionStream(req, res);
       // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
       // same-origin; relay to the Power fitting via its status file. Power
       // absent → 204 silently (advisory).

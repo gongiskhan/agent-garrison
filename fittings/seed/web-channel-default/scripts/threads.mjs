@@ -150,6 +150,20 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
 }
 
 /**
+ * Record the Claude session id the gateway reported for this thread's turn, so
+ * the rich-transcript endpoint can find the on-disk JSONL. Idempotent and
+ * best-effort: a thread that doesn't exist yet, or an unchanged id, is a no-op.
+ */
+export async function setThreadSession(id, sessionId) {
+  const safe = safeThreadId(id);
+  if (!safe || !sessionId) return;
+  const thread = await readThreadFile(safe);
+  if (!thread || thread.claudeSessionId === sessionId) return;
+  thread.claudeSessionId = sessionId;
+  await atomicWriteJson(threadPath(safe), thread);
+}
+
+/**
  * Append completed exchanges to a thread (creating it if needed). `messages` is a
  * list of { role: 'user'|'assistant', text }. Stamps each with a timestamp and
  * bumps updatedAt. Returns the updated thread meta.

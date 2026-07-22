@@ -601,6 +601,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             initialMessageHidden={Boolean(kickoff)}
             initialHistory={history}
             onTurnComplete={() => { void onTurnSettled(); void checkBriefAfterTurn(); }}
+            transcriptUrl={activeId ? `/api/session-stream?thread=${encodeURIComponent(activeId)}` : undefined}
           />
         )}
       </main>

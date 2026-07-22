@@ -8,7 +8,8 @@
 // Scaffolding (routing, WS upgrade, status file, static serving) follows the
 // terminal donor.
 
-import { createReadStream, existsSync, readFileSync, statSync, accessSync, constants as fsConstants } from "node:fs";
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync, accessSync, constants as fsConstants } from "node:fs";
+import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -943,6 +944,65 @@ async function handleVoiceStt(req, res) {
   }
 }
 
+// ── Host-aware URL + file rendering (issues #3/#4) ──────────────────────────
+async function handleHostMap(res) {
+  let map = new Map();
+  try { map = await getTailnetServeMap(); } catch { /* empty */ }
+  jsonRes(res, 200, { map: Object.fromEntries(map) });
+}
+
+const FILE_IMAGE_MIME = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp"
+};
+const FILE_TEXT_MIME = {
+  ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
+  ".json": "application/json; charset=utf-8", ".log": "text/plain; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8", ".yml": "text/plain; charset=utf-8",
+  ".yaml": "text/plain; charset=utf-8", ".pdf": "application/pdf"
+};
+const FILE_SENSITIVE = /(?:^|\/)(?:\.env(?:\.|$)|id_rsa|id_ed25519|[^/]*\.pem|vault\.json)|\/\.git\//i;
+
+function realpathConfined(target, roots) {
+  let real;
+  try { real = realpathSync(target); } catch { return null; }
+  for (const root of roots) {
+    let realRoot;
+    try { realRoot = realpathSync(root); } catch { continue; }
+    if (real === realRoot || real.startsWith(realRoot + path.sep)) return real;
+  }
+  return null;
+}
+
+function handleFile(req, res) {
+  const parsed = url.parse(req.url || "", true);
+  const raw = typeof parsed.query.path === "string" ? parsed.query.path : "";
+  if (!raw || !path.isAbsolute(raw)) return jsonRes(res, 400, { error: "absolute path required" });
+  if (FILE_SENSITIVE.test(raw)) return jsonRes(res, 403, { error: "forbidden" });
+  const garrisonHome = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+  const compDir = process.env.GARRISON_COMPOSITION_DIR || process.cwd();
+  const roots = [path.join(compDir, ".garrison", "uploads"), path.join(garrisonHome, "runs"), compDir];
+  const confined = realpathConfined(raw, roots);
+  if (!confined) return jsonRes(res, 404, { error: "not found or out of bounds" });
+  let stat;
+  try { stat = statSync(confined); } catch { return jsonRes(res, 404, { error: "not found" }); }
+  if (!stat.isFile()) return jsonRes(res, 404, { error: "not a file" });
+  const ext = path.extname(confined).toLowerCase();
+  const image = FILE_IMAGE_MIME[ext];
+  const text = FILE_TEXT_MIME[ext];
+  res.statusCode = 200;
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+  res.setHeader("Cache-Control", "private, max-age=60");
+  if (image) res.setHeader("Content-Type", image);
+  else if (text) res.setHeader("Content-Type", text);
+  else {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(confined).replace(/["\r\n]/g, "")}"`);
+  }
+  createReadStream(confined).pipe(res);
+}
+
 function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
@@ -1060,6 +1120,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
+      // Host-aware URL/file rendering (issues #3/#4): same-origin so they inherit
+      // this origin's tailscale serve mapping.
+      if (pathname === "/host-map" && method === "GET") return handleHostMap(res);
+      if (pathname === "/file" && method === "GET") return handleFile(req, res);
       // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
       // same-origin; we relay to the Power fitting's own-port server via its
       // status file. Power absent → 204 silently (advisory).

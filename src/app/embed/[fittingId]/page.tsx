@@ -28,6 +28,29 @@ export default function EmbedPage() {
     : "";
   const fittingId = fromPath || params.fittingId;
   const [entry, setEntry] = useState<ViewEntry | null | undefined>(undefined);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  async function publishNow() {
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      const res = await fetch(`/api/fittings/${encodeURIComponent(fittingId)}/publish`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPublishError(String(data?.error ?? `publish failed (${res.status})`));
+      } else {
+        // Give tailscale a moment to reflect the new serve mapping, then reload
+        // the views so resolveViewUrl picks up the fresh tailnetUrl.
+        setTimeout(() => setReloadNonce((n) => n + 1), 800);
+      }
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   // Cross-Fitting navigation: an embedded Fitting can ask Garrison to swap to
   // another Fitting (with optional query params forwarded to the destination
@@ -69,7 +92,7 @@ export default function EmbedPage() {
     return () => {
       alive = false;
     };
-  }, [fittingId]);
+  }, [fittingId, reloadNonce]);
 
   if (entry === undefined) {
     return (
@@ -107,8 +130,30 @@ export default function EmbedPage() {
           HTTPS (a plain-HTTP frame would be blocked as mixed content).
         </p>
         <p style={{ color: "var(--mute)" }}>
-          Publish it by running this from a prod shell on the Garrison host:
+          Publish it now (prod only), or run this from a prod shell on the
+          Garrison host:
         </p>
+        <p>
+          <button
+            type="button"
+            onClick={publishNow}
+            disabled={publishing}
+            style={{
+              padding: "6px 14px",
+              cursor: publishing ? "default" : "pointer",
+              background: "var(--brass, #b7a06a)",
+              color: "var(--ink, #1c1a15)",
+              border: 0,
+              borderRadius: 4,
+              fontWeight: 600
+            }}
+          >
+            {publishing ? "Publishing…" : "Publish now"}
+          </button>
+        </p>
+        {publishError && (
+          <p style={{ color: "var(--alarm, #b4442f)" }}>{publishError}</p>
+        )}
         <pre style={{ overflowX: "auto" }}>
           <code>node scripts/tailnet-serve-views.mjs</code>
         </pre>

@@ -1110,7 +1110,7 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   background: rgba(24, 33, 28, 0.4); padding: 24px;
 }
 .art-modal {
-  display: flex; flex-direction: column; width: min(860px, 100%); max-height: 88vh;
+  display: flex; flex-direction: column; width: min(1200px, 96vw); height: min(88vh, 860px); max-height: 88vh;
   background: var(--paper); border: 1px solid var(--rule-2); border-radius: 12px; overflow: hidden;
   box-shadow: 0 24px 60px -20px rgba(24, 33, 28, 0.5);
 }
@@ -1128,7 +1128,7 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
 .art-body { flex: 1; min-height: 0; overflow: auto; display: flex; background: var(--paper); }
 .art-editor { flex: 1; width: 100%; resize: none; border: 0; outline: none; padding: 16px; background: var(--paper); color: var(--ink); font: 13px/1.6 var(--mono); }
 .art-view { flex: 1; margin: 0; padding: 16px; overflow: auto; color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
-.art-img { max-width: 100%; max-height: 84vh; margin: auto; display: block; }
+.art-img { max-width: 100%; max-height: 100%; margin: auto; display: block; }
 .art-loading { padding: 20px; color: var(--mute); }
 .art-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--rule); background: var(--paper-2); font-size: 12px; }
 .art-ok { color: var(--sage); font-weight: 600; }
@@ -1460,4 +1460,117 @@ button:active, .btn:active { transform: translateY(1px); }
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ═══ Watch Loop overhaul: rich Log (session transcript) + Terminal modal ═══ */
+
+/* Sheet sizes (WatchSheet=wide, DetailSheet=mid). */
+.sheet.wide { max-width: min(960px, 96vw); }
+.sheet.mid { max-width: 720px; }
+
+/* Detail header actions row (Watch (Log) + Terminal). */
+.detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+/* Absolute file paths linkified inline in card bodies (issue #2/#4). */
+.linkified-img { display: block; margin: 6px 0; max-width: 100%; max-height: 320px; border: 1px solid var(--rule-2); background: var(--paper-2); }
+
+/* Chip variants used by the session viewer (ported from the drill fitting). */
+.chip.click { cursor: pointer; }
+.chip.sage { border-color: var(--sage-2); background: var(--sage-soft); color: var(--sage); }
+.chip.brass { border-color: var(--brass); background: var(--warn-soft); color: var(--brass); }
+.chip.alarm { border-color: var(--alarm); background: var(--alarm-soft); color: var(--alarm); }
+.chip.ink.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.dr-empty { color: var(--mute); font-size: 12px; padding: 14px; border: 1px dashed var(--rule); }
+.dr-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
+.dr-rowwrap > * { min-width: 0; }
+
+/* dr-session-* block — copied verbatim from fittings/seed/drill/ui/styles.css. */
+.dr-session-viewer { min-width: 0; }
+.dr-session-tabs { margin-bottom: 8px; }
+.dr-session { border: 1px solid var(--rule-2); background: white; }
+.dr-session-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--rule);
+  background: var(--paper-2); color: var(--ink);
+}
+.dr-session-head b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-session-head svg { flex: none; color: var(--sage-2); }
+.dr-session-id { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+.dr-session-scroll {
+  max-height: 460px; overflow-y: auto; padding: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.dr-session-turn { min-width: 0; }
+.dr-session-turn.user { border-left: 2px solid var(--rule-2); padding-left: 8px; }
+.dr-session-turn.assistant { border-left: 2px solid var(--sage-2); padding-left: 8px; }
+.dr-session-role {
+  display: block; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mute); margin-bottom: 3px;
+}
+.dr-session-text, .dr-session-pre {
+  margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
+  white-space: pre-wrap; word-break: break-word; font-family: var(--sans);
+}
+.dr-session-pre {
+  font-family: var(--mono); font-size: 10.5px;
+  background: var(--paper); border: 1px solid var(--rule);
+  padding: 6px 8px; margin-top: 4px; max-height: 240px; overflow-y: auto;
+}
+.dr-session-pre.result { border-left: 2px solid var(--sage-2); }
+.dr-session-longtext summary, .dr-session-thinking summary, .dr-session-tool summary {
+  cursor: pointer; font-size: 11px; color: var(--ink-mute);
+}
+.dr-session-longtext summary { font-style: italic; }
+.dr-session-thinking { margin: 4px 0; }
+.dr-session-thinking summary { color: var(--mute); font-style: italic; }
+.dr-session-thinking .dr-session-pre { color: var(--mute); }
+.dr-session-toolwrap { margin: 4px 0; min-width: 0; }
+.dr-session-tool summary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border: 1px solid var(--rule); background: var(--paper-2);
+  min-width: 0;
+}
+.dr-session-tool summary b { font-size: 11px; color: var(--ink); flex: none; }
+.dr-session-tool summary svg { flex: none; color: var(--warn-ink); }
+.dr-session-tool-hint {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 9.5px; color: var(--mute);
+}
+.dr-session-img {
+  display: block; margin-top: 6px; max-width: 100%; max-height: 340px;
+  border: 1px solid var(--rule-2); background: var(--paper-2);
+}
+@media (max-width: 760px) {
+  .dr-session-scroll { max-height: 55vh; }
+}
+
+/* Terminal host (copied from dev-env) + the Terminal modal shell. */
+.term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.term-host.hidden { display: none; }
+.xterm-mount { flex: 1; background: var(--term-bg); padding: 6px 8px; min-height: 0; }
+.xterm-mount .xterm { height: 100%; }
+.xterm-mount .xterm-viewport { background: var(--term-bg) !important; }
+.bridge-banner { background: var(--alarm-soft); color: var(--alarm); padding: 4px 12px; font-size: 11px; }
+
+.term-scrim {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(24, 31, 24, 0.72); backdrop-filter: blur(3px); padding: 24px;
+}
+.term-modal {
+  width: min(1100px, 96vw); height: min(80vh, 760px); display: flex; flex-direction: column;
+  background: #f5f0e5; border: 1px solid var(--rule-2); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 28px 70px rgba(26, 32, 25, 0.34);
+}
+.term-body { flex: 1; min-height: 0; position: relative; }
+.term-operative { flex: 0 0 auto; max-height: 30vh; overflow: auto; border-top: 1px solid var(--rule); background: #0e0e0e; }
+.term-operative-head { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute-2); padding: 4px 10px; }
+.term-operative pre { margin: 0; padding: 0 10px 10px; color: #e5e5e5; font: 11px/1.4 var(--mono); white-space: pre; }
+
+/* Fullscreen the artifact + terminal modals on narrow screens. */
+@media (max-width: 640px) {
+  .art-scrim { padding: 0; }
+  .art-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .term-scrim { padding: 0; }
+  .term-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 }

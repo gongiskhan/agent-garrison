@@ -88,6 +88,15 @@ import {
   enumerateArtifactRefs
 } from "../lib/links.mjs";
 export { isValidSliceId, isSafeEvidenceName, isEvidenceImage };
+// Rich-Log SSE tail of the Claude Code transcript per card session (parser copy
+// in lib/session-transcript.mjs, canonical in the drill fitting).
+import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
+// Terminal modal: an interactive shell PTY per card over the /io WebSocket.
+import { WebSocketServer } from "ws";
+import { spawnPty, getPty, resizePty, killPty, shutdownPtys } from "./ptys.mjs";
+// Host-aware URL rewriting: loopback ports → their HTTPS tailnet form, for the
+// GET /host-map the UI reads (see ui/host-rewrite.ts).
+import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 
 const FITTING_ID = "kanban-loop";
 const DEFAULT_PORT = 27089;
@@ -103,6 +112,55 @@ const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 // Overridable for tests / non-default checkouts.
 function projectRoot() {
   return process.env.GARRISON_KANBAN_PROJECT_ROOT || process.cwd();
+}
+
+// The composition-scoped uploads dir where ClaudeChat writes attached files
+// (POST /attachments → <compositionDir>/.garrison/uploads). Its OWN narrow
+// confine set for the attachment read route — never widened into allowedRoots.
+function uploadsDir() {
+  return path.join(process.env.GARRISON_COMPOSITION_DIR || process.cwd(), ".garrison", "uploads");
+}
+
+// Parse the ClaudeChat-appended attachment block out of a card description
+// (issue #2). ClaudeChat appends "\n\nAttached file(s):\n- <abs path>…" to the
+// message body; we scan for that header, then collect the CONTIGUOUS list of
+// absolute-path bullet lines. Derived, never stored. Returns
+// [{ i, path, name, image }] in appearance order.
+function parseAttachments(description) {
+  const text = typeof description === "string" ? description : "";
+  const lines = text.split("\n");
+  const out = [];
+  let inBlock = false;
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (!inBlock) {
+      if (/^Attached files?:/i.test(line.trim())) inBlock = true;
+      continue;
+    }
+    const m = line.match(/^- (\/.+\S)$/);
+    if (!m) break; // the contiguous attachment list ended
+    const p = m[1];
+    const name = path.basename(p);
+    out.push({ i: out.length, path: p, name, image: isEvidenceImage(name) });
+  }
+  return out;
+}
+
+// The working directory a card's Terminal shell opens in. An absolute existing
+// project dir is used directly; a bare project NAME resolves under the same
+// dev-root the /projects picker scans; otherwise the board's project root. No
+// per-task branch/worktree — the shell just opens at the project root.
+function cardWorkdir(card, opts) {
+  const proj = typeof card?.project === "string" ? card.project.trim() : "";
+  if (proj) {
+    if (path.isAbsolute(proj)) {
+      try { if (statSync(proj).isDirectory()) return proj; } catch { /* fall through */ }
+    } else {
+      const under = path.join(readDevRoot(), proj);
+      try { if (statSync(under).isDirectory()) return under; } catch { /* fall through */ }
+    }
+  }
+  return opts?.cwd || projectRoot();
 }
 
 // ─────────────────────────── pure helpers (exported, unit-tested)
@@ -887,6 +945,14 @@ async function handleGetCard(req, res, opts, id) {
   jsonRes(res, 200, {
     card: cardSummary(card),
     links,
+    // Files the user attached via ClaudeChat (parsed from the description, issue
+    // #2). Derived, not stored; each carries a same-origin serve URL.
+    attachments: parseAttachments(card.description).map((a) => ({
+      i: a.i,
+      name: a.name,
+      image: a.image,
+      url: `/cards/${encodeURIComponent(id)}/attachment?i=${a.i}`
+    })),
     decisionLog: card.decisionLog ?? card.runs ?? [],
     // The FULL execution timeline (the detail's Activity feed). Newest first so the
     // UI renders most-recent-at-top without re-sorting.
@@ -1887,6 +1953,165 @@ async function handleOperativeScreen(req, res, opts) {
   try { res.end(); } catch {}
 }
 
+// GET /cards/:id/session-stream?i=<n> — SSE rich-Log tail of the card's Nth
+// Claude Code session transcript (~/.claude/projects/<encoded-cwd>/<sid>.jsonl,
+// resolved server-side from the card's OWN sessionIds via the `session:<i>` ref).
+// For a RUNNING card it tails new transcript lines live; otherwise it emits the
+// current transcript once and ends. Drill-compatible framing: default `message`
+// events with a JSON `data` payload ({type:init|events|end}).
+// Find <sessionId>.jsonl by globbing every ~/.claude/projects/* dir. Session ids
+// are globally unique, so this sidesteps the cwd-encoding of claudeProjectDirForCwd:
+// the operative journals its transcript under ITS OWN cwd (the composition dir for
+// the default agent-sdk operative), which needn't match the board's projectRoot().
+// Without this, the rich Log's resolveArtifactRef("session:i") missed and the UI
+// always fell back to Raw in the default composition.
+function findTranscriptBySession(sessionId) {
+  if (!sessionId || !/^[A-Za-z0-9._-]+$/.test(String(sessionId))) return null;
+  const root = claudeProjectsDir();
+  let dirs;
+  try { dirs = readdirSync(root, { withFileTypes: true }); } catch { return null; }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue;
+    const candidate = path.join(root, d.name, `${sessionId}.jsonl`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function handleSessionStream(req, res, opts, id, i) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin session read rejected" });
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id; // pin to the validated route id — the session ref must not trust a tampered on-disk id
+
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  let closed = false;
+  req.on("close", () => { closed = true; });
+  const emit = (payload) => {
+    if (closed) return;
+    try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { closed = true; }
+  };
+  // A 15s keep-alive comment keeps intermediaries from dropping an idle stream.
+  const keepAlive = setInterval(() => {
+    if (closed) return;
+    try { res.write(": keep-alive\n\n"); } catch { closed = true; }
+  }, 15_000);
+  keepAlive.unref?.();
+
+  const finish = () => {
+    clearInterval(keepAlive);
+    emit({ type: "end" });
+    try { res.end(); } catch { /* already closed */ }
+  };
+
+  // Resolve the transcript path from the card's own pointers, then confine it.
+  // Primary: the cwd-encoded path (resolveArtifactRef). Fallback: glob the session
+  // id across every ~/.claude/projects/* dir, which is robust to the operative's cwd
+  // (agent-sdk journals under the composition dir, not the board's projectRoot()).
+  let absPath = resolveArtifactRef(card, `session:${i}`, { root: opts.root, cwd: opts.cwd });
+  if (!absPath || !isReadableFile(absPath)) {
+    const sid = (Array.isArray(card.sessionIds) ? card.sessionIds : [])[i];
+    const globbed = findTranscriptBySession(sid);
+    if (globbed) absPath = globbed;
+  }
+  const confined = absPath ? confinePath(absPath, allowedRoots(opts.cwd, opts.root)) : null;
+  if (!confined || !isReadableFile(confined)) {
+    // No resolvable transcript (stale/rotated session, or the operative ran under
+    // a different cwd than the board resolves against) → the UI falls back to Raw.
+    emit({ type: "init", i, title: null, available: false, live: false, events: [] });
+    return finish();
+  }
+
+  try {
+    let read = await readJsonlLines(confined, 0);
+    let offset = read.offset;
+    const parsed = parseTranscriptLines(read.lines);
+    emit({
+      type: "init",
+      i,
+      title: parsed.title,
+      events: parsed.events,
+      live: card.status === "running",
+      available: true
+    });
+    // Live tail: only while the card is still running. Re-load the card each tick
+    // (like handleWatchCard) so a run finishing stops the tail promptly.
+    while (!closed && card.status === "running") {
+      await new Promise((r) => setTimeout(r, 800));
+      if (closed) break;
+      try {
+        read = await readJsonlLines(confined, offset);
+        if (read.lines.length) {
+          offset = read.offset;
+          const chunk = parseTranscriptLines(read.lines);
+          if (chunk.events.length || chunk.title) {
+            emit({ type: "events", i, title: chunk.title, events: chunk.events });
+          }
+        }
+      } catch { /* transient read failure — keep polling */ }
+      try { card = await loadCard(opts.root, id); card.id = id; }
+      catch { break; }
+    }
+  } catch { /* fall through to end */ }
+  finish();
+}
+
+// GET /cards/:id/attachment?i=<n> — read-only serve of a file the user attached
+// through ClaudeChat (parsed out of the card description, issue #2). Its OWN
+// narrow confine set (uploadsDir only) — NEVER the wider artifact allowedRoots.
+async function handleAttachment(req, res, opts, id, i) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin attachment read rejected" });
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  const idx = Number(i);
+  const a = parseAttachments(card.description)[Number.isInteger(idx) ? idx : -1];
+  if (!a) return jsonRes(res, 404, { error: "no such attachment" });
+  const confined = confinePath(a.path, [uploadsDir()]);
+  if (!confined) return jsonRes(res, 403, { error: "attachment outside the uploads dir" });
+  if (!isReadableFile(confined)) return jsonRes(res, 404, { error: "not a readable file" });
+  return serveConfinedFile(res, confined);
+}
+
+// GET /host-map — the localPort → HTTPS tailnet URL map (from `tailscale serve
+// status`), so the board UI can rewrite loopback URLs baked into card bodies to
+// a form the remote client can actually reach (ui/host-rewrite.ts). Empty map
+// when tailscale isn't installed / nothing is serve-mapped.
+async function handleHostMap(req, res) {
+  let map = {};
+  try { map = Object.fromEntries(await getTailnetServeMap()); } catch { map = {}; }
+  jsonRes(res, 200, { map });
+}
+
+// GET /file?path=<abs> — read-only serve of an absolute file path surfaced in a
+// card body (a run artifact or an uploaded attachment linkified in the UI).
+// Confined by realpath to the artifact allowed roots PLUS the uploads dir; a
+// `..` / symlink escape or an unreadable/sensitive file is refused.
+async function handleFile(req, res, opts, query) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin file read rejected" });
+  const raw = typeof query?.path === "string" ? query.path : "";
+  if (!raw || !path.isAbsolute(raw) || raw.includes("\0")) return jsonRes(res, 400, { error: "absolute path required" });
+  // Reject a lexical `..` outright before realpath (defense in depth; confinePath
+  // re-checks the canonical path too).
+  if (raw.split("/").includes("..")) return jsonRes(res, 403, { error: "path traversal rejected" });
+  const roots = [...allowedRoots(opts.cwd, opts.root), uploadsDir()];
+  const confined = confinePath(raw, roots);
+  if (!confined) return jsonRes(res, 403, { error: "path outside allowed roots" });
+  if (!isReadableFile(confined)) return jsonRes(res, 404, { error: "not a readable file" });
+  // Refuse obviously-sensitive names even inside a root (dotfiles carrying creds).
+  const base = path.basename(confined);
+  if (/^\.(env|git|npmrc|netrc)$/i.test(base) || base === ".env") {
+    return jsonRes(res, 403, { error: "refusing to serve a sensitive file" });
+  }
+  return serveConfinedFile(res, confined);
+}
+
 // GET /cards/:id/artifact?ref=<refToken> — read-only serve of a card's linked
 // artifact (plan / gate markers / brief / transcript / log). The client names a
 // card id + an OPAQUE ref token; the server re-derives the absolute path from the
@@ -1912,6 +2137,16 @@ async function handleArtifact(req, res, opts, cardId, ref) {
     path.join(opts.root, "cards", cardId, "fetch-log.jsonl"),
     JSON.stringify({ at: new Date().toISOString(), ref, ua: req.headers?.["user-agent"] || null }) + "\n"
   ).catch(() => {});
+  return serveConfinedFile(res, confined);
+}
+
+// Serve an already-confined, readable regular file with the board's defense-in-
+// depth headers (nosniff + a `sandbox` CSP, so a served artifact/upload navigated
+// to as a document can neither script nor reach the network), and SVG/unknown
+// types delivered inert (attachment). The confinement decision belongs to the
+// CALLER — this only writes bytes + headers for a path already proven safe.
+// Factored out of handleArtifact so handleAttachment / handleFile reuse it.
+export function serveConfinedFile(res, confined) {
   const ext = path.extname(confined).toLowerCase();
   const ct = {
     ".md": "text/markdown; charset=utf-8",
@@ -1925,10 +2160,11 @@ async function handleArtifact(req, res, opts, cardId, ref) {
     ".gif": "image/gif"
   };
   res.statusCode = 200;
-  // Defense-in-depth for served artifacts (evidence files are "whatever the operative
-  // wrote", and the operative processes untrusted repos/pages — so treat them as
-  // untrusted content): never let the browser sniff a different type, and fully sandbox
-  // the response if it is ever navigated to as a document (no script, no network).
+  // Defense-in-depth for served files (evidence + uploads are "whatever the operative
+  // wrote / the user attached", and the operative processes untrusted repos/pages — so
+  // treat them as untrusted content): never let the browser sniff a different type, and
+  // fully sandbox the response if it is ever navigated to as a document (no script,
+  // no network).
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
   res.setHeader("Cache-Control", "no-store");
@@ -2275,6 +2511,10 @@ export function makeRequestHandler(opts, distDir) {
       // (Watch's Terminal tab). Proxied rather than CORS-opened: the board
       // deliberately serves and fetches everything on this one port.
       if (pathname === "/operative/screen" && method === "GET") return await handleOperativeScreen(req, res, opts);
+      // Host-aware URL rewriting for card bodies (loopback → tailnet) and the
+      // same-origin serve of absolute file paths / attachments surfaced in them.
+      if (pathname === "/host-map" && method === "GET") return await handleHostMap(req, res);
+      if (pathname === "/file" && method === "GET") return await handleFile(req, res, opts, parsed.query);
       if (pathname === "/cards" && method === "POST") return await handleCreateCard(req, res, opts);
       if (pathname === "/cards" && method === "GET") return await handleListCards(req, res, opts, parsed.query);
 
@@ -2300,13 +2540,15 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachment|\/session-stream|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
         if (!isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
         if (sub === "/artifact" && method === "PUT") return await handleArtifactWrite(req, res, opts, id, parsed.query.ref);
+        if (sub === "/attachment" && method === "GET") return await handleAttachment(req, res, opts, id, parsed.query.i);
+        if (sub === "/session-stream" && method === "GET") return await handleSessionStream(req, res, opts, id, Number(parsed.query.i ?? 0));
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
         if (sub === "/abandon" && method === "POST") return await handleAbandonCard(req, res, opts, id);
         if (sub === "/revert" && method === "POST") return await handleRevertCard(req, res, opts, id);
@@ -2353,6 +2595,101 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     throw err;
   });
 
+  // WebSocket /io — the card Terminal modal's interactive shell PTY. The init
+  // frame names the PTY id `card-<cardId>-shell`; the shell opens at that card's
+  // project cwd (cardWorkdir). Same-origin only: reject cross-origin upgrades
+  // (originAllowed) on top of the 127.0.0.1 bind.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const { pathname } = url.parse(request.url || "/");
+    if (pathname !== "/io") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    if (!originAllowed(request)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
+  });
+
+  const PTY_ID_RE = /^card-([0-9A-HJKMNP-TV-Z]{26})-shell$/;
+  wss.on("connection", (ws) => {
+    let ptyId = null;
+    let initializing = false;
+    ws.on("message", async (data, isBinary) => {
+      if (!ptyId) {
+        // Ignore stray frames (a ResizeObserver resize) that race the init await.
+        if (initializing) return;
+        let msg;
+        try { msg = JSON.parse(data.toString("utf8")); } catch { return; }
+        if (msg.type !== "init" || typeof msg.sessionId !== "string") return;
+        // Validate the PTY id shape (`card-<ULID>-shell`) so nothing but a real
+        // card id ever reaches loadCard / the spawned shell's cwd.
+        const m = PTY_ID_RE.exec(msg.sessionId);
+        if (!m || !isValidCardId(m[1])) {
+          try { ws.send(JSON.stringify({ type: "error", message: "invalid pty id" })); } catch {}
+          ws.close();
+          return;
+        }
+        initializing = true;
+        let card;
+        try { card = await loadCard(liveOpts.root, m[1]); }
+        catch { card = null; }
+        if (!card) {
+          try { ws.send(JSON.stringify({ type: "error", message: "card not found" })); } catch {}
+          ws.close();
+          return;
+        }
+        card.id = m[1];
+        const rec = spawnPty({ id: msg.sessionId, cwd: cardWorkdir(card, liveOpts) });
+        rec.ws = ws;
+        ptyId = rec.id;
+        // Size the PTY to the connecting client BEFORE replaying, so a full-width
+        // TUI box isn't drawn wider than the xterm viewport.
+        if (Number.isFinite(msg.cols) && Number.isFinite(msg.rows) && msg.cols > 0 && msg.rows > 0) {
+          resizePty(rec, Math.floor(msg.cols), Math.floor(msg.rows));
+        }
+        try {
+          ws.send(JSON.stringify({ type: "init_ack", id: rec.id, cwd: rec.cwd, shell: rec.shell, tmux: false }));
+          if (rec.buffer.length > 0) ws.send(rec.buffer);
+        } catch {}
+        return;
+      }
+
+      const rec = getPty(ptyId);
+      if (!rec || rec.state !== "running") return;
+      if (isBinary) {
+        try { rec.pty.write(data.toString("utf8")); rec.lastActivity = Date.now(); } catch {}
+        return;
+      }
+      const text = data.toString("utf8");
+      let frame = null;
+      if (text.startsWith("{")) { try { frame = JSON.parse(text); } catch {} }
+      if (frame && typeof frame === "object" && typeof frame.type === "string") {
+        if (frame.type === "resize" && Number.isFinite(frame.cols) && Number.isFinite(frame.rows)) {
+          resizePty(rec, frame.cols, frame.rows);
+        } else if (frame.type === "ping") {
+          try { ws.send(JSON.stringify({ type: "pong", ts: Date.now() })); } catch {}
+        } else if (frame.type === "stdin" && typeof frame.data === "string") {
+          try { rec.pty.write(frame.data); rec.lastActivity = Date.now(); } catch {}
+        }
+        return;
+      }
+      try { rec.pty.write(text); rec.lastActivity = Date.now(); } catch {}
+    });
+
+    ws.on("close", () => {
+      if (!ptyId) return;
+      const rec = getPty(ptyId);
+      if (!rec || rec.ws !== ws) return;
+      // PTYs are process-lifetime persistent: just detach. No reap timer.
+      rec.ws = null;
+    });
+  });
+
   await new Promise((resolve) => {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
@@ -2364,6 +2701,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const shutdown = async (signal) => {
     console.log(`[kanban-loop] shutdown (${signal})`);
+    try { shutdownPtys(); } catch { /* best-effort PTY teardown */ }
     await clearStatusFile();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 3000);

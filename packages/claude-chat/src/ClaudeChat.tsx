@@ -25,6 +25,8 @@ import {
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
 import { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
+import { rewriteHostUrl, filePathMarkedExtension, type ServeMap } from "./host-rewrite";
+import { SessionStream } from "./SessionTranscript";
 
 // A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
 // process-wide `marked` singleton: the chat-specific link/code renderers
@@ -118,6 +120,17 @@ md.use({
       }
       // Drop the link (keep the text) for any non-allowlisted/active-content scheme.
       if (!isSafeHref(url)) return text;
+      // Host-aware rewrite: a loopback URL the operative/gateway baked into the
+      // reply (e.g. a Kanban card link `http://127.0.0.1:<port>/#/cards/…`) is
+      // rewritten to whatever THIS client can actually reach - the HTTPS tailnet
+      // serve URL for that port, or a host rebind. "" => the port is not
+      // tailnet-published on an HTTPS page (mixed content): keep the text, drop
+      // the dead link so the user isn't sent to their own localhost.
+      if (/^https?:\/\//i.test(url)) {
+        const reachable = rewriteHostUrl(url, hostCtx());
+        if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
+        url = reachable;
+      }
       const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url)
         ? ` target="_blank" rel="noopener noreferrer"`
         : "";
@@ -161,6 +174,38 @@ md.use({
     },
   },
 });
+// Render bare absolute filesystem paths (uploaded attachments, run artifacts) as
+// inline images / same-origin /file links (issue #2/#4). Never fires inside code
+// (marked tokenizes fences/spans separately).
+md.use({ extensions: [filePathMarkedExtension()] });
+
+// Serve map (localPort -> https tailnet URL), fetched once from the same-origin
+// /host-map endpoint and read by the link renderer above. Module-level because
+// the marked renderer is a process-wide singleton; a component re-render once the
+// map lands re-runs md.parse, so the first paint's host-rebind fallback upgrades
+// to the exact serve URL. Cached on a shared promise so N chat instances share
+// one fetch.
+let chatServeMap: ServeMap = {};
+let hostMapPromise: Promise<void> | null = null;
+function loadHostMap(): Promise<void> {
+  if (!hostMapPromise) {
+    hostMapPromise = fetch("/host-map")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.map && typeof d.map === "object") chatServeMap = d.map as ServeMap;
+      })
+      .catch(() => {});
+  }
+  return hostMapPromise;
+}
+// Current client host context for rewriteHostUrl (SSR-safe: empty host -> no-op).
+function hostCtx() {
+  return {
+    hostname: typeof window !== "undefined" ? window.location.hostname : "",
+    protocol: typeof window !== "undefined" ? window.location.protocol : "",
+    serveMap: chatServeMap,
+  };
+}
 
 interface Turn {
   id: string;
@@ -483,9 +528,17 @@ export interface ClaudeChatProps {
    * persisted (previous behavior). Never fires for an empty/aborted turn.
    */
   onTurnComplete?: (exchange: { user: string; assistant: string }) => void;
+  /**
+   * SSE endpoint that streams this conversation's rich Claude transcript
+   * (collapsible thinking, tool calls, inline images the plain-text chat drops).
+   * When set, the header shows a Chat/Transcript toggle; absent → no toggle
+   * (exactly the previous chat). The web channel passes
+   * `/api/session-stream?thread=<id>`.
+   */
+  transcriptUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   // Seed from a persisted thread's transcript when the host provides one. Computed
   // once per mount (switching threads re-mounts with a fresh key). Kept in a memo
@@ -502,6 +555,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [conn, setConn] = useState<"open" | "closed" | "reconnecting">("reconnecting");
   const [screen, setScreen] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const [input, setInput] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
@@ -609,6 +663,17 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     });
     return off;
   }, [themeOn]);
+
+  // Host-aware link rewriting needs the port->tailnet-serve map; fetch it once
+  // (shared across instances) and re-render so baked loopback links (e.g. a
+  // Kanban card URL) upgrade to their reachable form. An empty map (no tailscale
+  // serve / local dev) is fine - the renderer falls back to a host rebind.
+  const [, setHostMapReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadHostMap().then(() => { if (alive) setHostMapReady(true); });
+    return () => { alive = false; };
+  }, []);
 
   // ── Effort / thinking level (opt-in). Persisted; prepended at send time. ──
   const effortOn = Boolean(feat.effort);
@@ -1295,12 +1360,25 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             ))}
           </div>
         )}
+        {transcriptUrl && (
+          <button
+            className="cc-rawtoggle"
+            onClick={() => setShowTranscript((v) => !v)}
+            title="Show the rich transcript (thinking, tool calls, images)"
+          >
+            {showTranscript ? "Chat" : "Transcript"}
+          </button>
+        )}
         <button className="cc-rawtoggle" onClick={() => setShowRaw((v) => !v)} title="Show raw terminal">
           {showRaw ? "Hide raw" : "Raw"}
         </button>
       </header>
 
       <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
+        {showTranscript && transcriptUrl ? (
+          <SessionStream url={transcriptUrl} live={busy} />
+        ) : (
+        <>
         {turns.length === 0 && (
           <div className="cc-empty">Send a message to begin · type / for commands and skills</div>
         )}
@@ -1416,6 +1494,8 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           </div>
           );
         })}
+        </>
+        )}
         {showRaw && (
           <pre className="cc-raw">{screen.join("\n")}</pre>
         )}

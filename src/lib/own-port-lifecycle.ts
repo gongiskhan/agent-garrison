@@ -5,6 +5,8 @@ import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "./claude-home";
 import { getInternalToken } from "./internal-token";
+import { currentProfile } from "./instance-profile";
+import { publishPortToTailnet } from "./tailnet-publish";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
@@ -348,6 +350,34 @@ export interface StartOptions {
   healOnEnvDrift?: boolean;
 }
 
+// Fire-and-forget: once a just-started own-port fitting has written its status
+// file (which carries the bound port), front that port on the HTTPS tailnet so
+// its view/links work from a phone/iPad (issue #6). PROD ONLY - only prod is
+// published to the always-on tailnet address; a dev/codex start must never remap
+// it. Idempotent (publishPortToTailnet keeps an existing mapping), so calling it
+// on every start heals a fitting that came up after the last redeploy without
+// waiting for scripts/tailnet-serve-views.mjs to re-run.
+function publishToTailnetAfterStart(fittingId: string): void {
+  if (currentProfile() !== "prod") return;
+  void (async () => {
+    for (let i = 0; i < 20; i++) {
+      let port: number | null = null;
+      try {
+        const raw = await readFile(statusFilePath(fittingId), "utf8");
+        const parsed = JSON.parse(raw) as { port?: number };
+        if (typeof parsed.port === "number" && Number.isFinite(parsed.port)) port = parsed.port;
+      } catch {
+        /* status file not written yet */
+      }
+      if (port !== null) {
+        await publishPortToTailnet(port).catch(() => {});
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  })();
+}
+
 export async function startOwnPortFitting(
   entry: LibraryEntry,
   extraEnv?: Record<string, string>,
@@ -443,6 +473,7 @@ async function startOwnPortFittingLocked(
       }
     }
     if (!heal) {
+      publishToTailnetAfterStart(entry.id);
       return { ok: true, alreadyRunning: true };
     }
   }
@@ -522,6 +553,7 @@ async function startOwnPortFittingLocked(
     secretsDelivered: !consumesVault || hasExtraEnv,
     envFingerprint: envFingerprintForExtraEnv(extraEnv)
   });
+  publishToTailnetAfterStart(entry.id);
   if (heal) {
     return { ok: true, pid: child.pid, healed: true, healReason: healReason ?? "vault" };
   }
