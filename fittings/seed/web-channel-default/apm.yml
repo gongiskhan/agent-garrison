@@ -54,9 +54,9 @@ x-garrison:
     slash/skill autocomplete, collapsible raw terminal). The UI is the shared
     @garrison/claude-chat component talking to the http-gateway's PTY-backed
     /claude/* surface, proxied here as /api/claude/* (stream SSE + status,
-    commands, message, keys, mode, interrupt). The legacy bubble+voice UI is
-    preserved as ui/legacy-voice.tsx for a future voice re-integration via the
-    component's composerAdornment slot.
+    commands, message, keys, mode, interrupt). The legacy bubble+voice UI was
+    retired (history in git); voice now lives in the current
+    voice-conversation / voice-capture / pcm-worklet AudioWorklet path.
 
     The Orchestrator does not call it directly — the browser drives. The
     legacy /api/chat → /chat/stream and /api/stream → /channels/web/stream
