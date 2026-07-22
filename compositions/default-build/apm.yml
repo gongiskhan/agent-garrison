@@ -720,7 +720,7 @@ x-garrison:
           authMode: subscription
       - id: opus
         runtime: claude-code
-        model: claude-opus-4.8
+        model: claude-opus-4-8
         provider: anthropic-plan
         params:
           type: runtime-target
