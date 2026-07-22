@@ -26425,6 +26425,18 @@ var Smartphone = createLucideIcon("Smartphone", [
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ]);
 
+// ../../../node_modules/lucide-react/dist/esm/icons/square-pen.js
+var SquarePen = createLucideIcon("SquarePen", [
+  ["path", { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" }],
+  [
+    "path",
+    {
+      d: "M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
+      key: "ohrbg2"
+    }
+  ]
+]);
+
 // ../../../node_modules/lucide-react/dist/esm/icons/tablet.js
 var Tablet = createLucideIcon("Tablet", [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", ry: "2", key: "76otgf" }],
@@ -27150,22 +27162,70 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   ] });
 }
 function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemove, onEditDescription, onJumpRef }) {
+  const [editing, setEditing] = (0, import_react4.useState)(false);
+  const taRef = (0, import_react4.useRef)(null);
+  const commit = () => {
+    const el = taRef.current;
+    if (el && el.value !== step.description) onEditDescription(el.value);
+    setEditing(false);
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-step", style: { opacity: step.enabled ? 1 : 0.5 }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { label: `${step.enabled ? "Disable" : "Enable"} check ${step.description || step.id}`, on: step.enabled, onClick: onToggleEnabled }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      editing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
+          ref: taRef,
           className: "dr-step-desc",
-          "aria-label": `Check description for ${step.id}`,
+          "aria-label": `Edit check description for ${step.id}`,
           defaultValue: step.description,
-          onBlur: (e) => {
-            if (e.target.value !== step.description) onEditDescription(e.target.value);
+          autoFocus: true,
+          rows: Math.min(12, Math.max(3, Math.ceil((step.description?.length || 0) / 56) + 1)),
+          onBlur: commit,
+          onKeyDown: (e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              commit();
+            } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "div",
+        {
+          className: "dr-step-text" + (step.description ? "" : " empty"),
+          role: "button",
+          tabIndex: 0,
+          title: "Click to edit this check",
+          onClick: () => setEditing(true),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              setEditing(true);
+            }
           },
-          rows: 2
+          children: step.description || "No check written yet \u2014 click to add one"
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 4 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: "dr-edit chip click" + (editing ? " sage active" : ""),
+            onMouseDown: (e) => e.preventDefault(),
+            onClick: () => editing ? commit() : setEditing(true),
+            "aria-label": editing ? `Finish editing ${step.id}` : `Edit check ${step.description || step.id}`,
+            children: editing ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 10 }),
+              " Done"
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SquarePen, { size: 10 }),
+              " Edit"
+            ] })
+          }
+        ),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
           {
@@ -30630,6 +30690,7 @@ lucide-react/dist/esm/icons/plus.js:
 lucide-react/dist/esm/icons/refresh-ccw.js:
 lucide-react/dist/esm/icons/rotate-cw.js:
 lucide-react/dist/esm/icons/smartphone.js:
+lucide-react/dist/esm/icons/square-pen.js:
 lucide-react/dist/esm/icons/tablet.js:
 lucide-react/dist/esm/icons/terminal.js:
 lucide-react/dist/esm/icons/video.js:

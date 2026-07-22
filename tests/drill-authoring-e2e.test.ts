@@ -144,10 +144,14 @@ describe("Authoring surface — real UI", () => {
   it("adds a page-level step through the UI, edits its description, toggles it off, and it persists across reload", async () => {
     const p = page!;
     await p.getByRole("button", { name: "Page step" }).click();
+    // A new check renders as fully-visible text with an explicit Edit button
+    // (not a cramped always-on textarea); click Edit to open the editor.
+    await p.locator(".dr-step-text").first().waitFor({ state: "visible", timeout: 5000 });
+    await p.locator(".dr-edit").first().click();
     await p.locator(".dr-step-desc").first().waitFor({ state: "visible", timeout: 5000 });
 
     await p.locator(".dr-step-desc").first().fill("Page loads under 3s with no console errors.");
-    await p.locator(".dr-step-desc").first().blur();
+    await p.locator(".dr-step-desc").first().blur(); // commit + return to the text view
     await p.waitForTimeout(300); // debounce-free save, but let the PUT round-trip land
 
     let doc = await (await fetch(`${DRILL_BASE}/api/pages/testpage`)).json();
@@ -163,8 +167,9 @@ describe("Authoring surface — real UI", () => {
     // reload the whole app and confirm the step + its disabled state survived
     await p.reload();
     await p.getByRole("tab", { name: "Authoring" }).click();
-    await p.locator(".dr-step-desc").first().waitFor({ state: "visible", timeout: 10000 });
-    expect(await p.locator(".dr-step-desc").first().inputValue()).toBe("Page loads under 3s with no console errors.");
+    // The saved check now reads back as fully-visible text (no click needed).
+    await p.locator(".dr-step-text").first().waitFor({ state: "visible", timeout: 10000 });
+    expect((await p.locator(".dr-step-text").first().textContent())?.trim()).toBe("Page loads under 3s with no console errors.");
 
     // toggle back on, then remove it
     await p.locator(".dr-checkbox").first().click();

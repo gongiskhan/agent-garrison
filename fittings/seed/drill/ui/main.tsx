@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench } from "lucide-react";
+import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -920,18 +920,58 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
   onEditDescription: (text: string) => void;
   onJumpRef: (ref: string) => void;
 }) {
+  // The check text reads as full, wrapping prose by default (a check is an
+  // acceptance-criterion sentence, not a one-liner) with an explicit Edit
+  // button; a cramped 2-row textarea clipped it and hid what the check said.
+  // Clicking the text also enters edit mode; blur / Esc / Cmd+Enter commit.
+  const [editing, setEditing] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const commit = () => {
+    const el = taRef.current;
+    if (el && el.value !== step.description) onEditDescription(el.value);
+    setEditing(false);
+  };
   return (
     <div className="dr-step" style={{ opacity: step.enabled ? 1 : 0.5 }}>
       <Checkbox label={`${step.enabled ? "Disable" : "Enable"} check ${step.description || step.id}`} on={step.enabled} onClick={onToggleEnabled} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <textarea
-          className="dr-step-desc"
-          aria-label={`Check description for ${step.id}`}
-          defaultValue={step.description}
-          onBlur={(e) => { if (e.target.value !== step.description) onEditDescription(e.target.value); }}
-          rows={2}
-        />
+        {editing ? (
+          <textarea
+            ref={taRef}
+            className="dr-step-desc"
+            aria-label={`Edit check description for ${step.id}`}
+            defaultValue={step.description}
+            autoFocus
+            rows={Math.min(12, Math.max(3, Math.ceil((step.description?.length || 0) / 56) + 1))}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.preventDefault(); commit(); }
+              else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); commit(); }
+            }}
+          />
+        ) : (
+          <div
+            className={"dr-step-text" + (step.description ? "" : " empty")}
+            role="button"
+            tabIndex={0}
+            title="Click to edit this check"
+            onClick={() => setEditing(true)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setEditing(true); } }}
+          >
+            {step.description || "No check written yet — click to add one"}
+          </div>
+        )}
         <div className="dr-rowwrap" style={{ marginTop: 4 }}>
+          {/* preventDefault on mousedown keeps the textarea from blur-committing
+              before this click toggles, so Done never re-opens the editor. */}
+          <button
+            className={"dr-edit chip click" + (editing ? " sage active" : "")}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => (editing ? commit() : setEditing(true))}
+            aria-label={editing ? `Finish editing ${step.id}` : `Edit check ${step.description || step.id}`}
+          >
+            {editing ? <><Check size={10} /> Done</> : <><SquarePen size={10} /> Edit</>}
+          </button>
           <button
             className={"dr-mode" + (step.mode === "vision" ? " vision" : " e2e")}
             onClick={onToggleMode}
