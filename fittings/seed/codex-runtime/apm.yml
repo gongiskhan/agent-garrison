@@ -67,7 +67,17 @@ x-garrison:
       - mcps
       - logs
   setup:
-    command: echo codex-runtime-ready
+    # Provision the isolated CODEX_HOME the launcher points `codex exec` at
+    # ($GARRISON_HOME/runtime-homes/codex). The Codex CLI errors ("Error finding
+    # codex home") when the dir is absent, which parks any adversarial-review /
+    # adversarial-test phase routed to a codex target. Idempotently create it and
+    # seed auth.json + config.toml from the user's real ~/.codex when missing, so
+    # a fresh GARRISON_HOME comes up with a working Codex runtime.
+    command: >-
+      node -e "const fs=require('fs'),os=require('os'),p=require('path');const
+      h=process.env.CODEX_HOME;if(h){fs.mkdirSync(h,{recursive:true});for(const f of
+      ['auth.json','config.toml']){const dst=p.join(h,f),src=p.join(os.homedir(),'.codex',f);if(!fs.existsSync(dst)&&fs.existsSync(src))fs.copyFileSync(src,dst);}}"
+      && echo codex-runtime-ready
     idempotent: true
     timeout_ms: 10000
   verify:
