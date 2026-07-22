@@ -26510,6 +26510,21 @@ function resolveEmbedUrl(url, tailnetUrl) {
   if (window.location.protocol === "https:" && rebound.startsWith("http://")) return "";
   return rebound;
 }
+function revealWithinScrollParent(el) {
+  if (!el) return;
+  let parent = el.parentElement;
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const overflowY = getComputedStyle(parent).overflowY;
+    if (/(auto|scroll)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) {
+      const pr = parent.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      if (er.top < pr.top) parent.scrollTop -= pr.top - er.top;
+      else if (er.bottom > pr.bottom) parent.scrollTop += er.bottom - pr.bottom;
+      return;
+    }
+    parent = parent.parentElement;
+  }
+}
 function fullBrowserViewUrl(canvasUrl) {
   try {
     const url = new URL(canvasUrl, window.location.href);
@@ -28845,9 +28860,9 @@ function DebriefView({
   const activeChunk = activeFrame?.chunk ?? null;
   (0, import_react4.useEffect)(() => {
     if (!activeChunk) return;
-    checkRefs.current.get(activeChunk)?.scrollIntoView({ block: "nearest" });
+    revealWithinScrollParent(checkRefs.current.get(activeChunk));
     const finding = issues.productFindings.find((f) => findingChunk(f) === activeChunk);
-    if (finding) findingRefs.current.get(finding.id)?.scrollIntoView({ block: "nearest" });
+    if (finding) revealWithinScrollParent(findingRefs.current.get(finding.id));
   }, [activeChunk, issues.productFindings]);
   const toggleShowAll = () => {
     setShowAll((prev) => {

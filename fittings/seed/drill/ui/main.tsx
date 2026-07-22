@@ -46,6 +46,28 @@ function resolveEmbedUrl(url?: string | null, tailnetUrl?: string | null): strin
   return rebound;
 }
 
+// Reveal `el` within its nearest INTERNAL scroll container only — never the
+// page/window. `element.scrollIntoView()` walks every scrollable ancestor, so
+// as the debrief reel auto-advances it kept dragging the whole page back to the
+// pinned rail (the "keeps pulling me to the screenshots" bug). We adjust only
+// the first genuine inner scroll container's scrollTop; if none exists (mobile
+// stacked layout, where the rail flows in the page), we leave scroll untouched.
+function revealWithinScrollParent(el: HTMLElement | null | undefined) {
+  if (!el) return;
+  let parent = el.parentElement;
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const overflowY = getComputedStyle(parent).overflowY;
+    if (/(auto|scroll)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) {
+      const pr = parent.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      if (er.top < pr.top) parent.scrollTop -= pr.top - er.top;
+      else if (er.bottom > pr.bottom) parent.scrollTop += er.bottom - pr.bottom;
+      return;
+    }
+    parent = parent.parentElement;
+  }
+}
+
 function fullBrowserViewUrl(canvasUrl: string) {
   try {
     const url = new URL(canvasUrl, window.location.href);
@@ -3050,13 +3072,15 @@ function DebriefView({
 
   const activeChunk = activeFrame?.chunk ?? null;
 
-  // Scroll the active frame's check (and any finding on it) into view within
-  // the rail as the reel advances.
+  // Follow the active frame's check (and any finding on it) as the reel advances
+  // — but only within the rail's own scroll container, never the page. Using
+  // scrollIntoView here dragged the whole page back to the screenshots on every
+  // auto-advance, making the debrief unusable while scrolling.
   useEffect(() => {
     if (!activeChunk) return;
-    checkRefs.current.get(activeChunk)?.scrollIntoView({ block: "nearest" });
+    revealWithinScrollParent(checkRefs.current.get(activeChunk));
     const finding = issues.productFindings.find((f) => findingChunk(f) === activeChunk);
-    if (finding) findingRefs.current.get(finding.id)?.scrollIntoView({ block: "nearest" });
+    if (finding) revealWithinScrollParent(findingRefs.current.get(finding.id));
   }, [activeChunk, issues.productFindings]);
 
   const toggleShowAll = () => {
