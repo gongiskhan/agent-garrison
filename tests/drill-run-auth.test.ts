@@ -16,8 +16,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const REPO = path.resolve(__dirname, "..");
 const DRILL_START = path.join(REPO, "fittings", "seed", "drill", "scripts", "start.mjs");
-const AUTOMATIONS_PORT = 7314;
-const DRILL_PORT = 7315;
+// Unique ports — 7315 collided with drill-evidence-feedback-e2e's AUTOMATIONS_PORT
+// and 404'd under the full-suite concurrency. 7318/7319 are unused across tests.
+const AUTOMATIONS_PORT = 7318;
+const DRILL_PORT = 7319;
 const AUTOMATIONS_BASE = `http://127.0.0.1:${AUTOMATIONS_PORT}`;
 const DRILL_BASE = `http://127.0.0.1:${DRILL_PORT}`;
 
