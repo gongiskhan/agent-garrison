@@ -65,19 +65,37 @@ function jsonRes(res, status, body) {
 // Local-origin guard for state-changing requests (provision/register/pair/rpc/
 // unregister). Unauthenticated + loopback-bound, so without this a page the user
 // visits could POST /provision (trigger SSH) or /outposts/<x>/rpc (run a command
-// on a paired Mac), or DNS-rebind to reach any of them. Reject a non-loopback
-// Host (rebinding) and a cross-site Origin (CSRF). True when blocked (answered).
+// on a paired Mac), or DNS-rebind to reach any of them.
+//
+// DNS-rebinding: guard on the TCP socket's remoteAddress (always loopback when
+// tailscale serve proxies to 127.0.0.1, and when the browser is on the same
+// machine). Checking the Host header alone would block legitimate tailnet
+// requests because tailscale forwards the original tailnet Host.
+//
+// CSRF: require the Origin to be same-host as the Host header. This blocks
+// third-party pages regardless of whether the server is reached via loopback or
+// tailnet, while allowing same-origin tailnet fetches.
+//
+// True when blocked (answered).
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
 function crossSiteBlocked(req, res) {
-  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
-  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
-    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+  // DNS-rebinding guard: the TCP connection must arrive on the loopback interface.
+  const remoteIp = (req.socket?.remoteAddress ?? "").replace(/^::ffff:/, "");
+  if (remoteIp && !LOOPBACK_HOSTS.has(remoteIp)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback connection from '${remoteIp}' (DNS-rebinding guard)` });
     return true;
   }
+  // CSRF guard: if an Origin is present it must be same-host as the Host header
+  // (covers both loopback and tailnet same-origin requests) OR a bare loopback
+  // origin (backward-compat for direct loopback access without a Host header).
   const origin = req.headers["origin"];
   if (origin) {
+    const hostHeader = String(req.headers["host"] || "").toLowerCase();
     let ok = false;
-    try { ok = LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); } catch { ok = false; }
+    try {
+      const originUrl = new URL(origin);
+      ok = originUrl.host.toLowerCase() === hostHeader || LOOPBACK_HOSTS.has(originUrl.hostname.toLowerCase());
+    } catch { ok = false; }
     if (!ok) { jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" }); return true; }
   }
   return false;
