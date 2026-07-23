@@ -132,11 +132,33 @@ export function releaseLock(repo, session, now = new Date()) {
 // Force-remove a repo's planning lock regardless of holder/expiry — the
 // admin/"release-lock" action surfaced (guarded by a confirm) in the Coordination
 // view, for clearing a stale or abandoned lock. Returns whether a lock existed.
+//
+// Removes the slug-derived file AND any lock file whose STORED repo field matches:
+// the state view lists locks by scanning the dir and reporting their stored repo,
+// so release must honour that same identity or a lock written under a different
+// slug scheme (e.g. a pre-fix cwd-resolved name key) becomes unreleasable.
 export function forceReleaseLock(repo) {
-  const p = lockPath(repo);
-  const existed = fs.existsSync(p);
-  fs.rmSync(p, { force: true });
-  fs.rmSync(p.replace(/\.json$/, ".waiters.json"), { force: true });
+  const targets = new Set([lockPath(repo)]);
+  try {
+    for (const f of fs.readdirSync(lockDir())) {
+      if (!f.endsWith(".json") || f.endsWith(".waiters.json")) continue;
+      const p = path.join(lockDir(), f);
+      try {
+        const l = JSON.parse(fs.readFileSync(p, "utf8"));
+        if (l && l.repo === repo) targets.add(p);
+      } catch {
+        /* unreadable/partial lock file — not identifiable, leave it alone */
+      }
+    }
+  } catch {
+    /* no lock dir yet */
+  }
+  let existed = false;
+  for (const p of targets) {
+    if (fs.existsSync(p)) existed = true;
+    fs.rmSync(p, { force: true });
+    fs.rmSync(p.replace(/\.json$/, ".waiters.json"), { force: true });
+  }
   return { released: existed, repo };
 }
 

@@ -19,8 +19,13 @@ export function repoRoot(cwd) {
   }
 }
 
-// Stable short slug for filenames (lock/ledger), derived from the absolute path
-// so two repos never collide and one repo always maps to the same files.
+// Stable short slug for filenames (lock/ledger), derived from the repo key so
+// two repos never collide and one repo always maps to the same files. A
+// non-absolute key (a friendly name like "garrison") is hashed AS-IS: resolving
+// it against process.cwd() would make the same name map to different files
+// depending on which process computed it, producing locks the Coordination view
+// can list but never release.
 export function repoSlug(repoPath) {
-  return crypto.createHash("sha1").update(path.resolve(repoPath)).digest("hex").slice(0, 16);
+  const key = path.isAbsolute(repoPath) ? path.resolve(repoPath) : String(repoPath);
+  return crypto.createHash("sha1").update(key).digest("hex").slice(0, 16);
 }

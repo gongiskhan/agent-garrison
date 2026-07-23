@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { beginPlanning, endPlanning, planHeartbeat, planStatus, declareIntentTool, coordDigestTool } from "../fittings/seed/coord-mcp/scripts/server.mjs";
 // @ts-ignore
 import { lookbackDays } from "../fittings/seed/coord-mcp/scripts/lib/lookback.mjs";
+// @ts-ignore
+import { forceReleaseLock, lockStatus } from "../fittings/seed/coord-mcp/scripts/lib/plan-lock.mjs";
+// @ts-ignore
+import { repoSlug } from "../fittings/seed/coord-mcp/scripts/lib/repo.mjs";
 
 // The COMMITTED correctness gate for the planning gate (the highest-stakes
 // coordination guarantee). All state goes to a sandbox GARRISON_HOME. Repos are
@@ -137,6 +141,61 @@ describe("PLAN-GATE — serialize planning per repo", () => {
     expect(st.lock.held).toBe(true);
     expect(st.lock.lock.session).toBe(A);
     expect(st.waiters.map((w: { session: string }) => w.session)).toContain(B);
+  });
+});
+
+describe("release-lock (force) — the Coordination view's release action", () => {
+  it("removes the slug-derived lock file and its waiters", () => {
+    const t0 = new Date("2026-06-22T10:00:00Z");
+    beginPlanning({ repo: REPO1, summary: "holding" }, A, t0);
+    beginPlanning({ repo: REPO1, summary: "waiting" }, B, new Date("2026-06-22T10:00:30Z")); // records a waiter
+    const r = forceReleaseLock(REPO1);
+    expect(r.released).toBe(true);
+    const st = planStatus({ repo: REPO1 }, A, new Date("2026-06-22T10:01:00Z"));
+    expect(st.lock.held).toBe(false);
+    expect(st.lock.stale).toBe(false); // file truly gone, not just expired
+    expect(st.waiters).toEqual([]);
+  });
+
+  it("removes a lock written under a DIFFERENT slug when its stored repo field matches (pre-fix cwd-resolved name keys stay releasable)", async () => {
+    const fs = await import("node:fs");
+    const dir = path.join(sb, "coord", "plan-locks");
+    fs.mkdirSync(dir, { recursive: true });
+    // A lock file whose filename does NOT equal repoSlug("ekoa-dev") — the shape
+    // produced by the old cwd-dependent slug for name keys.
+    const orphan = path.join(dir, "deadbeefdeadbeef.json");
+    fs.writeFileSync(
+      orphan,
+      JSON.stringify({ repo: "ekoa-dev", session: "old", summary: "s", startedAt: "2026-06-01T00:00:00Z", expiresAt: "2026-06-01T00:15:00Z", ttlMs: 900000 })
+    );
+    const r = forceReleaseLock("ekoa-dev");
+    expect(r.released).toBe(true);
+    expect(fs.existsSync(orphan)).toBe(false);
+  });
+
+  it("leaves other repos' locks alone", () => {
+    const t0 = new Date("2026-06-22T10:00:00Z");
+    beginPlanning({ repo: REPO1, summary: "one" }, A, t0);
+    beginPlanning({ repo: REPO2, summary: "two" }, B, t0);
+    forceReleaseLock(REPO1);
+    expect(lockStatus(REPO2, new Date("2026-06-22T10:01:00Z")).held).toBe(true);
+  });
+});
+
+describe("repoSlug — deterministic keys", () => {
+  it("hashes a non-absolute name AS-IS (cwd never leaks into the key)", () => {
+    const before = repoSlug("some-name");
+    const cwd = process.cwd();
+    try {
+      process.chdir(tmpdir());
+      expect(repoSlug("some-name")).toBe(before);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it("keeps absolute paths on the resolved-path key", () => {
+    expect(repoSlug("/tmp/repo-one")).toBe(repoSlug("/tmp/repo-one/"));
   });
 });
 
