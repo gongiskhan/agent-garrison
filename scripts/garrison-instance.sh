@@ -128,6 +128,16 @@ export UV_CACHE_DIR="$GARRISON_HOME/uv/cache"
 export UV_TOOL_DIR="${UV_TOOL_DIR:-$HOME/.local/share/uv/tools}"
 export UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}"
 export npm_config_cache="$GARRISON_HOME/npm-cache"
+
+# Claude Code auth: a long-lived OAuth token (from `claude setup-token`) sourced
+# from a 600-perm secrets file OUTSIDE the repo. The operative then authenticates
+# WITHOUT the macOS keychain (unreadable from the launchd/gateway context) and
+# without ~/.claude/.credentials.json (which vanished 2026-07-23 and took both
+# prod and dev operatives down with "Login expired"). This token does not expire
+# like the interactive OAuth session did. Covers prod and dev via this one script.
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -f "$HOME/.config/garrison/claude-auth.env" ]; then
+  set -a; . "$HOME/.config/garrison/claude-auth.env"; set +a
+fi
 # node_modules/.bin so `next`/`concurrently` resolve when this script is run
 # directly (bash scripts/garrison-instance.sh ...), not just via an npm script
 # — systemd and the redeploy script both invoke it directly.

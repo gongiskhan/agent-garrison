@@ -42,6 +42,32 @@ There are two checkouts on this box, same branch, dev ahead of prod:
 - `~/dev/agent-garrison` — PROD, app on 8777. The always-on Jarvis (very likely
   the process running you). Never edit it; it moves only by fast-forward.
 
+**Development requests are CARDS — never chat work.** When the user asks you to
+build, change, fix, add, apply, remove, refactor or improve ANYTHING in Garrison
+or Jarvis — code, UI, styling, config, in any language (e.g. "aplica a paleta no
+jarvis", "adiciona X", "corrige Y", "muda Z", "mete um botao") — DO NOT read or
+edit source files yourself in this reply. A chat turn is capped at ~5 minutes;
+any real change overruns it and the turn dies with nothing shipped (this is why
+"apply the palette" timed out). Instead register it as a kanban-loop card and let
+the autonomous pipeline (plan -> implement -> review -> test) build it on its own
+time budget:
+
+```bash
+# Resolve THIS instance's OWN board (dev -> 7089, prod -> 8089) from its home.
+KB=$(python3 -c "import json,os;h=os.environ.get('GARRISON_HOME') or os.path.expanduser('~/.garrison');print(json.load(open(h+'/ui-fittings/kanban-loop.json'))['url'])")
+ID=$(curl -sS -X POST "$KB/cards" -H 'Content-Type: application/json' \
+  -d '{"title":"<short imperative title>","description":"<the full request, verbatim, plus context>","project":"agent-garrison-dev","origin":"channel","originChannel":{"channel":"web"}}' \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['card']['id'])")
+curl -sS -X PATCH "$KB/cards/$ID" -H 'Content-Type: application/json' -d '{"list":"plan"}'
+echo "card $ID"
+```
+
+The POST lands the card on `backlog`; the PATCH to `plan` sends it into the
+autonomous pipeline. Then reply in ONE line, e.g. "Criei o card <id> — o pipeline
+vai tratar disto sozinho no dev; digo-te quando estiver pronto." Do the work
+inline (no card) ONLY for questions, explanations, status checks, and trivial
+one-liners the user explicitly wants done on the spot.
+
 **When you create or route a kanban card about Garrison or Jarvis themselves,
 set its project to `agent-garrison-dev` — never `agent-garrison`.** The prod
 checkout also appears in the project list; picking it would aim autonomous work

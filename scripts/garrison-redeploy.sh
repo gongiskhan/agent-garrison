@@ -71,6 +71,16 @@ say "composition=$composition  port=$PROD_PORT  home=$PROD_HOME"
 # --- 1. build ---------------------------------------------------------------
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
+# A build that exits 0 can still be unservable: on this 8 GB box an OOM-killed
+# child once left .next-prod without prerender-manifest.json and next start
+# crash-looped under KeepAlive while the OLD process kept serving (2026-07-23).
+# Refuse to touch the running prod until the artifact is provably complete.
+for f in BUILD_ID prerender-manifest.json routes-manifest.json; do
+  if [ ! -f "$REPO_ROOT/.next-prod/$f" ]; then
+    echo "[redeploy] build incomplete: .next-prod/$f missing — aborting before down" >&2
+    exit 1
+  fi
+done
 
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)
@@ -89,7 +99,24 @@ restarted=""
 if command -v launchctl >/dev/null 2>&1 \
    && launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1; then
   say "restarting launchd agent $LAUNCHD_LABEL"
+  # kickstart can silently no-op from a non-gui context (seen 2026-07-23 when
+  # the dev operative drove a promote: the old server pid survived and kept
+  # serving the old code). Verify the LISTENER pid changed; if not, kill the
+  # old process directly — KeepAlive respawns it on the new build.
+  old_pid="$(lsof -nP -iTCP:"$PROD_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
   launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
+  if [ -n "$old_pid" ]; then
+    swapped=""
+    for _ in $(seq 1 10); do
+      sleep 3
+      new_pid="$(lsof -nP -iTCP:"$PROD_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
+      if [ "$new_pid" != "$old_pid" ]; then swapped=1; break; fi
+    done
+    if [ -z "$swapped" ]; then
+      say "kickstart left the old server (pid $old_pid) alive — killing it; KeepAlive respawns"
+      kill "$old_pid" 2>/dev/null || true
+    fi
+  fi
   restarted=launchd
 elif command -v systemctl >/dev/null 2>&1 \
      && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
@@ -157,4 +184,13 @@ GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
   node "$REPO_ROOT/scripts/tailnet-serve-views.mjs" || \
   echo "[redeploy] tailnet publish failed (views may be unreachable off-box)"
 
-say "done — prod serving $BASE (tailnet: https://dev-madrid.tail31efa.ts.net)"
+# Final proof: the page must stamp the commit we just deployed (data-commit is
+# rendered per request by src/app/layout.tsx). Serving any other hash means the
+# swap silently failed — exactly the 2026-07-23 incident this guard encodes.
+head_short="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+served="$(curl -s --max-time 10 "$BASE/" | grep -o "data-commit=\"[a-f0-9]*\"" | head -1 | tr -d "\"" | cut -d= -f2)"
+if [ "$served" != "$head_short" ]; then
+  echo "[redeploy] prod is serving commit '${served:-none}' but HEAD is $head_short — the restart did not take" >&2
+  exit 1
+fi
+say "done — prod serving $BASE at commit $head_short"
