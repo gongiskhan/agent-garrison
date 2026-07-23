@@ -85,112 +85,52 @@ done
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)
 # must not abort the redeploy — the up() at step 4 is what has to succeed.
-if curl -sf -o /dev/null --max-time 5 "$BASE/api/compositions"; then
-  say "stopping operative + fittings ($composition)"
-  curl -sf -X POST --max-time 120 "$BASE/api/runner/$composition/down" >/dev/null \
-    || echo "[redeploy] down returned non-zero (continuing)"
-else
-  say "prod app not responding on $BASE — skipping pre-down"
-fi
+# No graceful pre-down: the restart below is a hard service kill, and calling
+# /down here would — when this promote runs INSIDE the operative (chat "faz
+# commit") — stop the very operative running it, killing the promote before it
+# can even request the restart. The hard restart stops everything cleanly.
+say "skipping graceful pre-down (hard restart handles it)"
 
-# --- 3. swap the app server -------------------------------------------------
-: > "$REDEPLOY_LOCK"
-restarted=""
-if command -v launchctl >/dev/null 2>&1 \
-   && launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1; then
-  say "restarting launchd agent $LAUNCHD_LABEL"
-  # kickstart can silently no-op from a non-gui context (seen 2026-07-23 when
-  # the dev operative drove a promote: the old server pid survived and kept
-  # serving the old code). Verify the LISTENER pid changed; if not, kill the
-  # old process directly — KeepAlive respawns it on the new build.
-  old_pid="$(lsof -nP -iTCP:"$PROD_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
-  launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
-  if [ -n "$old_pid" ]; then
-    swapped=""
-    for _ in $(seq 1 10); do
-      sleep 3
-      new_pid="$(lsof -nP -iTCP:"$PROD_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
-      if [ "$new_pid" != "$old_pid" ]; then swapped=1; break; fi
-    done
-    if [ -z "$swapped" ]; then
-      say "kickstart left the old server (pid $old_pid) alive — killing it; KeepAlive respawns"
-      kill "$old_pid" 2>/dev/null || true
+# --- 3. request an OUT-OF-TREE restart -------------------------------------
+# "faz commit" in the web channel runs this promote INSIDE the operative, a
+# descendant of the com.garrison.jarvis tree. Restarting a service from within
+# its own tree is unreliable: launchctl kickstart silently no-ops from that
+# context and a kill takes the promote down with it (seen 2026-07-23 — c0bb4e3
+# pushed but prod kept serving the old build). So we hand the restart to
+# com.garrison.restart-watch, a separate always-on LaunchAgent NOT in this tree.
+# It kickstarts jarvis; the fresh wrapper's waiter runs the up(); the watcher
+# republishes tailnet. We do NOT hold $REDEPLOY_LOCK — this script is very
+# likely dead (killed by the restart it asked for) before the up() would run, so
+# the fresh waiter MUST be free to do it.
+rm -f "$REDEPLOY_LOCK" 2>/dev/null || true
+head_short="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+say "requesting out-of-tree restart -> $head_short (com.garrison.restart-watch)"
+printf '%s\n' "$head_short" > "$PROD_HOME/.restart-requested"
+
+# Wait for prod to actually SERVE the new commit. data-commit is rendered per
+# request from the prod tree HEAD, so this proves the app swapped builds.
+served=""
+for i in $(seq 1 70); do
+  sleep 3
+  served="$(curl -s --max-time 5 "$BASE/" 2>/dev/null | grep -o 'data-commit="[a-f0-9]*"' | head -1 | cut -d'"' -f2)"
+  [ "$served" = "$head_short" ] && break
+  # ~36s in with the request still unconsumed -> no watcher running. Fall back to
+  # an in-line kickstart (works when THIS process is out-of-tree, e.g. an ssh
+  # promote; a harmless no-op if in-tree).
+  if [ "$i" = "12" ] && [ -f "$PROD_HOME/.restart-requested" ]; then
+    say "restart-watch has not consumed the request — in-line kickstart fallback"
+    if command -v launchctl >/dev/null 2>&1 \
+       && launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1; then
+      launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL" 2>/dev/null || true
+    elif command -v systemctl >/dev/null 2>&1 && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
+      systemctl --user restart "$UNIT" 2>/dev/null || true
     fi
   fi
-  restarted=launchd
-elif command -v systemctl >/dev/null 2>&1 \
-     && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
-  say "restarting $UNIT"
-  systemctl --user restart "$UNIT"
-  restarted=systemd
-fi
-
-if [ -z "$restarted" ]; then
-  echo "[redeploy] no supervisor found for prod." >&2
-  echo "           launchd: expected LaunchAgent $LAUNCHD_LABEL" >&2
-  echo "           systemd: expected user unit $UNIT" >&2
-  echo "           or start prod by hand: bash scripts/garrison-instance.sh prod start" >&2
-  exit 1
-fi
-
-# --- wait for the new server ------------------------------------------------
-say "waiting for $BASE"
-for _ in $(seq 1 60); do
-  if curl -sf -o /dev/null --max-time 3 "$BASE/api/compositions"; then
-    break
-  fi
-  sleep 2
-done
-if ! curl -sf -o /dev/null --max-time 3 "$BASE/api/compositions"; then
-  echo "[redeploy] prod did not come up on $BASE" >&2
-  if [ "$restarted" = launchd ]; then
-    tail -n 30 "$PROD_HOME/logs/launchd-garrison.err.log" >&2 || true
-  else
-    systemctl --user status "$UNIT" --no-pager -n 30 >&2 || true
-  fi
-  exit 1
-fi
-
-# --- 4. bring the operative + eager fittings back on the new code -----------
-say "starting operative + eager fittings ($composition)"
-curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
-
-# --- 5. publish any newly-started own-port view to the tailnet --------------
-# Idempotent (existing mappings are kept). Without this a fitting that gains an
-# own port, or one started for the first time, has no `tailscale serve` mapping
-# and its embedded view is a BLANK pane over the tailnet: the iframe would need
-# a plain-HTTP frame on an HTTPS page, which the browser blocks as mixed
-# content. Exactly how drill's view broke.
-# up() returns once the fittings are SPAWNED, but each one writes its
-# ~/.garrison/ui-fittings/<id>.json a moment later, when its listener is
-# actually bound. Publishing immediately therefore found zero views and skipped
-# every mapping — observed on the 2026-07-21 deploy, which left the board with
-# no tailnet mapping at all. Wait for the status files to settle first.
-say "waiting for own-port views to register"
-for _ in $(seq 1 15); do
-  if compgen -G "$PROD_HOME/ui-fittings/*.json" >/dev/null 2>&1; then
-    sleep 2   # let any remaining fitting finish binding
-    break
-  fi
-  sleep 2
 done
 
-say "publishing own-port views to the tailnet"
-# Pass prod's identity explicitly: the script reads $GARRISON_HOME/ui-fittings to
-# find running views, and its own guard refuses any non-prod profile. Relying on
-# the ~/.garrison default would happen to work but would silently publish the
-# wrong instance's views if the default ever changed.
-GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
-  node "$REPO_ROOT/scripts/tailnet-serve-views.mjs" || \
-  echo "[redeploy] tailnet publish failed (views may be unreachable off-box)"
-
-# Final proof: the page must stamp the commit we just deployed (data-commit is
-# rendered per request by src/app/layout.tsx). Serving any other hash means the
-# swap silently failed — exactly the 2026-07-23 incident this guard encodes.
-head_short="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-served="$(curl -s --max-time 10 "$BASE/" | grep -o "data-commit=\"[a-f0-9]*\"" | head -1 | tr -d "\"" | cut -d= -f2)"
 if [ "$served" != "$head_short" ]; then
-  echo "[redeploy] prod is serving commit '${served:-none}' but HEAD is $head_short — the restart did not take" >&2
+  echo "[redeploy] prod is serving '${served:-none}' but HEAD is $head_short — restart did not take" >&2
+  tail -n 25 "$PROD_HOME/logs/restart-watch.log" 2>/dev/null >&2 || true
   exit 1
 fi
-say "done — prod serving $BASE at commit $head_short"
+say "done — prod serving $BASE at commit $head_short (restart via watch agent)"
