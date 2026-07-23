@@ -266,7 +266,16 @@ export function routeOriginEvent(root, disk, card, event) {
     // S3c: a steering event whose confirmation was ALREADY delivered by the gateway
     // turn's own SSE reply (detail.viaTurn) records the event but does NOT re-post to
     // the thread (no double confirmation).
-    const skipWeb = event.kind === "steering" && event.detail?.viaTurn === true;
+    //
+    // `created` is the same story: the gateway's inline turn reply ("Registered as a
+    // run …") already confirms a freshly-carded run in the originating web thread, so
+    // pushing the board's `created` event there too shows the same card twice. Record
+    // the event (appended above, and other transports still read it) but suppress its
+    // web delivery. Web delivery only ever fires for a gateway-carded thread card, and
+    // that path ALWAYS sends the inline reply, so this is never the sole notification.
+    const skipWeb =
+      (event.kind === "steering" && event.detail?.viaTurn === true) ||
+      event.kind === "created";
     if (transport === "web" && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
       deliverWebMessage(card.originChannel.threadId, event.message);
     }

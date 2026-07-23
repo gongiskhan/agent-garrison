@@ -592,6 +592,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         ) : (
           <ClaudeChat
             key={`${activeId}:${historyRev}`}
+            draftKey={activeId ?? undefined}
             transport={transport}
             title="Operative"
             composerAdornment={voiceAdornment}

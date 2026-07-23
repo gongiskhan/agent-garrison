@@ -207,6 +207,62 @@ function hostCtx() {
   };
 }
 
+// ── Composer draft persistence (unsent text + attachments) ──────────────────
+// A multi-thread host re-mounts ClaudeChat with a fresh key on a thread switch,
+// which drops the composer state. When a `draftKey` is present we mirror the
+// draft to sessionStorage under it: the text, and any SETTLED attachment (one
+// whose upload finished, so it carries a server `path`). Mid-upload attachments
+// and their objectURL previews are not serialisable and are skipped; a restored
+// attachment shows its name (no thumbnail) and still sends by path. Best-effort:
+// every storage access is guarded so a disabled/full store never breaks typing.
+const DRAFT_TEXT_PREFIX = "cc-draft-text:";
+const DRAFT_ATTACH_PREFIX = "cc-draft-attach:";
+
+function loadDraftText(key?: string): string {
+  if (!key || typeof sessionStorage === "undefined") return "";
+  try {
+    return sessionStorage.getItem(DRAFT_TEXT_PREFIX + key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function loadDraftAttachments(key?: string): PendingAttachment[] {
+  if (!key || typeof sessionStorage === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(DRAFT_ATTACH_PREFIX + key);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((a) => a && typeof a.path === "string" && a.path)
+      .map((a) => ({
+        id: String(a.id),
+        name: String(a.name || "file"),
+        path: a.path as string,
+        uploading: false,
+        error: null,
+        previewUrl: null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function saveDraft(key: string | undefined, text: string, attachments: PendingAttachment[]): void {
+  if (!key || typeof sessionStorage === "undefined") return;
+  try {
+    if (text) sessionStorage.setItem(DRAFT_TEXT_PREFIX + key, text);
+    else sessionStorage.removeItem(DRAFT_TEXT_PREFIX + key);
+    const settled = attachments
+      .filter((a) => a.path && !a.uploading)
+      .map((a) => ({ id: a.id, name: a.name, path: a.path }));
+    if (settled.length) sessionStorage.setItem(DRAFT_ATTACH_PREFIX + key, JSON.stringify(settled));
+    else sessionStorage.removeItem(DRAFT_ATTACH_PREFIX + key);
+  } catch {
+    /* best-effort: a disabled/full sessionStorage must never break the composer */
+  }
+}
+
 interface Turn {
   id: string;
   user: string;
@@ -536,9 +592,19 @@ export interface ClaudeChatProps {
    * `/api/session-stream?thread=<id>`.
    */
   transcriptUrl?: string;
+  /**
+   * Stable key for persisting the UNSENT composer draft (typed text + settled
+   * attachments) across a re-mount. A multi-thread host re-mounts the component
+   * with a fresh `key` when switching threads (see `initialHistory`), which would
+   * otherwise drop whatever the user was typing/attaching in the thread they left.
+   * Pass the thread id here and the draft is mirrored to sessionStorage under it, so
+   * a re-mount restores that thread's own draft. Absent → no persistence (exactly
+   * the previous behavior).
+   */
+  draftKey?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey }: ClaudeChatProps) {
   const feat = features ?? {};
   // Seed from a persisted thread's transcript when the host provides one. Computed
   // once per mount (switching threads re-mounts with a fresh key). Kept in a memo
@@ -556,16 +622,22 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [screen, setScreen] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => loadDraftText(draftKey));
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
   // ── Attachments (paste / drop / pick a file) — gated on the transport
   // actually exposing uploadFile; a transport that omits it (e.g. dev-env's
   // server has no /attachments backend yet) hides the affordance entirely. ──
   const canAttach = typeof transport.uploadFile === "function";
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(() => loadDraftAttachments(draftKey));
   const attachmentsRef = useRef<PendingAttachment[]>(attachments);
   attachmentsRef.current = attachments;
+  // Mirror the unsent draft (text + settled attachments) to sessionStorage under
+  // `draftKey` so a thread-switch re-mount restores it instead of dropping it. A
+  // send clears both, which this effect then persists as an empty draft (removed).
+  useEffect(() => {
+    saveDraft(draftKey, input, attachments);
+  }, [draftKey, input, attachments]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
