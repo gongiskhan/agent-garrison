@@ -6,7 +6,7 @@ areas: []
 steps:
   - id: ux-functional-smoke
     area: 0
-    mode: vision
+    mode: e2e
     enabled: true
     viewports:
       - desktop
@@ -21,4 +21,26 @@ steps:
       - ux
       - smoke
     judgment: true
+    spec: tests/drills/vault.spec.ts#ux-functional-smoke
 states: []
+spotter:
+  stability:
+    step-start:
+      decision: drop
+      runs: 1
+      lastRunId: 01KY7NHPN9SX3AY3WN359GBQ34
+      annotation: >-
+        Identical to frame-0012 (same Duties page) — a step-start boundary
+        marker before the vault check begins, no visual
+
+        change yet.
+    step-end:
+      decision: keep
+      runs: 1
+      lastRunId: 01KY7NHPN9SX3AY3WN359GBQ34
+      annotation: >-
+        Vault unlocked ('Vault ready') with 8 stored secret values (Deepgram,
+        Google OAuth, etc.) and reveal controls — the
+
+        check's confirmed step-end outcome after unlocking.
+  rules: []
