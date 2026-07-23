@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Play, Pause, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
+import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -2386,19 +2386,9 @@ function HighlightOverlay({ rect }: { rect: ReelHighlight }) {
   );
 }
 
-const DWELL_OPTIONS: Array<{ ms: number; label: string }> = [
-  { ms: 1000, label: "1s" },
-  { ms: 1500, label: "1.5s" },
-  { ms: 2500, label: "2.5s" },
-  { ms: 4000, label: "4s" },
-  { ms: 6000, label: "6s" }
-];
-
 interface ReelCarouselProps {
   runId: string;
   frames: DebriefFrame[];
-  dwellMs: number;
-  setDwellMs: (ms: number) => void;
   showAll: boolean;
   onToggleShowAll: () => void;
   onActiveFrameChange: (frame: DebriefFrame | null) => void;
@@ -2411,13 +2401,11 @@ interface ReelCarouselProps {
   curationPending: boolean;
 }
 function ReelCarousel({
-  runId, frames, dwellMs, setDwellMs, showAll, onToggleShowAll, onActiveFrameChange,
+  runId, frames, showAll, onToggleShowAll, onActiveFrameChange,
   enqueue, scopeLabel, flagged, onFlag, reelCount, candidateCount, curationPending
 }: ReelCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = useState(0);
-  const [playing, setPlaying] = useState(true);
-  const [held, setHeld] = useState(false);
 
   // Re-init and snap to the start whenever the source list changes (scope
   // change, show-all toggle) so a stale index never points past the new list.
@@ -2442,18 +2430,6 @@ function ReelCarousel({
 
   const active = frames[selected] ?? null;
   useEffect(() => { onActiveFrameChange(active); }, [active, onActiveFrameChange]);
-
-  // Autoplay: advance after the active frame's dwell. High-importance frames
-  // never sit shorter than 4s; press-and-hold and the pause button freeze it.
-  useEffect(() => {
-    if (!emblaApi || !playing || held || frames.length <= 1) return;
-    const base = active?.importance === "high" ? Math.max(dwellMs, 4000) : dwellMs;
-    const timer = window.setTimeout(() => {
-      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
-      else emblaApi.scrollTo(0);
-    }, base);
-    return () => window.clearTimeout(timer);
-  }, [emblaApi, playing, held, selected, dwellMs, frames, active]);
 
   // Long-dwell feedback (D6): a single event when a frame stays active past 5s,
   // paused time included; re-armed on every activation so it fires once/visit.
@@ -2502,13 +2478,7 @@ function ReelCarousel({
         <div className="dr-db-track">
           {frames.map((frame, i) => (
             <div className="dr-db-slide" key={`${frame.name}:${i}`}>
-              <div
-                className="dr-db-stage"
-                onPointerDown={() => setHeld(true)}
-                onPointerUp={() => setHeld(false)}
-                onPointerLeave={() => setHeld(false)}
-                onPointerCancel={() => setHeld(false)}
-              >
+              <div className="dr-db-stage">
                 <div className="dr-db-frame">
                   <img className="dr-db-frame-img" src={evidenceFileUrl(runId, frame.name)} alt={frame.annotation || frame.trigger || frame.name} draggable={false} />
                   {frame.inReel && frame.highlight && <HighlightOverlay rect={frame.highlight} />}
@@ -2548,19 +2518,10 @@ function ReelCarousel({
       <div className="dr-db-reel-controls">
         <div className="dr-db-transport">
           <button className="dr-db-iconbtn" aria-label="Previous frame" onClick={() => emblaApi?.scrollPrev()}><ArrowLeft size={14} /></button>
-          <button className="dr-db-iconbtn" aria-label={playing ? "Pause" : "Play"} onClick={() => setPlaying((p) => !p)}>
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </button>
           <button className="dr-db-iconbtn" aria-label="Next frame" onClick={() => emblaApi?.scrollNext()}><ArrowRight size={14} /></button>
           <span className="dr-db-counter mono">{frames.length === 0 ? "0 / 0" : `${selected + 1} / ${frames.length}`}</span>
         </div>
         <div className="dr-db-reel-right">
-          <label className="dr-db-dwell">
-            <span>Dwell</span>
-            <select value={dwellMs} onChange={(e) => setDwellMs(Number(e.target.value))} aria-label="Frame dwell time">
-              {DWELL_OPTIONS.map((opt) => <option key={opt.ms} value={opt.ms}>{opt.label}</option>)}
-            </select>
-          </label>
           <button className={"btn small" + (showAll ? " primary" : "")} onClick={onToggleShowAll} aria-pressed={showAll}>
             <Film size={12} /> {showAll ? "All frames" : "Show all"}
           </button>
@@ -2928,7 +2889,6 @@ function DebriefView({
   const [scope, setScope] = useState<DebriefScope>({ kind: "all" });
   const [tab, setTab] = useState<DebriefTab>("screenshots");
   const [showAll, setShowAll] = useState(false);
-  const [dwellMs, setDwellMs] = useState(2500);
   const [reel, setReel] = useState<ReelManifest | null>(null);
   const [spotter, setSpotter] = useState<SpotterManifest | null>(null);
   const [activeFrame, setActiveFrame] = useState<DebriefFrame | null>(null);
@@ -3282,8 +3242,6 @@ function DebriefView({
             <ReelCarousel
               runId={run.id}
               frames={frames}
-              dwellMs={dwellMs}
-              setDwellMs={setDwellMs}
               showAll={showAll}
               onToggleShowAll={toggleShowAll}
               onActiveFrameChange={setActiveFrame}
