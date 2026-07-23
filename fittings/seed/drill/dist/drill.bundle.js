@@ -26388,17 +26388,6 @@ var NotebookPen = createLucideIcon("NotebookPen", [
   ]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/pause.js
-var Pause = createLucideIcon("Pause", [
-  ["rect", { x: "14", y: "4", width: "4", height: "16", rx: "1", key: "zuxfzm" }],
-  ["rect", { x: "6", y: "4", width: "4", height: "16", rx: "1", key: "1okwgv" }]
-]);
-
-// ../../../node_modules/lucide-react/dist/esm/icons/play.js
-var Play = createLucideIcon("Play", [
-  ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
-]);
-
 // ../../../node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
@@ -28289,18 +28278,9 @@ function HighlightOverlay({ rect }) {
     }
   );
 }
-var DWELL_OPTIONS = [
-  { ms: 1e3, label: "1s" },
-  { ms: 1500, label: "1.5s" },
-  { ms: 2500, label: "2.5s" },
-  { ms: 4e3, label: "4s" },
-  { ms: 6e3, label: "6s" }
-];
 function ReelCarousel({
   runId,
   frames,
-  dwellMs,
-  setDwellMs,
   showAll,
   onToggleShowAll,
   onActiveFrameChange,
@@ -28314,8 +28294,6 @@ function ReelCarousel({
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = (0, import_react4.useState)(0);
-  const [playing, setPlaying] = (0, import_react4.useState)(true);
-  const [held, setHeld] = (0, import_react4.useState)(false);
   (0, import_react4.useEffect)(() => {
     if (!emblaApi || frames.length === 0) return;
     emblaApi.reInit();
@@ -28335,15 +28313,6 @@ function ReelCarousel({
   (0, import_react4.useEffect)(() => {
     onActiveFrameChange(active);
   }, [active, onActiveFrameChange]);
-  (0, import_react4.useEffect)(() => {
-    if (!emblaApi || !playing || held || frames.length <= 1) return;
-    const base = active?.importance === "high" ? Math.max(dwellMs, 4e3) : dwellMs;
-    const timer = window.setTimeout(() => {
-      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
-      else emblaApi.scrollTo(0);
-    }, base);
-    return () => window.clearTimeout(timer);
-  }, [emblaApi, playing, held, selected, dwellMs, frames, active]);
   (0, import_react4.useEffect)(() => {
     if (!active) return;
     const name = active.name;
@@ -28378,20 +28347,10 @@ function ReelCarousel({
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", tabIndex: 0, onKeyDown, "aria-label": "Screenshot reel", role: "group", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-carousel", ref: emblaRef, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-track", children: frames.map((frame, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-slide", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "div",
-        {
-          className: "dr-db-stage",
-          onPointerDown: () => setHeld(true),
-          onPointerUp: () => setHeld(false),
-          onPointerLeave: () => setHeld(false),
-          onPointerCancel: () => setHeld(false),
-          children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-frame", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-db-frame-img", src: evidenceFileUrl(runId, frame.name), alt: frame.annotation || frame.trigger || frame.name, draggable: false }),
-            frame.inReel && frame.highlight && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HighlightOverlay, { rect: frame.highlight })
-          ] })
-        }
-      ) }, `${frame.name}:${i}`)) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-carousel", ref: emblaRef, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-track", children: frames.map((frame, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-slide", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-stage", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-frame", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-db-frame-img", src: evidenceFileUrl(runId, frame.name), alt: frame.annotation || frame.trigger || frame.name, draggable: false }),
+        frame.inReel && frame.highlight && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HighlightOverlay, { rect: frame.highlight })
+      ] }) }) }, `${frame.name}:${i}`)) }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot" + (active?.importance === "high" ? " high" : ""), children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot-meta", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-trigger", children: active?.trigger ?? "" }),
@@ -28418,15 +28377,10 @@ function ReelCarousel({
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-controls", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-transport", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": "Previous frame", onClick: () => emblaApi?.scrollPrev(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 14 }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": playing ? "Pause" : "Play", onClick: () => setPlaying((p) => !p), children: playing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 14 }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": "Next frame", onClick: () => emblaApi?.scrollNext(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { size: 14 }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-counter mono", children: frames.length === 0 ? "0 / 0" : `${selected + 1} / ${frames.length}` })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-right", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dr-db-dwell", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Dwell" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: dwellMs, onChange: (e) => setDwellMs(Number(e.target.value)), "aria-label": "Frame dwell time", children: DWELL_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: opt.ms, children: opt.label }, opt.ms)) })
-          ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
             " ",
@@ -28735,7 +28689,6 @@ function DebriefView({
   const [scope, setScope] = (0, import_react4.useState)({ kind: "all" });
   const [tab, setTab] = (0, import_react4.useState)("screenshots");
   const [showAll, setShowAll] = (0, import_react4.useState)(false);
-  const [dwellMs, setDwellMs] = (0, import_react4.useState)(2500);
   const [reel, setReel] = (0, import_react4.useState)(null);
   const [spotter, setSpotter] = (0, import_react4.useState)(null);
   const [activeFrame, setActiveFrame] = (0, import_react4.useState)(null);
@@ -29057,8 +29010,6 @@ function DebriefView({
           {
             runId: run.id,
             frames,
-            dwellMs,
-            setDwellMs,
             showAll,
             onToggleShowAll: toggleShowAll,
             onActiveFrameChange: setActiveFrame,
@@ -30699,8 +30650,6 @@ lucide-react/dist/esm/icons/locate-fixed.js:
 lucide-react/dist/esm/icons/message-square.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/notebook-pen.js:
-lucide-react/dist/esm/icons/pause.js:
-lucide-react/dist/esm/icons/play.js:
 lucide-react/dist/esm/icons/plus.js:
 lucide-react/dist/esm/icons/refresh-ccw.js:
 lucide-react/dist/esm/icons/rotate-cw.js:
