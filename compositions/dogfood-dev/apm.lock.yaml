@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-21T19:04:29.043933+00:00'
+generated_at: '2026-07-22T06:24:17.822448+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -74,7 +74,7 @@ dependencies:
   - .claude/skills/garrison-drill
   - .claude/skills/garrison-drill/SKILL.md
   deployed_file_hashes:
-    .claude/skills/garrison-drill/SKILL.md: sha256:292fa6440a86a18597355473eb95514caef1f67dedf9972ebbc32fad22277516
+    .claude/skills/garrison-drill/SKILL.md: sha256:507357d23191a5fcf36a7545dd084adc72eb28d7c6eaedd9f8dea8e50baa0085
   source: local
   local_path: ../../fittings/seed/drill
 - repo_url: _local/file-browser
@@ -159,7 +159,7 @@ dependencies:
   local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/outpost-tailscale-host
   name: outpost-tailscale-host
-  version: 0.2.0
+  version: 0.3.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/outpost-tailscale-host
