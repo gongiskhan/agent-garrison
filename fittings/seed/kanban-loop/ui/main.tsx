@@ -1694,6 +1694,64 @@ function App() {
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Drag-to-scroll the board horizontally with the mouse, like a touch swipe —
+  // touch/pen already get free native panning from -webkit-overflow-scrolling,
+  // so this only kicks in for pointerType "mouse". A small move threshold
+  // distinguishes an intentional drag from a click, and the click-capture
+  // handler below swallows the click that would otherwise fire on mouseup
+  // after a drag (e.g. opening a card you only meant to scroll past).
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef({ down: false, moved: false, startX: 0, scrollLeft: 0 });
+
+  const onBoardPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    // Only arm the drag from empty background (list gutters, header/body
+    // padding) — starting it on a card or any interactive control would let a
+    // few pixels of click-jitter hijack a button press as a "drag" and
+    // swallow the click (see onBoardClickCapture below).
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, select, [role='button'], .card")) return;
+    const el = boardScrollRef.current;
+    if (!el) return;
+    dragRef.current = { down: true, moved: false, startX: e.clientX, scrollLeft: el.scrollLeft };
+    el.setPointerCapture(e.pointerId);
+  }, []);
+
+  const onBoardPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const el = boardScrollRef.current;
+    const d = dragRef.current;
+    if (!el || !d.down) return;
+    const dx = e.clientX - d.startX;
+    if (!d.moved && Math.abs(dx) > 4) {
+      d.moved = true;
+      el.classList.add("dragging");
+    }
+    if (d.moved) {
+      el.scrollLeft = d.scrollLeft - dx;
+      e.preventDefault();
+    }
+  }, []);
+
+  const endBoardDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const el = boardScrollRef.current;
+    const d = dragRef.current;
+    if (d.moved) {
+      el?.classList.remove("dragging");
+      if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      // clear "moved" one tick after the synchronous click event has had a
+      // chance to check it, so the very next real click isn't swallowed too
+      requestAnimationFrame(() => { dragRef.current.moved = false; });
+    }
+    dragRef.current.down = false;
+  }, []);
+
+  const onBoardClickCapture = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (dragRef.current.moved) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const b = await api.board();
@@ -1862,7 +1920,15 @@ function App() {
         </div>
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
-      <div className="board-scroll">
+      <div
+        className="board-scroll"
+        ref={boardScrollRef}
+        onPointerDown={onBoardPointerDown}
+        onPointerMove={onBoardPointerMove}
+        onPointerUp={endBoardDrag}
+        onPointerCancel={endBoardDrag}
+        onClickCapture={onBoardClickCapture}
+      >
         <div className="board">
           {board?.lists.map((list) => (
             <section key={list.id} className={listClass(list)}>

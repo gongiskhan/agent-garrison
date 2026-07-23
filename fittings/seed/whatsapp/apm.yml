@@ -1,0 +1,84 @@
+name: whatsapp
+version: 0.1.0
+description: WhatsApp Business Cloud API connector seed for Agent Garrison.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: connectors
+  cardinality_hint: multi
+  component_shape: cli
+  platforms:
+    - all
+  summary: WhatsApp connector — send text/template messages and list approved templates on the WhatsApp Business Cloud API (Meta Graph API) as a callable action catalog. Auth (a permanent system-user access token + phone number id) is sealed in the Vault and delivered scoped at call time; nothing plaintext in the manifest or logs.
+  config_schema:
+    - key: phone_number_id
+      type: string
+      description: The WhatsApp Business phone number id (WHATSAPP_PHONE_NUMBER_ID) messages are sent from.
+      required: true
+    - key: business_account_id
+      type: string
+      description: The WhatsApp Business Account id (WHATSAPP_BUSINESS_ACCOUNT_ID) used to list message templates. Only required for list_templates.
+      required: false
+  connector:
+    auth: api_key
+    actions:
+      - name: send_text
+        args:
+          - to
+          - body
+        mutates: true
+        description: Send a free-form text message (only within a customer's 24h service window).
+      - name: send_template
+        args:
+          - to
+          - template
+          - language
+          - components
+        mutates: true
+        description: Send a pre-approved template message (works outside the 24h window; components is optional).
+      - name: list_templates
+        mutates: false
+        description: List the business account's message templates and their approval status.
+  secret_scope:
+    - WHATSAPP_ACCESS_TOKEN
+    - WHATSAPP_PHONE_NUMBER_ID
+    - WHATSAPP_BUSINESS_ACCOUNT_ID
+  provides:
+    - kind: connector
+      name: whatsapp
+  consumes:
+    - kind: vault
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/whatsapp/scripts/connector.mjs --probe
+    expect: connectorOk
+    timeout_ms: 15000
+  for_consumers: |
+    WhatsApp is a connector: a catalog of actions on a WhatsApp Business phone
+    number, callable by an automation's `connector` step or directly via the
+    connector CLI. Auth (WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID /
+    WHATSAPP_BUSINESS_ACCOUNT_ID) is sealed in the Vault and materialized
+    scoped only into the call. The access token is a permanent Meta system-user
+    token (Business Settings -> System Users), not a short-lived user token.
+
+      node apm_modules/_local/whatsapp/scripts/connector.mjs catalog
+        -> the action catalog as JSON.
+      node apm_modules/_local/whatsapp/scripts/connector.mjs call send_text '{"to":"15551234567","body":"hello"}'
+        -> only works inside a customer's 24h service window (they messaged
+           first); outside that window WhatsApp rejects free-form text and
+           send_template must be used instead.
+      node .../connector.mjs call send_template '{"to":"15551234567","template":"order_update","language":"en_US"}'
+        -> "components" is optional: pass it when the template has variables,
+           e.g. {"components":[{"type":"body","parameters":[{"type":"text","text":"42"}]}]}.
+      node .../connector.mjs call list_templates
+        -> the business account's templates [{ name, status, category, language }].
+           Requires WHATSAPP_BUSINESS_ACCOUNT_ID; run this FIRST to find an
+           approved template's exact name before calling send_template.
+
+    Each call prints { ok, result } (or { ok:false, awaiting_connector:true }
+    when WhatsApp is not connected — prompt the user to connect it).

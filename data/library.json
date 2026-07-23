@@ -60,6 +60,20 @@
     }
   },
   {
+    "id": "whatsapp",
+    "name": "WhatsApp connector",
+    "repo": "local:fittings/seed/whatsapp",
+    "localPath": "fittings/seed/whatsapp",
+    "summary": "WhatsApp connector — send text/template messages and list templates on the WhatsApp Business Cloud API as a Vault-sealed callable action catalog.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
     "id": "spotify",
     "name": "Spotify connector",
     "repo": "local:fittings/seed/spotify",

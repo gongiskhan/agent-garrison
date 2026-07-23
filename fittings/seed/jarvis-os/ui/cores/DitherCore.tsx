@@ -21,10 +21,10 @@ import { DitheringShader } from "./dithering-shader";
 export type CoreMode = "idle" | "working" | "listening" | "speaking" | "error" | "muted";
 
 const MODE_COLOR: Record<CoreMode, string> = {
-  idle: "#d97757",
-  working: "#ffb347",
-  listening: "#5577ff",
-  speaking: "#ffc94a",
+  idle: "#c8322c",
+  working: "#ff5e3a",
+  listening: "#ff5c50",
+  speaking: "#fff0ec",
   error: "#ff4d3d",
   muted: "#6b7280",   // desaturated grey — deaf to the room
 };

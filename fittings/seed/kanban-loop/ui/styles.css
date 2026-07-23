@@ -169,6 +169,11 @@ body {
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 4px;
+  cursor: grab;
+}
+.board-scroll.dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 .board {
   display: flex;

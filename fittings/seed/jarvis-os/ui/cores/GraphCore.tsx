@@ -22,8 +22,8 @@ export type CoreMode = "idle" | "working" | "listening" | "speaking" | "error" |
 export type BgMode = "flat" | "depth" | "grid" | "nebula";
 export const BG_MODES: BgMode[] = ["flat", "depth", "grid", "nebula"];
 
-// color comes from a slow hue voyage (full spectrum ~70s); modes shape
-// tempo + brightness, error locks the hue to red
+// color stays in the red family (black-and-red skin) with a slow wobble;
+// modes shape tempo + brightness, error locks the hue to a tighter red
 interface ModeFeel {
   speed: number; // rotation/drift multiplier
   boost: number; // brightness multiplier
@@ -40,6 +40,11 @@ const FEELS: Record<CoreMode, ModeFeel> = {
 };
 
 const ERROR_HUE = 0.015;
+// black-and-red skin: the orb stays in the red family — no full-spectrum
+// hue voyage. BASE_HUE 0 = pure red (three.js HSL); a small wobble keeps it
+// alive without drifting into orange/green/blue.
+const BASE_HUE = 0.0;
+const HUE_WOBBLE = 0.025;
 
 const CLOUD_R = 1.5;
 const N_NODES = 2200;
@@ -213,8 +218,8 @@ export default function GraphCore({
         uBoost: { value: 1 },
         uLevel: { value: 0 },
         uHue: { value: 0.62 },
-        uInner: { value: new THREE.Color().setHSL(0.62, 0.65, 0.84) },
-        uOuter: { value: new THREE.Color().setHSL(0.62, 0.85, 0.45) },
+        uInner: { value: new THREE.Color().setHSL(0.0, 0.65, 0.84) },
+        uOuter: { value: new THREE.Color().setHSL(0.0, 0.85, 0.45) },
       },
       transparent: true,
       depthWrite: false,
@@ -271,7 +276,7 @@ export default function GraphCore({
     edgeAttr.setUsage(THREE.DynamicDrawUsage);
     edgeGeo.setAttribute("position", edgeAttr);
     const edgeMat = new THREE.LineBasicMaterial({
-      color: new THREE.Color().setHSL(0.62, 0.8, 0.55),
+      color: new THREE.Color().setHSL(0.0, 0.8, 0.55),
       transparent: true,
       opacity: 0.14,
       blending: THREE.AdditiveBlending,
@@ -284,7 +289,7 @@ export default function GraphCore({
     const halo = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: tex,
-        color: "#1d3fb8",
+        color: "#8a1414",
         transparent: true,
         opacity: 0.16,
         blending: THREE.AdditiveBlending,
@@ -300,7 +305,7 @@ export default function GraphCore({
     const bgGlow = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: tex,
-        color: "#1d3fb8",
+        color: "#8a1414",
         transparent: true,
         opacity: 0.07,
         depthWrite: false,
@@ -322,7 +327,7 @@ export default function GraphCore({
     }
     dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPts, 3));
     const dustMat = new THREE.PointsMaterial({
-      color: "#7a8cc8",
+      color: "#c86a6a",
       size: 0.018,
       transparent: true,
       opacity: 0.35,
@@ -344,7 +349,7 @@ export default function GraphCore({
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(gridPts), 3));
     const gridMat = new THREE.LineBasicMaterial({
-      color: "#2f5ce0",
+      color: "#b8272a",
       transparent: true,
       opacity: 0.13,
       depthWrite: false,
@@ -400,7 +405,7 @@ export default function GraphCore({
         }`,
       uniforms: {
         uTime: { value: 0 },
-        uCol: { value: new THREE.Color("#16307a") },
+        uCol: { value: new THREE.Color("#3a0a0a") },
       },
       transparent: true,
       depthWrite: false,
@@ -445,7 +450,7 @@ export default function GraphCore({
     const clock = new THREE.Clock();
     let level = 0;
     let speed = 1;
-    let hue = 0.62; // start at the reference blue, then voyage
+    let hue = BASE_HUE; // red — see BASE_HUE/HUE_WOBBLE above
     let lastT = 0;
     // speed-integrated clock — mode changes alter velocity, never position
     // (t * speed would snap rotation/drift when speed lerps on a mode flip)
@@ -474,9 +479,10 @@ export default function GraphCore({
       speed += (feel.speed - speed) * 0.03;
       simT += dt * speed;
 
-      // slow hue voyage (~70s per lap); speech nudges it along, error parks on red
+      // gentle wobble around red (~40s per lap of the wobble), never a full
+      // spectrum voyage; speech widens the wobble slightly, error parks tighter on red
       if (modeRef.current !== "error") {
-        hue = (hue + dt * (0.014 * feel.hueRate + level * 0.05)) % 1;
+        hue = (1 + BASE_HUE + HUE_WOBBLE * Math.sin(simT * 0.025 * feel.hueRate + level * 0.6)) % 1;
       }
       const h = modeRef.current === "error" ? ERROR_HUE : hue;
 
