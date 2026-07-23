@@ -7,6 +7,7 @@ dependencies:
     - path: ../../fittings/seed/garrison-orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
+    - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/kanban-loop
@@ -33,6 +34,13 @@ x-garrison:
         - id: garrison-orchestrator
           config: {}
       channels:
+        # Web channel (own-port 7083 dev / 8083 prod) — the TEXT surface: a
+        # browser chat proxying the http-gateway. This is where "faz commit"
+        # can be typed instead of spoken; the HUD (jarvis-os) has no text input.
+        - id: web-channel-default
+          config:
+            port: 7083
+            bind_host: 127.0.0.1
         - id: jarvis-os
           config:
             port: 7092

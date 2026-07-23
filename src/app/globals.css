@@ -333,6 +333,18 @@ button:disabled {
   color: var(--shell-mute);
   margin-top: 4px;
 }
+/* The commit the instance is running. A footnote under the sub-line: lowercase
+   (a hash is not a label), smaller and dimmer than .sub so it does not compete
+   with the DEV/PROD chip riding on the line above. */
+.brand-text .rev {
+  display: block;
+  font-family: var(--font-mono), 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--shell-mute);
+  opacity: 0.6;
+  margin-top: 2px;
+}
 .side-collapse,
 .side-rail-toggle {
   display: inline-grid;

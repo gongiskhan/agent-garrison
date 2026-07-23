@@ -84,6 +84,10 @@ case "${1:-status}" in
     alive || { echo "[dev] server is not running — scripts/garrison-dev.sh start" >&2; exit 1; }
     say "bringing up operative + eager fittings ($composition)"
     curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
+    # Mirror prod redeploy: without a tailscale serve mapping a fitting view is
+    # a blank pane off-box (mixed content). Dev publishes on the 74xx family.
+    sleep 4
+    GARRISON_INSTANCE_ID=dev GARRISON_HOME="$DEV_HOME"       node "$DEV_TREE/scripts/tailnet-serve-views.mjs" ||       say "tailnet publish failed (views may be unreachable off-box)"
     say "up"
     ;;
   down)

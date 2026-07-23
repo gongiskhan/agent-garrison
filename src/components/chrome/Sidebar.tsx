@@ -88,6 +88,14 @@ export function Sidebar() {
       ? formatUptime(now - new Date(runnerState.startedAt).getTime())
       : "-";
 
+  // The running commit, server-stamped onto <html data-commit> in layout.tsx.
+  // Read after mount rather than during render: it lives outside React's tree,
+  // and touching `document` while rendering would break SSR.
+  const [commit, setCommit] = useState<string | null>(null);
+  useEffect(() => {
+    setCommit(document.documentElement.dataset.commit ?? null);
+  }, []);
+
   // At narrow widths the expanded sidebar is an overlay drawer above the
   // content column; tapping the scrim, pressing Escape, or following any
   // link closes it. At desktop widths it is the normal sticky grid column.
@@ -164,6 +172,7 @@ export function Sidebar() {
           <span className="brand-text">
             <span className="name">Agent Garrison</span>
             <span className="sub">v1 · localhost</span>
+            {commit ? <span className="rev">{commit}</span> : null}
           </span>
         </Link>
         <button

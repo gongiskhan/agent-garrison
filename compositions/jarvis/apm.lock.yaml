@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-21T13:20:05.137649+00:00'
+generated_at: '2026-07-23T08:49:33.683928+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/dev-env
@@ -82,6 +82,12 @@ dependencies:
     .claude/skills/trello/SKILL.md: sha256:98db910b886112716671873c3c2faea81a12cbb1ed880bebb6091fb36e4d06ee
   source: local
   local_path: ../../fittings/seed/trello
+- repo_url: _local/web-channel-default
+  name: web-channel-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/web-channel-default
 deployments:
 - kind: project-relative
   target: claude

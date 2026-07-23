@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow, Source_Serif_4, JetBrains_Mono } from "next/font/google";
 import { currentProfile } from "@/lib/instance-profile";
+import { commitShort } from "@/lib/build-info";
 import "./globals.css";
 import { AppShell } from "@/components/chrome/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/chrome/ServiceWorkerRegistrar";
@@ -81,6 +82,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       // fixed top stripe and the sidebar instance chip. Server-rendered, so
       // the marker can never disagree with the process actually serving.
       data-instance={currentProfile()}
+      // The commit this instance is running, stamped by the same server render
+      // as the marker above so the two can never disagree. The sidebar brand
+      // block reads it off <html> and shows it under "v1 · localhost"; absent
+      // when the hash cannot be determined.
+      data-commit={commitShort() ?? undefined}
       className={`${barlow.variable} ${sourceSerif.variable} ${jetBrainsMono.variable}`}
     >
       <body>
