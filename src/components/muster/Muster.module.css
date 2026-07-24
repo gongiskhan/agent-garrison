@@ -1786,6 +1786,273 @@
   }
 }
 
+/* ═══ Runtimes Panel (dedicated tab) ════════════════════════════════════════
+   Gives runtimes first-class visual treatment: the primary runtime is a
+   featured card with a prominent brass accent; secondaries live in a grid
+   below. Same Garrison tokens, sharp corners, light-only. */
+.rtPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+.rtPanelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.rtPanelActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.rtSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rtSectionLabel {
+  /* rendered as an <h3> for heading navigation — reset UA heading margins */
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass);
+  font-weight: 600;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.rtSectionCount {
+  font-size: 9.5px;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-2);
+  color: var(--mute);
+  background: var(--paper-2);
+  letter-spacing: 0.04em;
+}
+
+/* Primary runtime: brass left rail + elevated surface, full-width */
+.rtPrimaryCard {
+  border-left: 4px solid var(--brass);
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(31, 42, 34, 0.07);
+}
+
+/* Secondary runtimes: responsive grid, ink top border matching slotCard */
+.rtSecondaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+
+.rtSecondaryCard {
+  border-top: 2px solid var(--ink);
+  background: var(--surface);
+  box-shadow: 0 6px 16px rgba(31, 42, 34, 0.04);
+  /* stretch to the grid row so a short card doesn't end above its neighbours */
+  display: flex;
+  flex-direction: column;
+}
+
+.rtSecondaryCard .rtCard {
+  flex: 1;
+}
+
+/* pin the action row to the card bottom so rows align across the grid */
+.rtSecondaryCard .rtCardFoot {
+  margin-top: auto;
+}
+
+/* Shared card body */
+.rtCard {
+  padding: 22px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rtCardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rtCardMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rtCardName {
+  /* rendered as an <h4> — reset UA heading margins */
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+/* Slightly smaller name on secondary cards */
+.rtSecondaryCard .rtCardName {
+  font-size: 17px;
+}
+
+.rtCardTags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rtCardSummary {
+  font-size: 12.5px;
+  color: var(--mute);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.rtCardFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--rule);
+}
+
+/* "Set as primary" - the key action on a secondary runtime, styled with
+   brass accent to draw the eye */
+.rtSetPrimaryBtn {
+  min-height: 40px;
+  padding: 6px 16px;
+  border: 1px solid var(--brass);
+  background: transparent;
+  color: var(--brass);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.rtSetPrimaryBtn:hover {
+  background: var(--brass);
+  color: var(--paper);
+}
+
+/* Filled-brass badge on the featured card - the one unmistakable primary mark */
+.rtPrimaryBadge {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 3px 8px;
+  background: var(--brass);
+  color: var(--paper);
+  flex-shrink: 0;
+}
+
+/* A runtimes-slot member that provides no engine (can't be primary/tested) */
+.rtSupportTag {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--rule-2);
+  color: var(--mute);
+  background: var(--paper-2);
+}
+
+/* At-a-glance config values (model, account, ...) without unfolding the form */
+.rtSpecs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rtSpecChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper-2);
+  padding: 3px 8px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--ink);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.rtSpecKey {
+  color: var(--mute);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.rtSpecVal {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.rtEmpty {
+  padding: 22px 20px;
+  font-size: 12.5px;
+  color: var(--mute);
+  font-style: italic;
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+}
+
+@media (max-width: 640px) {
+  .rtPanelHead {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .rtPanelActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .rtCard {
+    padding: 16px 14px 14px;
+  }
+  .rtCardName {
+    font-size: 17px;
+  }
+  .rtSecondaryGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rtSetPrimaryBtn {
+    transition: none;
+  }
+}
+
 /* ── mobile collapse (<= 640px): single column, no horizontal overflow ──── */
 /* collapse the duties two-column at tablet width - the 296px rail needs room */
 @media (max-width: 900px) {

@@ -2,11 +2,12 @@
 
 // The Muster Standing Fittings section (GARRISON-UNIFY-V1 D12, slice S5b). The
 // non-duty half of the page: one slot card per infrastructure faculty
-// (channels/gateway/runtimes/memory/observability/sessions/surfaces/connectors),
-// each showing its current fitting(s), a config_schema-driven form (autosaved,
+// (channels/gateway/memory/observability/sessions/surfaces/connectors), each
+// showing its current fitting(s), a config_schema-driven form (autosaved,
 // no Save button), a Swap picker (the D9 library picker scoped to the slot's
-// faculty), live health for own-port fittings, and - for the runtimes slot - the
-// create-runtime flow (clone a template, configure, test, set primary).
+// faculty), and live health for own-port fittings. The runtimes slot is NOT
+// rendered here: runtimes are first-class on the Muster Runtimes tab
+// (RuntimesPanel below - featured primary card, create/swap/test flows).
 //
 // Owns its own data (GET /api/muster/standing) and writes, decoupled from the
 // S5a Duties model so the two sections never contend for one payload. Reference
@@ -132,8 +133,6 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
   const [health, setHealth] = useState<Record<string, boolean>>({});
   const [orphaned, setOrphaned] = useState<OrphanedConsumer[]>([]);
   const [swap, setSwap] = useState<SwapTarget | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [tests, setTests] = useState<Record<string, RuntimeTestResult>>({});
   const [search, setSearch] = useState("");
 
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -264,32 +263,6 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
     [persist]
   );
 
-  const setPrimary = useCallback(
-    (fittingId: string) => void persist("/api/muster/standing/runtime", { action: "set-primary", fittingId }),
-    [persist]
-  );
-
-  const testRuntime = useCallback(
-    async (fittingId: string) => {
-      const data = await persist("/api/muster/standing/runtime", { action: "test", fittingId });
-      if (data && typeof data.ok === "boolean") setTests((t) => ({ ...t, [fittingId]: data as unknown as RuntimeTestResult }));
-    },
-    [persist]
-  );
-
-  const createRuntime = useCallback(
-    async (templateId: string, newId: string | undefined): Promise<boolean> => {
-      const data = await persist("/api/muster/standing/runtime", { action: "create", templateId, newId });
-      if (data && typeof data.newFittingId === "string") {
-        setCreateOpen(false);
-        refreshHealth();
-        return true;
-      }
-      return false;
-    },
-    [persist, refreshHealth]
-  );
-
   const removeFitting = useCallback(
     (faculty: string, fittingId: string) => void doSwap(faculty, undefined, fittingId),
     [doSwap]
@@ -309,12 +282,16 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
     [library]
   );
 
-  const runtimeSlot = useMemo(() => model?.slots.find((s) => s.faculty === "runtimes") ?? null, [model]);
+  // Runtimes have their own Muster tab (RuntimesPanel); this tab covers the rest.
+  const standingSlots = useMemo(
+    () => (model ? model.slots.filter((s) => s.faculty !== "runtimes") : []),
+    [model]
+  );
   const visibleSlots = useMemo(() => {
     if (!model) return [];
     const query = search.trim().toLowerCase();
-    if (!query) return model.slots;
-    return model.slots.flatMap((slot) => {
+    if (!query) return standingSlots;
+    return standingSlots.flatMap((slot) => {
       const slotMatches = `${slot.faculty} ${slot.facultyName} ${slot.role}`.toLowerCase().includes(query);
       const fittings = slotMatches
         ? slot.fittings
@@ -325,7 +302,7 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
           );
       return fittings.length > 0 ? [{ ...slot, fittings }] : [];
     });
-  }, [model, search]);
+  }, [model, standingSlots, search]);
 
   if (status === "loading" && !model) {
     return (
@@ -367,7 +344,7 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
     <section className={styles.section} data-testid="standing-section">
       <div className={styles.sectionHead}>
         <span className={styles.sectionLabel}>
-          Standing Fittings <span className={styles.sectionCount}>· {model.slots.length} slots</span>
+          Standing Fittings <span className={styles.sectionCount}>· {standingSlots.length} slots</span>
         </span>
         {saving ? <span className={styles.saving}>saving…</span> : null}
       </div>
@@ -408,16 +385,11 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
               key={slot.faculty}
               slot={slot}
               health={health}
-              tests={tests}
-              primaryRuntime={model.primaryRuntime}
               onSwap={(fromId) => setSwap({ faculty: slot.faculty, fromId })}
               onRemoveFitting={removeFitting}
               onConfig={commitConfig}
-              onSetPrimary={setPrimary}
-              onTest={testRuntime}
               onEdit={editFitting}
               isEditable={isEditable}
-              onNewRuntime={slot.faculty === "runtimes" ? () => setCreateOpen(true) : undefined}
             />
           ))}
         </div>
@@ -430,14 +402,6 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
 
       {swap && swapSlot ? (
         <SwapModal slot={swapSlot} fromId={swap.fromId} onPick={doSwap} onClose={() => setSwap(null)} />
-      ) : null}
-
-      {createOpen && runtimeSlot ? (
-        <CreateRuntimeModal
-          templates={model.runtimeTemplates}
-          onCreate={createRuntime}
-          onClose={() => setCreateOpen(false)}
-        />
       ) : null}
     </section>
   );
@@ -488,29 +452,19 @@ function OrphanBanner({
 function SlotCard({
   slot,
   health,
-  tests,
-  primaryRuntime,
   onSwap,
   onRemoveFitting,
   onConfig,
-  onSetPrimary,
-  onTest,
   onEdit,
-  isEditable,
-  onNewRuntime
+  isEditable
 }: {
   slot: StandingSlot;
   health: Record<string, boolean>;
-  tests: Record<string, RuntimeTestResult>;
-  primaryRuntime: string;
   onSwap: (fromId?: string) => void;
   onRemoveFitting: (faculty: string, fittingId: string) => void;
   onConfig: (faculty: string, fittingId: string, field: ConfigSchemaField, value: ConfigValue) => void;
-  onSetPrimary: (fittingId: string) => void;
-  onTest: (fittingId: string) => void;
   onEdit: (fittingId: string) => void;
   isEditable: (fittingId: string) => boolean;
-  onNewRuntime?: () => void;
 }) {
   const empty = slot.fittings.length === 0;
   const addLabel = slot.cardinality === "single" ? "Set fitting" : "Add fitting";
@@ -535,13 +489,9 @@ function SlotCard({
               key={fitting.id}
               fitting={fitting}
               health={fitting.ownPort ? health[fitting.id] : undefined}
-              test={tests[fitting.id]}
-              isPrimary={fitting.providesRuntime && fitting.id === primaryRuntime}
               onSwap={() => onSwap(fitting.id)}
               onRemove={slot.cardinality === "multi" ? () => onRemoveFitting(slot.faculty, fitting.id) : undefined}
               onConfig={(field, value) => onConfig(slot.faculty, fitting.id, field, value)}
-              onSetPrimary={() => onSetPrimary(fitting.id)}
-              onTest={() => onTest(fitting.id)}
               onEdit={isEditable(fitting.id) ? () => onEdit(fitting.id) : undefined}
             />
           ))}
@@ -557,43 +507,25 @@ function SlotCard({
         >
           + {addLabel}
         </button>
-        {onNewRuntime ? (
-          <button
-            type="button"
-            className={styles.slotFootBtn}
-            onClick={onNewRuntime}
-            data-testid="standing-new-runtime"
-          >
-            + New runtime
-          </button>
-        ) : null}
       </div>
     </div>
   );
 }
 
-// ── one fitting block: identity + config form + runtime controls ─────────────
+// ── one fitting block: identity + config form + file/swap actions ────────────
 function FittingBlock({
   fitting,
   health,
-  test,
-  isPrimary,
   onSwap,
   onRemove,
   onConfig,
-  onSetPrimary,
-  onTest,
   onEdit
 }: {
   fitting: StandingFittingView;
   health: boolean | undefined;
-  test: RuntimeTestResult | undefined;
-  isPrimary: boolean;
   onSwap: () => void;
   onRemove?: () => void;
   onConfig: (field: ConfigSchemaField, value: ConfigValue) => void;
-  onSetPrimary: () => void;
-  onTest: () => void;
   onEdit?: () => void;
 }) {
   // Config starts folded: the scan view is fitting identities, not forms. A
@@ -611,7 +543,6 @@ function FittingBlock({
             clone
           </span>
         ) : null}
-        {isPrimary ? <span className={styles.primaryTag}>primary</span> : null}
         {fitting.ownPort ? (
           <span
             className={`${styles.healthPip} ${health === true ? styles.up : health === false ? styles.down : ""}`}
@@ -666,37 +597,6 @@ function FittingBlock({
       ) : (
         <p className={styles.cfgEmpty}>No configuration for this fitting.</p>
       )}
-
-      {fitting.providesRuntime ? (
-        <div className={styles.runtimeControls}>
-          <button
-            type="button"
-            className={styles.primaryBtn}
-            onClick={onSetPrimary}
-            disabled={isPrimary}
-            data-testid={`standing-primary-${fitting.id}`}
-          >
-            {isPrimary ? "Primary runtime" : "Make primary"}
-          </button>
-          <button type="button" className={styles.testBtn} onClick={onTest} data-testid={`standing-test-${fitting.id}`}>
-            Test connection
-          </button>
-          {test ? (
-            <div className={styles.testResult} data-testid={`standing-test-result-${fitting.id}`}>
-              {test.checks.map((c) => (
-                <div key={c.label} className={`${styles.checkRow} ${c.ok ? styles.ok : styles.bad}`}>
-                  <span className={styles.checkMark}>{c.ok ? "+" : "!"}</span>
-                  <span>
-                    {c.label}
-                    {c.detail ? <span className={styles.checkDetail}> · {c.detail}</span> : null}
-                  </span>
-                </div>
-              ))}
-              <p className={styles.testNote}>{test.note}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className={styles.runtimeControls} style={{ borderTop: "none", paddingTop: 6, marginTop: 8 }}>
         {onEdit ? (
@@ -927,6 +827,535 @@ function SwapModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+// ── RuntimesPanel: dedicated tab for runtime configuration ───────────────────
+export function RuntimesPanel({ compositionId }: { compositionId: string }) {
+  const { library, openFittingEditor } = useAppShell();
+  const [model, setModel] = useState<StandingModel | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [health, setHealth] = useState<Record<string, boolean>>({});
+  const [swap, setSwap] = useState<SwapTarget | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [tests, setTests] = useState<Record<string, RuntimeTestResult>>({});
+  const [orphaned, setOrphaned] = useState<OrphanedConsumer[]>([]);
+  const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // The still-pending POST for each debounced field, so a tab-away (which
+  // unmounts this panel) flushes the last edit instead of dropping it.
+  const pendingPosts = useRef<Map<string, () => void>>(new Map());
+  const compositionParam = compositionId ? `?composition=${encodeURIComponent(compositionId)}` : "";
+
+  const refreshHealth = useCallback(() => {
+    fetch("/api/fittings/views")
+      .then((r) => r.json())
+      .then((d: { views?: { fittingId?: unknown; healthy?: unknown }[] }) => {
+        if (!d?.views) return;
+        const map: Record<string, boolean> = {};
+        for (const v of d.views) {
+          if (typeof v.fittingId === "string") map[v.fittingId] = Boolean(v.healthy);
+        }
+        setHealth(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/muster/standing${compositionParam}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setModel(data as StandingModel);
+      setStatus("ready");
+      setErrorMsg(null);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+    }
+  }, [compositionParam]);
+
+  useEffect(() => { void load(); refreshHealth(); }, [load, refreshHealth]);
+
+  const persist = useCallback(
+    async (path: string, body: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+      setSaving(true);
+      try {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ composition: compositionId, ...body })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const nextModel = (data.model ?? data) as StandingModel;
+        if (nextModel && Array.isArray(nextModel.slots)) setModel(nextModel);
+        setErrorMsg(null);
+        return data as Record<string, unknown>;
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : String(err));
+        await load();
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [compositionId, load]
+  );
+
+  const commitConfig = useCallback(
+    (fittingId: string, field: ConfigSchemaField, value: ConfigValue) => {
+      setModel((m) =>
+        m
+          ? {
+              ...m,
+              slots: m.slots.map((slot) =>
+                slot.faculty !== "runtimes"
+                  ? slot
+                  : {
+                      ...slot,
+                      fittings: slot.fittings.map((f) =>
+                        f.id !== fittingId ? f : { ...f, config: { ...f.config, [field.key]: value } }
+                      )
+                    }
+              )
+            }
+          : m
+      );
+      const debounced = field.type !== "boolean" && field.type !== "select";
+      const timerKey = `runtimes:${fittingId}:${field.key}`;
+      const doPost = () => {
+        pendingPosts.current.delete(timerKey);
+        void persist("/api/muster/standing/config", { faculty: "runtimes", fittingId, key: field.key, value });
+      };
+      const existing = debounceTimers.current.get(timerKey);
+      if (existing) clearTimeout(existing);
+      if (debounced) {
+        pendingPosts.current.set(timerKey, doPost);
+        debounceTimers.current.set(timerKey, setTimeout(doPost, 450));
+      } else {
+        doPost();
+      }
+    },
+    [persist]
+  );
+
+  useEffect(() => {
+    const timers = debounceTimers.current;
+    const pending = pendingPosts.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      // Flush, don't drop: fire the last debounced edit so tab-away still saves.
+      for (const flush of pending.values()) flush();
+      pending.clear();
+    };
+  }, []);
+
+  const setPrimary = useCallback(
+    (fittingId: string) => void persist("/api/muster/standing/runtime", { action: "set-primary", fittingId }),
+    [persist]
+  );
+
+  const testRuntime = useCallback(
+    async (fittingId: string) => {
+      const data = await persist("/api/muster/standing/runtime", { action: "test", fittingId });
+      if (data && typeof data.ok === "boolean") setTests((t) => ({ ...t, [fittingId]: data as unknown as RuntimeTestResult }));
+    },
+    [persist]
+  );
+
+  const createRuntime = useCallback(
+    async (templateId: string, newId: string | undefined): Promise<boolean> => {
+      const data = await persist("/api/muster/standing/runtime", { action: "create", templateId, newId });
+      if (data && typeof data.newFittingId === "string") {
+        setCreateOpen(false);
+        refreshHealth();
+        return true;
+      }
+      return false;
+    },
+    [persist, refreshHealth]
+  );
+
+  const doSwap = useCallback(
+    async (faculty: string, toId: string | undefined, fromId: string | undefined) => {
+      setSwap(null);
+      // A runtime swap/removal can strand a consumer of the outgoing fitting.
+      // Surface the offer to remove it (same contract as the Fittings tab) —
+      // never auto-remove.
+      const data = await persist("/api/muster/standing/swap", { faculty, toId, fromId });
+      if (data && Array.isArray(data.orphaned)) setOrphaned(data.orphaned as OrphanedConsumer[]);
+      refreshHealth();
+    },
+    [persist, refreshHealth]
+  );
+
+  const removeOrphan = useCallback(
+    async (orphan: OrphanedConsumer) => {
+      const data = await persist("/api/muster/standing/swap", { faculty: orphan.faculty, fromId: orphan.fittingId });
+      setOrphaned(data && Array.isArray(data.orphaned) ? (data.orphaned as OrphanedConsumer[]) : []);
+    },
+    [persist]
+  );
+
+  const editFitting = useCallback(
+    (fittingId: string) => {
+      const entry = library.find((e) => e.id === fittingId);
+      if (entry) openFittingEditor(entry);
+    },
+    [library, openFittingEditor]
+  );
+  const isEditable = useCallback(
+    (fittingId: string) => Boolean(library.find((e) => e.id === fittingId)?.localPath),
+    [library]
+  );
+
+  const runtimeSlot = useMemo(
+    () => model?.slots.find((s) => s.faculty === "runtimes") ?? null,
+    [model]
+  );
+  const primaryFitting = useMemo(
+    () => runtimeSlot?.fittings.find((f) => f.id === model?.primaryRuntime) ?? null,
+    [runtimeSlot, model]
+  );
+  const secondaryFittings = useMemo(
+    () => runtimeSlot?.fittings.filter((f) => f.id !== model?.primaryRuntime) ?? [],
+    [runtimeSlot, model]
+  );
+
+  if (status === "loading" && !model) {
+    return (
+      <div className={styles.rtPanel} data-testid="runtimes-loading">
+        <div className={styles.skelRow} />
+        <div className={styles.skelRow} />
+      </div>
+    );
+  }
+
+  if (status === "error" && !model) {
+    return (
+      <div className={styles.rtPanel}>
+        <div className={styles.stateBox} data-testid="runtimes-error">
+          <div className={styles.stateTitle}>Could not load runtimes</div>
+          <p className={styles.stateBody}>{errorMsg}</p>
+          <button type="button" className={styles.addBtn} style={{ marginTop: 16 }} onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!model || !runtimeSlot) return null;
+
+  const swapSlot = swap ? model.slots.find((s) => s.faculty === swap.faculty) ?? null : null;
+
+  return (
+    <div className={styles.rtPanel} data-testid="runtimes-panel">
+      <div className={styles.rtPanelHead}>
+        <p className={styles.stageLead}>
+          The execution engine for this operative. The primary runtime runs the orchestrator loop;
+          secondary runtimes are available as delegate targets via the uniform runtime bridge.
+        </p>
+        <div className={styles.rtPanelActions}>
+          {saving ? <span className={styles.saving}>saving...</span> : null}
+          {errorMsg ? (
+            <div className={styles.blocking} role="alert" style={{ marginBottom: 0, fontSize: 11.5 }}>
+              <span className={styles.blockGlyph}>!</span>
+              <p style={{ margin: 0 }}>{errorMsg}</p>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className={styles.slotFootBtn}
+            onClick={() => setSwap({ faculty: "runtimes" })}
+            data-testid="runtimes-add-fitting"
+          >
+            + Add fitting
+          </button>
+          <button
+            type="button"
+            className={styles.slotFootBtn}
+            onClick={() => setCreateOpen(true)}
+            data-testid="runtimes-new-runtime"
+          >
+            + New runtime
+          </button>
+        </div>
+      </div>
+
+      {orphaned.length > 0 ? (
+        <OrphanBanner orphaned={orphaned} onRemove={removeOrphan} onDismiss={() => setOrphaned([])} />
+      ) : null}
+
+      <div className={styles.rtSection}>
+        <h3 className={styles.rtSectionLabel}>Primary runtime</h3>
+        {primaryFitting ? (
+          <div className={styles.rtPrimaryCard} data-testid={`rt-primary-${primaryFitting.id}`}>
+            <RuntimeCard
+              fitting={primaryFitting}
+              isPrimary={true}
+              providesRuntime={primaryFitting.providesRuntime}
+              health={primaryFitting.ownPort ? health[primaryFitting.id] : undefined}
+              test={tests[primaryFitting.id]}
+              onConfig={(field, value) => commitConfig(primaryFitting.id, field, value)}
+              onSetPrimary={() => setPrimary(primaryFitting.id)}
+              onTest={() => void testRuntime(primaryFitting.id)}
+              onSwap={() => setSwap({ faculty: "runtimes", fromId: primaryFitting.id })}
+              onRemove={undefined}
+              onEdit={isEditable(primaryFitting.id) ? () => editFitting(primaryFitting.id) : undefined}
+            />
+          </div>
+        ) : (
+          <div className={styles.rtEmpty} data-testid="rt-primary-empty">
+            No primary runtime set. Add a runtime fitting below and set it as primary.
+          </div>
+        )}
+      </div>
+
+      <div className={styles.rtSection}>
+        <h3 className={styles.rtSectionLabel}>
+          Secondary runtimes
+          {secondaryFittings.length > 0 && (
+            <span className={styles.rtSectionCount}>{secondaryFittings.length}</span>
+          )}
+        </h3>
+        {secondaryFittings.length === 0 ? (
+          <div className={styles.rtEmpty} data-testid="rt-secondary-empty">
+            No secondary runtimes stationed. Add one to enable runtime delegation.
+          </div>
+        ) : (
+          <div className={styles.rtSecondaryGrid}>
+            {secondaryFittings.map((fitting) => (
+              <div key={fitting.id} className={styles.rtSecondaryCard}>
+                <RuntimeCard
+                  fitting={fitting}
+                  isPrimary={false}
+                  providesRuntime={fitting.providesRuntime}
+                  health={fitting.ownPort ? health[fitting.id] : undefined}
+                  test={tests[fitting.id]}
+                  onConfig={(field, value) => commitConfig(fitting.id, field, value)}
+                  onSetPrimary={() => setPrimary(fitting.id)}
+                  onTest={() => void testRuntime(fitting.id)}
+                  onSwap={() => setSwap({ faculty: "runtimes", fromId: fitting.id })}
+                  onRemove={() => void doSwap("runtimes", undefined, fitting.id)}
+                  onEdit={isEditable(fitting.id) ? () => editFitting(fitting.id) : undefined}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {swap && swapSlot ? (
+        <SwapModal slot={swapSlot} fromId={swap.fromId} onPick={doSwap} onClose={() => setSwap(null)} />
+      ) : null}
+      {createOpen ? (
+        <CreateRuntimeModal
+          templates={model.runtimeTemplates}
+          onCreate={createRuntime}
+          onClose={() => setCreateOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// At-a-glance spec chips: the effective value of each non-secret config field
+// (model, account, effort, ...) readable without unfolding the form.
+function runtimeSpecChips(fitting: StandingFittingView): { key: string; value: string }[] {
+  const chips: { key: string; value: string }[] = [];
+  for (const field of fitting.configSchema) {
+    if (field.type === "secret-ref") continue;
+    const raw = fitting.config[field.key] ?? field.default;
+    if (raw === undefined || raw === "") continue;
+    chips.push({ key: field.key, value: String(raw) });
+    if (chips.length === 4) break;
+  }
+  return chips;
+}
+
+// ── RuntimeCard: a single runtime fitting with identity + config + actions ────
+function RuntimeCard({
+  fitting,
+  isPrimary,
+  providesRuntime,
+  health,
+  test,
+  onConfig,
+  onSetPrimary,
+  onTest,
+  onSwap,
+  onRemove,
+  onEdit
+}: {
+  fitting: StandingFittingView;
+  isPrimary: boolean;
+  providesRuntime: boolean;
+  health: boolean | undefined;
+  test: RuntimeTestResult | undefined;
+  onConfig: (field: ConfigSchemaField, value: ConfigValue) => void;
+  onSetPrimary: () => void;
+  onTest: () => void;
+  onSwap: () => void;
+  onRemove: (() => void) | undefined;
+  onEdit: (() => void) | undefined;
+}) {
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const specs = runtimeSpecChips(fitting);
+  return (
+    <div className={styles.rtCard}>
+      <div className={styles.rtCardHead}>
+        <div className={styles.rtCardMeta}>
+          <h4 className={styles.rtCardName}>{fitting.name}</h4>
+          <div className={styles.rtCardTags}>
+            {isPrimary ? (
+              <span className={styles.rtPrimaryBadge} data-testid={`rt-primary-badge-${fitting.id}`}>
+                Primary
+              </span>
+            ) : null}
+            <span className={styles.shapeTag}>{fitting.componentShape}</span>
+            {fitting.clonedFrom ? (
+              <span className={styles.cloneTag} title={`Cloned from ${fitting.clonedFrom}`}>clone</span>
+            ) : null}
+            {!providesRuntime ? (
+              <span
+                className={styles.rtSupportTag}
+                title="Stationed under the runtimes faculty but does not provide an execution engine — it cannot be made primary."
+                data-testid={`rt-support-${fitting.id}`}
+              >
+                support
+              </span>
+            ) : null}
+          </div>
+        </div>
+        {fitting.ownPort ? (
+          <span
+            className={clsx(styles.healthPip, health === true && styles.up, health === false && styles.down)}
+            title={health === true ? "Serving on its port" : health === false ? "Not responding" : "Not running"}
+          >
+            <span className={styles.healthDot} />
+            {health === true ? "live" : health === false ? "down" : "idle"}
+          </span>
+        ) : null}
+      </div>
+
+      {fitting.summary ? (
+        <p className={styles.rtCardSummary}>{fitting.summary}</p>
+      ) : null}
+
+      {specs.length > 0 ? (
+        <div className={styles.rtSpecs} data-testid={`rt-specs-${fitting.id}`}>
+          {specs.map((s) => (
+            <span key={s.key} className={styles.rtSpecChip} title={`${s.key}: ${s.value}`}>
+              <span className={styles.rtSpecKey}>{s.key}</span>
+              <span className={styles.rtSpecVal}>{s.value}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {fitting.configSchema.length > 0 || fitting.login ? (
+        <>
+          <button
+            type="button"
+            className={styles.cfgToggle}
+            aria-expanded={cfgOpen}
+            onClick={() => setCfgOpen((v) => !v)}
+            data-testid={`rt-cfg-toggle-${fitting.id}`}
+          >
+            <Caret open={cfgOpen} />
+            Configuration
+            <span className={styles.cfgCount}>{fitting.configSchema.length}</span>
+          </button>
+          {cfgOpen ? (
+            <div className={styles.configForm}>
+              {fitting.configSchema.map((field) => (
+                <ConfigField
+                  key={field.key}
+                  faculty="runtimes"
+                  fittingId={fitting.id}
+                  field={field}
+                  value={fitting.config[field.key] ?? field.default ?? ""}
+                  onChange={(value) => onConfig(field, value)}
+                />
+              ))}
+              {fitting.login ? (
+                <div className={styles.cfgField}>
+                  <span className={styles.cfgLabel}>native login</span>
+                  <GenericLoginPanel fittingId={fitting.id} storageHint={fitting.login.storage_hint} />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className={styles.cfgEmpty}>No configuration for this fitting.</p>
+      )}
+
+      {test ? (
+        <div
+          className={styles.testResult}
+          role="status"
+          aria-live="polite"
+          data-testid={`rt-test-result-${fitting.id}`}
+        >
+          {test.checks.map((c) => (
+            <div key={c.label} className={clsx(styles.checkRow, c.ok ? styles.ok : styles.bad)}>
+              <span className={styles.checkMark} aria-hidden="true">{c.ok ? "+" : "!"}</span>
+              <span className="visually-hidden">{c.ok ? "pass:" : "fail:"}</span>
+              <span>
+                {c.label}
+                {c.detail ? <span className={styles.checkDetail}> · {c.detail}</span> : null}
+              </span>
+            </div>
+          ))}
+          <p className={styles.testNote}>{test.note}</p>
+        </div>
+      ) : null}
+
+      <div className={styles.rtCardFoot}>
+        {!isPrimary && providesRuntime ? (
+          <button
+            type="button"
+            className={styles.rtSetPrimaryBtn}
+            onClick={onSetPrimary}
+            data-testid={`rt-set-primary-${fitting.id}`}
+          >
+            Set as primary
+          </button>
+        ) : null}
+        {providesRuntime ? (
+          <button type="button" className={styles.testBtn} onClick={onTest} data-testid={`rt-test-${fitting.id}`}>
+            Test
+          </button>
+        ) : null}
+        {onEdit ? (
+          <button
+            type="button"
+            className={styles.testBtn}
+            onClick={onEdit}
+            title="Open this fitting's files in the editor"
+          >
+            Edit files
+          </button>
+        ) : null}
+        <button type="button" className={styles.testBtn} onClick={onSwap} data-testid={`rt-swap-${fitting.id}`}>
+          Swap
+        </button>
+        {onRemove ? (
+          <button
+            type="button"
+            className={styles.testBtn}
+            onClick={onRemove}
+            data-testid={`rt-remove-${fitting.id}`}
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

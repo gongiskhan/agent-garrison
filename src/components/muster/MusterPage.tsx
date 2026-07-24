@@ -21,7 +21,7 @@ import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import clsx from "clsx";
 import { dutyEfforts } from "@/lib/types";
 import { AddDuty, DutyList, MusterHeader, ReadinessDetail, TargetsTray } from "./MusterView";
-import { StandingFittings } from "./StandingFittings";
+import { StandingFittings, RuntimesPanel } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { PolicyPanel } from "./PolicyPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
@@ -34,9 +34,10 @@ type Status = "loading" | "ready" | "error";
 // page is a focused single panel instead of one 13k-px scroll of everything at
 // once - and the heavy panels (orchestrator prompt, fittings, decisions feed)
 // only fetch when their tab is opened.
-type SectionId = "duties" | "fittings" | "orchestrator" | "decisions";
+type SectionId = "duties" | "runtimes" | "fittings" | "orchestrator" | "decisions";
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: "duties", label: "Duties" },
+  { id: "runtimes", label: "Runtimes" },
   { id: "fittings", label: "Fittings" },
   { id: "orchestrator", label: "Orchestrator" },
   { id: "decisions", label: "Decisions" }
@@ -416,6 +417,10 @@ export function MusterPage() {
 
           <nav className={styles.sectionNav} role="tablist" aria-label="Muster sections">
             {SECTIONS.map((s) => {
+              // Only the Duties count is owned by this model and kept in sync by
+              // its persist. The Runtimes tab owns a separate StandingModel, so a
+              // count here would miscount (slot members vs runtime providers) and
+              // go stale after the panel mutates — the panel shows its own counts.
               const count = s.id === "duties" ? model.selectedDuties.length : undefined;
               return (
                 <button
@@ -457,6 +462,7 @@ export function MusterPage() {
               </div>
             ) : null}
 
+            {section === "runtimes" ? <RuntimesPanel compositionId={model.compositionId} /> : null}
             {section === "fittings" ? <StandingFittings compositionId={model.compositionId} /> : null}
             {section === "orchestrator" ? (
               <div data-testid="orchestrator-tab">
