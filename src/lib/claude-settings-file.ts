@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { claudeHome } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
+import { assertClaudeWritable } from "./install-state";
 
 // The SINGLE writer for ~/.claude/settings.json.
 //
@@ -77,6 +78,7 @@ export async function writeSettingsMerged(
   mutate: (draft: SettingsObject) => void,
   home: string = claudeHome()
 ): Promise<SettingsObject> {
+  await assertClaudeWritable("write ~/.claude/settings.json");
   const p = settingsPath(home);
   const { json } = await readSettingsRaw(home);
   mutate(json);

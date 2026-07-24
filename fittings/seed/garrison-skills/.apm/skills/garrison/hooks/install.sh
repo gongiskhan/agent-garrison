@@ -61,6 +61,19 @@ if [ "$MODE" = "--check" ]; then
   [ -n "$OK" ] && exit 0 || exit 3
 fi
 
+# Install gate: never touch settings.json unless Garrison management is enabled
+# on this machine. An ABSENT state file means proceed (a box that predates the
+# gate, where this skill was deployed by a real install). A PRESENT file with
+# installed!=true means the user disabled or never enabled Garrison here — skip.
+STATE_FILE="${GARRISON_HOME:-$HOME/.garrison}/install-state.json"
+if [ -f "$STATE_FILE" ]; then
+  INSTALLED="$(jq -r '.installed // false' "$STATE_FILE" 2>/dev/null || echo false)"
+  if [ "$INSTALLED" != "true" ]; then
+    echo "garrison-install: Garrison management is disabled on this machine (install-state.json installed!=true) — skipping settings.json wiring." >&2
+    exit 0
+  fi
+fi
+
 # --- install / repair ---
 chmod +x "$STOP_SH" "$SS_SH" 2>/dev/null || true
 [ -f "$SETTINGS" ] || printf '%s\n' '{}' > "$SETTINGS"
@@ -69,6 +82,7 @@ tmp="$(mktemp)"
 jq \
   --arg stop "bash '$STOP_SH'" \
   --arg ss "bash '$SS_SH'" \
+  --arg owner "fitting:garrison-skills" \
   --argjson mincap "$MIN_CAP" '
   .env = (.env // {}) |
   .hooks = (.hooks // {}) |
@@ -79,7 +93,12 @@ jq \
   (if ([.hooks.Stop[]?.hooks[]?.command] | map(select(. != null and contains("garrison-goal-stop.sh"))) | length > 0)
      then . else .hooks.Stop = ([{matcher:"*",hooks:[{type:"command",command:$stop,timeout:10}]}] + .hooks.Stop) end) |
   (if ([.hooks.SessionStart[]?.hooks[]?.command] | map(select(. != null and contains("garrison-goal-sessionstart.sh"))) | length > 0)
-     then . else .hooks.SessionStart = (.hooks.SessionStart + [{matcher:"*",hooks:[{type:"command",command:$ss,timeout:10}]}]) end)
+     then . else .hooks.SessionStart = (.hooks.SessionStart + [{matcher:"*",hooks:[{type:"command",command:$ss,timeout:10}]}]) end) |
+  # Ownership tag: stamp every goal-loop group Garrison authors with _garrison so
+  # it is attributable and cleanly removable (Uninstall), and never confused with
+  # a hand-authored hook. Retro-tags pre-existing untagged groups too (self-heal).
+  .hooks.Stop |= map(if ((.hooks // []) | any((.command // "") | contains("garrison-goal-stop.sh"))) then (._garrison = $owner) else . end) |
+  .hooks.SessionStart |= map(if ((.hooks // []) | any((.command // "") | contains("garrison-goal-sessionstart.sh"))) then (._garrison = $owner) else . end)
 ' "$SETTINGS" > "$tmp" 2>/dev/null
 
 if [ ! -s "$tmp" ] || ! jq empty "$tmp" 2>/dev/null; then
@@ -93,8 +112,11 @@ if diff -q "$SETTINGS" "$tmp" >/dev/null 2>&1; then
   exit 0
 fi
 
-cp "$SETTINGS" "$SETTINGS.garrison.bak" 2>/dev/null || true
+# Timestamped backup — NEVER overwrite a prior one, so the original pre-Garrison
+# settings.json stays recoverable across repeated runs.
+BAK="$SETTINGS.garrison-$(date -u +%Y%m%dT%H%M%SZ).bak"
+cp "$SETTINGS" "$BAK" 2>/dev/null || true
 mv "$tmp" "$SETTINGS"
-echo "garrison-install: installed/repaired goal-loop config -> $(is_configured). Backup: $SETTINGS.garrison.bak"
+echo "garrison-install: installed/repaired goal-loop config -> $(is_configured). Backup: $BAK"
 echo "garrison-install: NOTE — recent Claude Code hot-reloads hooks, so the loop may be active immediately; if your version does not, the hook is active next session. This run still proceeds and uses the printed /goal fallback if it does not auto-continue."
 exit 0

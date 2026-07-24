@@ -1,6 +1,7 @@
 import path from "node:path";
 import { claudeHome } from "./claude-home";
 import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+import { assertClaudeWritable } from "./install-state";
 
 // The writer-of-record for ~/.claude/mcp.json. Garrison owns this file outright
 // (no APM ownership model for MCP servers yet — every server is "loose"), so the
@@ -68,6 +69,7 @@ async function readMcpFile(home: string): Promise<McpFile> {
 }
 
 async function writeMcpFile(home: string, file: McpFile, servers: Record<string, McpServerConfig>): Promise<void> {
+  await assertClaudeWritable("write ~/.claude/mcp.json");
   const doc = file.wrapped ? { ...file.raw, mcpServers: servers } : servers;
   await writeJsonAtomic(mcpPath(home), doc);
 }

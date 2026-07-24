@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { claudeHome } from "./claude-home";
 import { readFileTolerant, writeJsonAtomic } from "./atomic-write";
+import { assertClaudeWritable } from "./install-state";
 
 // Removal (uninstall) for Claude-Code-managed plugins in
 // plugins/installed_plugins.json. That manifest is the SOURCE OF TRUTH for what
@@ -67,6 +68,7 @@ export async function removePlugin(key: string, home: string = claudeHome()): Pr
   if (!manifest || !manifest.plugins || !Object.prototype.hasOwnProperty.call(manifest.plugins, key)) {
     return { ok: false, code: "not-found", error: `no installed plugin "${key}"` };
   }
+  await assertClaudeWritable(`remove plugin "${key}" from ~/.claude`);
   const pluginsRoot = path.join(home, "plugins") + path.sep;
   const installPaths = installPathsFor(manifest.plugins[key]);
 

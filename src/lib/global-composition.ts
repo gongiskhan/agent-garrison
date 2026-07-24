@@ -9,6 +9,7 @@ import { readYamlFile, writeYamlFile } from "./yaml";
 import { pathExists } from "./fs-utils";
 import { authorApmDependencies, type ApmDependencyInput } from "./apm-manifest";
 import { defaultApmRunner, type ApmRunner } from "./apm-exec";
+import { assertClaudeWritable } from "./install-state";
 
 // The APM engine that drives the REAL ~/.claude install.
 //
@@ -113,6 +114,7 @@ export async function writeGlobalApmManifest(deps: ApmDependencyInput[]): Promis
 // symlink into the real ~/.claude. The ONLY function that mutates the package
 // surface. Returns the parsed post-install lock.
 export async function apmInstall(opts: GcOpts = {}): Promise<ApmLockView> {
+  await assertClaudeWritable("run `apm install` against ~/.claude");
   await ensureGlobalComposition();
   const runApm = opts.runApm ?? defaultApmRunner;
   const result = await runApm(["install", "--force"], globalCompositionDir(), { env: process.env });

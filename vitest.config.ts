@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    setupFiles: ["./tests/setup.ts"],
     globals: true,
     // Many tests legitimately spawn real subprocesses (scheduler daemon, own-port
     // fittings, local_command steps) and wait on signals + filesystem state. Under the
