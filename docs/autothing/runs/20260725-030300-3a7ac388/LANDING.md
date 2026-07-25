@@ -21,7 +21,7 @@ committed that as a Playwright spec that never performs the behaviour.
 | new tests | drill-video-tighten 13, drill-actions 15, drill-honesty-gate 11, curation +4, fixer +3 |
 | live browser e2e | drill-spotter-capture-e2e green: 0 step-start frames, one step-end per check |
 | live verification run | `01KYCB0G480JGAWKK1DPXE98E0`, 36 checks vs the `01KY4DREZ...` baseline |
-| S6b live proof | needed a SECOND redeploy — three long-lived processes held pre-S6b code |
+| S6b live proof | `01KYCD87N9B0MQWET90QEN9J93`: product-failure/app/1-finding -> **unproven/check/0-findings** (needed a SECOND redeploy — three long-lived processes held pre-S6b code) |
 
 ## Measured against the baseline
 
@@ -51,10 +51,11 @@ committed that as a Playwright spec that never performs the behaviour.
 4. **60 stale assertions were wiped** from 49 `~/.garrison/automations/cache/drill-*.json`
    (action caches preserved; backup `cache.bak-1784972901`). Without this the
    honesty gate could never fire for an already-graduated check.
-5. **The `unproven` state has unit proof but limited live proof** — this run
-   produced 0 vision-path `unproven` verdicts because every behavioural check
-   now has actions. The 4 `recovery-aborted` failures WOULD be `unproven` under
-   S6b, which shipped after the run started. A focused re-run demonstrates it.
+5. **The vision-path `unproven` has unit proof but no live sighting yet** — the
+   36-check run produced none, because every behavioural check now has actions
+   (which is the desired outcome). The recovery-path `unproven` IS live-proven
+   (`01KYCD87N9…`). A check authored behaviourally with no actions would exercise
+   the vision path; none remained in this book after the migration.
 6. **Emitted specs are role/name-based**, so they bake Portuguese accessible
    names in and are brittle across i18n or copy changes.
 7. **The 4 unrunnable checks need re-authoring**, not fixing in the app:
