@@ -25,9 +25,9 @@ Run `20260725-030300-3a7ac388` · profile **build** · branch `main`
 | S1 | Video tight-cut + chapter remap | mixed | as specified | **passed** (f05811f) — 1640s→186s, 36/36 chapters |
 | S2 | Curation reel floor + failure resilience | api | as specified | **passed** (1341a17) — coverage 8/36→36/36 |
 | S3 | Debrief legibility + honest empty states | ui | as specified | **passed** (1341a17) |
-| S4 | Frame attribution + evidence integrity | api | `step-start` frame no longer mis-tagged; repaired-check metadata and bytes agree | pending |
-| S5 | Interaction engine (per-check `actions`) | mixed | a check can carry ordered actions; compiled as `browser` steps before verify; emitted into the committed spec; evidence captured after actions | pending |
-| S6 | Honesty gate + action auto-authoring | mixed | behavioral claim with no evidenced interaction → `unproven`, excluded from pass counts, graduation blocked; planner infers actions where it can | pending |
+| S4 | Frame attribution + evidence integrity | api | as specified | **passed** (65cf05b) — live e2e: 0 step-start frames |
+| S5 | Interaction engine (per-check `actions`) | mixed | as specified | **passed** (65cf05b) — 15 unit tests |
+| S6 | Honesty gate + action auto-authoring | mixed | as specified | **passed** (65cf05b) — 9 unit tests |
 
 Presentation (S1-S4) lands first; correctness (S5-S6) second.
 
@@ -47,3 +47,14 @@ Boot notes for the final run (memory: drill-run-infra-gotchas):
 ## Original verification anchor
 Re-run the drill against ekoa-code and compare against this run's baseline:
 27.3 min video / 3 reel frames / 36 zero-interaction checks.
+
+## Migration applied to ekoa-code (left uncommitted for operator review)
+- 18 behavioural checks (13 chat, 5 users) gained hand-authored `actions`.
+- The same 18 lost their graduated `assertion` + `spec` and returned to
+  `mode: vision`: those assertions were resolved from a page nothing was done
+  to, so they were exactly the "permanently green without ever performing the
+  behaviour" artifact. They re-graduate on this run WITH interactions executed.
+- 60 stale assertions wiped from 49 `~/.garrison/automations/cache/drill-*.json`
+  (action caches preserved; backup at `cache.bak-1784972901`), because a cached
+  assertion short-circuits before any model call and the honesty gate would
+  never have fired.
