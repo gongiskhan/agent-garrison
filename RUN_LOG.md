@@ -570,3 +570,23 @@ precondition for this step was never established." The model reliably emitted th
 new `cause`, so the honesty gate now covers BOTH directions: a check that cannot
 prove its claim is never green, and a check that cannot be exercised is never
 reported as an app defect.
+
+### GATE 2026-07-25T13:59:38Z — S7 spinner frames + results-page re-run (passed) — commit 356ee9a
+- **Spinner regression was MINE.** The reel floor ranked signal triggers above
+  step-end (correct for candidate selection, wrong for the floor), so it picked
+  the first phash of each chunk — reliably the loading spinner on a blank page.
+  All 32 floored frames in the verification run were that, at 0.0s into chunk.
+- Fix: shared content-aware ordering. JPEG size is a clean model-free blank-page
+  signal (measured: spinner 12-30% of chunk max, settled 77-100%); <40% sinks
+  below everything. Within a chunk: step-end first, then signals LATEST-first.
+- Replayed on the run's own frames: floored picks 32 first-phash spinners ->
+  **36/36 step-end**, avg **96%** of chunk max, **0** below threshold.
+  Re-seated both stored runs; composer-attach-menu now shows the settled popover
+  (frame-0020) instead of the blank spinner (frame-0015).
+- **Re-run from results:** POST /api/runs gained an optional `stepIds` filter
+  (absent = whole selection; unknown ids match nothing so a stale page cannot
+  400; narrowing survives the gate's resume). Verified live: 17 -> 2 checks.
+  UI: Re-run all / Re-run not-passed on the results header, Re-run this check on
+  every card.
+- typecheck clean; lint 0 errors; 44 tests across 7 drill suites + 3 new
+  regression tests (settled-not-spinner floor, blank-frame exclusion, stepIds).
