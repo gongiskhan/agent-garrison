@@ -480,3 +480,16 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - ffmpeg tight-cut prototyped against the real 27.3-min run: **1640.36s -> 185.72s (11.3%), 61.9MB -> 9.0MB, 93s encode** (46 merged activity windows, VP8, 25fps CFR source).
 - Keyframes are every 5.12s (321 total) => stream-copy cutting is too coarse; a re-encode is required. Accepted: 93s of background post-processing against a 27-min run.
 - Chapter remap verified by extracting frames at remapped offsets (12.2s / 16.6s / 42.1s) and confirming they land on the right check.
+
+### GATE 2026-07-25T08:47:27Z — S1 video tight-cut (passed) — commit f05811f
+- typecheck clean; lint 0 errors on touched files (also cleared 3 pre-existing react/no-unescaped-entities); 13 new unit tests + 62 drill core tests green.
+- Live proof on real run 01KY4DREZ1VD3Z1JT59P0PKZP0: 1640s -> 186s (11.3%), 61.9MB -> 8.8MB, 46 segments, 91s encode, 36/36 chapters remapped, 0 past end.
+
+### GATE 2026-07-25T08:47:27Z — S2+S3 curation floor + Debrief legibility (passed) — commit 1341a17
+- typecheck clean; lint 0 errors; 49 tests green across 6 drill suites.
+- Live proof: chunk coverage 8/36 -> 36/36 under fair allocation; applyReelFloor with ZERO verdicts still covers 36/36.
+- Healed the existing run's reel.json in place so the fix is visible without a re-run: kept frames 3 -> 37, scopes covered 2/36 -> 36/36.
+
+### DECISION 2026-07-25T08:47:27Z — two existing tests updated (test-bug, no retry-ceiling cost)
+- curationConfig gained `maxCuratedExplicit`; the reel is deliberately no longer a strict subset of model keeps (the floor adds frames). Both tests now assert the STRONGER guarantee (every chunk covered, floored frames flagged + annotated) rather than being relaxed.
+- The e2e caught a real design flaw mid-fix: a floored frame the model had explicitly dropped kept its dismissive annotation ("superseded by frame-0003") while being shown as a check's evidence. Fixed in code (auto-selected prefix, model note preserved as context), not by relaxing the assertion.
