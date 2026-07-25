@@ -493,3 +493,18 @@ FULL RUN STATE (post-compaction resume reads THIS):
 ### DECISION 2026-07-25T08:47:27Z — two existing tests updated (test-bug, no retry-ceiling cost)
 - curationConfig gained `maxCuratedExplicit`; the reel is deliberately no longer a strict subset of model keeps (the floor adds frames). Both tests now assert the STRONGER guarantee (every chunk covered, floored frames flagged + annotated) rather than being relaxed.
 - The e2e caught a real design flaw mid-fix: a floored frame the model had explicitly dropped kept its dismissive annotation ("superseded by frame-0003") while being shown as a check's evidence. Fixed in code (auto-selected prefix, model note preserved as context), not by relaxing the assertion.
+
+### GATE 2026-07-25T09:50:03Z — S4+S5+S6 (passed) — commit 65cf05b
+- FULL suite green: 370 files / 3464 tests / 0 failures. New tests: drill-actions (15), drill-honesty-gate (9), fixer duplicate-id (2).
+- Live browser e2e (drill-spotter-capture-e2e): 0 step-start frames, >=4 step-end, phash/console-burst/message-growth intact.
+- typecheck clean; lint 0 errors on all touched files.
+
+### DECISION 2026-07-25T09:50:03Z — claim partly refuted under investigation
+- My earlier "fixer retry desyncs evidence" claim was PARTLY WRONG: the engine pushes no record for a non-terminal attempt (every catch-path push returns), so a same-index retry yields exactly one record whose bytes match its metadata. The REACHABLE divergence is a duplicate stepId minted by an insert_before patch echoing the failing step's id. Fixed at the root (id re-mint) plus the LAST-match alignment in resolveStepOutcome. Recorded because the original claim shipped in a user-facing message.
+
+### DECISION 2026-07-25T09:50:03Z — migration required beyond code
+- A graduated check carries a cachedAssertion and never calls vision, so the honesty gate could not fire for the 18 already-graduated behavioural checks. Migration: injected `actions` into ekoa's chat/users books AND cleared their stale assertion+spec (back to vision mode), plus wiped 60 stale assertions from 49 drill automation caches (action caches preserved; backup at ~/.garrison/automations/cache.bak-1784972901).
+- ekoa's book changes are left UNCOMMITTED for operator review: that tree already carried prior drill output, and it is not this task's target repo.
+
+### DEVIATION 2026-07-25T09:50:03Z — unrelated change swept into commit f05811f
+- The S1 commit included a pre-existing uncommitted `GARRISON_BIND_HOST` line in drill/scripts/server.mjs (from the bind-host work). Detected afterwards; the equivalent line in browser-default was then split into its own commit (7f61389) rather than repeating the mistake. Disclosed to the operator.
