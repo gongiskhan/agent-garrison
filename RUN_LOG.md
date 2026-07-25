@@ -508,3 +508,37 @@ FULL RUN STATE (post-compaction resume reads THIS):
 
 ### DEVIATION 2026-07-25T09:50:03Z — unrelated change swept into commit f05811f
 - The S1 commit included a pre-existing uncommitted `GARRISON_BIND_HOST` line in drill/scripts/server.mjs (from the bind-host work). Detected afterwards; the equivalent line in browser-default was then split into its own commit (7f61389) rather than repeating the mistake. Disclosed to the operator.
+
+### GATE 2026-07-25T10:21:45Z — LIVE VERIFICATION RUN 01KYCB0G480JGAWKK1DPXE98E0 (36 checks, ekoa-code)
+Measured against baseline 01KY4DREZ1VD3Z1JT59P0PKZP0 (same selection: chat+users, desktop).
+
+| metric | baseline | this run |
+|---|---|---|
+| wall clock | 27.8 min | 21.5 min (while performing strictly more work) |
+| video | 27.3 min / 61.9 MB | 3.5 min / 11.1 MB — 17.3 min of dead air cut, 39 segments, 249s encode |
+| chapters | into dead air | 36/36 remapped, monotonic, 0 past end; Range-served (206) |
+| spotter step-start frames | ~36, each showing the PREVIOUS check | **0** |
+| spotter step-end frames | partial | **36 — exactly one per check** |
+| null-chunk frames | present | **0** |
+| curation candidates | 30 (8/36 chunks) | 72 (36/36 chunks), 72/72 curated |
+| failed curation batches | 1 of 2, silent | **0 of 6** |
+| Debrief scopes with a frame | **2 of 36** | **36 of 36** |
+| interactions performed | **0** | 18 checks drive the app |
+| verdicts | 29 passed / 7 failed | 32 passed / 4 unrunnable |
+
+Verdict text changed character, e.g. composer-send-message went from judging an
+empty composer to "The message 'Ola drill' appears as a right-aligned dark
+bubble"; composer-attach-menu from asserting popover text without clicking to
+"the attachment popover is open".
+
+### FINDING 2026-07-25T10:21:45Z — curation itself is over-dropping (follow-up, not a regression)
+- The model kept only 5 of 72 curated frames; the deterministic floor supplied
+  the other 32. Coverage is correct and every floored frame is flagged, but the
+  drop-biased prompt ("when in doubt, DROP") is doing far more than "well under
+  half". Worth revisiting the curation prompt separately.
+
+### DECISION 2026-07-25T10:21:45Z — one full-suite failure was contention, not a regression
+- tests/browser-persistent-profile.test.ts failed at :160 in a full-suite run
+  executed CONCURRENTLY with the tight-cut ffmpeg encode and a live drill
+  browser session. Re-run in isolation: 4/4 green. Recorded in
+  docs/autothing/known-flakes.md; no code change.
