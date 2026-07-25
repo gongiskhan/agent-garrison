@@ -907,7 +907,12 @@ body {
   background: var(--wc-stone-50);
 }
 
-.cc-root {
+/* `.wc-xscript` rides along because the session-transcript slide-over renders a
+   package component (SessionStream, all `.cc-session*`) OUTSIDE `.cc-root`: every
+   --cc-* token it reads is declared here, so without this it would paint with the
+   whole palette unresolved. Sharing the selector keeps the two from drifting. */
+.cc-root,
+.wc-xscript {
   --cc-bg: var(--wc-stone-50);
   --cc-bg-elev: var(--wc-stone-100);
   --cc-bg-sunk: var(--wc-stone-200);
@@ -1187,3 +1192,102 @@ body {
   --sb-thumb: rgba(245, 240, 230, 0.18);
   --sb-thumb-hover: rgba(245, 240, 230, 0.36);
 }
+
+/* ==========================================================================
+   Turn Rail - web-channel skin (the run-context badge line)
+
+   The package styles the rail against its OWN dark default and only re-tones it
+   under `[data-theme="light"]`. This surface sets no data-theme (it re-points the
+   --cc-* tokens instead), so WITHOUT the block below the rail would inherit the
+   dark tones: --cc-rail-fg-dim #b3b7aa sits at ~1.9:1 on the cream dossier and
+   --cc-rail-warn #e8a598 at ~2.1:1 - both invisible rather than merely off-brand.
+
+   Every rule matches the package's own specificity (`.cc-root .cc-rail …`,
+   0,2,0 / 0,3,0) and this file is concatenated AFTER it, so the later rule wins
+   without an !important. Deliberately NOT written shorter: a bare `.cc-rbadge`
+   block would lose to the package's `.cc-root .cc-rail .cc-rbadge`.
+   ========================================================================== */
+.cc-root {
+  /* Ratios against the two surfaces the rail actually sits on - the stone-50 chat
+     pane (settled rail) and the #e5dbc8 composer (flight rail): olive-700 6.5:1 /
+     5.9:1, alarm 5.5:1 / 5.0:1. Both clear AA at the rail's 10px. */
+  --cc-rail-fg-dim: var(--wc-olive-700);
+  --cc-rail-warn: var(--wc-alarm);
+}
+
+/* Badges wear the same clothes as the .cc-mode / .cc-chip row: a hint of paper on
+   the warm chrome, 2px corners, no pill. */
+.cc-root .cc-rail .cc-rbadge {
+  background: rgba(255, 255, 255, .34);
+  border-radius: 2px;
+}
+.cc-root .cc-rail .cc-rbadge-empty {
+  background: transparent;
+}
+/* --cc-accent is brass-deep (#746232): 5.2:1 on the chat pane but 4.3:1 on the
+   darker composer, so the LINK tone (the carded-work board link) gets its own
+   darker brass rather than failing AA on the flight rail. */
+.cc-root .cc-rail .cc-rbadge-link {
+  color: #5f5027;
+}
+.cc-root .cc-rail .cc-rbadge-pinned,
+.cc-root .cc-rail .cc-rbadge-open {
+  background: rgba(116, 98, 50, .15);
+}
+
+/* The popover copies the slash menu's skin (sharp corners, the same lifted
+   shadow) - it is the same kind of object, so it must not look like a new one. */
+.cc-root .cc-rail .cc-railmenu {
+  border-radius: 2px;
+  box-shadow: 0 -12px 34px rgba(20, 26, 21, .18);
+}
+.cc-root .cc-rail .cc-railstop {
+  border-radius: 2px;
+}
+.cc-root .cc-rail .cc-railstop-change,
+.cc-root .cc-rail .cc-railclose {
+  background: rgba(255, 255, 255, .34);
+  border-radius: 2px;
+}
+
+/* ── Session transcript drill-down ────────────────────────────────────────
+   Opened from a turn's `transcript` badge: the routed runtime's OWN session,
+   read through the existing GET /api/session-stream?session=<id>. Same
+   slide-over geometry as the brief editor (one panel pattern on this surface),
+   but its own classes so the two cannot bleed into each other. */
+.wc-xscript {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(640px, 100%);
+  display: flex; flex-direction: column;
+  background: var(--wc-stone-50);
+  border-left: 1px solid #c8baa0;
+  box-shadow: -14px 0 40px -20px rgba(20, 26, 21, .38);
+  z-index: 30;
+  /* The chat's own type stack: the panel is outside .cc-root, which is where the
+     component's font declarations live. */
+  font: 14px/1.55 var(--wc-sans);
+  color: var(--wc-ink);
+}
+.wc-xscript-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid #c8baa0;
+  background: #e4dac7;
+}
+.wc-xscript-title {
+  display: inline-flex; align-items: baseline; gap: 8px; min-width: 0;
+  color: var(--wc-ink); font: 10px/1.2 var(--wc-mono); letter-spacing: .15em; text-transform: uppercase;
+}
+.wc-xscript-id {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--wc-olive-700); font: 11px/1.3 var(--wc-mono); letter-spacing: 0; text-transform: none;
+}
+.wc-xscript-close {
+  margin-left: auto; padding: 0 6px; background: transparent; border: 0; cursor: pointer;
+  color: var(--wc-olive-700); font-size: 20px; line-height: 1;
+}
+.wc-xscript-close:hover { color: var(--wc-ink); }
+/* SessionStream expects an ANCESTOR to own the scrolling (inside the chat that is
+   .cc-scroll); its own .cc-session-scroll sets no overflow. */
+.wc-xscript-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+.wc-xscript-body .cc-session { min-width: 0; }
+@media (max-width: 720px) { .wc-xscript { width: 100%; } }

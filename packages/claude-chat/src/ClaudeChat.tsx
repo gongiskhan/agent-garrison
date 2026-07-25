@@ -15,7 +15,8 @@ import sql from "highlight.js/lib/languages/sql";
 import rust from "highlight.js/lib/languages/rust";
 import go from "highlight.js/lib/languages/go";
 import diff from "highlight.js/lib/languages/diff";
-import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, RouteAttribution, SlashCommand, ToolQuestion } from "./transport";
+import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, RouteAttribution, SlashCommand, ToolQuestion, TurnRouting } from "./transport";
+import { AttributionRail, type PinField, type PinPatch, type RailOptions } from "./AttributionRail";
 import {
   getChatMode,
   resolvedChatScheme,
@@ -268,6 +269,12 @@ interface Turn {
   user: string;
   assistant: string;
   streaming: boolean;
+  /** Monotonic per-send turn number, stamped by {@link send}. A `route`/`activity`
+   *  frame carries the seq of the send it belongs to, so a LATE frame from an
+   *  already-superseded turn is dropped instead of landing on this bubble. Turns
+   *  this client did not send (a reload rebinding a server-side turn, seeded
+   *  history) carry 0 - the same value an unstamped transport reports. */
+  seq: number;
   /** Hide the user bubble for this turn (e.g. a host kickoff that primes the operative
    *  but shouldn't be shown as a chat message - the reply still renders normally). */
   hideUser?: boolean;
@@ -281,9 +288,64 @@ interface Turn {
   /** True while the answer POST is in flight (buttons show a pending state). */
   answering?: boolean;
   /** Structured runtime attribution for this turn's reply (gateway `done`
-   *  payload → transport `route` event). The enriched routing chip prefers this
-   *  over the model-emitted "[route: …]" text badge lifted into the reply. */
+   *  payload → transport `route` event). The Turn Rail renders this; the legacy
+   *  routing chip is the fallback for a turn that carries none (a pre-migration
+   *  persisted turn, or a lane that reports nothing). */
   route?: RouteAttribution;
+  /** The pins that were in force when this turn was SENT (the intent), kept apart
+   *  from `route` (what actually ran) so a refused pin can never read as honored. */
+  overrides?: TurnRouting;
+}
+
+/** The slice of {@link Turn} the route-frame reducer reads. Exported so the frame
+ *  discipline is testable without React. */
+export interface RouteFrameTurn {
+  seq: number;
+  streaming: boolean;
+  route?: RouteAttribution;
+}
+
+/**
+ * Attach one `route` frame to the turn it belongs to.
+ *
+ * Two bugs live here and both are load-bearing:
+ *
+ *  • MERGE, never replace. The gateway emits `route` TWICE - once as soon as
+ *    `preRoute` resolves (`pending: true`, so badges appear ~1s in) and once
+ *    folded into `done`. A blind write would let the second frame erase whatever
+ *    the first one knew (and vice versa).
+ *  • DROP a stale frame. The old handler wrote unconditionally to
+ *    `copy[copy.length - 1]`, so a frame that arrived after the next turn had
+ *    started stamped its routing onto the WRONG bubble. A frame whose `turnSeq`
+ *    is older than the current turn's is discarded outright - "fall back to the
+ *    last turn" is exactly the misattribution bug.
+ *
+ * An UNSTAMPED frame (no `turnSeq`) still lands on the latest turn: dev-env's
+ * `/claude/stream` speaks the same event shape without a per-send counter, and
+ * dropping there would make the rail permanently dark rather than merely
+ * imprecise.
+ */
+export function applyRouteFrame<T extends RouteFrameTurn>(turns: T[], frame: RouteAttribution): T[] {
+  if (turns.length === 0) return turns;
+  const idx = turns.length - 1;
+  const last = turns[idx];
+  const seq = typeof frame.turnSeq === "number" && Number.isFinite(frame.turnSeq) ? Math.trunc(frame.turnSeq) : null;
+  if (seq !== null && seq !== last.seq) {
+    if (seq < last.seq) return turns; // stale - the turn it describes is already history
+    // NEWER than anything this client sent. Two ways to get here: this component
+    // re-mounted mid-conversation (thread switch) and restarted its local counter
+    // while the transport kept counting, or another device sent into the same
+    // thread. Adopt it only onto a turn that is genuinely still streaming - the
+    // re-mount case - and drop it otherwise.
+    if (!last.streaming) return turns;
+  }
+  const merged: RouteAttribution = { ...(last.route ?? {}), ...frame };
+  // `pending` describes the LATEST frame, not the accumulated turn: the done frame
+  // omits it, and a merge that kept it would leave every settled turn "pending".
+  if (frame.pending !== true) delete merged.pending;
+  const copy = turns.slice();
+  copy[idx] = { ...last, route: merged, ...(seq !== null ? { seq } : {}) };
+  return copy;
 }
 
 // AskUserQuestion picker → tappable option buttons (D28). Pure + exported so the
@@ -380,6 +442,14 @@ export interface ChatFeatures {
    * card link. Default OFF; only the web channel opts in.
    */
   autonomous?: boolean;
+  /**
+   * The Turn Rail: per-turn attribution badges plus per-dimension pin dropdowns
+   * (target / duty+level / model / effort / account / project), a `Route` toolbar
+   * chip that opens the in-flight rail, and the `Stop` + `Stop & change` pair.
+   * Default OFF, so a host that does not pass `routeOptions` / `onPinChange`
+   * keeps exactly the previous chat (dev-env still gets the legacy routing chip).
+   */
+  routing?: boolean;
 }
 
 // Model picks. Selecting one submits `/model <id>` into the Claude Code TUI,
@@ -481,6 +551,13 @@ export interface ChatSendMeta {
   mode?: string;
   /** D21/D8: the explicit autonomous marker (the toolbar chip). */
   autonomous?: boolean;
+  /**
+   * The pinned routing INTENT for this send (the Turn Rail's dropdowns). Rides
+   * `ChatSendMeta.routing` → `payload.routing` → `body.routing` → `hints.routing`
+   * → `applyTurnOverride`, per the 2026-07-25 run-context contract §3. Sparse: only
+   * the dimensions the user actually pinned are present.
+   */
+  routing?: TurnRouting;
 }
 type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
 
@@ -500,16 +577,51 @@ interface PendingAttachment {
 // current opaque context/mode, or return undefined when BOTH are absent so a
 // context-unaware transport is invoked with exactly one argument (its previous
 // behavior). Exported for hermetic unit testing of the threading contract.
-export function buildSendMeta(context: unknown, mode: string | undefined, autonomous?: boolean): ChatSendMeta | undefined {
+export function buildSendMeta(
+  context: unknown,
+  mode: string | undefined,
+  autonomous?: boolean,
+  routing?: TurnRouting | null
+): ChatSendMeta | undefined {
   const hasContext = context !== undefined && context !== null;
   const hasMode = typeof mode === "string" && mode.trim().length > 0;
   const hasAutonomous = autonomous === true;
-  if (!hasContext && !hasMode && !hasAutonomous) return undefined;
+  // A pin with no value is not a pin: `{ effort: null }` means "stop pinning
+  // effort", and shipping it would make every send carry a meta object (and, via
+  // the orchestrator transport, a `routing` key in the gateway body) even though
+  // the user pinned nothing. The back-compat contract is that a plain send stays
+  // exactly `{message, channel:"web"}`.
+  const pinned = compactRouting(routing);
+  if (!hasContext && !hasMode && !hasAutonomous && !pinned) return undefined;
   const meta: ChatSendMeta = {};
   if (hasContext) meta.context = context;
   if (hasMode) meta.mode = (mode as string).trim();
   if (hasAutonomous) meta.autonomous = true;
+  if (pinned) meta.routing = pinned;
   return meta;
+}
+
+/** Strip empty pins. Returns undefined when nothing is pinned, so callers can use
+ *  it directly as an "is anything pinned?" test. Exported for the rail's tests. */
+export function compactRouting(routing?: TurnRouting | null): TurnRouting | undefined {
+  if (!routing) return undefined;
+  const out: TurnRouting = {};
+  let any = false;
+  for (const [key, value] of Object.entries(routing)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string") {
+      const v = value.trim();
+      if (!v) continue;
+      (out as Record<string, unknown>)[key] = v;
+      any = true;
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      (out as Record<string, unknown>)[key] = Math.trunc(value);
+      any = true;
+    }
+  }
+  return any ? out : undefined;
 }
 
 /**
@@ -577,7 +689,17 @@ export interface ClaudeChatProps {
    * empty (exactly the previous behavior). A host that supports multiple threads
    * re-mounts the component with a fresh `key` + the selected thread's history to switch.
    */
-  initialHistory?: { user: string; assistant: string; hideUser?: boolean }[];
+  initialHistory?: {
+    user: string;
+    assistant: string;
+    hideUser?: boolean;
+    /** The persisted attribution for that exchange's reply (threads.mjs keeps a
+     *  whitelisted `route` per assistant message). Carried onto the Turn so the
+     *  badges survive a reload and the 10s thread poll's re-mount. */
+    route?: RouteAttribution;
+    /** The pins that were in force when that exchange was sent. */
+    overrides?: TurnRouting;
+  }[];
   /**
    * Fires once per turn when its assistant reply has fully settled (non-empty),
    * so a host can PERSIST the exchange into a thread store. Absent → nothing is
@@ -602,16 +724,57 @@ export interface ClaudeChatProps {
    * the previous behavior).
    */
   draftKey?: string;
+  /**
+   * The pins currently in force for the next message (conversation-sticky, so the
+   * HOST owns persistence - it survives a reload and follows the user across
+   * devices). Treated as the initial/authoritative value: a change made in the
+   * rail is applied locally at once AND reported via {@link onPinChange}, and a
+   * new value arriving on this prop (a fresh read of the thread) re-syncs the rail.
+   */
+  routing?: TurnRouting | null;
+  /**
+   * The rail's menu vocabulary (targets / duties+levels / efforts / accounts /
+   * projects, plus per-dimension "why you can't pin this" reasons). Fetched by the
+   * HOST from its own same-origin `GET /api/route-options` proxy - this package
+   * never fetches, so it stays origin-agnostic. Absent → the rail is read-only.
+   */
+  routeOptions?: RailOptions | null;
+  /** Fires with the full new pin set whenever the user changes one, for the host
+   *  to persist. Never called for a no-op change. */
+  onPinChange?: (routing: TurnRouting) => void;
+  /**
+   * Open the routed runtime's OWN session transcript (the per-message `transcript`
+   * badge). The host wires this to its existing session-stream view; absent → the
+   * badge renders inert with that reason rather than lying about being clickable.
+   */
+  onOpenTranscript?: (sessionId: string) => void;
+  /** Target for the rail's "Composition defaults live in Muster" row. Must be
+   *  same-origin or already host-rewritten - the browser is almost never on the
+   *  Garrison box, so an absolute loopback URL would be a dead link. */
+  musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
+  const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
   // once per mount (switching threads re-mounts with a fresh key). Kept in a memo
   // so persistedRef below can mark the LAST seeded turn as already-persisted - else
   // the persist effect would re-append the restored history on every open.
   const seededTurns = useMemo<Turn[]>(
-    () => (initialHistory ?? []).map((h) => ({ id: nextId(), user: h.user, assistant: h.assistant, streaming: false, hideUser: h.hideUser })),
+    () =>
+      (initialHistory ?? []).map((h) => ({
+        id: nextId(),
+        user: h.user,
+        assistant: h.assistant,
+        streaming: false,
+        hideUser: h.hideUser,
+        // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
+        // stamped frame can never be mis-attached to one of them.
+        seq: 0,
+        route: h.route,
+        overrides: h.overrides,
+      })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
@@ -716,6 +879,38 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const [autonomousOn, setAutonomousOn] = useState(false);
   const autonomousRef = useRef(false);
   useEffect(() => { autonomousRef.current = autonomousOn; }, [autonomousOn]);
+
+  // ── Turn Rail pins (opt-in). The HOST persists them (conversation-sticky, so
+  // they follow the user across devices); we keep a local mirror so a tap paints
+  // immediately instead of waiting for a round-trip, and re-sync whenever the
+  // prop actually changes value (a fresh thread read). ──
+  const [pins, setPins] = useState<TurnRouting>(() => compactRouting(routing) ?? {});
+  const pinsRef = useRef<TurnRouting>(pins);
+  pinsRef.current = pins;
+  const routingPropKey = JSON.stringify(compactRouting(routing) ?? {});
+  useEffect(() => {
+    // Compare by VALUE: the host re-renders with a fresh object on every poll, and
+    // an identity-keyed effect would clobber a pin the user just set locally.
+    if (JSON.stringify(pinsRef.current) === routingPropKey) return;
+    setPins(JSON.parse(routingPropKey) as TurnRouting);
+  }, [routingPropKey]);
+  /** Pins changed while a turn was in flight - they apply to the NEXT turn, and the
+   *  rail says so rather than pretending the running turn re-routed. */
+  const [pendingPins, setPendingPins] = useState<PinField[]>([]);
+  /** The rail is mounted while busy or while anything is pinned; this opens it on
+   *  demand (the `Route` chip, and `Stop & change`). */
+  const [railOpen, setRailOpen] = useState(false);
+  /** After `Stop & change` the sent text is back in the composer and Send becomes
+   *  Resend. NOTHING auto-resends - the user chooses when, having changed routing. */
+  const [resendArmed, setResendArmed] = useState(false);
+  /** Live tool activity from a routed runtime (`activity` frames), shown in the
+   *  working indicator: "Working 0:42 - Edit". */
+  const [activity, setActivity] = useState("");
+  /** Monotonic per-send counter; see {@link applyRouteFrame}. */
+  const turnSeqRef = useRef(0);
+  /** The text of the turn in flight, so `Stop & change` can put it back. */
+  const inFlightTextRef = useRef("");
+  const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -816,6 +1011,10 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   // "esc to interrupt · 2.1k tokens"). Absent on the orchestrator transport
   // (no status rows) → the indicator degrades to dots + "Working" + elapsed.
   const workingHint = useMemo(() => {
+    // A live `activity` frame beats the scraped status line: it is the actual tool
+    // the routed runtime is running right now ("Edit"), and on the orchestrator
+    // transport there are no status rows at all.
+    if (activity) return activity;
     const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
     if (!row) return "";
     // Prefer the parenthetical tail "(esc to interrupt · N tokens)" so the hint
@@ -824,7 +1023,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     if (paren) return paren[1].trim().slice(0, 80);
     const tail = row.includes("…") ? row.split("…").pop() : row;
     return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
-  }, [status.rows]);
+  }, [status.rows, activity]);
 
   // ── Per-message copy (copy-on-hover under a completed assistant turn). ──
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -859,7 +1058,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
   const applyAssistant = useCallback((text: string) => {
     setTurns((prev) => {
       if (prev.length === 0) {
-        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true }];
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0 }];
       }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
@@ -885,7 +1084,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             setTurns((prev) =>
               prev.length > 0
                 ? prev
-                : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true }]
+                : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true, seq: 0 }]
             );
           }
           break;
@@ -898,6 +1097,9 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           break;
         case "turn":
           setBusy(ev.active);
+          // The activity hint describes the turn that just ended; keeping it would
+          // leave a stale tool name under the next "Working" indicator.
+          setActivity("");
           if (!ev.active) {
             setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 ? { ...t, streaming: false } : t)));
           }
@@ -919,16 +1121,20 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           break;
         }
         case "route": {
-          // Attach the settled turn's runtime attribution to the current turn
-          // (same last-turn attach as `tool`). Rendered as an enriched routing chip.
+          // Merge into the turn this frame belongs to (and drop it if that turn is
+          // already history) - see applyRouteFrame for why both halves matter.
           const { type: _type, ...attribution } = ev;
-          setTurns((prev) => {
-            if (prev.length === 0) return prev;
-            const copy = prev.slice();
-            const last = copy[copy.length - 1];
-            copy[copy.length - 1] = { ...last, route: attribution };
-            return copy;
-          });
+          setTurns((prev) => applyRouteFrame(prev, attribution));
+          break;
+        }
+        case "activity": {
+          // Tool activity from a routed runtime. The non-primary lanes emit their
+          // whole reply at the end, so without this the conversation sat silent for
+          // minutes; it feeds the working indicator's (previously always-empty on
+          // this transport) hint slot.
+          if (ev.kind !== "tool") break;
+          const name = typeof ev.name === "string" ? ev.name.trim() : "";
+          if (name) setActivity(name.slice(0, 40));
           break;
         }
         case "connection":
@@ -1015,13 +1221,30 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
       // (attachments included, since they're user-visible content).
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}\n\n${full}` : full;
-      setTurns((prev) => [...prev, { id: nextId(), user: full, assistant: "", streaming: true, hideUser: opts?.hideUser }]);
+      const sentPins = railOn ? compactRouting(pinsRef.current) : undefined;
+      inFlightTextRef.current = full;
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          user: full,
+          assistant: "",
+          streaming: true,
+          hideUser: opts?.hideUser,
+          seq: ++turnSeqRef.current,
+          overrides: sentPins,
+        },
+      ]);
       setBusy(true);
+      setActivity("");
+      // The pins have now reached a turn, so they stop reading "applies next turn".
+      setPendingPins([]);
+      setResendArmed(false);
       pinnedRef.current = true;
       // Pass opaque context/mode as an optional second arg ONLY when present, so
       // a context-unaware transport (createHttpTransport) is called exactly as
       // before. The transport decides whether to read `meta`.
-      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined);
+      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined, sentPins);
       const sendFn = transport.sendMessage as ContextAwareSend;
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
       p.catch(() => {});
@@ -1032,7 +1255,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         setAttachments((prev) => prev.filter((a) => !sentIds.has(a.id)));
       }
     },
-    [transport, effortOn]
+    [transport, effortOn, railOn, feat.autonomous]
   );
 
   // Fire a deferred send once every upload has settled. Clearing the ref before
@@ -1407,8 +1630,101 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
     [transport]
   );
 
+  // ── Turn Rail: pin a dimension for the NEXT message ──
+  // A pin never re-routes the turn already in flight (preRoute has resolved and the
+  // model may already hold context), so a change made while busy is recorded and
+  // the badge says "applies next turn".
+  const applyPin = useCallback(
+    (patch: PinPatch) => {
+      const next: TurnRouting = { ...pinsRef.current };
+      const touched: PinField[] = [];
+      for (const [key, value] of Object.entries(patch)) {
+        const field = key as PinField;
+        const before = (next as Record<string, unknown>)[field];
+        if (value === null || value === undefined || (typeof value === "string" && !value.trim())) {
+          if (before === undefined) continue;
+          delete (next as Record<string, unknown>)[field];
+        } else {
+          const clean = typeof value === "string" ? value.trim() : Math.trunc(value);
+          if (before === clean) continue;
+          (next as Record<string, unknown>)[field] = clean;
+        }
+        touched.push(field);
+      }
+      if (!touched.length) return; // a no-op tap must not bump the host's store
+      const compact = compactRouting(next) ?? {};
+      setPins(compact);
+      if (busy) setPendingPins((prev) => [...new Set([...prev, ...touched])]);
+      onPinChange?.(compact);
+    },
+    [busy, onPinChange]
+  );
+
+  const stopTurn = useCallback(() => {
+    transport.interrupt().catch(() => {});
+  }, [transport]);
+
+  /** Cancel, put the sent text back in the composer, open the rail, and swap Send
+   *  for Resend. Deliberately does NOT resend: the whole point is to change
+   *  something first. */
+  const stopAndChange = useCallback(() => {
+    stopTurn();
+    const text = inFlightTextRef.current;
+    if (text) {
+      setInput(text);
+      setResendArmed(true);
+    }
+    setRailOpen(true);
+    taRef.current?.focus();
+  }, [stopTurn]);
+
+  // The Stop button has promised `title="Stop (Esc)"` since it was written and
+  // Escape never did anything. Bind it for real, scoped to this chat: dev-env
+  // mounts terminals beside the chat pane, and Escape inside an xterm must not
+  // interrupt the chat's turn. An open rail menu swallows Escape first
+  // (preventDefault + stopPropagation), so dismissing a menu never cancels a turn.
+  useEffect(() => {
+    if (!busy) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const root = rootRef.current;
+      const target = e.target;
+      const inside = root && target instanceof Node && root.contains(target);
+      const loose = target === document.body || target === document.documentElement;
+      if (!inside && !loose) return;
+      stopTurn();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, stopTurn]);
+
+  const hasPins = Object.keys(pins).length > 0;
+  const showFlightRail = railOn && (busy || hasPins || railOpen);
+  // The flight rail's right-hand slot: the live elapsed time and the Stop pair
+  // while busy; otherwise a way to put the rail away again.
+  const flightRailEnd = busy ? (
+    <>
+      <span className="cc-railtime" title="Elapsed on this turn">{fmtElapsed(elapsed)}</span>
+      <button type="button" className="cc-stop cc-railstop" onClick={stopTurn} title="Stop (Esc)">
+        <span className="cc-stopsq" /> Stop
+      </button>
+      <button
+        type="button"
+        className="cc-stop cc-railstop cc-railstop-change"
+        onClick={stopAndChange}
+        title="Stop, put your message back in the composer, and change the routing before you resend"
+      >
+        Stop &amp; change
+      </button>
+    </>
+  ) : railOpen && !hasPins ? (
+    <button type="button" className="cc-railclose" onClick={() => setRailOpen(false)} title="Hide the routing rail">
+      Close
+    </button>
+  ) : null;
+
   return (
-    <div className="cc-root" data-theme={themeOn ? scheme : undefined}>
+    <div className="cc-root" ref={rootRef} data-theme={themeOn ? scheme : undefined}>
       <header className="cc-header">
         <span className="cc-title">{title ?? "Claude"}</span>
         <span className={`cc-conn cc-conn-${conn}`} title={`connection: ${conn}`} />
@@ -1462,6 +1778,11 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           // Prefer the STRUCTURED runtime attribution the gateway sends on the
           // settled turn (runtime/model/tier); fall back to the model-emitted
           // "[route: …]" text badge lifted into clean.meta when it is absent.
+          // The Turn Rail supersedes the chip when the host opted in AND this turn
+          // actually carries attribution; the chip stays as the fallback for a
+          // pre-migration persisted turn, a lane that reports nothing, and dev-env
+          // (which passes no `routing` feature).
+          const showRail = railOn && Boolean(t.route);
           const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
           const metaLabel = routeChipLabel(clean.meta);
           const metaTitle = clean.meta.route
@@ -1472,7 +1793,10 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           return (
           <div className="cc-turn" key={t.id}>
             {!t.hideUser && <div className="cc-user">{t.user}</div>}
-            {(clean.text || t.streaming || t.question) && (
+            {/* `t.route` joins the gate: a carded or cancelled turn can settle with
+                NO prose at all, and its rail (card / stopped / transcript badges) is
+                then the only record the user gets. */}
+            {(clean.text || t.streaming || t.question || t.route) && (
               <div className="cc-assistant">
                 <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(clean.text || "") as string }} />
                 {/* Streaming cursor once prose is arriving. */}
@@ -1485,7 +1809,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                     <span className="cc-working-dots"><i /><i /><i /></span>
                     <span className="cc-working-label">Working</span>
                     <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
-                    {workingHint && <span className="cc-working-hint" title={workingHint}>{workingHint}</span>}
+                    {workingHint && (
+                      <>
+                        <span className="cc-working-sep" aria-hidden="true">-</span>
+                        <span className="cc-working-hint" title={workingHint}>{workingHint}</span>
+                      </>
+                    )}
                   </div>
                 )}
                 {/* AskUserQuestion → tappable option buttons (D28). Renders the first
@@ -1551,7 +1880,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                         </button>
                       );
                     })()}
-                    {routeLabel && (
+                    {!showRail && routeLabel && (
                       <span
                         className={`cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`}
                         title={routeTitle}
@@ -1560,6 +1889,20 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                       </span>
                     )}
                   </div>
+                )}
+                {/* The settled rail sits OUTSIDE the `clean.text.trim() && !t.streaming`
+                    gate on purpose: that double gate is why routing was invisible
+                    while a turn streamed and on a tool-only turn. Read-only - the
+                    flight rail in the composer is the editor, so a past turn's
+                    record can never be mistaken for a live control. */}
+                {showRail && (
+                  <AttributionRail
+                    variant="settled"
+                    route={t.route}
+                    pins={t.overrides}
+                    label="Run context for this reply"
+                    onOpenTranscript={onOpenTranscript}
+                  />
                 )}
               </div>
             )}
@@ -1596,7 +1939,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
         </div>
       )}
 
-      {(feat.model || feat.effort || feat.voice || feat.autonomous) && (
+      {(feat.model || feat.effort || feat.voice || feat.autonomous || feat.routing) && (
         <div className="cc-toolbar">
           {feat.model && (
             <div className="cc-tool-group" role="group" aria-label="Model">
@@ -1632,6 +1975,17 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
                 </button>
               ))}
             </div>
+          )}
+          {railOn && (
+            <button
+              type="button"
+              className={`cc-chip ${showFlightRail ? "cc-chip-active" : ""}`}
+              aria-pressed={showFlightRail}
+              title="Pin the target, duty, model, effort, account or project for your next message"
+              onClick={() => setRailOpen((v) => !v)}
+            >
+              Route
+            </button>
           )}
           <span className="cc-tool-spacer" />
           {feat.autonomous && (
@@ -1736,6 +2090,24 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
       )}
 
       <div className="cc-composer">
+        {/* The flight rail: live badges for the turn in flight plus the pin
+            dropdowns, mounted while busy, while anything is pinned, or on demand
+            from the toolbar's Route chip. */}
+        {showFlightRail && (
+          <AttributionRail
+            variant="flight"
+            route={latestAssistant?.route}
+            pins={pins}
+            pendingFields={pendingPins}
+            options={routeOptions ?? undefined}
+            onPin={applyPin}
+            onOpenTranscript={onOpenTranscript}
+            label="Run context for your next message"
+            musterUrl={musterUrl}
+          >
+            {flightRailEnd}
+          </AttributionRail>
+        )}
         {slashQuery !== null && filtered.length > 0 && (
           <div className="cc-slashmenu">
             {filtered.map((c, i) => (
@@ -1869,18 +2241,21 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             onKeyDown={onKeyDown}
             onPaste={onComposerPaste}
           />
-          {busy ? (
-            <button className="cc-stop" onClick={() => transport.interrupt().catch(() => {})} title="Stop (Esc)">
+          {busy && !showFlightRail ? (
+            // Classic single Stop for a host without the rail (dev-env): with the
+            // rail mounted the Stop pair lives at its right-hand end instead, so the
+            // two are never on screen at once.
+            <button className="cc-stop" onClick={stopTurn} title="Stop (Esc)">
               <span className="cc-stopsq" /> Stop
             </button>
-          ) : (
+          ) : busy ? null : (
             <button
               className="cc-send"
               onClick={() => send(input)}
               disabled={(!input.trim() && !attachments.some((a) => a.path)) || attachments.some((a) => a.uploading)}
-              title="Send"
+              title={resendArmed ? "Resend the stopped message with your new routing" : "Send"}
             >
-              Send
+              {resendArmed ? "Resend" : "Send"}
             </button>
           )}
         </div>

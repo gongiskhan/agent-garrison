@@ -48,9 +48,15 @@ async function waitHealthy(ms: number) {
 // graceful chromium teardown, so an HTTP probe going dark proves nothing
 // about the profile being released. A null exitCode+signalCode afterwards
 // means waitExit hit its SIGKILL fallback - i.e. the shutdown hung.
-// 60s, not 25s: chromium teardown regularly exceeds 25s when the full suite
-// saturates the box, and this assertion is about NEVER exiting, not exiting fast.
-async function waitGone(child: ChildProcess | null, ms = 60000) {
+// 120s, not 60s (and originally not 25s): chromium teardown regularly exceeds the
+// previous windows when the full suite saturates the box - observed failing at 67s
+// in a full run while passing in 4s standalone. Orphaned headless chromium from
+// earlier runs makes this worse, since each one holds RSS and a /tmp profile: if
+// this ever fails again, check for chromium reparented to `systemd --user`
+// (`ps -o ppid= -p <pid>`) and clear it before suspecting a code regression.
+// The assertion is about NEVER exiting, not about exiting fast, so a longer window
+// costs nothing on a healthy shutdown and only delays a genuine hang's report.
+async function waitGone(child: ChildProcess | null, ms = 120000) {
   await waitExit(child, ms);
   expect((child!.exitCode ?? child!.signalCode) !== null).toBe(true);
 }

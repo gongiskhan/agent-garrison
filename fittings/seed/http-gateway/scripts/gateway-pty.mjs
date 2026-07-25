@@ -45,8 +45,13 @@ import {
 import {
   createRoutedGateway,
   resolveModelRouterDir,
-  shouldUseEphemeralSession
+  shouldUseEphemeralSession,
+  anthropicAccountEnv,
+  listVaultAccounts,
+  resolveVaultAccount,
+  TURN_EFFORTS
 } from "./lib/gateway-routing.mjs";
+import { listProjectNames } from "./lib/project-source.mjs";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import { isEmptyQuickReply, quickEmptyFailureReason, moveCardEngine } from "./lib/autonomous-cards.mjs";
 import { resolveDiscussInterception } from "./lib/discuss-intercept.mjs";
@@ -787,9 +792,292 @@ async function spawnOperative({ resume = true } = {}) {
   readyResolve();
 }
 
+// ───────────────────────── per-turn run context (2026-07-25 decision)
+//
+// A web turn used to report ONE text chip and nothing else. These helpers are the
+// gateway half of the contract: validate the channel's pinned intent (§2/§3),
+// resolve the attribution ONCE (§6) instead of at nine branch-dependent returns,
+// and expose the cancel registry (§9) + the menu source (§11).
+
+// Field-length ceilings for the pinned intent. Ids stay short; a pin is a menu
+// choice, not free prose (the one free-text field, `model`, is still bounded).
+const PIN_ID_MAX = 120;
+
+function pinnedString(raw, field, rejected) {
+  if (typeof raw !== "string") {
+    rejected.push({ field, reason: "not-a-non-empty-string" });
+    return null;
+  }
+  const value = raw.trim();
+  if (!value) {
+    rejected.push({ field, reason: "not-a-non-empty-string" });
+    return null;
+  }
+  if (value.length > PIN_ID_MAX) {
+    rejected.push({ field, reason: "too-long" });
+    return null;
+  }
+  // A pin is echoed back on the badge row and (for target/duty/project) used as a
+  // lookup key - control characters have no business in either.
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    rejected.push({ field, reason: "control-characters" });
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Validate a channel-supplied `TurnRouting` (§2). STRICT and closed: an invalid
+ * value is DROPPED and recorded as a rejection, never coerced and never passed
+ * through to the resolver. The rejection is what makes the badge read "override
+ * rejected: <reason>" instead of quietly showing the composition default as if
+ * the user's choice had been honored.
+ *
+ * @returns {{routing: object|null, rejected: {field: string, reason: string}[]}}
+ */
+export function sanitizeRouting(raw) {
+  const rejected = [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { routing: null, rejected };
+  const out = {};
+  for (const field of ["target", "model", "duty", "project", "account"]) {
+    if (raw[field] === undefined || raw[field] === null) continue;
+    const value = pinnedString(raw[field], field, rejected);
+    if (value !== null) out[field] = value;
+  }
+  if (raw.effort !== undefined && raw.effort !== null) {
+    const effort = typeof raw.effort === "string" ? raw.effort.trim() : "";
+    if (TURN_EFFORTS.includes(effort)) out.effort = effort;
+    else rejected.push({ field: "effort", reason: "effort-not-in-vocabulary" });
+  }
+  if (raw.level !== undefined && raw.level !== null) {
+    // A menu value may arrive as a digit string; anything else is refused rather
+    // than Number()-coerced (Number("") === 0 and Number(true) === 1 both lie).
+    const level = typeof raw.level === "number" ? raw.level : /^[0-9]+$/.test(String(raw.level)) ? Number(raw.level) : NaN;
+    if (Number.isInteger(level) && level >= 1 && level <= 9) out.level = level;
+    else rejected.push({ field: "level", reason: "level-not-an-integer-1-9" });
+  }
+  return { routing: Object.keys(out).length ? out : null, rejected };
+}
+
+/**
+ * The NEW attribution fields for one turn (§6) - the run context the gateway has
+ * always known and never reported. PURE apart from reading the process account
+ * pin. Merged as a PREFIX at the three returns of runRoutedTurn
+ * (`{...turnAttribution(pre, hints), ...result}`), so a lane's own field always
+ * wins and kanban-loop's fixed-field routeFromDone cannot break.
+ */
+export function turnAttribution(pre, hints, extra = {}) {
+  const route = pre?.route ?? null;
+  const target = route?.target ?? null;
+  const applied = Array.isArray(pre?.overridesApplied) ? pre.overridesApplied : [];
+  // account: a pin on the resolved target wins (an override sets exactly that),
+  // else the process-wide pin the runner exported at launch, else NULL. Null is
+  // reported, not omitted: "ran on this box's own Claude login" and "this lane
+  // cannot say" are different facts and the rail renders them differently.
+  const targetAccount = typeof target?.account === "string" && target.account.trim() ? target.account.trim() : null;
+  const processAccount =
+    typeof process.env.GARRISON_ACCOUNT === "string" && process.env.GARRISON_ACCOUNT.trim()
+      ? process.env.GARRISON_ACCOUNT.trim()
+      : null;
+  const account = targetAccount ?? processAccount ?? null;
+  const accountSource = targetAccount
+    ? applied.includes("account")
+      ? "override"
+      : "target"
+    : processAccount
+      ? "process"
+      : null;
+  const level = pre?.level ?? route?.level ?? hints?.level ?? null;
+  return {
+    duty: pre?.duty ?? route?.duty ?? hints?.duty ?? null,
+    level: Number.isInteger(level) ? level : null,
+    phase: pre?.phase ?? route?.phase ?? route?.role ?? null,
+    // Honest limit: no live composition stations a duty-* fitting, so every cell
+    // resolves with no skill. Reported as null ("skill: none") rather than hidden.
+    skill: pre?.skill ?? route?.skill ?? hints?.skill ?? null,
+    via: route?.via ?? null,
+    account,
+    accountSource,
+    project: pre?.project ?? hints?.project ?? null,
+    projectPath: pre?.projectPath ?? null,
+    // preRoute folds the wire-validation rejections into its own list; hints are
+    // the only source when the route never resolved.
+    overridesApplied: applied.length ? applied : null,
+    overridesRejected: pre?.overridesRejected ?? (hints?.routingRejected?.length ? hints.routingRejected : null),
+    // Echoed on BOTH frames so the client can drop a frame belonging to an older
+    // turn instead of writing it onto the newest bubble (§5).
+    turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null,
+    ...extra
+  };
+}
+
+/**
+ * The already-existing RouteAttribution fields, read off the resolved route
+ * BEFORE the turn runs, for the pre-turn `route` frame (§4). `effortApplied` and
+ * `honored` are deliberately absent: neither is knowable yet, and the client
+ * merges the done frame over this one.
+ */
+export function routeFieldsFrom(pre) {
+  const route = pre?.route ?? null;
+  const target = route?.target ?? null;
+  return {
+    route: route?.targetId ?? null,
+    runtime: target?.runtime ?? null,
+    provider: target?.provider ?? null,
+    model: target?.model ?? null,
+    effort: target?.effort ?? pre?.decision?.effort ?? null,
+    taskType: pre?.decision?.taskType ?? pre?.classification?.taskType ?? null,
+    tier: pre?.decision?.tier ?? pre?.classification?.tier ?? null,
+    ruleId: pre?.decision?.ruleId ?? route?.ruleId ?? null,
+    profile: pre?.decision?.profile ?? route?.profile ?? null
+  };
+}
+
+// ───────────────────────── cancel registry (§9)
+// One entry per IN-FLIGHT turn, keyed by the conversation the turn belongs to.
+// Turns are serialized on the inflight chain, so this holds at most one live
+// entry; the key still matters because a stale client id must 404 rather than
+// stop somebody else's turn. `stop` is filled in by the LANE (the primitives
+// differ per runtime and are only knowable once the route resolved), so an
+// interrupt arriving before then reports the honest "no cancel primitive yet".
+const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled }
+const INTERRUPT_FALLBACK_KEY = "operative";
+let currentTurnEntry = null;
+
+// Called by each lane once it owns something interruptible.
+function registerTurnStop(lane, stop) {
+  if (!currentTurnEntry) return;
+  currentTurnEntry.lane = lane;
+  currentTurnEntry.stop = stop;
+}
+
+/** POST /chat/interrupt {sessionId} → {ok, lane} | 404 | 409. */
+export async function handleInterrupt(body, turns = activeTurns) {
+  const sessionId =
+    typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : INTERRUPT_FALLBACK_KEY;
+  const entry = turns.get(sessionId);
+  if (!entry) return { status: 404, body: { ok: false, error: "no-active-turn", sessionId } };
+  if (typeof entry.stop !== "function") {
+    return { status: 409, body: { ok: false, error: "lane-has-no-cancel-primitive", lane: entry.lane } };
+  }
+  entry.cancelled = true;
+  let stopped = false;
+  try {
+    stopped = (await entry.stop()) !== false;
+  } catch (err) {
+    logEvent("stderr", { kind: "interrupt-failed", lane: entry.lane, error: String(err?.message ?? err) });
+    return { status: 500, body: { ok: false, error: "cancel-failed", lane: entry.lane } };
+  }
+  logEvent("stdout", { kind: "interrupt", lane: entry.lane, sessionId, stopped });
+  // The turn now settles normally with its partial reply; runTurn stamps
+  // stoppedByUser onto the done frame.
+  return { status: 200, body: { ok: true, lane: entry.lane, stopped } };
+}
+
+// ───────────────────────── account → real auth env (§6)
+// A pinned account is only real if the spawned process actually authenticates as
+// it. The one-shot lane is a Claude spawn, so the vehicle is the Anthropic env
+// block (mirror of src/lib/account-env.ts) built from the vault secret the runner
+// already sealed. Returns null when nothing needs overriding - the turn then
+// inherits the gateway env exactly as before.
+//
+// The claude-pty spawn keeps ANTHROPIC_AUTH_TOKEN (it only strips CLAUDECODE, an
+// inherited ANTHROPIC_API_KEY and - without providerLaunch - ANTHROPIC_BASE_URL),
+// so the token this returns survives to the CLI. Verified against
+// stripNestingMarkers in packages/claude-pty/src/session.mjs.
+function oneShotAccountEnv(account) {
+  if (!account || account === process.env.GARRISON_ACCOUNT) return null;
+  const resolved = resolveVaultAccount(COMPOSITION_DIR, account);
+  if (!resolved || resolved.platform !== "anthropic") {
+    logEvent("stderr", { kind: "account-env-unavailable", account, platform: resolved?.platform ?? null });
+    return null;
+  }
+  return { ...process.env, ...anthropicAccountEnv(resolved.name, resolved.token) };
+}
+
+/**
+ * Everything the Turn Rail's menus offer, in ONE read (§11). Sources are the
+ * live routing config, the runner-projected v4 execution manifest, the
+ * materialized vault and the dev-root - no new state, no second scan. Never
+ * throws: an empty list disables a row, it does not 500 the menu.
+ */
+export function buildRouteOptions() {
+  const config = router?.config ?? null;
+  // A pinned target (the classifier) is infrastructure, not a routing choice.
+  const targets = (Array.isArray(config?.targets) ? config.targets : [])
+    .filter((t) => t && typeof t.id === "string" && t.pinned !== true)
+    .map((t) => ({
+      id: t.id,
+      runtime: t.runtime ?? null,
+      provider: t.provider ?? null,
+      model: t.model ?? null,
+      effort: t.effort ?? null,
+      account: t.account ?? null
+    }));
+  // The v4 execution manifest is the duty vocabulary the board and the gateway
+  // already share; the wired dispatcher's model is the compatibility fallback.
+  const model = router?._executionModel ?? null;
+  const dutyMap =
+    (model?.duties && typeof model.duties === "object" ? model.duties : null) ??
+    (router?._dispatcher?.model?.duties && typeof router._dispatcher.model.duties === "object"
+      ? router._dispatcher.model.duties
+      : {});
+  const selectedDuties = Array.isArray(model?.selectedDuties)
+    ? [...model.selectedDuties]
+    : Array.isArray(router?._dispatcher?.model?.selectedDuties)
+      ? [...router._dispatcher.model.selectedDuties]
+      : [];
+  const duties = Object.values(dutyMap)
+    .filter((d) => d && typeof d.id === "string")
+    .map((d) => ({
+      id: d.id,
+      title: typeof d.title === "string" && d.title ? d.title : d.id,
+      levels: (Array.isArray(d.levels) ? d.levels : []).map((level, index) => ({
+        n: index + 1,
+        description: typeof level?.description === "string" ? level.description : ""
+      }))
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const processAccount =
+    typeof process.env.GARRISON_ACCOUNT === "string" && process.env.GARRISON_ACCOUNT.trim()
+      ? process.env.GARRISON_ACCOUNT.trim()
+      : null;
+  let accounts = [];
+  let projects = [];
+  try {
+    accounts = listVaultAccounts(COMPOSITION_DIR);
+  } catch {
+    accounts = []; // vault unreadable → the row is simply empty
+  }
+  try {
+    // §8's confined enumerator: exactly the names resolveProjectName accepts, so
+    // the menu can never offer a value the resolver would refuse.
+    projects = listProjectNames();
+  } catch {
+    projects = [];
+  }
+  return {
+    targets,
+    duties,
+    selectedDuties,
+    efforts: [...TURN_EFFORTS],
+    accounts,
+    // Null name = the box's own Claude login (the honest "machine login" badge).
+    account: { name: processAccount, source: processAccount ? "process" : null },
+    projects,
+    primaryRuntime: primaryRuntime(),
+    activeProfile: config?.activeProfile ?? null,
+    // Routing may be off entirely (no orchestrator fitting) - the rail then shows
+    // the menus as read-only rather than pretending a pin would be honored.
+    routing: !!router
+  };
+}
+
 /** Run one turn through Stage-A routing: classify → resolve → log → switch →
- *  turn → honored check. The operative session is served by the routing pool. */
-async function runRoutedTurn(message, onChunk, hints) {
+ *  turn → honored check. The operative session is served by the routing pool.
+ *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
+ *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity. */
+async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   await router.ensureOperative();
   // NOTE (S3d review R1): the Discuss reply-as-answer / explicit-go interception is NOT
   // here - it runs at the HTTP entry points BEFORE enqueueTurn (dispatchDiscussIntercept),
@@ -799,6 +1087,16 @@ async function runRoutedTurn(message, onChunk, hints) {
   // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
   // skill + suppressContinuations controls. Absent hints → classify as before.
   const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
+  // §4: emit the badge row NOW (pending), ~1s into the turn, instead of only at the
+  // end. Everything the rail shows except the reply is already known here. The
+  // client MERGES this frame with the one folded into `done`.
+  if (typeof opts.onPreRoute === "function") {
+    try {
+      opts.onPreRoute(pre);
+    } catch {
+      /* a frame observer must never break the turn */
+    }
+  }
   // D19: EVERY task-shaped turn is a card. A trivial plan runs INLINE under a
   // `quick` card that auto-advances Implement→Done at completion; a multi-phase
   // (significant) plan is dispatched to the run engine (the reply carries the card
@@ -860,7 +1158,10 @@ async function runRoutedTurn(message, onChunk, hints) {
             broadcastRich("assistant", { text: reply });
             broadcastRich("turn", { active: false });
             if (onChunk && reply) onChunk(reply, true);
+            // §6 site 1 of 3: PREFIX-merge the attribution so the lane's own
+            // fields (here: card + steering) always win.
             return {
+              ...turnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
               reply,
               session_id: null,
               cost_usd: null,
@@ -973,7 +1274,18 @@ async function runRoutedTurn(message, onChunk, hints) {
                 `Card: ${card.url}`;
             broadcastRich("assistant", { text: reply });
             logEvent("stdout", { kind: "run-card", id: card.id, url: card.url, clarity: needsDiscuss ? "needs-discuss" : "clear" });
-            return { reply, session_id: null, cost_usd: null, route: pre.route?.targetId ?? null, card: card.id, cardUrl: card.url };
+            // §6 site 2 of 3. cardUrl is the board's LOOPBACK url: the renderer
+            // (which owns the client's host context) passes it through
+            // rewriteHostUrl - the gateway cannot, it has no page host.
+            return {
+              ...turnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
+              reply,
+              session_id: null,
+              cost_usd: null,
+              route: pre.route?.targetId ?? null,
+              card: card.id,
+              cardUrl: card.url
+            };
           }
           // board unavailable → fall through inline (never hard-block on the window)
         } else {
@@ -992,7 +1304,7 @@ async function runRoutedTurn(message, onChunk, hints) {
       }
     }
   }
-  const result = await execRoutedTurn(pre, message, onChunk, hints);
+  const result = await execRoutedTurn(pre, message, onChunk, hints, opts);
   // D19: a quick card runs inline; advance it Implement→Done now that the turn
   // finished — but ONLY if it finished honestly. An EMPTY reply is a FAILURE, not
   // a pass: route it to needs-attention with the failure contract instead of Done
@@ -1010,13 +1322,20 @@ async function runRoutedTurn(message, onChunk, hints) {
     }
     router.forgetCard(sessionKey);
   }
-  return result;
+  // §6 site 3 of 3 - and the one that matters most: this tail covers ALL SIX
+  // execRoutedTurn lane returns at once, which is why the attribution is added
+  // here instead of at nine branch-dependent returns. A quick card ran inline, so
+  // its id belongs on the rail too.
+  return {
+    ...turnAttribution(pre, hints, quickCard ? { card: quickCard.id, cardUrl: quickCard.url ?? null } : {}),
+    ...result
+  };
 }
 
 /** Execute the resolved turn on its runtime (agent-sdk / secondary / workflow /
  *  claude-code PTY) and return the channel-shaped result. Split out of
  *  runRoutedTurn so the D19 quick-card completion runs on every runtime path. */
-async function execRoutedTurn(pre, message, onChunk, hints) {
+async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   // Local-vision lane (Evidence V2): an ollama-local target cannot Read image
   // files (its Anthropic-compat endpoint surfaces no tool_use), so a turn that
   // carries image paths executes natively via garrison-call's image-capable
@@ -1059,7 +1378,19 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
     broadcastRich("turn", { active: true }); // rich UI shows "thinking"
-    const r = await router.runAgentSdkTurn(pre.route, message, onChunk);
+    const r = await router.runAgentSdkTurn(pre.route, message, onChunk, {
+      // §12: the warm SDK session is keyed by CONVERSATION as well as target, so
+      // two web threads never share one session_id (and one transcript badge).
+      sessionKey: hints?.sessionId ?? null,
+      // §8: a pinned project is a REAL execution scope on every lane, not just the
+      // web one-shot. The default composition routes web turns to agent-sdk
+      // targets, so wiring cwd only into runWebOneShot made the project badge lie:
+      // it reported /home/ggomes/dev/<repo> while the turn actually ran in the
+      // composition dir (caught by asking a live turn to print its own pwd).
+      cwd: pre.projectPath ?? undefined,
+      onActivity: opts.onActivity,
+      registerStop: (stop) => registerTurnStop("agent-sdk", stop)
+    });
     // Inject the off-screen agent-sdk reply + a status badge into rich clients so
     // the channel UI clearly shows the routed runtime/model (not the idle operative).
     broadcastRich("status", {
@@ -1083,6 +1414,9 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     return {
       reply: r.reply,
       session_id: r.session_id,
+      // §12: an SDK session journals a transcript, so the per-message transcript
+      // badge has a real file behind it.
+      transcript_path: r.transcript_path ?? null,
       cost_usd: null,
       route: pre.route.targetId,
       runtime: "agent-sdk",
@@ -1106,7 +1440,11 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
   // to the secondary; the gateway executes it directly (not the PTY operative).
   if (router.isSecondaryTarget(pre.route)) {
     broadcastRich("turn", { active: true });
-    const r = await router.runSecondaryTurn(pre.route, message);
+    const r = await router.runSecondaryTurn(pre.route, message, {
+      // §8: honor a pinned project here too, else the badge overstates the scope.
+      cwd: pre.projectPath ?? undefined,
+      registerStop: (stop) => registerTurnStop(pre.route.target.runtime, stop)
+    });
     broadcastRich("status", {
       rows: [`Garrison orchestrator → runtime: ${r.runtime} · provider: ${r.provider} · model: ${r.model}`],
       mode: r.runtime,
@@ -1136,6 +1474,9 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       model: r.model,
       effort: r.effort ?? null,
       effortApplied: typeof r.effortApplied === "boolean" ? r.effortApplied : null,
+      // A cancelled exec turn settles with its partial output; forward the reason
+      // so the done frame can say the turn was stopped rather than completed.
+      stoppedReason: r.stoppedReason ?? null,
       // Routing attribution for channels/kanban (null-safe).
       taskType: pre.decision?.taskType ?? null,
       tier: pre.decision?.tier ?? null,
@@ -1152,7 +1493,10 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
     const annotated = `${pre.annotation}\n${message}`;
     const r = await router.runClaudeDelegateTurn(pre.route, annotated, {
       onChunk,
-      timeoutMs: hints?.timeoutMs
+      timeoutMs: hints?.timeoutMs,
+      // §8: honor a pinned project here too, else the badge overstates the scope.
+      cwd: pre.projectPath ?? undefined,
+      registerStop: (stop) => registerTurnStop("claude-delegate", stop)
     });
     broadcastRich("status", {
       rows: [`Garrison orchestrator → runtime: claude-code · provider: ${r.provider} · model: ${r.model}`],
@@ -1232,9 +1576,24 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
       os1 = await router.runWebOneShot({
         message: oneShotMsg,
         model,
+        // §8: a pinned project IS this turn's cwd (a confined dev-root repo,
+        // already resolved by applyTurnOverride). Absent → the composition dir,
+        // exactly as before. An unresolvable project never reaches here: it was
+        // rejected at resolution time rather than silently falling back.
+        cwd: pre.projectPath ?? undefined,
+        // §6: a pinned account is real auth env for this spawn, not a label.
+        env: oneShotAccountEnv(pre.route?.target?.account ?? null) ?? undefined,
         onScreen: osOnScreen,
         onSession: (s) => {
           osSession = s;
+          // §9: ESC on the disposable session is the one-shot lane's stop
+          // primitive; waitForTurnComplete's liveness check then settles the turn
+          // with its partial reply instead of hanging to the 5-minute timeout.
+          registerTurnStop("web-one-shot", () => {
+            if (typeof s?.writeKeys !== "function") return false;
+            s.writeKeys("\x1b");
+            return true;
+          });
         },
       });
       reply = os1.reply ?? "";
@@ -1296,6 +1655,13 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
           }
         }
       : undefined;
+  // §9: the standing operative's stop primitive is ESC - the same one
+  // /claude/interrupt writes.
+  registerTurnStop("standing-pty", () => {
+    if (typeof session?.writeKeys !== "function") return false;
+    session.writeKeys("\x1b");
+    return true;
+  });
   const outcome = await session.runTurn({ message: annotated, onScreen, timeoutMs: hints?.timeoutMs });
   const honored = await router.postTurn(pre.route, pre.decision, outcome.reply);
   await markPriorSession();
@@ -1364,16 +1730,32 @@ async function execRoutedTurn(pre, message, onChunk, hints) {
 }
 
 /** Run one turn against the live operative. Spawns/respawns on demand.
- *  onChunk(text) streams the growing assistant reply (screen-derived). */
-async function runTurn(message, onChunk, hints) {
+ *  onChunk(text) streams the growing assistant reply (screen-derived).
+ *  opts: { onPreRoute, onActivity } - the §4/§12 SSE frame sinks. */
+async function runTurn(message, onChunk, hints, opts = {}) {
   // S3d review R1: bind AskUserQuestions raised during THIS turn to its card (the
   // engine's dutyKey = "cardId:phase"), and sweep any that outlive the turn. Turns are
   // serialized, so this module-level cursor is race-free.
   const turnCardId = typeof hints?.dutyKey === "string" ? (hints.dutyKey.split(":")[0] || null) : null;
   const prevTurnCardId = currentTurnCardId;
   currentTurnCardId = turnCardId;
+  // §9: publish this turn in the cancel registry for the whole of its life. The
+  // lane fills in the actual `stop` as soon as it owns something interruptible; an
+  // interrupt before that answers "no cancel primitive yet" rather than lying.
+  const turnKey = hints?.sessionId || INTERRUPT_FALLBACK_KEY;
+  const entry = { lane: primaryRuntime(), stop: null, cancelled: false };
+  const prevTurnEntry = currentTurnEntry;
+  currentTurnEntry = entry;
+  activeTurns.set(turnKey, entry);
   try {
-    if (router) return await runRoutedTurn(message, onChunk, hints);
+    if (router) {
+      const result = await runRoutedTurn(message, onChunk, hints, opts);
+      // A cancelled turn settles NORMALLY with its partial reply - the stop is not
+      // an error path - so the done frame is where the user learns it was stopped.
+      return entry.cancelled
+        ? { ...result, stoppedByUser: true, stoppedReason: result?.stoppedReason ?? "user-interrupt" }
+        : result;
+    }
     if (!session || session.isDisposed() || !session.isAlive()) {
       logEvent("stdout", { kind: "respawn-before-turn" });
       ptyStatus = "spawning";
@@ -1393,14 +1775,29 @@ async function runTurn(message, onChunk, hints) {
           }
         }
       : undefined;
+    // The legacy single-session path is a Claude PTY too, so ESC stops it.
+    registerTurnStop("standing-pty", () => {
+      if (typeof session?.writeKeys !== "function") return false;
+      session.writeKeys("\x1b");
+      return true;
+    });
     const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
     await markPriorSession();
-    return { reply: outcome.reply, session_id: outcome.sessionId, cost_usd: null };
+    return {
+      reply: outcome.reply,
+      session_id: outcome.sessionId,
+      cost_usd: null,
+      ...(entry.cancelled ? { stoppedByUser: true, stoppedReason: "user-interrupt" } : {})
+    };
   } finally {
     // The turn ended (returned, timed out, or threw) - an unanswered question it raised
     // is now dead; drop it so it cannot answer a future thread's reply.
     sweepPendingQuestions(turnCardId);
     currentTurnCardId = prevTurnCardId;
+    // Only clear the registry slot if it is still OURS (a later turn on the same
+    // conversation key must not be un-cancellable because an older one finished).
+    if (activeTurns.get(turnKey) === entry) activeTurns.delete(turnKey);
+    currentTurnEntry = prevTurnEntry;
   }
 }
 
@@ -1409,14 +1806,24 @@ async function runTurn(message, onChunk, hints) {
 // an EXPLICIT {taskType,tier} classification preRoute can honor instead of
 // re-classifying, the per-list skill, and a suppress-continuations flag. Validated so a
 // malformed classification simply falls back to normal classification (never trusted blindly).
-function routeHintsFromBody(body) {
+export function routeHintsFromBody(body) {
   const c = body?.classification;
   const classification =
     c && typeof c === "object" && typeof c.taskType === "string" && typeof c.tier === "string"
       ? { taskType: c.taskType, tier: c.tier, ...(c.matchedException ? { matchedException: c.matchedException } : {}) }
       : null;
+  // §3: the per-turn pinned intent, STRICTLY validated here at the edge. What
+  // survives reaches applyTurnOverride; what does not is carried as a rejection so
+  // the badge row can say what was refused and why.
+  const { routing, rejected: routingRejected } = sanitizeRouting(body?.routing);
   return {
     classification,
+    routing,
+    routingRejected,
+    // §5 turn identity: a client-supplied monotonic counter, echoed on both the
+    // pre-turn and the done `route` frame so a late frame can be DROPPED instead
+    // of landing on the newest turn.
+    turnSeq: Number.isInteger(body?.turnSeq) && body.turnSeq >= 0 ? body.turnSeq : null,
     // Local-vision lane (Evidence V2): absolute image file paths. A turn that
     // resolves to an ollama-local target receives these natively (base64 via
     // garrison-call); Claude lanes Read the same paths from the prompt, so the
@@ -1468,9 +1875,9 @@ function routeHintsFromBody(body) {
   };
 }
 
-function enqueueTurn(message, onChunk, hints) {
+function enqueueTurn(message, onChunk, hints, opts = {}) {
   const previous = inflight ?? Promise.resolve();
-  const runP = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints));
+  const runP = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints, opts));
   // Turn-boundary compaction check (S1b): chained AFTER the turn so the NEXT
   // enqueued turn waits for any compaction, while the caller only awaits the turn
   // result (runP). Never rejects the chain.
@@ -1612,6 +2019,23 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    // §11: everything the Turn Rail's menus need, in ONE read, and deliberately
+    // NOT behind `await readyPromise` - the menu must work while the operative is
+    // still spawning (that is exactly when a user wants to change where the next
+    // turn runs).
+    if (request.method === "GET" && url.pathname === "/route/options") {
+      return sendJson(response, 200, buildRouteOptions());
+    }
+
+    // §9: stop the in-flight turn for one conversation. The turn then settles
+    // normally with its partial reply and stoppedByUser on the done frame - this
+    // endpoint never ends the SSE stream itself.
+    if (request.method === "POST" && url.pathname === "/chat/interrupt") {
+      const body = await readJsonBody(request);
+      const r = await handleInterrupt(body);
+      return sendJson(response, r.status, r.body);
+    }
+
     // Read-only rendered-screen surface: the operative session's live terminal
     // screen (the xterm-headless render claude-pty already maintains), for
     // watch surfaces like the Kanban board. GET /screen is one snapshot;
@@ -1714,6 +2138,32 @@ const server = http.createServer(async (request, response) => {
       };
       toolListeners.add(onTool);
 
+      const hints = routeHintsFromBody(body);
+      // §4: the FIRST `route` frame, emitted the moment preRoute resolves, so the
+      // badge row appears ~1s into the turn instead of after the reply. `pending`
+      // marks it as refinable; the client merges the done frame over it and drops
+      // any frame from an older turnSeq (§5).
+      const onPreRoute = (pre) => {
+        try {
+          sseWrite(response, "route", {
+            ...turnAttribution(pre, hints),
+            ...routeFieldsFrom(pre),
+            pending: true,
+            turnSeq: hints.turnSeq
+          });
+        } catch {
+          /* client gone */
+        }
+      };
+      // §12: tool activity from a routed runtime, for the working-hint slot.
+      const onActivity = (payload) => {
+        try {
+          sseWrite(response, "activity", payload);
+        } catch {
+          /* client gone */
+        }
+      };
+
       try {
         await readyPromise;
         const result = await enqueueTurn(message, (text, replace) => {
@@ -1727,7 +2177,7 @@ const server = http.createServer(async (request, response) => {
           } catch {
             /* client gone */
           }
-        }, routeHintsFromBody(body));
+        }, hints, { onPreRoute, onActivity });
         // Additive context telemetry (D5b): the turn's live/peak context % + any
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any
@@ -2014,10 +2464,20 @@ async function shutdown(signal) {
   setTimeout(() => process.exit(1), 5000).unref();
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+// Documented test seam: gateway.mjs runs this engine by IMPORTING the module, so
+// booting on import is the production behaviour. GARRISON_GATEWAY_NO_LISTEN=1
+// imports it for the pure run-context helpers alone (turnAttribution /
+// sanitizeRouting / buildRouteOptions / handleInterrupt) with no HTTP listener, no
+// claude spawn and - deliberately - no signal handlers, since a helpers-only
+// import must not hijack the host process's SIGTERM into a server shutdown.
+if (process.env.GARRISON_GATEWAY_NO_LISTEN === "1") {
+  logEvent("stdout", { kind: "no-listen", message: "GARRISON_GATEWAY_NO_LISTEN=1 - helpers only, no server" });
+} else {
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 
-main().catch((err) => {
-  logEvent("stderr", { kind: "boot-failed", error: err.message });
-  process.exit(1);
-});
+  main().catch((err) => {
+    logEvent("stderr", { kind: "boot-failed", error: err.message });
+    process.exit(1);
+  });
+}

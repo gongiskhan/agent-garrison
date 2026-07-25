@@ -57,6 +57,79 @@ export interface RouteAttribution {
   ruleId?: string | null;
   profile?: string | null;
   honored?: boolean | null;
+  // The duties-and-levels vocabulary the router actually resolved against. Known
+  // gateway-side since preRouteV4 but never reported to a channel until now.
+  duty?: string | null;
+  level?: number | null;
+  /** The phase inside the duty ladder; often equal to `duty` (see preRouteV4). */
+  phase?: string | null;
+  /** The duty's skill fitting. Null on every live cell today - composition duties
+   *  are defined inline with no skill, so the rail says "skill: none" rather than
+   *  hiding the fact. */
+  skill?: string | null;
+  /** How the route was chosen: a duty-ladder cell, a per-turn override, or the
+   *  classifier. */
+  via?: "duty-cell" | "turn-override" | "classifier" | string | null;
+  /** Named runtime account the turn authenticated as. Distinguish absent from
+   *  null: undefined = the lane could not report it (badge omitted); null = there
+   *  IS no named account, i.e. the machine's own Claude login (a real fact, so it
+   *  renders as "machine login"). */
+  account?: string | null;
+  accountSource?: "override" | "target" | "process" | null;
+  /** Dev-root child NAME the turn ran in (not a path - see resolveProjectName). */
+  project?: string | null;
+  /** Absolute cwd the turn actually ran in; tooltip-only, never a client URL. */
+  projectPath?: string | null;
+  /** Set when a significant ask was CARDED: the work runs on the board, not here. */
+  card?: string | null;
+  /** Board URL for `card`. Already host-rewritten by the producer - the browser is
+   *  almost never on the Garrison box, so a raw loopback board URL is unusable. */
+  cardUrl?: string | null;
+  /** The routed runtime's OWN session id, per message (not per thread) - the key
+   *  the transcript drill-down passes to GET /api/session-stream. */
+  sessionId?: string | null;
+  transcriptPath?: string | null;
+  stoppedByUser?: boolean | null;
+  stoppedReason?: string | null;
+  // Override bookkeeping. The pinned INTENT (TurnRouting) is kept separate from
+  // what actually RAN: a rejected override must read "override rejected: <reason>"
+  // rather than silently showing the pin as if it had been honored.
+  overridesApplied?: string[] | null;
+  overridesRejected?: { field: string; reason: string }[] | null;
+  /** True on the pre-turn frame (emitted right after preRoute resolves, so badges
+   *  appear ~1s in); absent/false on the frame folded into `done`. */
+  pending?: boolean | null;
+  /** Monotonic per-send turn number. A frame whose turnSeq is OLDER than the
+   *  current turn's is DROPPED - blind "write to the last turn" lands a late frame
+   *  on the wrong bubble. */
+  turnSeq?: number | null;
+}
+
+/**
+ * The sparse pinned INTENT for the next turn - what the user asked for, not what
+ * ran (that is {@link RouteAttribution}). Rides client -> gateway as
+ * `ChatSendMeta.routing` -> `payload.routing` -> `body.routing` -> `hints.routing`.
+ *
+ * `runtime` and `model` are deliberately NOT independently settable from a menu:
+ * there is no model catalog anywhere in the repo (model is free text in every
+ * runtime `config_schema`), so a model dropdown would invite invalid pairs like
+ * `runtime: gemini` + `model: opus`. A `target` picks runtime+provider+model
+ * coherently; `model` stays as a typed escape hatch that overlays only the
+ * resolved target's model.
+ */
+export interface TurnRouting {
+  /** A composition `targets[]` id. */
+  target?: string | null;
+  /** Free-text model override, overlaid on the resolved target. */
+  model?: string | null;
+  /** low | medium | high | xhigh | max - mirrors `dutyEfforts` in src/lib/types.ts. */
+  effort?: string | null;
+  duty?: string | null;
+  /** Integer 1..9. */
+  level?: number | null;
+  /** Dev-root child NAME only - absolute paths and any "/" are rejected. */
+  project?: string | null;
+  account?: string | null;
 }
 
 export type ChatEvent =
@@ -67,9 +140,16 @@ export type ChatEvent =
   | { type: "screen"; lines: string[] }
   // Wire fields match the gateway payload (tool_use_id is snake_case on the wire).
   | { type: "tool"; name: string; tool_use_id: string; questions: ToolQuestion[] }
-  // Structured runtime attribution for the just-finished turn — the web channel's
-  // orchestrator transport emits this from the `done` frame before it idles the turn.
+  // Structured runtime attribution for a turn - emitted TWICE by the web channel's
+  // orchestrator transport: once right after the gateway's `preRoute` resolves
+  // (`pending: true`) so badges appear early, once folded into the `done` frame.
+  // The consumer MERGES the two ({...last.route, ...frame}) so the pre-turn frame
+  // is refined, never clobbered, and drops any frame whose `turnSeq` is stale.
   | ({ type: "route" } & RouteAttribution)
+  // Tool activity from a routed runtime (the non-primary lanes never streamed, so
+  // the conversation sat silent for minutes). Renders into the working hint:
+  // "Working 0:42 - Edit". `id` is the tool_use id when the lane reports one.
+  | { type: "activity"; kind: "tool"; name: string; id?: string }
   | { type: "error"; message: string }
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
 
@@ -165,6 +245,11 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
         on("turn");
         on("screen");
         on("tool");
+        // Both attribution frames are shared features: without these two the
+        // dev-env host stays permanently dark on the Turn Rail even though its
+        // server speaks the same /claude/* shape as the web channel.
+        on("route");
+        on("activity");
         on("error");
         es.onerror = () => {
           onEvent({ type: "connection", state: "reconnecting" });

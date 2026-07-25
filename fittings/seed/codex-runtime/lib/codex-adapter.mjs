@@ -50,15 +50,41 @@ export function buildExecArgs(config = {}) {
   return { bin: config.bin || "codex", argv, stdinFromPrompt: true };
 }
 
-function defaultRunExec({ bin, argv, env, cwd, stdin }) {
+// A cancelled turn's child gets SIGTERM first so codex can unwind and flush; a
+// process that ignores it (or is wedged in a syscall) is SIGKILLed after this
+// grace. Short on purpose: the HTTP interrupt caller is waiting on the turn.
+const CANCEL_GRACE_MS = 2000;
+
+// node keeps `child.pid` set and flips `child.killed` the moment kill() is
+// CALLED, so neither is a liveness signal (same trap pty.mjs documents). The real
+// predicate is "no exit observed yet": exitCode stays null until a normal exit,
+// signalCode until a signalled one.
+function childAlive(child) {
+  return !!child && child.exitCode == null && child.signalCode == null;
+}
+
+function defaultRunExec({ bin, argv, env, cwd, stdin, onSpawn }) {
   return new Promise((resolve) => {
     const child = spawn(bin, argv, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     let err = "";
+    let settled = false;
+    // Settle once: a cancel resolves the turn early with the partial buffer, and
+    // the dying child's later close must not overwrite that result.
+    const settle = (result) => {
+      if (settled) return false;
+      settled = true;
+      resolve(result);
+      return true;
+    };
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
-    child.on("close", (code) => resolve({ code, stdout: out, stderr: err }));
-    child.on("error", (e) => resolve({ code: -1, stdout: out, stderr: String(e?.message || e) }));
+    child.on("close", (code) => settle({ code, stdout: out, stderr: err }));
+    child.on("error", (e) => settle({ code: -1, stdout: out, stderr: String(e?.message || e) }));
+    // Hand the live child (plus its buffered output and an early-settle) back to
+    // the adapter. Without this the child stays local to this promise and
+    // cancel() has nothing to signal - the bug the run-context decision calls out.
+    if (typeof onSpawn === "function") onSpawn({ child, partial: () => out, settle });
     if (stdin != null) child.stdin.end(stdin);
     else child.stdin.end();
   });
@@ -83,6 +109,10 @@ export class CodexAdapter {
       // Keep the explicit boolean so route evidence can distinguish "requested
       // and applied" from runtimes that merely retain an unsupported request.
       effortApplied: effort != null,
+      // Cancel bookkeeping - the in-flight child (parked per turn by sendTurn) and
+      // the user's Stop intent. Declared here so the session shape is honest.
+      proc: null,
+      cancelRequested: false,
     };
   }
 
@@ -92,10 +122,60 @@ export class CodexAdapter {
 
   async sendTurn(session, text) {
     const { bin, argv } = buildExecArgs(session.config);
+    // A prior turn's cancel must never leak into this one.
+    session.cancelRequested = false;
+    session.proc = null;
     this._pending.set(
       session,
-      this._runExec({ bin, argv, env: session.config.env ?? process.env, cwd: session.config.compositionDir, stdin: text })
+      this._runExec({
+        bin,
+        argv,
+        env: session.config.env ?? process.env,
+        cwd: session.config.compositionDir,
+        stdin: text,
+        // Park the live child on the session so cancel() can signal it. An
+        // injected runExec that ignores onSpawn leaves session.proc null and
+        // cancel() degrades to a documented no-op.
+        onSpawn: (proc) => {
+          session.proc = proc;
+        }
+      })
     );
+  }
+
+  // Real cancel (2026-07-25 web-channel run-context §9). teardown() never killed
+  // anything, so a routed codex turn ran to completion no matter what the user
+  // pressed. SIGTERM the stored child, escalate to SIGKILL after a grace, and
+  // settle the in-flight turn immediately with whatever codex already printed -
+  // a dying process may never flush a close event worth waiting on.
+  async cancel(session) {
+    const proc = session?.proc ?? null;
+    // Nothing running: a no-op that deliberately does NOT set cancelRequested,
+    // which would otherwise poison the NEXT turn's awaitResponse.
+    if (!proc?.child) return false;
+    // Idempotent: a second Stop must not arm a second escalation timer.
+    if (session.cancelRequested) return true;
+    session.cancelRequested = true;
+    const { child } = proc;
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
+    if (childAlive(child)) {
+      const timer = setTimeout(() => {
+        if (!childAlive(child)) return;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, CANCEL_GRACE_MS);
+      // Never hold the gateway's event loop open on a grace timer.
+      timer.unref?.();
+    }
+    proc.settle?.({ code: -1, stdout: proc.partial?.() ?? "", stderr: "cancelled by user" });
+    return true;
   }
 
   async awaitResponse(session) {
@@ -103,6 +183,14 @@ export class CodexAdapter {
     if (!p) throw new Error("CodexAdapter: awaitResponse without a pending sendTurn");
     this._pending.delete(session);
     const r = await p;
+    session.proc = null;
+    // A cancelled turn's child was signalled, so it "fails" with only partial
+    // output. That is not a runtime error to throw on: settle the turn with the
+    // partial text and the explicit stop reason so the caller can badge it.
+    if (session.cancelRequested) {
+      session.cancelRequested = false;
+      return { text: r.stdout ?? "", artifacts: [], stoppedReason: "cancelled" };
+    }
     if (r.code !== 0) throw new Error(`codex exec exited ${r.code}: ${r.stderr?.slice(0, 200)}`);
     return { text: r.stdout ?? "", artifacts: [] };
   }
@@ -125,5 +213,10 @@ export class CodexAdapter {
 
   async teardown(session) {
     session.alive = false;
+    // Back-compat: teardown has never killed the child (runSecondaryTurn calls it
+    // in a `finally` on the happy path, where the exec has already exited) and
+    // still doesn't - cancel() is the kill primitive. It does release the handle
+    // so a torn-down session never pins a dead child.
+    session.proc = null;
   }
 }
