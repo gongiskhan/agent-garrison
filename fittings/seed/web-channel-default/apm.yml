@@ -76,8 +76,7 @@ x-garrison:
       GET  /api/health       → liveness
       GET  /api/stream       → SSE proxy of gateway /channels/web/stream
       POST /api/chat         → SSE proxy of gateway /chat/stream (body: {message})
-      GET  /api/monitor      → { available, url? } — opportunistic Monitor discovery
-      GET  /api/voice        → { available, url? } — opportunistic voice (kind:voice) discovery
+      GET  /api/voice→ { available, url? } — opportunistic voice (kind:voice) discovery
       POST /api/voice/stt    → binary proxy to the voice Fitting's /stt (audio → { transcript })
       POST /api/voice/tts    → binary proxy to the voice Fitting's /tts ({text} → audio bytes)
       GET  /                 → React chat UI (dist/index.html)

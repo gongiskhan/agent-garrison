@@ -41,7 +41,7 @@ import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
 // it so their spawned instances never touch the live install's status files;
-// voice/monitor discovery below reads the same root, so a sandboxed voice
+// voice discovery below reads the same root, so a sandboxed voice
 // instance is still found by a sandboxed web-channel.
 function garrisonDir() {
   const override = process.env.GARRISON_HOME?.trim();
@@ -50,7 +50,6 @@ function garrisonDir() {
 
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
-const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
 const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 
 const CHANNEL_ID = "web";
@@ -92,30 +91,6 @@ function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
 }
 
-async function handleMonitor(req, res) {
-  if (!existsSync(MONITOR_STATUS_FILE)) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  let info;
-  try {
-    info = JSON.parse(readFileSync(MONITOR_STATUS_FILE, "utf8"));
-  } catch {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  if (!info?.url) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  const ok = await pingHealth(info.url, 500);
-  if (!ok) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  jsonRes(res, 200, { available: true, url: info.url });
-}
-
 function pingHealth(baseUrl, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false;
@@ -151,7 +126,7 @@ function readVoiceInfo() {
   }
 }
 
-// Voice availability — mirrors handleMonitor. The web UI hides its mic / speaker
+// Voice availability. The web UI hides its mic / speaker
 // controls when this reports unavailable.
 async function handleVoiceInfo(res) {
   const info = readVoiceInfo();
@@ -1432,7 +1407,6 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         res.statusCode = 204;
         return res.end();
       }
-      if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice/health" && method === "GET") return handleVoiceHealth(res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
