@@ -46,6 +46,7 @@ import {
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
+import { buildTightVideo } from "../lib/video-tighten.mjs";
 import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
 import {
   readJsonlLines, parseTranscriptLines, linesInWindow, noteRunSession, sessionSliceName
@@ -356,7 +357,7 @@ async function kanbanBaseUrl() {
 // (cards) must go through the confined evidence routes, and dispatch can run
 // from the heartbeat where no request context exists.
 function selfBaseUrl() {
-  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_DRILL_PORT || process.env.DRILL_UI_PORT || DEFAULT_PORT);
   return `http://${host}:${port}`;
 }
@@ -1595,6 +1596,34 @@ async function handle(req, res) {
         const pruned = await pruneEvidence({ root, classified: classifyForRetention(scoped) });
         for (const p of pruned) console.log(`[drill] evidence retention: pruned ${p.removed.join(", ")} from run ${p.runId}`);
       })().catch((err) => console.warn(`[drill] evidence: retention sweep failed: ${err.message}`));
+      // Video tightening (S1): the recorder rolls continuously while each check
+      // sits in an untimed vision call, so the raw recording is mostly a frozen
+      // page (measured: 24.6 of 27.3 min on a real 36-check run). Cut it down to
+      // the moments the Spotter saw something change. Fire-and-forget and
+      // evidence-file-only (video-tight.webm + video-index.json), so a slow
+      // encode can neither delay the run response nor touch the run record —
+      // the UI picks the tight cut up when video-index.json appears.
+      if (record.evidence?.video && record.evidence?.spotter?.manifest && capture) {
+        void (async () => {
+          const dir = evidenceRunDir(record.id, root);
+          const manifestPath = path.join(dir, record.evidence.spotter.manifest);
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          return buildTightVideo({
+            dir,
+            source: record.evidence.video,
+            frames: manifest.frames ?? [],
+            steps: manifestRows
+          });
+        })()
+          .then((res) => {
+            if (res?.ok) {
+              console.log(`[drill] video tighten: ${(res.originalDurationMs / 1000).toFixed(0)}s -> ${(res.tightDurationMs / 1000).toFixed(0)}s in ${res.segments.length} segments (${(res.encodeMs / 1000).toFixed(0)}s encode) for run ${record.id}`);
+            } else {
+              console.log(`[drill] video tighten: skipped for run ${record.id} (${res?.reason ?? "unknown"})`);
+            }
+          })
+          .catch((err) => console.warn(`[drill] video tighten: ${err.message}`));
+      }
       // Curation (Evidence V2, S2/D4): batch vision judging of the Spotter
       // frames into the Debrief reel — fire-and-forget, and it writes ONLY
       // evidence files (reel.json + sidecars), never the run record, so a
@@ -2339,7 +2368,7 @@ export async function startServer() {
   // runner-projected composition config first (GARRISON_DRILL_* — the
   // per-instance source of truth, e.g. main=7096 while codex=27096), then
   // the legacy explicit env (tests), then the hardcoded default.
-  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_DRILL_PORT || process.env.DRILL_UI_PORT || DEFAULT_PORT);
   assertStatusSlotFree();
   const server = createServer();

@@ -295,6 +295,12 @@ async function pruneRunDir(dir) {
   for (const name of names) {
     // Raw Spotter frames follow the same retention as video + traces (V2
     // hard constraint); manifests/annotations/feedback are never pruned.
+    //
+    // `video-tight.webm` is deliberately NOT pruned (S1): it is the dead-air
+    // cut, ~1/7th the bytes of the raw recording and the only version anyone
+    // actually watches. Dropping the 62MB original while keeping the 9MB
+    // highlight leaves an aged green run with MORE usable evidence than the
+    // old rule did (which left it with none), at a fraction of the storage.
     if (
       name === "video.webm" ||
       (name.startsWith("trace-") && name.endsWith(".zip")) ||

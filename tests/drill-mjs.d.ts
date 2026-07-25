@@ -145,3 +145,21 @@ declare module "*/drill/lib/browser-fitting-client.mjs" {
   export function tabInfo(tabId: string, opts?: any): Promise<any | null>;
   export function readConsole(tabId: string, opts?: any): Promise<any>;
 }
+declare module "*/drill/lib/video-tighten.mjs" {
+  export const TIGHTEN_DEFAULTS: {
+    preSec: number; postSec: number; mergeGapSec: number;
+    checkAnchorPreSec: number; checkAnchorPostSec: number;
+    maxSegments: number; minReductionRatio: number;
+  };
+  export function computeActivityWindows(args: {
+    frames?: any[]; steps?: any[]; durationSec: number; options?: any;
+  }): Array<[number, number]>;
+  export function segmentsDuration(segments: Array<[number, number]>): number;
+  export function remapOffset(segments: Array<[number, number]>, originalSec: number): number | null;
+  export function buildSelectFilter(segments: Array<[number, number]>): string;
+  export function ffmpegAvailable(): Promise<boolean>;
+  export function probeDurationSec(file: string): Promise<number | null>;
+  export function buildTightVideo(args: {
+    dir: string; source?: string; frames?: any[]; steps?: any[]; options?: any; timeoutMs?: number;
+  }): Promise<any>;
+}

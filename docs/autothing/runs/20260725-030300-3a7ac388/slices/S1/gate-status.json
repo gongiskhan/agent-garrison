@@ -1,0 +1,16 @@
+{
+  "slice": "S1",
+  "title": "Video tight-cut + chapter remap",
+  "kind": "mixed",
+  "status": "passed",
+  "gates": {
+    "securityWall": { "status": "passed", "note": "no secrets/network/user input introduced; ffmpeg args are program-constructed from numeric offsets, no shell interpolation (spawn without a shell)" },
+    "typecheck": { "status": "passed" },
+    "lint": { "status": "passed", "note": "0 errors on touched files; also cleared 3 pre-existing react/no-unescaped-entities errors in main.tsx" },
+    "test": { "status": "passed", "evidence": "tests/drill-video-tighten.test.ts 13 tests; drill core suite 62 tests green" },
+    "liveProof": {
+      "status": "passed",
+      "evidence": "buildTightVideo against real run 01KY4DREZ1VD3Z1JT59P0PKZP0: 1640s -> 186s (11.3%), 61.9MB -> 8.8MB, 46 segments, 91s encode; 36/36 chapters remapped, 0 past end, remap monotonic; frames extracted at remapped offsets land on the correct check"
+    }
+  }
+}

@@ -27034,7 +27034,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", onClick: onOpenPicker, children: "Select project" })
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Help, { children: [
-      "The Drill Book is this project's QA plan, stored in the repo under ",
+      "The Drill Book is this project\u2019s QA plan, stored in the repo under ",
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "drills/" }),
       ": every page of the app, the checks (steps) to run on it, and the named states they apply to. Tick the pages you care about and Run selected - or Plan book to have an agent author the plan for you. Click a page name to open it in Authoring."
     ] }),
@@ -27894,7 +27894,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
             title: `${page.title} interactive browser`,
             onLoad: () => setAreaResolutionRevision((n) => n + 1)
           }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cv-unreachable", role: "note", children: "Live interaction is unavailable from this device: the Browser fitting's port is not published to the tailnet. Run scripts/tailnet-serve-views.mjs on the Garrison machine, then reload. The screenshot preview above still tracks the page." })),
+        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cv-unreachable", role: "note", children: "Live interaction is unavailable from this device: the Browser fitting\u2019s port is not published to the tailnet. Run scripts/tailnet-serve-views.mjs on the Garrison machine, then reload. The screenshot preview above still tracks the page." })),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "div",
           {
@@ -28164,46 +28164,95 @@ function fmtOffset(ms) {
   const s = Math.max(0, Math.floor(ms / 1e3));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+function fmtDuration(ms) {
+  const s = Math.max(0, Math.round(ms / 1e3));
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+}
 function RunEvidenceVideo({ runId, video, steps }) {
   const ref = (0, import_react4.useRef)(null);
   const [failed, setFailed] = (0, import_react4.useState)(false);
+  const [index, setIndex] = (0, import_react4.useState)(null);
+  const [full, setFull] = (0, import_react4.useState)(false);
+  (0, import_react4.useEffect)(() => {
+    let live = true;
+    setIndex(null);
+    setFull(false);
+    fetch(evidenceFileUrl(runId, "video-index.json")).then((r) => r.ok ? r.json() : null).then((j) => {
+      if (live && j?.tight) setIndex(j);
+    }).catch(() => {
+    });
+    return () => {
+      live = false;
+    };
+  }, [runId]);
   if (failed) return null;
+  const tightAvailable = Boolean(index);
+  const showingTight = tightAvailable && !full;
+  const src = showingTight ? evidenceFileUrl(runId, index.tight) : evidenceFileUrl(runId, video);
+  const offsetFor = (row) => {
+    if (!showingTight) return Number.isFinite(row.startMs) ? row.startMs ?? 0 : null;
+    const ch = index.chapters.find(
+      (c) => c.pageId === row.pageId && c.stepId === row.stepId && c.viewportId === row.viewportId
+    );
+    return Number.isFinite(ch?.tightMs) ? ch.tightMs : null;
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "The whole run in one recording. Jump to a check with its chapter button." })
-    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
+        showingTight ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+          "Highlights only \u2014 ",
+          fmtDuration(index.tightDurationMs),
+          " of ",
+          fmtDuration(index.originalDurationMs),
+          ", with ",
+          fmtDuration(index.removedMs),
+          " of idle time cut. Jump to a check with its chapter button."
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+          tightAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording.",
+          " ",
+          "Jump to a check with its chapter button."
+        ] })
+      ] }),
+      tightAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setFull((f) => !f), children: full ? "Show highlights" : "Show full recording" })
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       "video",
       {
         ref,
         controls: true,
         preload: "metadata",
-        src: evidenceFileUrl(runId, video),
+        src,
         onError: () => setFailed(true),
         style: { width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }
-      }
-    ),
-    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-      "button",
-      {
-        className: "btn small",
-        title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
-        onClick: () => {
-          const v = ref.current;
-          if (!v || !Number.isFinite(row.startMs)) return;
-          v.currentTime = (row.startMs ?? 0) / 1e3;
-          void v.play().catch(() => {
-          });
-        },
-        children: [
-          row.stepId,
-          " @",
-          fmtOffset(row.startMs ?? 0)
-        ]
       },
-      row.item
-    )) })
+      src
+    ),
+    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => {
+      const at = offsetFor(row);
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "button",
+        {
+          className: "btn small",
+          disabled: at === null,
+          title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
+          onClick: () => {
+            const v = ref.current;
+            if (!v || at === null) return;
+            v.currentTime = at / 1e3;
+            void v.play().catch(() => {
+            });
+          },
+          children: [
+            row.stepId,
+            " @",
+            fmtOffset(at ?? 0)
+          ]
+        },
+        row.item
+      );
+    }) })
   ] });
 }
 function stepPassed(entry) {
@@ -28613,7 +28662,7 @@ function LiveBrowser({ runId, steps, scope, scopeKeys, session, onSession, warni
       ] })
     ] }),
     showSession && session && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-session", children: [
-      session.canvasUrl && resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-stage", style: liveStageStyle(session.canvasUrl), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("iframe", { className: "dr-db-live-frame", src: resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl), title: "Live browser session" }) }) : session.canvasUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-recover", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "The live session is open on the Garrison machine, but the Browser fitting's port is not published to the tailnet, so it cannot be embedded from this device. Run scripts/tailnet-serve-views.mjs there, then reload." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-recover", children: [
+      session.canvasUrl && resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-stage", style: liveStageStyle(session.canvasUrl), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("iframe", { className: "dr-db-live-frame", src: resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl), title: "Live browser session" }) }) : session.canvasUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-recover", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "The live session is open on the Garrison machine, but the Browser fitting\u2019s port is not published to the tailnet, so it cannot be embedded from this device. Run scripts/tailnet-serve-views.mjs there, then reload." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-recover", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "A live session is active for this run, but its canvas link is only returned when it is opened." }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: busy, onClick: () => reopen(session), children: "Reopen to view" }) })
       ] }),

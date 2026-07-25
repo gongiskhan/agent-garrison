@@ -463,3 +463,20 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - typecheck clean; lint clean on all touched files; `npm test` green modulo the two documented concurrency-only flakes + one unrelated pre-existing live-network test.
 - Kanban card `01KXKDM2198RA23ATFZE9QD495` already at `done` (kanban-loop's own routing closed it earlier in the session; verified, not re-touched).
 - Working tree clean of scratch artifacts (temp Playwright configs, debug scripts); `test-results/phase9-screenshots/` restored to its committed state.
+
+## RUN-START 20260725-030300-3a7ac388 — 2026-07-25T03:07:52Z
+- **Brief:** Drill run-results are impossible to analyse. Fix + greatly improve UX: (1) run video wastes minutes on a static page, (2) per-check evidence does not show the asserted state, (3) Debrief step text unreadable, (4) Debrief reports "no screenshots" for checks that have them. "Verifying the results of the drill is as important as the tests themselves."
+- **Session model:** claude-opus-5, effort inherited. **Host:** dev-madrid. **Branch:** main.
+- **Profile:** pending-sizing (Phase 1 assigns).
+- **gatesConfig:** all true (no operator flags passed).
+- **Preflight:** ffmpeg 6.1.1 + ffprobe present (/usr/bin). node 20.19.4. Target evidence run: 01KY4DREZ1VD3Z1JT59P0PKZP0 (~/.garrison/drill/evidence/23846f9025ca/).
+
+### DECISION 2026-07-25T08:32:24Z — profile + scope
+- **Profile:** build (6 slices). Turn cap raised to 480.
+- **Operator-answered (AskUserQuestion):** honesty gate = auto-author actions + `unproven` state for the remainder; scope = everything, presentation first.
+- **Assumption:** `unproven` is a THIRD terminal check state (not pass, not fail) so the fix does not manufacture 17 red failures overnight; it is excluded from the passed count.
+
+### DECISION 2026-07-25T08:32:24Z — S1 feasibility proven before implementation
+- ffmpeg tight-cut prototyped against the real 27.3-min run: **1640.36s -> 185.72s (11.3%), 61.9MB -> 9.0MB, 93s encode** (46 merged activity windows, VP8, 25fps CFR source).
+- Keyframes are every 5.12s (321 total) => stream-copy cutting is too coarse; a re-encode is required. Accepted: 93s of background post-processing against a 27-min run.
+- Chapter remap verified by extracting frames at remapped offsets (12.2s / 16.6s / 42.1s) and confirming they land on the right check.

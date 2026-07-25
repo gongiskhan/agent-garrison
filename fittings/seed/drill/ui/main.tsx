@@ -799,7 +799,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
       )}
 
       <Help>
-        The Drill Book is this project's QA plan, stored in the repo under <span className="mono">drills/</span>:
+        The Drill Book is this project&rsquo;s QA plan, stored in the repo under <span className="mono">drills/</span>:
         every page of the app, the checks (steps) to run on it, and the named states they apply to.
         Tick the pages you care about and Run selected - or Plan book to have an agent author the plan for you.
         Click a page name to open it in Authoring.
@@ -1726,7 +1726,7 @@ function AuthoringView({ initialPageId, onPageChange }: {
               />
             ) : (
               <div className="dr-cv-unreachable" role="note">
-                Live interaction is unavailable from this device: the Browser fitting's port is not
+                Live interaction is unavailable from this device: the Browser fitting&rsquo;s port is not
                 published to the tailnet. Run scripts/tailnet-serve-views.mjs on the Garrison machine,
                 then reload. The screenshot preview above still tracks the page.
               </div>
@@ -2234,45 +2234,116 @@ function fmtOffset(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// video-index.json (S1): the dead-air cut's segment map + per-check offsets in
+// BOTH timelines, so the player can default to the highlight and still deep-link
+// into the full recording.
+type VideoIndex = {
+  source: string;
+  tight: string;
+  originalDurationMs: number;
+  tightDurationMs: number;
+  removedMs: number;
+  segments: Array<{ startMs: number; endMs: number }>;
+  chapters: Array<{ pageId: string; stepId: string; viewportId: string; originalMs: number | null; tightMs: number | null }>;
+};
+
+function fmtDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+}
+
 // The whole run in one recording (Drill Evidence v0.1, D1) — chapter buttons
-// seek the player to each check's steps.json offset.
+// seek the player to each check's offset.
+//
+// The raw recording rolls while each check sits in an untimed model call, so it
+// is mostly a frozen page. When the tightened cut exists we play THAT by default
+// and keep the full recording one click away; chapter offsets switch timelines
+// with it.
 function RunEvidenceVideo({ runId, video, steps }: { runId: string; video: string; steps: EvidenceStepRow[] }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState(false);
+  const [index, setIndex] = useState<VideoIndex | null>(null);
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setIndex(null);
+    setFull(false);
+    fetch(evidenceFileUrl(runId, "video-index.json"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (live && j?.tight) setIndex(j); })
+      .catch(() => { /* no tight cut for this run — full recording is the only option */ });
+    return () => { live = false; };
+  }, [runId]);
+
   if (failed) return null;
+  const tightAvailable = Boolean(index);
+  const showingTight = tightAvailable && !full;
+  const src = showingTight ? evidenceFileUrl(runId, index!.tight) : evidenceFileUrl(runId, video);
+
+  // Chapter offset in whichever timeline is on screen.
+  const offsetFor = (row: EvidenceStepRow): number | null => {
+    if (!showingTight) return Number.isFinite(row.startMs) ? (row.startMs ?? 0) : null;
+    const ch = index!.chapters.find(
+      (c) => c.pageId === row.pageId && c.stepId === row.stepId && c.viewportId === row.viewportId
+    );
+    return Number.isFinite(ch?.tightMs as number) ? (ch!.tightMs as number) : null;
+  };
+
   return (
     <div className="dr-sec card">
       <div className="dr-card-heading">
         <div>
           <b>Run video</b>
-          <p>The whole run in one recording. Jump to a check with its chapter button.</p>
+          {showingTight ? (
+            <p>
+              Highlights only — {fmtDuration(index!.tightDurationMs)} of {fmtDuration(index!.originalDurationMs)},
+              with {fmtDuration(index!.removedMs)} of idle time cut. Jump to a check with its chapter button.
+            </p>
+          ) : (
+            <p>
+              {tightAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording."}{" "}
+              Jump to a check with its chapter button.
+            </p>
+          )}
         </div>
+        {tightAvailable && (
+          <button className="btn small" onClick={() => setFull((f) => !f)}>
+            {full ? "Show highlights" : "Show full recording"}
+          </button>
+        )}
       </div>
       <video
+        key={src}
         ref={ref}
         controls
         preload="metadata"
-        src={evidenceFileUrl(runId, video)}
+        src={src}
         onError={() => setFailed(true)}
         style={{ width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }}
       />
       {steps.length > 0 && (
         <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-          {steps.map((row) => (
-            <button
-              key={row.item}
-              className="btn small"
-              title={`${row.pageId}#${row.stepId} at ${row.viewportId}`}
-              onClick={() => {
-                const v = ref.current;
-                if (!v || !Number.isFinite(row.startMs)) return;
-                v.currentTime = (row.startMs ?? 0) / 1000;
-                void v.play().catch(() => {});
-              }}
-            >
-              {row.stepId} @{fmtOffset(row.startMs ?? 0)}
-            </button>
-          ))}
+          {steps.map((row) => {
+            const at = offsetFor(row);
+            return (
+              <button
+                key={row.item}
+                className="btn small"
+                disabled={at === null}
+                title={`${row.pageId}#${row.stepId} at ${row.viewportId}`}
+                onClick={() => {
+                  const v = ref.current;
+                  if (!v || at === null) return;
+                  v.currentTime = at / 1000;
+                  void v.play().catch(() => {});
+                }}
+              >
+                {row.stepId} @{fmtOffset(at ?? 0)}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -2792,7 +2863,7 @@ function LiveBrowser({ runId, steps, scope, scopeKeys, session, onSession, warni
           ) : session.canvasUrl ? (
             <div className="dr-db-live-recover">
               <div className="dr-db-empty">
-                The live session is open on the Garrison machine, but the Browser fitting's port is not
+                The live session is open on the Garrison machine, but the Browser fitting&rsquo;s port is not
                 published to the tailnet, so it cannot be embedded from this device. Run
                 scripts/tailnet-serve-views.mjs there, then reload.
               </div>
