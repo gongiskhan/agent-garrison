@@ -44,7 +44,7 @@ import {
 import { garrisonDir } from "./claude-home";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
 import { claimComposition, releaseComposition } from "./composition-owner";
-import { accountTokenForSpawn, listAccounts, setAccountNeedsRelogin } from "./accounts";
+import { accountTokenForSpawn, listAccounts, resolveRuntimeAccountEnv, setAccountNeedsRelogin } from "./accounts";
 import { accountVaultKey } from "./account-env";
 import {
   PaymasterHoldError,
@@ -382,9 +382,10 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // The DEFAULT id keeps default semantics from EITHER source (policy or
     // legacy key): claude-code is synthesizable without its fitting, so naming
     // the default must never fail a composition that doesn't compose it.
+    const runtimeEntries = buildRuntimeEntries(soulEntries, composition.selections);
     const primaryRuntime = resolvePrimaryRuntime({
       primaryRuntimeId: effectivePrimary === DEFAULT_PRIMARY_RUNTIME ? undefined : effectivePrimary,
-      runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
+      runtimeEntries
     });
     // P4 (GARRISON-RUNTIMES-V1): a non-claude primary is HOSTED now — the
     // gateway pool warms the named engine's RuntimeAdapter as the operative
@@ -468,6 +469,18 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     record.activeAccount = pinnedAccount;
     record.authFailureFlagged = false;
     record.limitFlagged = false;
+    // RUNTIME-ACCOUNTS-V2: inject non-Anthropic runtime accounts (Codex/Gemini/
+    // custom) into the operative spawn env. Secondary runtime bridges inherit it
+    // via process.env, and a non-Anthropic PRIMARY (codex/gemini) is authed here
+    // too — buildPrimaryRuntimeEnv only handles the Anthropic plan path. Anthropic
+    // is excluded (single process-wide token owned by the primary/auto path).
+    const runtimeAccountEnv = await resolveRuntimeAccountEnv(
+      runtimeEntries.map((entry) => ({
+        id: entry.id,
+        account: entry.config?.account != null ? String(entry.config.account) : undefined
+      })),
+      { log: (message) => appendLog(compositionId, "runner", message) }
+    );
     if (pinnedAccount) {
       appendLog(
         compositionId,
@@ -475,11 +488,16 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         `Primary runtime ${primaryRuntime.runtimeId} pinned to Anthropic account "${pinnedAccount}"`
       );
     } else if (primaryAccount) {
-      appendLog(
-        compositionId,
-        "stderr",
-        `Runtime account "${primaryAccount}" is configured but the selected provider is not the Anthropic plan — account ignored for this launch.`
-      );
+      // Only an ANTHROPIC account is "ignored" off the plan path — a non-Anthropic
+      // primary account is injected above by resolveRuntimeAccountEnv.
+      const acct = (await listAccounts()).find((a) => a.name === primaryAccount);
+      if (!acct || acct.platform === "anthropic") {
+        appendLog(
+          compositionId,
+          "stderr",
+          `Runtime account "${primaryAccount}" is configured but the selected provider is not the Anthropic plan — account ignored for this launch.`
+        );
+      }
     }
     if (primaryProviderLaunch) {
       appendLog(
@@ -530,6 +548,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         gateway,
         {
           ...(gatewayExtraEnv ?? {}),
+          ...runtimeAccountEnv,
           ...primaryEnv,
           ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {})
         }
@@ -541,7 +560,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         compositionId,
         composition.directory,
         promptPath,
-        primaryEnv,
+        { ...runtimeAccountEnv, ...primaryEnv },
         primaryProviderLaunch
       );
       record.gateway = undefined;

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
+import { platformForRuntime } from "@/components/accounts/shared";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
@@ -721,6 +722,7 @@ function FittingConfigSection({
               <ConfigInput
                 key={field.key}
                 field={field}
+                fittingId={entry.id}
                 value={selection.config[field.key] ?? field.default ?? ""}
                 onChange={(value) => updateConfig(entry, field.key, value)}
               />
@@ -765,10 +767,12 @@ function FittingConfigSection({
 
 function ConfigInput({
   field,
+  fittingId,
   value,
   onChange
 }: {
   field: ConfigSchemaField;
+  fittingId: string;
   value: string | number | boolean;
   onChange: (value: string | number | boolean) => void;
 }) {
@@ -779,7 +783,11 @@ function ConfigInput({
     return (
       <div className="field">
         <label>{field.key}</label>
-        <AccountField value={String(value)} onChange={(next) => onChange(next)} />
+        <AccountField
+          value={String(value)}
+          onChange={(next) => onChange(next)}
+          platform={platformForRuntime(fittingId)}
+        />
         {field.description ? <div className="hint">{field.description}</div> : null}
       </div>
     );

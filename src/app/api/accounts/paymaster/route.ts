@@ -20,7 +20,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     void ensurePaymasterHeartbeat().catch(() => undefined);
-    let accounts = await listAccounts();
+    // The Paymaster is Anthropic-only (rate-limit rotation); other platforms have
+    // no probeable usage. Non-Anthropic accounts are managed on /accounts, not here.
+    let accounts = (await listAccounts()).filter((a) => (a.platform ?? "anthropic") === "anthropic");
     const settings = await readPaymasterSettings();
     const force = request.nextUrl.searchParams.get("refresh") === "1";
     const usage = force
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
       : await readUsageCache();
     // A live refresh can flip needs_relogin either way - re-list so the panel
     // and the eligibility verdicts reflect the current flags.
-    if (force) accounts = await listAccounts();
+    if (force) accounts = (await listAccounts()).filter((a) => (a.platform ?? "anthropic") === "anthropic");
     const decision = resolvePaymaster(candidatesFrom(accounts, usage));
     return NextResponse.json({ accounts, decision, settings });
   } catch (error) {

@@ -1,0 +1,79 @@
+name: openrouter-runtime
+version: 0.1.0
+description: OpenRouter runtime (Runtimes Faculty) - one API key, 345+ models from every major lab behind a single OpenAI-compatible endpoint. A secondary runtime for capability delegation where the useful axis is MODEL CHOICE rather than a different agent harness.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A secondary Runtime fitting backed by OpenRouter's OpenAI-compatible
+    /chat/completions endpoint. Implements the uniform RuntimeAdapter contract
+    over HTTP (no CLI to install) and ships a runtime-bridge exposing
+    delegate(task_spec) -> {summary, artifacts}. Pick the model per delegation or
+    from the fitting's model config; authenticate by pinning an OpenRouter
+    account on the Accounts page (injected as OPENROUTER_API_KEY).
+  config_schema:
+    - key: model
+      type: select
+      default: anthropic/claude-sonnet-5
+      description: >-
+        Default model for delegated tasks. These are popular ids verified live
+        against OpenRouter's catalog; any "vendor/model" id the catalog serves is
+        accepted when a task spec names it explicitly.
+      options:
+        - anthropic/claude-opus-5
+        - anthropic/claude-sonnet-5
+        - openai/gpt-5.2
+        - openai/gpt-5-codex
+        - google/gemini-3-flash-preview
+        - x-ai/grok-4.5
+        - deepseek/deepseek-v3.2
+        - meta-llama/llama-4-maverick
+        - qwen/qwen3-max
+        - moonshotai/kimi-k2
+        - z-ai/glm-4.6
+        - mistralai/mistral-large
+    - key: account
+      type: string
+      default: ""
+      description: Which OpenRouter identity this runtime uses - a pinned OpenRouter account (injected as OPENROUTER_API_KEY, whether OpenRouter is primary or a delegate target). Manage accounts and see the credit balance on the Accounts page.
+  provides:
+    - kind: runtime
+      name: openrouter
+  consumes: []
+  # No CLI and no config file: the engine is an HTTP endpoint, so model and
+  # credentials are selected per request from this fitting's config + the pinned
+  # account's env var.
+  provider_mechanism:
+    type: env
+    auth_env: OPENROUTER_API_KEY
+    model_env: GARRISON_RUNTIME_MODEL
+  setup:
+    command: echo openrouter-runtime-ready
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/openrouter-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    OpenRouter-as-secondary (model breadth). When the orchestrator resolves a
+    task to `secondary:openrouter`, the primary calls this fitting's
+    runtime-bridge:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON) is passed via STDIN (never argv). Set `model` in the
+    spec to reach any model in OpenRouter's catalog ("vendor/model"); omit it to
+    use the fitting's configured default. Requires OPENROUTER_API_KEY, which
+    Garrison injects from the pinned account - a missing key fails loudly
+    (locked vs absent), it never runs unauthenticated.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   -> prints "ok"
+
+    Context telemetry: each delegation is a single stateless HTTP completion, so
+    nothing accumulates across turns and compaction is structurally moot. Token
+    usage IS reported (usage.total_tokens) and rides back on the result.

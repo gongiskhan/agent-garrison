@@ -304,7 +304,9 @@ describe("standing model (fs-backed)", () => {
 
     const block = await readManifestComposition();
     const persisted = selectionsOf(block).runtimes.find((selection) => selection.id === "codex-runtime");
-    expect(persisted?.config).toEqual({ model: "gpt-5-codex" });
+    // The account field (RUNTIME-ACCOUNTS-V2) materializes its "" default too
+    // (empty = machine login, equivalent to absent for the runner).
+    expect(persisted?.config).toEqual({ model: "gpt-5-codex", account: "" });
     const policy = JSON.parse(
       await fs.readFile(path.join(FIXTURE_DIR, ".garrison", "routing.json"), "utf8")
     ) as { primaryRuntime?: string };

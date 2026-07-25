@@ -51,7 +51,7 @@ x-garrison:
     - key: account
       type: string
       default: ""
-      description: RUNTIME-ACCOUNTS-V1 - Anthropic account for this runtime (anthropic-plan only). Empty = the machine's own login. "auto" = the Paymaster picks the least-utilized eligible account (enabled + under ceiling, live header probes) at each operative spawn, and HOLDS instead of starting when every account is over ceiling; with no accounts registered it falls back to the machine login. A named account pins every session. Values come from the Garrison account registry; the token (vault ANTHROPIC_ACCOUNT__<name>) is injected at spawn, so switching is config-only and applies to new sessions; delegate sessions ride the operative's account.
+      description: Which Anthropic identity this runtime launches under - Machine login (this box's own Claude login), Auto (Garrison rotates your registered accounts by rate-limit usage, holding when all are over ceiling), or a pinned account. anthropic-plan only. Set the mode here; manage the accounts on the Accounts page.
   provides:
     - kind: runtime
       name: claude-code

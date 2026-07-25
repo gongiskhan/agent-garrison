@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
+import { platformForRuntime } from "@/components/accounts/shared";
 import styles from "./Muster.module.css";
 
 type ConfigValue = string | number | boolean;
@@ -661,7 +662,11 @@ function ConfigField({
     return (
       <div className={styles.cfgField} data-testid={testId}>
         {label}
-        <AccountField value={String(value)} onChange={(next) => onChange(next)} />
+        <AccountField
+          value={String(value)}
+          onChange={(next) => onChange(next)}
+          platform={platformForRuntime(fittingId)}
+        />
         {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
       </div>
     );

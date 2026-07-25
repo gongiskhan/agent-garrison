@@ -670,6 +670,14 @@ main {
   50%, 100% { opacity: 0.3; }
 }
 
+/* Work-in-progress indicator. Any surface that waits on a host process or a
+   network probe uses this — a wait with no motion reads as a hang. */
+@keyframes garrison-spin { to { transform: rotate(360deg); } }
+.spin { animation: garrison-spin 0.85s linear infinite; transform-origin: 50% 50%; }
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration: 2.4s; }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -720,6 +728,9 @@ main {
 .banner.alarm { background: var(--alarm-soft); border-color: rgba(155,54,45,0.3); color: var(--alarm); }
 .banner.warn { background: var(--warn-soft); border-color: rgba(176,114,21,0.35); color: var(--warn); }
 .banner.info { background: var(--paper-2); border-color: var(--rule-2); color: var(--ink-2); }
+/* the success tone — the sage already used for verified/live elsewhere, so a
+   confirmed action reads as clearly as a failed one. */
+.banner.ok { background: var(--sage-soft); border-color: rgba(49,86,63,0.32); color: var(--sage); }
 .banner .glyph {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
   font-weight: 700;

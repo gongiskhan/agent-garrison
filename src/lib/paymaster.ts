@@ -86,6 +86,18 @@ async function writeUsageCache(accounts: Record<string, AccountUsage>): Promise<
   });
 }
 
+/**
+ * Merge ONE freshly-probed account's numbers into the shared cache. Used by the
+ * login flow, whose verify probe is the same call the Paymaster makes — the
+ * panel shows real usage the moment an account is added instead of "no usage
+ * data" until the next heartbeat. Merges over a fresh disk read (never clobbers
+ * a concurrent refresh's siblings).
+ */
+export async function cacheUsage(name: string, usage: AccountUsage): Promise<void> {
+  const onDisk = await readUsageCache();
+  await writeUsageCache({ ...onDisk, [name]: usage });
+}
+
 // ── header parsing (pure) ────────────────────────────────────────────────────
 
 function parseWindow(get: (name: string) => string | null, prefix: string): UsageWindow | null {
@@ -215,7 +227,11 @@ export async function refreshUsage(options: {
 }): Promise<Record<string, AccountUsage>> {
   const now = options.now ?? (() => new Date());
   const accounts = options.accounts ?? (await listAccounts());
-  const ready = accounts.filter((account) => account.status === "ready");
+  // The Paymaster probes Anthropic's unified rate-limit headers — only Anthropic
+  // accounts are probeable (OpenAI/Google/custom expose no equivalent).
+  const ready = accounts.filter(
+    (account) => account.status === "ready" && (account.platform ?? "anthropic") === "anthropic"
+  );
   const cache = await readUsageCache();
 
   let tokens: Record<string, string> | null = null;

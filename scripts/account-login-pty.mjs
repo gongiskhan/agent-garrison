@@ -15,6 +15,14 @@
 //
 // Generic mode (--mode generic --command "<cmd>") runs any runtime's native
 // login command with the same surface minus token capture (D6 best-effort).
+//
+// Device mode (--mode device --command "<cmd>" --home <dir> --home-env <VAR>
+// --capture-file <rel>) runs a CLI's DEVICE-CODE login (RUNTIME-ACCOUNTS-V3) in
+// an isolated config home: it scrapes the verification URL + one-time code for
+// the UI, then waits for the CLI to write its credential file into that home and
+// hands the file CONTENT back through the same token.txt protocol. Used for
+// `codex login --device-auth`, whose whole point is that the browser completing
+// the flow is on a different machine than the CLI.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,8 +40,22 @@ function arg(name) {
 const dir = arg("dir");
 const mode = arg("mode") ?? "setup-token";
 const command = arg("command");
+const homeDir = arg("home");
+const homeEnv = arg("home-env");
+const captureFile = arg("capture-file");
+const flow = arg("flow") ?? "device-code";
+// Repeatable --env KEY=VALUE (e.g. NO_BROWSER=true for gemini's headless OAuth).
+const extraEnv = args.reduce((acc, value, index) => {
+  if (value !== "--env") return acc;
+  const pair = args[index + 1] ?? "";
+  const eq = pair.indexOf("=");
+  if (eq > 0) acc[pair.slice(0, eq)] = pair.slice(eq + 1);
+  return acc;
+}, {});
 if (!dir) {
-  console.error("usage: node account-login-pty.mjs --dir <status-dir> [--mode setup-token|generic --command '<cmd>']");
+  console.error(
+    "usage: node account-login-pty.mjs --dir <status-dir> [--mode setup-token|generic|device --command '<cmd>' --home <dir> --home-env <VAR> --capture-file <rel>]"
+  );
   process.exit(2);
 }
 fs.mkdirSync(dir, { recursive: true });
@@ -44,10 +66,15 @@ const ANY_TOKEN_RE = /sk-ant-[A-Za-z0-9_-]{8,}/g;
 // is wrapped across lines. Prefer OSC 8, fall back to de-wrapped plain text.
 const OSC8_URL_RE = /\]8;[^;\x07\x1b]*;(https:\/\/[^\x07\x1b]+)/;
 const PLAIN_URL_RE = /https:\/\/[a-z0-9.-]*claude\.(?:com|ai)\/[^\s]*authorize[^\s]*/i;
+// Device mode: any https URL will do (codex prints auth.openai.com/codex/device),
+// plus the one-time code the user types there (observed shape: PHQP-DVSIE).
+const DEVICE_URL_RE = /https:\/\/[a-z0-9.-]+\/[^\s]*/i;
+const DEVICE_CODE_RE = /\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\b/;
 
 let raw = "";
 let state = "starting";
 let authorizeUrl = null;
+let userCode = null;
 let exitCode = null;
 let error = null;
 let tokenCaptured = false;
@@ -69,6 +96,7 @@ function writeStatus() {
     state,
     mode,
     authorizeUrl,
+    userCode,
     outputTail: tail,
     exitCode,
     error,
@@ -83,9 +111,17 @@ function writeStatus() {
 }
 
 const spawnSpec =
-  mode === "generic"
+  mode === "generic" || mode === "browser"
     ? { file: "bash", args: ["-lc", command ?? "true"] }
     : { file: "claude", args: ["setup-token"] };
+
+// Browser mode runs the CLI against an isolated config home so the capture never
+// touches (or clobbers) the box's own login.
+const childEnv = { ...process.env, ...extraEnv };
+if (mode === "browser" && homeDir && homeEnv) {
+  childEnv[homeEnv] = homeDir;
+  fs.mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+}
 
 let child;
 try {
@@ -94,7 +130,7 @@ try {
     cols: 200,
     rows: 50,
     cwd: process.env.HOME ?? "/",
-    env: process.env
+    env: childEnv
   });
 } catch (spawnError) {
   state = "error";
@@ -109,7 +145,28 @@ child.onData((chunk) => {
   raw += chunk;
   if (raw.length > 1_000_000) raw = raw.slice(-500_000);
 
-  if (!authorizeUrl) {
+  if (mode === "browser") {
+    const clean = stripAnsi(raw);
+    if (!authorizeUrl) {
+      const osc = raw.match(OSC8_URL_RE);
+      // A long auth URL wraps across PTY lines; de-wrap before matching, but
+      // only inside the URL itself (joining every line would glue words).
+      const dewrapped = clean.replace(/(https:\/\/\S+)\n(?=\S)/g, "$1");
+      const plain = osc ? null : dewrapped.match(DEVICE_URL_RE);
+      const found = osc?.[1] ?? plain?.[0] ?? null;
+      // Trim trailing punctuation the CLI may print after the URL.
+      if (found) authorizeUrl = found.replace(/[.,)\]]+$/, "");
+    }
+    // Only the device-code flow shows a code HERE; in paste-code the code comes
+    // from the provider's page and is typed back in, so scraping would be noise.
+    if (!userCode && flow === "device-code") {
+      const code = clean.match(DEVICE_CODE_RE);
+      if (code) userCode = code[1];
+    }
+    // Ready for the user once we have everything they need to act on.
+    const ready = flow === "device-code" ? authorizeUrl && userCode : authorizeUrl;
+    if (ready && state === "running") state = "awaiting-browser";
+  } else if (!authorizeUrl) {
     const osc = raw.match(OSC8_URL_RE);
     const plain = osc ? null : stripAnsi(raw).replace(/\n/g, "").match(PLAIN_URL_RE);
     const found = osc?.[1] ?? plain?.[0] ?? null;
@@ -119,7 +176,9 @@ child.onData((chunk) => {
     }
   }
 
-  if (mode !== "generic" && !tokenCaptured) {
+  // setup-token is the only mode whose credential is PRINTED; browser mode
+  // captures a file instead (pollCaptureFile).
+  if (mode === "setup-token" && !tokenCaptured) {
     const token = stripAnsi(raw).match(TOKEN_RE);
     if (token) {
       tokenCaptured = true;
@@ -146,8 +205,16 @@ child.onData((chunk) => {
 
 child.onExit(({ exitCode: code }) => {
   exitCode = code;
-  if (state !== "captured" && state !== "error") {
-    if (mode === "generic") {
+  // The CLI may exit the instant it writes the credential - look once more
+  // before calling the attempt a failure.
+  pollCaptureFile();
+  // "cancelled" is a deliberate user action, not a failure - the exit it causes
+  // must not be relabelled as an error.
+  if (state !== "captured" && state !== "error" && state !== "cancelled") {
+    if (mode === "browser") {
+      state = "error";
+      error = error ?? `${command} exited ${code} before writing a credential`;
+    } else if (mode === "generic") {
       state = code === 0 ? "finished" : "error";
       if (code !== 0) error = `login command exited ${code}`;
     } else {
@@ -159,8 +226,40 @@ child.onExit(({ exitCode: code }) => {
   setTimeout(() => process.exit(0), 200);
 });
 
+// Device mode captures a FILE, not a printed token: poll the isolated home for
+// the CLI's credential and hand its content back through the same protocol.
+function pollCaptureFile() {
+  if (mode !== "browser" || tokenCaptured || !homeDir || !captureFile) return;
+  const src = path.join(homeDir, captureFile);
+  let content;
+  try {
+    if (!fs.existsSync(src)) return;
+    content = fs.readFileSync(src, "utf8");
+    JSON.parse(content); // ignore a half-written file; the next tick retries
+  } catch {
+    return;
+  }
+  tokenCaptured = true;
+  try {
+    fs.writeFileSync(path.join(dir, "token.txt"), content, { mode: 0o600 });
+    state = "captured";
+  } catch (writeError) {
+    state = "error";
+    error = `credential capture write failed: ${String(writeError && writeError.message)}`;
+  }
+  writeStatus();
+  setTimeout(() => {
+    try {
+      child.kill();
+    } catch {
+      /* already gone */
+    }
+  }, 500);
+}
+
 const poller = setInterval(() => {
   try {
+    pollCaptureFile();
     const inputPath = path.join(dir, "input.txt");
     if (fs.existsSync(inputPath)) {
       const text = fs.readFileSync(inputPath, "utf8");

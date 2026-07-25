@@ -1,0 +1,73 @@
+name: huggingface-runtime
+version: 0.1.0
+description: Hugging Face runtime (Runtimes Faculty) - open-weight models through HF's Inference Providers router, OpenAI-compatible. A secondary runtime for delegating to open models without standing up any local inference.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A secondary Runtime fitting backed by Hugging Face's Inference Providers
+    router (https://router.huggingface.co/v1, OpenAI-compatible). Implements the
+    uniform RuntimeAdapter contract over HTTP (no CLI to install) and ships a
+    runtime-bridge exposing delegate(task_spec) -> {summary, artifacts}.
+    Authenticate by pinning a Hugging Face account on the Accounts page
+    (injected as HF_TOKEN).
+  config_schema:
+    - key: model
+      type: select
+      default: deepseek-ai/DeepSeek-V4-Pro
+      description: >-
+        Default model for delegated tasks. These ids were verified live against
+        the HF router catalog; any "org/model" the router serves is accepted when
+        a task spec names it explicitly, optionally with a ":provider" suffix to
+        pin which inference provider serves it.
+      options:
+        - deepseek-ai/DeepSeek-V4-Pro
+        - deepseek-ai/DeepSeek-V4-Flash
+        - zai-org/GLM-5.2
+        - moonshotai/Kimi-K2.7-Code
+        - moonshotai/Kimi-K2.6
+        - Qwen/Qwen3.6-35B-A3B
+        - Qwen/Qwen3.6-27B
+        - google/gemma-4-31B-it
+    - key: account
+      type: string
+      default: ""
+      description: Which Hugging Face identity this runtime uses - a pinned Hugging Face account (injected as HF_TOKEN, whether HF is primary or a delegate target). Manage accounts on the Accounts page.
+  provides:
+    - kind: runtime
+      name: huggingface
+  consumes: []
+  provider_mechanism:
+    type: env
+    auth_env: HF_TOKEN
+    model_env: GARRISON_RUNTIME_MODEL
+  setup:
+    command: echo huggingface-runtime-ready
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/huggingface-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 20000
+  for_consumers: |
+    Hugging-Face-as-secondary (open-weight models). When the orchestrator
+    resolves a task to `secondary:huggingface`, the primary calls this fitting's
+    runtime-bridge:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON) is passed via STDIN (never argv). Set `model` in the
+    spec to any repo id the router serves ("org/model", optionally
+    "org/model:provider"); omit it to use the fitting's configured default.
+    Requires HF_TOKEN, which Garrison injects from the pinned account - a missing
+    token fails loudly (locked vs absent), it never runs unauthenticated.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   -> prints "ok"
+
+    Context telemetry: each delegation is a single stateless HTTP completion, so
+    nothing accumulates across turns and compaction is structurally moot. Token
+    usage is reported when the serving provider includes it.

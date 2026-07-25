@@ -27,6 +27,10 @@ x-garrison:
       type: string
       default: gpt-5-codex
       description: Default Codex model for delegated tasks (validated against the per-provider allowlist).
+    - key: account
+      type: string
+      default: ""
+      description: Which OpenAI identity Codex runs under - Machine login (this box's own ~/.codex login) or a pinned account, whether Codex is primary or a delegate target. A ChatGPT-subscription account runs Codex in its own CODEX_HOME; an API-key account is injected as OPENAI_API_KEY. Manage accounts on the Accounts page.
   provides:
     - kind: runtime
       name: codex

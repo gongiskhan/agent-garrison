@@ -10,6 +10,7 @@ import {
   Home,
   Layers,
   Lock,
+  KeyRound,
   Component,
   Drill,
   ExternalLink,
@@ -189,6 +190,13 @@ export function Sidebar() {
           active={isCompose}
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
+        <NavLink
+          href="/accounts"
+          pathname={pathname}
+          icon={<KeyRound aria-hidden />}
+          label="Accounts"
+          active={pathname === "/accounts" || pathname.startsWith("/accounts/")}
+        />
         <NavLink
           href="/connectors"
           pathname={pathname}

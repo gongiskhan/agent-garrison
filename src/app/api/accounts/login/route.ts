@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { startLogin } from "@/lib/account-login";
 import { readLibrary } from "@/lib/library";
-import { isValidAccountName } from "@/lib/account-env";
+import { isValidAccountName, normalizePlatform } from "@/lib/account-env";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -43,6 +43,21 @@ export async function POST(request: NextRequest) {
         { error: "invalid account name — use 1-32 lowercase letters/digits/dashes/underscores" },
         { status: 400 }
       );
+    }
+    // RUNTIME-ACCOUNTS-V3/V4: guided browser capture for platforms whose CLI can
+    // mint a credential without a localhost callback - Codex (device code) and
+    // Gemini (paste code). The command is resolved server-side from
+    // PLATFORM_SPECS - same rule as the generic flow, the client never supplies
+    // a command line.
+    const platform = normalizePlatform(body.platform);
+    if (body.mode === "browser") {
+      const { id } = await startLogin({
+        accountName: name,
+        label: body.label ? String(body.label) : undefined,
+        mode: "browser",
+        platform
+      });
+      return NextResponse.json({ id, mode: "browser" });
     }
     const { id } = await startLogin({
       accountName: name,

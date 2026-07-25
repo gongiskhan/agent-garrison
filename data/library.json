@@ -281,6 +281,36 @@
     }
   },
   {
+    "id": "openrouter-runtime",
+    "name": "OpenRouter runtime",
+    "repo": "local:fittings/seed/openrouter-runtime",
+    "localPath": "fittings/seed/openrouter-runtime",
+    "summary": "Runtimes Faculty (secondary) - one API key, 345+ models from every major lab behind a single OpenAI-compatible endpoint. Pick the model per delegation; authenticate by pinning an OpenRouter account (OPENROUTER_API_KEY).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-openrouter-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "huggingface-runtime",
+    "name": "Hugging Face runtime",
+    "repo": "local:fittings/seed/huggingface-runtime",
+    "localPath": "fittings/seed/huggingface-runtime",
+    "summary": "Runtimes Faculty (secondary) - open-weight models through Hugging Face's Inference Providers router (OpenAI-compatible). Authenticate by pinning a Hugging Face account (HF_TOKEN).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-huggingface-runtime",
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
     "id": "opencode-runtime",
     "name": "OpenCode runtime",
     "repo": "local:fittings/seed/opencode-runtime",
