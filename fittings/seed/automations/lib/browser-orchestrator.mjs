@@ -124,7 +124,13 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
       // fall through to vision on a failed deterministic assertion
     }
     const verdict = await deps.verifyViaVision({ observation: obs, step });
-    if (verdict.passed && verdict.assertion && !bypassCache) {
+    // Honesty gate: the model reports when the expected outcome cannot exist
+    // without an interaction that plainly has not happened. Such a verdict is
+    // not evidence either way, so it must never be cached — caching it is how
+    // one unobservable pass becomes a permanent deterministic answer that no
+    // future run ever re-examines.
+    const requiresInteraction = verdict.requiresInteraction === true;
+    if (verdict.passed && verdict.assertion && !bypassCache && !requiresInteraction) {
       await writeAssertionCache({ automationId, stepId: step.id, fingerprint: fp, assertion: verdict.assertion });
     }
     if (!verdict.passed) {
@@ -135,7 +141,22 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
     // Surface the model-discovered assertion on the result too (not just the
     // cache write above) — a consumer that graduates vision to a committed
     // spec (Drill's B8) needs to know WHAT was verified, not just that it was.
-    return withEvidence({ tier: cached ? "recovered" : "vision", passed: true, reasoning: verdict.reasoning, assertion: verdict.assertion }, obs, step);
+    // This object hand-builds its keys, so the flag must be carried explicitly
+    // or it is dropped before any consumer sees it.
+    return withEvidence({
+      tier: cached ? "recovered" : "vision",
+      passed: true,
+      reasoning: verdict.reasoning,
+      assertion: verdict.assertion,
+      ...(requiresInteraction
+        ? {
+            requiresInteraction: true,
+            ...(verdict.missingInteraction
+              ? { missingInteraction: String(verdict.missingInteraction).slice(0, 300) }
+              : {})
+          }
+        : {})
+    }, obs, step);
   }
 
   // browser action step

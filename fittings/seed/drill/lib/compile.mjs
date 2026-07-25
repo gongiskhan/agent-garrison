@@ -145,6 +145,47 @@ export function normalizeAuthSteps(book) {
   return out;
 }
 
+// ── Per-check interaction actions (S5) ──────────────────────────────────────
+// A check's description is an acceptance criterion, and a great many of them
+// assert a BEHAVIOUR: "pressing Shift+Enter inserts a newline", "clicking
+// Anexar opens a popover". Until now a check compiled to [navigate, verify]
+// with no interaction vocabulary at all, so those were judged against a
+// freshly-loaded, untouched page — the assertion could only ever be answered
+// from whatever happened to be visible on load, which is the wrong verdict
+// either way. `actions` is the missing half: ordered plain-English
+// interactions that drive the app to the asserted state BEFORE the check is
+// judged.
+//
+// Same vocabulary and same compiled shape as auth.steps and a state's
+// reachPath — `{ type: "browser" }` engine steps resolved cache -> vision ->
+// execute — so the action cache, the vision fallback and "reaching gets cheap
+// after the first time" all fall out with no new plumbing. Entries may be bare
+// strings or { id?, description }.
+//
+// Ids must be unique within the compiled automation for the same reason auth
+// ids are (the engine's per-step cache and result addressing key off stepId),
+// and here they must also avoid colliding with the navigate step, the reach
+// path, and the check's own id — they all land in ONE automation.
+export function normalizeStepActions(step, { reserved = [] } = {}) {
+  const raw = Array.isArray(step?.actions) ? step.actions : [];
+  const out = [];
+  const used = new Set(reserved);
+  const uniqueId = (base) => {
+    let id = base;
+    for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+    used.add(id);
+    return id;
+  };
+  for (const entry of raw) {
+    const description = authStepDescription(entry);
+    if (!description) continue;
+    const rawId = entry && typeof entry === "object" ? entry.id : null;
+    const base = typeof rawId === "string" && /^[A-Za-z0-9_-]+$/.test(rawId) ? rawId : `__act-${out.length}`;
+    out.push({ id: uniqueId(base), description });
+  }
+  return out;
+}
+
 // The success signal: a verify description that proves login worked. Optional
 // but strongly recommended — without it the run cannot cheaply probe whether
 // the cached session is still valid, so it re-runs the full flow every time.
@@ -199,12 +240,22 @@ export function compileAuthLogin(book) {
 export function compileStepAutomation(book, page, step, { blind = false } = {}) {
   const state = step.state && step.state !== "default" ? page.states?.find((s) => s.id === step.state) : null;
   const reachSteps = compileReachPath(state);
+  // Actions are NOT gated on `blind`. The blind contract (R12/F8, see the
+  // comment on compileStep) withholds the ANSWER — emitted specs and cached
+  // assertions — not the route to the state under test. Reach steps are
+  // already included blind for the same reason: a blind pass that never
+  // reaches the state is not an independent check of the same thing, it is a
+  // check of a different, unreached page.
+  const actionSteps = normalizeStepActions(step, {
+    reserved: ["__drill_navigate", step.id, ...reachSteps.map((r) => r.id)]
+  }).map((a) => ({ id: a.id, type: "browser", description: a.description }));
   return {
     id: `drill-${page.id}-${step.id}`,
     name: `Drill: ${page.title} / ${step.id}`,
     steps: [
       { id: "__drill_navigate", type: "navigate", url: resolvePageUrl(book, page) },
       ...reachSteps,
+      ...actionSteps,
       compileStep(step, page, { blind })
     ]
   };

@@ -210,6 +210,19 @@ export async function POST(req: Request) {
       ) {
         assertion.role = aliases[assertion.role];
       }
+      // Honesty gate (verify mode): coerce strictly, and ONLY when the model
+      // actually returned the key. Injecting `requiresInteraction: false` on
+      // every reply would change the response shape for all four modes.
+      // Strict === true because a JSON string "false" is truthy.
+      if (
+        result &&
+        typeof result === "object" &&
+        Object.prototype.hasOwnProperty.call(result, "requiresInteraction")
+      ) {
+        const raw = (result as Record<string, unknown>).requiresInteraction;
+        (result as Record<string, unknown>).requiresInteraction =
+          raw === true || raw === "true";
+      }
       return NextResponse.json({ result, routedVia, sessionId, transcriptPath });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

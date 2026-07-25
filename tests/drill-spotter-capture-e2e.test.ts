@@ -211,10 +211,14 @@ describe("Spotter capture core (S1)", () => {
       kept: manifest.frames.map((f: any) => f.trigger),
       collapsed: manifest.collapsed.map((c: any) => c.trigger)
     });
-    // (a) step boundaries always: one KEPT step-start per check at minimum.
-    const boundaryStarts = manifest.frames.filter((f: any) => f.trigger === "step-start");
-    expect(boundaryStarts.length, seen).toBeGreaterThanOrEqual(4);
-    expect(manifest.frames.some((f: any) => f.trigger === "step-end"), seen).toBe(true);
+    // (a) step boundaries: one KEPT step-end per check. step-start no longer
+    // captures a frame at all — the chunk opens BEFORE the check navigates, so
+    // that frame showed the PREVIOUS check's page under this check's key.
+    expect(manifest.frames.filter((f: any) => f.trigger === "step-start"), seen).toHaveLength(0);
+    const boundaryEnds = manifest.frames.filter((f: any) => f.trigger === "step-end");
+    expect(boundaryEnds.length, seen).toBeGreaterThanOrEqual(4);
+    // Every kept frame is attributed to some check window.
+    expect(manifest.frames.every((f: any) => f.chunk !== undefined), seen).toBe(true);
     // (b) preview change trips the phash trigger.
     expect(eventsFor("phash"), seen).toBeGreaterThan(0);
     // (c) console burst.

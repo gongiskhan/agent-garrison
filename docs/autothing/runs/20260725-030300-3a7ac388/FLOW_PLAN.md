@@ -22,15 +22,28 @@ Run `20260725-030300-3a7ac388` · profile **build** · branch `main`
 
 | id | title | kind | acceptance | status |
 |---|---|---|---|---|
-| S1 | Video tight-cut + chapter remap | mixed | `video-tight.webm` + `video-index.json` produced post-run; ≥70% dead time removed; chapters land on the right check; graceful no-ffmpeg degradation; UI defaults to tight with a Full toggle | pending |
-| S2 | Curation reel floor + failure resilience | api | every scope has ≥1 frame; per-chunk budget allocation; failed batches retried once then recorded; `curationPending` can no longer stick forever | pending |
-| S3 | Debrief legibility + honest empty states | ui | full description readable (wrapped, id-prefixed, real tooltip); empty state reports curation health | pending |
+| S1 | Video tight-cut + chapter remap | mixed | as specified | **passed** (f05811f) — 1640s→186s, 36/36 chapters |
+| S2 | Curation reel floor + failure resilience | api | as specified | **passed** (1341a17) — coverage 8/36→36/36 |
+| S3 | Debrief legibility + honest empty states | ui | as specified | **passed** (1341a17) |
 | S4 | Frame attribution + evidence integrity | api | `step-start` frame no longer mis-tagged; repaired-check metadata and bytes agree | pending |
 | S5 | Interaction engine (per-check `actions`) | mixed | a check can carry ordered actions; compiled as `browser` steps before verify; emitted into the committed spec; evidence captured after actions | pending |
 | S6 | Honesty gate + action auto-authoring | mixed | behavioral claim with no evidenced interaction → `unproven`, excluded from pass counts, graduation blocked; planner infers actions where it can | pending |
 
 Presentation (S1-S4) lands first; correctness (S5-S6) second.
 
-## Verification anchor
+## Verification anchor (final full run)
+
+Baseline to beat, run `01KY4DREZ1VD3Z1JT59P0PKZP0`:
+selection `{pages:[chat,users], viewports:[desktop]}`, 36 checks, 27.8 min wall clock,
+27.3 min video, 3 reel frames, 2/36 scopes populated, 0 interactions performed.
+
+Boot notes for the final run (memory: drill-run-infra-gotchas):
+- ekoa's agent-driven app-start last failed on a model limit -> boot the stack
+  directly (`npm run dev` in ekoa-code) and let drill find :3000 already up.
+- ekoa's dev Mongo is EPHEMERAL and the model credential is re-provisioned per
+  boot, so clear `~/.garrison/browser-profile` to drop stale cookies.
+- prereqs verified present: shared/dist, api/dist, playwright chromium.
+
+## Original verification anchor
 Re-run the drill against ekoa-code and compare against this run's baseline:
 27.3 min video / 3 reel frames / 36 zero-interaction checks.

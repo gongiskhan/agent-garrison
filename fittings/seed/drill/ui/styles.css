@@ -797,6 +797,15 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-db-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mute-2); margin-top: 4px; }
 .dr-db-dot.pass { background: var(--sage-2); }
 .dr-db-dot.fail { background: var(--alarm); }
+/* Unproven (S6): ran clean, but the evidence cannot show the asserted
+   behaviour. Deliberately neither green nor red - a hollow brass ring, so it
+   reads as "no verdict" rather than pass or fail. */
+.dr-db-dot.unproven { background: transparent; border: 2px solid var(--brass); }
+.dr-db-check.unproven .dr-db-check-id { color: var(--brass-ink, var(--ink)); }
+.dr-result-unproven {
+  margin-top: 6px; padding: 7px 9px; font-size: 11px; line-height: 1.45;
+  color: var(--ink-2); background: var(--warn-soft); border-left: 2px solid var(--brass); border-radius: 3px;
+}
 .dr-db-vp { flex: none; font-size: 9.5px; padding: 1px 6px; }
 
 .dr-db-finding { border-bottom: 1px dashed var(--rule); padding: 7px 11px; }

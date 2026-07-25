@@ -31,6 +31,7 @@ declare module "*/drill/lib/viewports.mjs" {
   export function viewportList(): any[];
 }
 declare module "*/drill/lib/compile.mjs" {
+  export function normalizeStepActions(step: any, opts?: { reserved?: string[] }): Array<{ id: string; description: string }>;
   export function resolvePageUrl(book: any, page: any): string;
   export function compileStep(step: any, page: any, opts?: { blind?: boolean }): any;
   export function selectSteps(page: any, opts?: any): any[];
@@ -87,11 +88,15 @@ declare module "*/drill/lib/runs-store.mjs" {
   export function publicRunRecord(record: any): any;
 }
 declare module "*/drill/lib/spec-emit.mjs" {
+  export function emitActionCode(action: any): string;
+  export function isEmittableAction(action: any): boolean;
+  export function stepActionsEmittable(step: any): boolean;
   export function emitAssertionCode(assertion: any): string;
   export function emittableSteps(page: any): any[];
   export function emitPageSpec(page: any, targetUrl: string): string;
 }
 declare module "*/drill/lib/graduate.mjs" {
+  export function harvestResolvedActions(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
   export function specRelPath(pageId: string): string;
   export function graduationPlanFor(step: any, outcome: any): any;
   export function graduateStep(book: any, pageId: string, stepId: string, plan: any): Promise<any>;

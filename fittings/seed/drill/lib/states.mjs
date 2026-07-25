@@ -14,6 +14,12 @@ export function assessAutomaticStateReference(outcome) {
   if (!outcome?.evidencePath) {
     return { eligible: false, reason: "no-evidence", warnings: [] };
   }
+  // Honesty gate (S6): a verdict the model could not actually observe must not
+  // become a state's reference screenshot or seed its matcher assertion —
+  // that would promote an unverified page into the Book as ground truth.
+  if (outcome?.result?.requiresInteraction === true) {
+    return { eligible: false, reason: "requires-interaction", warnings: [] };
+  }
   const warnings = Array.isArray(outcome?.result?.referenceWarnings)
     ? outcome.result.referenceWarnings
         .filter((warning) => warning && typeof warning === "object")

@@ -115,7 +115,11 @@ function planPrompt(root, { brief, runSkill }) {
         ``,
         `Update the Book for this change: add/update the pages, areas, steps, and states it touches.`,
         `Preserve everything else - existing page files, step ids, manual edits, and the Book's`,
-        `settings (autonomy, viewports, fullDrill, globalRules) stay unless the change invalidates them.`
+        `settings (autonomy, viewports, fullDrill, globalRules) stay unless the change invalidates them.`,
+        `While you are in a page file, ALSO retro-fit \`actions\` onto any EXISTING step whose`,
+        `description asserts a behaviour but carries no actions - those checks are currently judged`,
+        `against an untouched page and cannot prove what they claim. Adding the missing actions is a`,
+        `correction, not a rewrite: leave the id, description and every other field alone.`
       ]
     : [
         `Mode: FULL PLAN. Author the Drill Book for the ENTIRE project on your best judgment - the works:`,
@@ -159,7 +163,7 @@ function planPrompt(root, { brief, runSkill }) {
     `    (Use REAL working TEST credentials - they are committed with the Book and only ever run against the local/test app, never production. Discover them from the repo: seed/fixture users, .env.example, test setup, or the run skill. If you cannot find working test credentials, still author loginPath+steps+success with placeholders and note it - a login flow the user can fill in beats no auth at all.)`,
     `  pages: [{ id, title, path, mode: steps, selected: true }]   (the ledger: one entry per page FILE, and each entry's id MUST equal that file's id - same charset rule as below)`,
     ``,
-    `drills/pages/<pageId>.yml fields (EVERY step field below is REQUIRED on every step - a step missing a field may be skipped or misrouted by the runner):`,
+    `drills/pages/<pageId>.yml fields (EVERY step field below is REQUIRED on every step EXCEPT \`actions\`, which is optional in general but MANDATORY for behavioural checks - see below; a step missing a required field may be skipped or misrouted by the runner):`,
     `  id: <pageId>                 (MUST match the filename and use only [A-Za-z0-9_-])`,
     `  title: <human title>`,
     `  path: </route/path>          (resolved against app.url)`,
@@ -172,7 +176,10 @@ function planPrompt(root, { brief, runSkill }) {
     `      enabled: true`,
     `      viewports: <copy the Book's viewports list here, unless the step is genuinely specific to one viewport>`,
     `      state: default           (most steps belong to state: default - the direct Run executes default-state steps; a state-scoped step runs only in a state-targeted run, so scope a step to a state id from states[] only when it is meaningless outside that state)`,
-    `      description: <the check, written as a concrete acceptance criterion an agent can verify on the rendered page>`,
+    `      description: <the check, written as a concrete acceptance criterion an agent verifies on the page AFTER this step's actions have run. If the criterion is about what HAPPENS when the user interacts - clicks, presses, types, submits, hovers, drags, scrolls - you MUST also author \`actions\` below; the description alone never makes the interaction happen.>`,
+    `      actions: []              (OPTIONAL, ordered - the interactions performed on the page BEFORE this check is judged. Same vocabulary as the Book's auth.steps and a state's reachPath: one plain-English instruction per entry, e.g. "click the \"Anexar\" button", "type \"hello\" into the composer", "press Shift+Enter". Entries are bare strings, or { id: <slug>, description: <action> } for a stable id.)`,
+    `      (REQUIRED whenever the description asserts a BEHAVIOUR rather than a static fact about the page as it first loads. WHY THIS MATTERS: without actions the runner only navigates and looks, so a behavioural check is judged against an untouched page - it then passes or fails on evidence that cannot show the behaviour either way, which is a WRONG verdict, and a passing one gets committed as a spec that never performs the behaviour. A behavioural description with no actions is a mis-authored check.)`,
+    `      (Keep actions minimal and page-local. If reaching the state takes more than a few actions, or several checks need the same setup, author a state with a reachPath instead and scope those steps to it.)`,
     `      tags: []`,
     `      judgment: true | false   (true when the check needs ONGOING model judgment even after graduation - subjective quality, generative output)`,
     `      (NEVER write an "assertion" field - graduation sets it after a passing run)`,
@@ -180,6 +187,7 @@ function planPrompt(root, { brief, runSkill }) {
     `    - id: <slug>`,
     `      label: <human label>`,
     `      reachPath: [{ id: <slug>, description: <one natural-language action an agent executes to move toward the state, e.g. "log in as the demo user"> }]`,
+    `      (reachPath moves the PAGE into a named state SHARED by many steps; a step's own \`actions\` are the one-off interactions a SINGLE check needs. When a step is state-scoped, its actions run after the reach path.)`,
     ``,
     `Write valid YAML; after writing, re-read every file you wrote and confirm it parses. Keep descriptions self-contained - the run agent sees the description and the page, nothing else.`,
     ``,

@@ -1931,7 +1931,9 @@ interface RunPageEntry {
     warnings: Array<{ code: string; text: string }>;
   };
   terminal?: {
-    kind: "passed" | "product-failure" | "infra-failure" | "blocked" | "incomplete";
+    // "unproven" (S6): completed cleanly, but the check asserts a behaviour no
+    // interaction in the run performed, so its evidence cannot show the claim.
+    kind: "passed" | "product-failure" | "infra-failure" | "blocked" | "incomplete" | "unproven";
     source: string;
     code: string;
     component?: string;
@@ -1940,8 +1942,9 @@ interface RunPageEntry {
     evidencePath?: string;
     durationMs?: number;
     reasoning?: string;
+    missingInteraction?: string;
   };
-  result: { stepId: string; status: string; tier?: string | null; error?: string; evidencePath?: string; durationMs?: number; result?: { passed?: boolean; reasoning?: string } } | null;
+  result: { stepId: string; status: string; tier?: string | null; error?: string; evidencePath?: string; durationMs?: number; result?: { passed?: boolean; reasoning?: string; requiresInteraction?: boolean; missingInteraction?: string } } | null;
 }
 interface Finding {
   id: string;
@@ -2171,6 +2174,25 @@ function overrideForEntry(
 ) {
   const recordKey = `${entry.pageId}:${entry.stepId}`;
   return overrides?.[`${recordKey}:${entry.viewportId}`] ?? overrides?.[recordKey];
+}
+
+// A check that ran clean but could not observe what it claims (S6). Not a
+// pass, and not a failure either — nothing about the app was shown to be
+// wrong; the CHECK did not verify its own claim. Rendering it as green is the
+// false confidence the honesty gate exists to remove; rendering it red would
+// blame the app for a gap in the check.
+function stepUnproven(entry: RunPageEntry): boolean {
+  if (entry.terminal) return entry.terminal.kind === "unproven";
+  return entry.result?.result?.requiresInteraction === true;
+}
+
+// An operator override is a human decision and always wins, including over an
+// unproven verdict.
+function effectiveStepUnproven(
+  run: Pick<DrillRun, "overrides"> | Pick<DrillRunSummary, "overrides">,
+  entry: RunPageEntry
+) {
+  return overrideForEntry(run.overrides, entry) ? false : stepUnproven(entry);
 }
 
 function effectiveStepPassed(
@@ -3114,9 +3136,12 @@ function DebriefView({
   // Pass/fail tone per check, taken from the authoritative run verdicts so the
   // rail agrees with the classic check-results list.
   const passedByChunk = useMemo(() => {
-    const map = new Map<string, boolean>();
+    const map = new Map<string, boolean | "unproven">();
     for (const entry of run.pages) {
-      map.set(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId), effectiveStepPassed(run, entry));
+      map.set(
+        chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId),
+        effectiveStepUnproven(run, entry) ? "unproven" : effectiveStepPassed(run, entry)
+      );
     }
     return map;
   }, [run]);
@@ -3183,8 +3208,9 @@ function DebriefView({
     }
   };
 
-  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry)).length;
-  const failedCount = run.pages.length - passedCount;
+  const unprovenCount = run.pages.filter((entry) => effectiveStepUnproven(run, entry)).length;
+  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length;
+  const failedCount = run.pages.length - passedCount - unprovenCount;
 
   return (
     <div className="dr-db">
@@ -3211,7 +3237,9 @@ function DebriefView({
           <div className="dr-db-rail-sec">
             <div className="dr-db-rail-head">
               <ListFilter size={12} /> Scope
-              <span className="dr-db-rail-sub">{passedCount} passed · {failedCount} failed</span>
+              <span className="dr-db-rail-sub">
+                {passedCount} passed · {failedCount} failed{unprovenCount > 0 ? ` · ${unprovenCount} unproven` : ""}
+              </span>
             </div>
             <button
               className={"dr-db-scope-row all" + (scope.kind === "all" ? " active" : "")}
@@ -3234,7 +3262,7 @@ function DebriefView({
                   const passed = passedByChunk.get(key);
                   const isScoped = scope.kind === "check" && scope.pageId === check.pageId && scope.stepId === check.stepId && scope.viewportId === check.viewportId;
                   const isActive = activeChunk === key;
-                  const tone = passed === undefined ? "" : passed ? " pass" : " fail";
+                  const tone = passed === undefined ? "" : passed === "unproven" ? " unproven" : passed ? " pass" : " fail";
                   // title carries the full sentence, so hover recovers whatever
                   // the clamp hides (it used to show the id, which the row shows).
                   return (
@@ -3454,8 +3482,13 @@ function ClassicRunDetail({
                 </div>
               </div>
               <div className="dr-run-summary">
-                <span><b>{productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length}</b> passed</span>
-                <span><b>{productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length}</b> failed</span>
+                <span><b>{productPageEntries.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length}</b> passed</span>
+                <span><b>{productPageEntries.filter((entry) => !effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length}</b> failed</span>
+                {productPageEntries.some((entry) => effectiveStepUnproven(run, entry)) && (
+                  <span title="Ran clean, but the evidence cannot show the behaviour the check asserts.">
+                    <b>{productPageEntries.filter((entry) => effectiveStepUnproven(run, entry)).length}</b> unproven
+                  </span>
+                )}
                 <span><b>{activeFindings.length}</b> findings</span>
                 <span><b>{incompleteCoverageCount}</b> infra-affected or skipped</span>
               </div>
@@ -3487,14 +3520,31 @@ function ClassicRunDetail({
                 !!entry.result &&
                 !entry.result.evidencePath &&
                 !resultReasoning;
+              // Unproven (S6): the check ran clean but its evidence cannot show
+              // the behaviour it asserts, so it is neither green nor red.
+              const unproven = effectiveStepUnproven(run, entry);
+              const edge = unproven ? "--brass" : passed ? "--sage" : "--alarm";
               return (
-                <div key={renderKey} className="dr-res" style={{ borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }}>
+                <div key={renderKey} className="dr-res" style={{ borderLeft: `3px solid var(${edge})` }}>
                   <div className="dr-rowwrap">
-                    {passed ? <Check size={14} style={{ color: "var(--sage)" }} /> : <span style={{ color: "var(--alarm)", fontWeight: 700 }}>×</span>}
+                    {unproven
+                      ? <span style={{ color: "var(--brass)", fontWeight: 700 }} title="Not verified">?</span>
+                      : passed
+                        ? <Check size={14} style={{ color: "var(--sage)" }} />
+                        : <span style={{ color: "var(--alarm)", fontWeight: 700 }}>×</span>}
                     <span className="mono" style={{ fontSize: 11, color: "var(--mute)" }}>{entry.pageId}#{entry.stepId}</span>
                     <span className="chip">{entry.viewportId}</span>
                     {entry.result?.tier && <span className={"chip " + tierTone(entry.result.tier)}>{entry.result.tier}</span>}
+                    {unproven && <span className="chip brass" title="The evidence is a page this check never interacted with.">unproven</span>}
                   </div>
+                  {unproven && (
+                    <div className="dr-result-unproven" role="status">
+                      This check asserts a behaviour, but nothing in this run performed it
+                      {entry.terminal?.missingInteraction ? ` (missing: ${entry.terminal.missingInteraction})` : ""}.
+                      The screenshot below shows the page as it loaded, so it cannot prove the claim either way.
+                      Add <span className="mono">actions</span> to this check so the run drives the app to the asserted state.
+                    </div>
+                  )}
                   {stepDefinition?.description && <div className="dr-result-description">{stepDefinition.description}</div>}
                   {resultReasoning && (
                     <div className="dr-result-reason">{resultReasoning}</div>

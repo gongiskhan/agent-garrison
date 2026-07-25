@@ -28120,6 +28120,13 @@ function overrideForEntry(overrides, entry) {
   const recordKey = `${entry.pageId}:${entry.stepId}`;
   return overrides?.[`${recordKey}:${entry.viewportId}`] ?? overrides?.[recordKey];
 }
+function stepUnproven(entry) {
+  if (entry.terminal) return entry.terminal.kind === "unproven";
+  return entry.result?.result?.requiresInteraction === true;
+}
+function effectiveStepUnproven(run, entry) {
+  return overrideForEntry(run.overrides, entry) ? false : stepUnproven(entry);
+}
 function effectiveStepPassed(run, entry) {
   const review = overrideForEntry(run.overrides, entry);
   return review ? review.verdict === "passed" : stepPassed(entry);
@@ -28853,7 +28860,10 @@ function DebriefView({
   const passedByChunk = (0, import_react4.useMemo)(() => {
     const map = /* @__PURE__ */ new Map();
     for (const entry of run.pages) {
-      map.set(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId), effectiveStepPassed(run, entry));
+      map.set(
+        chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId),
+        effectiveStepUnproven(run, entry) ? "unproven" : effectiveStepPassed(run, entry)
+      );
     }
     return map;
   }, [run]);
@@ -28910,8 +28920,9 @@ function DebriefView({
       setScope({ kind: "page", pageId: finding.pageId });
     }
   };
-  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry)).length;
-  const failedCount = run.pages.length - passedCount;
+  const unprovenCount = run.pages.filter((entry) => effectiveStepUnproven(run, entry)).length;
+  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length;
+  const failedCount = run.pages.length - passedCount - unprovenCount;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-topline", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -28934,7 +28945,8 @@ function DebriefView({
               passedCount,
               " passed \xB7 ",
               failedCount,
-              " failed"
+              " failed",
+              unprovenCount > 0 ? ` \xB7 ${unprovenCount} unproven` : ""
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -28963,7 +28975,7 @@ function DebriefView({
               const passed = passedByChunk.get(key);
               const isScoped = scope.kind === "check" && scope.pageId === check.pageId && scope.stepId === check.stepId && scope.viewportId === check.viewportId;
               const isActive = activeChunk === key;
-              const tone = passed === void 0 ? "" : passed ? " pass" : " fail";
+              const tone = passed === void 0 ? "" : passed === "unproven" ? " unproven" : passed ? " pass" : " fail";
               return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
                 "button",
                 {
@@ -29163,12 +29175,16 @@ function ClassicRunDetail({
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length }),
             " passed"
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length }),
             " failed"
+          ] }),
+          productPageEntries.some((entry) => effectiveStepUnproven(run, entry)) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { title: "Ran clean, but the evidence cannot show the behaviour the check asserts.", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepUnproven(run, entry)).length }),
+            " unproven"
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: activeFindings.length }),
@@ -29198,16 +29214,26 @@ function ClassicRunDetail({
         const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
         const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
         const deterministicWithoutScreenshot = originalPassed && entry.status === "completed" && !!entry.result && !entry.result.evidencePath && !resultReasoning;
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }, children: [
+        const unproven = effectiveStepUnproven(run, entry);
+        const edge = unproven ? "--brass" : passed ? "--sage" : "--alarm";
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${edge})` }, children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
+            unproven ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontWeight: 700 }, title: "Not verified", children: "?" }) : passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
               entry.pageId,
               "#",
               entry.stepId
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
-            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier })
+            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier }),
+            unproven && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "The evidence is a page this check never interacted with.", children: "unproven" })
+          ] }),
+          unproven && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-result-unproven", role: "status", children: [
+            "This check asserts a behaviour, but nothing in this run performed it",
+            entry.terminal?.missingInteraction ? ` (missing: ${entry.terminal.missingInteraction})` : "",
+            ". The screenshot below shows the page as it loaded, so it cannot prove the claim either way. Add ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "actions" }),
+            " to this check so the run drives the app to the asserted state."
           ] }),
           stepDefinition?.description && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-description", children: stepDefinition.description }),
           resultReasoning && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: resultReasoning }),

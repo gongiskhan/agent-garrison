@@ -72,7 +72,15 @@ export function buildVisionPrompt(
         '  url-matches: { "kind":"url-matches", "pattern":"...", "mode":"contains|regex" } - the current URL matches',
         '  attribute-equals: { "kind":"attribute-equals", "testId"|"selector"|"role":"...", "attribute":"...", "value":"..." } - an element\'s attribute equals a value'
       ].join("\n"),
-      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "passed": true|false, "reasoning": "...", "assertion": { "kind": "...", ... } }'
+      [
+        "Honesty gate. What you are given is a STATIC snapshot. Nothing was clicked, typed, pressed, hovered, dragged or scrolled as part of this verification unless an earlier step in this run already did it.",
+        'Set "requiresInteraction": true ONLY when the expected outcome is a state that cannot exist until someone interacts with the page AND this snapshot shows no trace of that interaction having happened. Example: "pressing Shift+Enter inserts a newline" against an untouched, empty composer — the newline can only exist after the keystroke, so it cannot be seen here.',
+        'Set it false when the outcome is observable right now: static text, layout, counts, the URL, an element being present/absent/enabled/disabled, or an after-effect already on the page because an earlier step performed the interaction.',
+        'Judge the OUTCOME, not the verb. A sentence merely naming an action does not make this true. "Clicking Export downloads a CSV" is false when the export confirmation is already on screen; it is true when the page shows no sign the export ever ran.',
+        'When it is true: name the single missing interaction in "missingInteraction", keep "reasoning" strictly to what the snapshot actually shows, and OMIT "assertion" — do not return an assertion that merely re-checks the pre-interaction state.',
+        'If you are unsure, set it false. A false alarm here suppresses a real, useful check.'
+      ].join("\n"),
+      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "passed": true|false, "reasoning": "...", "requiresInteraction": true|false, "missingInteraction": "(only when requiresInteraction is true)", "assertion": { "kind": "...", ... } }'
     ]);
   }
 

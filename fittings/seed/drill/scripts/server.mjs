@@ -250,9 +250,18 @@ async function readJsonBody(req) {
 // engine just marks the whole run failed. Since each Drill step is compiled
 // as its own [navigate, step] automation, a run-level failure with no
 // matching step entry unambiguously means THIS step is the one that failed.
+// LAST-match, not first: a run can legitimately carry more than one record for
+// a stepId (a fixer `insert_before` patch that echoes the failing step's id
+// mints a second step with the same id), and the record that produced the run's
+// FINAL verdict is the last one. Taking the first could hydrate a fixer-invented
+// step's result and — worse, since this outcome feeds graduation and state-
+// reference seeding — bake its assertion into the committed Drill Book. This is
+// the rule `readStepEvidence` and `terminalFromAutomationRun` already use; this
+// call site was the outlier, so the metadata shown could disagree with the
+// evidence bytes served.
 function resolveStepOutcome(automationRun, stepId) {
   if (!automationRun) return null;
-  const found = (automationRun.steps ?? []).find((s) => s.stepId === stepId);
+  const found = [...(automationRun.steps ?? [])].reverse().find((s) => s.stepId === stepId);
   if (found) return found;
   if (automationRun.status === "failed") {
     return { stepId, status: "failed", tier: null, error: automationRun.error ?? "run failed before this step completed" };
@@ -270,15 +279,29 @@ export function isInfrastructureFailure(text) {
 
 function resultFromTerminal(terminal, stepId = null) {
   if (!terminal) return null;
+  // `unproven` (S6) ran to completion without erroring — the app did nothing
+  // wrong — but it did not verify its claim, so it is neither passed nor
+  // failed. It reports as completed with passed:false and carries the flag, so
+  // no consumer counting `passed === true` can mistake it for a green check.
+  const unproven = terminal.kind === "unproven";
   return {
     stepId,
-    status: terminal.kind === "passed" ? "completed" : "failed",
+    status: terminal.kind === "passed" || unproven ? "completed" : "failed",
     tier: terminal.tier ?? null,
     ...(terminal.evidencePath ? { evidencePath: terminal.evidencePath } : {}),
     ...(terminal.durationMs !== undefined ? { durationMs: terminal.durationMs } : {}),
     ...(terminal.kind === "passed"
       ? { result: { passed: true, ...(terminal.reasoning ? { reasoning: terminal.reasoning } : {}) } }
-      : { error: terminal.message ?? terminal.code, result: { passed: false, reasoning: terminal.message ?? terminal.code } })
+      : unproven
+        ? {
+            result: {
+              passed: false,
+              requiresInteraction: true,
+              ...(terminal.missingInteraction ? { missingInteraction: terminal.missingInteraction } : {}),
+              reasoning: terminal.message ?? terminal.code
+            }
+          }
+        : { error: terminal.message ?? terminal.code, result: { passed: false, reasoning: terminal.message ?? terminal.code } })
   };
 }
 
@@ -297,7 +320,9 @@ function enrichTerminalResult(terminal, stepId, hydrated) {
       ...(snapshot.result ?? {})
     }
   };
-  if (terminal.kind === "passed") delete enriched.error;
+  // An unproven check is not an error either — leaving a stale hydrated error
+  // on it would render it as a failure.
+  if (terminal.kind === "passed" || terminal.kind === "unproven") delete enriched.error;
   return enriched;
 }
 
@@ -1342,7 +1367,7 @@ async function handle(req, res) {
         const jobKey = checkKey({ pageId: job.pageId, stepId: job.step.id, viewportId: job.viewportId });
         // Per-check trace chunk (D2): bracket the engine run so the zip holds
         // exactly this check's actions/snapshots.
-        const chunkOpen = await captureChunkStart(capture, `${job.pageId} · ${job.step.id} · ${job.viewportId}`, { key: jobKey });
+        await captureChunkStart(capture, `${job.pageId} · ${job.step.id} · ${job.viewportId}`, { key: jobKey });
         let automationRun;
         let terminal;
         try {
@@ -1370,7 +1395,10 @@ async function handle(req, res) {
         };
         record.pages.push(pr);
         if (capture) {
-          const trace = chunkOpen ? await captureChunkStop(capture, jobKey) : null;
+          // Unconditional: chunk-stop also emits the forced step-end frame that
+          // guarantees this check a reel frame, so it must run even when no
+          // trace chunk opened (it then returns a null trace, not a failure).
+          const trace = await captureChunkStop(capture, jobKey);
           // Step-end full-page screenshot always; an additional one on failure
           // (D3) — the session tab still shows the failure state, and the
           // engine's own at-failure viewport shot rides evidencePath as before.
@@ -1526,7 +1554,7 @@ async function handle(req, res) {
           const page = await getPage(pr.pageId, root);
           const step = page?.steps.find((candidate) => candidate.id === pr.stepId);
           if (step) {
-            const plan = graduationPlanFor(step, outcome);
+            const plan = graduationPlanFor(step, outcome, automationRun);
             if (plan) {
               try {
                 const { specFile } = await graduateStep(book, pr.pageId, pr.stepId, plan, root);
@@ -1567,6 +1595,9 @@ async function handle(req, res) {
       record.summary = {
         steps: record.pages.length,
         failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
+        // Surfaced separately so a run's headline can never present an
+        // unverified check as a pass (S6).
+        unproven: record.pages.filter((entry) => entry.terminal?.kind === "unproven").length,
         infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
       };
       // Session transcript slices (S31): store each verify session's
@@ -1651,6 +1682,7 @@ async function handle(req, res) {
           record.summary = {
             steps: record.pages.length,
             failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
+            unproven: record.pages.filter((entry) => entry.terminal?.kind === "unproven").length,
             infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
           };
         }
@@ -2416,6 +2448,7 @@ export async function startServer() {
       record.summary = {
         steps: (record.pages ?? []).length,
         failed: (record.pages ?? []).filter((entry) => entry.terminal?.kind === "product-failure").length,
+        unproven: (record.pages ?? []).filter((entry) => entry.terminal?.kind === "unproven").length,
         infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
       };
       await saveDrillRun(record);
