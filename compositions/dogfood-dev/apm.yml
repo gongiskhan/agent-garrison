@@ -18,12 +18,14 @@ dependencies:
     - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/huggingface-runtime
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
@@ -101,14 +103,15 @@ x-garrison:
             model: ''
             promptMode: coding
             maxTurns: 100
-      design:
-        - id: taste
-          config: {}
-      building:
-        - id: drill
+            account: auto
+        - id: openrouter-runtime
           config:
-            port: 7096
-            bind_host: 127.0.0.1
+            model: anthropic/claude-sonnet-5
+            account: ''
+        - id: huggingface-runtime
+          config:
+            model: deepseek-ai/DeepSeek-V4-Pro
+            account: ''
       memory:
         - id: basic-memory
           config:
@@ -206,6 +209,14 @@ x-garrison:
         - id: identity-gary
           config:
             user_name: the user
+      building:
+        - id: drill
+          config:
+            port: 7096
+            bind_host: 127.0.0.1
+      design:
+        - id: taste
+          config: {}
       connectors:
         - id: deepgram-voice
           config:
@@ -271,8 +282,8 @@ x-garrison:
         description: Talk a problem through and write a brief when the thinking settles.
         levels:
           - description: >-
-              level 1: quick discussion - talk a focused question or tradeoff through
-              in prose, then write the brief when the thinking settles.
+              level 1: quick discussion - talk a focused question or tradeoff through in prose, then
+              write the brief when the thinking settles.
             cell:
               target: cc-sonnet
               effort: medium
@@ -366,18 +377,16 @@ x-garrison:
       - id: drill
         title: Drill
         description: >-
-          Plan-driven, page-level QA: author or update the Drill Book for
-          changed pages, gate for approval (configurable), then run the plan
-          (vision or graduated e2e) per selected viewport and report
-          findings. One duty, two internal stages (plan, then run) with a
-          gate between (R7). Replaces the Walkthrough evidence job and the
-          separate Validate phase (D8); absorbs Adversarial Test as a second,
-          blind, vision-forced run (R12).
+          Plan-driven, page-level QA: author or update the Drill Book for changed pages, gate for
+          approval (configurable), then run the plan (vision or graduated e2e) per selected viewport
+          and report findings. One duty, two internal stages (plan, then run) with a gate between
+          (R7). Replaces the Walkthrough evidence job and the separate Validate phase (D8); absorbs
+          Adversarial Test as a second, blind, vision-forced run (R12).
         gate: explicit
         levels:
           - description: >-
-              standard drill pass: plan/update the plan for changed pages,
-              gate for approval, then run and report findings.
+              standard drill pass: plan/update the plan for changed pages, gate for approval, then
+              run and report findings.
             cell:
               target: cc-sonnet
               effort: medium
@@ -393,9 +402,6 @@ x-garrison:
             cell:
               target: sol
               effort: high
-      # PARKED (D3/D8/F8, BRIEF-DRILL-V1): not deleted, deselected below.
-      # Absorbed by drill's blind second run (R12) — a fresh-context,
-      # vision-forced, cache-bypassed pass over the same plan.
       - id: adversarial-test
         title: Adversarial Test
         description: Independent cross-model attempt to break the change.
@@ -420,9 +426,6 @@ x-garrison:
             cell:
               target: fable
               effort: high
-      # PARKED (D3/D8/F2, BRIEF-DRILL-V1): not deleted, deselected below.
-      # Its evidence job is subsumed by drill's per-step evidence capture
-      # (engine delta 7) plus automations-grown video recording (roadmap).
       - id: walkthrough
         title: Walkthrough
         description: Record a self-verified evidence walkthrough (video) of a working flow.
@@ -431,8 +434,6 @@ x-garrison:
             cell:
               target: opus
               effort: high
-      # PARKED (D8, BRIEF-DRILL-V1) — already unselected before this change;
-      # drill run verdicts + feedback ARE the validation now.
       - id: validate
         title: Validate
         description: Run the validation pipeline over the work.
@@ -483,10 +484,6 @@ x-garrison:
       - ux-qa
       - probe-question
       - dispatch
-      # PARKED, not deleted (D3/D8/F2/F8, BRIEF-DRILL-V1): adversarial-test
-      # and walkthrough — see their duties: entries above for why.
-      # - adversarial-test
-      # - walkthrough
     targets:
       - id: dispatch-fast
         runtime: garrison-call

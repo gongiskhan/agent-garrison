@@ -19,12 +19,14 @@ dependencies:
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/huggingface-runtime
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
@@ -101,7 +103,16 @@ x-garrison:
             provider: anthropic
             model: ''
             promptMode: coding
-            maxTurns: 100
+            maxTurns: 500
+            account: ''
+        - id: openrouter-runtime
+          config:
+            model: anthropic/claude-sonnet-5
+            account: ''
+        - id: huggingface-runtime
+          config:
+            model: deepseek-ai/DeepSeek-V4-Pro
+            account: ''
       memory:
         - id: basic-memory
           config:
