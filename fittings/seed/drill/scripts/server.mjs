@@ -1093,6 +1093,16 @@ async function handle(req, res) {
       const body = await readJsonBody(req);
       const pageIds = Array.isArray(body.pageIds) ? body.pageIds : [];
       const viewportIds = Array.isArray(body.viewports) && body.viewports.length ? body.viewports : ["desktop"];
+      // Optional narrowing to specific checks (S7). This is what makes a run
+      // re-runnable FROM the results page: re-run one check you just changed,
+      // or just the ones that did not pass, instead of paying for the whole
+      // page again. An empty/absent list means the whole selection, exactly as
+      // before. Unknown ids simply match nothing rather than erroring, so a
+      // stale results page cannot 400 the request.
+      const stepIdFilter = Array.isArray(body.stepIds) && body.stepIds.length
+        ? new Set(body.stepIds.map((id) => String(id)))
+        : null;
+      const stepAllowed = (step) => !stepIdFilter || stepIdFilter.has(step.id);
       const state = body.state || "default";
       // Blind adversarial pass (R12/F8): a second run, forced vision-only
       // (bypassCache also skips any cachedAssertion - see compile.mjs's
@@ -1148,7 +1158,7 @@ async function handle(req, res) {
           const page = await getPage(pageId, root);
           if (!page) continue;
           for (const viewportId of viewportIds) {
-            const steps = selectSteps(page, { state, viewport: viewportId });
+            const steps = selectSteps(page, { state, viewport: viewportId }).filter(stepAllowed);
             plan.push({ pageId, viewportId, steps: steps.map((s) => ({ id: s.id, description: s.description, mode: s.mode })) });
           }
         }
@@ -1156,7 +1166,7 @@ async function handle(req, res) {
           held: true,
           reason: "gated",
           plan,
-          resume: { pageIds, viewports: viewportIds, state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root }
+          resume: { pageIds, viewports: viewportIds, ...(stepIdFilter ? { stepIds: [...stepIdFilter] } : {}), state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root }
         });
       }
 
@@ -1169,7 +1179,7 @@ async function handle(req, res) {
         const page = await getPage(pageId, root);
         if (!page) continue;
         for (const viewportId of viewportIds) {
-          const steps = selectSteps(page, { state, viewport: viewportId });
+          const steps = selectSteps(page, { state, viewport: viewportId }).filter(stepAllowed);
           for (const step of steps) {
             jobs.push({
               pageId,

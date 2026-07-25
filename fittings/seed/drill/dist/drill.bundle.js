@@ -29157,9 +29157,22 @@ function ClassicRunDetail({
   convertObsToStep,
   convertObsToFinding,
   triage,
-  dispatch
+  dispatch,
+  onRerun,
+  rerunBusy
 }) {
   const evidenceRowFor = (entry) => evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  const rerunScope = (entries) => {
+    if (!onRerun || !entries.length) return;
+    onRerun(
+      [...new Set(entries.map((e) => e.pageId))],
+      [...new Set(entries.map((e) => e.viewportId))],
+      [...new Set(entries.map((e) => e.stepId))]
+    );
+  };
+  const notPassed = productPageEntries.filter(
+    (entry) => !effectiveStepPassed(run, entry) || effectiveStepUnproven(run, entry)
+  );
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     run.evidence?.video && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RunEvidenceVideo, { runId: run.id, video: run.evidence.video, steps: evidenceRows ?? [] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
@@ -29195,6 +29208,39 @@ function ClassicRunDetail({
             " infra-affected or skipped"
           ] })
         ] })
+      ] }),
+      onRerun && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-rerun-bar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small",
+            disabled: rerunBusy || !productPageEntries.length,
+            title: "Run every check in this run's selection again",
+            onClick: () => rerunScope(productPageEntries),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 12 }),
+              " Re-run all ",
+              productPageEntries.length,
+              " checks"
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small",
+            disabled: rerunBusy || !notPassed.length,
+            title: "Run only the checks that did not pass",
+            onClick: () => rerunScope(notPassed),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 12 }),
+              " Re-run ",
+              notPassed.length,
+              " not passed"
+            ]
+          }
+        ),
+        rerunBusy && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-rerun-busy", children: "A run is already in flight." })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Check results" }),
@@ -29235,6 +29281,19 @@ function ClassicRunDetail({
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "actions" }),
             " to this check so the run drives the app to the asserted state."
           ] }),
+          onRerun && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              className: "btn small dr-result-rerun",
+              disabled: rerunBusy,
+              title: "Run just this check again",
+              onClick: () => onRerun([entry.pageId], [entry.viewportId], [entry.stepId]),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 11 }),
+                " Re-run this check"
+              ]
+            }
+          ),
           stepDefinition?.description && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-description", children: stepDefinition.description }),
           resultReasoning && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: resultReasoning }),
           entry.result?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4 }, children: entry.result.error }),
@@ -29868,7 +29927,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     void openRun(finishedRunId);
     load();
   };
-  const startRun = async (pageIdsArg, viewportsArg, stateArg) => {
+  const startRun = async (pageIdsArg, viewportsArg, stateArg, stepIdsArg) => {
     if (running || watchRunId) {
       setError("a run is already in progress - wait for it to finish");
       return;
@@ -29886,7 +29945,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         (step) => step.enabled !== false && (step.state || "default") === requestedState && (!step.viewports?.length || step.viewports.includes(viewportId))
       )).map((viewportId) => `${page?.title || pageId} \xB7 ${viewportId}`);
     });
-    if (uncovered.length > 0) {
+    if (uncovered.length > 0 && !stepIdsArg?.length) {
       setError(
         `No enabled ${requestedState === "default" ? "default-state " : `${requestedState} `}checks cover ${uncovered.join(", ")}. Adjust the page, state, or viewport selection before running.`
       );
@@ -29898,7 +29957,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     try {
       await ensureAppUp(setPhase);
       setPhase(null);
-      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill", background: true });
+      const r = await apiPost("/api/runs", {
+        pageIds,
+        viewports,
+        ...stepIdsArg?.length ? { stepIds: stepIdsArg } : {},
+        state: requestedState,
+        contextTag: "drill",
+        background: true
+      });
       if (r.held) {
         setPendingGate({ plan: r.plan, resume: r.resume });
       } else {
@@ -30375,7 +30441,9 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
             convertObsToStep,
             convertObsToFinding,
             triage,
-            dispatch
+            dispatch,
+            onRerun: (pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds),
+            rerunBusy: running || watchRunId !== null
           }
         )
       ] });

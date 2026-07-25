@@ -80,15 +80,37 @@ function garrisonBaseUrl() {
   return process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
 }
 
-// Within one chunk, which frame is most worth a model's attention. Signal
-// triggers (something HAPPENED) outrank boundary frames; among boundaries,
-// step-end shows the settled state the check was actually judged on, while
-// step-start fires before this check's navigation and therefore still shows
-// the PREVIOUS check's page.
-function framePriority(frame) {
-  if (SIGNAL_TRIGGERS.has(frame.trigger)) return 0;
-  if (frame.trigger === "step-end") return 1;
-  return 2;
+// Blank/loading frames are the single biggest source of useless evidence: the
+// first visual change after a navigation is almost always the app's spinner on
+// an otherwise empty page, and a phash trigger fires on exactly that. JPEG size
+// separates them cleanly and without a model — measured on a real run, a
+// spinner frame is 12-30% of its chunk's largest frame while the settled state
+// is 77-100%. Anything below this ratio is treated as "nothing on screen yet".
+const CONTENT_MIN_RATIO = 0.4;
+
+function chunkMaxBytes(frames) {
+  return frames.reduce((max, f) => Math.max(max, Number(f.bytes) || 0), 0);
+}
+
+function hasContent(frame, maxBytes) {
+  if (!maxBytes) return true; // no size info (older evidence) - don't exclude
+  return (Number(frame.bytes) || 0) >= maxBytes * CONTENT_MIN_RATIO;
+}
+
+// Ordering for what a MODEL should look at. The settled state the check was
+// actually judged on comes first, then real changes latest-first (a later
+// change is further from the load spinner and closer to the asserted state).
+// Blank/loading frames sink to the bottom regardless of trigger.
+function candidateOrder(a, b, maxBytes) {
+  const rank = (f) => {
+    if (!hasContent(f, maxBytes)) return 3;
+    if (f.trigger === "step-end") return 0;
+    if (SIGNAL_TRIGGERS.has(f.trigger)) return 1;
+    return 2;
+  };
+  const ra = rank(a), rb = rank(b);
+  if (ra !== rb) return ra - rb;
+  return (b.tMs ?? 0) - (a.tMs ?? 0); // latest first within a rank
 }
 
 // Deterministic selection under the vision budget, allocated FAIRLY ACROSS
@@ -111,10 +133,12 @@ export function selectCurationCandidates(frames, maxCurated) {
     if (!byChunk.has(key)) byChunk.set(key, []);
     byChunk.get(key).push(f);
   }
-  // Stable ordering: chunks in first-appearance order, frames within a chunk
-  // by priority then time, so the same run always yields the same candidates.
+  // Stable ordering: chunks in first-appearance order, frames within a chunk by
+  // usefulness (settled state first, blank/loading last), so the same run always
+  // yields the same candidates and the model is never asked to judge a spinner.
   for (const list of byChunk.values()) {
-    list.sort((a, b) => framePriority(a) - framePriority(b) || (a.tMs ?? 0) - (b.tMs ?? 0));
+    const maxBytes = chunkMaxBytes(list);
+    list.sort((a, b) => candidateOrder(a, b, maxBytes));
   }
   const chosen = new Set();
   const lists = [...byChunk.values()];
@@ -152,9 +176,14 @@ export function applyReelFloor(rows) {
   let floored = 0;
   for (const list of byChunk.values()) {
     if (list.some((r) => r.keep === true)) continue;
-    const best = [...list].sort(
-      (a, b) => framePriority(a) - framePriority(b) || (a.tMs ?? 0) - (b.tMs ?? 0)
-    )[0];
+    // The floor's job is to SHOW this check's evidence, which is a different
+    // question from what a model should judge: here the settled step-end frame
+    // is almost always the right answer, because it is the state the check's
+    // verdict was actually formed on. Ranking signal triggers first (correct
+    // for candidate selection) picked the FIRST phash instead — reliably the
+    // load spinner, on a blank page.
+    const maxBytes = chunkMaxBytes(list);
+    const best = [...list].sort((a, b) => candidateOrder(a, b, maxBytes))[0];
     if (!best) continue;
     best.keep = true;
     best.floor = true;
@@ -314,7 +343,8 @@ export async function curateRunEvidence({ record, root, config, app, fetchImpl =
     }
 
     const rows = all.map((f) => {
-      const base = { name: f.name, tMs: f.tMs, trigger: f.trigger, chunk: f.chunk };
+      // `bytes` rides along as the blank-frame signal (see CONTENT_MIN_RATIO).
+      const base = { name: f.name, tMs: f.tMs, trigger: f.trigger, chunk: f.chunk, bytes: f.bytes };
       const v = verdictByName.get(f.name);
       if (!v) return { ...base, uncurated: true };
       return {

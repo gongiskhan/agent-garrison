@@ -3456,15 +3456,33 @@ interface ClassicRunDetailProps {
   convertObsToFinding: (obsId: string, pageId: string) => void;
   triage: (findingId: string, status: "confirmed" | "dismissed") => void;
   dispatch: () => void;
+  // Re-run this run's checks, or a subset, straight from the results view.
+  onRerun?: (pageIds: string[], viewports: string[], stepIds: string[]) => void;
+  rerunBusy?: boolean;
 }
 function ClassicRunDetail({
   run, pages, evidenceRows, productPageEntries, activeFindings, incompleteCoverageCount,
   displayedInfra, issues, confirmedCount, dispatchableCount, dispatchedCard, dispatchMode,
   setDispatchMode, dispatching, obsText, setObsText, giveFeedback, override, addObs,
-  convertObsToStep, convertObsToFinding, triage, dispatch
+  convertObsToStep, convertObsToFinding, triage, dispatch, onRerun, rerunBusy
 }: ClassicRunDetailProps) {
   const evidenceRowFor = (entry: { pageId: string; stepId: string; viewportId: string }) =>
     evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  // Re-running from the results page (S7). Looking at a result and wanting to
+  // run it again is the single most common thing to do next - after a fix, or
+  // when a check looks wrong - and it previously meant going back to the Book
+  // view and re-selecting by hand.
+  const rerunScope = (entries: RunPageEntry[]) => {
+    if (!onRerun || !entries.length) return;
+    onRerun(
+      [...new Set(entries.map((e) => e.pageId))],
+      [...new Set(entries.map((e) => e.viewportId))],
+      [...new Set(entries.map((e) => e.stepId))]
+    );
+  };
+  const notPassed = productPageEntries.filter(
+    (entry) => !effectiveStepPassed(run, entry) || effectiveStepUnproven(run, entry)
+  );
   return (
         <>
           {run.evidence?.video && (
@@ -3493,6 +3511,27 @@ function ClassicRunDetail({
                 <span><b>{incompleteCoverageCount}</b> infra-affected or skipped</span>
               </div>
             </div>
+            {onRerun && (
+              <div className="dr-rowwrap dr-rerun-bar">
+                <button
+                  className="btn small"
+                  disabled={rerunBusy || !productPageEntries.length}
+                  title="Run every check in this run's selection again"
+                  onClick={() => rerunScope(productPageEntries)}
+                >
+                  <RefreshCcw size={12} /> Re-run all {productPageEntries.length} checks
+                </button>
+                <button
+                  className="btn small"
+                  disabled={rerunBusy || !notPassed.length}
+                  title="Run only the checks that did not pass"
+                  onClick={() => rerunScope(notPassed)}
+                >
+                  <RefreshCcw size={12} /> Re-run {notPassed.length} not passed
+                </button>
+                {rerunBusy && <span className="dr-rerun-busy">A run is already in flight.</span>}
+              </div>
+            )}
             <div className="dr-card-heading">
               <div>
                 <b>Check results</b>
@@ -3544,6 +3583,16 @@ function ClassicRunDetail({
                       The screenshot below shows the page as it loaded, so it cannot prove the claim either way.
                       Add <span className="mono">actions</span> to this check so the run drives the app to the asserted state.
                     </div>
+                  )}
+                  {onRerun && (
+                    <button
+                      className="btn small dr-result-rerun"
+                      disabled={rerunBusy}
+                      title="Run just this check again"
+                      onClick={() => onRerun([entry.pageId], [entry.viewportId], [entry.stepId])}
+                    >
+                      <RefreshCcw size={11} /> Re-run this check
+                    </button>
                   )}
                   {stepDefinition?.description && <div className="dr-result-description">{stepDefinition.description}</div>}
                   {resultReasoning && (
@@ -4314,7 +4363,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     load();
   };
 
-  const startRun = async (pageIdsArg?: string[], viewportsArg?: string[], stateArg?: string) => {
+  const startRun = async (pageIdsArg?: string[], viewportsArg?: string[], stateArg?: string, stepIdsArg?: string[]) => {
     if (running || watchRunId) { setError("a run is already in progress - wait for it to finish"); return; }
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
@@ -4330,7 +4379,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         ))
         .map((viewportId) => `${page?.title || pageId} · ${viewportId}`);
     });
-    if (uncovered.length > 0) {
+    if (uncovered.length > 0 && !stepIdsArg?.length) {
       setError(
         `No enabled ${requestedState === "default" ? "default-state " : `${requestedState} `}checks cover ${uncovered.join(", ")}. Adjust the page, state, or viewport selection before running.`
       );
@@ -4347,7 +4396,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       // background:true (S31): the server returns the in-flight record
       // immediately and the live panel streams progress - no minutes-long
       // blocking POST between the click and the first feedback.
-      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill", background: true });
+      const r = await apiPost("/api/runs", {
+        pageIds,
+        viewports,
+        ...(stepIdsArg?.length ? { stepIds: stepIdsArg } : {}),
+        state: requestedState,
+        contextTag: "drill",
+        background: true
+      });
       if (r.held) {
         // A5/R7/S22: gated autonomy pauses with a plan diff before running.
         setPendingGate({ plan: r.plan, resume: r.resume });
@@ -4880,6 +4936,8 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
                 convertObsToFinding={convertObsToFinding}
                 triage={triage}
                 dispatch={dispatch}
+                onRerun={(pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds)}
+                rerunBusy={running || watchRunId !== null}
               />
             )}
           </>

@@ -144,12 +144,28 @@ describe("selectCurationCandidates + curationConfig (drill side)", () => {
     { name: "f5", trigger: "message-growth", tMs: 500 }
   ];
 
-  it("prioritizes signal triggers under the budget, preserves time order", () => {
+  it("shows the settled state first, then real changes latest-first", () => {
+    // The settled step-end frame is the state the check's verdict was actually
+    // formed on, so it outranks everything. Among signal triggers, LATER beats
+    // earlier: the first change after a navigation is almost always the load
+    // spinner, and the latest is closest to the asserted state.
     const three = selectCurationCandidates(frames, 3);
-    expect(three.map((f: any) => f.name)).toEqual(["f1", "f3", "f5"]);
+    expect(three.map((f: any) => f.name)).toEqual(["f2", "f3", "f5"]); // step-end + the two latest signals
     const five = selectCurationCandidates(frames, 5);
-    expect(five.map((f: any) => f.name)).toEqual(["f0", "f1", "f2", "f3", "f5"]);
+    expect(five.map((f: any) => f.name)).toEqual(["f1", "f2", "f3", "f4", "f5"]);
     expect(selectCurationCandidates(frames, 10)).toHaveLength(6);
+  });
+
+  it("sinks blank/loading frames below everything else", () => {
+    // A spinner on an empty page compresses to a fraction of a rendered page.
+    // Measured on a real run: spinner 12-30% of the chunk's largest frame,
+    // settled state 77-100%. Without this the budget was spent on spinners.
+    const withBytes = [
+      { name: "spinner", trigger: "phash", tMs: 900, chunk: "p--a--desktop", bytes: 6458 },
+      { name: "rendered", trigger: "phash", tMs: 100, chunk: "p--a--desktop", bytes: 50000 }
+    ];
+    // The spinner is LATER, so time order alone would pick it first.
+    expect(selectCurationCandidates(withBytes, 1).map((f: any) => f.name)).toEqual(["rendered"]);
   });
 
   it("curationConfig merges book under body and honors disable flags", () => {
@@ -213,5 +229,30 @@ describe("selectCurationCandidates + curationConfig (drill side)", () => {
     const chunks = new Set(rows.map((r) => r.chunk));
     const covered = new Set(rows.filter((r) => r.keep === true).map((r) => r.chunk));
     expect(covered.size).toBe(chunks.size);
+  });
+
+  it("floors to the SETTLED frame, not the first change after navigation", () => {
+    // This is the regression that made the Debrief mostly spinners: ranking
+    // signal triggers above step-end (correct when choosing what a model should
+    // judge) picked the first phash of the chunk, which is the load spinner on a
+    // blank page. The floor wants the state the verdict was formed on.
+    const rows = [
+      { name: "spinner", trigger: "phash", chunk: "p--a--desktop", tMs: 100, bytes: 6458, uncurated: true },
+      { name: "mid", trigger: "phash", chunk: "p--a--desktop", tMs: 400, bytes: 40000, uncurated: true },
+      { name: "settled", trigger: "step-end", chunk: "p--a--desktop", tMs: 900, bytes: 52000, uncurated: true }
+    ] as any[];
+    applyReelFloor(rows);
+    expect(rows.find((r) => r.floor === true).name).toBe("settled");
+    expect(rows.find((r) => r.name === "spinner").keep).toBeUndefined();
+  });
+
+  it("never floors to a blank frame when any rendered frame exists", () => {
+    const rows = [
+      { name: "blank-end", trigger: "step-end", chunk: "p--a--desktop", tMs: 900, bytes: 6000, uncurated: true },
+      { name: "rendered", trigger: "phash", chunk: "p--a--desktop", tMs: 300, bytes: 50000, uncurated: true }
+    ] as any[];
+    applyReelFloor(rows);
+    // step-end normally wins, but not when the page was still blank at judgment.
+    expect(rows.find((r) => r.floor === true).name).toBe("rendered");
   });
 });

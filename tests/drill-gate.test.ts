@@ -117,6 +117,29 @@ describe("gated autonomy", () => {
     expect(after.runs.length).toBe(before.runs.length); // no run record was created by the hold
   });
 
+  it("narrows to the named checks so a result can be re-run from the results page", async () => {
+    // Re-running one check you just fixed used to mean re-running its whole
+    // page. stepIds is what makes the results page's Re-run buttons targeted.
+    const post = (body: unknown) =>
+      fetch(`${DRILL_BASE}/api/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+
+    const named = await post({ pageIds: ["answer"], viewports: ["desktop"], stepIds: ["s1"] });
+    expect(named.plan.flatMap((p: any) => p.steps.map((s: any) => s.id))).toEqual(["s1"]);
+    // The narrowing must survive the gate, or confirming would silently widen
+    // the run back to the whole page.
+    expect(named.resume.stepIds).toEqual(["s1"]);
+
+    // An id that no longer exists matches nothing rather than erroring, so a
+    // stale results page cannot 400 the request.
+    const stale = await post({ pageIds: ["answer"], viewports: ["desktop"], stepIds: ["deleted-check"] });
+    expect(stale.plan.flatMap((p: any) => p.steps)).toEqual([]);
+
+    // Absent/empty means the whole selection, exactly as before.
+    const all = await post({ pageIds: ["answer"], viewports: ["desktop"], stepIds: [] });
+    expect(all.plan.flatMap((p: any) => p.steps.map((s: any) => s.id))).toEqual(["s1"]);
+    expect(all.resume.stepIds).toBeUndefined();
+  });
+
   it("resuming (confirmed:true) with the returned resume object actually runs it", async () => {
     const held = await (
       await fetch(`${DRILL_BASE}/api/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pageIds: ["answer"], viewports: ["desktop"] }) })
