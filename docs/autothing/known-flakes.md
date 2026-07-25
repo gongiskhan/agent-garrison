@@ -2,3 +2,13 @@
 - 2026-07-12T21:51:35Z tests/vault-heal.test.ts "pid mismatch — restarted outside Garrison" waitFor timeout under full-suite concurrent load (spawns real subprocesses, races status-file writes); passes 18/18 in isolation. Same flake class as runner-eager-lifecycle / own-port spawn under load.
 - 2026-07-13T17:34:30Z tests/deepgram-voice-live.test.ts — flakes under full-suite concurrent load (503/20s-timeout on the mocked live WS relay); passes 12/12 in isolation. Infra-flake, not a code failure. Unrelated to any specific slice.
 - 2026-07-13T20:59:51Z muster e2e combined run: 41/42 pass; 1 spec flaked under the 3-min concurrent-load full run. The 4 mobile-orchestrator specs pass 4/4 in isolation; desktop 39-green. Concurrent-load flake, not a product defect.
+
+## tests/browser-persistent-profile.test.ts (2026-07-25)
+- **Symptom:** fails at :160 in a FULL-suite run; passes 4/4 in isolation.
+- **Cause:** machine contention, not a code defect. The suite was run while a
+  live drill run's ffmpeg tight-cut encode (all cores, cpu-used 8) and a live
+  browser capture session were active. This test spawns its own browser-default
+  instances and asserts cookie persistence across a restart, so it is sensitive
+  to spawn/shutdown timing under load.
+- **Action:** do not run the full suite concurrently with a drill run or a video
+  encode. Re-run in isolation to confirm before treating as a regression.
