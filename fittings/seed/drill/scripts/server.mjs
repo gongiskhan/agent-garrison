@@ -180,7 +180,7 @@ async function ensureAuthenticated(book, { contextTag, viewport, root }) {
     // A transport/infra outage on the probe is NOT an auth failure — surface it
     // so the caller attributes the incident to the down component, not "auth".
     if (probe.kind === "infra-failure") return { ok: false, terminal: probe, authRejected: false };
-    // product-failure / blocked / incomplete = inconclusive -> run the flow.
+    // product-failure / unproven / blocked / incomplete = inconclusive -> run the flow.
   }
 
   const flow = await runAuth(compileAuthLogin(book), success ? AUTH_VERIFY_STEP : null);
@@ -190,8 +190,9 @@ async function ensureAuthenticated(book, { contextTag, viewport, root }) {
   }
   // Only a product-level negative — the flow ran but the app did not grant a
   // session / the success signal was not met — is a genuine auth-config problem.
-  // Infra / incomplete / blocked (engine down, app down, MFA pause) keep their
-  // REAL component so the incident is never misattributed to the auth block.
+  // Infra / incomplete / blocked (engine down, app down, MFA pause) and
+  // unproven (the success signal could not be judged) keep their REAL
+  // component so the incident is never misattributed to the auth block.
   return { ok: false, terminal: flow, authRejected: flow.kind === "product-failure" };
 }
 
