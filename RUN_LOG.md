@@ -542,3 +542,14 @@ bubble"; composer-attach-menu from asserting popover text without clicking to
   executed CONCURRENTLY with the tight-cut ffmpeg encode and a live drill
   browser session. Re-run in isolation: 4/4 green. Recorded in
   docs/autothing/known-flakes.md; no code change.
+
+### DECISION 2026-07-25T10:27:51Z — S6b was NOT live in the first verification attempt
+- Re-ran the users page (01KYCCP56GW1S43XK2A8Y4SDR9) expecting `delete-user-confirm-dialog`
+  to come back `unproven`. It came back `product-failure` / `recovery-aborted`.
+- Cause: S6b was committed AFTER the redeploy. The Garrison app serves the fix-mode
+  vision prompt and was built pre-change; the automations fitting (pid 1190487,
+  :8090) holds engine.mjs + fixer.mjs and was started pre-change; the drill
+  fitting holds run-outcome.mjs. Three long-lived processes, all on old code.
+- This is exactly the trap CLAUDE.md warns about ("commit is not landed until
+  prod is redeployed"). Caught by checking the verdict instead of assuming the
+  code path was live. Second redeploy issued, then a third users-page run.
