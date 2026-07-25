@@ -17,20 +17,21 @@ committed that as a Playwright spec that never performs the behaviour.
 |---|---|
 | typecheck | clean |
 | lint | 0 errors on every touched file (also cleared 3 pre-existing errors) |
-| unit/integration | **370 files / 3464 tests, 0 failures** (pre-S6b); re-run post-S6b |
+| unit/integration | **369 passed / 1 failed (3466 tests)** — the single failure is a load-contention flake in browser-persistent-profile.test.ts, 4/4 green in isolation, recorded in known-flakes.md |
 | new tests | drill-video-tighten 13, drill-actions 15, drill-honesty-gate 11, curation +4, fixer +3 |
 | live browser e2e | drill-spotter-capture-e2e green: 0 step-start frames, one step-end per check |
 | live verification run | `01KYCB0G480JGAWKK1DPXE98E0`, 36 checks vs the `01KY4DREZ...` baseline |
+| S6b live proof | needed a SECOND redeploy — three long-lived processes held pre-S6b code |
 
 ## Measured against the baseline
 
 | | baseline `01KY4DREZ…` | after `01KYCB0G…` |
 |---|---|---|
 | wall clock | 27.8 min | **21.5 min** (while doing strictly more work) |
-| run video | 27.3 min, 62 MB, 24.6 min dead air | tight cut produced automatically |
+| run video | 27.3 min, 62 MB, 24.6 min dead air | **3.5 min / 11.1 MB**, 39 segments, produced automatically |
 | spotter frames | 173, incl. ~36 mis-tagged `step-start` | 161, **0 `step-start`**, **36 `step-end`** |
 | chunks with frames | 36 (but mis-attributed) | **36/36, 0 null-chunk** |
-| Debrief scopes populated | **2 of 36** | reel floor guarantees 36/36 |
+| Debrief scopes populated | **2 of 36** | **36 of 36** (72/72 candidates curated, 0 failed batches) |
 | interactions performed | **0** | 18 checks drive the app |
 | verdicts | 29 passed / 7 failed | 32 passed / 4 unrunnable |
 
