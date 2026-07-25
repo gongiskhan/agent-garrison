@@ -377,7 +377,7 @@ function parseArgs(argv) {
     // runner-projected composition config first (per-instance, e.g. main=7084
     // vs codex=27084), then the legacy env / --port (tests), then the default.
     port: Number(process.env.GARRISON_BROWSERDEFAULT_PORT || process.env.BROWSER_PORT || 27084),
-    host: process.env.GARRISON_BROWSERDEFAULT_BIND_HOST || process.env.BROWSER_HOST || "127.0.0.1",
+    host: process.env.GARRISON_BROWSERDEFAULT_BIND_HOST || process.env.BROWSER_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     // Defaults match the LOW quality preset — responsive over Tailscale beats
     // sharpness for the common case. The canvas's quality toggle bumps it.
     viewportWidth: Number(process.env.BROWSER_VIEWPORT_WIDTH || 800),
