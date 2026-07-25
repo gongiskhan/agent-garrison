@@ -22,7 +22,9 @@ import {
 } from "./spotter-book.mjs";
 
 export const CURATION_DEFAULTS = {
-  maxCurated: 30, // vision budget per run (D4: ~30 images for a typical Full Drill)
+  maxCurated: 30, // floor for the vision budget (D4: ~30 images for a small Full Drill)
+  perChunkTarget: 2, // frames per check when the budget scales with the run
+  maxCuratedCeiling: 120, // hard ceiling so a huge run can't run away with model calls
   batchSize: 12 // frames per model call
 };
 
@@ -46,9 +48,22 @@ export function curationConfig(book, evidenceBody) {
     ...(bodyCfg && typeof bodyCfg === "object" ? bodyCfg : {})
   };
   return {
-    maxCurated: clampInt(merged.maxCurated, CURATION_DEFAULTS.maxCurated, 1, 40),
+    maxCurated: clampInt(merged.maxCurated, CURATION_DEFAULTS.maxCurated, 1, CURATION_DEFAULTS.maxCuratedCeiling),
+    // Remember whether the operator pinned a budget: an unpinned budget scales
+    // with the run's size (below), a pinned one is honoured verbatim.
+    maxCuratedExplicit: Number.isFinite(Number(merged.maxCurated)),
     batchSize: clampInt(merged.batchSize, CURATION_DEFAULTS.batchSize, 1, 40)
   };
+}
+
+// A fixed 30-frame budget starves a big run: with 36 checks it cannot even give
+// every check one frame. Scale with the number of checks actually captured,
+// unless the operator pinned a budget.
+export function effectiveMaxCurated(config, chunkCount) {
+  if (!config) return 0;
+  if (config.maxCuratedExplicit) return config.maxCurated;
+  const wanted = Math.max(CURATION_DEFAULTS.maxCurated, chunkCount * CURATION_DEFAULTS.perChunkTarget);
+  return Math.min(CURATION_DEFAULTS.maxCuratedCeiling, wanted);
 }
 
 function internalToken() {
@@ -65,21 +80,94 @@ function garrisonBaseUrl() {
   return process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
 }
 
-// Deterministic selection under the vision budget: signal-trigger frames
-// (something HAPPENED) outrank boundary frames, both in time order. Frames
-// past the budget are marked uncurated in the reel — visible in show-all,
-// never silently dropped (D1).
+// Within one chunk, which frame is most worth a model's attention. Signal
+// triggers (something HAPPENED) outrank boundary frames; among boundaries,
+// step-end shows the settled state the check was actually judged on, while
+// step-start fires before this check's navigation and therefore still shows
+// the PREVIOUS check's page.
+function framePriority(frame) {
+  if (SIGNAL_TRIGGERS.has(frame.trigger)) return 0;
+  if (frame.trigger === "step-end") return 1;
+  return 2;
+}
+
+// Deterministic selection under the vision budget, allocated FAIRLY ACROSS
+// CHECKS.
+//
+// The previous rule took every signal-trigger frame in time order first. On a
+// real 36-check run that spent the entire 30-frame budget on the first 8
+// checks (101 phash frames existed, all early), so 28 checks were never judged
+// and their Debrief scope rendered "No reel frames for this scope". Fairness
+// across chunks matters more than global ranking: one good frame for every
+// check beats five for the first few.
+//
+// Round-robin: every chunk contributes its best frame, then its second-best,
+// and so on until the budget runs out. Frames past the budget are marked
+// uncurated in the reel — visible in show-all, never silently dropped (D1).
 export function selectCurationCandidates(frames, maxCurated) {
-  const chosen = new Set();
+  const byChunk = new Map();
   for (const f of frames) {
-    if (chosen.size >= maxCurated) break;
-    if (SIGNAL_TRIGGERS.has(f.trigger)) chosen.add(f.name);
+    const key = f.chunk ?? "";
+    if (!byChunk.has(key)) byChunk.set(key, []);
+    byChunk.get(key).push(f);
   }
-  for (const f of frames) {
-    if (chosen.size >= maxCurated) break;
-    chosen.add(f.name);
+  // Stable ordering: chunks in first-appearance order, frames within a chunk
+  // by priority then time, so the same run always yields the same candidates.
+  for (const list of byChunk.values()) {
+    list.sort((a, b) => framePriority(a) - framePriority(b) || (a.tMs ?? 0) - (b.tMs ?? 0));
+  }
+  const chosen = new Set();
+  const lists = [...byChunk.values()];
+  for (let round = 0; chosen.size < maxCurated; round++) {
+    let progressed = false;
+    for (const list of lists) {
+      if (chosen.size >= maxCurated) break;
+      const f = list[round];
+      if (!f) continue;
+      chosen.add(f.name);
+      progressed = true;
+    }
+    if (!progressed) break; // every chunk exhausted
   }
   return frames.filter((f) => chosen.has(f.name));
+}
+
+// The reel floor: every check must end up with at least one frame.
+//
+// Curation is a model judgment with a deliberately drop-biased prompt, run
+// under a budget, over a flaky network. Any of those can legitimately leave a
+// check with zero kept frames — but a Debrief that says "No reel frames for
+// this scope" for a check that plainly has evidence reads as broken, and is
+// exactly the thing that made run results unanalysable. So after the verdicts
+// are in, any chunk with no keep gets its best frame promoted deterministically
+// and flagged `floor: true`, so the UI can show it while being honest that
+// nothing chose it.
+export function applyReelFloor(rows) {
+  const byChunk = new Map();
+  for (const row of rows) {
+    const key = row.chunk ?? "";
+    if (!byChunk.has(key)) byChunk.set(key, []);
+    byChunk.get(key).push(row);
+  }
+  let floored = 0;
+  for (const list of byChunk.values()) {
+    if (list.some((r) => r.keep === true)) continue;
+    const best = [...list].sort(
+      (a, b) => framePriority(a) - framePriority(b) || (a.tMs ?? 0) - (b.tMs ?? 0)
+    )[0];
+    if (!best) continue;
+    best.keep = true;
+    best.floor = true;
+    // Always lead with WHY this frame is on screen. A frame the model actively
+    // dropped can carry a dismissive note ("superseded by frame-0003"), and
+    // showing that as a check's evidence with no explanation is worse than
+    // showing nothing. Its original note is kept after the prefix as context.
+    const auto = "Auto-selected: curation kept no frame for this check, so its most representative frame is shown.";
+    best.annotation = best.annotation ? `${auto} Curation noted: ${best.annotation}` : auto;
+    delete best.uncurated;
+    floored += 1;
+  }
+  return floored;
 }
 
 export async function curateRunEvidence({ record, root, config, app, fetchImpl = globalThis.fetch }) {
@@ -134,7 +222,8 @@ export async function curateRunEvidence({ record, root, config, app, fetchImpl =
     }
 
     const visionPool = all.filter((f) => !ruleVerdicts.has(f.name));
-    const candidates = selectCurationCandidates(visionPool, config.maxCurated);
+    const chunkCount = new Set(all.map((f) => f.chunk ?? "")).size;
+    const candidates = selectCurationCandidates(visionPool, effectiveMaxCurated(config, chunkCount));
     const verdictByName = new Map(ruleVerdicts);
     let routedVia = null;
     let batches = 0;
@@ -146,8 +235,8 @@ export async function curateRunEvidence({ record, root, config, app, fetchImpl =
     }
     for (let i = 0; i < candidates.length; i += config.batchSize) {
       const batch = candidates.slice(i, i + config.batchSize);
-      let payload = {};
-      try {
+      const batchNo = Math.floor(i / config.batchSize) + 1;
+      const postBatch = async () => {
         const res = await fetchImpl(`${garrisonBaseUrl()}/api/drill/curation`, {
           method: "POST",
           headers: {
@@ -165,22 +254,41 @@ export async function curateRunEvidence({ record, root, config, app, fetchImpl =
             meta: { app, runId: record.id }
           })
         });
-        payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.error || `curation route ${res.status}`);
-      } catch (err) {
-        failedBatches += 1;
-        warn(`batch ${Math.floor(i / config.batchSize) + 1} failed: ${err.message}`);
-        continue;
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `curation route ${res.status}`);
+        return body;
+      };
+      let payload = null;
+      // One retry: a dropped batch silently costs every check in it its reel
+      // frames, and the usual causes (a gateway hiccup, a transient 502) clear
+      // on a second attempt. Two failures is a real outage — record it.
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          payload = await postBatch();
+          break;
+        } catch (err) {
+          if (attempt === 2) {
+            failedBatches += 1;
+            warn(`batch ${batchNo} failed twice: ${err.message}`);
+          } else {
+            warn(`batch ${batchNo} attempt 1 failed (${err.message}) — retrying`);
+          }
+        }
       }
+      if (!payload) continue;
       batches += 1;
       routedVia = payload.routedVia ?? routedVia;
       for (const v of payload.results ?? []) {
         if (v && typeof v.name === "string") verdictByName.set(v.name, v);
       }
     }
+    // A reel is still written when nothing came back. The floor below gives
+    // every check a frame, and writing the file is what lets the UI stop
+    // claiming "Curation is still selecting the reel" forever (that message is
+    // keyed on the reel row's ABSENCE, so a hard failure used to hang there
+    // permanently with no error and no retry).
     if (verdictByName.size === 0) {
-      warn("no curation verdicts came back — reel not written");
-      return null;
+      warn("no curation verdicts came back — falling back to a deterministic reel");
     }
 
     // Sidecar JSON per curated frame (D4): frame-0001.jpg -> frame-0001.json.
@@ -218,6 +326,8 @@ export async function curateRunEvidence({ record, root, config, app, fetchImpl =
         ...(v.ruleApplied ? { ruleApplied: true } : {})
       };
     });
+    // Guarantee every check a frame before the counts are taken.
+    const floored = applyReelFloor(rows);
     const reel = {
       version: 1,
       runId: record.id,
@@ -227,12 +337,20 @@ export async function curateRunEvidence({ record, root, config, app, fetchImpl =
       batches,
       failedBatches,
       reengaged,
+      // Surfaced so the Debrief can say WHY a reel looks thin instead of
+      // rendering an empty pane that reads as a bug.
+      health: {
+        degraded: failedBatches > 0 || verdictByName.size === 0,
+        floored,
+        chunks: new Set(rows.map((r) => r.chunk ?? "")).size
+      },
       counts: {
         frames: all.length,
         candidates: candidates.length,
         curated: verdictByName.size,
         ruleApplied: rows.filter((r) => r.ruleApplied === true).length,
         reel: rows.filter((r) => r.keep === true).length,
+        floored,
         uncurated: rows.filter((r) => r.uncurated === true).length
       },
       frames: rows

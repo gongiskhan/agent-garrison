@@ -18,7 +18,7 @@ import {
   drillEvidenceRoot
 } from "@/lib/drill-curation";
 // @ts-ignore — pure ESM .mjs, no .d.ts
-import { selectCurationCandidates, curationConfig, CURATION_DEFAULTS } from "../fittings/seed/drill/lib/curation.mjs";
+import { selectCurationCandidates, curationConfig, effectiveMaxCurated, applyReelFloor, CURATION_DEFAULTS } from "../fittings/seed/drill/lib/curation.mjs";
 
 const runDir = path.join(ghome, "drill", "evidence", "abc123def456", "01RUN");
 const outsideDir = mkdtempSync(path.join(tmpdir(), "garrison-curation-outside-"));
@@ -153,12 +153,65 @@ describe("selectCurationCandidates + curationConfig (drill side)", () => {
   });
 
   it("curationConfig merges book under body and honors disable flags", () => {
-    expect(curationConfig({}, undefined)).toEqual(CURATION_DEFAULTS);
+    expect(curationConfig({}, undefined)).toEqual({
+      maxCurated: CURATION_DEFAULTS.maxCurated,
+      maxCuratedExplicit: false,
+      batchSize: CURATION_DEFAULTS.batchSize
+    });
     expect(curationConfig({ spotter: { curation: { maxCurated: 10 } } }, { curation: { batchSize: 5 } }))
-      .toEqual({ maxCurated: 10, batchSize: 5 });
+      .toEqual({ maxCurated: 10, maxCuratedExplicit: true, batchSize: 5 });
     expect(curationConfig({ spotter: { curation: false } }, undefined)).toBeNull();
     expect(curationConfig({}, { curation: false })).toBeNull();
     expect(curationConfig({ spotter: { curation: { maxCurated: 9999, batchSize: 0 } } }, undefined))
-      .toEqual({ maxCurated: 40, batchSize: 1 });
+      .toEqual({ maxCurated: CURATION_DEFAULTS.maxCuratedCeiling, maxCuratedExplicit: true, batchSize: 1 });
+  });
+
+  it("scales the vision budget with the run size unless the operator pinned one", () => {
+    // A fixed 30-frame budget cannot give 36 checks even one frame each; that
+    // starvation is what left 28 of 36 checks with an empty Debrief scope.
+    const auto = curationConfig({}, undefined)!;
+    expect(effectiveMaxCurated(auto, 36)).toBe(72);
+    expect(effectiveMaxCurated(auto, 2)).toBe(CURATION_DEFAULTS.maxCurated); // never below the floor
+    expect(effectiveMaxCurated(auto, 5000)).toBe(CURATION_DEFAULTS.maxCuratedCeiling); // never runs away
+    const pinned = curationConfig({ spotter: { curation: { maxCurated: 10 } } }, undefined)!;
+    expect(effectiveMaxCurated(pinned, 36)).toBe(10);
+  });
+
+  it("allocates the budget fairly across checks instead of front-loading it", () => {
+    // 3 checks; the first is phash-heavy. Time-ordered signal-first selection
+    // spent the whole budget on it and starved the other two.
+    const frames = [
+      ...Array.from({ length: 8 }, (_, i) => ({ name: `a${i}`, trigger: "phash", chunk: "p--a--desktop", tMs: i * 10 })),
+      { name: "b0", trigger: "step-start", chunk: "p--b--desktop", tMs: 100 },
+      { name: "b1", trigger: "step-end", chunk: "p--b--desktop", tMs: 110 },
+      { name: "c0", trigger: "step-start", chunk: "p--c--desktop", tMs: 200 },
+      { name: "c1", trigger: "step-end", chunk: "p--c--desktop", tMs: 210 }
+    ];
+    const picked = selectCurationCandidates(frames, 3);
+    expect(new Set(picked.map((f: any) => f.chunk)).size).toBe(3);
+    // Within a chunk, step-end (the settled state) outranks step-start, which
+    // fires before this check's navigation and shows the PREVIOUS check's page.
+    expect(picked.map((f: any) => f.name)).toContain("b1");
+    expect(picked.map((f: any) => f.name)).not.toContain("b0");
+  });
+
+  it("floors every check to at least one frame when curation kept none", () => {
+    const rows = [
+      { name: "a0", trigger: "step-start", chunk: "p--a--desktop", tMs: 0, uncurated: true },
+      { name: "a1", trigger: "phash", chunk: "p--a--desktop", tMs: 5, uncurated: true },
+      { name: "b0", trigger: "step-end", chunk: "p--b--desktop", tMs: 10, keep: true }
+    ] as any[];
+    const floored = applyReelFloor(rows);
+    expect(floored).toBe(1); // only the chunk with no keep is floored
+    const a = rows.find((r) => r.name === "a1");
+    expect(a.keep).toBe(true);
+    expect(a.floor).toBe(true); // flagged, so the UI never passes it off as a choice
+    expect(a.uncurated).toBeUndefined();
+    expect(a.annotation).toMatch(/Auto-selected/);
+    expect(rows.find((r) => r.name === "b0").floor).toBeUndefined(); // untouched
+    // The guarantee: every chunk now has a frame.
+    const chunks = new Set(rows.map((r) => r.chunk));
+    const covered = new Set(rows.filter((r) => r.keep === true).map((r) => r.chunk));
+    expect(covered.size).toBe(chunks.size);
   });
 });

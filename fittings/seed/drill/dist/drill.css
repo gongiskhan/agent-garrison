@@ -743,7 +743,7 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-db-scope-clear { display: inline-flex; background: none; border: 0; color: var(--mute-2); cursor: pointer; padding: 0; flex: none; }
 .dr-db-scope-clear:hover { color: var(--alarm); }
 
-.dr-db-grid { display: grid; grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.dr-db-grid { display: grid; grid-template-columns: minmax(300px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 900px) { .dr-db-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .dr-db-rail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -773,14 +773,28 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-db-scope-num { flex: none; font-family: var(--mono); font-size: 10px; color: var(--mute-2); }
 
 .dr-db-check {
-  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: none;
-  cursor: pointer; font-family: var(--sans); color: var(--ink-2); padding: 6px 11px 6px 20px; font-size: 11.5px;
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; border: 0; background: none;
+  cursor: pointer; font-family: var(--sans); color: var(--ink-2); padding: 7px 11px 7px 16px; font-size: 12px;
 }
 .dr-db-check:hover { background: var(--paper-3); }
 .dr-db-check.scoped { background: var(--sage-soft); box-shadow: inset 3px 0 0 var(--sage-2); }
 .dr-db-check.live { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--brass); }
-.dr-db-check-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dr-db-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mute-2); }
+/* A check's description is a full sentence. Clamping it to ONE nowrap line in a
+   ~190px column showed ~30 characters, which made the scope list unreadable and
+   indistinguishable row to row. Lead with the id, wrap the description under it. */
+.dr-db-check-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dr-db-check-id {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: 11px; color: var(--ink); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dr-db-check-desc {
+  font-size: 11px; line-height: 1.35; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.dr-db-check.scoped .dr-db-check-desc, .dr-db-check.scoped .dr-db-check-id { color: var(--ink); }
+.dr-db-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mute-2); margin-top: 4px; }
 .dr-db-dot.pass { background: var(--sage-2); }
 .dr-db-dot.fail { background: var(--alarm); }
 .dr-db-vp { flex: none; font-size: 9.5px; padding: 1px 6px; }

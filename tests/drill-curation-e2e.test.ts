@@ -250,14 +250,27 @@ describe("Spotter curation (S2)", () => {
     expect(reel.counts.candidates).toBeLessThanOrEqual(6);
     expect(reel.counts.curated).toBe(reel.counts.candidates);
     expect(reel.counts.reel).toBeGreaterThan(0);
-    expect(reel.counts.reel).toBeLessThanOrEqual(reel.counts.candidates);
-    // Canned rule: 2 keeps per batch of <=4 — the reel is a strict subset.
-    expect(reel.counts.reel).toBeLessThanOrEqual(2 * curationCalls.length);
+    // The reel is the model's keeps PLUS the deterministic floor (S2): every
+    // check is guaranteed a frame, because a scope that renders empty reads as
+    // a broken Debrief even when the model simply chose to drop everything.
+    // Canned rule: 2 keeps per batch of <=4.
+    const modelKeeps = reel.frames.filter((f: any) => f.keep === true && f.floor !== true);
+    expect(modelKeeps.length).toBeLessThanOrEqual(2 * curationCalls.length);
+    expect(reel.counts.reel).toBe(modelKeeps.length + reel.counts.floored);
     expect(reel.frames).toHaveLength(spotterManifest.frames.length);
+    // The guarantee itself: no check is left without a frame.
+    const chunks = new Set(reel.frames.map((f: any) => f.chunk ?? ""));
+    const covered = new Set(reel.frames.filter((f: any) => f.keep === true).map((f: any) => f.chunk ?? ""));
+    expect(covered).toEqual(chunks);
     const uncurated = reel.frames.filter((f: any) => f.uncurated === true);
     expect(uncurated.length).toBe(reel.counts.uncurated);
-    if (spotterManifest.frames.length > 6) expect(uncurated.length).toBeGreaterThan(0);
-    for (const row of reel.frames.filter((f: any) => f.keep === true)) {
+    // A floored frame is flagged and annotated as auto-selected, never passed
+    // off as a curation decision.
+    for (const row of reel.frames.filter((f: any) => f.floor === true)) {
+      expect(row.annotation).toMatch(/Auto-selected/);
+      expect(row.uncurated).toBeUndefined();
+    }
+    for (const row of modelKeeps) {
       expect(row.annotation).toContain("canned annotation");
     }
   });

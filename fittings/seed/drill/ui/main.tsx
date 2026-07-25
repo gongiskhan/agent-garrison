@@ -1979,11 +1979,16 @@ interface ReelFrame {
   annotation?: string;
   highlight?: ReelHighlight | null;
   uncurated?: boolean;
+  // Promoted by the deterministic floor rather than chosen by curation (S2).
+  floor?: boolean;
 }
 interface ReelManifest {
   version?: number;
   routedVia?: string | null;
-  counts?: { frames?: number; candidates?: number; curated?: number; reel?: number; uncurated?: number };
+  counts?: { frames?: number; candidates?: number; curated?: number; reel?: number; floored?: number; uncurated?: number };
+  // Why a reel may look thin (S2): a failed batch or a zero-verdict run leaves
+  // frames unjudged, and the deterministic floor fills the gaps.
+  health?: { degraded?: boolean; floored?: number; chunks?: number };
   frames: ReelFrame[];
 }
 interface SpotterFrame {
@@ -2431,6 +2436,7 @@ interface DebriefFrame {
   annotation: string;
   highlight: ReelHighlight | null;
   inReel: boolean;
+  floor: boolean;
 }
 
 // The highlight never occludes: an outline-only rectangle, or - when it covers
@@ -2470,10 +2476,13 @@ interface ReelCarouselProps {
   reelCount: number;
   candidateCount: number;
   curationPending: boolean;
+  curationFailed: boolean;
+  curationDegraded: boolean;
 }
 function ReelCarousel({
   runId, frames, showAll, onToggleShowAll, onActiveFrameChange,
-  enqueue, scopeLabel, flagged, onFlag, reelCount, candidateCount, curationPending
+  enqueue, scopeLabel, flagged, onFlag, reelCount, candidateCount,
+  curationPending, curationFailed, curationDegraded
 }: ReelCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = useState(0);
@@ -2526,10 +2535,12 @@ function ReelCarousel({
       <div className="dr-db-reel">
         <div className="dr-db-empty">
           {showAll
-            ? "No captured frames for this scope."
+            ? "No frames were captured for this scope."
             : curationPending
               ? "Curation is still selecting the reel for this scope."
-              : "No reel frames for this scope. Toggle Show all frames to see raw candidates."}
+              : curationFailed
+                ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here."
+                : "No reel frames for this scope."}
         </div>
         <div className="dr-db-reel-controls">
           <button className={"btn small" + (showAll ? " primary" : "")} onClick={onToggleShowAll} aria-pressed={showAll}>
@@ -2567,6 +2578,7 @@ function ReelCarousel({
           <span className="dr-db-annot-trigger">{active?.trigger ?? ""}</span>
           <span className="dr-db-annot-time mono">{fmtOffset(active?.tMs ?? 0)}</span>
           {active?.importance === "high" && <span className="chip brass">key moment</span>}
+          {active?.floor && <span className="dr-db-annot-nr">auto-selected</span>}
           {active && !active.inReel && <span className="dr-db-annot-nr">not in reel</span>}
         </div>
         <div className="dr-db-annot-text">
@@ -2601,6 +2613,12 @@ function ReelCarousel({
       </div>
       {curationPending && !showAll && (
         <div className="dr-db-pending">Curation pending - showing raw candidates until the reel is selected.</div>
+      )}
+      {curationDegraded && !showAll && (
+        <div className="dr-db-pending">
+          Curation was incomplete for this run - some frames were never judged, so parts of this reel were
+          auto-selected rather than chosen.
+        </div>
       )}
     </div>
   );
@@ -2961,6 +2979,7 @@ function DebriefView({
   const [tab, setTab] = useState<DebriefTab>("screenshots");
   const [showAll, setShowAll] = useState(false);
   const [reel, setReel] = useState<ReelManifest | null>(null);
+  const [reelMissing, setReelMissing] = useState(false);
   const [spotter, setSpotter] = useState<SpotterManifest | null>(null);
   const [activeFrame, setActiveFrame] = useState<DebriefFrame | null>(null);
   const [flagged, setFlagged] = useState<Set<string>>(() => new Set());
@@ -2974,24 +2993,32 @@ function DebriefView({
   const findingRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
 
   const indexItems = evidenceIndex?.items ?? [];
-  const hasReelRow = indexItems.some((i) => i.kind === "reel");
   const hasSpotterRow = indexItems.some((i) => i.kind === "spotter");
-  const curationPending = hasSpotterRow && !hasReelRow;
+  // Pending only while the run is still going or the reel genuinely is not on
+  // disk yet. A finished run whose reel never arrived is a FAILURE, not a
+  // pending state, and must say so rather than spin forever.
+  const runFinished = Boolean(run.endedAt);
+  const curationPending = hasSpotterRow && !reel && !reelMissing;
+  const curationFailed = hasSpotterRow && runFinished && reelMissing;
   const videoItem = indexItems.find((i) => i.kind === "video");
   const videoPruned = !!videoItem?.pruned;
   const videoName = run.evidence?.video ?? null;
 
   // Load the sidecars the index advertises. Both are confined artifact routes.
+  // Fetch reel.json regardless of whether evidence.json advertises a reel row.
+  // The row write is warn-only, so gating the fetch on it meant a reel that
+  // exists on disk was never loaded and the surface claimed "Curation is still
+  // selecting the reel" permanently. A 404 is the only honest "not ready".
   useEffect(() => {
     setReel(null);
+    setReelMissing(false);
     let cancelled = false;
-    if (!hasReelRow) return;
     fetch(evidenceFileUrl(run.id, "reel.json"))
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled) setReel(j); })
-      .catch(() => { /* reel not ready */ });
+      .then((j) => { if (!cancelled) { setReel(j); setReelMissing(!j); } })
+      .catch(() => { if (!cancelled) setReelMissing(true); });
     return () => { cancelled = true; };
-  }, [run.id, hasReelRow]);
+  }, [run.id]);
 
   useEffect(() => {
     setSpotter(null);
@@ -3038,7 +3065,8 @@ function DebriefView({
             importance: v?.importance === "high" ? "high" : "normal",
             annotation: inReel ? (v?.annotation ?? "") : "",
             highlight: inReel ? (v?.highlight ?? null) : null,
-            inReel
+            inReel,
+            floor: v?.floor === true
           } as DebriefFrame;
         })
         .sort((a, b) => a.tMs - b.tMs);
@@ -3056,7 +3084,8 @@ function DebriefView({
           importance: f.importance === "high" ? "high" : "normal",
           annotation: f.annotation ?? "",
           highlight: f.highlight ?? null,
-          inReel: true
+          inReel: true,
+          floor: f.floor === true
         }))
         .sort((a, b) => a.tMs - b.tMs);
     }
@@ -3072,11 +3101,13 @@ function DebriefView({
         importance: "normal",
         annotation: "",
         highlight: null,
-        inReel: false
+        inReel: false,
+        floor: false
       }))
       .sort((a, b) => a.tMs - b.tMs);
   }, [showAll, reel, spotter, reelByName, scopeKeys]);
 
+  const curationDegraded = Boolean(reel?.health?.degraded) || (reel?.counts?.floored ?? 0) > 0;
   const reelCount = reel?.counts?.reel ?? reel?.frames.filter((f) => f.keep === true).length ?? 0;
   const candidateCount = spotter?.frames.length ?? reel?.counts?.candidates ?? reel?.frames.length ?? 0;
 
@@ -3204,18 +3235,30 @@ function DebriefView({
                   const isScoped = scope.kind === "check" && scope.pageId === check.pageId && scope.stepId === check.stepId && scope.viewportId === check.viewportId;
                   const isActive = activeChunk === key;
                   const tone = passed === undefined ? "" : passed ? " pass" : " fail";
+                  // title carries the full sentence, so hover recovers whatever
+                  // the clamp hides (it used to show the id, which the row shows).
                   return (
                     <button
                       key={key}
                       ref={(el) => { checkRefs.current.set(key, el); }}
                       className={"dr-db-check" + tone + (isScoped ? " scoped" : "") + (isActive ? " live" : "")}
                       aria-pressed={isScoped}
-                      title={`${check.pageId}#${check.stepId} at ${check.viewportId}`}
+                      title={`${check.stepId} @ ${check.viewportId}\n\n${check.title?.trim() || ""}`}
                       onClick={() => selectCheck(check)}
                     >
                       <span className={"dr-db-dot" + tone} aria-hidden="true" />
-                      <span className="dr-db-check-label">{check.title?.trim() || check.stepId}</span>
-                      <span className="chip dr-db-vp">{check.viewportId}</span>
+                      <span className="dr-db-check-main">
+                        {/* The id identifies the check at a glance and matches the
+                            classic view + the scope chip; the description wraps
+                            beneath it instead of being cut at ~30 characters. */}
+                        <span className="dr-db-check-id mono">
+                          {check.stepId}
+                          <span className="chip dr-db-vp">{check.viewportId}</span>
+                        </span>
+                        {check.title?.trim() && (
+                          <span className="dr-db-check-desc">{check.title.trim()}</span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}
@@ -3323,6 +3366,8 @@ function DebriefView({
               reelCount={reelCount}
               candidateCount={candidateCount}
               curationPending={curationPending}
+              curationFailed={curationFailed}
+              curationDegraded={curationDegraded}
             />
           )}
           {tab === "video" && (
