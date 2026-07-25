@@ -553,3 +553,20 @@ bubble"; composer-attach-menu from asserting popover text without clicking to
 - This is exactly the trap CLAUDE.md warns about ("commit is not landed until
   prod is redeployed"). Caught by checking the verdict instead of assuming the
   code path was live. Second redeploy issued, then a third users-page run.
+
+### GATE 2026-07-25T10:34:56Z — S6b LIVE PROOF, run 01KYCD87N9B0MQWET90QEN9J93 (users, 17 checks)
+After the second redeploy put the new fix-mode prompt + engine + run-outcome live:
+
+| | before S6b (01KYCCP56G...) | after S6b (01KYCD87N9...) |
+|---|---|---|
+| kind | product-failure | **unproven** |
+| code | recovery-aborted | **check-unrunnable** |
+| component | app | **check** |
+| findings against the app | 1 | **0** |
+| summary | failed:1 unproven:0 | **failed:0 unproven:1** |
+
+Model verbatim: "No non-super-admin user was created earlier in this run, so the
+precondition for this step was never established." The model reliably emitted the
+new `cause`, so the honesty gate now covers BOTH directions: a check that cannot
+prove its claim is never green, and a check that cannot be exercised is never
+reported as an app defect.
