@@ -181,5 +181,10 @@ describe("browser-default persistent profile", () => {
       leaked = probe();
     }
     expect(leaked).toBe("");
-  }, 60000);
+    // 60s was under this test's OWN worst case (waitGone 60 + waitHealthy 20 +
+    // poke 3 + waitGone 60 + grace 10). It passes alone in ~4s but, run
+    // alongside the other chromium-spawning suites, blew the timeout - and a
+    // timeout here kills the server mid-shutdown, orphaning the very chromium
+    // the assertion looks for. Budget above the internal waits instead.
+  }, 180000);
 });
