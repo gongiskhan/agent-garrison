@@ -98,7 +98,7 @@ declare module "*/drill/lib/spec-emit.mjs" {
 declare module "*/drill/lib/graduate.mjs" {
   export function harvestResolvedActions(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
   export function specRelPath(pageId: string): string;
-  export function graduationPlanFor(step: any, outcome: any): any;
+  export function graduationPlanFor(step: any, outcome: any, automationRun?: any): any;
   export function graduateStep(book: any, pageId: string, stepId: string, plan: any): Promise<any>;
 }
 declare module "*/drill/lib/snapshots.mjs" {

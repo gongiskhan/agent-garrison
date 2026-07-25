@@ -51,6 +51,20 @@ function fromStructuredFailure(failure, source, message, outcome) {
       outcome
     });
   }
+  // A check the runner could not exercise as written (S6). Not the app's
+  // fault, so it must not land in the findings pool as a product defect; it is
+  // the same "this check did not verify its claim" state the vision honesty
+  // gate produces, reached from the recovery path instead.
+  if (failure.class === "unverifiable") {
+    return terminal({
+      kind: "unproven",
+      source,
+      code: failure.code || "check-unrunnable",
+      component: failure.component || "check",
+      message,
+      outcome
+    });
+  }
   if (failure.class === "infrastructure") {
     return terminal({
       kind: "infra-failure",

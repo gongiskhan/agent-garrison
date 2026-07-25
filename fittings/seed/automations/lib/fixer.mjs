@@ -112,7 +112,14 @@ export function validatePatch(value) {
   const kind = value.patch ?? value.kind;
   const reasoning = typeof value.reasoning === "string" ? value.reasoning : "";
   if (kind === "skip_current") return { kind: "skip_current", reasoning };
-  if (kind === "abort") return { kind: "abort", reasoning };
+  if (kind === "abort") {
+    // Two very different situations end in abort, and conflating them is how a
+    // check that was never actually exercised gets reported as an app defect.
+    // Default to the conservative reading (a real product failure) so a model
+    // that omits the field can never silently downgrade a genuine defect.
+    const cause = value.cause === "check-unrunnable" ? "check-unrunnable" : "outcome-not-met";
+    return { kind: "abort", reasoning, cause };
+  }
   if (kind === "pause_for_user") {
     return { kind: "pause_for_user", reasoning, userInstructions: value.userInstructions ?? "Act on the page, then Continue." };
   }

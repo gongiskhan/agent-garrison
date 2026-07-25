@@ -596,10 +596,16 @@ export async function runAutomation(opts) {
         return finishTerminalRun();
       }
       if (patch.kind === "abort") {
+        // "check-unrunnable" is NOT a product failure: the app was never shown
+        // to be wrong, the check simply could not be exercised as written.
+        // Reporting it against the app manufactures a defect nobody has
+        // evidence for — the mirror image of passing a check that verified
+        // nothing.
+        const unrunnable = patch.cause === "check-unrunnable";
         const failure = {
-          class: "product",
-          component: "app",
-          code: "recovery-aborted",
+          class: unrunnable ? "unverifiable" : "product",
+          component: unrunnable ? "check" : "app",
+          code: unrunnable ? "check-unrunnable" : "recovery-aborted",
           retryable: false
         };
         record.status = "failed";

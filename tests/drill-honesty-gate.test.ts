@@ -92,3 +92,30 @@ describe("the verify prompt's honesty contract", () => {
     expect(p.indexOf("Honesty gate")).toBeLessThan(p.indexOf("Reply ONLY valid single-line JSON"));
   });
 });
+
+describe("an unrunnable check is not an app defect", () => {
+  // The mirror image of a false green. The fixer aborts for two very different
+  // reasons and both used to be reported as class:product component:app, so a
+  // check that could never be exercised manufactured a defect against the app.
+  const abortRun = (failure: any) => ({
+    steps: [{ stepId: "chk", type: "verify", status: "failed", failure, error: "fixer aborted: needs two interactions" }]
+  });
+
+  it("maps a check-unrunnable abort to unproven, blamed on the check", () => {
+    const t = terminalFromAutomationRun(
+      abortRun({ class: "unverifiable", component: "check", code: "check-unrunnable", retryable: false }),
+      "chk"
+    );
+    expect(t.kind).toBe("unproven");
+    expect(t.code).toBe("check-unrunnable");
+    expect(t.component).toBe("check");
+  });
+
+  it("still reports a genuine outcome-not-met abort as a product failure", () => {
+    const t = terminalFromAutomationRun(
+      abortRun({ class: "product", component: "app", code: "recovery-aborted", retryable: false }),
+      "chk"
+    );
+    expect(t.kind).toBe("product-failure");
+  });
+});

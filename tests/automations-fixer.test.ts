@@ -90,4 +90,11 @@ describe("validatePatch + proposePatch (G1s)", () => {
     expect(replaced).toHaveLength(2);
     expect(replaced[1].id).toBe("check-1");
   });
+
+  it("classifies an abort's cause, defaulting to the conservative reading", () => {
+    // A model that omits `cause` must never silently downgrade a real defect.
+    expect(validatePatch({ patch: "abort", reasoning: "the button is broken" }).cause).toBe("outcome-not-met");
+    expect(validatePatch({ patch: "abort", reasoning: "x", cause: "nonsense" }).cause).toBe("outcome-not-met");
+    expect(validatePatch({ patch: "abort", reasoning: "needs two interactions", cause: "check-unrunnable" }).cause).toBe("check-unrunnable");
+  });
 });

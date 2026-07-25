@@ -125,11 +125,14 @@ export function buildVisionPrompt(
         "- replace_current: replace an incorrect or stale step with one browser, verify, navigate, or wait step.",
         "- skip_current: only when the check is provably redundant; never use it merely to make the run pass.",
         "- pause_for_user: only for an unavoidable human action.",
-        "- abort: the product outcome is genuinely not met or no safe bounded recovery exists.",
+        '- abort: no safe bounded recovery exists. You MUST also set "cause":',
+        '    "outcome-not-met"   - the product outcome is genuinely not met. The app is wrong. This is a real defect.',
+        '    "check-unrunnable"  - the app may well be fine; this CHECK cannot be verified as written. Use it when the check needs interactions that were never performed (it asserts what happens after a click/keypress/submit and no such step exists), when it bundles several assertions that need a multi-step sequence, when the state it describes is ephemeral or timing-dependent, or when the element it names has no targetable handle.',
+        '  Choosing "outcome-not-met" for a check that was never actually exercised reports a defect against the app that nobody has evidence for. If the outcome was never reachable in this run, it is "check-unrunnable".',
         "A newStep may ONLY have type browser, verify, navigate, or wait. Never propose shell, API, connector, or sub-automation work.",
         "A verify failure usually cannot be repaired by page actions - prefer abort unless an overlay, wrong route, or unloaded page plausibly blocks the expected outcome."
       ].join("\n"),
-      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "patch":"insert_before|replace_current|skip_current|pause_for_user|abort", "reasoning":"...", "newStep": { "type":"browser|verify|navigate|wait", "...":"..." }, "userInstructions":"(pause_for_user only)" }'
+      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "patch":"insert_before|replace_current|skip_current|pause_for_user|abort", "reasoning":"...", "cause":"outcome-not-met|check-unrunnable (abort only)", "newStep": { "type":"browser|verify|navigate|wait", "...":"..." }, "userInstructions":"(pause_for_user only)" }'
     ]);
   }
 
