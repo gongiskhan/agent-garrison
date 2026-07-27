@@ -99,7 +99,7 @@ import { spawnPty, getPty, resizePty, killPty, shutdownPtys } from "./ptys.mjs";
 import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 
 const FITTING_ID = "kanban-loop";
-const DEFAULT_PORT = 27089;
+const DEFAULT_PORT = 7089;
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
 // own-port fitting follows so spawned test instances never touch live status files.
@@ -2446,7 +2446,7 @@ function parseArgs(argv) {
     // runner-projected composition config first (per-instance, e.g. main=7089
     // vs codex=27089), then the legacy explicit env (tests), then the default.
     port: Number(process.env.GARRISON_KANBANLOOP_PORT || process.env.KANBAN_UI_PORT || DEFAULT_PORT),
-    host: process.env.GARRISON_KANBANLOOP_BIND_HOST || process.env.KANBAN_UI_HOST || "127.0.0.1",
+    host: process.env.GARRISON_KANBANLOOP_BIND_HOST || process.env.KANBAN_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     root: kanbanRoot(),
     cwd: projectRoot(),
     // Default to the gateway's conventional URL (like the web channel) so the board can
@@ -2454,7 +2454,7 @@ function parseArgs(argv) {
     // The runner injects the live URL; this default covers the common :24777 gateway.
     gatewayUrl:
       process.env.GARRISON_GATEWAY_URL ||
-      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`,
+      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`,
     cap: Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10)
   };
   for (let i = 0; i < argv.length; i++) {

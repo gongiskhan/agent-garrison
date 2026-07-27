@@ -317,7 +317,7 @@ describe("parseLsof (macOS)", () => {
 // a cross-site Origin (CSRF) before the handler runs. (Same guard is applied to
 // the power + outpost mutating endpoints.)
 // @ts-ignore — pure .mjs server module (entry-guarded, so importing is side-effect-free)
-import { crossSiteBlocked } from "../fittings/seed/ports-default/scripts/server.mjs";
+import { crossSiteBlocked, isTrustedHost } from "../fittings/seed/ports-default/scripts/server.mjs";
 
 function fakeReqRes(headers: Record<string, string>) {
   const res: { statusCode: number; body: unknown; ended: boolean; headers: Record<string, string> } = { statusCode: 200, body: null, ended: false, headers: {} };
@@ -358,5 +358,51 @@ describe("crossSiteBlocked (S11 CSRF / DNS-rebinding guard)", () => {
 
   it("allows IPv6 loopback and the bound 0.0.0.0 form", () => {
     expect(crossSiteBlocked(fakeReqRes({ host: "[::1]:27088" }).req, fakeReqRes({}).res, {})).toBe(false);
+  });
+
+  // GARRISON-TAILNET-BIND: when the fitting is bound beyond loopback
+  // (GARRISON_BIND_HOST=0.0.0.0) it is reached directly at the box's tailnet IP,
+  // so a same-origin request from that page carries a trusted (tailnet) Host +
+  // matching Origin and must be allowed - while a public attacker Host or a
+  // cross-site Origin is still rejected.
+  it("allows a same-origin request over the tailnet IP", () => {
+    const { req, res } = fakeReqRes({ host: "100.88.165.46:27088", origin: "http://100.88.165.46:27088" });
+    expect(crossSiteBlocked(req, res, {})).toBe(false);
+  });
+
+  it("allows a no-Origin GET/POST over the tailnet IP", () => {
+    const { req, res } = fakeReqRes({ host: "100.88.165.46:27088" });
+    expect(crossSiteBlocked(req, res, {})).toBe(false);
+  });
+
+  it("still blocks a cross-site Origin even on the tailnet IP", () => {
+    const { req, res, out } = fakeReqRes({ host: "100.88.165.46:27088", origin: "http://evil.example.com" });
+    expect(crossSiteBlocked(req, res, {})).toBe(true);
+    expect(out.statusCode).toBe(403);
+    expect(String(out.body && (out.body as { reason?: string }).reason)).toMatch(/CSRF/);
+  });
+
+  it("still blocks a rebind to the tailnet IP from a public page (Origin mismatch)", () => {
+    // Attacker page http://evil.example.com fetches http://100.88.165.46:27088.
+    const { req, res, out } = fakeReqRes({ host: "100.88.165.46:27088", origin: "http://evil.example.com:27088" });
+    expect(crossSiteBlocked(req, res, {})).toBe(true);
+    expect(String(out.body && (out.body as { reason?: string }).reason)).toMatch(/CSRF/);
+  });
+});
+
+describe("isTrustedHost (tailnet/private allow-list)", () => {
+  it("trusts loopback, private and tailnet hosts", () => {
+    for (const h of ["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0",
+      "10.1.2.3", "172.16.0.1", "172.31.255.254", "192.168.1.10",
+      "100.88.165.46", "100.64.0.1", "100.127.255.255",
+      "dev-madrid.tail31efa.ts.net", "fd7a:115c:a1e0::1"]) {
+      expect(isTrustedHost(h)).toBe(true);
+    }
+  });
+  it("rejects public hosts and out-of-range IPs", () => {
+    for (const h of ["evil.example.com", "attacker.com", "8.8.8.8", "1.1.1.1",
+      "100.63.0.1", "100.128.0.1", "172.15.0.1", "172.32.0.1", "fd.evil.com"]) {
+      expect(isTrustedHost(h)).toBe(false);
+    }
   });
 });

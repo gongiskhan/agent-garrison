@@ -25,7 +25,7 @@ const UI_FILE = path.join(FITTING_DIR, "dist", "index.html");
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 
 const FITTING_ID = "garrison-assistant";
-const DEFAULT_PORT = 27095;
+const DEFAULT_PORT = 7095;
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_DIR = path.join(GARRISON_HOME, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_DIR, `${FITTING_ID}.json`);
@@ -202,7 +202,7 @@ export function startServer() {
       process.env.PORT ||
       DEFAULT_PORT
   );
-  const host = process.env.GARRISON_GARRISONASSISTANT_BIND_HOST || process.env.BIND_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_GARRISONASSISTANT_BIND_HOST || process.env.BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   SERVER_PORT = port;
   const size = ensureIndex().size; // build the grounding index up front
   const server = createServer();

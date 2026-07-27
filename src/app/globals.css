@@ -464,7 +464,12 @@ nav.tabs .item .ct.tone-off::before { background: var(--rule-2); }
      and the composition switcher stay reachable when the nav overflows. */
   position: sticky;
   bottom: 0;
-  background: linear-gradient(180deg, rgba(23, 32, 25, .94), var(--shell) 18%);
+  /* OPAQUE, not a .94-alpha gradient. The footer is sticky over a scrolling
+     nav list, so any transparency lets the row passing underneath bleed
+     through and renders text on top of text. If a fade is ever wanted back,
+     it belongs in a separate zero-height strip ABOVE the footer, not behind
+     its first row. */
+  background: var(--shell);
 }
 .side-foot .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .side-foot .row b {

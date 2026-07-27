@@ -8,7 +8,7 @@ x-garrison:
   faculty: sessions
   cardinality_hint: single
   own_port: true
-  default_port: 27086
+  default_port: 7086
   component_shape: plugin
   platforms:
     - claude-code

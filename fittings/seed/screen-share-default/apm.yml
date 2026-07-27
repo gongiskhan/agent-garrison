@@ -8,7 +8,7 @@ x-garrison:
   faculty: surfaces
   cardinality_hint: single
   own_port: true
-  default_port: 27079
+  default_port: 7079
   component_shape: plugin
   platforms:
     - claude-code

@@ -1,7 +1,7 @@
 // Reads the machine's `tailscale serve` config and maps each proxied LOCAL port
 // to the HTTPS tailnet URL it is exposed at. Used so /browser-target can hand
 // the dev-env UI the browser fitting's reachable HTTPS tailnet URL when the page
-// is reached over Tailscale (a raw http://host:27084 would be mixed-content-blocked
+// is reached over Tailscale (a raw http://host:7084 would be mixed-content-blocked
 // inside the HTTPS dev-env page). Mirror of src/lib/tailnet-serve.ts, in mjs so
 // the dev-env fitting (its own process) can use it without importing the app.
 

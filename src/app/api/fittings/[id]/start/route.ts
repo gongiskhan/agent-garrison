@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { startOwnPortFitting, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
 import { operativeEnvForFitting } from "@/lib/runner";
+import { activeCompositionEnvForFitting } from "@/lib/eager-boot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +35,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         { status: 409 }
       );
     }
-    const extraEnv = compositionEnv ?? (await vaultEnvForEntry(entry));
+    // No RUNNING composition does not mean no KNOWN config: the active
+    // composition is on disk regardless. Falling back to vault-only here
+    // dropped the fitting's whole config projection - including its port - so
+    // it booted on its baked-in default and answered for another instance.
+    // Project from the active composition instead, with vault underneath.
+    const extraEnv =
+      compositionEnv ?? {
+        ...(await vaultEnvForEntry(entry)),
+        ...(await activeCompositionEnvForFitting(params.id))
+      };
     const result = await startOwnPortFitting(entry, extraEnv);
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "start failed" }, { status: result.status ?? 500 });

@@ -30,7 +30,7 @@ const EXT_DIR = path.join(GARRISON_HOME, "external", "mcp_agent_mail");
 const STATUS_DIR = path.join(GARRISON_HOME, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_DIR, "coord-agentmail.json");
 const PORT = Number(process.env.COORD_AGENTMAIL_PORT || process.env.COORD_AGENTMAIL_PORT_OVERRIDE || 28765);
-const HOST = "127.0.0.1";
+const HOST = process.env.GARRISON_BIND_HOST || "127.0.0.1";
 
 function log(msg) {
   console.log(`[coord-agentmail] ${msg}`);

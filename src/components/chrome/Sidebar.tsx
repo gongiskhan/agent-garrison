@@ -606,7 +606,10 @@ function CompositionSwitcher() {
         ) : null}
         {compositions.map((entry) => (
           <option key={entry.id} value={entry.id}>
-            {entry.name}
+            {/* Several compositions ship the same display name (three are
+                "Dogfood Operative"), so the name alone cannot identify what
+                this switches the running operative to. Matches MusterView. */}
+            {`${entry.name} (${entry.id})`}
           </option>
         ))}
       </select>

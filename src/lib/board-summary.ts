@@ -16,6 +16,7 @@
 import path from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { garrisonDir } from "./claude-home";
+import { tailnetUrlForPort } from "./tailnet-serve";
 
 export interface BoardAttentionCard {
   id: string;
@@ -28,7 +29,12 @@ export interface BoardSummary {
   needsAttention: number;
   done: number;
   needsAttentionCards: BoardAttentionCard[];
+  // The board's own-port address as a loopback + tailnet PAIR, resolved by the
+  // client against the host it actually reached Garrison on. A bare loopback
+  // string here would be a machine-local URL handed to a remote browser: the
+  // reader's own 127.0.0.1, not this box. See resolveViewUrl.
   boardUrl: string | null;
+  boardTailnetUrl: string | null;
   idle: boolean;
 }
 
@@ -72,7 +78,9 @@ const ENTRY_LISTS = new Set(["backlog", "todo"]);
 
 // Pure classification over already-parsed card objects. Invalid shapes are
 // skipped so one bad card never takes the dashboard down.
-export function summarizeBoardCards(cards: unknown[]): Omit<BoardSummary, "boardUrl"> {
+export function summarizeBoardCards(
+  cards: unknown[]
+): Omit<BoardSummary, "boardUrl" | "boardTailnetUrl"> {
   let running = 0;
   let done = 0;
   const attention: (BoardAttentionCard & { updated: string })[] = [];
@@ -108,14 +116,28 @@ export function summarizeBoardCards(cards: unknown[]): Omit<BoardSummary, "board
 // Best-effort: board not running / file malformed → null, and the panel
 // renders titles without links. Constructed inline rather than importing
 // own-port-lifecycle, which drags vault/library modules into this leaf lib.
-async function readBoardUrl(): Promise<string | null> {
+async function readBoardUrl(): Promise<{ url: string | null; tailnetUrl: string | null }> {
   try {
     const raw = await readFile(path.join(garrisonDir(), "ui-fittings", "kanban-loop.json"), "utf8");
-    const parsed = JSON.parse(raw) as { url?: unknown; route?: unknown };
-    if (typeof parsed.url !== "string" || parsed.url.length === 0) return null;
-    return parsed.url + (typeof parsed.route === "string" ? parsed.route : "");
+    const parsed = JSON.parse(raw) as { url?: unknown; route?: unknown; port?: unknown };
+    if (typeof parsed.url !== "string" || parsed.url.length === 0) {
+      return { url: null, tailnetUrl: null };
+    }
+    const route = typeof parsed.route === "string" ? parsed.route : "";
+    // The tailnet half of the pair, same derivation the views API uses, so a
+    // remote reader gets an address that resolves to THIS box.
+    let tailnetUrl: string | null = null;
+    if (typeof parsed.port === "number") {
+      try {
+        tailnetUrl = (await tailnetUrlForPort(parsed.port)) ?? null;
+        if (tailnetUrl) tailnetUrl += route;
+      } catch {
+        tailnetUrl = null;
+      }
+    }
+    return { url: parsed.url + route, tailnetUrl };
   } catch {
-    return null;
+    return { url: null, tailnetUrl: null };
   }
 }
 
@@ -143,5 +165,6 @@ export async function readBoardSummary(): Promise<BoardSummary> {
   );
 
   const summary = summarizeBoardCards(reads.filter((card) => card !== null));
-  return { ...summary, boardUrl: await readBoardUrl() };
+  const board = await readBoardUrl();
+  return { ...summary, boardUrl: board.url, boardTailnetUrl: board.tailnetUrl };
 }

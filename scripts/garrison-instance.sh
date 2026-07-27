@@ -77,6 +77,44 @@ export GARRISON_SCHEDULER_HEALTH_PORT="${GARRISON_SCHEDULER_HEALTH_PORT:-$((7099
 # back to it, so keep them in lockstep.
 export PORT="$GARRISON_APP_PORT"
 
+# --- bind host --------------------------------------------------------------
+# Which interface the app + own-port fittings listen on. EVERY profile binds
+# loopback. This is a security boundary, not a preference:
+#
+#   The Garrison shell is UNAUTHENTICATED by design (see CLAUDE.md positioning:
+#   "single-user, no auth, talks only to localhost"). GET /api/vault/secrets
+#   returns every stored credential in CLEARTEXT and PUT overwrites them, with
+#   no token, no prompt and no audit trail. Loopback is the only thing standing
+#   between that endpoint and whoever can route to this box.
+#
+#   A 0.0.0.0 bind is NOT "loopback plus tailscale". This box also carries a GCP
+#   VPC NIC (ens4) reachable by every peer VM under the project's
+#   `default-allow-internal` rule (10.128.0.0/9, tcp:0-65535) and a docker0
+#   bridge reachable by any container image that happens to run here. Both were
+#   verified to read the full vault over plain http with a single unauthenticated
+#   GET. There is no host firewall closing them.
+#
+# PROD reaches the tailnet the correct way: it stays on loopback and
+# `tailscale serve` reverse-proxies the HTTPS tailnet address down to it, so the
+# listener is never exposed on the box's other NICs. That is the pattern to copy
+# for dev (a serve mapping on a dev-specific serve-port range) rather than
+# widening the bind.
+#
+# The wide bind remains available as a DELIBERATE, per-launch opt-in via
+# GARRISON_BIND_HOST_OVERRIDE. It is not a default and is never inherited: an
+# ambient GARRISON_BIND_HOST in the shell (a dev launcher exports one) must not
+# silently decide where PROD listens.
+#
+# Own-port fittings inherit GARRISON_BIND_HOST via process.env (own-port-lifecycle
+# spawns them with a copy of the environment) and each reads it as a bind-host
+# fallback, so the whole instance follows this one knob.
+export GARRISON_BIND_HOST="${GARRISON_BIND_HOST_OVERRIDE:-127.0.0.1}"
+if [ "$GARRISON_BIND_HOST" != "127.0.0.1" ]; then
+  echo "[garrison-instance] WARNING: binding $profile to $GARRISON_BIND_HOST (not loopback)." >&2
+  echo "[garrison-instance] The shell is unauthenticated and serves the vault in cleartext." >&2
+  echo "[garrison-instance] Anything that can route to this host can read and overwrite it." >&2
+fi
+
 # --- writable control-plane surfaces ---------------------------------------
 # The Claude CLI keeps its user config at the SIBLING of its home
 # ($HOME/.claude -> $HOME/.claude.json), NOT inside it. Setting
@@ -199,25 +237,33 @@ case "$mode" in
         exit 1
       fi
       exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
-        "next start -H 127.0.0.1 -p $GARRISON_APP_PORT" \
+        "next start -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
         "$outpost_cmd" \
         "$scheduler_cmd"
     fi
     exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
-      "next dev -H 127.0.0.1 -p $GARRISON_APP_PORT" \
+      "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
       "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   dev)
     exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
-      "next dev -H 127.0.0.1 -p $GARRISON_APP_PORT" \
+      "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
       "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   next)
-    exec next dev -H 127.0.0.1 -p "$GARRISON_APP_PORT"
+    exec next dev -H "$GARRISON_BIND_HOST" -p "$GARRISON_APP_PORT"
     ;;
   mobile)
+    # Explicit wide bind, regardless of profile. This is the ONE mode that is
+    # meant to listen beyond loopback, so the exposure is a conscious choice made
+    # at the command line rather than a default. It still puts the
+    # unauthenticated shell (and its cleartext vault endpoint) on every NIC this
+    # box has - including the GCP VPC and docker0 - so use it only on a network
+    # you control, and prefer a `tailscale serve` mapping where you can.
+    echo "[garrison-instance] WARNING: 'mobile' binds 0.0.0.0 - the unauthenticated" >&2
+    echo "[garrison-instance] shell and its cleartext vault are reachable from every NIC." >&2
     exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
       "next dev -H 0.0.0.0 -p $GARRISON_APP_PORT" \
       "$outpost_cmd" \
@@ -236,7 +282,7 @@ case "$mode" in
       GARRISON_SCHEDULER_JOBS GARRISON_SCHEDULER_LOG \
       GARRISON_SCHEDULER_HEALTH_PORT GARRISON_SCHEDULER_SCRIPT \
       GARRISON_TMUX_SOCKET_PATH \
-      GARRISON_APP_PORT PORT \
+      GARRISON_APP_PORT PORT GARRISON_BIND_HOST \
       GARRISON_OUTPOST_PORT GARRISON_DISABLE_HOST_DAEMONS \
       NEXT_DIST_DIR \
       CODEX_HOME GEMINI_CLI_HOME \

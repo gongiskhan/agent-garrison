@@ -163,6 +163,23 @@ async function compositionEnvById(): Promise<{
   }
 }
 
+// The ACTIVE composition's projected env for ONE fitting, independent of
+// whether an operative is running.
+//
+// runner.ts's operativeEnvForFitting only answers for a composition in the
+// `running` state, so the Views Start/Restart routes fell back to vault-only
+// env whenever the operative was down — dropping the port and every other
+// config key, and leaving the fitting to guess from its own baked default.
+// The active composition is on disk either way, so the config is knowable
+// either way. Callers layer the richer running-composition env on top when
+// there is one; this is the floor, not a replacement.
+export async function activeCompositionEnvForFitting(
+  fittingId: string
+): Promise<Record<string, string>> {
+  const { byId } = await compositionEnvById();
+  return byId[fittingId] ?? {};
+}
+
 export async function runEagerBoot(options: EagerBootOptions = {}): Promise<EagerBootSummary> {
   const summary: EagerBootSummary = { booted: [], warmed: [], skipped: [], failed: [] };
   const prefs = await readEagerBootPrefs();

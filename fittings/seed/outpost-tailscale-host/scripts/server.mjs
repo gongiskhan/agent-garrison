@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // outpost-tailscale-host backend — UI server on port 27082 that proxies to the
-// outpost-host daemon (default 127.0.0.1:23702). Lists registered outposts, forwards
+// outpost-host daemon (base 127.0.0.1:3702). Lists registered outposts, forwards
 // register / pair / unregister / RPC / invocation-log reads, and owns the SSH
 // provisioning flow (spawns ssh, streams the provision script output over SSE).
 
@@ -39,13 +39,13 @@ function parseArgs(argv) {
   const out = {
     // GARRISON_* names are what the runner projects from composition config
     // (ownPortConfigEnv); the bare names remain for standalone use.
-    port: Number(process.env.GARRISON_OUTPOSTTAILSCALEHOST_PORT || process.env.OUTPOST_UI_PORT || 27082),
+    port: Number(process.env.GARRISON_OUTPOSTTAILSCALEHOST_PORT || process.env.OUTPOST_UI_PORT || 7082),
     host:
-      process.env.GARRISON_OUTPOSTTAILSCALEHOST_BIND_HOST || process.env.OUTPOST_UI_HOST || "127.0.0.1",
+      process.env.GARRISON_OUTPOSTTAILSCALEHOST_BIND_HOST || process.env.OUTPOST_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     outpostHostUrl:
       process.env.GARRISON_OUTPOSTTAILSCALEHOST_OUTPOST_HOST_URL ||
       process.env.OUTPOST_HOST_URL ||
-      "http://127.0.0.1:23702"
+      "http://127.0.0.1:3702"
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -78,11 +78,51 @@ function jsonRes(res, status, body) {
 //
 // True when blocked (answered).
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+// A connecting IP is TRUSTED when it is loopback, an RFC1918 private address, a
+// tailnet CGNAT address (100.64.0.0/10), or an IPv6 ULA / link-local literal.
+// When the fitting is bound beyond loopback (GARRISON_BIND_HOST=0.0.0.0) a direct
+// hit at the box's tailnet IP arrives from the client's tailnet IP, which is
+// trusted; a public source is still rejected. Kept identical across the guarded
+// fittings (ports-default, power-default, outpost-tailscale-host).
+function isTrustedHost(value) {
+  const h = String(value || "").replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "").toLowerCase();
+  if (!h) return true;
+  if (LOOPBACK_HOSTS.has(h)) return true;
+  if (h === "::1" || h.endsWith(".ts.net")) return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // tailnet CGNAT
+    return false;
+  }
+  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe80"))) return true;
+  return false;
+}
 function crossSiteBlocked(req, res) {
-  // DNS-rebinding guard: the TCP connection must arrive on the loopback interface.
+  // Source-IP guard: the TCP connection must arrive from a trusted (loopback or
+  // private/tailnet) source, not a public one.
   const remoteIp = (req.socket?.remoteAddress ?? "").replace(/^::ffff:/, "");
-  if (remoteIp && !LOOPBACK_HOSTS.has(remoteIp)) {
-    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback connection from '${remoteIp}' (DNS-rebinding guard)` });
+  if (remoteIp && !isTrustedHost(remoteIp)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `untrusted connection from '${remoteIp}' (DNS-rebinding guard)` });
+    return true;
+  }
+  // DNS-rebinding guard: the HOST HEADER must also be trusted. This check is the
+  // one that actually stops rebinding and it was missing here, unlike in
+  // ports-default/power-default. The source-IP check above cannot stand in for
+  // it: in a rebinding attack the victim's own browser makes the request, so the
+  // source IP is the victim's (trusted), while Host carries the attacker's
+  // domain. The Origin check below cannot either - the attacker page's Origin
+  // and Host are BOTH evil.example, so they match each other and pass. Widening
+  // the source check without adding this left the whole guard satisfiable by a
+  // hostile page, on a server that runs rsync-over-ssh and writes host config
+  // unauthenticated.
+  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
+  if (hostName && !isTrustedHost(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `untrusted Host '${hostName}' (DNS-rebinding guard)` });
     return true;
   }
   // CSRF guard: if an Origin is present it must be same-host as the Host header

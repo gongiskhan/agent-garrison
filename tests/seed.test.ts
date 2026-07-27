@@ -109,11 +109,11 @@ describe("seed Fittings", () => {
     }
   });
 
-  it("dev-env consolidates the dev-work surfaces under sessions on port 27086", async () => {
+  it("dev-env consolidates the dev-work surfaces under sessions on port 7086", async () => {
     const metadata = await loadSeed("dev-env");
     expect(metadata.faculty).toBe("sessions");
     expect(metadata.own_port).toBe(true);
-    expect(metadata.default_port).toBe(27086);
+    expect(metadata.default_port).toBe(7086);
     expect(metadata.provides).toEqual([{ kind: "dev-env", name: "dev-env" }]);
     expect(metadata.consumes).toContainEqual({ kind: "outpost", cardinality: "any" });
     expect(metadata.setup?.[0]?.command).toContain("install-hooks");

@@ -28,7 +28,7 @@ const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, "claude-settings.before-garrison.j
 // Setup hooks receive composition config through setupConfigEnv(), which
 // projects dev-env's `port` key as DEV_ENV_PORT. Keep the older explicit
 // override as a compatibility fallback for direct/manual installs.
-const PORT = Number(process.env.DEV_ENV_PORT || process.env.GARRISON_DEV_ENV_PORT || 27086);
+const PORT = Number(process.env.DEV_ENV_PORT || process.env.GARRISON_DEV_ENV_PORT || 7086);
 const HOOK_EVENTS = ["UserPromptSubmit", "Stop", "Notification", "PostToolUse"];
 const OWNER = "fitting:dev-env";
 // Owners whose groups this writer removes: itself (idempotence) and the

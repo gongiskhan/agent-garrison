@@ -14,6 +14,7 @@ import {
   visionGatewayClassification
 } from "./input";
 import { buildVisionPrompt } from "./prompt";
+import { profilePort, BASE_GATEWAY_PORT } from "@/lib/instance-profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
     const gatewayUrl =
       activeGatewayBaseUrl() ??
       `http://127.0.0.1:${
-        process.env.GARRISON_GATEWAY_PORT || "24777"
+        process.env.GARRISON_GATEWAY_PORT || profilePort(BASE_GATEWAY_PORT)
       }`;
 
     // Retry only a connection-level failure. HTTP and reply-shape failures are

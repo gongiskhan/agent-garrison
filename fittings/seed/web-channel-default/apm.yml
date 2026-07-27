@@ -8,7 +8,7 @@ x-garrison:
   faculty: channels
   cardinality_hint: single
   own_port: true
-  default_port: 27083
+  default_port: 7083
   component_shape: plugin
   platforms:
     - claude-code

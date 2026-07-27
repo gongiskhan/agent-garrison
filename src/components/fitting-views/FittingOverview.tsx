@@ -7,6 +7,7 @@ import { isOwnPortFitting, ownPortDefaultPort } from "@/lib/faculties";
 import { RUNTIME_FITTING_ID } from "@/lib/capabilities";
 import { singletonCapabilityKinds } from "@/lib/types";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
+import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 import type {
   CapabilityConsumption,
   Composition,
@@ -374,17 +375,35 @@ function OwnPortRow({
               {view?.healthy === true ? "live" : view?.healthy === false ? "unreachable" : "offline"}
             </span>
           </div>
+          {/* `display:inline-block` collapses the leading {" "}, so the two
+              spans ran together as "…:7096· live at…". Plain inline keeps it. */}
           {defaultPort ? (
-            <span style={{ display: "inline-block", color: "var(--mute)", marginTop: 3 }}>
-              {" "}
-              · default <code style={{ fontFamily: "var(--font-mono), monospace" }}>:{defaultPort}</code>
+            <span style={{ color: "var(--mute)", marginTop: 3 }}>
+              {" · "}default{" "}
+              <code style={{ fontFamily: "var(--font-mono), monospace" }}>:{defaultPort}</code>
             </span>
           ) : null}
-          {view?.url ? (
-            <span style={{ display: "inline-block", color: "var(--mute)", marginTop: 3, maxWidth: "100%", overflowWrap: "anywhere" }}>
-              {" "}
-              · live at <code style={{ fontFamily: "var(--font-mono), monospace" }}>{view.url}</code>
-            </span>
+          {/* resolveViewUrl, not view.url: the raw value is the SERVER's
+              loopback address, and this page is normally opened from another
+              device, where "http://localhost:<port>" points at the reader's own
+              machine. Empty means there is no route from where they are. */}
+          {view ? (
+            (() => {
+              const reachable = resolveViewUrl(view);
+              return reachable ? (
+                <span
+                  style={{
+                    color: "var(--mute)",
+                    marginTop: 3,
+                    maxWidth: "100%",
+                    overflowWrap: "anywhere"
+                  }}
+                >
+                  {" · "}live at{" "}
+                  <code style={{ fontFamily: "var(--font-mono), monospace" }}>{reachable}</code>
+                </span>
+              ) : null;
+            })()
           ) : null}
         </div>
         <OwnPortControls

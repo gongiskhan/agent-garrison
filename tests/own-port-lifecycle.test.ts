@@ -6,12 +6,15 @@ import {
   isOperativeBound,
   isValidFittingId,
   logFilePath,
+  ownPortConfigEnv,
+  ownPortEnvKey,
   spawnRecordPath,
   startOwnPortFitting,
   statusFilePath,
   vaultEnvForEntry
 } from "@/lib/own-port-lifecycle";
 import { resetInternalTokenCache } from "@/lib/internal-token";
+import { profilePort } from "@/lib/instance-profile";
 import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry } from "@/lib/types";
 
 // Mock the vault so the positive injection path is testable without touching
@@ -80,6 +83,31 @@ describe("own-port lifecycle classification", () => {
   });
 });
 
+describe("ownPortConfigEnv (config -> spawn env projection)", () => {
+  it("projects scalar config as GARRISON_<ID>_<KEY> with separators dropped/normalised", () => {
+    const env = ownPortConfigEnv("file-browser", { root: "/srv/x", port: 27090 });
+    expect(env.GARRISON_FILEBROWSER_ROOT).toBe("/srv/x");
+    expect(env.GARRISON_FILEBROWSER_PORT).toBe("27090");
+  });
+
+  it("skips a LOOPBACK bind_host so the instance-wide GARRISON_BIND_HOST governs", () => {
+    // The apm.yml schema default (127.0.0.1) baked into a composition must NOT
+    // be projected - projecting it would outrank GARRISON_BIND_HOST and pin the
+    // fitting to loopback even when the instance binds 0.0.0.0 (dev tailscale-IP).
+    for (const v of ["127.0.0.1", "localhost", "::1", "[::1]"]) {
+      const env = ownPortConfigEnv("web-channel-default", { bind_host: v });
+      expect(env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST).toBeUndefined();
+    }
+  });
+
+  it("still projects a NON-loopback bind_host (deliberate per-fitting LAN expose)", () => {
+    const env = ownPortConfigEnv("web-channel-default", { bind_host: "0.0.0.0" });
+    expect(env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST).toBe("0.0.0.0");
+    const lan = ownPortConfigEnv("web-channel-default", { bind_host: "192.168.1.10" });
+    expect(lan.GARRISON_WEBCHANNELDEFAULT_BIND_HOST).toBe("192.168.1.10");
+  });
+});
+
 describe("startOwnPortFitting internal-token mint", () => {
   let ghome: string;
   let prevHome: string | undefined;
@@ -107,6 +135,52 @@ describe("startOwnPortFitting internal-token mint", () => {
     const tokenFile = path.join(ghome, "internal-token");
     expect(existsSync(tokenFile)).toBe(true);
     expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("ownPortEnvKey / guaranteed port projection", () => {
+  it("names the env key a fitting server actually reads", () => {
+    expect(ownPortEnvKey("drill")).toBe("GARRISON_DRILL_PORT");
+    // Separators are DROPPED, not underscored - web-channel-default reads
+    // GARRISON_WEBCHANNELDEFAULT_PORT.
+    expect(ownPortEnvKey("web-channel-default")).toBe("GARRISON_WEBCHANNELDEFAULT_PORT");
+  });
+
+  // The regression this exists for: a caller that could not resolve the
+  // composition (the Views Start/Restart routes with no RUNNING composition)
+  // passed vault-only env, so no port was projected and the fitting fell
+  // through to its own baked-in default. A dev-profile drill was found live on
+  // 0.0.0.0:27096 - the CODEX instance's port - answering for another instance.
+  // Every spawn must now name a port, whatever the caller managed to resolve.
+  it("projects a profile-shifted port when the caller supplies none", async () => {
+    const entry = makeEntry(true);
+    entry.metadata.default_port = 7096;
+    const spawned = await startOwnPortFitting(entry, {});
+    // The entry has no real start script, so the spawn is refused - but the env
+    // is assembled before that, and the spawn record carries its fingerprint.
+    expect(spawned.ok).toBe(false);
+
+    // Assert the projection directly: same base port, shifted per profile.
+    for (const [profile, expected] of [
+      ["dev", 7096],
+      ["prod", 8096],
+      ["codex", 27096]
+    ] as const) {
+      const prev = process.env.GARRISON_INSTANCE_ID;
+      process.env.GARRISON_INSTANCE_ID = profile;
+      try {
+        expect(profilePort(7096), `${profile} must shift 7096 into its own family`).toBe(expected);
+      } finally {
+        if (prev === undefined) delete process.env.GARRISON_INSTANCE_ID;
+        else process.env.GARRISON_INSTANCE_ID = prev;
+      }
+    }
+  });
+
+  it("never overrides a port the caller did resolve", () => {
+    // A resolved composition config always wins; the guarantee only fills a gap.
+    const env = ownPortConfigEnv("drill", { port: 8096 });
+    expect(env.GARRISON_DRILL_PORT).toBe("8096");
   });
 });
 

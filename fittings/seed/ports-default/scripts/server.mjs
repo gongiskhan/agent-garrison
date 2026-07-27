@@ -38,8 +38,8 @@ const FITTING_ID = "ports-default";
 // decorative. The runner-projected name wins; the bare name stays for standalone use.
 function parseArgs(argv) {
   const out = {
-    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 27088),
-    host: process.env.GARRISON_PORTSDEFAULT_BIND_HOST || process.env.PORTS_BIND_HOST || "127.0.0.1",
+    port: Number(process.env.GARRISON_PORTSDEFAULT_PORT || process.env.PORTS_PORT || 7088),
+    host: process.env.GARRISON_PORTSDEFAULT_BIND_HOST || process.env.PORTS_BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     parentPid: Number(process.env.GARRISON_PARENT_PID || 0),
     scanMs: Number(
       process.env.GARRISON_PORTSDEFAULT_SCAN_INTERVAL_MS || process.env.PORTS_SCAN_INTERVAL_MS || 5000
@@ -186,23 +186,51 @@ function jsonRes(res, status, body) {
 // otherwise reach it two ways: a CORS-simple cross-site POST (which the browser
 // sends with an Origin header), or DNS-rebinding (which points a hostile domain
 // at 127.0.0.1, so the request's Host header is that domain). Reject both:
-//   - Host must resolve to loopback (blocks DNS-rebinding), and
-//   - Origin, if present, must be same-origin (blocks cross-site fetch).
-// Returns true when the request is blocked (and has already been answered 403).
+//   - Host must be a TRUSTED host (blocks DNS-rebinding from a public domain), and
+//   - Origin, if present, must be loopback or same-origin (blocks cross-site fetch).
+// "Trusted" is loopback OR a private/tailnet address (see isTrustedHost): the
+// fitting can be bound beyond loopback (GARRISON_BIND_HOST=0.0.0.0) to be reached
+// directly at the box's tailnet IP, and a same-origin request from that page then
+// carries a trusted Host + matching Origin. A public attacker domain as Host is
+// still rejected. Returns true when the request is blocked (already answered 403).
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+// A host/IP is TRUSTED when it is loopback, an RFC1918 private address, a tailnet
+// CGNAT address (100.64.0.0/10 - the block `tailscale` assigns), an IPv6 ULA /
+// link-local literal, or a *.ts.net MagicDNS name. Kept behaviourally identical
+// across the guarded fittings (ports-default, power-default, outpost-tailscale-host).
+export function isTrustedHost(value) {
+  const h = String(value || "").replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "").toLowerCase();
+  if (!h) return true;
+  if (LOOPBACK_HOSTS.has(h)) return true;
+  if (h === "::1" || h.endsWith(".ts.net")) return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a === 127) return true;                        // 127/8 loopback
+    if (a === 10) return true;                         // 10/8 private
+    if (a === 172 && b >= 16 && b <= 31) return true;  // 172.16/12 private
+    if (a === 192 && b === 168) return true;           // 192.168/16 private
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64/10 tailnet CGNAT
+    return false;                                      // any other IPv4 is public
+  }
+  // IPv6 literals only (they contain a colon); a hostname like "fd.evil.com" must not match.
+  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe80"))) return true;
+  return false;
+}
 export function crossSiteBlocked(req, res, opts) {
   const hostHeader = String(req.headers["host"] || "");
   const hostName = hostHeader.replace(/:\d+$/, "").toLowerCase();
-  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
-    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+  if (hostName && !isTrustedHost(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `untrusted Host '${hostName}' (DNS-rebinding guard)` });
     return true;
   }
   const origin = req.headers["origin"];
   if (origin) {
     let ok = false;
     try {
-      const h = new URL(origin).hostname.toLowerCase();
-      ok = LOOPBACK_HOSTS.has(h);
+      const u = new URL(origin);
+      ok = LOOPBACK_HOSTS.has(u.hostname.toLowerCase()) ||
+        u.host.toLowerCase() === hostHeader.toLowerCase();
     } catch { ok = false; }
     if (!ok) {
       jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" });

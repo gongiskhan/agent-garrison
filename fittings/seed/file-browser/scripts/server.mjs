@@ -13,7 +13,7 @@ import { readFile, writeFile, readdir, stat, lstat, mkdir, realpath, rename, ope
 import { constants as FS } from "node:fs";
 
 const FITTING_ID = "file-browser";
-const DEFAULT_PORT = 27091;
+const DEFAULT_PORT = 7091;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -273,7 +273,7 @@ export function createServer() {
 }
 
 export async function startServer() {
-  const host = process.env.GARRISON_FILEBROWSER_BIND_HOST || process.env.FILEBROWSER_UI_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_FILEBROWSER_BIND_HOST || process.env.FILEBROWSER_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_FILEBROWSER_PORT || process.env.FILEBROWSER_UI_PORT || DEFAULT_PORT);
   await mkdir(ROOT, { recursive: true }).catch(() => {});
   for (const ns of NAMESPACES) await mkdir(path.join(ROOT, ns), { recursive: true }).catch(() => {});

@@ -57,8 +57,13 @@ async function waitHealthy(ms: number) {
 // The assertion is about NEVER exiting, not about exiting fast, so a longer window
 // costs nothing on a healthy shutdown and only delays a genuine hang's report.
 async function waitGone(child: ChildProcess | null, ms = 120000) {
-  await waitExit(child, ms);
-  expect((child!.exitCode ?? child!.signalCode) !== null).toBe(true);
+  // Assert on waitExit's verdict, NOT on child.exitCode/signalCode: after the
+  // SIGKILL fallback fires, the exit has been signalled but not yet delivered,
+  // so both fields are still null in this tick and the old form failed even
+  // when the process was on its way out. The verdict is the fact we actually
+  // care about - did it shut down on its own, or did it have to be killed.
+  const exitedOnItsOwn = await waitExit(child, ms);
+  expect(exitedOnItsOwn, `server had to be SIGKILLed after ${ms}ms - shutdown hung`).toBe(true);
 }
 
 async function openTab(url: string): Promise<string> {
@@ -187,10 +192,11 @@ describe("browser-default persistent profile", () => {
       leaked = probe();
     }
     expect(leaked).toBe("");
-    // 60s was under this test's OWN worst case (waitGone 60 + waitHealthy 20 +
-    // poke 3 + waitGone 60 + grace 10). It passes alone in ~4s but, run
-    // alongside the other chromium-spawning suites, blew the timeout - and a
-    // timeout here kills the server mid-shutdown, orphaning the very chromium
-    // the assertion looks for. Budget above the internal waits instead.
-  }, 180000);
+    // The budget must exceed this test's OWN worst case, or a timeout kills the
+    // server mid-shutdown and orphans the very chromium the assertion looks
+    // for. With waitGone at 120s that worst case is waitGone 120 + waitHealthy
+    // 20 + poke 3 + waitGone 120 + grace 10 = 273s, so 180s was BELOW it - the
+    // arithmetic in the old comment still assumed the retired 60s default.
+    // 300s clears it with margin; it passes alone in ~4s either way.
+  }, 300000);
 });

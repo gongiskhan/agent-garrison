@@ -13,7 +13,7 @@ x-garrison:
   # ~/.garrison/ui-fittings/kanban-loop.json. operative-bound = the runner starts
   # it during `up` and stops it during `down`.
   own_port: true
-  default_port: 27089
+  default_port: 7089
   lifecycle: operative-bound
   platforms:
     - claude-code

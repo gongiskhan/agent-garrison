@@ -11,6 +11,7 @@ import { faculties } from "@/lib/faculties";
 import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
 import styles from "./GarrisonHome.module.css";
+import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 
 export function GarrisonHome() {
   const {
@@ -324,8 +325,17 @@ function BoardPanel() {
                   const bullet = (
                     <span aria-hidden style={{ width: 6, height: 6, background: "var(--alarm)", flexShrink: 0, alignSelf: "center" }} />
                   );
-                  return active.boardUrl ? (
-                    <a key={card.id} href={active.boardUrl} target="_blank" rel="noreferrer" title={card.reason ?? card.title} style={rowStyle}>
+                  // Resolve against the host the reader actually reached
+                  // Garrison on. Linking active.boardUrl verbatim sent a remote
+                  // browser to its OWN 127.0.0.1 - a dead link everywhere
+                  // except on the box itself. "" means no route from here, so
+                  // fall through to the unlinked row rather than a broken one.
+                  const boardHref = resolveViewUrl({
+                    url: active.boardUrl,
+                    tailnetUrl: active.boardTailnetUrl
+                  });
+                  return boardHref ? (
+                    <a key={card.id} href={boardHref} target="_blank" rel="noreferrer" title={card.reason ?? card.title} style={rowStyle}>
                       {bullet}
                       <span style={titleStyle}>{card.title}</span>
                     </a>

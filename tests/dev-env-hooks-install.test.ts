@@ -121,7 +121,7 @@ describe("dev-env install-hooks.mjs", () => {
       );
       expect(eventGroups, `event ${event} needs exactly one dev-env group`).toHaveLength(1);
       expect(eventGroups[0].hooks?.[0].command).toContain(`/_hook?event=${event}`);
-      expect(eventGroups[0].hooks?.[0].command).toContain("27086");
+      expect(eventGroups[0].hooks?.[0].command).toContain("7086");
     }
 
     expect(settings.model).toBe("opus");

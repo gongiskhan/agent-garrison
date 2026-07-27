@@ -9,7 +9,7 @@ x-garrison:
   cardinality_hint: single
   component_shape: plugin
   own_port: true
-  default_port: 27091
+  default_port: 7091
   lifecycle: operative-bound
   platforms:
     - claude-code
