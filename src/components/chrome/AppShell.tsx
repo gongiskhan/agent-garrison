@@ -20,7 +20,7 @@ import type {
   GlobalConfig,
   LibraryEntry,
   RunnerState,
-  VaultSecret
+  VaultSecretRow
 } from "@/lib/types";
 
 export interface AppShellState {
@@ -41,7 +41,7 @@ export interface AppShellState {
   vaultNeedsPassword: boolean;
   vaultDevMode: boolean;
   vaultKeySource: string;
-  secrets: VaultSecret[];
+  secrets: VaultSecretRow[];
   // ui state
   busy: string | null;
   error: string | null;
@@ -56,7 +56,8 @@ export interface AppShellState {
   }>) => Promise<void>;
   runAction: (action: "up" | "down" | "verify" | "dev") => Promise<void>;
   unlockVault: (passphrase?: string) => Promise<void>;
-  setSecrets: (secrets: VaultSecret[]) => void;
+  setSecrets: (secrets: VaultSecretRow[]) => void;
+  revealSecret: (key: string) => Promise<void>;
   saveSecrets: () => Promise<void>;
   setError: (err: string | null) => void;
   // sidebar
@@ -95,7 +96,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [vaultNeedsPassword, setVaultNeedsPassword] = useState(false);
   const [vaultDevMode, setVaultDevMode] = useState(false);
   const [vaultKeySource, setVaultKeySource] = useState("unavailable");
-  const [secrets, setSecrets] = useState<VaultSecret[]>([]);
+  const [secrets, setSecrets] = useState<VaultSecretRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingFitting, setEditingFitting] = useState<LibraryEntry | null>(null);
@@ -345,14 +346,42 @@ export function AppShell({ children }: { children: ReactNode }) {
     []
   );
 
+  // Fetch ONE plaintext value on explicit user action. The list itself only
+  // ever carries masks, so nothing reveals a credential by merely loading the
+  // page. Every reveal is recorded in the vault audit log server-side.
+  const revealSecret = useCallback<AppShellState["revealSecret"]>(async (key) => {
+    setError(null);
+    try {
+      const res = await fetch("/api/vault/secrets/reveal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? res.statusText);
+      setSecrets((rows) =>
+        rows.map((row) => (row.key === key ? { ...row, value: String(data.value ?? "") } : row))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
   const saveSecrets = useCallback<AppShellState["saveSecrets"]>(async () => {
     setBusy("secrets");
     setError(null);
     try {
+      // Send `value` ONLY for rows the user actually typed into. A row that was
+      // revealed but not edited, or never revealed at all, goes as {key} alone
+      // and the server preserves what it already has — otherwise saving one new
+      // secret would write every other row's mask over its real value.
+      const payload = secrets.map((row) =>
+        row.dirty ? { key: row.key, value: row.value ?? "" } : { key: row.key }
+      );
       const res = await fetch("/api/vault/secrets", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secrets })
+        body: JSON.stringify({ secrets: payload })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? res.statusText);
@@ -476,6 +505,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       runAction,
       unlockVault,
       setSecrets,
+      revealSecret,
       saveSecrets,
       setError,
       sidebarCollapsed,
@@ -508,6 +538,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       saveComposition,
       runAction,
       unlockVault,
+      revealSecret,
       saveSecrets,
       sidebarCollapsed,
       toggleSidebar,

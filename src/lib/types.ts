@@ -577,6 +577,40 @@ export interface VaultSecret {
   value: string;
 }
 
+// What the HTTP layer is allowed to say about a secret. GET /api/vault/secrets
+// used to return every VaultSecret with its plaintext `value`, so a single
+// unauthenticated request from any tailnet device dumped the whole vault (the
+// app is fronted by `tailscale serve`, which proxies to loopback — so a
+// remote-address check cannot tell a remote caller from a local one). The wire
+// shape is masked; the plaintext leaves the server only through an explicit,
+// audited, one-key-at-a-time reveal.
+export interface MaskedVaultSecret {
+  key: string;
+  // Whether a non-empty value is stored. Distinguishes "set but hidden" from
+  // "present as an empty string", which the UI renders differently.
+  set: boolean;
+  // A short, non-reconstructable hint (head + tail) so a human can tell two
+  // similar-looking credentials apart without revealing either.
+  preview: string;
+}
+
+// A PUT entry. `value` ABSENT means "leave whatever is stored untouched" — the
+// UI holds masks, not plaintext, so echoing a masked row back must never
+// overwrite the real secret with its own preview.
+export interface VaultSecretUpdate {
+  key: string;
+  value?: string;
+}
+
+// A row in the Vault UI. Starts life as the masked wire shape; `value` appears
+// only once the row has been explicitly revealed or typed into. `dirty` is what
+// the save path keys on — a revealed-but-untouched row must round-trip as
+// "unchanged", not as a write of the value it happens to be displaying.
+export interface VaultSecretRow extends MaskedVaultSecret {
+  value?: string;
+  dirty?: boolean;
+}
+
 export interface VerifyResult {
   fittingId: string;
   faculty: FacultyId;

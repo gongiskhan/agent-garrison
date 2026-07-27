@@ -6,7 +6,7 @@ import { pathExists } from "./fs-utils";
 import { writeFileAtomic, writeJsonAtomic } from "./atomic-write";
 import { getVaultMasterKey, masterKeySource } from "./keychain";
 import { recordVaultAccess } from "./vault-audit";
-import type { VaultSecret } from "./types";
+import type { MaskedVaultSecret, VaultSecret, VaultSecretUpdate } from "./types";
 
 // An OAuth grant the vault holds on a connector's behalf. The refresh token is
 // stored sealed; getAccessToken auto-rotates an expired access token. A revoked
@@ -168,6 +168,103 @@ export async function readVaultSecrets(): Promise<VaultSecret[]> {
     throw new Error("Vault is locked");
   }
   return secretsToArray(state.plaintext.secrets);
+}
+
+// ── Masked HTTP surface ──────────────────────────────────────────────────────
+// Everything below exists because the vault's plaintext must not ride a routine
+// page load. See MaskedVaultSecret in types.ts for the why.
+
+// Head+tail hint. Deliberately lossy: at most 8 characters of a value ever
+// appear, and only for a value long enough that they cannot reconstruct it. A
+// short value (<= 12 chars) shows nothing but its length, because head+tail of
+// a short secret IS the secret.
+export function maskSecretValue(value: string): string {
+  if (!value) return "";
+  const len = value.length;
+  if (len <= 12) return `••••• (${len} chars)`;
+  // Collapse whitespace in the hint. Several real secrets are pretty-printed
+  // JSON (Google/OpenAI service accounts), whose head and tail are newlines and
+  // indentation — rendered raw in a single-line input they read as mangled
+  // punctuation rather than a recognisable fingerprint. Length still comes from
+  // the ORIGINAL value.
+  const flat = value.replace(/\s+/g, " ");
+  return `${flat.slice(0, 4)}…${flat.slice(-4)} (${len} chars)`;
+}
+
+export function maskSecrets(secrets: readonly VaultSecret[]): MaskedVaultSecret[] {
+  return secrets.map((secret) => ({
+    key: secret.key,
+    set: secret.value.length > 0,
+    preview: maskSecretValue(secret.value)
+  }));
+}
+
+// The vault as the HTTP layer may describe it: same envelope as vaultView(),
+// with `secrets` masked. Server-side callers that genuinely need plaintext
+// (materializeEnv, scopedSecrets, spawn redaction) keep calling vaultView /
+// readVaultSecrets directly — this is the wire boundary, not a new store.
+export async function vaultViewMasked(): Promise<{
+  unlocked: boolean;
+  configured: boolean;
+  needsPassword: boolean;
+  devMode: boolean;
+  keySource: string;
+  secrets: MaskedVaultSecret[];
+}> {
+  const view = await vaultView();
+  return { ...view, secrets: maskSecrets(view.secrets) };
+}
+
+// Reveal exactly ONE value, by name, and record it. Bulk extraction is the
+// thing being prevented; a named single read is the legitimate case (the user
+// clicking "reveal" on a row, or copying a credential out).
+//
+// This is NOT authentication — the app has no auth layer, so a caller that can
+// reach the API can still reveal keys one at a time. What it buys is that
+// secrets no longer ride an ordinary GET (browser history, caches, screenshots,
+// a shared screen, an errant log), and that every plaintext read is attributable
+// in the audit log. Real access control is an app-level concern.
+export async function revealVaultSecret(key: string): Promise<string | null> {
+  await ensureUnlock();
+  const state = runtime();
+  if (!state.plaintext) throw new Error("Vault is locked");
+  const name = key.trim();
+  const has = Object.prototype.hasOwnProperty.call(state.plaintext.secrets, name);
+  await recordVaultAccess({
+    connector: "ui:vault",
+    secrets: [name],
+    action: "read",
+    outcome: has ? "ok" : "denied",
+    detail: has ? "plaintext revealed over HTTP" : "no such secret"
+  });
+  return has ? state.plaintext.secrets[name] : null;
+}
+
+// Apply a partial update. An entry whose `value` is ABSENT keeps whatever is
+// stored, so a UI holding masks can round-trip a full list (add / rename /
+// remove rows) without ever having seen the plaintext. Keys absent from
+// `updates` entirely are DELETED — the list is still authoritative about which
+// secrets exist, exactly as the old whole-array PUT was.
+export async function applyVaultSecretUpdates(
+  updates: readonly VaultSecretUpdate[]
+): Promise<MaskedVaultSecret[]> {
+  await ensureUnlock();
+  if (!runtime().plaintext) await unlockVault();
+  const existing = runtime().plaintext?.secrets ?? {};
+  const merged: VaultSecret[] = [];
+  for (const update of updates) {
+    const key = update.key.trim();
+    if (!key) continue;
+    const value =
+      update.value === undefined
+        ? Object.prototype.hasOwnProperty.call(existing, key)
+          ? existing[key]
+          : ""
+        : update.value;
+    merged.push({ key, value });
+  }
+  const written = await writeVaultSecrets(merged);
+  return maskSecrets(written);
 }
 
 export async function writeVaultSecrets(secrets: VaultSecret[]): Promise<VaultSecret[]> {
