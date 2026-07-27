@@ -998,6 +998,55 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   flex-direction: column;
   align-items: flex-end;
 }
+/* The "New" menu. Anchored under the trigger, which sits in a position:fixed
+   corner block, so the wrap becomes the positioning context. */
+.composition-creator-trigger-wrap { position: relative; }
+.composition-creator-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 232px;
+  display: flex;
+  flex-direction: column;
+  background: var(--shell);
+  border: 1px solid rgba(238, 226, 202, .16);
+  box-shadow: 0 10px 30px rgba(23, 32, 25, .28);
+  z-index: 41;
+}
+.composition-creator-menu > * {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(238, 226, 202, .09);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  color: var(--shell-ink);
+  font: inherit;
+}
+.composition-creator-menu > *:last-child { border-bottom: 0; }
+.composition-creator-menu > *:hover:not(:disabled),
+.composition-creator-menu > *:focus-visible {
+  background: rgba(238, 226, 202, .07);
+  outline: none;
+}
+.composition-creator-menu > *:disabled { opacity: .45; cursor: default; }
+.composition-creator-menu b {
+  font-family: var(--font-sans), sans-serif;
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+.composition-creator-menu small {
+  font-family: var(--font-mono), monospace;
+  font-size: 9.5px;
+  letter-spacing: .04em;
+  color: var(--shell-mute, rgba(238, 226, 202, .55));
+}
+
 .composition-creator-trigger-wrap {
   padding: 3px;
   border: 1px solid rgba(238, 226, 202, .16);

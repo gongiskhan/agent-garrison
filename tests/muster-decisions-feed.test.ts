@@ -54,7 +54,11 @@ describe("normalizeDecision", () => {
       reason: "→ develop L2, confidence high",
       // The digest IS surfaced - it is the safe correlation handle (a sha256
       // prefix, never the raw message; codex S5b/S5c).
-      messageDigest: "abc123"
+      messageDigest: "abc123",
+      // Absent on this record: it predates session capture, which is exactly the
+      // case the panel must render as "no link" rather than a dead one.
+      sessionId: null,
+      sessionTitle: null
     });
   });
 
@@ -99,7 +103,7 @@ describe("normalizeDecision", () => {
     expect(normalizeDecision([1, 2, 3])).toBeNull();
   });
 
-  it("NEVER surfaces a path or arbitrary field — only the 7 whitelisted keys", () => {
+  it("NEVER surfaces a path or arbitrary field — only the 9 whitelisted keys", () => {
     const v = normalizeDecision({
       at: "x",
       kind: "dispatch",
@@ -118,6 +122,8 @@ describe("normalizeDecision", () => {
       "level",
       "messageDigest",
       "reason",
+      "sessionId",
+      "sessionTitle",
       "target"
     ]);
     const serialized = JSON.stringify(v);
@@ -181,3 +187,32 @@ describe("decisions-feed codex fix — reason sanitization + digest", () => {
     expect(v!.reason).toContain("[redacted]");
   });
 })
+
+describe("normalizeDecision session linkage", () => {
+  it("surfaces the session handle under either spelling so the feed can link back", () => {
+    // The web channel names its conversation key `thread`; other hosts send
+    // `sessionId`. Both must resolve, or the Decisions feed links only for some
+    // surfaces.
+    expect(normalizeDecision({ kind: "route", sessionId: "abc-123" })!.sessionId).toBe("abc-123");
+    expect(normalizeDecision({ kind: "route", thread: "wc-9" })!.sessionId).toBe("wc-9");
+    expect(normalizeDecision({ kind: "route" })!.sessionId).toBeNull();
+  });
+
+  it("sanitizes a session TITLE like any other human-authored field", () => {
+    // Unlike the id, a title is user/host text, so it gets the same redaction as
+    // `reason` - a leaky title must not become a leak just because it is a label.
+    const leaky = normalizeDecision({
+      kind: "route",
+      sessionId: "s1",
+      sessionTitle: "notes in /home/ggomes/private/plan.md"
+    })!;
+    expect(leaky.sessionTitle).not.toContain("/home/ggomes");
+    expect(leaky.sessionTitle).toContain("[path]");
+
+    const long = normalizeDecision({ kind: "route", sessionId: "s1", sessionTitle: "x".repeat(200) })!;
+    expect(long.sessionTitle!.length).toBeLessThanOrEqual(81);
+
+    // Blank/whitespace titles collapse to null rather than rendering an empty link.
+    expect(normalizeDecision({ kind: "route", sessionTitle: "   " })!.sessionTitle).toBeNull();
+  });
+});

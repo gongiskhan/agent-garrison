@@ -923,7 +923,23 @@ export class RoutedGateway {
     // onChunk(text, replace=true) contract. tool_use becomes an `activity` frame.
     const streamHooks = {
       onText: onChunk ? (text) => onChunk(text, true) : undefined,
-      onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined
+      onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined,
+      // Extended thinking is where a turn spends its silent minutes, so it is the
+      // single most useful liveness signal - without it a reasoning phase is
+      // indistinguishable from a hung channel. Only the TAIL is forwarded: the
+      // hint slot shows one line, and shipping whole reasoning transcripts over
+      // the wire would be both noisy and a disclosure the user did not ask for.
+      onThinking:
+        typeof opts.onActivity === "function"
+          ? (text) => {
+              const line = String(text ?? "")
+                .split("\n")
+                .map((l) => l.trim())
+                .filter(Boolean)
+                .pop();
+              opts.onActivity({ kind: "thinking", text: line ? line.slice(0, 160) : "" });
+            }
+          : undefined
     };
     await adapter.sendTurn(session, message, streamHooks);
     let resp = await adapter.awaitResponse(session);
@@ -1666,7 +1682,20 @@ export class RoutedGateway {
 
   async preRouteV4(
     message,
-    { duty, level, phase = null, stepIndex = null, sequence = null, routing = null, rejected = [], viaOverride = false } = {}
+    {
+      duty,
+      level,
+      phase = null,
+      stepIndex = null,
+      sequence = null,
+      routing = null,
+      rejected = [],
+      viaOverride = false,
+      // Carried through from preRoute so a duty-routed decision names its
+      // conversation too, not just the classifier-path decision below.
+      sessionId = null,
+      sessionTitle = null
+    } = {}
   ) {
     const resolved = await this.executionRouteFor({ duty, level, phase, stepIndex });
     if (!resolved) {
@@ -1710,6 +1739,8 @@ export class RoutedGateway {
       provider: route.target.provider ?? null,
       model: route.target.model,
       effort: route.target.effort ?? null,
+      ...(sessionId ? { sessionId } : {}),
+      ...(sessionTitle ? { sessionTitle } : {}),
       ...(overridesApplied.length ? { overrides: overridesApplied } : {})
     };
     await this.core.appendDecision(this.decisionsFile, decision);
@@ -1782,6 +1813,8 @@ export class RoutedGateway {
         stepIndex: opts.stepIndex,
         sequence: opts.sequence,
         routing: ov,
+        sessionId: opts.sessionId ?? null,
+        sessionTitle: opts.sessionTitle ?? null,
         rejected
       });
     }
@@ -1821,6 +1854,8 @@ export class RoutedGateway {
           level: dispatched.level,
           sequence: dispatched.sequence,
           routing: ov,
+          sessionId: opts.sessionId ?? null,
+          sessionTitle: opts.sessionTitle ?? null,
           rejected
         });
       }
@@ -1867,6 +1902,12 @@ export class RoutedGateway {
     // target) — persist it so "which effort served this turn" is provable
     // from the decision log alone.
     decision.effort = route.target?.effort ?? route.effort ?? null;
+    // Which conversation caused this decision. Without it the Muster Decisions
+    // feed is a list of routing outcomes with no way back to the turn that
+    // produced them. An OPAQUE handle only - never the message, which stays a
+    // digest.
+    if (opts.sessionId) decision.sessionId = opts.sessionId;
+    if (opts.sessionTitle) decision.sessionTitle = opts.sessionTitle;
     if (override.applied.length) decision.overrides = override.applied;
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({

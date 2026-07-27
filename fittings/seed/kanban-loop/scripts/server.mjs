@@ -38,6 +38,7 @@ import {
   latestCardLogNumber,
   cardBriefFile,
   cardBriefRel,
+  normalisePlacement,
   atomicWriteJSON
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
@@ -227,6 +228,11 @@ export function cardSummary(card) {
     tier: card.tier ?? null,
     origin: card.origin ?? null,
     outpost: card.outpost ?? null,
+    // Outpost Dispatch: WHERE the card runs, and the live claim ledger. Both
+    // are surfaced so the board can show the machine a running card is on.
+    placement: normalisePlacement(card.placement),
+    dispatch: card.dispatch ?? null,
+    dispatchCommand: card.dispatchCommand ?? null,
     // D15 (S4a): the card's resolved-model journey — its duty + level and the
     // cached ordered leaf phase lists it visits (skipping the rest).
     duty: card.duty ?? null,
@@ -1092,6 +1098,13 @@ async function handleCreateCard(req, res, opts) {
         ? body.sequence
         : null,
     outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null,
+    // Outpost Dispatch: which machine pulls this card (default host), and the
+    // literal command for a stub/no-model dispatched run.
+    placement: body.placement ?? null,
+    dispatchCommand:
+      typeof body.dispatchCommand === "string" && body.dispatchCommand.trim()
+        ? body.dispatchCommand.trim()
+        : null,
     // WS2 (D7): a continuation card references its predecessor by ULID. createCard
     // shape-validates it and stamps origin "continuation" when no origin is given.
     continues: typeof body.continues === "string" ? body.continues : null,
@@ -1347,6 +1360,35 @@ async function handlePatchCard(req, res, opts, id) {
     next.sliceId = s || null;
   }
   if (typeof body.acceptance === "string") next.acceptance = body.acceptance;
+  // Outpost Dispatch: WHERE the card runs. `host` (the default) means the local
+  // operative; any other value names a paired machine that must pull the card
+  // via the dispatch API. Editable by a human ONLY before a worker has claimed
+  // it — moving a card mid-run to another machine would leave the current worker
+  // holding a claim on a card that now belongs elsewhere. The engine is exempt:
+  // reclaiming a dead machine's card clears placement precisely while `dispatch`
+  // is still set.
+  if (body.placement !== undefined) {
+    const heldByWorker = card.dispatch && card.dispatch.state !== "done" && card.dispatch.state !== "failed";
+    if (heldByWorker && !isEngineRequest(req)) {
+      return jsonRes(res, 409, {
+        error: "dispatch-held",
+        message: `Card is claimed by ${card.dispatch.machine} — placement cannot change mid-run. Wait for it to finish, or resolve it from needs-attention.`
+      });
+    }
+    next.placement = normalisePlacement(body.placement);
+  }
+  // The dispatch record is ENGINE-ONLY: it is the claim ledger (who holds this
+  // card, and when they last checked in). A hand-edited claim would let any
+  // caller steal or forge a lease.
+  if (isEngineRequest(req) && body.dispatch !== undefined) {
+    next.dispatch = body.dispatch === null ? null : body.dispatch;
+  }
+  if (isEngineRequest(req) && typeof body.attentionReason === "string") {
+    next.attentionReason = body.attentionReason;
+  }
+  if (isEngineRequest(req) && typeof body.attentionKind === "string") {
+    next.attentionKind = body.attentionKind;
+  }
   if (isEngineRequest(req) && body.routeEvidence) {
     const event = quickRouteEvent(body.routeEvidence);
     if (event) {

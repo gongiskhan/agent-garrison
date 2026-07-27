@@ -179,6 +179,9 @@ export class AgentSdkAdapter {
   // `hooks` is OPTIONAL liveness plumbing (2026-07-25 web-channel run-context §12):
   //   onText(accumulatedText)  - per assistant text block
   //   onTool({name, id})       - per tool_use block
+  //   onThinking(text)         - per extended-thinking block (the DELTA, not the
+  //                              accumulation: thinking is long and a channel
+  //                              shows only the latest line as a liveness hint)
   // Callers that pass nothing get byte-identical behaviour: the reply is still
   // accumulated and returned whole by awaitResponse. Without these the routed
   // lanes are silent for minutes and then dump a blob.
@@ -219,6 +222,7 @@ export class AgentSdkAdapter {
   async _consume(session, text, options, hooks = {}) {
     const onText = typeof hooks.onText === "function" ? hooks.onText : null;
     const onTool = typeof hooks.onTool === "function" ? hooks.onTool : null;
+    const onThinking = typeof hooks.onThinking === "function" ? hooks.onThinking : null;
     // S1b: a rebuilt session seeds the next turn with the focus summary (the SDK
     // session/resume was cleared, so this restores the working context).
     const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
@@ -254,6 +258,17 @@ export class AgentSdkAdapter {
               if (onText) {
                 try {
                   onText(textOut);
+                } catch {
+                  /* streaming consumer error must not kill the turn */
+                }
+              }
+            } else if (block.type === "thinking" || block.type === "redacted_thinking") {
+              // Extended thinking. Redacted blocks carry no readable text, so
+              // they surface as a bare "thinking" beat rather than nothing - the
+              // point is liveness, not content.
+              if (onThinking) {
+                try {
+                  onThinking(typeof block.thinking === "string" ? block.thinking : "");
                 } catch {
                   /* streaming consumer error must not kill the turn */
                 }

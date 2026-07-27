@@ -653,6 +653,13 @@ export interface ClaudeChatProps {
   /** Optional title shown in the header. */
   title?: string;
   /**
+   * Composer placeholder. Defaults to the full "Message Claude…  (/ for commands)".
+   * Narrow surfaces (the web channel on a phone, where the composer row also
+   * carries voice/mic/attach buttons) pass a short one so the hint is not clipped
+   * mid-word inside a ~180px field.
+   */
+  placeholder?: string;
+  /**
    * Opt-in toolbar features. ALL DEFAULT OFF - omitting this prop (as
    * web-channel does) yields exactly the previous chat. dev-env passes
    * { model, effort, theme, voice }.
@@ -754,7 +761,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -1132,9 +1139,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           // whole reply at the end, so without this the conversation sat silent for
           // minutes; it feeds the working indicator's (previously always-empty on
           // this transport) hint slot.
-          if (ev.kind !== "tool") break;
+          if (ev.kind !== "tool" && ev.kind !== "thinking") break;
           const name = typeof ev.name === "string" ? ev.name.trim() : "";
-          if (name) setActivity(name.slice(0, 40));
+          // Thinking is prose, so it gets more room than a tool name and is
+          // marked so the hint reads "thinking: <line>" rather than looking like
+          // a tool called <line>.
+          if (name) setActivity(ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40));
           break;
         }
         case "connection":
@@ -1792,7 +1802,12 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
           const routeTitle = structuredChip ? structuredChip.title : metaTitle;
           return (
           <div className="cc-turn" key={t.id}>
-            {!t.hideUser && <div className="cc-user">{t.user}</div>}
+            {/* `hideUser` is not the only way a turn has no ask to show: a
+                persisted history entry can carry an empty `user` string (a
+                scheduler/automation turn that was never typed by anyone). Those
+                rendered as a bare empty bubble - a stray coloured rectangle
+                above every such reply. Gate on the CONTENT too. */}
+            {!t.hideUser && t.user.trim() !== "" && <div className="cc-user">{t.user}</div>}
             {/* `t.route` joins the gate: a carded or cancelled turn can settle with
                 NO prose at all, and its rail (card / stopped / transcript badges) is
                 then the only record the user gets. */}
@@ -2235,7 +2250,7 @@ export function ClaudeChat({ transport, composerAdornment, title, features, cont
             ref={taRef}
             className="cc-input"
             value={input}
-            placeholder="Message Claude…  (/ for commands)"
+            placeholder={placeholder ?? "Message Claude…  (/ for commands)"}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}

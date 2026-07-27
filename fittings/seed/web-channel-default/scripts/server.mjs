@@ -33,7 +33,11 @@ import {
   setThreadRouting,
   threadExistsSync,
   sanitizeRouteMeta,
-  sanitizeRouting
+  sanitizeRouting,
+  markRunning,
+  clearRunning,
+  runningSince,
+  runningThreadIds
 } from "./threads.mjs";
 import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
@@ -386,6 +390,14 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
   // when the turn never reaches `done`.
   let preRoute = null;
   let persisted = false;
+  // Mark this thread as RUNNING for the whole life of the turn. The turn outlives
+  // the browser tab (the proxy keeps streaming and persists on `done`), so a user
+  // who navigates away and back finds a thread whose reply has not landed yet and
+  // no way to tell it apart from an idle one - the reason the channel looked
+  // "stopped" after leaving and returning. markSettled() runs on EVERY exit path
+  // below, including the ones that never reach `done`.
+  if (threadId) markRunning(threadId);
+  const markSettled = () => { if (threadId) clearRunning(threadId); };
   const writeMessages = (messages) =>
     appendMessages(threadId, messages).catch((err) => {
       console.error(`[web-channel] failed to persist turn into thread ${threadId}: ${err.message}`);
@@ -395,6 +407,7 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
   const userEntry = () => ({ role: "user", text: userMessage, overrides: overrides ?? undefined });
 
   const persistDone = (payload) => {
+    markSettled();
     if (persisted || !threadId) return;
     persisted = true;
     const reply = payload?.reply;
@@ -424,6 +437,7 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
   // transcript on the next reload. Keeps whatever the pre-turn route frame already
   // told us so the rail can still say which lane broke.
   const persistFailed = (reason) => {
+    markSettled();
     if (persisted || !threadId) return;
     persisted = true;
     const why = String(reason || "turn did not complete").slice(0, 200);
@@ -1041,7 +1055,13 @@ async function handleRouteOptions(req, res, opts) {
 // `done` event into the thread the client named) and lists/serves prior threads
 // so the UI can show a session list and move between conversations.
 async function handleThreadsList(res) {
-  jsonRes(res, 200, { threads: await listThreads() });
+  // `runningSince` rides the list so the sidebar can mark which conversations
+  // have a turn in flight, not just the one that is open.
+  const running = new Set(runningThreadIds());
+  const threads = (await listThreads()).map((t) =>
+    running.has(t.id) ? { ...t, runningSince: runningSince(t.id) } : t
+  );
+  jsonRes(res, 200, { threads });
 }
 
 async function handleThreadCreate(req, res) {
@@ -1060,7 +1080,10 @@ async function handleThreadCreate(req, res) {
 async function handleThreadGet(res, id) {
   const thread = await getThread(id);
   if (!thread) return jsonRes(res, 404, { error: "thread not found" });
-  jsonRes(res, 200, { thread });
+  // The client rebuilds a reopened thread from persisted history, which is empty
+  // for a turn still in flight. Without this it cannot tell "idle" from "working"
+  // and the conversation looks dead until the reply lands.
+  jsonRes(res, 200, { thread: { ...thread, runningSince: runningSince(id) } });
 }
 
 async function handleThreadAppend(req, res, id) {

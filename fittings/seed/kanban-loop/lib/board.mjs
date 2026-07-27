@@ -72,7 +72,28 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+// Outpost Dispatch placement — WHERE a card runs.
+//
+// `host` (the default) means the local operative runs it, exactly as every card
+// did before dispatch existed. Any other value names a paired machine that must
+// PULL the card via the host's dispatch API.
+//
+// A malformed or absent placement normalises to `host`, never to "any machine":
+// the failure mode of a typo must be "runs here as usual", not "scattered across
+// the fleet". `not_before` is carried verbatim so the claim path can decide (and
+// refuse an unparseable value) rather than this silently dropping a schedule.
+export const HOST_PLACEMENT_TARGET = "host";
+export function normalisePlacement(raw) {
+  if (!raw || typeof raw !== "object") return { target: HOST_PLACEMENT_TARGET };
+  const target = typeof raw.target === "string" ? raw.target.trim() : "";
+  const notBefore = typeof raw.not_before === "string" ? raw.not_before.trim() : "";
+  return {
+    target: target || HOST_PLACEMENT_TARGET,
+    ...(notBefore ? { not_before: notBefore } : {})
+  };
+}
+
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
@@ -138,6 +159,18 @@ export async function createCard(root, { title, description = "", project = null
     // D27: single-outpost affinity — the run engine dispatches this card's
     // phase sessions to the named outpost; offline → needs-attention.
     outpost: typeof outpost === "string" && outpost ? outpost : null,
+    // ── Outpost Dispatch (pull-based) ─────────────────────────────────────
+    // WHERE this card runs. Defaults to the host, i.e. exactly the behaviour
+    // every card had before dispatch existed. Distinct from `outpost` above:
+    // that is the older PUSH affinity (host relays an RPC to a Mac), this is
+    // the machine a WORKER pulls the card to. `dispatch` is the claim ledger,
+    // written only by the dispatch API — never by a human edit.
+    placement: normalisePlacement(placement),
+    dispatch: null,
+    // A literal command for a stub/no-model dispatched run. Present so the
+    // transport can be proven end-to-end without spending model tokens; a
+    // duty-driven remote run replaces it rather than extending it.
+    dispatchCommand: typeof dispatchCommand === "string" && dispatchCommand ? dispatchCommand : null,
     // ── execution visibility ──────────────────────────────────────────────
     // The card's activity timeline (engine.withEvent appends to it on every
     // transition); the last operative reply snippet (shown on the card front);

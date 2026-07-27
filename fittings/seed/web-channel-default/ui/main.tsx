@@ -146,6 +146,11 @@ interface ThreadMeta {
   createdAt: string | null;
   updatedAt: string | null;
   messageCount: number;
+  /** ISO time a still-running turn started, or null/absent when idle. Server-owned
+   *  and in-memory: a turn outlives the tab, so on reopen this is the ONLY thing
+   *  that distinguishes "still working" from "finished" - persisted history stays
+   *  empty until the turn settles. */
+  runningSince?: string | null;
 }
 interface ThreadMessage {
   role: "user" | "assistant";
@@ -405,6 +410,31 @@ function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () =>
 }
 
 // ── Threaded app (sidebar + chat) ───────────────────────────────────────────
+// "Still working" banner for a turn that was already running when this view
+// mounted (reopened tab / navigated back). Counts up from the server-reported
+// start so the elapsed time is the TURN's, not this component's.
+function ResumedWorkingNotice({ since }: { since: string }) {
+  const started = useMemo(() => {
+    const t = Date.parse(since);
+    return Number.isNaN(t) ? Date.now() : t;
+  }, [since]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const secs = Math.max(0, Math.floor((now - started) / 1000));
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  return (
+    <div className="wc-resumed" role="status" aria-live="polite">
+      <span className="wc-resumed-dot" aria-hidden />
+      <span>Still working on this conversation</span>
+      <span className="wc-resumed-clock">{clock}</span>
+      <span className="wc-resumed-hint">the reply lands here when it finishes</span>
+    </div>
+  );
+}
+
 function ThreadedApp({ url }: { url: UrlState }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -551,6 +581,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const busyRef = useRef(false);
   const busySinceRef = useRef(0);
   const [historyRev, setHistoryRev] = useState(0);
+  // Matches the 600px composer breakpoint in styles.css. Tracked live so a
+  // rotate/resize swaps the placeholder without a reload.
+  const [narrowComposer, setNarrowComposer] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 600px)");
+    const apply = () => setNarrowComposer(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const onTurnSettled = useCallback(async () => {
     busyRef.current = false;
@@ -747,6 +787,13 @@ function ThreadedApp({ url }: { url: UrlState }) {
             </div>
           </div>
         )}
+        {/* A turn that was in flight when this view unmounted is still running
+            server-side, but the remounted chat rebuilds from persisted history -
+            which stays empty until the turn settles - so it renders as an idle
+            conversation. This is the only signal that the operative is still
+            working, and it disappears on its own when the reply lands and the
+            history poll brings it in. */}
+        {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
         ) : (
@@ -755,6 +802,9 @@ function ThreadedApp({ url }: { url: UrlState }) {
             draftKey={activeId ?? undefined}
             transport={transport}
             title="Operative"
+            /* The phone composer row also carries voice, mic and attach, leaving
+               the field ~180px - the full hint truncates mid-word there. */
+            placeholder={narrowComposer ? "Message…" : undefined}
             composerAdornment={voiceAdornment}
             context={ctx}
             mode={mode}
@@ -810,6 +860,69 @@ function App() {
       window.clearInterval(t);
       window.removeEventListener("pointerdown", markInput);
       window.removeEventListener("keydown", markInput);
+    };
+  }, []);
+
+  // Selecting text copies it. Reading a reply and wanting a snippet of it is the
+  // single most common thing done in this surface, and on a phone the native
+  // copy affordance is a long-press away.
+  //
+  // Bound to the END of a selection gesture (pointerup / touch end / keyboard
+  // release), never to `selectionchange`: that fires on every character as a
+  // drag grows and would write the clipboard dozens of times per selection.
+  // Staying inside the gesture also keeps the write inside the user-activation
+  // window that the async clipboard API requires.
+  useEffect(() => {
+    // The composer and any other field own their own selection - copying there
+    // would fight the user's edit, and the value is already theirs.
+    const inEditable = (node: Node | null): boolean => {
+      const el = node instanceof Element ? node : node?.parentElement ?? null;
+      return Boolean(el?.closest("input, textarea, [contenteditable='true']"));
+    };
+
+    let lastCopied = "";
+    const copySelection = () => {
+      const sel = document.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+      const text = sel.toString().trim();
+      // A stray click clears to "" and a click-through re-fires with the same
+      // range; neither should touch the clipboard.
+      if (!text || text === lastCopied) return;
+      if (inEditable(sel.anchorNode) || inEditable(sel.focusNode)) return;
+      lastCopied = text;
+      // navigator.clipboard needs a SECURE context. The channel is reachable over
+      // plain http at a tailnet/LAN address, where it is simply absent, so fall
+      // back to the legacy path rather than throwing and copying nothing.
+      const legacy = () => {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          // Restore the user's visible selection, which ta.select() stole.
+          sel.removeAllRanges();
+        } catch {
+          /* clipboard unavailable - selection still works normally */
+        }
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(legacy);
+      } else {
+        legacy();
+      }
+    };
+
+    // Defer one frame: on pointerup the selection is not always committed yet.
+    const onEnd = () => window.setTimeout(copySelection, 0);
+    document.addEventListener("pointerup", onEnd);
+    document.addEventListener("keyup", onEnd);
+    return () => {
+      document.removeEventListener("pointerup", onEnd);
+      document.removeEventListener("keyup", onEnd);
     };
   }, []);
 

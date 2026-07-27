@@ -239,7 +239,13 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
         // Tool activity from a routed runtime (§12). The non-primary lanes used to
         // stream nothing at all, leaving the conversation silent for minutes; this
         // feeds the working indicator's hint ("Working 0:42 - Edit").
-        if (typeof data.name === "string" && data.name) {
+        if (data.kind === "thinking") {
+          // A thinking beat with no readable text (a redacted block) still proves
+          // the turn is alive, so it degrades to the bare word rather than being
+          // dropped for having an empty payload.
+          const text = typeof data.text === "string" ? data.text.trim() : "";
+          listener?.({ type: "activity", kind: "thinking", name: text || "thinking…" });
+        } else if (typeof data.name === "string" && data.name) {
           listener?.({
             type: "activity",
             kind: "tool",

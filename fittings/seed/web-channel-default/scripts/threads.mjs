@@ -466,3 +466,35 @@ export function _readThreadSync(id) {
     return null;
   }
 }
+
+// ── In-flight turns ──────────────────────────────────────────────────────────
+// A turn survives the browser tab: the server proxy keeps streaming and persists
+// the exchange on `done`, so closing or navigating away never loses a reply. But
+// the CLIENT rebuilds from persisted history on remount, and history has nothing
+// in it until the turn settles - so a thread mid-turn looked byte-identical to an
+// idle one and the channel read as "stopped working" until the reply landed.
+//
+// This is deliberately IN-MEMORY, not persisted: it describes live work owned by
+// THIS process. A restart has no in-flight turns by definition, and a stale
+// on-disk "running" flag would be a lie no one could clear.
+const runningTurns = new Map();
+
+export function markRunning(threadId, at = new Date().toISOString()) {
+  if (!threadId) return;
+  runningTurns.set(threadId, at);
+}
+
+export function clearRunning(threadId) {
+  if (!threadId) return;
+  runningTurns.delete(threadId);
+}
+
+// ISO timestamp the live turn started, or null when the thread is idle. The
+// client renders elapsed time from this, so it survives a reload mid-turn.
+export function runningSince(threadId) {
+  return runningTurns.get(threadId) ?? null;
+}
+
+export function runningThreadIds() {
+  return [...runningTurns.keys()];
+}

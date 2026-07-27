@@ -149,7 +149,11 @@ export type ChatEvent =
   // Tool activity from a routed runtime (the non-primary lanes never streamed, so
   // the conversation sat silent for minutes). Renders into the working hint:
   // "Working 0:42 - Edit". `id` is the tool_use id when the lane reports one.
+  // `kind: "thinking"` carries the tail of an extended-thinking block instead of a
+  // tool name. Thinking is where a turn spends its silent minutes, so it is the
+  // strongest liveness signal the lane has.
   | { type: "activity"; kind: "tool"; name: string; id?: string }
+  | { type: "activity"; kind: "thinking"; name: string }
   | { type: "error"; message: string }
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
 

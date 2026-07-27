@@ -601,6 +601,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 // composition before going through the same clean switch transaction as the
 // Sidebar selector. The selector itself lives in Sidebar; keeping this component
 // creation-only avoids two controls with the same composition-switcher id.
+// The non-composition "New" targets. Each points at the surface that OWNS the
+// create affordance, verified to exist rather than guessed: the web channel has a
+// "+ New" conversation button, the Kanban board has a new-card sheet, and Muster
+// owns both duty creation and Fitting stationing/cloning. Deep-linking straight
+// into each create dialog would need a query contract per fitting; landing on the
+// right surface is honest and never dead-ends.
+const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> = [
+  { label: "Session", href: "/fitting/web-channel-default", hint: "a new Web Channel conversation" },
+  { label: "Card", href: "/fitting/kanban-loop", hint: "a new Kanban card" },
+  { label: "Duty", href: "/muster", hint: "add a duty to the composition" },
+  { label: "Fitting", href: "/compose", hint: "station or clone a Fitting" }
+];
+
 function CompositionCreator({
   activeName,
   disabled,
@@ -611,6 +624,28 @@ function CompositionCreator({
   onCreate: (name: string) => Promise<boolean>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Dismiss on outside-click / Escape. A menu that only closes by re-clicking its
+  // own trigger traps the pointer on touch, where there is no hover to hint it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: MouseEvent | TouchEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
   const [newName, setNewName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -665,19 +700,54 @@ function CompositionCreator({
         <button
           ref={triggerRef}
           type="button"
-          disabled={disabled}
-          onClick={() => setCreateOpen(true)}
-          data-testid="new-composition"
-          title={
-            disabled
-              ? "Clone an in-repo composition to create a new one"
-              : "Create from the active composition"
-          }
+          onClick={() => setMenuOpen((open) => !open)}
+          data-testid="new-menu"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          title="Create something new"
           className="composition-creator-trigger"
         >
           <span aria-hidden="true">＋</span>
-          New composition
+          New
         </button>
+        {/* "New" used to create ONE thing (a composition). Everything else in
+            Garrison is created from whichever surface owns it, which meant
+            knowing where to go first. The menu keeps composition inline (it has
+            a dialog right here) and routes the rest to the surface that owns the
+            create affordance, so no entry is a dead end. */}
+        {menuOpen ? (
+          <div className="composition-creator-menu" role="menu" data-testid="new-menu-items">
+            <button
+              type="button"
+              role="menuitem"
+              disabled={disabled}
+              data-testid="new-composition"
+              title={
+                disabled
+                  ? "Clone an in-repo composition to create a new one"
+                  : "Create from the active composition"
+              }
+              onClick={() => {
+                setMenuOpen(false);
+                setCreateOpen(true);
+              }}
+            >
+              <b>Composition</b>
+              <small>{disabled ? "clone an in-repo composition" : "from the active one"}</small>
+            </button>
+            {NEW_TARGETS.map((target) => (
+              <a
+                key={target.href}
+                role="menuitem"
+                href={target.href}
+                onClick={() => setMenuOpen(false)}
+              >
+                <b>{target.label}</b>
+                <small>{target.hint}</small>
+              </a>
+            ))}
+          </div>
+        ) : null}
       </div>
       {createOpen ? (
         <div

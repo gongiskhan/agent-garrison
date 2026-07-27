@@ -1839,7 +1839,17 @@ export function routeHintsFromBody(body) {
     // attaches to one card, D19), the resolved mode, and optional card fields
     // (workKind / per-card phase toggles / project) for the created card.
     channel: typeof body?.channel === "string" ? body.channel : null,
-    sessionId: typeof body?.sessionId === "string" && body.sessionId ? body.sessionId : null,
+    // The web channel names this `thread` (its opaque per-conversation key);
+    // other hosts send `sessionId`. Accept both so a decision can be traced back
+    // to its conversation whichever surface raised the turn.
+    sessionId:
+      (typeof body?.sessionId === "string" && body.sessionId) ||
+      (typeof body?.thread === "string" && body.thread) ||
+      null,
+    // Display label for that session, carried alongside the id so the Muster
+    // Decisions feed can name the conversation a decision came from instead of
+    // showing a bare uuid. Purely cosmetic and optional.
+    sessionTitle: typeof body?.sessionTitle === "string" && body.sessionTitle ? body.sessionTitle : null,
     mode: typeof body?.mode === "string" ? body.mode : undefined,
     // S1b holds: a turn dispatched with contextHold=true never triggers a compaction
     // after it (the compaction defers to the duty boundary); dutyKey identifies the
