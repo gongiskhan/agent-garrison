@@ -63,6 +63,10 @@ x-garrison:
       type: integer
       default: 2
       description: Hours before a running or waiting card counts as stalled in the weekly review (override via KANBAN_REVIEW_STALL_HOURS).
+    - key: outpost_host_url
+      type: string
+      default: http://127.0.0.1:3702
+      description: Outpost host daemon this instance probes for a card's `outpost` affinity. Base-family value; the loopback port is shifted per profile (dev 3702 / prod 4702). Override via GARRISON_OUTPOST_URL.
   provides:
     - kind: automation-runner
       name: kanban-loop

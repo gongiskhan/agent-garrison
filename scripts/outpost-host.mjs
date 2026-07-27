@@ -2,7 +2,8 @@
 // Garrison Outpost host — accepts WebSocket connections from garrison-outpost-bridge
 // daemons running on remote Macs. Manages auth, event buffering, and blocking RPC relay.
 //
-// HTTP (0.0.0.0:23702):
+// HTTP (127.0.0.1:$GARRISON_OUTPOST_PORT — 3702 + profile offset; see
+// src/lib/instance-profile.ts. The bind is loopback by default, see BIND below):
 //   GET  /health                   → { ok, outposts: [{name, connected, lastHeartbeat}] }
 //   GET  /outposts                 → { outposts: [{name, connected, lastHeartbeat, agentVersion,
 //                                       pending, verbs, events, …}] }
@@ -13,7 +14,7 @@
 //   DELETE /registry/:name         → unregister and disconnect outpost
 //   POST /outposts/:name/rpc       → { type, payload } → blocking RPC call to bridge (logged)
 //
-// WebSocket: ws://0.0.0.0:23702/bridge (bridge connects out to this)
+// WebSocket: ws://<bind>:<port>/bridge (bridge connects out to this)
 //
 // The module exports startHost({ port, bind }) so it can be booted on an ephemeral port
 // in tests; run directly it starts the singleton daemon (PID file + graceful port guard).
@@ -27,7 +28,12 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
-const PORT = parseInt(process.env.GARRISON_OUTPOST_PORT || "23702", 10);
+// scripts/garrison-instance.sh always exports GARRISON_OUTPOST_PORT (3702 +
+// profile offset). The fallback only applies to a bare hand-run, and must be the
+// BASE of the port family — 3702, the dev value — matching the doctrine in
+// src/lib/instance-profile.ts that an unset profile IS dev. It used to carry the
+// codex-offset port, so a bare run bound an instance nothing else addressed.
+const PORT = parseInt(process.env.GARRISON_OUTPOST_PORT || "3702", 10);
 // Secure by default: bind LOOPBACK, not 0.0.0.0. The daemon's HTTP API relays
 // exec.run to connected Mac bridges (RCE-to-Mac) and mutates the registry, all
 // unauthenticated; 0.0.0.0 exposed that on every interface (the public GCP one
@@ -427,7 +433,7 @@ function handleBridgeConnection(ws) {
 }
 
 // ---------------------------------------------------------------------------
-// Subscriber connection handler — ws://host:23702/outposts/:name/io
+// Subscriber connection handler — ws://<host>:<port>/outposts/:name/io
 // Spawns a PTY on the named outpost and brokers I/O between the subscriber
 // and the bridge. Each subscriber WS maps to exactly one process handle.
 // ---------------------------------------------------------------------------

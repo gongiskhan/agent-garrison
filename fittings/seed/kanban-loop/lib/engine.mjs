@@ -1092,7 +1092,17 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (card.outpost) {
     try {
       const { resolveOutpostDispatch } = await import("./outpost-dispatch.mjs");
-      const daemon = process.env.GARRISON_OUTPOST_URL || "http://127.0.0.1:23702";
+      // The daemon URL is INSTANCE-SPECIFIC (each profile shifts the port).
+      // It arrives as the composition's `outpost_host_url` for this fitting,
+      // already port-shifted by applyPortOffsetToConfig and projected as
+      // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. GARRISON_OUTPOST_URL stays as a
+      // manual override. There is deliberately NO literal fallback: the old one
+      // named the codex port, so the probe always failed on dev and prod and
+      // EVERY affinity card parked with "outpost offline".
+      const daemon = (process.env.GARRISON_OUTPOST_URL
+        || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
+        || "").trim();
+      if (!daemon) throw new Error("outpost affinity: no outpost_host_url configured for this instance");
       let outposts = [];
       try {
         const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });

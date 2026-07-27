@@ -155,6 +155,7 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
+            outpost_host_url: http://127.0.0.1:3702
       sessions:
         - id: garrison-assistant
           config:

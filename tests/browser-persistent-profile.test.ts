@@ -186,7 +186,14 @@ describe("browser-default persistent profile", () => {
       } catch { return ""; /* pgrep absent - skip the assertion */ }
     };
     let leaked = probe();
-    const grace = Date.now() + 10000;
+    // 60s, not 10s. The loop exits the instant the probe comes back empty, so a
+    // wider window is free in the happy path (~4s alone) and only spends time
+    // when there is something to wait for. Under the FULL suite the box is busy
+    // enough that chromium's own teardown had not finished inside 10s and the
+    // run failed with the main chrome still listed - a load artefact, not a leak.
+    // Grace must stay well under the test timeout below, or the timeout fires
+    // mid-shutdown and orphans the very processes being asserted on.
+    const grace = Date.now() + 60000;
     while (leaked && Date.now() < grace) {
       await new Promise((r) => setTimeout(r, 250));
       leaked = probe();
@@ -195,8 +202,7 @@ describe("browser-default persistent profile", () => {
     // The budget must exceed this test's OWN worst case, or a timeout kills the
     // server mid-shutdown and orphans the very chromium the assertion looks
     // for. With waitGone at 120s that worst case is waitGone 120 + waitHealthy
-    // 20 + poke 3 + waitGone 120 + grace 10 = 273s, so 180s was BELOW it - the
-    // arithmetic in the old comment still assumed the retired 60s default.
-    // 300s clears it with margin; it passes alone in ~4s either way.
-  }, 300000);
+    // 20 + poke 3 + waitGone 120 + grace 60 = 323s. 360s clears it with margin;
+    // it passes alone in ~4s either way.
+  }, 360000);
 });

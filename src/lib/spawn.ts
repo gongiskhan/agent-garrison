@@ -14,7 +14,15 @@ import * as path from "node:path";
 import { currentSecretValuesSync } from "./vault";
 import { redactSecretValues } from "./secret-redaction";
 
-const REDACT_PATTERN = /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$)/i;
+// Env KEY patterns that are secret-bearing by NAME. Suffix-anchored so ordinary
+// keys (KEYBINDINGS, MONKEY_PATCH) don't match, plus the account-registry
+// prefixes, whose keys end in an ACCOUNT NAME and therefore match no suffix:
+// ANTHROPIC_ACCOUNT__<name> and ACCOUNT__<platform>__<name> both hold live
+// OAuth tokens. Name matching alone is not the guarantee — redactEnv also masks
+// by VALUE (see below); this pattern is what still works when the vault is
+// locked and the value list is therefore empty.
+const REDACT_PATTERN =
+  /(_TOKEN$|_KEY$|_SECRET$|_PASSWORD$|^TOKEN$|^SECRET$|^PASSWORD$|^KEY$|^ANTHROPIC_ACCOUNT__|^ACCOUNT__)/i;
 const REDACTED = "***REDACTED***";
 
 // Tee child output to its log file with JIT value redaction: any current vault
@@ -101,12 +109,27 @@ export function logsDirForPid(pid: number): string {
   return path.join(garrisonLogsRoot(), String(pid));
 }
 
-function redactEnv(env: NodeJS.ProcessEnv | undefined): Record<string, string> {
+// Redact the spawn env for meta.json. TWO passes, because either alone leaks:
+//
+//   • by NAME  — catches a secret-shaped key whose value the vault doesn't know
+//                (a token injected from outside the vault), and keeps working
+//                while the vault is locked.
+//   • by VALUE — catches a vault secret delivered under a key the pattern misses.
+//                This is the pass that matters: setup/verify hooks are spawned
+//                with the WHOLE materialized .env merged in, so every vault key
+//                that isn't suffix-shaped (ANTHROPIC_ACCOUNT__* was the live
+//                case: 1384 meta.json files held cleartext sk-ant-oat01 tokens)
+//                reached disk in the clear. Same guarantee the stdout/stderr tee
+//                already gives; meta.json was the hole.
+function redactEnv(
+  env: NodeJS.ProcessEnv | undefined,
+  values: readonly string[]
+): Record<string, string> {
   const out: Record<string, string> = {};
   if (!env) return out;
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue;
-    out[key] = REDACT_PATTERN.test(key) ? REDACTED : value;
+    out[key] = REDACT_PATTERN.test(key) ? REDACTED : redactSecretValues(value, values);
   }
   return out;
 }
@@ -230,15 +253,18 @@ export function spawnTracked(
   const stderrPath = path.join(logsDir, "stderr.log");
   const metaPath = path.join(logsDir, "meta.json");
 
+  // One vault read for the whole record. command/args are redacted too: a secret
+  // passed on the command line (--token=…) is as persisted as one in the env.
+  const secretValues = currentSecretValuesSync();
   const metaJson: MetaJson = {
     pid,
-    command: spawnArgs.command,
-    args: spawnArgs.args,
+    command: redactSecretValues(spawnArgs.command, secretValues),
+    args: spawnArgs.args.map((arg) => redactSecretValues(arg, secretValues)),
     shell: spawnArgs.shellInvocation,
     cwd: (spawnArgs.options.cwd as string | undefined) ?? process.cwd(),
     parentPid: process.pid,
     spawnedAt: new Date().toISOString(),
-    env: redactEnv(spawnArgs.options.env as NodeJS.ProcessEnv | undefined),
+    env: redactEnv(spawnArgs.options.env as NodeJS.ProcessEnv | undefined, secretValues),
     spawnSite: meta.spawnSite,
     description: meta.description
   };

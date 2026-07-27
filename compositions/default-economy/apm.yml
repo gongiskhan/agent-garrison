@@ -126,6 +126,7 @@ x-garrison:
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
+            outpost_host_url: http://127.0.0.1:3702
       sessions:
         - id: garrison-assistant
           config:
