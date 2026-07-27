@@ -106,11 +106,11 @@ x-garrison:
             account: auto
         - id: openrouter-runtime
           config:
-            model: anthropic/claude-sonnet-5
+            model: x-ai/grok-4.5
             account: ''
         - id: huggingface-runtime
           config:
-            model: deepseek-ai/DeepSeek-V4-Pro
+            model: zai-org/GLM-5.2
             account: ''
       memory:
         - id: basic-memory

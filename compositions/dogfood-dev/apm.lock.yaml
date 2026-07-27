@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-25T02:47:23.030322+00:00'
+generated_at: '2026-07-26T02:30:59.218929+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -74,7 +74,7 @@ dependencies:
   - .claude/skills/garrison-drill
   - .claude/skills/garrison-drill/SKILL.md
   deployed_file_hashes:
-    .claude/skills/garrison-drill/SKILL.md: sha256:507357d23191a5fcf36a7545dd084adc72eb28d7c6eaedd9f8dea8e50baa0085
+    .claude/skills/garrison-drill/SKILL.md: sha256:d08cbd8011b1e01f23abcc35701f9c57a2da194470fb4455761ba516ac5e7ab7
   source: local
   local_path: ../../fittings/seed/drill
 - repo_url: _local/file-browser
