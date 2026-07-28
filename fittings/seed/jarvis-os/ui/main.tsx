@@ -505,7 +505,7 @@ function hostOf(urlish: string): string {
 // ── component ────────────────────────────────────────────────────────────────
 
 // DEV vs PROD at a glance. The HUD binds the profile-shifted fitting port
-// (dev 7094 / prod 8094 / codex 27094), so the port the page was LOADED from
+// (dev 7097 / prod 8097 / codex 27097), so the port the page was LOADED from
 // already carries the instance - no server round-trip needed. Only the dev
 // instance is badged: prod is the always-on wall surface and stays clean.
 const IS_DEV_INSTANCE = (() => {

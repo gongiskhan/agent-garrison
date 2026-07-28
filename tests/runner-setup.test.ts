@@ -114,14 +114,14 @@ describe("runFittingSetup", () => {
     // NON-loopback value is a real override and still projects. Nested values
     // are skipped too.
     expect(ownPortConfigEnv("local-voice", {
-      port: 7097,
+      port: 7094,
       bind_host: "127.0.0.1",
       gateway_url: "",
       wake_word: "",
       nested: { a: 1 },      // objects skipped entirely
       whisper_lang: "pt",
     })).toEqual({
-      GARRISON_LOCALVOICE_PORT: "7097",
+      GARRISON_LOCALVOICE_PORT: "7094",
       GARRISON_LOCALVOICE_GATEWAY_URL: "",
       GARRISON_LOCALVOICE_WAKE_WORD: "",
       GARRISON_LOCALVOICE_WHISPER_LANG: "pt",

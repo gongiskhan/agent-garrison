@@ -72,7 +72,7 @@ async function runCompare(voice, langs, args) {
   const engines = voice.all.filter((e) => e.healthy);
   console.log(`${C.bold}Voice compare${C.reset} ${C.dim}— same \`say\` audio, level A (STT + language + latency)${C.reset}`);
   for (const e of engines) console.log(`  ${e.id.padEnd(15)} ${e.url} ${e.keyless ? C.dim + "(local, no key)" + C.reset : C.dim + "(cloud)" + C.reset}`);
-  if (engines.length < 2) console.log(warn(`  only ${engines.length} engine up — start both local-voice (7097) and deepgram-voice (7085) for a head-to-head.`));
+  if (engines.length < 2) console.log(warn(`  only ${engines.length} engine up — start both local-voice (7094) and deepgram-voice (7085) for a head-to-head.`));
 
   const stats = Object.fromEntries(engines.map((e) => [e.id, { pass: 0, total: 0, simSum: 0, msSum: 0, langOk: 0 }]));
   for (const lang of langs) {
@@ -224,7 +224,7 @@ async function main() {
   // channel for level C. Status files are the source of truth.
   const voice = await discoverVoice();
   if (args.compare) return runCompare(voice, langs, args);
-  const jarvis = await discoverFitting("jarvis-os", 7094);
+  const jarvis = await discoverFitting("jarvis-os", 7097);
   const wantC = args.levels.includes("c");
 
   console.log(`${C.bold}Voice e2e harness${C.reset} ${C.dim}— audio via macOS \`say\`, pipeline via running Fittings${C.reset}`);
@@ -232,7 +232,7 @@ async function main() {
   if (wantC) console.log(`  jarvis-os:     ${jarvis.url} ${jarvis.fromStatus ? "" : warn("(default port — no status file)")}`);
 
   // Preflight: the voice Fitting must be reachable and ready.
-  if (!voice.healthy) { console.error(bad(`\nNo voice Fitting reachable (tried local-voice:7097, deepgram-voice:7085). Bring the jarvis composition up first.`)); process.exit(2); }
+  if (!voice.healthy) { console.error(bad(`\nNo voice Fitting reachable (tried local-voice:7094, deepgram-voice:7085). Bring the jarvis composition up first.`)); process.exit(2); }
   if (voice.body.keyConfigured === false) { console.error(bad(`\n${voice.id}: DEEPGRAM_API_KEY not configured — set it in the Garrison vault, then re-up. (Or use the keyless local-voice Fitting.)`)); process.exit(2); }
   if (voice.body.enginesReady === false) { console.error(bad(`\n${voice.id}: speech engines still warming up (whisper JIT). Wait ~10s and retry.`)); process.exit(2); }
   // Level B (live streaming) needs a /stream WS endpoint — only deepgram-voice has it.
