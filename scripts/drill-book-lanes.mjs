@@ -65,4 +65,4 @@ console.log(`state reach-path steps (always vision on first sight) : ${total.rea
 const firstRun = total.checks - total.laneA + total.actions + total.reach;
 const steadyState = total.laneC + total.unclassified;
 console.log(`\nmodel calls, first run  ~${firstRun}`);
-console.log(`model calls, steady state ~${steadyState}   (lane C + anything unclassified)`);
+console.log(`model calls, steady state ~${steadyState}   (lane C + disjunctive checks until they graduate)`);
