@@ -155,11 +155,22 @@ async function ensureAuthenticated(book, { contextTag, viewport, root }) {
   // measures real session age, not time-since-last-probe.
   const priorFresh = prior && prior.fingerprint === fingerprint && prior.loggedInAt;
   const stale = ttlMs && priorFresh ? Date.now() - Date.parse(prior.loggedInAt) > ttlMs : false;
-  // Force the full login flow when there is no fresh same-config record (first
-  // run, or the login config changed) OR the cached session is past its TTL —
-  // only then is the cheap probe trustworthy. This also skips the wasteful
-  // probe on the very first run (nothing to reuse yet).
-  const mustFlow = stale || !priorFresh;
+  // Force the full login flow when the login CONFIG changed (a different user
+  // must never be satisfied by the previous one's session) or the cached session
+  // is past its TTL.
+  //
+  // It used to also force the flow whenever Drill held no record at all — "first
+  // run, nothing to reuse yet". That reasoning had the wrong subject: what gets
+  // reused is the BROWSER's persistent profile, and Drill's state file is only
+  // its own bookkeeping about it. Anything can have logged that profile in - the
+  // planning agent, a previous project, a person. When something has, the login
+  // flow cannot execute at all: /login redirects to the app, the username field
+  // never appears, the flow reports failure, and because one auth failure
+  // deliberately collapses into one incident rather than N, the circuit opens
+  // and EVERY check in the run is skipped unproven. Measured: a 12-check run
+  // executed 0. Probing first costs one navigate and one cached assertion.
+  const configChanged = !!prior && prior.fingerprint !== fingerprint;
+  const mustFlow = stale || configChanged;
 
   const runAuth = async (automation, expectStep) => {
     try {
@@ -194,6 +205,24 @@ async function ensureAuthenticated(book, { contextTag, viewport, root }) {
   if (flow.kind === "passed") {
     await writeAuthState(root, { loggedInAt: new Date().toISOString(), via: "flow", fingerprint }).catch(() => {});
     return { ok: true, via: "flow" };
+  }
+  // A login flow can fail for the happy reason: we are already logged in, so
+  // the form it wanted to fill was never rendered. That is indistinguishable
+  // from a broken login by the flow's own result, and calling it broken costs
+  // the entire run. Ask the question directly instead - one probe - before
+  // reporting an auth failure.
+  //
+  // Only for a PAGE-level failure. An engine or app outage during login has
+  // nothing to re-ask: the probe would fail the same way, cost another call,
+  // and muddy an incident whose real component (vision down, app down) must
+  // survive to the report rather than being re-attributed to auth.
+  const flowMissedTheForm = flow.kind === "product-failure" || flow.kind === "unproven";
+  if (success && !configChanged && flowMissedTheForm) {
+    const already = await runAuth(compileAuthProbe(book), AUTH_VERIFY_STEP);
+    if (already.kind === "passed") {
+      await writeAuthState(root, { loggedInAt: new Date().toISOString(), via: "already-authenticated", fingerprint }).catch(() => {});
+      return { ok: true, via: "already-authenticated" };
+    }
   }
   // Only a product-level negative — the flow ran but the app did not grant a
   // session / the success signal was not met — is a genuine auth-config problem.
