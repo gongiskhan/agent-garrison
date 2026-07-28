@@ -280,6 +280,10 @@ interface PlanJob {
   deadlineAt: string;
   canceledAt: string | null;
   progress?: PlanProgress;
+  // Plan-time defects that are not worth failing a long plan over, but that
+  // silently cost coverage if nobody is told (a page with no default-state
+  // checks runs nothing at all).
+  warnings?: string[];
 }
 interface PlanStatus { root: string; pages: number; selected: boolean; job: PlanJob | null }
 
@@ -640,6 +644,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
   const [planJob, setPlanJob] = useState<PlanJob | null>(null);
   const [canceling, setCanceling] = useState(false);
   const [canceledNotice, setCanceledNotice] = useState<string | null>(null);
+  const [planWarnings, setPlanWarnings] = useState<string[] | null>(null);
   const [planLog, setPlanLog] = useState<string | null>(null);
   const [planLogOpen, setPlanLogOpen] = useState(false);
   // Captured from the first load and reused on every write: a second tab
@@ -673,6 +678,10 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
     setPlanBusy(true);
     try {
       const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      // A finished plan can still have cost coverage. Surfacing this is the
+      // difference between "20 pages authored" and knowing three of them run
+      // nothing at all.
+      setPlanWarnings(st.job?.warnings?.length ? st.job.warnings : null);
       if (st.job && st.job.status === "canceled") {
         setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
         return;
@@ -887,6 +896,16 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
 
       {canceledNotice && (
         <div className="dr-notice" role="status">{canceledNotice}</div>
+      )}
+
+      {planWarnings && (
+        <div className="dr-notice" role="status" style={{ borderColor: "var(--brass)" }}>
+          <b>The plan finished, but some of it will not run:</b>
+          <ul style={{ margin: "6px 0 6px 18px", padding: 0 }}>
+            {planWarnings.map((w) => <li key={w} className="t11">{w}</li>)}
+          </ul>
+          <button className="btn small" onClick={() => setPlanWarnings(null)}>Dismiss</button>
+        </div>
       )}
 
       {error && (
@@ -1924,6 +1943,23 @@ function AuthoringView({ initialPageId, onPageChange }: {
         )}
 
         <div className="dr-lbl">Page steps</div>
+        {/* A page whose every check is scoped to a named state shows an empty
+            list here AND runs nothing on a normal run - the state selector is
+            on `default` and no check matches it. That looked exactly like a
+            page nobody had authored yet, on a page with ten checks in it. */}
+        {pageSteps.length === 0 && page.steps.length > 0 && (
+          <div className="dr-notice" role="status" style={{ marginBottom: 8 }}>
+            {activeStateSel === "default" ? (
+              <>
+                This page has <b>{page.steps.length}</b> check{page.steps.length === 1 ? "" : "s"}, but none in the
+                default state - so a normal Run executes nothing here. A page&rsquo;s default state is how it looks when you
+                navigate straight to it; re-scope these checks to <span className="mono">default</span>, or pick a state below.
+              </>
+            ) : (
+              <>No checks are scoped to <span className="mono">{activeStateSel}</span>. Pick another state, or add one here.</>
+            )}
+          </div>
+        )}
         {pageSteps.map((s) => (
           <StepRow key={s.id} step={s}
             onToggleEnabled={() => patchStep(s.id, (current) => ({ enabled: !current.enabled }))}

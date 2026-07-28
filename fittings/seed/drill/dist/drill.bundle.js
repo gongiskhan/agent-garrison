@@ -26904,6 +26904,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   const [planJob, setPlanJob] = (0, import_react4.useState)(null);
   const [canceling, setCanceling] = (0, import_react4.useState)(false);
   const [canceledNotice, setCanceledNotice] = (0, import_react4.useState)(null);
+  const [planWarnings, setPlanWarnings] = (0, import_react4.useState)(null);
   const [planLog, setPlanLog] = (0, import_react4.useState)(null);
   const [planLogOpen, setPlanLogOpen] = (0, import_react4.useState)(false);
   const pinnedRootRef = (0, import_react4.useRef)(null);
@@ -26923,6 +26924,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     setPlanBusy(true);
     try {
       const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      setPlanWarnings(st.job?.warnings?.length ? st.job.warnings : null);
       if (st.job && st.job.status === "canceled") {
         setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
         return;
@@ -27098,6 +27100,11 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       ] })
     ] }),
     canceledNotice && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", children: canceledNotice }),
+    planWarnings && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-notice", role: "status", style: { borderColor: "var(--brass)" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "The plan finished, but some of it will not run:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { style: { margin: "6px 0 6px 18px", padding: 0 }, children: planWarnings.map((w) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", children: w }, w)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPlanWarnings(null), children: "Dismiss" })
+    ] }),
     error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
       error,
       pages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { marginLeft: 8 }, onClick: () => onGoAuthoring(), children: "Open Authoring" }),
@@ -28024,6 +28031,19 @@ function AuthoringView({ initialPageId, onPageChange }) {
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 12 }, children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "chip click brass dr-label-chip" + (activeStateSel === s ? " active" : ""), onClick: () => setStateSel(s), "aria-pressed": activeStateSel === s, children: s }, s)) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Page steps" }),
+          pageSteps.length === 0 && page.steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", style: { marginBottom: 8 }, children: activeStateSel === "default" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            "This page has ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: page.steps.length }),
+            " check",
+            page.steps.length === 1 ? "" : "s",
+            ", but none in the default state - so a normal Run executes nothing here. A page\u2019s default state is how it looks when you navigate straight to it; re-scope these checks to ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "default" }),
+            ", or pick a state below."
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            "No checks are scoped to ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: activeStateSel }),
+            ". Pick another state, or add one here."
+          ] }) }),
           pageSteps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             StepRow,
             {

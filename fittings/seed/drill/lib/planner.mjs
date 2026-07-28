@@ -23,7 +23,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { findRunSkill } from "./projects.mjs";
-import { listPages } from "./store.mjs";
+import { listPages, getPage } from "./store.mjs";
 import { drillHomeDir } from "./runs-store.mjs";
 import { closeExplore } from "./explore.mjs";
 
@@ -242,7 +242,17 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
     `      mode: vision | e2e       (set by the routing rule in HOW EACH CHECK IS ANSWERED, below)`,
     `      enabled: true`,
     `      viewports: <copy the Book's viewports list here, unless the step is genuinely specific to one viewport>`,
-    `      state: default           (most steps belong to state: default - the direct Run executes default-state steps; a state-scoped step runs only in a state-targeted run, so scope a step to a state id from states[] only when it is meaningless outside that state)`,
+    `      state: default           (READ THIS TWICE. A normal Run executes ONLY state: default steps; a state-scoped step runs`,
+    `                                nowhere except a run that explicitly targets that state. So a page whose every step carries`,
+    `                                a named state executes ZERO checks and is silently dead coverage. The DEFAULT state of a`,
+    `                                page is however it looks when you navigate straight to it - for a login route that IS the`,
+    `                                logged-out form, even if a leftover session happened to redirect you the first time you`,
+    `                                looked. Environmental setup (log in, log out, seed a record) belongs in the Book's auth`,
+    `                                block or in the check's own actions, NEVER in a state that the normal run skips. Name a`,
+    `                                state only for a MINORITY of checks describing a condition the page can also be seen`,
+    `                                without - an error banner, a populated list against an empty one. If you catch yourself`,
+    `                                giving every step on a page the same named state, that state is the page's default: write`,
+    `                                state: default.)`,
     `      description: <the check, written as a concrete acceptance criterion an agent verifies on the page AFTER this step's actions have run. If the criterion is about what HAPPENS when the user interacts - clicks, presses, types, submits, hovers, drags, scrolls - you MUST also author \`actions\` below; the description alone never makes the interaction happen.>`,
     `      actions: []              (OPTIONAL, ordered - the interactions performed on the page BEFORE this check is judged. Same vocabulary as the Book's auth.steps and a state's reachPath: one plain-English instruction per entry, e.g. "click the \"Anexar\" button", "type \"hello\" into the composer", "press Shift+Enter". Entries are bare strings, or { id: <slug>, description: <action> } for a stable id.)`,
     `      (REQUIRED whenever the description asserts a BEHAVIOUR rather than a static fact about the page as it first loads. WHY THIS MATTERS: without actions the runner only navigates and looks, so a behavioural check is judged against an untouched page - it then passes or fails on evidence that cannot show the behaviour either way, which is a WRONG verdict, and a passing one gets committed as a spec that never performs the behaviour. A behavioural description with no actions is a mis-authored check.)`,
@@ -313,6 +323,37 @@ function parseSentinel(logText) {
     else ok = null;
   }
   return { ok, failed };
+}
+
+// Dead coverage, found on the first real plan: every check the agent authored
+// for the login page carried `state: logged-out`, because a leftover session
+// had redirected it on the way in and it decided the form was a special
+// condition. A normal run executes ONLY default-state checks, so that page was
+// worth exactly zero checks - and nothing anywhere said so. The page listed ten
+// checks in the Book, the Authoring list showed an empty page, and a run would
+// have reported it as covered.
+//
+// The prompt now explains the rule, but a rule the model can misapply silently
+// needs a gate as well as an explanation. These are warnings, not failures: the
+// rest of a long plan is real work and must not be thrown away over one page.
+export async function deadCoverageWarnings(root) {
+  const warnings = [];
+  for (const meta of await listPages(root).catch(() => [])) {
+    const page = await getPage(meta.id, root).catch(() => null);
+    const steps = (page?.steps ?? []).filter((s) => s.enabled !== false);
+    if (!steps.length) {
+      warnings.push(`page "${meta.id}" has no enabled checks`);
+      continue;
+    }
+    if (!steps.some((s) => (s.state ?? "default") === "default")) {
+      const states = [...new Set(steps.map((s) => s.state))].join(", ");
+      warnings.push(
+        `page "${meta.id}" runs NOTHING on a normal run: all ${steps.length} checks are scoped to ${states}. ` +
+        `A page's default state is how it looks when you navigate straight to it - re-scope these to state: default.`
+      );
+    }
+  }
+  return warnings;
 }
 
 // Exported so the server can serve a job's log tail directly - the error
@@ -389,7 +430,7 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   const job = {
     root, mode: brief ? "update" : "full", brief, status: "planning",
     startedAt, endedAt: null, deadlineAt, canceledAt: null, sessionId, logFile: null, error: null,
-    pages: null, noop: false, agentPid: null, agentExited: null, proc: null, snapshot: null
+    pages: null, noop: false, warnings: [], agentPid: null, agentExited: null, proc: null, snapshot: null
   };
   jobs.set(root, job);
   const finish = (status, patch = {}) => {
@@ -485,7 +526,11 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
           } else if (!claimedNoop && !(await drillsChangedSince(root, job.snapshot))) {
             finish("failed", { error: `agent reported DRILL_PLAN_OK=${sentinel.ok} but nothing under drills/ changed (see log)` });
           } else {
-            finish("done", { pages: pages.length, noop: claimedNoop });
+            finish("done", {
+              pages: pages.length,
+              noop: claimedNoop,
+              warnings: await deadCoverageWarnings(root).catch(() => [])
+            });
           }
         } else {
           finish("failed", { error: `agent session ended (exit ${exitedAtRead}) without printing a DRILL_PLAN_OK/DRILL_PLAN_FAILED line (see log)` });
