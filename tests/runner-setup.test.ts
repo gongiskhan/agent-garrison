@@ -107,8 +107,12 @@ describe("runFittingSetup", () => {
 
   it("own-port projection skips collision-prone keys, empty strings, and objects", () => {
     // The namespaced form is collision-free by construction, so every scalar
-    // projects — including port/host, which can never clash with PORT here.
-    // Only nested values are skipped.
+    // projects — EXCEPT a loopback bind_host, which main deliberately drops so
+    // the instance-wide GARRISON_BIND_HOST governs the bind (dev=0.0.0.0 for
+    // direct tailscale-IP access, prod=127.0.0.1 behind `tailscale serve`); a
+    // projected GARRISON_<ID>_BIND_HOST would outrank and defeat that knob. A
+    // NON-loopback value is a real override and still projects. Nested values
+    // are skipped too.
     expect(ownPortConfigEnv("local-voice", {
       port: 7097,
       bind_host: "127.0.0.1",
@@ -118,7 +122,6 @@ describe("runFittingSetup", () => {
       whisper_lang: "pt",
     })).toEqual({
       GARRISON_LOCALVOICE_PORT: "7097",
-      GARRISON_LOCALVOICE_BIND_HOST: "127.0.0.1",
       GARRISON_LOCALVOICE_GATEWAY_URL: "",
       GARRISON_LOCALVOICE_WAKE_WORD: "",
       GARRISON_LOCALVOICE_WHISPER_LANG: "pt",

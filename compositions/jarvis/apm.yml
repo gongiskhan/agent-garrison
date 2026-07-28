@@ -175,6 +175,10 @@ x-garrison:
             # same port, so dev and prod cannot both run the board.
             port: 7089
             bind_host: 127.0.0.1
+            # Base-family literal: o runner reescreve o loopback por perfil.
+            # Sem isto o dispatch de outposts do kanban cai no fallback
+            # hardcoded e fala com o daemon da instancia errada.
+            outpost_host_url: http://127.0.0.1:3702
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *

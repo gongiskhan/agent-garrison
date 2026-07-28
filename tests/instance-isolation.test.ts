@@ -323,24 +323,44 @@ describe("Codex secondary-instance isolation", () => {
     }
   });
 
-  // Only prod is published to the tailnet. Without this the serve-port formula
-  // (8400 + port%1000) aliases prod's 80xx onto dev's 70xx and whichever
-  // instance ran the script last owns the always-on address.
-  it("refuses to publish a non-prod instance to the tailnet", () => {
+  // main's rule was prod-ONLY, because its serve-port formula (8400 + port%1000)
+  // aliased prod's 80xx onto dev's 70xx - both wanted 8486 - so whichever
+  // instance ran last owned the always-on address. The two-tree split (dev 7xxx
+  // / prod 8xxx) changed the formula to the identity: the serve port IS the
+  // local port, so dev and prod publish disjoint numbers and cannot take each
+  // other's address. dev is therefore allowed; any OTHER profile (codex, whose
+  // +20000 offset would still alias) is still refused.
+  //
+  // NOTE: this relaxes a rule main introduced. It is safe on main's own stated
+  // terms (the aliasing is gone), but it does newly expose the dev tree on the
+  // tailnet, which is a policy call - flagged for review on merge-back.
+  it("refuses to publish an aliasing (non-prod, non-dev) instance to the tailnet", () => {
     const script = path.join(ROOT, "scripts", "tailnet-serve-views.mjs");
     let failed = false;
     try {
       execFileSync("node", [script], {
         cwd: ROOT,
         encoding: "utf8",
-        env: { ...process.env, GARRISON_INSTANCE_ID: "dev" },
+        env: { ...process.env, GARRISON_INSTANCE_ID: "codex" },
         stdio: "pipe"
       });
     } catch (error: any) {
       failed = true;
       expect(String(error.stderr)).toContain("only prod is served");
     }
-    expect(failed, "publishing a dev instance to the tailnet must fail").toBe(true);
+    expect(failed, "publishing a codex instance to the tailnet must fail").toBe(true);
+  });
+
+  // The identity formula is what makes the relaxation above safe. If anyone
+  // reinstates an offset-based serve port, dev and prod alias again and the
+  // prod-only guard must come back with it.
+  it("maps each own-port view to its own local port number on the tailnet", () => {
+    const source = readFileSync(
+      path.join(ROOT, "scripts", "tailnet-serve-views.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("function pickServePort(localPort, used) {");
+    expect(source).toContain("let p = localPort;");
   });
 
   // Two-instance topology on the dev box: THIS checkout is the PRIMARY (main)
