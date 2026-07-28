@@ -776,6 +776,23 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-mic:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-accent); }
 .cc-mic:disabled { opacity: 0.4; cursor: not-allowed; }
 .cc-mic-rec { border-color: #f85149; color: #f85149; }
+
+/* ── Attachments (paste / drop / pick a file) ── */
+.cc-hidden-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.cc-composerrow-dragover { outline: 2px dashed var(--cc-accent); outline-offset: 2px; border-radius: 8px; }
+.cc-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 8px; }
+.cc-attachment-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--cc-bg-elev); color: var(--cc-fg-dim); border: 1px solid var(--cc-border-strong);
+  border-radius: 6px; padding: 3px 6px 3px 3px; font-size: 11px; max-width: 220px;
+}
+.cc-attachment-chip-error { border-color: #f85149; color: #f85149; }
+.cc-attachment-thumb { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+.cc-attachment-icon { flex-shrink: 0; }
+.cc-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-attachment-err { color: #f85149; font-weight: 700; }
+.cc-attachment-x { cursor: pointer; color: var(--cc-fg-faint); line-height: 1; padding: 0 2px; flex-shrink: 0; }
+.cc-attachment-x:hover { color: var(--cc-fg); }
 .cc-mic-dot { width: 12px; height: 12px; border-radius: 50%; background: #f85149; display: inline-block; animation: cc-pulse 1s ease-in-out infinite; }
 .cc-mic-busy { color: var(--cc-accent); border-color: var(--cc-accent); }
 
@@ -1130,5 +1147,221 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* ── Host-aware rendering (issues #1/#3/#4) ───────────────────────────────── */
+/* An operative reply's absolute image paths, rendered inline via /file. */
+.cc-md .cc-inline-img {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border);
+  margin: 6px 0;
+  display: block;
+}
+/* A loopback link with no reachable form from here (not tailnet-published):
+   shown as inert text so the user isn't sent to their own localhost. */
+.cc-unreachable {
+  text-decoration: line-through;
+  color: var(--cc-fg-faint);
+  cursor: not-allowed;
+}
+
+/* ── Rich session transcript (SessionStream) ──────────────────────────────── */
+.cc-session { display: flex; flex-direction: column; min-height: 0; }
+.cc-session-scroll { display: flex; flex-direction: column; gap: 14px; padding: 4px 2px; }
+.cc-session-empty { color: var(--cc-fg-dim); padding: 24px 8px; text-align: center; }
+.cc-session-turn { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--cc-border); border-radius: 10px; background: var(--cc-bg-elev); }
+.cc-session-turn.user { background: transparent; }
+.cc-session-role { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--cc-fg-faint); }
+.cc-session-md { font-size: 14px; line-height: 1.55; }
+.cc-session-md > :first-child { margin-top: 0; }
+.cc-session-md > :last-child { margin-bottom: 0; }
+.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
+.cc-session-pre {
+  margin: 0; padding: 8px 10px; overflow: auto; max-height: 320px;
+  background: var(--cc-code-bg); border: 1px solid var(--cc-code-border);
+  border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+}
+.cc-session-pre.cc-session-result { background: var(--cc-bg-sunk); }
+.cc-session-thinking { border-left: 2px solid var(--cc-border-strong); padding-left: 8px; }
+.cc-session-thinking > summary { cursor: pointer; color: var(--cc-fg-dim); font-style: italic; }
+.cc-session-toolwrap { display: flex; flex-direction: column; gap: 6px; }
+.cc-session-tool { border: 1px solid var(--cc-border); border-radius: 8px; background: var(--cc-bg-sunk); }
+.cc-session-tool > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; }
+.cc-session-tool-ico { color: var(--cc-fg-dim); }
+.cc-session-tool-hint { color: var(--cc-fg-faint); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-session-err { margin-left: auto; color: var(--cc-danger-border); font-size: 11px; text-transform: uppercase; }
+.cc-session-img { max-width: 100%; max-height: 420px; border-radius: 8px; border: 1px solid var(--cc-border); display: block; }
+
+/* ==========================================================================
+   Turn Rail (AttributionRail) — one scrolling line of run-context badges
+   where each settable badge is its own dropdown.
+
+   SPECIFICITY, deliberately: every rule below is written with at least
+   `.cc-root .cc-rail …` (0,2,0 / 0,3,0). Two rules earlier in this file would
+   otherwise out-rank a bare `.cc-rbadge` block and the badges would render in
+   the wrong font, and at the wrong size on touch:
+     • `.cc-root button` (0,1,1) forces --cc-sans on every button;
+     • `@media (pointer: coarse) .cc-root :is(button, .cc-chip, …)` (0,2,0)
+       forces min-height 44px, which would make a settled rail as tall as the
+       reply above it.
+   The class prefix is `.cc-rbadge`, never `.cc-badge` (already taken by the
+   slash-command source chips) — and web-channel's own styles.css is
+   concatenated AFTER this file, so a shared name would be a silent override.
+   ========================================================================== */
+.cc-root {
+  /* Rail-local tokens. Both values are contrast-checked against the surface the
+     rail actually sits on (--cc-bg-elev): >= 4.5:1 at 10px in BOTH themes. The
+     theme's own --cc-danger-border is too dark on the dark composer for 10px
+     text, and --cc-fg-dim is a hair under AA on the light one. */
+  --cc-rail-warn: #e8a598;
+  --cc-rail-fg-dim: #b3b7aa;
+}
+.cc-root[data-theme="light"] {
+  --cc-rail-warn: #8a2f26;
+  --cc-rail-fg-dim: #4f5449;
+}
+
+.cc-root .cc-rail { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cc-root .cc-rail-settled { margin-top: 7px; }
+.cc-root .cc-rail-flight { margin-bottom: 8px; }
+
+/* ONE line, always: never wraps, scrolls horizontally, and the right-edge mask
+   advertises that there is more. The 14px padding-right keeps the fade off the
+   last badge when the rail does NOT overflow, so a short rail reads solid. */
+.cc-root .cc-railscroll {
+  display: flex; align-items: center; gap: 5px; flex: 1 1 auto; min-width: 0;
+  flex-wrap: nowrap; white-space: nowrap;
+  overflow-x: auto; overflow-y: hidden; padding-right: 14px;
+  scrollbar-width: none; -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 14px), transparent 100%);
+}
+.cc-root .cc-railscroll::-webkit-scrollbar { display: none; }
+
+.cc-root .cc-rail .cc-rbadge {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  min-height: 24px; padding: 2px 8px;
+  background: transparent; color: var(--cc-fg); text-decoration: none;
+  border: 1px solid var(--cc-border-strong); border-radius: 2px;
+  font: 10px/1.25 var(--cc-mono); letter-spacing: .05em; white-space: nowrap;
+  cursor: default;
+}
+/* The label is its own flex item so a very long value (a stopped reason, a model
+   id) ellipsizes instead of pushing every other badge off the line. The full text
+   is always in the badge's title. */
+.cc-root .cc-rail .cc-rbadge-label { min-width: 0; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
+.cc-root .cc-rail .cc-rbadge[aria-haspopup="menu"] { cursor: pointer; }
+.cc-root .cc-rail a.cc-rbadge { cursor: pointer; }
+.cc-root .cc-rail .cc-rbadge[aria-disabled="true"] { cursor: default; }
+.cc-root .cc-rail .cc-rbadge[aria-haspopup="menu"]:hover,
+.cc-root .cc-rail a.cc-rbadge:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+
+/* Tones (from run-context's badge model). Order matters: pinned/pending/open are
+   states and must win over the tone they decorate. */
+.cc-root .cc-rail .cc-rbadge-dim { color: var(--cc-rail-fg-dim); }
+.cc-root .cc-rail .cc-rbadge-warn { color: var(--cc-rail-warn); border-color: var(--cc-rail-warn); }
+.cc-root .cc-rail .cc-rbadge-link { color: var(--cc-accent); border-color: color-mix(in srgb, var(--cc-accent) 60%, transparent); }
+.cc-root .cc-rail .cc-rbadge-empty { color: var(--cc-rail-fg-dim); border-style: dotted; }
+.cc-root .cc-rail .cc-rbadge-pinned {
+  color: var(--cc-fg); border-color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 13%, transparent);
+}
+/* A pin that has not reached a turn yet: dashed border plus the "next" marker
+   rendered in the badge (a text label, not a glyph). */
+.cc-root .cc-rail .cc-rbadge-pending { border-style: dashed; border-color: var(--cc-accent); }
+.cc-root .cc-rail .cc-rbadge-next {
+  flex: 0 0 auto; color: var(--cc-accent); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+}
+.cc-root .cc-rail .cc-rbadge-open { border-color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 9%, transparent); }
+
+/* The flight rail is a live control surface, so its targets are bigger than the
+   settled rail's record-of-what-ran. */
+.cc-root .cc-rail-flight .cc-rbadge { min-height: 32px; padding: 4px 9px; }
+
+.cc-root .cc-railend { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.cc-root .cc-railtime { font: 11px/1 var(--cc-mono); color: var(--cc-fg-faint); font-variant-numeric: tabular-nums; }
+.cc-root .cc-rail .cc-railstop {
+  min-height: 32px; padding: 0 10px;
+  font: 10px/1.2 var(--cc-mono); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+}
+.cc-root .cc-rail .cc-railstop-change {
+  background: transparent; color: var(--cc-rail-warn); border-color: var(--cc-rail-warn);
+}
+.cc-root .cc-rail .cc-railclose {
+  min-height: 28px; padding: 0 9px; background: transparent; color: var(--cc-rail-fg-dim);
+  border: 1px solid var(--cc-border-strong); border-radius: 2px; cursor: pointer;
+  font: 10px/1.2 var(--cc-mono); letter-spacing: .06em; text-transform: uppercase;
+}
+.cc-root .cc-rail .cc-railclose:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+
+/* ── The per-badge popover. Copies the .cc-slashmenu precedent (the one floating
+   popup this package already has) rather than inventing a second pattern; no
+   native <select>, which cannot carry a per-row reason. ── */
+.cc-root .cc-railscrim { display: none; }
+.cc-root .cc-rail .cc-railmenu {
+  position: absolute; z-index: 20; left: 0;
+  min-width: 220px; max-width: min(92vw, 420px); max-height: 45dvh; overflow-y: auto;
+  background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 2px;
+  box-shadow: 0 14px 36px rgba(16,21,17,.42);
+}
+.cc-root .cc-rail-flight .cc-railmenu { bottom: calc(100% + 6px); }
+.cc-root .cc-rail-settled .cc-railmenu { top: calc(100% + 6px); }
+.cc-root .cc-rail .cc-railmenu-head {
+  padding: 7px 10px; border-bottom: 1px solid var(--cc-border); color: var(--cc-fg-faint);
+  font: 10px/1.2 var(--cc-mono); letter-spacing: .08em; text-transform: uppercase;
+}
+.cc-root .cc-rail .cc-railitem {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+  min-height: 34px; padding: 7px 10px; text-align: left; text-decoration: none;
+  background: none; border: none; border-bottom: 1px solid var(--cc-border);
+  color: var(--cc-fg); cursor: pointer; font: 12px/1.35 var(--cc-sans);
+}
+.cc-root .cc-rail .cc-railitem-active { background: var(--cc-slash-active); }
+.cc-root .cc-rail .cc-railitem[aria-disabled="true"] { color: var(--cc-rail-fg-dim); cursor: default; }
+.cc-root .cc-rail .cc-railitem-label { font: 11px/1.35 var(--cc-mono); }
+.cc-root .cc-rail .cc-railitem-detail { color: var(--cc-rail-fg-dim); font-size: 11px; }
+.cc-root .cc-rail .cc-railitem-on {
+  color: var(--cc-accent); font: 9px/1.2 var(--cc-mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.cc-root .cc-rail .cc-railitem-link { color: var(--cc-accent); }
+/* The typed escape hatch (model only — there is no model catalog to enumerate). */
+.cc-root .cc-rail .cc-railfree { display: flex; gap: 6px; padding: 8px 10px; }
+.cc-root .cc-rail .cc-railfree-input {
+  flex: 1; min-width: 0; min-height: 32px; padding: 5px 8px;
+  background: var(--cc-bg); color: var(--cc-fg);
+  border: 1px solid var(--cc-border-strong); border-radius: 2px; font: 11px/1.3 var(--cc-mono);
+}
+.cc-root .cc-rail .cc-railfree-set {
+  min-height: 32px; padding: 0 10px; background: var(--cc-accent); color: var(--cc-accent-fg);
+  border: 1px solid var(--cc-accent); border-radius: 2px; cursor: pointer;
+  font: 10px/1.2 var(--cc-mono); letter-spacing: .06em; text-transform: uppercase;
+}
+.cc-root .cc-rail .cc-railfree-set:disabled { opacity: .45; cursor: default; }
+
+/* Separator before the working indicator's activity hint ("Working 0:42 - Edit").
+   A real element rather than CSS `content`, so the dash is part of the DOM text. */
+.cc-root .cc-working-sep { color: var(--cc-fg-faint); font-size: 11px; }
+
+/* Phone: the popover becomes a bottom sheet with a scrim, and every row is a
+   44px target. `.cc-rail .cc-railmenu` matches the settled/flight anchoring rules'
+   specificity and comes later, so it wins without an !important. */
+@media (max-width: 560px) {
+  .cc-root .cc-rail .cc-railmenu {
+    position: fixed; left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); top: auto;
+    min-width: 0; max-width: none; max-height: 55dvh; z-index: 30;
+  }
+  .cc-root .cc-rail .cc-railitem { min-height: 44px; }
+  .cc-root .cc-rail .cc-railfree-input,
+  .cc-root .cc-rail .cc-railfree-set { min-height: 44px; }
+  .cc-root .cc-railscrim { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(9,12,10,.5); }
+}
+
+@media (pointer: coarse) {
+  .cc-root .cc-rail-flight .cc-rbadge,
+  .cc-root .cc-rail .cc-railstop { min-height: 44px; }
+  .cc-root .cc-rail-settled .cc-rbadge { min-height: 30px; }
+  .cc-root .cc-rail .cc-railclose { min-height: 36px; }
 }
 

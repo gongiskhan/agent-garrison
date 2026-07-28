@@ -2,27 +2,50 @@
 // Web-channel Fitting backend — mobile-first browser chat surface.
 //
 // Talks to the Operative through the http-gateway:
-//   - POST /api/chat   → proxies gateway POST /chat/stream (SSE)
-//   - GET  /api/stream → proxies gateway GET  /channels/web/stream (SSE)
+//   - POST /api/chat            → proxies gateway POST /chat/stream (SSE)
+//   - GET  /api/stream          → proxies gateway GET  /channels/web/stream (SSE)
+//   - POST /api/chat/interrupt  → proxies gateway POST /chat/interrupt (Stop)
+//   - GET  /api/route-options   → gateway GET /route/options + the board's /projects
 // Also serves a static React bundle from dist/.
+//
+// Every gateway/board call is fronted same-origin like that: this fitting serves its
+// own origin and the browser is almost never on this box, so it can neither reach
+// Garrison's Next /api/* nor be handed a machine-local upstream URL.
 //
 // LAN bind: default 127.0.0.1 (mirrors CLAUDE.md "talks only to localhost").
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
-import { createReadStream, existsSync, readFileSync, realpathSync } from "node:fs";
-import { mkdir, readFile, unlink, writeFile, appendFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { mkdir, readFile, readdir, unlink, writeFile, appendFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { listThreads, getThread, ensureThread, appendMessages, deleteThread } from "./threads.mjs";
+import {
+  listThreads,
+  getThread,
+  ensureThread,
+  appendMessages,
+  deleteThread,
+  setThreadSession,
+  setThreadRouting,
+  threadExistsSync,
+  sanitizeRouteMeta,
+  sanitizeRouting,
+  markRunning,
+  clearRunning,
+  runningSince,
+  runningThreadIds
+} from "./threads.mjs";
+import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
+import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
 // it so their spawned instances never touch the live install's status files;
-// voice/monitor discovery below reads the same root, so a sandboxed voice
+// voice discovery below reads the same root, so a sandboxed voice
 // instance is still found by a sandboxed web-channel.
 function garrisonDir() {
   const override = process.env.GARRISON_HOME?.trim();
@@ -31,7 +54,6 @@ function garrisonDir() {
 
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
-const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
 const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 
 const CHANNEL_ID = "web";
@@ -42,7 +64,7 @@ function parseArgs(argv) {
     // runner-projected composition config first (per-instance, e.g. main=7083
     // vs codex=27083), then the legacy explicit env (tests), then the default.
     port: Number(process.env.GARRISON_WEBCHANNELDEFAULT_PORT || process.env.WEB_CHANNEL_PORT || 7083),
-    host: process.env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST || process.env.WEB_CHANNEL_HOST || "127.0.0.1",
+    host: process.env.GARRISON_WEBCHANNELDEFAULT_BIND_HOST || process.env.WEB_CHANNEL_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     gatewayUrl: process.env.GARRISON_GATEWAY_URL || "",
     tlsCert: process.env.WEB_CHANNEL_TLS_CERT || "",
     tlsKey: process.env.WEB_CHANNEL_TLS_KEY || ""
@@ -71,30 +93,6 @@ function jsonRes(res, status, body) {
 
 function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
-}
-
-async function handleMonitor(req, res) {
-  if (!existsSync(MONITOR_STATUS_FILE)) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  let info;
-  try {
-    info = JSON.parse(readFileSync(MONITOR_STATUS_FILE, "utf8"));
-  } catch {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  if (!info?.url) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  const ok = await pingHealth(info.url, 500);
-  if (!ok) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  jsonRes(res, 200, { available: true, url: info.url });
 }
 
 function pingHealth(baseUrl, timeoutMs) {
@@ -132,7 +130,7 @@ function readVoiceInfo() {
   }
 }
 
-// Voice availability — mirrors handleMonitor. The web UI hides its mic / speaker
+// Voice availability. The web UI hides its mic / speaker
 // controls when this reports unavailable.
 async function handleVoiceInfo(res) {
   const info = readVoiceInfo();
@@ -315,6 +313,57 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
   upstream.end();
 }
 
+// ── Run context: attribution in, pins out ───────────────────────────────────
+// Contract: docs/decisions/2026-07-25-web-channel-run-context.md (§1, §2, §4, §10).
+
+// Wire spellings the gateway has always used that do NOT match the contract's
+// RouteAttribution field names. Everything else on a `route` / `done` frame is
+// already camelCase, and sanitizeRouteMeta drops whatever is not whitelisted - so
+// only the genuinely-renamed keys need aliasing here. Without this the session id
+// (the one field that makes the per-message transcript drill-down possible) would
+// be silently dropped as an unknown key.
+const FRAME_FIELD_ALIASES = {
+  session_id: "sessionId",
+  transcript_path: "transcriptPath",
+  stopped_by_user: "stoppedByUser",
+  stopped_reason: "stoppedReason"
+};
+
+/**
+ * Normalise a gateway `route` / `done` frame into a persistable RouteAttribution.
+ * Pure; returns null when the frame carried no attribution at all (null and absent
+ * mean the same thing to every consumer - a missing badge, never a fake one).
+ */
+export function attributionFromFrame(frame) {
+  if (!frame || typeof frame !== "object" || Array.isArray(frame)) return null;
+  const merged = { ...frame };
+  for (const [wire, field] of Object.entries(FRAME_FIELD_ALIASES)) {
+    if (Object.hasOwn(frame, wire) && merged[field] === undefined) merged[field] = frame[wire];
+  }
+  return sanitizeRouteMeta(merged);
+}
+
+/**
+ * Effective pins for ONE turn: the thread's persisted TurnRouting with this
+ * request's `routing` laid over it. Per-turn wins, and an explicit null CLEARS that
+ * dimension for this turn only - the persisted pin is untouched, since the rail owns
+ * it through PUT /api/threads/:id/routing. sanitizeRouting cannot express the clear
+ * (it treats null and absent alike), so it is applied here against the raw body.
+ * Returns null when nothing is pinned, so `buildGatewayChatBody` stays byte-identical
+ * for an unpinned turn.
+ */
+export function mergeTurnRouting(pinned, perTurn) {
+  const merged = { ...(sanitizeRouting(pinned) ?? {}), ...(sanitizeRouting(perTurn) ?? {}) };
+  if (perTurn && typeof perTurn === "object" && !Array.isArray(perTurn)) {
+    for (const [key, value] of Object.entries(perTurn)) {
+      // Only a key the sanitizers already accepted can be cleared, so a hostile or
+      // unknown key cannot reach `delete` at all.
+      if (value === null && Object.hasOwn(merged, key)) delete merged[key];
+    }
+  }
+  return Object.keys(merged).length ? merged : null;
+}
+
 // SSE proxy for POST /api/chat with SERVER-SIDE turn persistence. Differs from
 // pipeUpstreamSse in two deliberate ways:
 //   1. It watches the upstream stream for the `done` event and tees the exchange
@@ -323,7 +372,7 @@ function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
 //   2. It does NOT propagate client-close to the gateway request - the turn runs
 //      to `done` server-side so the reply is persisted and the task is never
 //      orphaned invisibly. Writes to a gone client are simply skipped.
-function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessage } = {}) {
+function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessage, overrides } = {}) {
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -343,20 +392,76 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
     try { res.end(); } catch { /* gone */ }
   };
 
+  // Attribution from the PRE-TURN `route` frame (contract §4: the frame is emitted
+  // twice, once right after the route resolves and once folded into `done`). Merged,
+  // never clobbered, so the pre-turn frame survives as the only attribution we have
+  // when the turn never reaches `done`.
+  let preRoute = null;
   let persisted = false;
-  const persistDone = (reply) => {
-    if (persisted || !threadId) return;
-    persisted = true;
-    const messages = [{ role: "user", text: userMessage }];
-    if (typeof reply === "string" && reply.trim()) messages.push({ role: "assistant", text: reply });
+  // Mark this thread as RUNNING for the whole life of the turn. The turn outlives
+  // the browser tab (the proxy keeps streaming and persists on `done`), so a user
+  // who navigates away and back finds a thread whose reply has not landed yet and
+  // no way to tell it apart from an idle one - the reason the channel looked
+  // "stopped" after leaving and returning. markSettled() runs on EVERY exit path
+  // below, including the ones that never reach `done`.
+  if (threadId) markRunning(threadId);
+  const markSettled = () => { if (threadId) clearRunning(threadId); };
+  const writeMessages = (messages) =>
     appendMessages(threadId, messages).catch((err) => {
       console.error(`[web-channel] failed to persist turn into thread ${threadId}: ${err.message}`);
     });
+  // The ask, carrying the pins that were in force when it was sent. Persisted on BOTH
+  // the settled and the failed path: intent is what the user can act on next.
+  const userEntry = () => ({ role: "user", text: userMessage, overrides: overrides ?? undefined });
+
+  const persistDone = (payload) => {
+    markSettled();
+    if (persisted || !threadId) return;
+    persisted = true;
+    const reply = payload?.reply;
+    const messages = [userEntry()];
+    if (typeof reply === "string" && reply.trim()) {
+      // The whole turn, not just its text: the resolved attribution rides in the
+      // message so the badges survive a reload and the 10s thread poll's remount
+      // (contract §10), and so the per-turn sessionId can open THIS turn's transcript
+      // rather than the thread-level last-write-wins one (§12).
+      messages.push({ role: "assistant", text: reply, route: attributionFromFrame({ ...(preRoute ?? {}), ...payload }) ?? undefined });
+    }
+    // The two writes are SEQUENCED, never fired together: both are read-modify-write
+    // on the same thread file (and the store's tmp name is per-pid-per-millisecond, so
+    // two writes in the same tick collide on it too), so running them in parallel loses
+    // whichever landed first - the messages, in practice.
+    void writeMessages(messages).then(() => {
+      // The Claude session id, kept at thread level as well as per message so
+      // /api/session-stream?thread=<id> still resolves without a message id (the
+      // per-message sessionId in `route` is what the per-turn transcript badge uses).
+      const sid = payload?.session_id ?? payload?.sessionId;
+      if (sid) return setThreadSession(threadId, String(sid)).catch(() => {});
+    });
   };
-  // Scan the upstream SSE frames for the `done` event (same block parse as the
-  // browser client). The gateway JSON-stringifies each payload on one data line.
+
+  // Before this, NOTHING was persisted when a turn errored or `done` never arrived -
+  // not even the user's message, so a failed or cancelled turn vanished from the
+  // transcript on the next reload. Keeps whatever the pre-turn route frame already
+  // told us so the rail can still say which lane broke.
+  const persistFailed = (reason) => {
+    markSettled();
+    if (persisted || !threadId) return;
+    persisted = true;
+    const why = String(reason || "turn did not complete").slice(0, 200);
+    // `pending: null` drops the pre-turn frame's pending flag: this turn is over,
+    // badly, and a persisted "still running" marker would be a lie.
+    const route = attributionFromFrame({ ...(preRoute ?? {}), pending: null, stoppedReason: why });
+    void writeMessages([
+      userEntry(),
+      { role: "assistant", text: `_Turn did not complete: ${why}._`, route: route ?? undefined }
+    ]);
+  };
+
+  // Scan the upstream SSE frames (same block parse as the browser client). The
+  // gateway JSON-stringifies each payload on one data line.
   let scanBuf = "";
-  const scanForDone = (chunk) => {
+  const scanUpstream = (chunk) => {
     scanBuf += chunk.toString("utf8");
     let idx;
     while ((idx = scanBuf.indexOf("\n\n")) !== -1) {
@@ -368,10 +473,18 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
         if (line.startsWith("event:")) name = line.slice(6).trim();
         else if (line.startsWith("data:")) data += line.slice(5).trim();
       }
-      if (name !== "done") continue;
+      if (name !== "route" && name !== "done" && name !== "error") continue;
       let payload = {};
       try { payload = data ? JSON.parse(data) : {}; } catch { /* ignore */ }
-      persistDone(payload?.reply);
+      if (name === "route") {
+        preRoute = { ...(preRoute ?? {}), ...payload };
+        continue;
+      }
+      if (name === "error") {
+        persistFailed(String(payload?.error ?? "stream error"));
+        continue;
+      }
+      persistDone(payload);
     }
   };
 
@@ -379,21 +492,29 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
     if (up.statusCode && up.statusCode >= 400) {
       clientWrite(`event: error\ndata: ${JSON.stringify({ error: `upstream ${up.statusCode}` })}\n\n`);
       up.resume();
+      persistFailed(`upstream ${up.statusCode}`);
       clientEnd();
       return;
     }
     up.on("data", (chunk) => {
-      scanForDone(chunk);
+      scanUpstream(chunk);
       clientWrite(chunk);
     });
-    up.on("end", () => clientEnd());
+    up.on("end", () => {
+      // End WITHOUT a done frame: the gateway died, was restarted, or the turn was
+      // killed upstream. The latch means a normal end after `done` is a no-op.
+      persistFailed("the gateway stream ended without a done event");
+      clientEnd();
+    });
     up.on("error", (err) => {
       clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+      persistFailed(err.message);
       clientEnd();
     });
   });
   upstream.on("error", (err) => {
     clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+    persistFailed(err.message);
     clientEnd();
   });
   if (upstreamBody !== undefined) {
@@ -453,6 +574,37 @@ async function handleClaudeProxy(req, res, opts, subpath, method) {
     try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
   });
   if (payload !== undefined) upstream.write(payload);
+  upstream.end();
+}
+
+// Attach/paste uploads: proxy /api/attachments to the gateway's POST /attachments
+// (filename + base64 content in, {path, bytes} out — the gateway saves the file
+// to disk under its own uploads dir; Claude reads it back by path). Base64
+// inflates payloads ~33%, so this needs a bigger body cap than the default
+// readJsonBody limit — matched to the gateway's own 10MB MAX_UPLOAD_BYTES plus
+// headroom for the JSON envelope.
+const MAX_ATTACHMENT_BODY = 14 * 1024 * 1024;
+async function handleAttachments(req, res, opts) {
+  let payload;
+  try {
+    payload = JSON.stringify(await readJsonBody(req, MAX_ATTACHMENT_BODY));
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const target = new URL("/attachments", opts.gatewayUrl);
+  const headers = { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) };
+  const upstream = http.request(
+    { method: "POST", hostname: target.hostname, port: target.port, path: target.pathname, headers },
+    (up) => {
+      res.statusCode = up.statusCode || 502;
+      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (err) => {
+    try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
+  });
+  upstream.write(payload);
   upstream.end();
 }
 
@@ -565,7 +717,7 @@ async function handleBriefPut(req, res) {
 //   - context present          → adds `context` (forwarded untouched)
 //   - mode present (non-empty) → adds `mode`
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, mode, classification, sessionId } = {}) {
+export function buildGatewayChatBody({ message, context, mode, classification, sessionId, routing, turnSeq } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
   if (typeof mode === "string" && mode.trim()) body.mode = mode.trim();
@@ -578,6 +730,15 @@ export function buildGatewayChatBody({ message, context, mode, classification, s
   // "design a process" prompt trips Anthropic's usage-policy classifier). The gateway
   // validates it (routeHintsFromBody); a malformed hint is simply ignored there.
   if (classification && typeof classification === "object") body.classification = classification;
+  // The turn's effective pins (contract §3: body.routing -> routeHintsFromBody ->
+  // applyTurnOverride). Emitted only when something is actually pinned - an unpinned
+  // turn's body must stay byte-identical to the pre-run-context shape.
+  if (routing && typeof routing === "object" && !Array.isArray(routing) && Object.keys(routing).length > 0) {
+    body.routing = routing;
+  }
+  // Monotonic per-send counter (contract §5). The gateway echoes it on both `route`
+  // frames so the client can DROP a frame belonging to an older turn.
+  if (Number.isInteger(turnSeq) && turnSeq >= 0) body.turnSeq = turnSeq;
   return body;
 }
 
@@ -717,9 +878,24 @@ async function handleChat(req, res, opts) {
   // back to any client-supplied context when there is no thread id.
   const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId);
   void appendMaterializedTurn(telemetry);
+  // The pins in force for THIS turn: the thread's persisted (conversation-sticky)
+  // TurnRouting with the request's own `routing` laid over it. Read the thread again
+  // rather than threading it out of the context assembly above - that helper's return
+  // shape is a pinned contract of its own (tests/s3b-materialized.test.ts) and a
+  // thread file is a couple of KB.
+  const pinned = threadId ? (await getThread(threadId))?.routing ?? null : null;
+  const routing = mergeTurnRouting(pinned, body?.routing);
   // Forward the assembled context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
-    buildGatewayChatBody({ message, context: assembledContext ?? body?.context, mode: body?.mode, classification: body?.classification, sessionId: threadId })
+    buildGatewayChatBody({
+      message,
+      context: assembledContext ?? body?.context,
+      mode: body?.mode,
+      classification: body?.classification,
+      sessionId: threadId,
+      routing,
+      turnSeq: body?.turnSeq
+    })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
   pipeChatSse(req, res, {
@@ -732,20 +908,15 @@ async function handleChat(req, res, opts) {
       "Content-Length": Buffer.byteLength(payload),
       Accept: "text/event-stream"
     }
-  }, payload, { threadId, userMessage: message });
+  }, payload, { threadId, userMessage: message, overrides: routing });
 }
 
-// Answer an AskUserQuestion picker (a tapped option label / free text / dismiss).
-// Buffers the JSON and forwards to the gateway's POST /chat/answer, which drives
-// the live TUI picker. Same shape as handleClaudeProxy but on the /chat path.
-async function handleChatAnswer(req, res, opts) {
-  let payload;
-  try {
-    payload = JSON.stringify(await readJsonBody(req));
-  } catch (err) {
-    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
-  }
-  const target = new URL("/chat/answer", opts.gatewayUrl);
+// POST a JSON object to a gateway path and stream the reply straight back. The
+// browser only ever talks to this origin (the tailnet rule: it can be anywhere), so
+// every gateway call is same-origin-fronted like this one.
+function postGatewayJson(res, opts, subpath, bodyObj) {
+  const payload = JSON.stringify(bodyObj ?? {});
+  const target = new URL(subpath, opts.gatewayUrl);
   const upstream = http.request(
     {
       method: "POST",
@@ -771,13 +942,134 @@ async function handleChatAnswer(req, res, opts) {
   upstream.end();
 }
 
+// Answer an AskUserQuestion picker (a tapped option label / free text / dismiss).
+// Buffers the JSON and forwards to the gateway's POST /chat/answer, which drives
+// the live TUI picker. Same shape as handleClaudeProxy but on the /chat path.
+async function handleChatAnswer(req, res, opts) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  postGatewayJson(res, opts, "/chat/answer", body);
+}
+
+// Stop the turn this conversation is running (contract §9). The gateway keys its
+// activeTurns map by the session id it was handed, which for a channel turn is the
+// THREAD id (handleChat forwards it as `sessionId`); with no thread the gateway fell
+// back to the channel name, so mirror that fallback here or a threadless ad-hoc turn
+// would be uncancellable.
+async function handleChatInterrupt(req, res, opts) {
+  let body = {};
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  const raw = typeof body?.sessionId === "string" && body.sessionId.trim()
+    ? body.sessionId
+    : (typeof body?.thread === "string" && body.thread.trim() ? body.thread : CHANNEL_ID);
+  postGatewayJson(res, opts, "/chat/interrupt", { sessionId: raw.trim() });
+}
+
+// ── Route options (one read for every rail menu, contract §11) ───────────────
+// Merges the gateway's GET /route/options (targets / duties / efforts / accounts)
+// with the kanban board's existing GET /projects - projects are deliberately NOT
+// re-scanned here; the dev-root scan already exists in the board. Exposed
+// same-origin because this fitting serves its own origin and the browser is almost
+// never on this box, so it can neither reach Garrison's Next /api/* nor be handed a
+// machine-local gateway URL.
+//
+// Degradation is per-DIMENSION, never global: a dead gateway still yields the
+// project list and vice versa, because an options read must never be able to block
+// the chat surface. An empty list is the UI's signal that the dimension is
+// read-only - we never fabricate entries.
+const OPTIONS_TTL_MS = 10_000;
+const OPTIONS_DEGRADED_TTL_MS = 2_000;
+const EMPTY_ROUTE_OPTIONS = {
+  targets: [],
+  duties: [],
+  selectedDuties: [],
+  efforts: [],
+  accounts: [],
+  account: null,
+  primaryRuntime: null,
+  activeProfile: null
+};
+let optionsCache = null; // { expiresAt, body }
+
+async function fetchGatewayRouteOptions(opts) {
+  try {
+    const target = new URL("/route/options", opts.gatewayUrl);
+    const r = await fetch(target, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && typeof j === "object" && !Array.isArray(j) ? j : null;
+  } catch {
+    return null;
+  }
+}
+
+// The board's GET /projects → { devRoot, projects: [{ name, path }] }. Only the NAME
+// travels on: a pin is a dev-root child name (contract §2), the absolute path is the
+// gateway's business (it resolves and confines it) and would be meaningless on a
+// phone.
+async function fetchBoardProjectNames() {
+  const base = boardBaseUrl();
+  if (!base) return null;
+  try {
+    const r = await fetch(`${base}/projects`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(2000) });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const list = Array.isArray(j?.projects) ? j.projects : null;
+    if (!list) return null;
+    return list
+      .map((p) => (typeof p === "string" ? p : typeof p?.name === "string" ? p.name : ""))
+      .filter((n) => n.trim())
+      .map((n) => n.trim());
+  } catch {
+    return null;
+  }
+}
+
+async function handleRouteOptions(req, res, opts) {
+  const parsed = url.parse(req.url || "", true);
+  // `?refresh=1` bypasses the cache - the menu is reopened after starting the board
+  // or the operative, and a 10s stale "nothing available" reads as a broken UI.
+  const refresh = parsed.query.refresh === "1" || parsed.query.refresh === "true";
+  if (!refresh && optionsCache && optionsCache.expiresAt > Date.now()) {
+    return jsonRes(res, 200, optionsCache.body);
+  }
+  const [gateway, projects] = await Promise.all([fetchGatewayRouteOptions(opts), fetchBoardProjectNames()]);
+  const body = {
+    ...EMPTY_ROUTE_OPTIONS,
+    ...(gateway ?? {}),
+    projects: projects ?? [],
+    // Which sub-fetches answered, so the UI can say "board not running" on a
+    // disabled row instead of implying the user has no projects.
+    sources: { gateway: gateway !== null, board: projects !== null }
+  };
+  // A degraded answer is cached only briefly: the missing side is usually a fitting
+  // that is still coming up, and pinning that for a full TTL is the wrong trade.
+  const ttl = body.sources.gateway && body.sources.board ? OPTIONS_TTL_MS : OPTIONS_DEGRADED_TTL_MS;
+  optionsCache = { expiresAt: Date.now() + ttl, body };
+  jsonRes(res, 200, body);
+}
+
 // ── Conversation threads (session list + history) ──────────────────────────
 // Generic, opaque-keyed transcript organizer over the one rolling operative. The
 // server persists each completed exchange itself (handleChat tees the upstream
 // `done` event into the thread the client named) and lists/serves prior threads
 // so the UI can show a session list and move between conversations.
 async function handleThreadsList(res) {
-  jsonRes(res, 200, { threads: await listThreads() });
+  // `runningSince` rides the list so the sidebar can mark which conversations
+  // have a turn in flight, not just the one that is open.
+  const running = new Set(runningThreadIds());
+  const threads = (await listThreads()).map((t) =>
+    running.has(t.id) ? { ...t, runningSince: runningSince(t.id) } : t
+  );
+  jsonRes(res, 200, { threads });
 }
 
 async function handleThreadCreate(req, res) {
@@ -796,7 +1088,10 @@ async function handleThreadCreate(req, res) {
 async function handleThreadGet(res, id) {
   const thread = await getThread(id);
   if (!thread) return jsonRes(res, 404, { error: "thread not found" });
-  jsonRes(res, 200, { thread });
+  // The client rebuilds a reopened thread from persisted history, which is empty
+  // for a turn still in flight. Without this it cannot tell "idle" from "working"
+  // and the conversation looks dead until the reply lands.
+  jsonRes(res, 200, { thread: { ...thread, runningSince: runningSince(id) } });
 }
 
 async function handleThreadAppend(req, res, id) {
@@ -807,6 +1102,28 @@ async function handleThreadAppend(req, res, id) {
   } catch (err) {
     jsonRes(res, 400, { error: err.message });
   }
+}
+
+// The thread's pinned run context (contract §13). Autosave semantics, no Save
+// button: the rail PUTs on every change and the store skips the write when the pin is
+// unchanged, so a re-assert on the 10s poll neither rewrites nor re-sorts the thread.
+async function handleThreadRoutingGet(res, id) {
+  const thread = await getThread(id);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found" });
+  jsonRes(res, 200, { routing: thread.routing ?? null });
+}
+
+async function handleThreadRoutingPut(req, res, id) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  // A pin never conjures a thread, and setThreadRouting returns null for BOTH "cleared"
+  // and "no such thread" - so check existence first rather than answering 200/null to a
+  // write that went nowhere.
+  if (!threadExistsSync(id)) return jsonRes(res, 404, { error: "thread not found" });
+  // Accept the documented { routing: {...} } envelope or a bare pin object, so a client
+  // that PUTs the pin directly does not silently CLEAR it.
+  const raw = body && typeof body === "object" && !Array.isArray(body) && Object.hasOwn(body, "routing") ? body.routing : body;
+  jsonRes(res, 200, { routing: await setThreadRouting(id, raw) });
 }
 
 async function handleThreadDelete(res, id) {
@@ -827,8 +1144,155 @@ function routeThreads(req, res, pathname, method) {
     if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
     if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "messages" && method === "POST") { void handleThreadAppend(req, res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "routing" && method === "GET") { void handleThreadRoutingGet(res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "routing" && method === "PUT") { void handleThreadRoutingPut(req, res, id); return true; }
   }
   return false;
+}
+
+// ── Host-aware URL + file rendering (issues #3/#4) ──────────────────────────
+// Same-origin serve map so the chat's host-rewriter turns a baked loopback link
+// (e.g. a Kanban card URL) into the reachable tailnet URL for wherever the
+// client is. This origin's own `tailscale serve` mapping fronts it.
+async function handleHostMap(res) {
+  let map = new Map();
+  try { map = await getTailnetServeMap(); } catch { /* empty */ }
+  jsonRes(res, 200, { map: Object.fromEntries(map) });
+}
+
+const FILE_IMAGE_MIME = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp"
+};
+const FILE_TEXT_MIME = {
+  ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
+  ".json": "application/json; charset=utf-8", ".log": "text/plain; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8", ".yml": "text/plain; charset=utf-8",
+  ".yaml": "text/plain; charset=utf-8", ".pdf": "application/pdf"
+};
+const FILE_SENSITIVE = /(?:^|\/)(?:\.env(?:\.|$)|id_rsa|id_ed25519|[^/]*\.pem|vault\.json)|\/\.git\//i;
+
+// realpath the target and require it to stay within one of `roots` (realpath
+// collapses any symlink in the chain, so a symlink can't escape).
+function realpathConfined(target, roots) {
+  let real;
+  try { real = realpathSync(target); } catch { return null; }
+  for (const root of roots) {
+    let realRoot;
+    try { realRoot = realpathSync(root); } catch { continue; }
+    if (real === realRoot || real.startsWith(realRoot + path.sep)) return real;
+  }
+  return null;
+}
+
+// Serve an operative reply's absolute file paths (attachments under the
+// composition's .garrison/uploads, run artifacts) as inline images / links.
+// Confined by realpath to Garrison-owned roots; never trusts the raw path.
+function handleFile(req, res) {
+  const parsed = url.parse(req.url || "", true);
+  const raw = typeof parsed.query.path === "string" ? parsed.query.path : "";
+  if (!raw || !path.isAbsolute(raw)) return jsonRes(res, 400, { error: "absolute path required" });
+  if (FILE_SENSITIVE.test(raw)) return jsonRes(res, 403, { error: "forbidden" });
+  const compDir = process.env.GARRISON_COMPOSITION_DIR || process.cwd();
+  const roots = [path.join(compDir, ".garrison", "uploads"), path.join(garrisonDir(), "runs"), compDir];
+  const confined = realpathConfined(raw, roots);
+  if (!confined) return jsonRes(res, 404, { error: "not found or out of bounds" });
+  let stat;
+  try { stat = statSync(confined); } catch { return jsonRes(res, 404, { error: "not found" }); }
+  if (!stat.isFile()) return jsonRes(res, 404, { error: "not a file" });
+  const ext = path.extname(confined).toLowerCase();
+  const image = FILE_IMAGE_MIME[ext];
+  const text = FILE_TEXT_MIME[ext];
+  res.statusCode = 200;
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+  res.setHeader("Cache-Control", "private, max-age=60");
+  if (image) res.setHeader("Content-Type", image);
+  else if (text) res.setHeader("Content-Type", text);
+  else {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(confined).replace(/["\r\n]/g, "")}"`);
+  }
+  createReadStream(confined).pipe(res);
+}
+
+// ── Rich transcript (issue #1 on the web channel) ───────────────────────────
+// Root of Claude Code's per-session JSONL transcripts. Mirrors
+// packages/claude-pty/src/paths.mjs claudeProjectsDir().
+function claudeProjectsRoot() {
+  const override = process.env.GARRISON_CLAUDE_PROJECTS_DIR?.trim();
+  if (override) return override;
+  const home = process.env.GARRISON_CLAUDE_HOME?.trim();
+  if (home) return path.join(home, "projects");
+  return path.join(os.homedir(), ".claude", "projects");
+}
+
+// Find <sessionId>.jsonl by globbing every project dir - session ids are unique,
+// so this sidesteps any cwd-encoding mismatch (the CLAUDE_CONFIG_DIR / SDK-cwd
+// seam) between where the operative journaled and how we'd encode the dir.
+async function findTranscriptBySession(sessionId) {
+  if (!sessionId || !/^[A-Za-z0-9._-]+$/.test(sessionId)) return null;
+  const root = claudeProjectsRoot();
+  let dirs = [];
+  try { dirs = await readdir(root); } catch { return null; }
+  for (const dir of dirs) {
+    const candidate = path.join(root, dir, `${sessionId}.jsonl`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+// SSE stream of a thread's (or an explicit session's) Claude transcript: the
+// structured blocks (text / collapsible thinking / tool calls / inline images)
+// the plain-text chat stream drops. Tails live; the client closes it.
+async function handleSessionStream(req, res) {
+  const parsed = url.parse(req.url || "", true);
+  const threadId = typeof parsed.query.thread === "string" ? parsed.query.thread : null;
+  let sessionId = typeof parsed.query.session === "string" ? parsed.query.session : null;
+  if (!sessionId && threadId) {
+    const thread = await getThread(threadId);
+    sessionId = thread?.claudeSessionId ?? null;
+  }
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  const emit = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
+
+  const abs = sessionId ? await findTranscriptBySession(sessionId) : null;
+  if (!abs) {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    return res.end();
+  }
+  let offset = 0;
+  try {
+    const first = await readJsonlLines(abs, 0);
+    offset = first.offset;
+    const { events, title } = parseTranscriptLines(first.lines);
+    emit({ type: "init", available: true, live: true, title, events });
+  } catch {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    return res.end();
+  }
+  let closed = false;
+  const stop = () => { closed = true; clearInterval(keep); clearInterval(poll); };
+  const keep = setInterval(() => { if (!closed) { try { res.write(": keep-alive\n\n"); } catch { stop(); } } }, 15000);
+  const poll = setInterval(async () => {
+    if (closed) return;
+    try {
+      const next = await readJsonlLines(abs, offset);
+      if (next.lines.length) {
+        offset = next.offset;
+        const { events, title } = parseTranscriptLines(next.lines);
+        if (events.length) emit({ type: "events", title, events });
+      }
+    } catch { /* transient read error; retry next tick */ }
+  }, 800);
+  req.on("close", stop);
+  res.on("close", stop);
 }
 
 function serveStatic(req, res, distDir) {
@@ -951,6 +1415,11 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
+      // Host-aware URL/file rendering + rich transcript (issues #1/#3/#4). Root
+      // paths (not /api/*) so they inherit this origin's tailscale serve mapping.
+      if (pathname === "/host-map" && method === "GET") return handleHostMap(res);
+      if (pathname === "/file" && method === "GET") return handleFile(req, res);
+      if (pathname === "/api/session-stream" && method === "GET") return handleSessionStream(req, res);
       // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
       // same-origin; relay to the Power fitting via its status file. Power
       // absent → 204 silently (advisory).
@@ -969,14 +1438,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         res.statusCode = 204;
         return res.end();
       }
-      if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
       if (pathname === "/api/voice/health" && method === "GET") return handleVoiceHealth(res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
       if (pathname === "/api/chat/answer" && method === "POST") return handleChatAnswer(req, res, liveOpts);
+      if (pathname === "/api/chat/interrupt" && method === "POST") return handleChatInterrupt(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
+      if (pathname === "/api/route-options" && method === "GET") return handleRouteOptions(req, res, liveOpts);
       if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
       if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
       if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method)) return;
@@ -988,6 +1458,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/claude/mode" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "mode", "POST");
       if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
       if (pathname === "/api/claude/answer" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "answer", "POST");
+      if (pathname === "/api/attachments" && method === "POST") return handleAttachments(req, res, liveOpts);
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;

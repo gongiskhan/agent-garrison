@@ -17,13 +17,16 @@ dependencies:
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
+    - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/huggingface-runtime
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
@@ -85,7 +88,8 @@ x-garrison:
             dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
-          config: {}
+          config:
+            account: auto
         - id: garrison-call
           config: {}
         - id: codex-runtime
@@ -96,18 +100,19 @@ x-garrison:
           config: {}
         - id: agent-sdk-runtime
           config:
-            provider: ollama-local
+            provider: anthropic
             model: ''
-            promptMode: full
-            maxTurns: 12
-      design:
-        - id: taste
-          config: {}
-      building:
-        - id: drill
+            promptMode: coding
+            maxTurns: 500
+            account: ''
+        - id: openrouter-runtime
           config:
-            port: 7096
-            bind_host: 127.0.0.1
+            model: anthropic/claude-sonnet-5
+            account: ''
+        - id: huggingface-runtime
+          config:
+            model: deepseek-ai/DeepSeek-V4-Pro
+            account: ''
       memory:
         - id: basic-memory
           config:
@@ -151,6 +156,7 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
+            outpost_host_url: http://127.0.0.1:3702
       sessions:
         - id: garrison-assistant
           config:
@@ -205,6 +211,14 @@ x-garrison:
         - id: identity-gary
           config:
             user_name: the user
+      building:
+        - id: drill
+          config:
+            port: 7096
+            bind_host: 127.0.0.1
+      design:
+        - id: taste
+          config: {}
       connectors:
         - id: deepgram-voice
           config:
@@ -215,6 +229,8 @@ x-garrison:
         - id: trello
           config:
             board_id: vl1Z8KFH
+        - id: google
+          config: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
       soul: .garrison/prompts/soul.md
@@ -270,8 +286,8 @@ x-garrison:
         description: Talk a problem through and write a brief when the thinking settles.
         levels:
           - description: >-
-              level 1: quick discussion - talk a focused question or tradeoff through
-              in prose, then write the brief when the thinking settles.
+              level 1: quick discussion - talk a focused question or tradeoff through in prose, then
+              write the brief when the thinking settles.
             cell:
               target: cc-sonnet
               effort: medium
@@ -365,18 +381,16 @@ x-garrison:
       - id: drill
         title: Drill
         description: >-
-          Plan-driven, page-level QA: author or update the Drill Book for
-          changed pages, gate for approval (configurable), then run the plan
-          (vision or graduated e2e) per selected viewport and report
-          findings. One duty, two internal stages (plan, then run) with a
-          gate between (R7). Replaces the Walkthrough evidence job and the
-          separate Validate phase (D8); absorbs Adversarial Test as a second,
-          blind, vision-forced run (R12).
+          Plan-driven, page-level QA: author or update the Drill Book for changed pages, gate for
+          approval (configurable), then run the plan (vision or graduated e2e) per selected viewport
+          and report findings. One duty, two internal stages (plan, then run) with a gate between
+          (R7). Replaces the Walkthrough evidence job and the separate Validate phase (D8); absorbs
+          Adversarial Test as a second, blind, vision-forced run (R12).
         gate: explicit
         levels:
           - description: >-
-              standard drill pass: plan/update the plan for changed pages,
-              gate for approval, then run and report findings.
+              standard drill pass: plan/update the plan for changed pages, gate for approval, then
+              run and report findings.
             cell:
               target: cc-sonnet
               effort: medium
@@ -392,9 +406,6 @@ x-garrison:
             cell:
               target: sol
               effort: high
-      # PARKED (D3/D8/F8, BRIEF-DRILL-V1): not deleted, deselected below.
-      # Absorbed by drill's blind second run (R12) — a fresh-context,
-      # vision-forced, cache-bypassed pass over the same plan.
       - id: adversarial-test
         title: Adversarial Test
         description: Independent cross-model attempt to break the change.
@@ -419,9 +430,6 @@ x-garrison:
             cell:
               target: fable
               effort: high
-      # PARKED (D3/D8/F2, BRIEF-DRILL-V1): not deleted, deselected below.
-      # Its evidence job is subsumed by drill's per-step evidence capture
-      # (engine delta 7) plus automations-grown video recording (roadmap).
       - id: walkthrough
         title: Walkthrough
         description: Record a self-verified evidence walkthrough (video) of a working flow.
@@ -430,8 +438,6 @@ x-garrison:
             cell:
               target: opus
               effort: high
-      # PARKED (D8, BRIEF-DRILL-V1) — already unselected before this change;
-      # drill run verdicts + feedback ARE the validation now.
       - id: validate
         title: Validate
         description: Run the validation pipeline over the work.
@@ -482,10 +488,6 @@ x-garrison:
       - ux-qa
       - probe-question
       - dispatch
-      # PARKED, not deleted (D3/D8/F2/F8, BRIEF-DRILL-V1): adversarial-test
-      # and walkthrough — see their duties: entries above for why.
-      # - adversarial-test
-      # - walkthrough
     targets:
       - id: dispatch-fast
         runtime: garrison-call
@@ -494,19 +496,20 @@ x-garrison:
         params:
           type: single-shot
       - id: cc-haiku
-        runtime: claude-code
+        runtime: agent-sdk
         model: haiku
-        provider: anthropic-plan
+        provider: anthropic
         params:
           type: runtime-target
+          promptMode: coding
       - id: cc-ollama-qwen
-        runtime: claude-code
+        runtime: agent-sdk
         model: qwen2.5-coder
         provider: ollama-local
         params:
           type: runtime-target
       - id: cc-ollama-deepseek
-        runtime: claude-code
+        runtime: agent-sdk
         model: deepseek-coder-v2
         provider: ollama-local
         params:
@@ -522,9 +525,9 @@ x-garrison:
         params:
           type: secondary
       - id: classifier
-        runtime: claude-code
+        runtime: agent-sdk
         model: haiku
-        provider: anthropic-plan
+        provider: anthropic
         params:
           type: runtime-target
           pinned: true
@@ -559,17 +562,21 @@ x-garrison:
             output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
             tool. No prose before or after. No imports unless explicitly requested.
       - id: cc-opus
-        runtime: claude-code
+        runtime: agent-sdk
         model: opus
-        provider: anthropic-plan
+        provider: anthropic
         params:
           type: runtime-target
+          promptMode: coding
+          maxTurns: 100
       - id: cc-sonnet
-        runtime: claude-code
+        runtime: agent-sdk
         model: sonnet
-        provider: anthropic-plan
+        provider: anthropic
         params:
           type: runtime-target
+          promptMode: coding
+          maxTurns: 100
       - id: sdk-haiku
         runtime: agent-sdk
         model: claude-haiku-4-5
@@ -592,16 +599,20 @@ x-garrison:
           type: secondary
           authMode: api-key
       - id: fable
-        runtime: claude-code
+        runtime: agent-sdk
         model: claude-fable-5
-        provider: anthropic-plan
+        provider: anthropic
         params:
           type: runtime-target
           authMode: subscription
+          promptMode: coding
+          maxTurns: 100
       - id: opus
-        runtime: claude-code
-        model: claude-opus-4.8
-        provider: anthropic-plan
+        runtime: agent-sdk
+        model: claude-opus-4-8
+        provider: anthropic
         params:
           type: runtime-target
           authMode: subscription
+          promptMode: coding
+          maxTurns: 100

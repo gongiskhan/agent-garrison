@@ -18,12 +18,16 @@ import {
 } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
-import { selectSteps, compileStepAutomation } from "../lib/compile.mjs";
+import {
+  selectSteps, compileStepAutomation,
+  hasAuth, resolveAuthUrl, authSuccess, compileAuthProbe, compileAuthLogin, AUTH_VERIFY_STEP
+} from "../lib/compile.mjs";
+import { readAuthState, writeAuthState, authFingerprint } from "../lib/auth-state.mjs";
 import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
 import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
-import { runInline, getRun as getAutomationRun, getStepEvidence, checkAutomationsHealth } from "../lib/automations-client.mjs";
+import { runInline, getRun as getAutomationRun, getStepEvidence, ensureAutomationsUp } from "../lib/automations-client.mjs";
 import {
   legacyInfrastructureFailure,
   terminalFromAutomationRun,
@@ -42,7 +46,11 @@ import {
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
+import { buildTightVideo } from "../lib/video-tighten.mjs";
 import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
+import {
+  readJsonlLines, parseTranscriptLines, linesInWindow, noteRunSession, sessionSliceName
+} from "../lib/session-transcript.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
@@ -58,6 +66,158 @@ const authoringTabs = new Map(); // "<root>|<pageId>|<viewportId>" -> tabId
 // auth continuity comes from the capture session's default-context
 // storageState seed.
 let liveReplay = null; // { sessionId, tabId, runId, pageId, stepId, viewportId, startedAt, replayed }
+
+// ── Live run observability (S31) ────────────────────────────────────────────
+// In-flight runs are held here so the UI can discover them (GET
+// /api/runs/active), stream per-check progress (GET /api/runs/:id/events,
+// SSE), and follow the verify sessions live. The disk record is ALSO saved
+// incrementally after every check - this registry only adds the push channel
+// and the current-check pointer; a poller reading the record sees the same
+// state one save behind.
+const activeRuns = new Map(); // runId -> { record, events, listeners, done, current, lastActivityAt }
+const RUN_EVENT_CAP = 4000;
+const FINISHED_RUN_LINGER_MS = 60_000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const SSE_HEADERS = {
+  "content-type": "text/event-stream",
+  "cache-control": "no-cache, no-transform",
+  connection: "keep-alive",
+  "x-accel-buffering": "no"
+};
+
+function registerActiveRun(record) {
+  const entry = {
+    record,
+    events: [],
+    listeners: new Set(),
+    done: false,
+    current: null,
+    lastActivityAt: new Date().toISOString()
+  };
+  activeRuns.set(record.id, entry);
+  return entry;
+}
+
+function publishRunEvent(runId, event) {
+  const entry = activeRuns.get(runId);
+  if (!entry) return;
+  const ev = { at: new Date().toISOString(), ...event };
+  entry.events.push(ev);
+  if (entry.events.length > RUN_EVENT_CAP) entry.events.splice(0, entry.events.length - RUN_EVENT_CAP);
+  entry.lastActivityAt = ev.at;
+  const framed = `data: ${JSON.stringify(ev)}\n\n`;
+  for (const listener of entry.listeners) {
+    try {
+      listener.write(framed);
+    } catch {
+      entry.listeners.delete(listener);
+    }
+  }
+  if (ev.type === "run_finished") {
+    entry.done = true;
+    for (const listener of entry.listeners) {
+      try { listener.end(); } catch { /* already closed */ }
+    }
+    entry.listeners.clear();
+    // Late subscribers can replay the buffer briefly; after that the disk
+    // record is the single (and complete) source.
+    const timer = setTimeout(() => activeRuns.delete(runId), FINISHED_RUN_LINGER_MS);
+    timer.unref?.();
+  }
+}
+
+// Establish the app's authenticated session ONCE before a run's checks (A-auth).
+// Runs in the SHARED browser context (no captureSession) so the login persists
+// to the browser fitting's persistent profile and the run's capture session —
+// created after this — seeds already-logged-in. A cheap probe reuses the cached
+// session; the full login flow runs only on a miss or a Book-configured TTL
+// refresh. Auth is infrastructure to reach the tested state, not a spec, so it
+// never bypasses its own action/assertion cache even during a blind run.
+// Returns { ok: true, via } or { ok: false, terminal, infra }.
+async function ensureAuthenticated(book, { contextTag, viewport, root }) {
+  const success = authSuccess(book);
+  const fingerprint = authFingerprint(book.auth);
+  const prior = await readAuthState(root);
+  const ttlMin = Number(book.auth?.cacheMinutes);
+  const ttlMs = Number.isFinite(ttlMin) && ttlMin > 0 ? ttlMin * 60000 : null;
+  // A prior record only counts when it was written under THIS auth config — a
+  // changed login (different user/flow) must never be satisfied by the old
+  // session. loggedInAt is anchored to the last FULL login, so cacheMinutes
+  // measures real session age, not time-since-last-probe.
+  const priorFresh = prior && prior.fingerprint === fingerprint && prior.loggedInAt;
+  const stale = ttlMs && priorFresh ? Date.now() - Date.parse(prior.loggedInAt) > ttlMs : false;
+  // Force the full login flow when there is no fresh same-config record (first
+  // run, or the login config changed) OR the cached session is past its TTL —
+  // only then is the cheap probe trustworthy. This also skips the wasteful
+  // probe on the very first run (nothing to reuse yet).
+  const mustFlow = stale || !priorFresh;
+
+  const runAuth = async (automation, expectStep) => {
+    try {
+      const response = await runInline({ automation, contextTag, bypassCache: false, viewport, sync: true });
+      const run = response?.run;
+      if (expectStep) return terminalFromAutomationRun(run, expectStep);
+      // No success signal to verify: a completed run is our only pass evidence.
+      return run?.status === "completed"
+        ? { kind: "passed", source: "auth", code: "completed", component: "auth" }
+        : terminalFromAutomationRun(run, automation.steps.at(-1)?.id);
+    } catch (err) {
+      return terminalFromTransportError(err);
+    }
+  };
+
+  // Probe first: cheap reuse of the persistent session (navigate + a cached
+  // assertion). A cache hit advances lastProbedAt only — never loggedInAt — so
+  // the TTL clock keeps ticking against the last real login.
+  if (success && !mustFlow) {
+    const probe = await runAuth(compileAuthProbe(book), AUTH_VERIFY_STEP);
+    if (probe.kind === "passed") {
+      await writeAuthState(root, { ...prior, via: "cache", lastProbedAt: new Date().toISOString(), fingerprint }).catch(() => {});
+      return { ok: true, via: "cache" };
+    }
+    // A transport/infra outage on the probe is NOT an auth failure — surface it
+    // so the caller attributes the incident to the down component, not "auth".
+    if (probe.kind === "infra-failure") return { ok: false, terminal: probe, authRejected: false };
+    // product-failure / unproven / blocked / incomplete = inconclusive -> run the flow.
+  }
+
+  const flow = await runAuth(compileAuthLogin(book), success ? AUTH_VERIFY_STEP : null);
+  if (flow.kind === "passed") {
+    await writeAuthState(root, { loggedInAt: new Date().toISOString(), via: "flow", fingerprint }).catch(() => {});
+    return { ok: true, via: "flow" };
+  }
+  // Only a product-level negative — the flow ran but the app did not grant a
+  // session / the success signal was not met — is a genuine auth-config problem.
+  // Infra / incomplete / blocked (engine down, app down, MFA pause) and
+  // unproven (the success signal could not be judged) keep their REAL
+  // component so the incident is never misattributed to the auth block.
+  return { ok: false, terminal: flow, authRejected: flow.kind === "product-failure" };
+}
+
+// Mutating a run record while its background execute() still owns it would
+// be silently clobbered by the next incremental save (and a DELETE would be
+// resurrected by it). Review starts when the run finishes.
+function activeRunMutation(runId) {
+  const entry = activeRuns.get(runId);
+  return entry && !entry.done ? { error: "run is still executing - review it when it finishes" } : null;
+}
+
+function activeRunSnapshot(entry) {
+  const record = entry.record;
+  return {
+    id: record.id,
+    startedAt: record.startedAt,
+    project: record.project ?? null,
+    contextTag: record.contextTag,
+    plannedChecks: record.plannedChecks ?? null,
+    executedChecks: record.executedChecks ?? 0,
+    current: entry.current,
+    lastActivityAt: entry.lastActivityAt,
+    sessions: (record.sessions ?? []).map((session) => ({ id: session.id, checks: session.checks }))
+  };
+}
 
 // The wire shape of the live session: always carries canvasUrl (recomputed —
 // it is derived state, never stored) so a recovered session re-embeds after a
@@ -91,9 +251,18 @@ async function readJsonBody(req) {
 // engine just marks the whole run failed. Since each Drill step is compiled
 // as its own [navigate, step] automation, a run-level failure with no
 // matching step entry unambiguously means THIS step is the one that failed.
+// LAST-match, not first: a run can legitimately carry more than one record for
+// a stepId (a fixer `insert_before` patch that echoes the failing step's id
+// mints a second step with the same id), and the record that produced the run's
+// FINAL verdict is the last one. Taking the first could hydrate a fixer-invented
+// step's result and — worse, since this outcome feeds graduation and state-
+// reference seeding — bake its assertion into the committed Drill Book. This is
+// the rule `readStepEvidence` and `terminalFromAutomationRun` already use; this
+// call site was the outlier, so the metadata shown could disagree with the
+// evidence bytes served.
 function resolveStepOutcome(automationRun, stepId) {
   if (!automationRun) return null;
-  const found = (automationRun.steps ?? []).find((s) => s.stepId === stepId);
+  const found = [...(automationRun.steps ?? [])].reverse().find((s) => s.stepId === stepId);
   if (found) return found;
   if (automationRun.status === "failed") {
     return { stepId, status: "failed", tier: null, error: automationRun.error ?? "run failed before this step completed" };
@@ -111,15 +280,29 @@ export function isInfrastructureFailure(text) {
 
 function resultFromTerminal(terminal, stepId = null) {
   if (!terminal) return null;
+  // `unproven` (S6) ran to completion without erroring — the app did nothing
+  // wrong — but it did not verify its claim, so it is neither passed nor
+  // failed. It reports as completed with passed:false and carries the flag, so
+  // no consumer counting `passed === true` can mistake it for a green check.
+  const unproven = terminal.kind === "unproven";
   return {
     stepId,
-    status: terminal.kind === "passed" ? "completed" : "failed",
+    status: terminal.kind === "passed" || unproven ? "completed" : "failed",
     tier: terminal.tier ?? null,
     ...(terminal.evidencePath ? { evidencePath: terminal.evidencePath } : {}),
     ...(terminal.durationMs !== undefined ? { durationMs: terminal.durationMs } : {}),
     ...(terminal.kind === "passed"
       ? { result: { passed: true, ...(terminal.reasoning ? { reasoning: terminal.reasoning } : {}) } }
-      : { error: terminal.message ?? terminal.code, result: { passed: false, reasoning: terminal.message ?? terminal.code } })
+      : unproven
+        ? {
+            result: {
+              passed: false,
+              requiresInteraction: true,
+              ...(terminal.missingInteraction ? { missingInteraction: terminal.missingInteraction } : {}),
+              reasoning: terminal.message ?? terminal.code
+            }
+          }
+        : { error: terminal.message ?? terminal.code, result: { passed: false, reasoning: terminal.message ?? terminal.code } })
   };
 }
 
@@ -138,8 +321,30 @@ function enrichTerminalResult(terminal, stepId, hydrated) {
       ...(snapshot.result ?? {})
     }
   };
-  if (terminal.kind === "passed") delete enriched.error;
+  // An unproven check is not an error either — leaving a stale hydrated error
+  // on it would render it as a failure.
+  if (terminal.kind === "passed" || terminal.kind === "unproven") delete enriched.error;
   return enriched;
+}
+
+// S31 wire hygiene: hydrated automation step records carry the verify
+// session's ABSOLUTE transcript path (result.vision / step-level vision).
+// The drill wire keeps only the session id - transcripts leave solely
+// through the confined /api/runs/:id/session-stream route.
+function publicVisionMeta(vision) {
+  if (!vision || typeof vision !== "object") return vision;
+  const { transcriptPath, ...rest } = vision;
+  return rest;
+}
+
+function stripTranscriptPaths(result) {
+  if (!result || typeof result !== "object") return result;
+  let next = result;
+  if (next.vision?.transcriptPath) next = { ...next, vision: publicVisionMeta(next.vision) };
+  if (next.result?.vision?.transcriptPath) {
+    next = { ...next, result: { ...next.result, vision: publicVisionMeta(next.result.vision) } };
+  }
+  return next;
 }
 
 // Merge each (page, step, viewport) entry's own automation-run result (tier,
@@ -159,7 +364,7 @@ async function assembleRunView(record, { hydrate = true } = {}) {
     // Harness failures render apart from real step verdicts - computed here
     // (not stored) so runs recorded before the classifier existed group
     // correctly too.
-    pages.push({ ...pr, result, infra: isInfraError(pr.error || result?.error) });
+    pages.push({ ...pr, result: stripTranscriptPaths(result), infra: isInfraError(pr.error || result?.error) });
   }
   return publicRunRecord({ ...record, pages });
 }
@@ -178,7 +383,7 @@ async function kanbanBaseUrl() {
 // (cards) must go through the confined evidence routes, and dispatch can run
 // from the heartbeat where no request context exists.
 function selfBaseUrl() {
-  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_DRILL_PORT || process.env.DRILL_UI_PORT || DEFAULT_PORT);
   return `http://${host}:${port}`;
 }
@@ -888,6 +1093,16 @@ async function handle(req, res) {
       const body = await readJsonBody(req);
       const pageIds = Array.isArray(body.pageIds) ? body.pageIds : [];
       const viewportIds = Array.isArray(body.viewports) && body.viewports.length ? body.viewports : ["desktop"];
+      // Optional narrowing to specific checks (S7). This is what makes a run
+      // re-runnable FROM the results page: re-run one check you just changed,
+      // or just the ones that did not pass, instead of paying for the whole
+      // page again. An empty/absent list means the whole selection, exactly as
+      // before. Unknown ids simply match nothing rather than erroring, so a
+      // stale results page cannot 400 the request.
+      const stepIdFilter = Array.isArray(body.stepIds) && body.stepIds.length
+        ? new Set(body.stepIds.map((id) => String(id)))
+        : null;
+      const stepAllowed = (step) => !stepIdFilter || stepIdFilter.has(step.id);
       const state = body.state || "default";
       // Blind adversarial pass (R12/F8): a second run, forced vision-only
       // (bypassCache also skips any cachedAssertion - see compile.mjs's
@@ -915,6 +1130,19 @@ async function handle(req, res) {
       if (planJob && planJob.status === "planning") {
         return send(res, 409, { error: "a plan is authoring this project's Drill Book right now - wait for it to finish, then run" });
       }
+      // S31: one run per project at a time. Two concurrent runs would drive
+      // the same app under test and the same Browser-fitting capture
+      // sessions into each other; with background runs this is one
+      // double-click away, so the server owns the guard.
+      const activeForRoot = [...activeRuns.values()].find(
+        (entry) => !entry.done && (entry.record.project ?? null) === root
+      );
+      if (activeForRoot) {
+        return send(res, 409, {
+          error: `a run is already executing for this project - wait for it to finish (run ${activeForRoot.record.id})`,
+          runId: activeForRoot.record.id
+        });
+      }
       const book = await getDrillBook(root);
 
       // Configurable autonomy gate (A5/R7/S22): "gated" pauses with a plan
@@ -930,7 +1158,7 @@ async function handle(req, res) {
           const page = await getPage(pageId, root);
           if (!page) continue;
           for (const viewportId of viewportIds) {
-            const steps = selectSteps(page, { state, viewport: viewportId });
+            const steps = selectSteps(page, { state, viewport: viewportId }).filter(stepAllowed);
             plan.push({ pageId, viewportId, steps: steps.map((s) => ({ id: s.id, description: s.description, mode: s.mode })) });
           }
         }
@@ -938,7 +1166,7 @@ async function handle(req, res) {
           held: true,
           reason: "gated",
           plan,
-          resume: { pageIds, viewports: viewportIds, state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root }
+          resume: { pageIds, viewports: viewportIds, ...(stepIdFilter ? { stepIds: [...stepIdFilter] } : {}), state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root }
         });
       }
 
@@ -951,7 +1179,7 @@ async function handle(req, res) {
         const page = await getPage(pageId, root);
         if (!page) continue;
         for (const viewportId of viewportIds) {
-          const steps = selectSteps(page, { state, viewport: viewportId });
+          const steps = selectSteps(page, { state, viewport: viewportId }).filter(stepAllowed);
           for (const step of steps) {
             jobs.push({
               pageId,
@@ -1012,22 +1240,61 @@ async function handle(req, res) {
         return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
       }
 
+      // S31: persist and claim the record BEFORE the engine preflight (endedAt
+      // null = running) so the history table, /api/runs/active, a poller and a
+      // second-device Results view all see in-flight state even while the
+      // self-heal below is still bringing the engine up - and so the
+      // one-run-per-project guard has no multi-second blind window to race
+      // through. The re-check + registerActiveRun pair is synchronous (no
+      // await between them): a duplicate POST that slipped past the earlier
+      // guard during the book/jobs awaits lands here on the claimed entry.
+      const claimed = [...activeRuns.values()].find(
+        (entry) => !entry.done && (entry.record.project ?? null) === root
+      );
+      if (claimed) {
+        return send(res, 409, {
+          error: `a run is already executing for this project - wait for it to finish (run ${claimed.record.id})`,
+          runId: claimed.record.id
+        });
+      }
+      const live = registerActiveRun(record);
+      await saveDrillRun(record);
+      publishRunEvent(record.id, {
+        type: "run_started",
+        runId: record.id,
+        startedAt: record.startedAt,
+        plannedChecks: jobs.length,
+        selection: record.selection,
+        project: root,
+        contextTag
+      });
+
+      const execute = async () => {
+      try {
       // One run-level preflight prevents a missing Automations fitting from
       // being retried once per Book step. Every planned coordinate is still
       // attached to the single grouped incident so the report is honest
-      // about the affected coverage.
+      // about the affected coverage. ensureAutomationsUp first self-heals a
+      // redeploy-killed engine via Garrison's on-demand lifecycle start; it
+      // runs inside execute() so a background caller gets its response and
+      // live panel immediately while the heal proceeds, instead of a request
+      // pending for the whole engine boot.
       try {
-        await checkAutomationsHealth();
+        await ensureAutomationsUp();
       } catch (err) {
         const terminal = terminalFromTransportError(err);
         if (jobs.length === 0) addSystemicIncident(null, terminal);
         else for (const job of jobs) addSystemicIncident(job, terminal);
         openCircuit(terminal);
         record.endedAt = new Date().toISOString();
+        record.summary = {
+          steps: record.pages.length,
+          failed: 0,
+          infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+        };
         await saveDrillRun(record);
-        return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
+        return; // the finally below publishes run_finished
       }
-
       // Evidence capture (Drill Evidence v0.1, D1/D5): one browser capture
       // session per run — video for multi-check (Full Drill) runs unless the
       // caller toggles it, per-check offset manifest whenever the session came
@@ -1038,6 +1305,51 @@ async function handle(req, res) {
         .map((job) => job.viewport)
         .filter((vp) => vp && vp.width && vp.height)
         .reduce((best, vp) => (!best || vp.width * vp.height > best.width * best.height ? vp : best), null);
+
+      // Authenticated runs (A-auth): log in ONCE before any check so every
+      // check's fresh navigate lands on the real page, not the login screen.
+      // This runs in the shared browser context BEFORE captureStart, so the
+      // session persists to the persistent profile and the run's capture
+      // session seeds already-logged-in. A login failure collapses into ONE
+      // grouped incident + circuit (checks skipped) instead of N product
+      // failures for one auth problem. The blind adversarial pass authenticates
+      // too — it is blind to specs, not to the login.
+      if (hasAuth(book)) {
+        publishRunEvent(record.id, { type: "auth_started", runId: record.id, loginUrl: resolveAuthUrl(book) });
+        const auth = await ensureAuthenticated(book, { contextTag, viewport: sessionViewport || jobs[0]?.viewport, root });
+        if (!auth.ok) {
+          // Only a genuine login rejection (auth.authRejected — the flow ran but
+          // the app did not grant a session) is blamed on the auth block. An
+          // engine/app/harness failure during login keeps its REAL component
+          // (auth.terminal) so the incident is not misattributed to "auth" and
+          // the user is not misdirected to drills/drillbook.yml. Both "blocked"
+          // and the passed-through infra/incomplete kinds render in the
+          // harness-degraded banner and open the circuit.
+          const terminal = auth.authRejected
+            ? {
+                kind: "blocked",
+                source: "auth",
+                code: "auth-failed",
+                component: "auth",
+                message: `Login did not reach the authenticated state before any check ran: ${auth.terminal?.message ?? "the success signal was not met"} — ${jobs.length} check(s) skipped. Check the app is running and the auth block (steps/success) in drills/drillbook.yml.`
+              }
+            : auth.terminal;
+          for (const job of jobs) addSystemicIncident(job, terminal);
+          openCircuit(terminal);
+          record.endedAt = new Date().toISOString();
+          record.summary = {
+            steps: record.pages.length,
+            failed: 0,
+            infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+          };
+          await saveDrillRun(record);
+          publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
+          publishRunEvent(record.id, { type: "auth_failed", runId: record.id, component: terminal.component, message: terminal.message });
+          return; // the finally below publishes run_finished
+        }
+        publishRunEvent(record.id, { type: "auth_ok", runId: record.id, via: auth.via });
+      }
+
       const capture = await captureStart({
         runId: record.id,
         root,
@@ -1053,10 +1365,20 @@ async function handle(req, res) {
       for (const job of jobs) {
         record.executedChecks += 1;
         const jobStartedAt = Date.now();
+        live.current = {
+          index: record.executedChecks,
+          total: jobs.length,
+          pageId: job.pageId,
+          stepId: job.step.id,
+          viewportId: job.viewportId,
+          description: job.step.description || job.step.id,
+          startedAt: new Date().toISOString()
+        };
+        publishRunEvent(record.id, { type: "check_started", runId: record.id, ...live.current });
         const jobKey = checkKey({ pageId: job.pageId, stepId: job.step.id, viewportId: job.viewportId });
         // Per-check trace chunk (D2): bracket the engine run so the zip holds
         // exactly this check's actions/snapshots.
-        const chunkOpen = await captureChunkStart(capture, `${job.pageId} · ${job.step.id} · ${job.viewportId}`, { key: jobKey });
+        await captureChunkStart(capture, `${job.pageId} · ${job.step.id} · ${job.viewportId}`, { key: jobKey });
         let automationRun;
         let terminal;
         try {
@@ -1084,7 +1406,10 @@ async function handle(req, res) {
         };
         record.pages.push(pr);
         if (capture) {
-          const trace = chunkOpen ? await captureChunkStop(capture, jobKey) : null;
+          // Unconditional: chunk-stop also emits the forced step-end frame that
+          // guarantees this check a reel frame, so it must run even when no
+          // trace chunk opened (it then returns a null trace, not a failure).
+          const trace = await captureChunkStop(capture, jobKey);
           // Step-end full-page screenshot always; an additional one on failure
           // (D3) — the session tab still shows the failure state, and the
           // engine's own at-failure viewport shot rides evidencePath as before.
@@ -1119,6 +1444,32 @@ async function handle(req, res) {
           addSystemicIncident(job, terminal.recoveryFailure);
         }
 
+        // S31: link the verify session, push the check result to live
+        // subscribers, and persist the record incrementally - findings added
+        // below reach disk with the next check's save (or the final one).
+        noteRunSession(record, terminal);
+        const checkArt = capture ? checkArtifacts.at(-1) : null;
+        publishRunEvent(record.id, {
+          type: "check_finished",
+          runId: record.id,
+          index: record.executedChecks,
+          total: jobs.length,
+          pageId: pr.pageId,
+          stepId: pr.stepId,
+          viewportId: pr.viewportId,
+          kind: terminal.kind,
+          code: terminal.code,
+          ...(terminal.message ? { message: terminal.message } : {}),
+          ...(terminal.reasoning ? { reasoning: terminal.reasoning } : {}),
+          ...(terminal.durationMs !== undefined ? { durationMs: terminal.durationMs } : {}),
+          ...(terminal.tier !== undefined ? { tier: terminal.tier } : {}),
+          ...(terminal.session?.id ? { sessionId: terminal.session.id } : {}),
+          ...(checkArt?.screenshot ? { screenshot: checkArt.screenshot } : {}),
+          ...(checkArt?.failureScreenshot ? { failureScreenshot: checkArt.failureScreenshot } : {})
+        });
+        live.current = null;
+        await saveDrillRun(record);
+
         if (terminal.kind === "product-failure") {
           const art = capture ? checkArtifacts.at(-1) : null;
           const timing = capture ? manifestRows.at(-1) : null;
@@ -1142,6 +1493,7 @@ async function handle(req, res) {
         if (terminalOpensCircuit(terminal)) {
           addSystemicIncident(job, terminal);
           openCircuit(terminal, job);
+          publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
           break;
         }
 
@@ -1154,6 +1506,7 @@ async function handle(req, res) {
           pr.terminal = incomplete;
           addSystemicIncident(job, incomplete);
           openCircuit(incomplete, job);
+          publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
           break;
         }
 
@@ -1212,7 +1565,7 @@ async function handle(req, res) {
           const page = await getPage(pr.pageId, root);
           const step = page?.steps.find((candidate) => candidate.id === pr.stepId);
           if (step) {
-            const plan = graduationPlanFor(step, outcome);
+            const plan = graduationPlanFor(step, outcome, automationRun);
             if (plan) {
               try {
                 const { specFile } = await graduateStep(book, pr.pageId, pr.stepId, plan, root);
@@ -1253,8 +1606,29 @@ async function handle(req, res) {
       record.summary = {
         steps: record.pages.length,
         failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
+        // Surfaced separately so a run's headline can never present an
+        // unverified check as a pass (S6).
+        unproven: record.pages.filter((entry) => entry.terminal?.kind === "unproven").length,
         infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
       };
+      // Session transcript slices (S31): store each verify session's
+      // run-window lines with the run's other evidence, so the debrief can
+      // replay the session after the live transcript file moves on (the
+      // gateway reuses delegate sessions across runs) or disappears.
+      for (const session of record.sessions ?? []) {
+        if (!session.transcriptPath) continue;
+        try {
+          const { lines } = await readJsonlLines(session.transcriptPath, 0);
+          const windowed = linesInWindow(lines, record.startedAt, record.endedAt);
+          if (!windowed.length) continue;
+          const name = sessionSliceName(session.id);
+          await atomicWrite(path.join(evidenceRunDir(record.id, root), name), `${windowed.join("\n")}\n`);
+          session.slice = name;
+          session.events = parseTranscriptLines(windowed).events.length;
+        } catch (err) {
+          console.warn(`[drill] session slice for ${session.id} failed: ${err.message}`);
+        }
+      }
       await saveDrillRun(record);
       // Retention (D6): applied on run completion, fire-and-forget — pruning
       // must never delay or fail the run response.
@@ -1264,6 +1638,34 @@ async function handle(req, res) {
         const pruned = await pruneEvidence({ root, classified: classifyForRetention(scoped) });
         for (const p of pruned) console.log(`[drill] evidence retention: pruned ${p.removed.join(", ")} from run ${p.runId}`);
       })().catch((err) => console.warn(`[drill] evidence: retention sweep failed: ${err.message}`));
+      // Video tightening (S1): the recorder rolls continuously while each check
+      // sits in an untimed vision call, so the raw recording is mostly a frozen
+      // page (measured: 24.6 of 27.3 min on a real 36-check run). Cut it down to
+      // the moments the Spotter saw something change. Fire-and-forget and
+      // evidence-file-only (video-tight.webm + video-index.json), so a slow
+      // encode can neither delay the run response nor touch the run record —
+      // the UI picks the tight cut up when video-index.json appears.
+      if (record.evidence?.video && record.evidence?.spotter?.manifest && capture) {
+        void (async () => {
+          const dir = evidenceRunDir(record.id, root);
+          const manifestPath = path.join(dir, record.evidence.spotter.manifest);
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          return buildTightVideo({
+            dir,
+            source: record.evidence.video,
+            frames: manifest.frames ?? [],
+            steps: manifestRows
+          });
+        })()
+          .then((res) => {
+            if (res?.ok) {
+              console.log(`[drill] video tighten: ${(res.originalDurationMs / 1000).toFixed(0)}s -> ${(res.tightDurationMs / 1000).toFixed(0)}s in ${res.segments.length} segments (${(res.encodeMs / 1000).toFixed(0)}s encode) for run ${record.id}`);
+            } else {
+              console.log(`[drill] video tighten: skipped for run ${record.id} (${res?.reason ?? "unknown"})`);
+            }
+          })
+          .catch((err) => console.warn(`[drill] video tighten: ${err.message}`));
+      }
       // Curation (Evidence V2, S2/D4): batch vision judging of the Spotter
       // frames into the Debrief reel — fire-and-forget, and it writes ONLY
       // evidence files (reel.json + sidecars), never the run record, so a
@@ -1280,6 +1682,42 @@ async function handle(req, res) {
           })
           .catch((err) => console.warn(`[drill] curation: ${err.message}`));
       }
+      } catch (err) {
+        // A crash must still land a terminal record: background mode has no
+        // HTTP response to carry the error, and sync callers deserve the
+        // partial record over a 500 with in-flight state stranded on disk.
+        console.error(`[drill] run ${record.id} crashed: ${err.message}`);
+        addInfraError(record, { text: `drill run crashed: ${err.message}`, code: "drill-run-crashed", component: "drill" });
+        if (!record.endedAt) {
+          record.endedAt = new Date().toISOString();
+          record.summary = {
+            steps: record.pages.length,
+            failed: record.pages.filter((entry) => entry.terminal?.kind === "product-failure").length,
+            unproven: record.pages.filter((entry) => entry.terminal?.kind === "unproven").length,
+            infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+          };
+        }
+        await saveDrillRun(record).catch((saveErr) => console.error(`[drill] crash save failed: ${saveErr.message}`));
+      } finally {
+        publishRunEvent(record.id, {
+          type: "run_finished",
+          runId: record.id,
+          endedAt: record.endedAt,
+          summary: record.summary ?? null,
+          ...(record.circuit ? { circuit: record.circuit } : {})
+        });
+      }
+      };
+
+      // background:true (the UI's mode): kick the run and return the
+      // in-flight record immediately - progress rides GET /api/runs/:id/events
+      // and the incremental disk record. The DEFAULT stays synchronous: skill
+      // and heartbeat callers await the finished run through this one POST.
+      if (body.background === true) {
+        void execute().catch((err) => console.error(`[drill] background run ${record.id} failed: ${err.message}`));
+        return send(res, 200, { run: await assembleRunView(record, { hydrate: false }), background: true });
+      }
+      await execute();
       return send(res, 200, { run: await assembleRunView(record, { hydrate: false }) });
     }
     if (pathname === "/api/runs" && req.method === "GET") {
@@ -1291,6 +1729,132 @@ async function handle(req, res) {
       const scoped = all ? runs : runs.filter((r) => !r.project || r.project === active);
       return send(res, 200, { runs: scoped.map(publicRunRecord) });
     }
+    // S31: in-flight run discovery - a reloaded (or second-device) Results
+    // view finds the running drill here and re-attaches to its event stream.
+    // Scoped to the selected project like GET /api/runs, so a skill-driven
+    // run against ANOTHER repo never hijacks this project's Results view;
+    // ?all=1 lifts the scope.
+    if (pathname === "/api/runs/active" && req.method === "GET") {
+      const all = url.searchParams.get("all") === "1";
+      const activeRoot = drillTargetRoot();
+      const entries = [...activeRuns.values()].filter((entry) => !entry.done);
+      const scoped = all
+        ? entries
+        : entries.filter((entry) => !entry.record.project || entry.record.project === activeRoot);
+      return send(res, 200, { runs: scoped.map(activeRunSnapshot) });
+    }
+    // S31: per-run progress stream. Replays the buffered events, then stays
+    // live until run_finished. For a run not active in this process the
+    // stream reports the terminal state and closes - the client falls back
+    // to the disk record.
+    const runEventsGet = pathname.match(/^\/api\/runs\/([^/]+)\/events$/);
+    if (runEventsGet && req.method === "GET") {
+      const runId = decodeURIComponent(runEventsGet[1]);
+      const entry = activeRuns.get(runId);
+      if (!entry) {
+        let record = null;
+        try { record = await getDrillRun(runId); } catch { record = null; }
+        res.writeHead(200, SSE_HEADERS);
+        res.write(`data: ${JSON.stringify({
+          type: record?.endedAt ? "run_finished" : "run_unknown",
+          runId,
+          at: new Date().toISOString(),
+          ...(record?.endedAt ? { endedAt: record.endedAt, summary: record.summary ?? null } : {})
+        })}\n\n`);
+        return void res.end();
+      }
+      res.writeHead(200, SSE_HEADERS);
+      for (const ev of entry.events) res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      if (entry.done) return void res.end();
+      entry.listeners.add(res);
+      const keepAlive = setInterval(() => {
+        try { res.write(": keep-alive\n\n"); } catch { /* closed */ }
+      }, 15_000);
+      keepAlive.unref?.();
+      req.on("close", () => {
+        clearInterval(keepAlive);
+        entry.listeners.delete(res);
+      });
+      return;
+    }
+    // S31: the verify-session transcript stream. One endpoint serves both
+    // shapes: `init` (everything so far - the stored per-run slice when it
+    // exists, else the live transcript filtered to the run window) followed
+    // by live `events` batches while the run is still executing, then `end`.
+    const runSessionStreamGet = pathname.match(/^\/api\/runs\/([^/]+)\/session-stream$/);
+    if (runSessionStreamGet && req.method === "GET") {
+      const runId = decodeURIComponent(runSessionStreamGet[1]);
+      const sessionId = String(url.searchParams.get("session") ?? "");
+      const entry = activeRuns.get(runId);
+      let record = entry?.record ?? null;
+      if (!record) {
+        try { record = await getDrillRun(runId); } catch { record = null; }
+      }
+      if (!record) return send(res, 404, { error: "not found" });
+      const session = (record.sessions ?? []).find((candidate) => candidate.id === sessionId);
+      if (!session) return send(res, 404, { error: "unknown session for this run" });
+      const sliceFile = session.slice
+        ? path.join(evidenceRunDir(record.id, record.project || drillTargetRoot()), session.slice)
+        : null;
+      const liveEntry = entry && !entry.done ? entry : null;
+
+      res.writeHead(200, SSE_HEADERS);
+      let closed = false;
+      req.on("close", () => { closed = true; });
+      const emit = (payload) => {
+        if (closed) return;
+        try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { closed = true; }
+      };
+      const keepAlive = setInterval(() => {
+        if (closed) return;
+        try { res.write(": keep-alive\n\n"); } catch { closed = true; }
+      }, 15_000);
+      keepAlive.unref?.();
+      try {
+        let offset = 0;
+        let tailPath = null;
+        let initLines = [];
+        if (sliceFile) {
+          try { initLines = (await readJsonlLines(sliceFile, 0)).lines; } catch { initLines = []; }
+        }
+        if (!initLines.length && session.transcriptPath) {
+          try {
+            const read = await readJsonlLines(session.transcriptPath, 0);
+            initLines = linesInWindow(read.lines, record.startedAt, record.endedAt);
+            offset = read.offset;
+            tailPath = session.transcriptPath;
+          } catch { tailPath = null; }
+        }
+        const parsed = parseTranscriptLines(initLines);
+        emit({
+          type: "init",
+          sessionId,
+          title: parsed.title,
+          events: parsed.events,
+          live: !!liveEntry,
+          available: initLines.length > 0 || !!tailPath
+        });
+        // Live tail: new complete transcript lines while the run executes.
+        while (!closed && liveEntry && !liveEntry.done && tailPath) {
+          await sleep(800);
+          try {
+            const read = await readJsonlLines(tailPath, offset);
+            if (read.lines.length) {
+              offset = read.offset;
+              const chunk = parseTranscriptLines(read.lines);
+              if (chunk.events.length || chunk.title) {
+                emit({ type: "events", sessionId, title: chunk.title, events: chunk.events });
+              }
+            }
+          } catch { /* transient read failure - keep polling */ }
+        }
+        emit({ type: "end", sessionId });
+      } finally {
+        clearInterval(keepAlive);
+        try { res.end(); } catch { /* already closed */ }
+      }
+      return;
+    }
     const runGet = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runGet && req.method === "GET") {
       const record = await getDrillRun(decodeURIComponent(runGet[1]));
@@ -1298,6 +1862,8 @@ async function handle(req, res) {
     }
     if (runGet && req.method === "DELETE") {
       const runId = decodeURIComponent(runGet[1]);
+      const busy = activeRunMutation(runId);
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(runId);
       const deleted = await deleteDrillRun(runId);
       if (deleted && record) await removeRunEvidence(runId, record.project || drillTargetRoot());
@@ -1395,6 +1961,8 @@ async function handle(req, res) {
     }
     const liveReplayPost = pathname.match(/^\/api\/runs\/([^/]+)\/live-replay$/);
     if (liveReplayPost && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(liveReplayPost[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(liveReplayPost[1]));
       if (!record) return send(res, 404, { error: "not found" });
       if (liveReplay) {
@@ -1415,6 +1983,15 @@ async function handle(req, res) {
       try { viewport = resolveViewport(viewportId); } catch (err) { return send(res, 400, { error: err.message }); }
       const sessionId = `live-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const dir = path.join(drillHomeDir(), "live", sessionId);
+      // Same self-heal as the run preflight; on failure the replay loop
+      // surfaces the per-step transport error as a warning.
+      await ensureAutomationsUp().catch(() => {});
+      // Authenticated apps: establish the session in the shared context before
+      // the held capture session is created, so the replay tab seeds
+      // logged-in (best-effort — the replay loop reports per-step issues).
+      if (hasAuth(book)) {
+        await ensureAuthenticated(book, { contextTag: "drill", viewport, root }).catch(() => {});
+      }
       let session;
       try {
         session = await captureCall("/capture/start", {
@@ -1511,6 +2088,11 @@ async function handle(req, res) {
       );
       if (!entry?.automationRunId) return send(res, 404, { error: "evidence not found" });
       try {
+        // Evidence bytes live engine-side, so a finished run's thumbnails
+        // 502 whenever the engine is down (every redeploy) - self-heal it
+        // here too, with a shorter bound since a debrief render fans out
+        // many parallel evidence requests that would each hold a socket.
+        await ensureAutomationsUp({ timeoutMs: 15000 });
         const bytes = await getStepEvidence(entry.automationRunId, stepId);
         if (!bytes) return send(res, 404, { error: "evidence not found" });
         res.statusCode = 200;
@@ -1525,6 +2107,8 @@ async function handle(req, res) {
 
     const feedbackMatch = pathname.match(/^\/api\/runs\/([^/]+)\/feedback$/);
     if (feedbackMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(feedbackMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(feedbackMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1542,6 +2126,8 @@ async function handle(req, res) {
     // finding - "a pass you know is wrong becomes a failed finding."
     const overrideMatch = pathname.match(/^\/api\/runs\/([^/]+)\/override$/);
     if (overrideMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(overrideMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(overrideMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1567,6 +2153,8 @@ async function handle(req, res) {
     // D9: a run-level observation - recording it never requires a re-run.
     const obsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/observation$/);
     if (obsMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(obsMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(obsMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1577,6 +2165,8 @@ async function handle(req, res) {
     // Convert an observation into a draft step on its page.
     const obsStepMatch = pathname.match(/^\/api\/runs\/([^/]+)\/observation\/([^/]+)\/convert-step$/);
     if (obsStepMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(obsStepMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(obsStepMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const observation = record.observations.find((o) => o.id === decodeURIComponent(obsStepMatch[2]));
@@ -1596,6 +2186,8 @@ async function handle(req, res) {
     // Convert an observation into a finding.
     const obsFindingMatch = pathname.match(/^\/api\/runs\/([^/]+)\/observation\/([^/]+)\/convert-finding$/);
     if (obsFindingMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(obsFindingMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(obsFindingMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const observation = record.observations.find((o) => o.id === decodeURIComponent(obsFindingMatch[2]));
@@ -1615,6 +2207,8 @@ async function handle(req, res) {
     // D10: triage a finding (proposed -> confirmed | dismissed).
     const findingMatch = pathname.match(/^\/api\/runs\/([^/]+)\/findings\/([^/]+)$/);
     if (findingMatch && req.method === "PATCH") {
+      const busy = activeRunMutation(decodeURIComponent(findingMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(findingMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1682,6 +2276,8 @@ async function handle(req, res) {
     // Only findings NOT already on a card go out - dispatch is idempotent.
     const dispatchMatch = pathname.match(/^\/api\/runs\/([^/]+)\/dispatch$/);
     if (dispatchMatch && req.method === "POST") {
+      const busy = activeRunMutation(decodeURIComponent(dispatchMatch[1]));
+      if (busy) return send(res, 409, busy);
       const record = await getDrillRun(decodeURIComponent(dispatchMatch[1]));
       if (!record) return send(res, 404, { error: "not found" });
       const body = await readJsonBody(req);
@@ -1815,7 +2411,7 @@ export async function startServer() {
   // runner-projected composition config first (GARRISON_DRILL_* — the
   // per-instance source of truth, e.g. main=7096 while codex=27096), then
   // the legacy explicit env (tests), then the hardcoded default.
-  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_DRILL_BIND_HOST || process.env.DRILL_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_DRILL_PORT || process.env.DRILL_UI_PORT || DEFAULT_PORT);
   assertStatusSlotFree();
   const server = createServer();
@@ -1836,6 +2432,41 @@ export async function startServer() {
     for (const rec of reaped) console.log(`[drill] reaped orphaned plan agent pid=${rec.pid} root=${rec.root}`);
   } catch (err) {
     console.error(`[drill] orphan plan-agent sweep failed: ${err.message}`);
+  }
+  // S31: run records persist incrementally while executing (endedAt null =
+  // running). A record still open at boot belonged to a previous server
+  // process - close it honestly so the history table never shows a phantom
+  // "Running" row. This process has no active runs yet, so every open record
+  // is an orphan by construction.
+  try {
+    const orphans = (await listDrillRuns()).filter((record) => !record.endedAt);
+    for (const record of orphans) {
+      addInfraError(record, {
+        text: "drill server restarted mid-run - remaining checks never executed",
+        code: "drill-restarted-mid-run",
+        component: "drill"
+      });
+      record.circuit ??= {
+        component: "drill",
+        code: "drill-restarted-mid-run",
+        message: "drill server restarted mid-run",
+        kind: "infra-failure",
+        openedAt: new Date().toISOString(),
+        afterCheck: record.executedChecks ?? (record.pages ?? []).length,
+        skippedChecks: Math.max(0, (record.plannedChecks ?? 0) - (record.executedChecks ?? 0))
+      };
+      record.endedAt = new Date().toISOString();
+      record.summary = {
+        steps: (record.pages ?? []).length,
+        failed: (record.pages ?? []).filter((entry) => entry.terminal?.kind === "product-failure").length,
+        unproven: (record.pages ?? []).filter((entry) => entry.terminal?.kind === "unproven").length,
+        infra: (record.infraErrors ?? []).reduce((total, incident) => total + (incident.count ?? 1), 0)
+      };
+      await saveDrillRun(record);
+      console.log(`[drill] closed orphaned in-flight run ${record.id}`);
+    }
+  } catch (err) {
+    console.error(`[drill] orphan run sweep failed: ${err.message}`);
   }
   // Heartbeat dispatch pickup (D10/S29): best-effort periodic sweep - a
   // transient kanban-loop outage must never crash the Drill server.

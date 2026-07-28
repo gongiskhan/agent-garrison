@@ -211,7 +211,8 @@
 }
 .decisionRow {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  /* kind | duty | reason | target | time | session */
+  grid-template-columns: auto auto 1fr auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
@@ -272,6 +273,22 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+.decisionSession {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+}
+.decisionSession:hover {
+  color: var(--ink);
+  border-bottom-color: currentColor;
+}
 
 .panelState {
   border: 1px dashed var(--rule-2);
@@ -301,15 +318,22 @@
 /* ── mobile (<= 640px): single column, no horizontal bleed ──────────────── */
 @media (max-width: 640px) {
   .decisionRow {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto 1fr auto;
     row-gap: 4px;
   }
   .decisionReason {
     grid-column: 1 / -1;
     white-space: normal;
   }
+  /* The timestamp stays VISIBLE on narrow screens - it used to be display:none
+     here, which is half the reason the feed read as undated. It moves onto its
+     own row alongside the session link instead of being dropped. */
   .decisionAt {
-    display: none;
+    grid-column: 1 / 2;
+  }
+  .decisionSession {
+    grid-column: 2 / -1;
+    justify-self: end;
   }
   .assembledBody {
     white-space: pre-wrap;

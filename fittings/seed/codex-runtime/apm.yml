@@ -6,6 +6,11 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): Codex's native login. The
+  # config UI runs this in a guided PTY; credentials land in Codex's own store.
+  login:
+    command: codex login
+    storage_hint: "~/.codex/auth.json (ChatGPT OAuth; one account at a time)"
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:
@@ -22,6 +27,10 @@ x-garrison:
       type: string
       default: gpt-5-codex
       description: Default Codex model for delegated tasks (validated against the per-provider allowlist).
+    - key: account
+      type: string
+      default: ""
+      description: Which OpenAI identity Codex runs under - Machine login (this box's own ~/.codex login) or a pinned account, whether Codex is primary or a delegate target. A ChatGPT-subscription account runs Codex in its own CODEX_HOME; an API-key account is injected as OPENAI_API_KEY. Manage accounts on the Accounts page.
   provides:
     - kind: runtime
       name: codex
@@ -62,7 +71,17 @@ x-garrison:
       - mcps
       - logs
   setup:
-    command: echo codex-runtime-ready
+    # Provision the isolated CODEX_HOME the launcher points `codex exec` at
+    # ($GARRISON_HOME/runtime-homes/codex). The Codex CLI errors ("Error finding
+    # codex home") when the dir is absent, which parks any adversarial-review /
+    # adversarial-test phase routed to a codex target. Idempotently create it and
+    # seed auth.json + config.toml from the user's real ~/.codex when missing, so
+    # a fresh GARRISON_HOME comes up with a working Codex runtime.
+    command: >-
+      node -e "const fs=require('fs'),os=require('os'),p=require('path');const
+      h=process.env.CODEX_HOME;if(h){fs.mkdirSync(h,{recursive:true});for(const f of
+      ['auth.json','config.toml']){const dst=p.join(h,f),src=p.join(os.homedir(),'.codex',f);if(!fs.existsSync(dst)&&fs.existsSync(src))fs.copyFileSync(src,dst);}}"
+      && echo codex-runtime-ready
     idempotent: true
     timeout_ms: 10000
   verify:

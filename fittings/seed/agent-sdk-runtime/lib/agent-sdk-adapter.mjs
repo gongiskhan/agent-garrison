@@ -17,7 +17,7 @@
 // the sole SDK-importing module (lib/sdk-client.mjs). Tests inject `createClient`,
 // so the unit-test path never loads the SDK.
 import { buildHarness } from "./harness.mjs";
-import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord } from "./providers.mjs";
+import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
 
 async function defaultCreateClient(args) {
   const mod = await import("./sdk-client.mjs");
@@ -91,7 +91,14 @@ export class AgentSdkAdapter {
   }
 
   async spawn(config = {}) {
-    const harness = buildHarness(config.promptMode ?? "full", {
+    // `coding` (claude_code preset + the user's ~/.claude profile) is only
+    // honored on the Anthropic subscription path — a third-party base-URL
+    // provider downgrades to `full` so the user settings env block can never
+    // redirect its endpoint (the #217 trap).
+    const requestedMode = config.promptMode ?? "full";
+    const promptMode =
+      requestedMode === "coding" && !isAnthropicProvider(config.provider) ? "full" : requestedMode;
+    const harness = buildHarness(promptMode, {
       leanPrompt: config.leanPrompt,
       append: config.appendSystemPrompt
     });
@@ -123,6 +130,10 @@ export class AgentSdkAdapter {
       usedTokens: 0,
       turns: 0,
       sessionId: config.sessionId ?? null,
+      // Cancel bookkeeping - the in-flight SDK query (stashed per turn by _consume)
+      // and the user's Stop intent. Declared here so the session shape is honest.
+      client: null,
+      cancelRequested: false,
       // S1b summarize-and-rebuild — OFF unless config enables it.
       compactEnabled: config.compactEnabled === true,
       compactThresholdPct:
@@ -165,20 +176,61 @@ export class AgentSdkAdapter {
     return opts;
   }
 
-  async sendTurn(session, text) {
+  // `hooks` is OPTIONAL liveness plumbing (2026-07-25 web-channel run-context §12):
+  //   onText(accumulatedText)  - per assistant text block
+  //   onTool({name, id})       - per tool_use block
+  //   onThinking(text)         - per extended-thinking block (the DELTA, not the
+  //                              accumulation: thinking is long and a channel
+  //                              shows only the latest line as a liveness hint)
+  // Callers that pass nothing get byte-identical behaviour: the reply is still
+  // accumulated and returned whole by awaitResponse. Without these the routed
+  // lanes are silent for minutes and then dump a blob.
+  async sendTurn(session, text, hooks = {}) {
     if (!session || !session.alive) throw new Error("AgentSdkAdapter: sendTurn on a dead session");
     const options = this.buildQueryOptions(session);
-    this._pending.set(session, this._consume(session, text, options));
+    // A prior turn's cancel must never leak into this one, and the stale client
+    // handle must not be cancellable once its turn is over.
+    session.cancelRequested = false;
+    session.client = null;
+    this._pending.set(session, this._consume(session, text, options, hooks));
+  }
+
+  // Real cancel (2026-07-25 web-channel run-context §9). A flag alone is not
+  // enough: it is only observed at the next SDK message boundary, so during a long
+  // thinking phase nothing would stop. The stashed query object is an async
+  // generator - return() aborts it - and teardown() (`alive = false`) frees
+  // nothing. Safe with no in-flight client: the flag still short-circuits the
+  // consume loop, and sendTurn clears it for the next turn.
+  async cancel(session) {
+    if (!session) return false;
+    session.cancelRequested = true;
+    const client = session.client ?? null;
+    if (!client || typeof client.return !== "function") return false;
+    // Idempotent: releasing the handle first means a second Stop cannot return()
+    // an already-finished generator.
+    session.client = null;
+    try {
+      await client.return();
+    } catch {
+      /* an already-finished or already-aborted query is a successful cancel */
+    }
+    return true;
   }
 
   // Consume the SDK's structured message stream directly (NO scraping). Stops and
   // reports on maxTurns / budget ceiling rather than looping on paid credits.
-  async _consume(session, text, options) {
+  async _consume(session, text, options, hooks = {}) {
+    const onText = typeof hooks.onText === "function" ? hooks.onText : null;
+    const onTool = typeof hooks.onTool === "function" ? hooks.onTool : null;
+    const onThinking = typeof hooks.onThinking === "function" ? hooks.onThinking : null;
     // S1b: a rebuilt session seeds the next turn with the focus summary (the SDK
     // session/resume was cleared, so this restores the working context).
     const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
     session.contextSeed = null;
     const client = await this._createClient({ prompt: seeded, options });
+    // Stash the query so cancel() has something to abort. Local-only (the bug the
+    // run-context decision calls out) meant Stop had nothing to act on.
+    session.client = client;
     let textOut = "";
     const toolUses = [];
     let stoppedReason = null;
@@ -186,13 +238,51 @@ export class AgentSdkAdapter {
 
     try {
       for await (const msg of client) {
+        // A cancel that landed mid-stream stops here rather than folding another
+        // message in. cancel() also return()s the iterator, so this is the belt to
+        // that braces: it covers a cancel observed before the abort propagates.
+        if (session.cancelRequested) {
+          stoppedReason = stoppedReason ?? "cancelled";
+          break;
+        }
         const type = msg?.type;
         if (type === "system" && msg.session_id) {
           sessionId = msg.session_id;
         } else if (type === "assistant") {
           for (const block of msg.message?.content ?? []) {
-            if (block.type === "text") textOut += block.text;
-            else if (block.type === "tool_use") toolUses.push({ name: block.name, id: block.id });
+            if (block.type === "text") {
+              textOut += block.text;
+              // Liveness: hand the caller the reply accumulated SO FAR (not the
+              // delta) so a channel can repaint one growing bubble. A throwing
+              // consumer must never kill the turn.
+              if (onText) {
+                try {
+                  onText(textOut);
+                } catch {
+                  /* streaming consumer error must not kill the turn */
+                }
+              }
+            } else if (block.type === "thinking" || block.type === "redacted_thinking") {
+              // Extended thinking. Redacted blocks carry no readable text, so
+              // they surface as a bare "thinking" beat rather than nothing - the
+              // point is liveness, not content.
+              if (onThinking) {
+                try {
+                  onThinking(typeof block.thinking === "string" ? block.thinking : "");
+                } catch {
+                  /* streaming consumer error must not kill the turn */
+                }
+              }
+            } else if (block.type === "tool_use") {
+              toolUses.push({ name: block.name, id: block.id });
+              if (onTool) {
+                try {
+                  onTool({ name: block.name, id: block.id });
+                } catch {
+                  /* streaming consumer error must not kill the turn */
+                }
+              }
+            }
           }
         } else if (type === "result") {
           const usage = msg.usage ?? {};
@@ -212,18 +302,32 @@ export class AgentSdkAdapter {
         }
       }
     } catch (err) {
-      // SDK 0.3.179 reports max-turn twice: a structured result followed by this
-      // iterator rejection. Normalize only that exact pair into the adapter's
-      // documented stoppedReason response. A matching-looking throw without the
-      // envelope, or any unrelated post-result error, still rejects.
-      if (stoppedReason !== "max_turns" || !isPostResultMaxTurnsError(err)) throw err;
+      // Aborting the query surfaces here as a throw. That is the outcome the user
+      // asked for, not a runtime failure: settle with the partial text.
+      if (session.cancelRequested) {
+        stoppedReason = "cancelled";
+      } else if (stoppedReason !== "max_turns" || !isPostResultMaxTurnsError(err)) {
+        // SDK 0.3.179 reports max-turn twice: a structured result followed by this
+        // iterator rejection. Normalize only that exact pair into the adapter's
+        // documented stoppedReason response. A matching-looking throw without the
+        // envelope, or any unrelated post-result error, still rejects.
+        throw err;
+      }
+    } finally {
+      // The turn is over either way - the handle must not stay cancellable.
+      session.client = null;
     }
 
+    // A query the user cancelled can also end by simply running out (the aborted
+    // generator completes without throwing), so the reason is asserted here too.
+    if (session.cancelRequested) stoppedReason = stoppedReason ?? "cancelled";
     session.turns += 1;
     session.sessionId = sessionId;
     // S1b: at the loop boundary, summarize-and-rebuild if usage crossed the
     // threshold. This may reset session.usedTokens to 0 and clear the resume id.
-    await this._maybeRebuild(session);
+    // Skipped after a cancel: rebuilding fires ANOTHER model call, which is the
+    // opposite of what the user just pressed Stop for.
+    if (!session.cancelRequested) await this._maybeRebuild(session);
     // Cumulative token usage across this session's turns (additive telemetry, S1a),
     // read AFTER any rebuild - a freshly rebuilt session reports 0.
     return { text: textOut, artifacts: [], toolUses, stoppedReason, usedTokens: session.usedTokens };
@@ -304,5 +408,8 @@ export class AgentSdkAdapter {
 
   async teardown(session) {
     if (session) session.alive = false;
+    // Back-compat: teardown still aborts nothing (cancel() is the abort primitive),
+    // but it releases the query handle so a torn-down session never pins one.
+    if (session) session.client = null;
   }
 }

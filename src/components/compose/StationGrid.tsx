@@ -12,6 +12,7 @@ import type {
   PromotedFittingsView,
   ResolvedPromotedFitting
 } from "@/lib/promoted-catalog";
+import { BASE_GATEWAY_PORT } from "@/lib/instance-profile";
 import type {
   FacultyDefinition,
   FacultyId,
@@ -666,7 +667,7 @@ function subFor(id: FacultyId, selections: SelectedFitting[], library: LibraryEn
     case "memory":
       return `<b>${sel.config?.persistence_cadence ?? "hourly"}</b> persistence · ${sel.config?.recency_window ?? 20}-line recency`;
     case "gateway":
-      return `${sel.config?.bind_host ?? "127.0.0.1"}<b>:${sel.config?.port ?? 24777}</b>`;
+      return `${sel.config?.bind_host ?? "127.0.0.1"}<b>:${sel.config?.port ?? BASE_GATEWAY_PORT}</b>`;
     default: {
       // The tile title already shows the Fitting's name; the sub-line earns its
       // space by saying what the Fitting DOES (transparency principle), not by

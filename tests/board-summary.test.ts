@@ -140,6 +140,7 @@ describe("readBoardSummary", () => {
       done: 0,
       needsAttentionCards: [],
       boardUrl: null,
+      boardTailnetUrl: null,
       idle: true
     });
   });

@@ -6,6 +6,10 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): OpenCode native login.
+  login:
+    command: opencode auth login
+    storage_hint: "~/.local/share/opencode/auth.json (per-provider credentials)"
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:

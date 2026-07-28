@@ -1,7 +1,7 @@
 # Jarvis — turn latency findings
 
 Data: 2026-06-18. Setup medido: composição `compositions/jarvis/`, channel
-`jarvis-os` (:7092), voz `local-voice` (:7090), gateway `http-gateway`
+`jarvis-os` (:7094), voz `local-voice` (:7097), gateway `http-gateway`
 (:4777, engine PTY interativo). Modelo de arranque do operative:
 `GARRISON_MODEL=sonnet`. Profile de routing ativo: `balanced`.
 
@@ -294,8 +294,8 @@ screen-scraping e a race modelo-dependente de raiz. Continua reservada para ti.
 
 O gateway corre agora **com a Opção A ativa** (`preRoute: "off"` via
 `compositions/jarvis/.garrison/routing.json`) **e `GARRISON_MODEL=haiku`** no
-arranque (Opção D). Os três serviços de pé: `jarvis-os` :7092, `local-voice`
-:7090, `http-gateway` :4777 (bind `127.0.0.1`). Turno conversacional warm:
+arranque (Opção D). Os três serviços de pé: `jarvis-os` :7094, `local-voice`
+:7097, `http-gateway` :4777 (bind `127.0.0.1`). Turno conversacional warm:
 **~4.5–5.2s** (era ~10s), **0 timeouts**.
 
 Comando de arranque do gateway (atualizado — `GARRISON_MODEL=haiku`):

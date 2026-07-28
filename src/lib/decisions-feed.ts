@@ -33,6 +33,26 @@ export interface DecisionView {
   // The message digest (never the raw message) — the safe correlation handle
   // (codex S5b/S5c finding). The feed carries this, not user content.
   messageDigest: string | null;
+  // The session this decision was made for, so the feed can link back to the
+  // conversation that caused it. An OPAQUE handle only — it is a thread key or
+  // session uuid, never a path and never user text. Null on records written
+  // before it was recorded, which is why the panel treats it as optional.
+  sessionId: string | null;
+  // A host-supplied display label for that session. Whitelisted like every other
+  // field and length-capped, since unlike the id it is human-authored.
+  sessionTitle: string | null;
+}
+
+// Session titles are user/host authored, so they get the same defensive
+// treatment as `reason`: no paths, no secret-shaped tokens, bounded length.
+function sanitizeTitle(title: string | null): string | null {
+  if (title == null) return null;
+  const out = title
+    .replace(/(\/home\/[^\s"']+|\/Users\/[^\s"']+|~\/[^\s"']+)/g, "[path]")
+    .replace(/\b(password|secret|token|api[_-]?key|credential)s?\b[:=\s]*\S*/gi, "[redacted]")
+    .trim();
+  if (out.length === 0) return null;
+  return out.length > 80 ? `${out.slice(0, 80)}…` : out;
 }
 
 // Defensively redact path/secret/raw-message-shaped content from a reason before
@@ -105,7 +125,11 @@ export function normalizeDecision(raw: unknown): DecisionView | null {
     // leaves it implicit (target lives on the duty cell), so fall back cleanly.
     target: str(r.target) ?? str(r.targetId),
     reason: sanitizeReason(rawReason),
-    messageDigest: str(r.messageDigest) ?? str(r.promptDigest)
+    messageDigest: str(r.messageDigest) ?? str(r.promptDigest),
+    // Writers name this differently by lane (the channel calls it a thread), so
+    // accept both spellings rather than forcing one at every write site.
+    sessionId: str(r.sessionId) ?? str(r.session_id) ?? str(r.thread) ?? str(r.threadId),
+    sessionTitle: sanitizeTitle(str(r.sessionTitle) ?? str(r.threadTitle))
   };
 }
 

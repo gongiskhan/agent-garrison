@@ -110,14 +110,14 @@ describe("runFittingSetup", () => {
     // projects — including port/host, which can never clash with PORT here.
     // Only nested values are skipped.
     expect(ownPortConfigEnv("local-voice", {
-      port: 7090,
+      port: 7097,
       bind_host: "127.0.0.1",
       gateway_url: "",
       wake_word: "",
       nested: { a: 1 },      // objects skipped entirely
       whisper_lang: "pt",
     })).toEqual({
-      GARRISON_LOCALVOICE_PORT: "7090",
+      GARRISON_LOCALVOICE_PORT: "7097",
       GARRISON_LOCALVOICE_BIND_HOST: "127.0.0.1",
       GARRISON_LOCALVOICE_GATEWAY_URL: "",
       GARRISON_LOCALVOICE_WAKE_WORD: "",

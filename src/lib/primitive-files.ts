@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { claudeHome } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
+import { assertClaudeWritable } from "./install-state";
 
 // Writer-of-record for the loose file primitives Garrison owns directly:
 //   skill   -> skills/<name>/SKILL.md   (a dir with a SKILL.md)
@@ -89,6 +90,7 @@ export async function createFilePrimitive(
 ): Promise<FilePrimitiveResult> {
   const err = validateName(name);
   if (err) return { ok: false, code: "invalid", error: err };
+  await assertClaudeWritable(`create ${surface} "${name}" in ~/.claude`);
   const rel = relPathFor(surface, name);
   const abs = absFor(home, rel);
   // A skill collides if its DIR exists; a command/rule if the .md exists.
@@ -111,6 +113,7 @@ export async function updateFilePrimitive(
   if (!(await exists(abs))) {
     return { ok: false, code: "not-found", error: `no ${surface} named "${name}"` };
   }
+  await assertClaudeWritable(`update ${surface} "${name}" in ~/.claude`);
   await writeFileAtomic(abs, content.endsWith("\n") ? content : `${content}\n`);
   return { ok: true, id: `${surface}:${name}` };
 }
@@ -127,6 +130,7 @@ export async function deleteFilePrimitive(
   if (!(await exists(abs))) {
     return { ok: false, code: "not-found", error: `no ${surface} named "${name}"` };
   }
+  await assertClaudeWritable(`delete ${surface} "${name}" from ~/.claude`);
   await fs.rm(abs, { recursive: true, force: true });
   return { ok: true, id: `${surface}:${name}` };
 }

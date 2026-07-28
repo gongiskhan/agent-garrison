@@ -32,11 +32,15 @@ x-garrison:
     - key: promptMode
       type: string
       default: full
-      description: full = claude_code preset + settingSources[project] + skills (coding roles); lean = minimal system string, no CLAUDE.md/skills (chat roles, lower token floor).
+      description: full = claude_code preset + settingSources[project] + skills; coding = full PLUS the user's real ~/.claude profile (settingSources[user,project] - Anthropic providers only, others downgrade to full); lean = minimal system string, no CLAUDE.md/skills (chat roles, lower token floor).
     - key: maxTurns
       type: number
       default: 12
       description: Cap on the agentic loop — SDK sessions have no default turn limit, so an unbounded loop would run until stopped.
+    - key: account
+      type: string
+      default: ""
+      description: Which Anthropic identity this runtime launches under - Machine login (this box's own Claude login), Auto (Garrison rotates your registered accounts by rate-limit usage), or a pinned account. Anthropic providers only; delegate sessions ride the operative's account. Set the mode here; manage the accounts on the Accounts page.
   provides:
     - kind: runtime
       name: agent-sdk

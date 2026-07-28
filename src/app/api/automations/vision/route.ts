@@ -14,6 +14,7 @@ import {
   visionGatewayClassification
 } from "./input";
 import { buildVisionPrompt } from "./prompt";
+import { profilePort, BASE_GATEWAY_PORT } from "@/lib/instance-profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
     const gatewayUrl =
       activeGatewayBaseUrl() ??
       `http://127.0.0.1:${
-        process.env.GARRISON_GATEWAY_PORT || "24777"
+        process.env.GARRISON_GATEWAY_PORT || profilePort(BASE_GATEWAY_PORT)
       }`;
 
     // Retry only a connection-level failure. HTTP and reply-shape failures are
@@ -177,6 +178,18 @@ export async function POST(req: Request) {
     if (typeof gatewayReply.route === "string" && gatewayReply.route) {
       routedVia = gatewayReply.route;
     }
+    // Session linkage: the gateway names the Claude session (and its on-disk
+    // jsonl transcript) that resolved this turn — callers persist it so a
+    // vision verdict stays traceable to the session that produced it.
+    const sessionId =
+      typeof gatewayReply.session_id === "string" && gatewayReply.session_id
+        ? gatewayReply.session_id
+        : null;
+    const transcriptPath =
+      typeof gatewayReply.transcript_path === "string" &&
+      gatewayReply.transcript_path
+        ? gatewayReply.transcript_path
+        : null;
     const text =
       gatewayReply.reply ?? gatewayReply.text ?? gatewayReply.message ?? "";
     try {
@@ -198,7 +211,20 @@ export async function POST(req: Request) {
       ) {
         assertion.role = aliases[assertion.role];
       }
-      return NextResponse.json({ result, routedVia });
+      // Honesty gate (verify mode): coerce strictly, and ONLY when the model
+      // actually returned the key. Injecting `requiresInteraction: false` on
+      // every reply would change the response shape for all four modes.
+      // Strict === true because a JSON string "false" is truthy.
+      if (
+        result &&
+        typeof result === "object" &&
+        Object.prototype.hasOwnProperty.call(result, "requiresInteraction")
+      ) {
+        const raw = (result as Record<string, unknown>).requiresInteraction;
+        (result as Record<string, unknown>).requiresInteraction =
+          raw === true || raw === "true";
+      }
+      return NextResponse.json({ result, routedVia, sessionId, transcriptPath });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       return NextResponse.json(

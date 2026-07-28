@@ -36,7 +36,7 @@ const state = {
 function parseArgs(argv) {
   const out = {
     port: Number(process.env.GARRISON_SCREENSHAREDEFAULT_PORT || process.env.SCREEN_SHARE_PORT || 7079),
-    host: process.env.SCREEN_SHARE_HOST || "127.0.0.1",
+    host: process.env.SCREEN_SHARE_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     intervalMs: Number(process.env.SCREEN_SHARE_INTERVAL_MS || 1000)
   };
   for (let i = 0; i < argv.length; i++) {

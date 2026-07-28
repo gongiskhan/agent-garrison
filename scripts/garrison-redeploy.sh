@@ -133,4 +133,8 @@ if [ "$served" != "$head_short" ]; then
   tail -n 25 "$PROD_HOME/logs/restart-watch.log" 2>/dev/null >&2 || true
   exit 1
 fi
+# Os passos 3b/4/5 de main (unlock do vault, up, publicar tailnet) NAO vivem
+# aqui: este script pede um restart fora da arvore e morre com ele. O unlock e o
+# up() correm no waiter de ~/.local/bin/garrison-launch.sh; a republicacao da
+# tailnet corre em ~/.local/bin/garrison-restart-watch.sh. Ver merge de 2026-07-28.
 say "done — prod serving $BASE at commit $head_short (restart via watch agent)"

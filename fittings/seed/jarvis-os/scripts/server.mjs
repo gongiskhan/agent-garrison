@@ -80,7 +80,7 @@ const cfg = (key) => process.env[`GARRISON_JARVISOS_${key}`];
 
 function parseArgs(argv) {
   const out = {
-    port: Number(cfg("PORT") || 7092),
+    port: Number(cfg("PORT") || 7094),
     host: cfg("BIND_HOST") || "127.0.0.1",
     // config_schema `gateway_url` overrides; else the runner-injected gateway.
     gatewayUrl: cfg("GATEWAY_URL") || process.env.GARRISON_GATEWAY_URL || "",

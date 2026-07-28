@@ -8,6 +8,7 @@ import {
   stripGarrisonGroupsForOwner
 } from "./claude-settings-file";
 import { purgeParkedHooksForOwner } from "./hooks-disable";
+import { assertClaudeWritable } from "./install-state";
 
 // Global install/ownership backend for the Claude Code installation (~/.claude).
 //
@@ -167,6 +168,7 @@ function ownedTargets(lock: InstallLock): Map<string, string> {
 // ---- install / adopt / uninstall ----
 
 export async function installFitting(manifest: InstallManifest, opts?: InstallOpts): Promise<InstallResult> {
+  await assertClaudeWritable(`install ${manifest.fittingId} into ~/.claude`);
   const h = home(opts);
   const fileArtifacts = manifest.artifacts.filter((a) => a.kind !== "hook-group");
   const hookArtifacts = manifest.artifacts.filter((a) => a.kind === "hook-group");

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyInternalToken } from "@/lib/internal-token";
 import { activeGatewayBaseUrl } from "@/lib/runner";
+import { profilePort, BASE_GATEWAY_PORT } from "@/lib/instance-profile";
 import {
   buildCurationPrompt,
   parseCurationReply,
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
   // codex instance's gateway — never silently hand turns to it.
   const gatewayUrl =
     activeGatewayBaseUrl() ??
-    `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`;
+    `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || profilePort(BASE_GATEWAY_PORT)}`;
 
   // Retry only a connection-level failure (mirrors the vision route).
   const chatFetch = async (): Promise<Response> => {

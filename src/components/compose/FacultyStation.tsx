@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
+import { platformForRuntime } from "@/components/accounts/shared";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
@@ -703,10 +705,10 @@ function FittingConfigSection({
   const facultyTabView = entry.metadata.ui
     ? matchView(entry.metadata.ui.views, "/", "faculty-tab")?.view ?? null
     : null;
-  if (entry.metadata.config_schema.length === 0 && !facultyTabView) return null;
+  if (entry.metadata.config_schema.length === 0 && !facultyTabView && !entry.metadata.login) return null;
   return (
     <>
-      {entry.metadata.config_schema.length > 0 ? (
+      {entry.metadata.config_schema.length > 0 || entry.metadata.login ? (
         <>
           <div className="lab">Configure · {entry.name}</div>
           <div
@@ -720,10 +722,17 @@ function FittingConfigSection({
               <ConfigInput
                 key={field.key}
                 field={field}
+                fittingId={entry.id}
                 value={selection.config[field.key] ?? field.default ?? ""}
                 onChange={(value) => updateConfig(entry, field.key, value)}
               />
             ))}
+            {entry.metadata.login ? (
+              <div className="field">
+                <label>native login</label>
+                <GenericLoginPanel fittingId={entry.id} storageHint={entry.metadata.login.storage_hint} />
+              </div>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -758,13 +767,31 @@ function FittingConfigSection({
 
 function ConfigInput({
   field,
+  fittingId,
   value,
   onChange
 }: {
   field: ConfigSchemaField;
+  fittingId: string;
   value: string | number | boolean;
   onChange: (value: string | number | boolean) => void;
 }) {
+  // RUNTIME-ACCOUNTS-V1: the "account" key renders as the account selector +
+  // guided login flow instead of a free-text input (options are the registry,
+  // which is dynamic — a static config_schema select cannot express it).
+  if (field.key === "account") {
+    return (
+      <div className="field">
+        <label>{field.key}</label>
+        <AccountField
+          value={String(value)}
+          onChange={(next) => onChange(next)}
+          platform={platformForRuntime(fittingId)}
+        />
+        {field.description ? <div className="hint">{field.description}</div> : null}
+      </div>
+    );
+  }
   if (field.type === "boolean") {
     return (
       <div className="field">

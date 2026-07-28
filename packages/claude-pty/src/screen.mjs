@@ -302,9 +302,12 @@ export function hasQueuedMessages(handle) {
  * (slash commands that just print) there may be no assistant marker — prompt-
  * ready + stable is enough.
  *
+ * A handle that dies mid-turn (disposed by a cancel, or a claude that crashed)
+ * resolves IMMEDIATELY with `signal:'dead'` - see the liveness check below.
+ *
  * @param {object} handle
  * @param {{startTs:number, timeoutMs:number, onUpdate?:Function, settleMs?:number, requireWork?:boolean, noWorkFallbackMs?:number}} opts
- * @returns {Promise<{signal:'done'|'timeout', elapsedMs:number, sawWork:boolean}>}
+ * @returns {Promise<{signal:'done'|'timeout'|'dead', elapsedMs:number, sawWork:boolean, reason?:string}>}
  */
 export async function waitForTurnComplete(handle, opts) {
   const { startTs, timeoutMs } = opts;
@@ -338,6 +341,21 @@ export async function waitForTurnComplete(handle, opts) {
         } catch {
           /* streaming consumer error must not kill detection */
         }
+      }
+      // Liveness. A disposed/exited handle FREEZES the xterm mirror (dispose()
+      // kills the pty but never tears the terminal down), so `stable` latches true
+      // forever while promptSettled/workSatisfied may never become true - the turn
+      // then hangs to the full timeout with the HTTP request still open. That is
+      // exactly what cancelling a one-shot web turn does: the lane disposes the
+      // disposable session out from under this poller. A dead handle can produce no
+      // further output, so settle NOW and let the caller scrape the partial reply
+      // off the frozen screen. `isAlive` is optional on a handle (screen readers and
+      // test doubles pass a bare `{term}` shim), and an absent predicate means
+      // "assume alive" - the happy path is untouched.
+      if (typeof handle.isAlive === "function" && !handle.isAlive()) {
+        clearInterval(timer);
+        resolve({ signal: "dead", elapsedMs: elapsed, sawWork, reason: "handle-not-alive" });
+        return;
       }
       const busy = lines.some((l) => isWorkingLine(l));
       if (busy) sawWork = true;

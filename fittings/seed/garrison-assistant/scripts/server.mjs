@@ -202,7 +202,7 @@ export function startServer() {
       process.env.PORT ||
       DEFAULT_PORT
   );
-  const host = process.env.GARRISON_GARRISONASSISTANT_BIND_HOST || process.env.BIND_HOST || "127.0.0.1";
+  const host = process.env.GARRISON_GARRISONASSISTANT_BIND_HOST || process.env.BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   SERVER_PORT = port;
   const size = ensureIndex().size; // build the grounding index up front
   const server = createServer();

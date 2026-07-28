@@ -18,6 +18,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { parse as parseToml } from "smol-toml";
 import { writeFileAtomic } from "./atomic-write";
+import { assertClaudeWritable } from "./install-state";
 import { readComposition } from "./compositions";
 import { readLibrary } from "./library";
 import type { QuartersDescriptor, QuartersSettingsFile } from "./types";
@@ -211,6 +212,7 @@ export async function writeRuntimeFile(
   content: string,
   baselineSha: string | null
 ): Promise<RuntimeFileView> {
+  await assertClaudeWritable(`write the runtime config ${declaredPath}`);
   const decl = findDeclared(descriptor, declaredPath);
   const invalid = validateRuntimeFileContent(decl.format, content);
   if (invalid) throw new Error(invalid);

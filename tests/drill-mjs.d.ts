@@ -31,11 +31,26 @@ declare module "*/drill/lib/viewports.mjs" {
   export function viewportList(): any[];
 }
 declare module "*/drill/lib/compile.mjs" {
+  export function normalizeStepActions(step: any, opts?: { reserved?: string[] }): Array<{ id: string; description: string }>;
   export function resolvePageUrl(book: any, page: any): string;
   export function compileStep(step: any, page: any, opts?: { blind?: boolean }): any;
   export function selectSteps(page: any, opts?: any): any[];
   export function compileReachPath(state: any): any[];
   export function compileStepAutomation(book: any, page: any, step: any, opts?: { blind?: boolean }): any;
+  export function hasAuth(book: any): boolean;
+  export function resolveAuthUrl(book: any): string;
+  export function normalizeAuthSteps(book: any): { id: string; description: string }[];
+  export function authSuccess(book: any): string | null;
+  export function compileAuthProbe(book: any): any | null;
+  export function compileAuthLogin(book: any): any;
+  export const AUTH_LOGIN_ID: string;
+  export const AUTH_PROBE_ID: string;
+  export const AUTH_VERIFY_STEP: string;
+}
+declare module "*/drill/lib/auth-state.mjs" {
+  export function authFingerprint(auth: any): string;
+  export function readAuthState(root: string): Promise<any | null>;
+  export function writeAuthState(root: string, state: any): Promise<any>;
 }
 declare module "*/drill/lib/automations-client.mjs" {
   export function automationsBaseUrl(): string | null;
@@ -73,13 +88,17 @@ declare module "*/drill/lib/runs-store.mjs" {
   export function publicRunRecord(record: any): any;
 }
 declare module "*/drill/lib/spec-emit.mjs" {
+  export function emitActionCode(action: any): string;
+  export function isEmittableAction(action: any): boolean;
+  export function stepActionsEmittable(step: any): boolean;
   export function emitAssertionCode(assertion: any): string;
   export function emittableSteps(page: any): any[];
   export function emitPageSpec(page: any, targetUrl: string): string;
 }
 declare module "*/drill/lib/graduate.mjs" {
+  export function harvestResolvedActions(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
   export function specRelPath(pageId: string): string;
-  export function graduationPlanFor(step: any, outcome: any): any;
+  export function graduationPlanFor(step: any, outcome: any, automationRun?: any): any;
   export function graduateStep(book: any, pageId: string, stepId: string, plan: any): Promise<any>;
 }
 declare module "*/drill/lib/snapshots.mjs" {
@@ -130,4 +149,22 @@ declare module "*/drill/lib/browser-fitting-client.mjs" {
   export function closeTab(tabId: string, opts?: any): Promise<any>;
   export function tabInfo(tabId: string, opts?: any): Promise<any | null>;
   export function readConsole(tabId: string, opts?: any): Promise<any>;
+}
+declare module "*/drill/lib/video-tighten.mjs" {
+  export const TIGHTEN_DEFAULTS: {
+    preSec: number; postSec: number; mergeGapSec: number;
+    checkAnchorPreSec: number; checkAnchorPostSec: number;
+    maxSegments: number; minReductionRatio: number;
+  };
+  export function computeActivityWindows(args: {
+    frames?: any[]; steps?: any[]; durationSec: number; options?: any;
+  }): Array<[number, number]>;
+  export function segmentsDuration(segments: Array<[number, number]>): number;
+  export function remapOffset(segments: Array<[number, number]>, originalSec: number): number | null;
+  export function buildSelectFilter(segments: Array<[number, number]>): string;
+  export function ffmpegAvailable(): Promise<boolean>;
+  export function probeDurationSec(file: string): Promise<number | null>;
+  export function buildTightVideo(args: {
+    dir: string; source?: string; frames?: any[]; steps?: any[]; options?: any; timeoutMs?: number;
+  }): Promise<any>;
 }

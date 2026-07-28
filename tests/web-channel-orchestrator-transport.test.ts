@@ -3,6 +3,11 @@
 //   - the orchestrator transport (web-channel default path) parses a `tool` SSE
 //     frame into a ChatEvent and posts answers to /api/chat/answer;
 //   - createHttpTransport (rich /claude/* path) posts answers to /api/claude/answer.
+//
+// Plus the 2026-07-25 run-context contract's client seam: the request body carries
+// the pinned `routing`, the monotonic `turnSeq` and the long-dropped `autonomous`
+// marker; the widened `route` frame (pre-turn `pending` + folded into `done`) and the
+// new `activity` frame become ChatEvents; and `interrupt()` is a real POST.
 
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { ChatEvent } from "@garrison/claude-chat";
@@ -35,7 +40,42 @@ function sseResponse(frames: string[]): Response {
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
+  delete (globalThis as { window?: unknown }).window;
 });
+
+// Recording fetch: SSE for POST /api/chat, JSON for everything else. Returns the
+// call log so a test can assert what actually reached the wire - the whole point of
+// this seam is that it silently loses any key it does not name.
+function recordingFetch(frames: string[], hostMap?: Record<string, string>) {
+  const calls: { url: string; method: string; body: any }[] = [];
+  globalThis.fetch = vi.fn(async (url: any, init: any) => {
+    const u = String(url);
+    calls.push({
+      url: u,
+      method: String(init?.method ?? "GET"),
+      body: init?.body ? JSON.parse(init.body) : undefined,
+    });
+    if (u === "/host-map") {
+      return new Response(JSON.stringify({ map: hostMap ?? {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (u.endsWith("/chat")) return sseResponse(frames);
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  }) as unknown as typeof fetch;
+  return calls;
+}
+
+const chatBody = (calls: { url: string; body: any }[]) => calls.find((c) => c.url === "/api/chat")?.body;
+
+// A fresh module instance: the serve table is cached at module scope (one fetch per
+// page), so a test that needs its own /host-map answer has to re-import.
+async function freshTransport() {
+  vi.resetModules();
+  const mod = await import("../fittings/seed/web-channel-default/ui/orchestrator-transport");
+  return mod.createOrchestratorTransport;
+}
 
 describe("orchestrator transport: AskUserQuestion", () => {
   it("surfaces a `tool` ChatEvent from a tool SSE frame", async () => {
@@ -160,6 +200,258 @@ describe("orchestrator transport: runtime attribution", () => {
     await t.sendMessage("hi");
 
     expect(events.some((e) => e.type === "route")).toBe(false);
+  });
+});
+
+describe("orchestrator transport: run-context request body (contract §3)", () => {
+  it("forwards the pinned routing, the turn number AND the autonomous marker", async () => {
+    const calls = recordingFetch([`event: done\ndata: ${JSON.stringify({ reply: "ok" })}\n\n`]);
+    const t = createOrchestratorTransport("/api", "thread-pins");
+    const send = t.sendMessage as unknown as (text: string, meta?: unknown) => Promise<void>;
+    await send("ship it", {
+      routing: { target: "cc-sonnet-med", effort: "high", level: 2 },
+      autonomous: true,
+    });
+
+    // `autonomous` has been produced by buildSendMeta and dropped right here since
+    // D21 - it is pinned next to `routing` precisely because this seam fails silently.
+    expect(chatBody(calls)).toEqual({
+      message: "ship it",
+      thread: "thread-pins",
+      autonomous: true,
+      routing: { target: "cc-sonnet-med", effort: "high", level: 2 },
+      turnSeq: 1,
+    });
+  });
+
+  it("keeps a plain send minimal - no pins, no autonomous, no context/mode keys", async () => {
+    const calls = recordingFetch([`event: done\ndata: ${JSON.stringify({ reply: "ok" })}\n\n`]);
+    const t = createOrchestratorTransport("/api", "thread-plain");
+    await t.sendMessage("hi");
+    expect(chatBody(calls)).toEqual({ message: "hi", thread: "thread-plain", turnSeq: 1 });
+  });
+
+  it("drops an all-empty pin object instead of sending routing: {}", async () => {
+    const calls = recordingFetch([`event: done\ndata: ${JSON.stringify({ reply: "ok" })}\n\n`]);
+    const t = createOrchestratorTransport("/api", "thread-empty-pins");
+    const send = t.sendMessage as unknown as (text: string, meta?: unknown) => Promise<void>;
+    await send("hi", { routing: {} });
+    expect(chatBody(calls)).toEqual({ message: "hi", thread: "thread-empty-pins", turnSeq: 1 });
+  });
+
+  it("stamps a monotonic turnSeq per send onto the body AND onto that send's frames", async () => {
+    const calls = recordingFetch([
+      `event: route\ndata: ${JSON.stringify({ duty: "plan", pending: true })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ reply: "ok", duty: "plan" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-seq");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("one");
+    await t.sendMessage("two");
+
+    const bodies = calls.filter((c) => c.url === "/api/chat").map((c) => c.body.turnSeq);
+    expect(bodies).toEqual([1, 2]);
+    // Every frame of a send carries THAT send's number - the consumer drops a frame
+    // stamped older than the turn it would land on, so the echo is not trusted.
+    const stamps = events.filter((e) => e.type === "route").map((e) => (e as any).turnSeq);
+    expect(stamps).toEqual([1, 1, 2, 2]);
+  });
+});
+
+describe("orchestrator transport: widened route frames (contract §1, §4)", () => {
+  it("emits the PRE-TURN frame with pending, then the settled frame without it", async () => {
+    const calls = recordingFetch([
+      `event: route\ndata: ${JSON.stringify({ route: "cc-sonnet-med", runtime: "agent-sdk", duty: "plan", level: 2, pending: true })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ reply: "Done.", route: "cc-sonnet-med", runtime: "agent-sdk", duty: "plan", level: 2, effortApplied: true, effort: "high" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-pre");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("plan this");
+    expect(calls.some((c) => c.url === "/api/chat")).toBe(true);
+
+    const routes = events.filter((e) => e.type === "route") as any[];
+    expect(routes).toHaveLength(2);
+    expect(routes[0]).toMatchObject({ route: "cc-sonnet-med", duty: "plan", level: 2, pending: true });
+    // The done frame carries no `pending`, so the key must be ABSENT rather than
+    // forwarded as false: the consumer reads it as "describes the latest frame".
+    expect("pending" in routes[1]).toBe(false);
+    expect(routes[1]).toMatchObject({ effort: "high", effortApplied: true });
+  });
+
+  it("forwards every new attribution field, accepting the legacy snake_case spellings", async () => {
+    recordingFetch([
+      `event: done\ndata: ${JSON.stringify({
+        reply: "Done.",
+        route: "cc-sonnet-med",
+        runtime: "agent-sdk",
+        duty: "execute",
+        level: 3,
+        phase: "review",
+        skill: null,
+        via: "turn-override",
+        account: "work",
+        accountSource: "override",
+        project: "garrison",
+        projectPath: "/home/ggomes/dev/garrison",
+        card: "c-42",
+        cardUrl: "https://board.example/card/c-42",
+        session_id: "sess-9",
+        transcript_path: "/home/ggomes/.claude/projects/x/sess-9.jsonl",
+        stopped_by_user: true,
+        stopped_reason: "user-interrupt",
+        overridesApplied: ["duty", "level"],
+        overridesRejected: [{ field: "effort", reason: "provider-has-no-effort-control" }],
+      })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-full");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+
+    expect(events.find((e) => e.type === "route")).toMatchObject({
+      duty: "execute",
+      level: 3,
+      phase: "review",
+      skill: null,
+      via: "turn-override",
+      account: "work",
+      accountSource: "override",
+      project: "garrison",
+      projectPath: "/home/ggomes/dev/garrison",
+      card: "c-42",
+      cardUrl: "https://board.example/card/c-42",
+      sessionId: "sess-9",
+      transcriptPath: "/home/ggomes/.claude/projects/x/sess-9.jsonl",
+      stoppedByUser: true,
+      stoppedReason: "user-interrupt",
+      overridesApplied: ["duty", "level"],
+      overridesRejected: [{ field: "effort", reason: "provider-has-no-effort-control" }],
+    });
+  });
+
+  it("prefers an explicit camelCase field over its snake_case alias", async () => {
+    recordingFetch([
+      `event: done\ndata: ${JSON.stringify({ reply: "x", sessionId: "camel", session_id: "snake" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-alias");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+    expect((events.find((e) => e.type === "route") as any).sessionId).toBe("camel");
+  });
+
+  it("keeps null and ABSENT apart: an explicit null is reported, a missing field is omitted", async () => {
+    recordingFetch([
+      `event: done\ndata: ${JSON.stringify({ reply: "x", duty: "plan", account: null, skill: null })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-null");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+
+    const ev = events.find((e) => e.type === "route") as any;
+    // account: null is a FACT ("ran on the machine's own Claude login") and skill:
+    // null is the honest limit ("skill: none"); an absent project is "this lane
+    // cannot say" and must not be invented as null.
+    expect(ev.account).toBeNull();
+    expect(ev.skill).toBeNull();
+    expect("project" in ev).toBe(false);
+    expect("card" in ev).toBe(false);
+  });
+
+  it("emits a route frame for an attribution-only done frame (no route/runtime/model)", async () => {
+    recordingFetch([`event: done\ndata: ${JSON.stringify({ reply: "x", duty: "plan", level: 1 })}\n\n`]);
+    const t = createOrchestratorTransport("/api", "thread-dutyonly");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+    expect(events.find((e) => e.type === "route")).toMatchObject({ duty: "plan", level: 1 });
+  });
+});
+
+describe("orchestrator transport: activity frames (contract §12)", () => {
+  it("surfaces a tool activity frame for the working hint", async () => {
+    recordingFetch([
+      `event: activity\ndata: ${JSON.stringify({ kind: "tool", name: "Edit", id: "toolu_5" })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ reply: "done" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-act");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+
+    expect(events.find((e) => e.type === "activity")).toEqual({ type: "activity", kind: "tool", name: "Edit", id: "toolu_5" });
+  });
+
+  it("ignores a nameless activity frame rather than rendering an empty hint", async () => {
+    recordingFetch([
+      `event: activity\ndata: ${JSON.stringify({ kind: "tool" })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ reply: "done" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-act2");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+    expect(events.some((e) => e.type === "activity")).toBe(false);
+  });
+});
+
+describe("orchestrator transport: card links are made reachable for THIS client", () => {
+  const cardFrames = (cardUrl: string) => [
+    `event: done\ndata: ${JSON.stringify({ reply: "carded", card: "c-7", cardUrl })}\n\n`,
+  ];
+  const routeOf = (events: ChatEvent[]) => events.find((e) => e.type === "route") as any;
+
+  it("rebinds a loopback board url onto its tailnet serve mapping", async () => {
+    (globalThis as any).window = { location: { hostname: "dev-madrid.tail31efa.ts.net", protocol: "https:" } };
+    recordingFetch(cardFrames("http://127.0.0.1:8081/card/c-7"), { "8081": "https://dev-madrid.tail31efa.ts.net:8443" });
+    const create = await freshTransport();
+    const t = create("/api", "thread-card");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+    expect(routeOf(events).cardUrl).toBe("https://dev-madrid.tail31efa.ts.net:8443/card/c-7");
+  });
+
+  it("blanks a loopback url with no serve mapping on an HTTPS page (mixed content)", async () => {
+    (globalThis as any).window = { location: { hostname: "dev-madrid.tail31efa.ts.net", protocol: "https:" } };
+    recordingFetch(cardFrames("http://127.0.0.1:8081/card/c-7"), {});
+    const create = await freshTransport();
+    const t = create("/api", "thread-card2");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+    // "" means "no href" to the badge model: the card is still reported, it just is
+    // not offered as a link the browser would refuse to open.
+    expect(routeOf(events).cardUrl).toBe("");
+  });
+
+  it("leaves a url that is already reachable untouched", async () => {
+    (globalThis as any).window = { location: { hostname: "dev-madrid.tail31efa.ts.net", protocol: "https:" } };
+    recordingFetch(cardFrames("https://dev-madrid.tail31efa.ts.net:8443/card/c-7"), {});
+    const create = await freshTransport();
+    const t = create("/api", "thread-card3");
+    const events: ChatEvent[] = [];
+    t.connect((ev) => events.push(ev));
+    await t.sendMessage("go");
+    expect(routeOf(events).cardUrl).toBe("https://dev-madrid.tail31efa.ts.net:8443/card/c-7");
+  });
+});
+
+describe("orchestrator transport: interrupt (contract §9)", () => {
+  it("POSTs the thread id to /api/chat/interrupt", async () => {
+    const calls = recordingFetch([]);
+    const t = createOrchestratorTransport("/api", "thread-stop");
+    await t.interrupt();
+    expect(calls).toEqual([{ url: "/api/chat/interrupt", method: "POST", body: { thread: "thread-stop" } }]);
+  });
+
+  it("treats a refusal as done - Stop must never throw at the UI", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: "no-active-turn" }), { status: 404 })) as unknown as typeof fetch;
+    const t = createOrchestratorTransport("/api", "thread-stop2");
+    await expect(t.interrupt()).resolves.toBeUndefined();
   });
 });
 

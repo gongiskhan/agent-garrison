@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { findRoutingConfigPath, readRoutingConfig, resolveRoute } from "@/lib/model-router";
 import { verifyInternalToken } from "@/lib/internal-token";
+import { activeGatewayBaseUrl } from "@/lib/runner";
+import { profilePort, BASE_GATEWAY_PORT } from "@/lib/instance-profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +53,14 @@ export async function POST(req: Request) {
 
   // Execute the prompt via the gateway (the operative + its auth), forwarding the
   // binding classification hint so the gateway honors the same route.
-  const gatewayUrl = process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "24777"}`;
+  // Live runner record first, then a PROFILE-SHIFTED base port. The literal
+  // 24777 that used to sit here is the codex instance's gateway, so whenever
+  // this app ran without GARRISON_GATEWAY_URL it handed plan turns to another
+  // instance's operative.
+  const gatewayUrl =
+    process.env.GARRISON_GATEWAY_URL ||
+    activeGatewayBaseUrl() ||
+    `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || profilePort(BASE_GATEWAY_PORT)}`;
   try {
     const res = await fetch(`${gatewayUrl}/chat`, {
       method: "POST",

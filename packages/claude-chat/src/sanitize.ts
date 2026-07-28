@@ -1,4 +1,5 @@
 import type { RouteAttribution } from "./transport";
+import { effortState } from "./run-context";
 
 // Render-time cleanup for assistant replies that were SCRAPED off the Claude Code
 // TUI screen (the gateway reads the headless xterm mirror — see @garrison/claude-pty).
@@ -134,6 +135,18 @@ export function routeChipLabel(meta: AssistantRouteMeta): string | null {
  *   (routeChipLabel) when neither runtime nor model is known but a target id is.
  * Title: "target <route> · rule <ruleId> · profile <profile>", plus
  *   "honored: yes/no" when the router reported it.
+ *
+ * SUPERSEDED by {@link railBadges} (run-context.ts), which is the badge model every
+ * new surface renders. This chip is NOT a `railBadges(...).map(b => b.label)` fold:
+ * the two disagree structurally, not just cosmetically - the chip merges runtime and
+ * model into one "runtime/model" token, carries a `tier` the rail has no badge for
+ * (tier is not settable, so it lives in the rail's target tooltip instead), and
+ * falls back to a model-FAMILY label ("Sonnet") the rail deliberately never
+ * invents. Folding one into the other would change the chip's rendered text on
+ * every existing consumer. What IS shared is the part that could actually drift in
+ * a way that misleads - the effort application verdict, via {@link effortState}.
+ * Both renderings therefore always agree on WHETHER effort applied, even where the
+ * wording differs.
  */
 export function routeChipFromAttribution(
   route: RouteAttribution
@@ -145,11 +158,12 @@ export function routeChipFromAttribution(
   const tier = s(route.tier);
   if (label && tier) label = `${label} · ${tier}`;
   const effort = s(route.effort);
-  if (label && effort) {
+  const state = effortState(route);
+  if (label && effort && state) {
     const effortLabel =
-      route.effortApplied === true
+      state === "applied"
         ? `${effort} effort`
-        : route.effortApplied === false
+        : state === "refused"
           ? `${effort} effort not applied`
           : `${effort} effort unverified`;
     label = `${label} · ${effortLabel}`;
@@ -160,9 +174,9 @@ export function routeChipFromAttribution(
   if (s(route.route)) titleParts.push(`target ${s(route.route)}`);
   if (s(route.ruleId)) titleParts.push(`rule ${s(route.ruleId)}`);
   if (s(route.profile)) titleParts.push(`profile ${s(route.profile)}`);
-  if (effort) {
-    const state = route.effortApplied === true ? "applied" : route.effortApplied === false ? "not applied" : "application unknown";
-    titleParts.push(`effort ${effort}: ${state}`);
+  if (effort && state) {
+    const verdict = state === "applied" ? "applied" : state === "refused" ? "not applied" : "application unknown";
+    titleParts.push(`effort ${effort}: ${verdict}`);
   }
   if (typeof route.honored === "boolean") titleParts.push(`honored: ${route.honored ? "yes" : "no"}`);
   const title = titleParts.join(" · ");

@@ -66,4 +66,35 @@ describe("validatePatch + proposePatch (G1s)", () => {
     expect(patch.kind).toBe("insert_before");
     expect(patch.newStep.description).toMatch(/cookie/i);
   });
+
+  it("never lets an inserted patch duplicate an existing step id", () => {
+    // The fix prompt shows the model the failing step's full JSON, id included,
+    // so it can echo that id back. Two steps sharing an id would poison the
+    // action/assertion caches (keyed automationId+stepId+fingerprint) and make
+    // per-step result lookups ambiguous.
+    const steps = [{ id: "nav", type: "navigate" }, { id: "check-1", type: "verify" }];
+    const out = applyPatch(steps, 1, { kind: "insert_before", newStep: { id: "check-1", type: "browser", description: "dismiss banner" } });
+    const ids = out.map((s: any) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.filter((i: string) => i === "check-1")).toHaveLength(1);
+    expect(out[1].id).toMatch(/^fix-/);
+    expect(out[1].description).toBe("dismiss banner");
+  });
+
+  it("keeps a non-colliding proposed id, and still preserves the id on replace_current", () => {
+    const steps = [{ id: "nav", type: "navigate" }, { id: "check-1", type: "verify" }];
+    const inserted = applyPatch(steps, 1, { kind: "insert_before", newStep: { id: "dismiss-banner", type: "browser" } });
+    expect(inserted[1].id).toBe("dismiss-banner");
+    // replace_current must NOT re-mint: Drill correlates the repaired result by id.
+    const replaced = applyPatch(steps, 1, { kind: "replace_current", newStep: { id: "check-1", type: "verify" } });
+    expect(replaced).toHaveLength(2);
+    expect(replaced[1].id).toBe("check-1");
+  });
+
+  it("classifies an abort's cause, defaulting to the conservative reading", () => {
+    // A model that omits `cause` must never silently downgrade a real defect.
+    expect(validatePatch({ patch: "abort", reasoning: "the button is broken" }).cause).toBe("outcome-not-met");
+    expect(validatePatch({ patch: "abort", reasoning: "x", cause: "nonsense" }).cause).toBe("outcome-not-met");
+    expect(validatePatch({ patch: "abort", reasoning: "needs two interactions", cause: "check-unrunnable" }).cause).toBe("check-unrunnable");
+  });
 });

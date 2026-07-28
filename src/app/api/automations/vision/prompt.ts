@@ -72,7 +72,15 @@ export function buildVisionPrompt(
         '  url-matches: { "kind":"url-matches", "pattern":"...", "mode":"contains|regex" } - the current URL matches',
         '  attribute-equals: { "kind":"attribute-equals", "testId"|"selector"|"role":"...", "attribute":"...", "value":"..." } - an element\'s attribute equals a value'
       ].join("\n"),
-      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "passed": true|false, "reasoning": "...", "assertion": { "kind": "...", ... } }'
+      [
+        "Honesty gate. What you are given is a STATIC snapshot. Nothing was clicked, typed, pressed, hovered, dragged or scrolled as part of this verification unless an earlier step in this run already did it.",
+        'Set "requiresInteraction": true ONLY when the expected outcome is a state that cannot exist until someone interacts with the page AND this snapshot shows no trace of that interaction having happened. Example: "pressing Shift+Enter inserts a newline" against an untouched, empty composer — the newline can only exist after the keystroke, so it cannot be seen here.',
+        'Set it false when the outcome is observable right now: static text, layout, counts, the URL, an element being present/absent/enabled/disabled, or an after-effect already on the page because an earlier step performed the interaction.',
+        'Judge the OUTCOME, not the verb. A sentence merely naming an action does not make this true. "Clicking Export downloads a CSV" is false when the export confirmation is already on screen; it is true when the page shows no sign the export ever ran.',
+        'When it is true: name the single missing interaction in "missingInteraction", keep "reasoning" strictly to what the snapshot actually shows, and OMIT "assertion" — do not return an assertion that merely re-checks the pre-interaction state.',
+        'If you are unsure, set it false. A false alarm here suppresses a real, useful check.'
+      ].join("\n"),
+      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "passed": true|false, "reasoning": "...", "requiresInteraction": true|false, "missingInteraction": "(only when requiresInteraction is true)", "assertion": { "kind": "...", ... } }'
     ]);
   }
 
@@ -117,11 +125,14 @@ export function buildVisionPrompt(
         "- replace_current: replace an incorrect or stale step with one browser, verify, navigate, or wait step.",
         "- skip_current: only when the check is provably redundant; never use it merely to make the run pass.",
         "- pause_for_user: only for an unavoidable human action.",
-        "- abort: the product outcome is genuinely not met or no safe bounded recovery exists.",
+        '- abort: no safe bounded recovery exists. You MUST also set "cause":',
+        '    "outcome-not-met"   - the product outcome is genuinely not met. The app is wrong. This is a real defect.',
+        '    "check-unrunnable"  - the app may well be fine; this CHECK cannot be verified as written. Use it when the check needs interactions that were never performed (it asserts what happens after a click/keypress/submit and no such step exists), when it bundles several assertions that need a multi-step sequence, when the state it describes is ephemeral or timing-dependent, or when the element it names has no targetable handle.',
+        '  Choosing "outcome-not-met" for a check that was never actually exercised reports a defect against the app that nobody has evidence for. If the outcome was never reachable in this run, it is "check-unrunnable".',
         "A newStep may ONLY have type browser, verify, navigate, or wait. Never propose shell, API, connector, or sub-automation work.",
         "A verify failure usually cannot be repaired by page actions - prefer abort unless an overlay, wrong route, or unloaded page plausibly blocks the expected outcome."
       ].join("\n"),
-      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "patch":"insert_before|replace_current|skip_current|pause_for_user|abort", "reasoning":"...", "newStep": { "type":"browser|verify|navigate|wait", "...":"..." }, "userInstructions":"(pause_for_user only)" }'
+      'Reply ONLY valid single-line JSON (escape any newline inside strings): { "patch":"insert_before|replace_current|skip_current|pause_for_user|abort", "reasoning":"...", "cause":"outcome-not-met|check-unrunnable (abort only)", "newStep": { "type":"browser|verify|navigate|wait", "...":"..." }, "userInstructions":"(pause_for_user only)" }'
     ]);
   }
 

@@ -78,9 +78,44 @@ export function buildLaunchEnv(target, opts = {}) {
   delete out.ANTHROPIC_API_KEY;
   delete out.ANTHROPIC_BASE_URL;
   delete out.ANTHROPIC_AUTH_TOKEN;
+  // RUNTIME-ACCOUNTS-V1: an inherited account token (the PRIMARY session's
+  // pin) must never leak into a target with a different — or no — account.
+  delete out.CLAUDE_CODE_OAUTH_TOKEN;
+  delete out.GARRISON_ACCOUNT;
 
   if (spec.kind === "anthropic-plan") {
-    return out; // Max OAuth, no base URL, no key
+    // RUNTIME-ACCOUNTS-V1: the plan path may be pinned to a named account.
+    // target.account (carried from the runtime fitting's config) wins; a plan
+    // target WITHOUT its own account INHERITS the launching session's pin
+    // (baseEnv.GARRISON_ACCOUNT + token) so a soul-switch respawn never drops
+    // the operative back onto the machine's ambient login mid-conversation.
+    // The token is the vault secret ANTHROPIC_ACCOUNT__<name> (mirror of
+    // src/lib/account-env.ts — fittings cannot import src/lib). Injected as
+    // ANTHROPIC_AUTH_TOKEN because stored /login credentials beat
+    // CLAUDE_CODE_OAUTH_TOKEN in the CLI, while ANTHROPIC_AUTH_TOKEN beats
+    // stored credentials (verified live, 2.1.216); CLAUDE_CODE_OAUTH_TOKEN is
+    // set too for credential-less config dirs. A named account whose token
+    // cannot resolve throws LOUD — riding the ambient login would be the
+    // wrong-account bug this feature exists to kill.
+    const account = String(target.account ?? "").trim();
+    if (account) {
+      const accountKey = `ANTHROPIC_ACCOUNT__${account}`;
+      const vaultLocked = secrets === null;
+      const token = vaultLocked ? undefined : secrets[accountKey];
+      if (!token) throw new MissingProviderKeyError(`${provider} (account "${account}")`, accountKey, vaultLocked);
+      out.ANTHROPIC_AUTH_TOKEN = token;
+      out.CLAUDE_CODE_OAUTH_TOKEN = token;
+      out.GARRISON_ACCOUNT = account;
+      // Empty (not merely deleted): the spawned process inherits the PROCESS
+      // env underneath this map — a stray raw API key would outrank the token.
+      out.ANTHROPIC_API_KEY = "";
+    } else if (baseEnv.GARRISON_ACCOUNT && baseEnv.ANTHROPIC_AUTH_TOKEN) {
+      out.ANTHROPIC_AUTH_TOKEN = baseEnv.ANTHROPIC_AUTH_TOKEN;
+      out.CLAUDE_CODE_OAUTH_TOKEN = baseEnv.CLAUDE_CODE_OAUTH_TOKEN ?? baseEnv.ANTHROPIC_AUTH_TOKEN;
+      out.GARRISON_ACCOUNT = baseEnv.GARRISON_ACCOUNT;
+      out.ANTHROPIC_API_KEY = "";
+    }
+    return out; // Max OAuth (optionally account-pinned), no base URL
   }
   out.ANTHROPIC_BASE_URL = spec.baseUrl;
   if (spec.needsKey) {

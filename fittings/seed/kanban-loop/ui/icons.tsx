@@ -62,6 +62,14 @@ export function SparkIcon(): JSX.Element {
 export function ChatIcon(): JSX.Element {
   return <svg {...base}><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" /></svg>;
 }
+// A prompt-shell glyph for the Terminal button/modal.
+export function TerminalIcon(): JSX.Element {
+  return <svg {...base}><polyline points="5 8 9 12 5 16" /><line x1="12" y1="16" x2="18" y2="16" /></svg>;
+}
+// A small wrench for tool_use rows in the session transcript view.
+export function WrenchIcon(): JSX.Element {
+  return <svg {...base}><path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.7 2.7-2-2 2.7-2.7z" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

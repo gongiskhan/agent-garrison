@@ -7,7 +7,7 @@
 // events come back over the same WS and are dispatched to the callbacks:
 //   ready | speech_started | transcript{isFinal} | utterance_end | error
 //
-// This replaces legacy-voice.tsx's deprecated ScriptProcessorNode graph.
+// Replaces the retired ScriptProcessorNode-based capture path.
 
 export interface CaptureCallbacks {
   onReady?(sampleRate: number): void;

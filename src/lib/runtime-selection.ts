@@ -9,6 +9,7 @@
 // engine to spawn and WITH WHICH provider env. It is deliberately decoupled from
 // the heavy runner internals so it can be unit-tested in isolation.
 import type { CapabilityProvision } from "./types";
+import { accountAuthEnv, accountVaultKey } from "./account-env";
 
 /** The default primary runtime when GlobalConfig.primary_runtime is unset. */
 export const DEFAULT_PRIMARY_RUNTIME = "claude-code-runtime";
@@ -110,6 +111,12 @@ export interface PrimaryRuntimeEnv {
    * them for the Max-plan default.
    */
   providerLaunch: boolean;
+  /**
+   * RUNTIME-ACCOUNTS-V1: the Anthropic account this launch is pinned to, when
+   * the fitting config selects one on the plan path (non-secret marker for the
+   * runner's log line). Absent on provider launches and unpinned launches.
+   */
+  account?: string;
 }
 
 /**
@@ -143,6 +150,17 @@ export function buildPrimaryRuntimeEnv(
     env.GARRISON_MODEL = String(config.model);
   }
 
+  // The agent-sdk primary honors the fitting's harness knobs (claude-code
+  // ignores both: the PTY has no promptMode and no turn cap). Without these,
+  // the gateway's operative spawn always fell back to the adapter defaults
+  // (full / 12) no matter what the composition configured.
+  if (config.promptMode !== undefined && String(config.promptMode).length > 0) {
+    env.GARRISON_PRIMARY_PROMPT_MODE = String(config.promptMode);
+  }
+  if (config.maxTurns !== undefined && Number(config.maxTurns) > 0) {
+    env.GARRISON_PRIMARY_MAX_TURNS = String(Number(config.maxTurns));
+  }
+
   // The providers section is REQUIRED on every path — including the default
   // anthropic-plan one, which needs no provider data but must still fail loud
   // when the call-site plumbing is broken (matching stage-b's buildLaunchEnv;
@@ -154,9 +172,41 @@ export function buildPrimaryRuntimeEnv(
     );
   }
 
+  // RUNTIME-ACCOUNTS-V1: the plan path may be pinned to a named account. The
+  // token is a VAULT read (ANTHROPIC_ACCOUNT__<name>) resolved through the
+  // caller-supplied lookup; a selected account whose token cannot resolve
+  // FAILS LOUD — launching on the machine's ambient login instead would be the
+  // wrong-account bug this feature exists to kill. Injected as
+  // ANTHROPIC_AUTH_TOKEN (+ CLAUDE_CODE_OAUTH_TOKEN): stored /login
+  // credentials beat CLAUDE_CODE_OAUTH_TOKEN in the CLI, while
+  // ANTHROPIC_AUTH_TOKEN beats stored credentials (verified live, 2.1.216) and
+  // the claude-pty spawn never strips it — so providerLaunch stays false.
+  const applyAccountPin = (): { env: Record<string, string>; providerLaunch: false; account?: string } => {
+    const account = String(config.account ?? "").trim();
+    if (!account) return { env, providerLaunch: false };
+    // PAYMASTER: "auto" is resolved to a concrete account by the runner BEFORE
+    // this pure builder runs. Seeing the literal here means a caller skipped
+    // that step - fail loud instead of reading ANTHROPIC_ACCOUNT__auto.
+    if (account === "auto") {
+      throw new Error(
+        `primary runtime ${descriptor.runtimeId}: account "auto" reached the env builder unresolved - ` +
+          `the runner must resolve it via the Paymaster before building the spawn env.`
+      );
+    }
+    const key = accountVaultKey(account);
+    const token = secretLookup(key);
+    if (!token) {
+      throw new Error(
+        `primary runtime ${descriptor.runtimeId} selects account "${account}" but ${key} did not resolve ` +
+          `(vault locked or token absent) — log in again from the runtime config, or clear the account selector.`
+      );
+    }
+    return { env: { ...env, ...accountAuthEnv(account, token) }, providerLaunch: false, account };
+  };
+
   const provider = String(config.provider ?? "anthropic-plan");
   if (provider === "anthropic-plan") {
-    return { env, providerLaunch: false };
+    return applyAccountPin();
   }
 
   const entry = providers.find((p) => p && p.id === provider);
@@ -171,7 +221,7 @@ export function buildPrimaryRuntimeEnv(
   // malformed entry and falls through to the requires-a-base-URL throw below —
   // never silently treated as the plan path.
   if (entry.kind === "anthropic-plan") {
-    return { env, providerLaunch: false };
+    return applyAccountPin();
   }
   const spec = {
     baseUrl: entry.baseUrl ?? null,
@@ -213,6 +263,8 @@ export interface RouterTarget {
   runtime: string;
   provider?: string;
   model?: string;
+  /** RUNTIME-ACCOUNTS-V1: the fitting's selected Anthropic account (plan path). */
+  account?: string;
   /** The runtime fitting this target was derived from (omitted for hand-seeded targets). */
   derivedFrom?: string;
 }
@@ -229,6 +281,16 @@ export function deriveRuntimeTargets(runtimeEntries: RuntimeEntry[]): RouterTarg
   return runtimeEntries.map((entry) => {
     const engine = engineOf(entry);
     const config = entry.config ?? {};
+    // RUNTIME-ACCOUNTS-V1: carry the fitting's selected account onto the
+    // derived target so the gateway's launch-env builders (stage-b /
+    // agent-sdk) pin routed sessions to the same account as the fitting.
+    // PAYMASTER: "auto" never lands on a derived target - the rotation
+    // decision is made ONCE per operative spawn (in the runner) and delegate
+    // sessions inherit that account through the launch env (sticky sessions,
+    // D10). The literal "auto" would otherwise be read as a vault key name by
+    // the fitting-side launch-env builders.
+    const rawAccount = String(config.account ?? "").trim();
+    const account = rawAccount === "auto" ? "" : rawAccount;
     if (engine === "claude-code") {
       return {
         id: `fitted-${entry.id}`,
@@ -236,6 +298,7 @@ export function deriveRuntimeTargets(runtimeEntries: RuntimeEntry[]): RouterTarg
         runtime: "claude-code",
         provider: String(config.provider ?? "anthropic-plan"),
         model: String(config.model ?? "opus"),
+        ...(account ? { account } : {}),
         derivedFrom: entry.id
       };
     }
@@ -243,6 +306,7 @@ export function deriveRuntimeTargets(runtimeEntries: RuntimeEntry[]): RouterTarg
       id: `fitted-${entry.id}`,
       type: "secondary",
       runtime: engine,
+      ...(account ? { account } : {}),
       derivedFrom: entry.id
     };
   });

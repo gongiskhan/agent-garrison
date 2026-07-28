@@ -1,7 +1,10 @@
 // Spotter (Drill Evidence V2, S1): trigger-driven frame capture riding a
 // capture session. Deterministic triggers only — no model in the capture
 // path (D2):
-//   (a) step boundary   — chunk start/end, always kept
+//   (a) step boundary   — chunk END, always kept (the settled state the
+//                         check was judged on). Chunk START only re-tags the
+//                         window: the caller opens it before the check has
+//                         navigated, so a frame there shows the PREVIOUS check.
 //   (b) phash distance  — sampled screencast frame differs from the last
 //                         kept frame beyond a hamming threshold
 //   (c) console burst   — N console lines inside a sliding window
@@ -202,7 +205,10 @@ export async function createSpotter({ session, config }) {
 
   const warn = (msg) => console.warn(`[spotter] ${session.id}: ${msg}`);
 
-  async function writeFrame(buf, hash, trigger, force) {
+  // `chunk` is passed in rather than read from state: writes are serialized on
+  // state.chain and grabFrame() awaits CDP, so a frame triggered during check N
+  // can be WRITTEN after onChunkStart(N+1) and would otherwise be tagged N+1.
+  async function writeFrame(buf, hash, trigger, force, chunk) {
     if (state.stopped) return;
     if (state.frames.length >= cfg.maxFrames) {
       state.counts.dropped++;
@@ -215,7 +221,7 @@ export async function createSpotter({ session, config }) {
       // trigger patterns from exactly this record.
       for (let i = state.keptHashes.length - 1; i >= 0; i--) {
         const kept = state.keptHashes[i];
-        if (kept.chunk !== state.currentChunk) break;
+        if (kept.chunk !== chunk) break;
         const dist = hamming(kept.hash, hash);
         if (dist <= cfg.dedupeDistance) {
           state.frames[kept.index].collapsed++;
@@ -224,7 +230,7 @@ export async function createSpotter({ session, config }) {
             state.collapsedRows.push({
               tMs: Math.max(0, Date.now() - session.startedAt),
               trigger,
-              chunk: state.currentChunk,
+              chunk,
               onto: state.frames[kept.index].name,
               dist
             });
@@ -245,13 +251,13 @@ export async function createSpotter({ session, config }) {
       name,
       tMs: Math.max(0, Date.now() - session.startedAt),
       trigger,
-      chunk: state.currentChunk,
+      chunk,
       hash: hash === null ? null : hashHex(hash),
       bytes: buf.length,
       collapsed: 0
     });
     if (hash !== null) {
-      state.keptHashes.push({ chunk: state.currentChunk, hash, index });
+      state.keptHashes.push({ chunk, hash, index });
       state.lastKeptHash = hash;
     }
     state.counts.kept++;
@@ -280,10 +286,11 @@ export async function createSpotter({ session, config }) {
 
   function captureTriggered(trigger, { force = false } = {}) {
     if (state.stopped) return;
+    const chunk = state.currentChunk; // snapshot at TRIGGER time, not write time
     enqueue(async () => {
       const buf = await grabFrame();
       if (!buf) return;
-      await writeFrame(buf, dHash(buf), trigger, force);
+      await writeFrame(buf, dHash(buf), trigger, force, chunk);
     });
   }
 
@@ -298,17 +305,25 @@ export async function createSpotter({ session, config }) {
       return;
     }
     if (hamming(hash, state.lastKeptHash) > cfg.phashThreshold) {
-      enqueue(() => writeFrame(buf, hash, "phash", false));
+      const chunk = state.currentChunk; // snapshot at sample time (see writeFrame)
+      enqueue(() => writeFrame(buf, hash, "phash", false, chunk));
     }
   }
 
   const spotter = {
     config: cfg,
 
-    // (a) Step boundary — always kept, and re-tags the current check window.
+    // (a) Step boundary — re-tags the current check window. It deliberately
+    // captures NO frame: the caller opens the chunk BEFORE dispatching the
+    // check's automation, so the page still shows the PREVIOUS check's final
+    // state. A frame here would be that stale page filed under this check's
+    // key — which is exactly how a check ended up illustrated by its
+    // predecessor's screen. The per-check frame guarantee is the forced
+    // step-end below (the settled state the check was actually judged on);
+    // this check's own first state arrives as a phash frame after navigation.
+    // A nameless boundary resets to null rather than inheriting the last key.
     onChunkStart(chunkName) {
-      if (typeof chunkName === "string" && chunkName) state.currentChunk = chunkName;
-      captureTriggered("step-start", { force: true });
+      state.currentChunk = typeof chunkName === "string" && chunkName ? chunkName : null;
     },
     onChunkStop() {
       captureTriggered("step-end", { force: true });

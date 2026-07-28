@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolvePageUrl, compileStep, selectSteps, compileStepAutomation } from "../fittings/seed/drill/lib/compile.mjs";
+import {
+  resolvePageUrl, compileStep, selectSteps, compileStepAutomation,
+  hasAuth, resolveAuthUrl, authSuccess, normalizeAuthSteps, compileAuthProbe, compileAuthLogin,
+  AUTH_LOGIN_ID, AUTH_PROBE_ID, AUTH_VERIFY_STEP
+} from "../fittings/seed/drill/lib/compile.mjs";
 
 // B6/R3 — compile Drill pages to automations engine steps. Pure logic.
 
@@ -97,5 +101,92 @@ describe("compileStepAutomation", () => {
     const a1 = compileStepAutomation(book("http://localhost:3000"), page as any, step as any);
     const a2 = compileStepAutomation(book("http://localhost:3000"), page as any, step as any);
     expect(a1.id).toBe(a2.id);
+  });
+});
+
+// A-auth — authenticated runs: log in ONCE before the checks. Pure compile logic.
+describe("auth compile helpers", () => {
+  const authBook = (auth: any, url = "http://localhost:3000") => ({ ...book(url), auth });
+  const flow = {
+    loginPath: "/login",
+    steps: ["fill the email field with test@x.io", { id: "pw", description: "fill the password field with hunter2" }, "click Sign in"],
+    success: "the app sidebar is visible and no login form remains"
+  };
+
+  it("hasAuth is true only for a Book with at least one real login action", () => {
+    expect(hasAuth(book("http://localhost:3000") as any)).toBe(false); // no auth block
+    expect(hasAuth(authBook(null) as any)).toBe(false);
+    expect(hasAuth(authBook({ steps: [] }) as any)).toBe(false);
+    expect(hasAuth(authBook({ steps: ["", "   "] }) as any)).toBe(false); // blank actions don't count
+    expect(hasAuth(authBook(flow) as any)).toBe(true);
+  });
+
+  it("resolveAuthUrl resolves loginPath against app.url, or falls back to the app url", () => {
+    expect(resolveAuthUrl(authBook(flow) as any)).toBe("http://localhost:3000/login");
+    expect(resolveAuthUrl(authBook({ steps: flow.steps }) as any)).toBe("http://localhost:3000"); // no loginPath -> app root
+    expect(resolveAuthUrl(authBook({ ...flow, loginPath: "https://auth.example/login" }) as any)).toBe("https://auth.example/login");
+  });
+
+  it("normalizeAuthSteps gives stable id-safe ids, dropping blanks; strings and objects both work", () => {
+    expect(normalizeAuthSteps(authBook(flow) as any)).toEqual([
+      { id: "login-0", description: "fill the email field with test@x.io" },
+      { id: "pw", description: "fill the password field with hunter2" },
+      { id: "login-2", description: "click Sign in" }
+    ]);
+    expect(normalizeAuthSteps(authBook({ steps: ["  a  ", "", { description: "" }, "b"] }) as any)).toEqual([
+      { id: "login-0", description: "a" },
+      { id: "login-1", description: "b" }
+    ]);
+  });
+
+  it("normalizeAuthSteps never emits colliding ids (duplicate explicit ids, or explicit-vs-generated clashes) are suffixed", () => {
+    // Two hand-authored `id: fill` steps would otherwise give the compiled
+    // automation two steps with the same id — the engine keys its cache and
+    // result addressing off stepId, so a collision crosses their verdicts.
+    expect(normalizeAuthSteps(authBook({ steps: [{ id: "fill", description: "a" }, { id: "fill", description: "b" }] }) as any)).toEqual([
+      { id: "fill", description: "a" },
+      { id: "fill-2", description: "b" }
+    ]);
+    // An explicit id that collides with a LATER generated login-<i> is suffixed
+    // (step 0 claims "login-1"; step 1's generated base is also "login-1").
+    expect(normalizeAuthSteps(authBook({ steps: [{ id: "login-1", description: "explicit" }, "second"] }) as any).map((s: any) => s.id))
+      .toEqual(["login-1", "login-1-2"]);
+  });
+
+  it("authSuccess returns the trimmed signal, or null when absent/blank", () => {
+    expect(authSuccess(authBook(flow) as any)).toBe("the app sidebar is visible and no login form remains");
+    expect(authSuccess(authBook({ steps: flow.steps }) as any)).toBeNull();
+    expect(authSuccess(authBook({ ...flow, success: "   " }) as any)).toBeNull();
+  });
+
+  it("compileAuthProbe is navigate + verify(success), or null without a success signal", () => {
+    expect(compileAuthProbe(authBook({ steps: flow.steps }) as any)).toBeNull();
+    const probe = compileAuthProbe(authBook(flow) as any)!;
+    expect(probe.id).toBe(AUTH_PROBE_ID);
+    expect(probe.steps).toEqual([
+      { id: "__auth_navigate", type: "navigate", url: "http://localhost:3000/login" },
+      { id: AUTH_VERIFY_STEP, type: "verify", description: flow.success }
+    ]);
+  });
+
+  it("compileAuthLogin is navigate + each action + verify(success); the verify is dropped without a success signal", () => {
+    const login = compileAuthLogin(authBook(flow) as any);
+    expect(login.id).toBe(AUTH_LOGIN_ID);
+    expect(login.steps.map((s: any) => [s.id, s.type])).toEqual([
+      ["__auth_navigate", "navigate"],
+      ["login-0", "browser"],
+      ["pw", "browser"],
+      ["login-2", "browser"],
+      [AUTH_VERIFY_STEP, "verify"]
+    ]);
+    // No success signal: no verify step, so a completed run is the only pass evidence.
+    const noSuccess = compileAuthLogin(authBook({ steps: flow.steps }) as any);
+    expect(noSuccess.steps.at(-1)).toMatchObject({ id: "login-2", type: "browser" });
+    expect(noSuccess.steps.some((s: any) => s.type === "verify")).toBe(false);
+  });
+
+  it("stable auth automation ids: the login flow replays deterministically run to run", () => {
+    expect(compileAuthLogin(authBook(flow) as any).id).toBe(compileAuthLogin(authBook(flow) as any).id);
+    expect(compileAuthProbe(authBook(flow) as any)!.id).toBe(AUTH_PROBE_ID);
   });
 });

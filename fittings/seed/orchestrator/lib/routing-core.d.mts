@@ -22,6 +22,8 @@ export interface RuntimeTarget {
   soul?: string;
   pinned?: boolean;
   authMode?: AuthMode;
+  /** RUNTIME-ACCOUNTS-V1: named Anthropic account pin (plan path only). */
+  account?: string;
   // agent-sdk runtime additions (BRIEF: Agent SDK Runtime). promptMode picks the
   // claude_code preset (full) vs a lean string; capabilities is the per-target
   // capability record the orchestrator reads before routing a block type. The
@@ -44,6 +46,8 @@ export interface SecondaryTarget {
   model?: string;
   effort?: string;
   authMode?: AuthMode;
+  /** RUNTIME-ACCOUNTS-V1: named Anthropic account pin (plan path only). */
+  account?: string;
 }
 export interface WorkflowTarget {
   id: string;

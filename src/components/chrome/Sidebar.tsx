@@ -10,6 +10,7 @@ import {
   Home,
   Layers,
   Lock,
+  KeyRound,
   Component,
   Drill,
   ExternalLink,
@@ -198,6 +199,13 @@ export function Sidebar() {
           active={isCompose}
         />
         <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
+        <NavLink
+          href="/accounts"
+          pathname={pathname}
+          icon={<KeyRound aria-hidden />}
+          label="Accounts"
+          active={pathname === "/accounts" || pathname.startsWith("/accounts/")}
+        />
         <NavLink
           href="/connectors"
           pathname={pathname}
@@ -607,7 +615,10 @@ function CompositionSwitcher() {
         ) : null}
         {compositions.map((entry) => (
           <option key={entry.id} value={entry.id}>
-            {entry.name}
+            {/* Several compositions ship the same display name (three are
+                "Dogfood Operative"), so the name alone cannot identify what
+                this switches the running operative to. Matches MusterView. */}
+            {`${entry.name} (${entry.id})`}
           </option>
         ))}
       </select>

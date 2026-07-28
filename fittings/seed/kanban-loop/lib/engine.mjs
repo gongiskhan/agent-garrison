@@ -1134,6 +1134,35 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       }
     }
   }
+  // OUTPOST DISPATCH (pull-based): a card placed on another machine is NOT this
+  // engine's to run. Leave it exactly where it is, untouched, for that machine's
+  // worker to claim through the host dispatch API.
+  //
+  // This guard sits BEFORE mintRunFields and before the CAS acquire on purpose:
+  // a remotely-placed card must consume no iteration of the convergence cap and
+  // mint no runId here, or the local tick would burn the card's budget and
+  // allocate its run directory on the wrong machine every couple of minutes.
+  //
+  // Note this is the OPPOSITE failure mode to the older `card.outpost` affinity
+  // below, which resolves the target and then falls through and runs the card
+  // LOCALLY anyway — a card pinned to a connected Mac silently ran on the host.
+  // Placement never does that: not-ours means not-ours.
+  const placementTarget =
+    card.placement && typeof card.placement.target === "string" && card.placement.target.trim()
+      ? card.placement.target.trim()
+      : "host";
+  if (placementTarget !== "host") {
+    const held = card.dispatch && card.dispatch.state !== "done" && card.dispatch.state !== "failed";
+    return {
+      card,
+      outcome: {
+        status: "skipped",
+        reason: held
+          ? `claimed by ${card.dispatch.machine}`
+          : `placed on ${placementTarget} — awaiting its worker`
+      }
+    };
+  }
   // Mint runId + runDir on the card's FIRST agent-list entry, and fold the mint into
   // OUTPOST AFFINITY (D27): a card naming an outpost runs its phase sessions
   // there; a NAMED-BUT-OFFLINE outpost parks the card in needs-attention with
@@ -1142,7 +1171,17 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (card.outpost) {
     try {
       const { resolveOutpostDispatch } = await import("./outpost-dispatch.mjs");
-      const daemon = process.env.GARRISON_OUTPOST_URL || "http://127.0.0.1:23702";
+      // The daemon URL is INSTANCE-SPECIFIC (each profile shifts the port).
+      // It arrives as the composition's `outpost_host_url` for this fitting,
+      // already port-shifted by applyPortOffsetToConfig and projected as
+      // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. GARRISON_OUTPOST_URL stays as a
+      // manual override. There is deliberately NO literal fallback: the old one
+      // named the codex port, so the probe always failed on dev and prod and
+      // EVERY affinity card parked with "outpost offline".
+      const daemon = (process.env.GARRISON_OUTPOST_URL
+        || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
+        || "").trim();
+      if (!daemon) throw new Error("outpost affinity: no outpost_host_url configured for this instance");
       let outposts = [];
       try {
         const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });

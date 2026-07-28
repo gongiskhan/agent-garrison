@@ -1,6 +1,6 @@
 ---
 name: garrison-adversarial-test
-description: Independent functional test — a FRESH-CONTEXT Anthropic session that has seen neither the diff nor garrison-test's committed spec drives the running app/feature through ONLY the slice's acceptance criteria, writing and executing its OWN Playwright probes, and returns pass/fail with a reproducible probe. In a garrison build a failure sends the slice back to garrison-implement; standalone, report what it observed. Use for "independent test this", "fresh-context functional test", "second test pass", or as the independent test gate of a build. NOT Claude's own committed test (use garrison-test) and NOT the cross-model Codex checkpoint (use garrison-codex-checkpoint).
+description: Independent functional test - a fresh-context Anthropic session that has seen neither the diff nor garrison-test's committed spec drives the running app/feature through only the slice's acceptance criteria, writing and executing its own Playwright probes, and returns pass/fail with a reproducible probe. In a garrison build a failure sends the slice back to garrison-implement. NOT Claude's own committed test - use garrison-test - and NOT the cross-model Codex checkpoint - use garrison-codex-checkpoint. Invoked by the Garrison run engine as its independent test step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-adversarial-test

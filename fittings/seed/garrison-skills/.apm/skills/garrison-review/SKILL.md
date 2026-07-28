@@ -1,6 +1,6 @@
 ---
 name: garrison-review
-description: Code-review the current change or diff for correctness bugs and quality cleanups (reuse, simplification, efficiency) using Claude Code's built-in review mechanism (the code-review skill). A standalone same-model review; the per-slice review gate is now garrison-adversarial-review (Part 8.1 merged this same-model pass into the fresh-context review). Standalone it just reports the findings. Use for "review this code", "review my diff/PR", "code review before shipping". NOT the fresh-context decorrelated review (use garrison-adversarial-review) and NOT a test runner (use garrison-test).
+description: Code-review the current change or diff for correctness bugs and quality cleanups (reuse, simplification, efficiency) using Claude Code's built-in review mechanism (the code-review skill). A standalone same-model review that reports its findings; the per-slice review gate is now garrison-adversarial-review. NOT the fresh-context decorrelated review - use garrison-adversarial-review; NOT a test runner - use garrison-test. Invoked by the Garrison run engine as its same-model review step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-review

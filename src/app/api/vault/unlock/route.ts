@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { unlockVault } from "@/lib/vault";
+import { maskSecrets, unlockVault } from "@/lib/vault";
 import { healVaultConsumingFittings } from "@/lib/own-port-lifecycle";
 import { jsonError } from "@/lib/http";
 
@@ -28,7 +28,10 @@ export async function POST(request: NextRequest) {
           )
         );
     }
-    return NextResponse.json(result);
+    // unlockVault returns plaintext for its server-side callers; the HTTP
+    // response must not. This was the second route that handed the whole vault
+    // to the browser (the first being GET /api/vault/secrets).
+    return NextResponse.json({ ...result, secrets: maskSecrets(result.secrets) });
   } catch (error) {
     return jsonError(error, 400);
   }

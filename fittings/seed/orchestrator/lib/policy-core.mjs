@@ -684,7 +684,12 @@ export function applyDutyCells(config, dutyModel) {
           ...(hit.spec.runtime ? { runtime: hit.spec.runtime } : {}),
           ...(hit.spec.model ? { model: hit.spec.model } : {}),
           ...(hit.spec.provider && knownProviders.has(hit.spec.provider) ? { provider: hit.spec.provider } : {}),
-          ...(hit.spec.type ? { type: hit.spec.type } : {})
+          ...(hit.spec.type ? { type: hit.spec.type } : {}),
+          // Agent-SDK harness knobs travel with the injected target so a
+          // duty-repointed coding turn keeps its claude_code profile + turn cap
+          // (the gateway reads t.promptMode / t.maxTurns off the resolved target).
+          ...(hit.spec.promptMode ? { promptMode: hit.spec.promptMode } : {}),
+          ...(Number(hit.spec.maxTurns) > 0 ? { maxTurns: Number(hit.spec.maxTurns) } : {})
         });
       }
     }

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
-import type { LibraryEntry, VaultSecret } from "@/lib/types";
+import type { LibraryEntry, VaultSecretRow } from "@/lib/types";
 import styles from "./VaultPanel.module.css";
 
 export function VaultPanel() {
@@ -16,6 +16,7 @@ export function VaultPanel() {
     vaultKeySource,
     secrets,
     setSecrets,
+    revealSecret,
     saveSecrets,
     unlockVault,
     busy
@@ -105,7 +106,12 @@ export function VaultPanel() {
                 <button
                   className="btn small ghost"
                   disabled={!vaultUnlocked || vaultNeedsPassword}
-                  onClick={() => setSecrets([...secrets, { key: "", value: "" }])}
+                  onClick={() =>
+                    setSecrets([
+                      ...secrets,
+                      { key: "", set: false, preview: "", value: "", dirty: true }
+                    ])
+                  }
                 >
                   Add value
                 </button>
@@ -138,6 +144,7 @@ export function VaultPanel() {
                     key={index}
                     secret={secret}
                     consumers={consumers[secret.key] ?? []}
+                    onReveal={() => revealSecret(secret.key)}
                     onChange={(next) =>
                       setSecrets(secrets.map((s, i) => (i === index ? next : s)))
                     }
@@ -192,6 +199,14 @@ export function VaultPanel() {
               <td>scoped process environment · localhost only</td>
               <td>never over network</td>
             </tr>
+            <tr>
+              <td className="mono">in this page</td>
+              <td>
+                masked by default · plaintext only for a row you reveal, one at
+                a time, recorded in <code>vault-audit.jsonl</code>
+              </td>
+              <td>until reload</td>
+            </tr>
           </tbody>
         </table>
         </div>
@@ -203,15 +218,32 @@ export function VaultPanel() {
 function SecretRow({
   secret,
   consumers,
+  onReveal,
   onChange,
   onRemove
 }: {
-  secret: VaultSecret;
+  secret: VaultSecretRow;
   consumers: string[];
-  onChange: (s: VaultSecret) => void;
+  onReveal: () => Promise<void>;
+  onChange: (s: VaultSecretRow) => void;
   onRemove: () => void;
 }) {
-  const [revealed, setRevealed] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  // The plaintext is not in the browser until it is fetched. `value` is present
+  // only once this row has been revealed or typed into; until then the field
+  // shows the server's non-reconstructable preview and is read-only, so there is
+  // nothing to accidentally copy, screenshot or submit.
+  const held = typeof secret.value === "string";
+
+  const reveal = async () => {
+    setRevealing(true);
+    try {
+      await onReveal();
+    } finally {
+      setRevealing(false);
+    }
+  };
+
   return (
     <div className={clsx("vault-secret-row", styles.secretRow)}>
       <label className={clsx("secret-key", styles.secretField)}>
@@ -224,21 +256,39 @@ function SecretRow({
         />
       </label>
       <label className={clsx("secret-value", styles.secretField)}>
-        <span>sealed value</span>
+        <span>{held ? "value" : "sealed value"}</span>
         <input
           className="text"
-          type={revealed ? "text" : "password"}
-          value={secret.value}
-          placeholder="value"
-          onChange={(e) => onChange({ ...secret, value: e.target.value })}
+          // Always type=text: until revealed the field is EMPTY (the mask lives
+          // in the placeholder, and a mask is not a secret); once revealed the
+          // user explicitly asked to see it. A password field would only re-hide
+          // what was just deliberately shown.
+          type="text"
+          // Empty until revealed or typed into, so the field doubles as the
+          // edit affordance: rotating a credential is click-and-paste, with no
+          // need to fetch the old value first.
+          value={secret.value ?? ""}
+          placeholder={secret.set ? secret.preview : "value"}
+          onChange={(e) =>
+            onChange({
+              ...secret,
+              value: e.target.value,
+              // Only a NON-EMPTY field counts as an edit. The field starts
+              // blank, so treating empty as a write would let a stray focus and
+              // backspace silently wipe a credential the user never saw. To
+              // actually remove a secret, remove the row.
+              dirty: e.target.value.length > 0
+            })
+          }
         />
       </label>
       <button
         type="button"
         className={clsx("font-mono secret-reveal", styles.rowButton)}
-        onClick={() => setRevealed((v) => !v)}
+        disabled={held || revealing || !secret.set}
+        onClick={() => void reveal()}
       >
-        {revealed ? "hide" : "reveal"}
+        {held ? "shown" : revealing ? "…" : "reveal"}
       </button>
       <button
         type="button"

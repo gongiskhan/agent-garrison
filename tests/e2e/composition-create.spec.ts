@@ -36,7 +36,11 @@ test("New composition clones the active composition before requesting a full swi
   });
 
   await page.goto("/muster");
-  await expect(page.getByTestId("new-composition")).toBeVisible();
+  // "New" is a MENU now (composition / session / card / duty / fitting), so the
+  // composition entry lives one click deeper than when this spec was written.
+  await expect(page.getByTestId("new-menu")).toBeVisible();
+  await page.getByTestId("new-menu").click();
+  await expect(page.getByTestId("new-menu-items")).toBeVisible();
   await page.getByTestId("new-composition").click();
   await expect(page.getByTestId("new-composition-dialog")).toBeVisible();
   await page.getByTestId("new-composition-name").fill(NAME);

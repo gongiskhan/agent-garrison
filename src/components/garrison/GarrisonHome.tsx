@@ -11,6 +11,7 @@ import { faculties } from "@/lib/faculties";
 import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
 import styles from "./GarrisonHome.module.css";
+import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 
 export function GarrisonHome() {
   const {
@@ -300,35 +301,51 @@ function BoardPanel() {
             <ReadyRow label="Done" value={String(active.done)} />
             {shownTitles.length > 0 ? (
               <div style={{ marginTop: 10, borderTop: "1px solid var(--rule)", paddingTop: 8 }}>
-                {shownTitles.map((card) =>
-                  active.boardUrl ? (
-                    <a
-                      key={card.id}
-                      href={active.boardUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={card.reason ?? undefined}
-                      style={{
-                        display: "block",
-                        fontSize: 13,
-                        color: "var(--ink)",
-                        textDecoration: "underline",
-                        textDecorationColor: "var(--rule)",
-                        padding: "3px 0"
-                      }}
-                    >
-                      {card.title}
+                <div className="font-mono" style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--mute)", marginBottom: 4 }}>
+                  Attention queue
+                </div>
+                {shownTitles.map((card) => {
+                  const rowStyle = {
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 7,
+                    fontSize: 12.5,
+                    color: "var(--ink-2)",
+                    textDecoration: "none",
+                    padding: "3px 0",
+                    minWidth: 0
+                  } as const;
+                  const titleStyle = {
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    minWidth: 0,
+                    flex: 1
+                  } as const;
+                  const bullet = (
+                    <span aria-hidden style={{ width: 6, height: 6, background: "var(--alarm)", flexShrink: 0, alignSelf: "center" }} />
+                  );
+                  // Resolve against the host the reader actually reached
+                  // Garrison on. Linking active.boardUrl verbatim sent a remote
+                  // browser to its OWN 127.0.0.1 - a dead link everywhere
+                  // except on the box itself. "" means no route from here, so
+                  // fall through to the unlinked row rather than a broken one.
+                  const boardHref = resolveViewUrl({
+                    url: active.boardUrl,
+                    tailnetUrl: active.boardTailnetUrl
+                  });
+                  return boardHref ? (
+                    <a key={card.id} href={boardHref} target="_blank" rel="noreferrer" title={card.reason ?? card.title} style={rowStyle}>
+                      {bullet}
+                      <span style={titleStyle}>{card.title}</span>
                     </a>
                   ) : (
-                    <span
-                      key={card.id}
-                      title={card.reason ?? undefined}
-                      style={{ display: "block", fontSize: 13, padding: "3px 0" }}
-                    >
-                      {card.title}
+                    <span key={card.id} title={card.reason ?? card.title} style={rowStyle}>
+                      {bullet}
+                      <span style={titleStyle}>{card.title}</span>
                     </span>
-                  )
-                )}
+                  );
+                })}
                 {extraTitles > 0 ? (
                   <div className="font-mono" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
                     +{extraTitles} more

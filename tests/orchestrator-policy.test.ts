@@ -293,8 +293,8 @@ describe("applyDutyCells (duties drive the routed matrix)", () => {
     cells: {
       code: {
         "1": { target: "sdk-haiku", effort: "low", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", type: "runtime-target" },
-        "2": { target: "cc-sonnet", effort: "medium", runtime: "claude-code", model: "sonnet", provider: "anthropic-plan", type: "runtime-target" },
-        "3": { target: "cc-opus", effort: "high", runtime: "claude-code", model: "opus", provider: "anthropic-plan", type: "runtime-target" }
+        "2": { target: "cc-sonnet", effort: "medium", runtime: "agent-sdk", model: "sonnet", provider: "anthropic", type: "runtime-target", promptMode: "coding", maxTurns: 100 },
+        "3": { target: "cc-opus", effort: "high", runtime: "agent-sdk", model: "opus", provider: "anthropic", type: "runtime-target", promptMode: "coding", maxTurns: 100 }
       },
       plan: {
         "1": { target: "fable", effort: "high", runtime: "claude-code", model: "claude-fable-5", provider: "anthropic-plan", type: "runtime-target" }
@@ -345,6 +345,14 @@ describe("applyDutyCells (duties drive the routed matrix)", () => {
     const ids = merged.targets.map((t: { id: string }) => t.id);
     expect(ids).toContain("cc-sonnet");
     expect(ids).toContain("fable");
+    // …the agent-sdk harness knobs (promptMode/maxTurns) travel with the
+    // injected target so a duty-repointed coding turn keeps its claude_code
+    // profile + turn cap instead of falling back to full/12.
+    const injectedSonnet = merged.targets.find((t: { id: string }) => t.id === "cc-sonnet") as
+      | { promptMode?: string; maxTurns?: number }
+      | undefined;
+    expect(injectedSonnet?.promptMode).toBe("coding");
+    expect(injectedSonnet?.maxTurns).toBe(100);
     // …and pre-existing target entries are never overwritten.
     expect(merged.targets.length).toBeGreaterThanOrEqual(cfg.targets.length);
   });

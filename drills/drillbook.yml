@@ -1,6 +1,6 @@
 app:
   name: Agent Garrison
-  url: http://127.0.0.1:27777
+  url: http://127.0.0.1:7777
 fullDrill: true
 autonomy: gated
 viewports:

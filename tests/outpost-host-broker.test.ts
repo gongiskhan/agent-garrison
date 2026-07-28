@@ -1,12 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { WebSocket } from "ws";
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const OUTPOST_HOST_SCRIPT = join(import.meta.dirname, "../scripts/outpost-host.mjs");
 
 let outpostHost: ChildProcess;
 let hostPort: number;
+// The daemon resolves its registry from GARRISON_HOME. Spawning it with a bare
+// {...process.env} let this test write `test-machine` / `test-token-abc` — a
+// VALID pairing token that authenticates a bridge and relays exec.run to a Mac —
+// straight into the developer's real ~/.garrison/outpost-registry.json. Every
+// run of the suite re-registered it. Sandbox the home per test.
+let sandboxHome: string;
 
 async function waitForPort(port: number, maxMs = 5000): Promise<void> {
   const deadline = Date.now() + maxMs;
@@ -37,8 +45,14 @@ function freePort(): Promise<number> {
 
 beforeEach(async () => {
   hostPort = await freePort();
+  sandboxHome = mkdtempSync(join(tmpdir(), "garrison-outpost-test-"));
   outpostHost = spawnProcess("node", [OUTPOST_HOST_SCRIPT], {
-    env: { ...process.env, GARRISON_OUTPOST_PORT: String(hostPort), GARRISON_OUTPOST_BIND: "127.0.0.1" },
+    env: {
+      ...process.env,
+      GARRISON_HOME: sandboxHome,
+      GARRISON_OUTPOST_PORT: String(hostPort),
+      GARRISON_OUTPOST_BIND: "127.0.0.1",
+    },
     stdio: "ignore",
   });
   await waitForPort(hostPort);
@@ -53,6 +67,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   outpostHost.kill("SIGTERM");
+  if (sandboxHome) rmSync(sandboxHome, { recursive: true, force: true });
 });
 
 function connectBridge(token = "test-token-abc", machineName = "test-machine"): Promise<WebSocket> {

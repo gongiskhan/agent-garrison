@@ -32,7 +32,7 @@ describe("claude-code-runtime fitting (S1)", () => {
   it("exposes provider/model/base_url config; provider is a select over the known PROVIDERS", async () => {
     const m = await loadSeed("claude-code-runtime");
     const byKey = Object.fromEntries(m.config_schema.map((f) => [f.key, f]));
-    expect(Object.keys(byKey).sort()).toEqual(["base_url", "model", "provider"]);
+    expect(Object.keys(byKey).sort()).toEqual(["account", "base_url", "model", "provider"]);
 
     const provider = byKey.provider;
     expect(provider.type).toBe("select");

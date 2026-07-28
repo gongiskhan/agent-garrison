@@ -25,8 +25,9 @@ import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn } from "@garrison/claude-pty";
+import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
+import { resolveProjectName } from "./project-source.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -90,6 +91,251 @@ async function injectSlash(session, command, timeoutMs) {
 
 export function shouldUseEphemeralSession(channel) {
   return channel === "web" || channel === "garrison";
+}
+
+// ── per-turn run context (decision 2026-07-25-web-channel-run-context) ────────
+//
+// A channel may PIN a sparse `TurnRouting` intent (§2) onto one turn. The pin is
+// honored here - on the resolved route, BEFORE the decision record and the plan
+// selection - so it reaches the runtime lane and not merely the badge. Everything
+// it cannot honor is RECORDED as a rejection with a reason from §7's list; a
+// silently-dropped pin would render as a lie ("running on X" while X never ran).
+
+// The effort vocabulary a channel may pin. MIRROR of `dutyEfforts`
+// (src/lib/types.ts) - a fitting cannot import src/lib, so
+// tests/gateway-run-context.test.ts pins the two lists equal against drift.
+export const TURN_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+// Warm agent-sdk sessions held at once (§12). Keyed by target AND conversation,
+// so the ceiling is what stops a busy day of web threads from accumulating SDK
+// queries forever.
+export const AGENT_SDK_SESSION_CAP = 8;
+
+// The vault prefixes an account's secret is sealed under. MIRROR of
+// src/lib/account-env.ts (same reason: no src/lib import from a fitting); the
+// other two mirrors are orchestrator/lib/stage-b.mjs and
+// agent-sdk-runtime/lib/providers.mjs.
+const ANTHROPIC_ACCOUNT_PREFIX = "ANTHROPIC_ACCOUNT__";
+const GENERIC_ACCOUNT_PREFIX = "ACCOUNT__";
+
+// True when the provider sits on the Anthropic endpoint (subscription path). The
+// runner spells the Max-plan provider "anthropic-plan"; the SDK spec key is
+// "anthropic". Both, and an unset provider on a Claude target, are Anthropic.
+function isAnthropicProviderId(provider) {
+  const p = String(provider ?? "anthropic").trim();
+  return p === "anthropic" || p === "anthropic-plan";
+}
+
+// The account PLATFORM that can actually authenticate this target, or null when a
+// named account is meaningless for it. Pinning an Anthropic account onto an
+// ollama endpoint changes nothing at the runtime (buildSdkEnv ignores
+// target.account for a non-Anthropic provider), and codex/gemini read their own
+// credential files - so those pins are refused instead of being shown as applied.
+function accountPlatformForTarget(target) {
+  const runtime = target?.runtime ?? null;
+  if (runtime === "claude-code") return "anthropic";
+  if (runtime === "agent-sdk") return isAnthropicProviderId(target?.provider) ? "anthropic" : null;
+  if (runtime === "codex") return "openai";
+  if (runtime === "gemini") return "google";
+  return null; // ollama-native, workflow, unknown → no account vehicle
+}
+
+// True when the target has a REAL effort control. agent-sdk marks `effort: false`
+// for every non-Anthropic provider (providers.mjs SDK_PROVIDERS) and the gemini
+// CLI has no effort control at all, so an effort pin there would be a badge with
+// nothing behind it. claude-code applies `/effort`; codex applies it at exec.
+export function effortControllable(target) {
+  const runtime = target?.runtime ?? null;
+  if (runtime === "gemini" || runtime === "ollama-native") return false;
+  if (runtime === "agent-sdk") return isAnthropicProviderId(target?.provider);
+  return true;
+}
+
+// ── the materialized vault, read-only ────────────────────────────────────────
+// The runner writes EVERY vault secret to <compositionDir>/.env (mode 0600,
+// vault.ts materializeEnv) before it spawns the gateway, and wipes it on down.
+// That file is the gateway's only view of the vault: it holds no master key and
+// cannot call src/lib. Cached by (mtime, size) so a per-turn account lookup and a
+// /route/options poll do not re-read it on every request.
+let secretsCache = { file: null, mtimeMs: -1, size: -1, secrets: {} };
+
+function parseDotenv(raw) {
+  const out = {};
+  for (const line of String(raw).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length > 1) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length > 1)
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+export function readMaterializedSecrets(compositionDir) {
+  if (!compositionDir) return {};
+  const file = path.join(compositionDir, ".env");
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return {}; // no materialized env (vault locked / composition down)
+  }
+  if (secretsCache.file === file && secretsCache.mtimeMs === st.mtimeMs && secretsCache.size === st.size) {
+    return secretsCache.secrets;
+  }
+  let secrets = {};
+  try {
+    secrets = parseDotenv(fs.readFileSync(file, "utf8"));
+  } catch {
+    secrets = {}; // unreadable → behave exactly as vault-locked
+  }
+  secretsCache = { file, mtimeMs: st.mtimeMs, size: st.size, secrets };
+  return secrets;
+}
+
+// The named accounts the vault actually holds, as {name, platform}. Anthropic
+// keeps its original key shape; every other platform seals under
+// ACCOUNT__<PLATFORM>__<name>.
+export function listVaultAccounts(compositionDir) {
+  const secrets = readMaterializedSecrets(compositionDir);
+  const out = [];
+  for (const key of Object.keys(secrets)) {
+    if (key.startsWith(ANTHROPIC_ACCOUNT_PREFIX)) {
+      const name = key.slice(ANTHROPIC_ACCOUNT_PREFIX.length);
+      if (name) out.push({ name, platform: "anthropic" });
+      continue;
+    }
+    if (key.startsWith(GENERIC_ACCOUNT_PREFIX)) {
+      const rest = key.slice(GENERIC_ACCOUNT_PREFIX.length);
+      const sep = rest.indexOf("__");
+      if (sep <= 0) continue;
+      const platform = rest.slice(0, sep).toLowerCase();
+      const name = rest.slice(sep + 2);
+      if (platform && platform !== "anthropic" && name) out.push({ name, platform });
+    }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+// One account by name: {name, platform, token} or null when the vault has no
+// secret for it (locked vault included - indistinguishable from absent here, and
+// both mean "cannot honor this pin").
+export function resolveVaultAccount(compositionDir, name) {
+  const wanted = typeof name === "string" ? name.trim() : "";
+  if (!wanted) return null;
+  const secrets = readMaterializedSecrets(compositionDir);
+  for (const account of listVaultAccounts(compositionDir)) {
+    if (account.name !== wanted) continue;
+    const key =
+      account.platform === "anthropic"
+        ? `${ANTHROPIC_ACCOUNT_PREFIX}${account.name}`
+        : `${GENERIC_ACCOUNT_PREFIX}${account.platform.toUpperCase()}__${account.name}`;
+    const token = secrets[key];
+    return token ? { ...account, token } : null;
+  }
+  return null;
+}
+
+// The env block that pins a spawned Claude session to a named Anthropic account.
+// MIRROR of src/lib/account-env.ts accountAuthEnv: ANTHROPIC_AUTH_TOKEN is
+// authoritative (stored /login credentials beat CLAUDE_CODE_OAUTH_TOKEN but not
+// this), CLAUDE_CODE_OAUTH_TOKEN covers credential-less config dirs, and
+// ANTHROPIC_API_KEY is forced empty so an inherited key cannot outrank the token.
+export function anthropicAccountEnv(name, token) {
+  return {
+    GARRISON_ACCOUNT: name,
+    ANTHROPIC_AUTH_TOKEN: token,
+    CLAUDE_CODE_OAUTH_TOKEN: token,
+    ANTHROPIC_API_KEY: ""
+  };
+}
+
+/**
+ * Overlay a pinned TurnRouting onto an already-resolved route (§7). Mutates
+ * `route` (new target OBJECTS - never the config's own target records) and
+ * returns what was honored and what was refused.
+ *
+ * `duty`/`level` are NOT handled here: a duty pin re-enters preRouteV4, which is
+ * the lane the kanban engine already drives, so it produces a real duty cell
+ * rather than a relabelled matrix route.
+ *
+ * @returns {{applied: string[], rejected: {field: string, reason: string}[],
+ *            project: string|null, projectPath: string|null, account: string|null}}
+ */
+export function applyTurnOverride(config, route, ov, ctx = {}) {
+  const applied = [];
+  const rejected = [];
+  const out = { applied, rejected, project: null, projectPath: null, account: null };
+  if (!ov || typeof ov !== "object" || !route?.target) return out;
+
+  // A named composition target picks runtime+provider+model COHERENTLY. There is
+  // no model catalog anywhere in the repo, so offering runtime and model as
+  // independent menus would invite invalid pairs (gemini + opus) - §2.
+  if (ov.target) {
+    const targets = Array.isArray(config?.targets) ? config.targets : [];
+    const found = targets.find((t) => t && t.id === ov.target);
+    if (!found) rejected.push({ field: "target", reason: "unknown-target" });
+    else {
+      route.target = { ...found };
+      route.targetId = found.id;
+      applied.push("target");
+    }
+  }
+  // The typed escape hatch: overlay the model on the resolved target only.
+  if (ov.model) {
+    route.target = { ...route.target, model: ov.model };
+    applied.push("model");
+  }
+  if (ov.effort) {
+    if (!TURN_EFFORTS.includes(ov.effort)) {
+      rejected.push({ field: "effort", reason: "effort-not-in-vocabulary" });
+    } else if (!effortControllable(route.target)) {
+      rejected.push({ field: "effort", reason: "provider-has-no-effort-control" });
+    } else {
+      route.target = { ...route.target, effort: ov.effort };
+      applied.push("effort");
+    }
+  }
+  // A project is a real execution scope (the turn's cwd), confined to a git repo
+  // one level under the dev-root. Unresolvable is a REJECTION: falling back to
+  // the composition dir while showing a project badge is the exact lie §7 bans.
+  if (ov.project) {
+    const resolve = typeof ctx.resolveProject === "function" ? ctx.resolveProject : resolveProjectName;
+    const dir = resolve(ov.project);
+    if (!dir) rejected.push({ field: "project", reason: "project-not-a-git-repo-under-dev-root" });
+    else {
+      out.project = String(ov.project).trim();
+      out.projectPath = dir;
+      applied.push("project");
+    }
+  }
+  if (ov.account) {
+    const lookup = typeof ctx.resolveAccount === "function" ? ctx.resolveAccount : () => null;
+    const account = lookup(ov.account);
+    if (!account) {
+      rejected.push({ field: "account", reason: "account-not-found-in-vault" });
+    } else if (accountPlatformForTarget(route.target) !== account.platform) {
+      rejected.push({ field: "account", reason: "account-platform-mismatch" });
+    } else {
+      route.target = { ...route.target, account: account.name };
+      out.account = account.name;
+      applied.push("account");
+    }
+  }
+  if (applied.length) {
+    route.via = "turn-override";
+    route.ruleId = `override:${route.targetId ?? "target"}`;
+  }
+  return out;
 }
 
 // ── locate the model-router fitting (repo seed OR installed composition) ──────
@@ -552,6 +798,14 @@ export class RoutedGateway {
     this._clarityScFn = undefined;
     this._executionModel = opts.executionModel ?? null;
     this._resolvedModelLib = opts.resolvedModelLib ?? undefined;
+    // Run-context (2026-07-25) seams. secrets/secretsFn is the materialized vault
+    // (createRoutedGateway assigns them); the two resolvers back a per-turn
+    // project/account pin and default to the real dev-root + vault readers, so a
+    // test can honor or refuse a pin without a repo on disk or an unlocked vault.
+    this.secrets = opts.secrets ?? null;
+    this.secretsFn = opts.secretsFn ?? null;
+    this._projectResolver = opts.resolveProject ?? null;
+    this._accountResolver = opts.resolveAccount ?? null;
   }
 
   async start() {
@@ -635,8 +889,17 @@ export class RoutedGateway {
   // Run one turn on the agent-sdk runtime. THE HARNESS picks the preset (full) or
   // lean (chat, tools off) per the target's promptMode. The runtime is first-class
   // routable to any provider incl. the Anthropic endpoint (D29). One warm session
-  // per {provider,model,promptMode}, reused across turns (SDK resume).
-  async runAgentSdkTurn(route, message, onChunk) {
+  // per {provider,model,promptMode} + CONVERSATION, reused across turns (SDK resume).
+  //
+  // opts (all optional, additive - every existing 3-arg caller is unchanged):
+  //   sessionKey    - the conversation identity (§12). Without it two web threads
+  //                   on the same target share ONE SDK session and one session_id,
+  //                   so the per-message transcript badge would point at the wrong
+  //                   conversation.
+  //   onActivity({kind,name,id}) - tool_use liveness (the `activity` SSE frame).
+  //   registerStop(stop)         - hands the caller a real cancel primitive for
+  //                   THIS turn's session (adapter.cancel aborts the stashed query).
+  async runAgentSdkTurn(route, message, onChunk, opts = {}) {
     const adapter = await this.getAgentSdkAdapter();
     const t = route.target;
     // Match the runtime fitting + adapter defaults when the target editor leaves
@@ -652,23 +915,51 @@ export class RoutedGateway {
       promptMode,
       leanPrompt: t.leanPrompt,
       baseUrl: t.baseUrl,
-      // cwd: the shared build workspace when set (so file ops hit the real project)
-      compositionDir: this.buildWorkspace ?? this.compositionDir,
+      // cwd, most specific first: a PINNED PROJECT for this turn (§8 - the turn
+      // really runs in that repo, which is what the project badge asserts), else
+      // the shared build workspace when set, else the composition dir.
+      // spawnArgs feeds the warm-session cache key below, so two projects
+      // correctly get two sessions instead of silently sharing one cwd.
+      compositionDir: opts.cwd ?? this.buildWorkspace ?? this.compositionDir,
       disallowedTools: t.disallowedTools,
       allowedTools: t.allowedTools,
       maxTurns: t.maxTurns ?? 12,
       budgetTokens: t.budgetTokens ?? null,
-      secrets: this.secrets ?? null,
+      // The named account this target (or this turn's override) runs under.
+      // buildSdkEnv already resolves it into ANTHROPIC_AUTH_TOKEN off the
+      // materialized vault - until now nothing ever passed it, so a target with
+      // an account silently rode the process-wide pin.
+      account: t.account ?? null,
+      secrets: this.resolveSecrets(),
+      // Inherit the gateway process env (PATH/HOME/CLAUDE_CONFIG_DIR + the
+      // Paymaster account pin) — the SDK replaces the subprocess env, so an
+      // empty baseEnv would strip config-dir isolation and the account token.
+      env: process.env,
       permissionMode: "bypassPermissions",
     };
     // Every target-owned execution knob participates in session identity. A live
     // manifest edit from lean → full (or maxTurns/tool-policy changes) must spawn
     // a session with the new harness instead of reusing an incompatible warm one.
-    const key = JSON.stringify({ targetId: route.targetId, ...spawnArgs, secrets: undefined });
+    // env/secrets are excluded: the whole process env would bloat the key and
+    // change on any unrelated env mutation, needlessly churning warm sessions.
+    // sessionKey adds the CONVERSATION (§12) so two threads never share one SDK
+    // session - and therefore never report each other's session_id/transcript.
+    const sessionKey = typeof opts.sessionKey === "string" && opts.sessionKey ? opts.sessionKey : null;
+    const key = JSON.stringify({ targetId: route.targetId, sessionKey, ...spawnArgs, secrets: undefined, env: undefined });
     let session = this._agentSdkSessions.get(key);
     if (!session || session.alive === false) {
       session = await adapter.spawn(spawnArgs);
-      this._agentSdkSessions.set(key, session);
+    }
+    // Re-insert so Map iteration order is least-recently-used first (see
+    // _evictAgentSdkSessions: keying by conversation multiplies live sessions by
+    // thread count, so the map needs a real cap).
+    this._agentSdkSessions.delete(key);
+    this._agentSdkSessions.set(key, session);
+    await this._evictAgentSdkSessions(adapter);
+    if (typeof opts.registerStop === "function") {
+      // Bind the cancel to THIS turn's session (the warm session is reused, so a
+      // stop captured from an earlier turn would abort the wrong query).
+      opts.registerStop(() => adapter.cancel?.(session) ?? false);
     }
     this.logFn({
       kind: "runtime-turn",
@@ -683,7 +974,31 @@ export class RoutedGateway {
     if (requestedEffort != null && typeof adapter.setEffort === "function") {
       await adapter.setEffort(session, requestedEffort);
     }
-    await adapter.sendTurn(session, message);
+    // §12 liveness: the SDK's structured stream already yields one text block at a
+    // time, so the reply can grow in the channel instead of arriving as a blob
+    // minutes later. onText hands the ACCUMULATED text, which is exactly the
+    // onChunk(text, replace=true) contract. tool_use becomes an `activity` frame.
+    const streamHooks = {
+      onText: onChunk ? (text) => onChunk(text, true) : undefined,
+      onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined,
+      // Extended thinking is where a turn spends its silent minutes, so it is the
+      // single most useful liveness signal - without it a reasoning phase is
+      // indistinguishable from a hung channel. Only the TAIL is forwarded: the
+      // hint slot shows one line, and shipping whole reasoning transcripts over
+      // the wire would be both noisy and a disclosure the user did not ask for.
+      onThinking:
+        typeof opts.onActivity === "function"
+          ? (text) => {
+              const line = String(text ?? "")
+                .split("\n")
+                .map((l) => l.trim())
+                .filter(Boolean)
+                .pop();
+              opts.onActivity({ kind: "thinking", text: line ? line.slice(0, 160) : "" });
+            }
+          : undefined
+    };
+    await adapter.sendTurn(session, message, streamHooks);
     let resp = await adapter.awaitResponse(session);
     // BUILD MODE (buildWorkspace set): local models can't drive file-edit tools
     // over ollama's Anthropic-compat endpoint (tool_use is not surfaced), so the
@@ -699,7 +1014,7 @@ export class RoutedGateway {
         this.logFn({ kind: "agent-sdk-regenerate", attempt, provider: t.provider, model: t.model });
         session = await adapter.spawn(spawnArgs);
         await adapter.awaitReady(session);
-        await adapter.sendTurn(session, message);
+        await adapter.sendTurn(session, message, streamHooks);
         resp = await adapter.awaitResponse(session);
         committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
       }
@@ -715,16 +1030,60 @@ export class RoutedGateway {
     return {
       reply: replyText,
       session_id: session.sessionId ?? null,
+      // SDK-driven sessions DO journal a transcript (unlike the PTY operative), so
+      // the per-message `transcript` badge (§12) has a real file to open.
+      transcript_path: this.claudeTranscriptPathFor(spawnArgs.compositionDir, session.sessionId ?? null),
       cost_usd: null,
       route: route.targetId,
       runtime: "agent-sdk",
       provider: t.provider,
       model: t.model,
+      account: t.account ?? null,
       effort: requestedEffort,
       effortApplied: requestedEffort == null ? null : session.effortApplied === true,
       toolUses: resp.toolUses ?? [],
       stoppedReason: resp.stoppedReason ?? null,
     };
+  }
+
+  // Cap the warm agent-sdk session map. Conversation-keyed sessions (§12) grow
+  // with thread count against a Map that had no eviction at all. Eviction does NOT
+  // go through adapter.teardown: that is `session.alive = false` and frees nothing
+  // - cancel() is the primitive that actually aborts the stashed SDK query, so an
+  // evicted session with a turn still in flight is aborted, then marked dead so a
+  // later lookup re-spawns instead of reusing a released handle.
+  async _evictAgentSdkSessions(adapter) {
+    while (this._agentSdkSessions.size > AGENT_SDK_SESSION_CAP) {
+      const oldest = this._agentSdkSessions.keys().next();
+      if (oldest.done) return;
+      const session = this._agentSdkSessions.get(oldest.value);
+      this._agentSdkSessions.delete(oldest.value);
+      try {
+        await adapter?.cancel?.(session);
+      } catch {
+        /* an already-finished query is a successful release */
+      }
+      if (session) session.alive = false;
+      this.logFn({ kind: "agent-sdk-session-evicted", live: this._agentSdkSessions.size });
+    }
+  }
+
+  // The materialized vault for this composition, or null when it is unreadable
+  // (locked). Injected `secrets` (tests, and the runner-threaded map) wins; the
+  // default reads <compositionDir>/.env at CALL time so a vault unlock mid-run is
+  // picked up without restarting the gateway.
+  resolveSecrets() {
+    if (this.secrets) return this.secrets;
+    if (typeof this.secretsFn === "function") {
+      try {
+        const s = this.secretsFn();
+        return s && Object.keys(s).length ? s : null;
+      } catch {
+        return null;
+      }
+    }
+    const s = readMaterializedSecrets(this.compositionDir);
+    return Object.keys(s).length ? s : null;
   }
 
   // True when the resolved route runs on a SECONDARY runtime (codex/gpt or
@@ -738,6 +1097,20 @@ export class RoutedGateway {
 
   isClaudeDelegateTarget(route) {
     return route?.target?.runtime === "claude-code" && this.primaryEngine !== "claude-code";
+  }
+
+  // The on-disk jsonl transcript a Claude CLI session at `cwd` journals to.
+  // Callers (e.g. the automations vision path) use it to link a routed turn to
+  // its session transcript; null when either coordinate is missing.
+  claudeTranscriptPathFor(cwd, sessionId) {
+    if (!cwd || !sessionId) return null;
+    let canonical = cwd;
+    try {
+      canonical = fs.realpathSync(cwd);
+    } catch {
+      // unresolvable path (already gone / permission) — use it as given
+    }
+    return path.join(claudeProjectDirForCwd(canonical), `${sessionId}.jsonl`);
   }
 
   async getClaudeDelegateAdapter() {
@@ -756,11 +1129,17 @@ export class RoutedGateway {
     const provider = t.provider ?? "anthropic-plan";
     const model = t.model;
     const effort = t.effort ?? null;
-    const key = `${provider}:${model}:${effort ?? "none"}`;
+    // cwd, most specific first: a PINNED PROJECT for this turn (§8), else the build
+    // workspace, else the composition dir. It is part of the cache KEY because a
+    // warm delegate session is pinned to the cwd it spawned in - keying without it
+    // would hand a project-pinned turn a session rooted somewhere else, and the
+    // project badge would assert a scope the turn never had.
+    const cwd = opts.cwd ?? this.buildWorkspace ?? this.compositionDir;
+    const key = `${provider}:${model}:${effort ?? "none"}:${cwd}`;
     let session = this._claudeDelegateSessions.get(key);
     if (!session || !this.#alive({ session })) {
       const spawnConfig = this.core.buildRespawnOpts(t, {
-        compositionDir: this.buildWorkspace ?? this.compositionDir,
+        compositionDir: cwd,
         appendSystemPromptFile: this.appendSystemPromptFile,
         baseEnv: process.env,
         secrets: this.secrets ?? null,
@@ -780,6 +1159,18 @@ export class RoutedGateway {
       this._claudeDelegateSessions.set(key, session);
     }
     this.logFn({ kind: "runtime-turn", runtime: "claude-code", provider, model, effort, target: route.targetId, delegated: true });
+    // §9: a delegate is a real Claude session, so ESC is its stop primitive (the
+    // same one /claude/interrupt uses); a non-PTY delegate falls back to the
+    // adapter's cancel when it has one.
+    if (typeof opts.registerStop === "function") {
+      opts.registerStop(() => {
+        if (typeof session.writeKeys === "function") {
+          session.writeKeys("\x1b");
+          return true;
+        }
+        return adapter.cancel?.(session) ?? false;
+      });
+    }
     let response;
     if (typeof session.runTurn === "function") {
       const out = await session.runTurn({ message, timeoutMs: opts.timeoutMs });
@@ -793,6 +1184,12 @@ export class RoutedGateway {
     return {
       reply: response.text,
       session_id: response.sessionId,
+      transcript_path: this.claudeTranscriptPathFor(
+        // Claude Code journals per-cwd, so this MUST be the cwd the session
+        // actually spawned in - `cwd` already folds in a pinned project (§8).
+        session.compositionDir ?? cwd,
+        response.sessionId
+      ),
       route: route.targetId,
       runtime: "claude-code",
       provider,
@@ -839,22 +1236,33 @@ export class RoutedGateway {
   // Run one turn on a secondary runtime (the orchestrator delegating a step to
   // gpt/codex or gemini). One-shot exec; the reply is returned + (by gateway-pty)
   // injected into the rich channel stream.
-  async runSecondaryTurn(route, message) {
+  async runSecondaryTurn(route, message, opts = {}) {
     const rt = route.target.runtime;
     const provider = route.target.provider ?? (rt === "codex" ? "openai" : "google");
     const model = route.target.model ?? (rt === "codex" ? "gpt-5-codex" : "gemini-2.5-flash");
     const effort = route.target.effort ?? null;
     const adapter = await this.getSecondaryAdapter(rt);
-    // cwd: the shared BUILD WORKSPACE when set (so codex reads + gemini edits the
-    // REAL project files), else a clean scratch cwd (default — keep the agentic CLI
-    // out of the repo). codex on a ChatGPT account rejects an explicit model
-    // override, so use its default; gemini accepts -m.
-    const cwd = this.buildWorkspace ?? (this._secondaryScratch ??= fs.mkdtempSync(path.join(os.tmpdir(), "garrison-secondary-")));
+    // cwd, most specific first: a PINNED PROJECT for this turn (§8), else the
+    // shared BUILD WORKSPACE when set (so codex reads + gemini edits the REAL
+    // project files), else a clean scratch cwd (default — keep the agentic CLI out
+    // of the repo). codex on a ChatGPT account rejects an explicit model override,
+    // so use its default; gemini accepts -m.
+    const cwd =
+      opts.cwd ??
+      this.buildWorkspace ??
+      (this._secondaryScratch ??= fs.mkdtempSync(path.join(os.tmpdir(), "garrison-secondary-")));
     const spawnModel = model;
     // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
     const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
     const session = await adapter.spawn({ compositionDir: cwd, model: spawnModel, effort, env });
     this.logFn({ kind: "runtime-turn", runtime: rt, provider, model, effort, target: route.targetId });
+    // §9: the exec child used to be unreachable from here (a local const inside the
+    // adapter), so Stop could not touch a codex/gemini turn. adapter.cancel SIGTERMs
+    // the stored child (SIGKILL after a grace) and settles the turn with its partial
+    // output - feature-detected, since not every runtime adapter implements it.
+    if (typeof opts.registerStop === "function" && typeof adapter.cancel === "function") {
+      opts.registerStop(() => adapter.cancel(session));
+    }
     await adapter.awaitReady(session);
     await adapter.sendTurn(session, message);
     let resp;
@@ -875,6 +1283,10 @@ export class RoutedGateway {
       provider,
       model,
       effort,
+      // A cancelled exec turn settles with its partial output and says so; the
+      // done frame turns that into stoppedByUser for the badge row. Dropping it
+      // here (as this return used to) made a stopped turn look like a normal one.
+      stoppedReason: resp?.stoppedReason ?? null,
       // Codex applies the reasoning-effort config at exec. Gemini currently has
       // no CLI effort control, so report the requested-but-unapplied state.
       effortApplied: effort == null ? null : rt === "codex" ? session.effortApplied === true : false
@@ -1002,22 +1414,35 @@ export class RoutedGateway {
 
   // S3b: run ONE web materialized turn as a one-shot (fresh disposable claude), so
   // the standing operative session holds NO web context between messages. Injectable
-  // for tests via opts.oneShotFn. Returns { reply, sessionId }.
-  async runWebOneShot({ message, model, onScreen, onSession } = {}) {
+  // for tests via opts.oneShotFn. Returns { reply, sessionId, transcriptPath }.
+  //
+  // cwd/env are per-turn (2026-07-25 §8, §6): a pinned PROJECT becomes the real cwd
+  // (a confined dev-root repo, resolved by the caller) and a pinned ACCOUNT becomes
+  // real auth env. Both were hardcoded here before - the composition dir and the
+  // gateway's own env - which is why "project" could only ever have been a label.
+  // Absent → byte-identical to the previous behaviour.
+  async runWebOneShot({ message, model, onScreen, onSession, cwd: cwdOverride, env } = {}) {
     const cfg = this._operativeSpawnConfig || {};
     const fn = this._oneShotFn ?? oneShotTurn;
+    const cwd = cwdOverride ?? cfg.compositionDir ?? this.compositionDir;
     const outcome = await fn({
-      cwd: cfg.compositionDir ?? this.compositionDir,
+      cwd,
       appendSystemPromptFile: cfg.appendSystemPromptFile ?? this.appendSystemPromptFile,
       model: model ?? cfg.model,
       permissionMode: cfg.permissionMode ?? "bypassPermissions",
       claudeBinary: cfg.claudeBinary,
       extraArgs: cfg.extraArgs,
+      ...(env ? { env } : {}),
       message,
       onScreen,
       onSession
     });
-    return { reply: outcome?.reply ?? "", sessionId: outcome?.sessionId ?? null };
+    const sessionId = outcome?.sessionId ?? null;
+    return {
+      reply: outcome?.reply ?? "",
+      sessionId,
+      transcriptPath: this.claudeTranscriptPathFor(cwd, sessionId)
+    };
   }
 
   // S3b introspection: no standing per-conversation session exists — the pool holds
@@ -1150,6 +1575,25 @@ export class RoutedGateway {
     }
   }
 
+  // Drive ONE classification turn on the warm classifier session, whatever engine
+  // backs it. A claude-code (PTY) classifier session exposes runTurn directly; an
+  // agent-sdk classifier session (when the primary is agent-sdk) has no runTurn —
+  // it is driven through its adapter's sendTurn/awaitResponse, exactly like the
+  // Claude delegate lane. Returns the reply text (empty string on no output).
+  async _runClassifierTurn(prompt) {
+    const session = this.classifier.session;
+    if (typeof session.runTurn === "function") {
+      const r = await session.runTurn({ message: prompt, timeoutMs: 60_000 });
+      return r?.reply ?? "";
+    }
+    const adapter =
+      (typeof this.pool?.adapterFor === "function" && this.pool.adapterFor(this.classifierRuntimeId)) || null;
+    if (!adapter) throw new Error("classifier session has no runTurn and no adapter to drive it");
+    await adapter.sendTurn(session, prompt);
+    const out = await adapter.awaitResponse(session);
+    return out?.text ?? "";
+  }
+
   // Stage A: ask the pinned warm classifier ONE question; code resolves.
   async classify(message) {
     // Deterministic keyword fast-path first (skips the LLM classifier + its drift).
@@ -1163,8 +1607,7 @@ export class RoutedGateway {
     let reply = "";
     try {
       await this.ensureClassifier();
-      const r = await this.classifier.session.runTurn({ message: prompt, timeoutMs: 60_000 });
-      reply = r.reply ?? "";
+      reply = await this._runClassifierTurn(prompt);
     } catch (err) {
       this.logFn({ kind: "classify-failed", error: err?.message });
     }
@@ -1277,7 +1720,40 @@ export class RoutedGateway {
     return Array.isArray(seq) ? seq : [];
   }
 
-  async preRouteV4(message, { duty, level, phase = null, stepIndex = null, sequence = null } = {}) {
+  // Honor a pinned TurnRouting on a resolved route and log both sides. Wired here
+  // (not in applyTurnOverride) so the project/account resolvers stay injectable and
+  // the pure overlay keeps no I/O.
+  _applyOverride(route, ov) {
+    const result = applyTurnOverride(this.config, route, ov, {
+      resolveProject: this._projectResolver ?? undefined,
+      resolveAccount: this._accountResolver ?? ((name) => resolveVaultAccount(this.compositionDir, name))
+    });
+    if (result.applied.length) {
+      this.logFn({ kind: "turn-override", applied: result.applied, target: route.targetId, via: route.via });
+    }
+    for (const rejection of result.rejected) {
+      this.logFn({ kind: "turn-override-rejected", field: rejection.field, reason: rejection.reason });
+    }
+    return result;
+  }
+
+  async preRouteV4(
+    message,
+    {
+      duty,
+      level,
+      phase = null,
+      stepIndex = null,
+      sequence = null,
+      routing = null,
+      rejected = [],
+      viaOverride = false,
+      // Carried through from preRoute so a duty-routed decision names its
+      // conversation too, not just the classifier-path decision below.
+      sessionId = null,
+      sessionTitle = null
+    } = {}
+  ) {
     const resolved = await this.executionRouteFor({ duty, level, phase, stepIndex });
     if (!resolved) {
       throw new Error(
@@ -1303,6 +1779,12 @@ export class RoutedGateway {
       phase: effectivePhase,
       skill: resolved.skill
     };
+    // §7: honor the pin BEFORE the decision record and the plan/lane selection
+    // below, so an overridden target.runtime actually changes which lane runs.
+    const override = this._applyOverride(route, routing);
+    const overridesApplied = [...(viaOverride ? ["duty", "level"] : []), ...override.applied];
+    const overridesRejected = [...(Array.isArray(rejected) ? rejected : []), ...override.rejected];
+    if (viaOverride) route.via = "turn-override";
     const decision = {
       ...this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() }),
       kind: "duty-route",
@@ -1313,7 +1795,10 @@ export class RoutedGateway {
       runtime: route.target.runtime,
       provider: route.target.provider ?? null,
       model: route.target.model,
-      effort: route.target.effort ?? null
+      effort: route.target.effort ?? null,
+      ...(sessionId ? { sessionId } : {}),
+      ...(sessionTitle ? { sessionTitle } : {}),
+      ...(overridesApplied.length ? { overrides: overridesApplied } : {})
     };
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
@@ -1355,7 +1840,14 @@ export class RoutedGateway {
       level,
       phase: effectivePhase,
       skill: resolved.skill ?? null,
-      sequence: seq
+      sequence: seq,
+      // Run-context bookkeeping the attribution helper folds onto every frame.
+      // Pinned INTENT stays separate from what RAN: `overridesApplied` is what the
+      // route actually carries now, `overridesRejected` is what was refused.
+      overridesApplied: overridesApplied.length ? overridesApplied : null,
+      overridesRejected: overridesRejected.length ? overridesRejected : null,
+      project: override.project,
+      projectPath: override.projectPath
     };
   }
 
@@ -1368,6 +1860,11 @@ export class RoutedGateway {
   // conversational channels (e.g. Jarvis voice) where every turn is short.
   async preRoute(message, opts = {}) {
     this._lastUserMessage = message;
+    // The per-turn pin (§2), already validated at the HTTP edge (sanitizeRouting),
+    // plus the rejections that validation itself produced - one list reaches the
+    // badge whether a value died on the wire or died here.
+    const ov = opts.routing && typeof opts.routing === "object" ? opts.routing : null;
+    const rejected = Array.isArray(opts.routingRejected) ? [...opts.routingRejected] : [];
     // A Kanban phase carries the card's semantic v4 identity. It is authoritative:
     // resolve the assigned leaf cell from the shared execution manifest and never
     // send it through the legacy taskType×tier matrix.
@@ -1377,8 +1874,35 @@ export class RoutedGateway {
         level: opts.level,
         phase: opts.phase,
         stepIndex: opts.stepIndex,
-        sequence: opts.sequence
+        sequence: opts.sequence,
+        routing: ov,
+        sessionId: opts.sessionId ?? null,
+        sessionTitle: opts.sessionTitle ?? null,
+        rejected
       });
+    }
+    // A duty+level pin re-enters the v4 duty lane - the lane the kanban engine
+    // already drives - so the turn runs a REAL duty cell instead of a matrix route
+    // wearing a duty label. An unresolvable cell is a rejection, not a throw: the
+    // turn falls through to normal routing carrying the reason.
+    if (ov?.duty && Number.isInteger(ov.level)) {
+      try {
+        return await this.preRouteV4(message, {
+          duty: ov.duty,
+          level: ov.level,
+          routing: ov,
+          rejected,
+          viaOverride: true
+        });
+      } catch (err) {
+        rejected.push({ field: "duty", reason: "duty-cell-unresolved" });
+        this.logFn({
+          kind: "turn-override-rejected",
+          field: "duty",
+          reason: "duty-cell-unresolved",
+          error: String(err?.message ?? err)
+        });
+      }
     }
     // Direct channel work enters through the production Dispatcher. Tests/raw
     // internal callers with no channel, explicit legacy classifications, and old
@@ -1391,7 +1915,11 @@ export class RoutedGateway {
         return this.preRouteV4(message, {
           duty: dispatched.duty,
           level: dispatched.level,
-          sequence: dispatched.sequence
+          sequence: dispatched.sequence,
+          routing: ov,
+          sessionId: opts.sessionId ?? null,
+          sessionTitle: opts.sessionTitle ?? null,
+          rejected
         });
       }
     }
@@ -1422,6 +1950,11 @@ export class RoutedGateway {
       this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
     }
     const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
+    // §7: the pin lands HERE - after the route resolves, before the decision record
+    // and before the plan/lane selection below reads route.target.runtime. Applying
+    // it any later would change the badge and nothing else.
+    const override = this._applyOverride(route, ov);
+    rejected.push(...override.rejected);
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
     // Enrich the logged decision with the RUNTIME/provider/model so the log shows
     // exactly what handled the turn (claude-code/anthropic vs agent-sdk/ollama).
@@ -1432,6 +1965,13 @@ export class RoutedGateway {
     // target) — persist it so "which effort served this turn" is provable
     // from the decision log alone.
     decision.effort = route.target?.effort ?? route.effort ?? null;
+    // Which conversation caused this decision. Without it the Muster Decisions
+    // feed is a list of routing outcomes with no way back to the turn that
+    // produced them. An OPAQUE handle only - never the message, which stays a
+    // digest.
+    if (opts.sessionId) decision.sessionId = opts.sessionId;
+    if (opts.sessionTitle) decision.sessionTitle = opts.sessionTitle;
+    if (override.applied.length) decision.overrides = override.applied;
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
       kind: "route-resolved",
@@ -1463,7 +2003,18 @@ export class RoutedGateway {
       if (carry) annotation = `${carry}\n${annotation}`;
       this._respawned = false;
     }
-    return { classification, route, decision, plan, annotation, carried: annotation.includes("context carried over") };
+    return {
+      classification,
+      route,
+      decision,
+      plan,
+      annotation,
+      carried: annotation.includes("context carried over"),
+      overridesApplied: override.applied.length ? override.applied : null,
+      overridesRejected: rejected.length ? rejected : null,
+      project: override.project,
+      projectPath: override.projectPath
+    };
   }
 
   // Stage B: move the live operative onto the resolved target.
@@ -1790,6 +2341,16 @@ export async function resolvePrimaryAdapter(engine, ctx) {
         model: operativeSpawnConfig.model,
         promptMode: operativeSpawnConfig.promptMode ?? "full",
         compositionDir,
+        // The Agent SDK REPLACES the subprocess environment with options.env
+        // (it does not merge process.env underneath). Seed baseEnv from the
+        // gateway's own process env so the claude subprocess keeps PATH / HOME /
+        // CLAUDE_CONFIG_DIR (dev-instance isolation) AND inherits the Paymaster
+        // account pin the runner set on this process (GARRISON_ACCOUNT +
+        // ANTHROPIC_AUTH_TOKEN/CLAUDE_CODE_OAUTH_TOKEN). buildSdkEnv strips the
+        // ANTHROPIC_* keys and re-derives them per provider, so this is safe for
+        // an off-Anthropic primary too. Mirrors the codex/gemini exec path.
+        env: process.env,
+        ...(Number(operativeSpawnConfig.maxTurns) > 0 ? { maxTurns: Number(operativeSpawnConfig.maxTurns) } : {}),
         ...(operativeSpawnConfig.baseUrl ? { baseUrl: operativeSpawnConfig.baseUrl } : {}),
         ...(operativeSpawnConfig.leanPrompt ? { leanPrompt: operativeSpawnConfig.leanPrompt } : {}),
         ...(operativeSpawnConfig.secrets ? { secrets: operativeSpawnConfig.secrets } : {}),
@@ -1894,14 +2455,31 @@ function classifierFallbackConfig(primarySpawnConfig, opts = {}) {
 }
 
 // Resolve the { adapter, spawnConfig } that back the CLASSIFIER pool entry.
-// Default (claude-code resolvable): the cheap claude-code haiku session, exactly
-// as before. Non-claude primary + claude-code ABSENT: fall back to the primary
-// adapter and log the fallback loudly.
+// claude-code primary: the operative adapter serves the classifier, exactly as
+// before. agent-sdk primary: classify on the SAME engine — a lean, cheap SDK
+// session on the classifier model — instead of spinning a Claude Code PTY just
+// for classification (the point of an agent-sdk primary is no PTY dependency;
+// a wedged PTY classifier would block every turn's pre-route). Other non-claude
+// primaries (codex/gemini/opencode) keep the cheap PTY classifier when the CLI
+// is present, and fall back to the primary adapter loudly when it is not.
 export function resolveClassifierAdapter(ctx) {
   const { primary, primaryEngine, spawnFn, classifierSpawnConfig, opts, logFn } = ctx;
   if (primary.claude) {
     // claude-code primary → the operative adapter also serves the classifier.
     return { adapter: primary.adapter, spawnConfig: classifierSpawnConfig };
+  }
+  if (primaryEngine === "agent-sdk") {
+    // Lean drops the appended orchestrator prompt and disables tools, so a
+    // classification turn is a pure completion on the cheap model. The primary's
+    // provider/secrets carry over; the account pin inherits via the process env.
+    return {
+      adapter: primary.adapter,
+      spawnConfig: {
+        ...primary.spawnConfig,
+        model: classifierSpawnConfig?.model ?? "haiku",
+        promptMode: "lean",
+      },
+    };
   }
   if (claudeCodeResolvable({ spawnFn, primaryEngine, opts })) {
     // non-claude primary but claude-code IS resolvable → keep the cheap haiku
@@ -2054,5 +2632,10 @@ export async function createRoutedGateway(opts = {}) {
     clarity: opts.clarity ?? null,
   });
   gw.secrets = opts.secrets ?? null;
+  // Run-context seams (see the constructor): a call-time vault reader plus the
+  // injectable project/account resolvers for a per-turn pin.
+  gw.secretsFn = opts.secretsFn ?? null;
+  gw._projectResolver = opts.resolveProject ?? null;
+  gw._accountResolver = opts.resolveAccount ?? null;
   return gw;
 }

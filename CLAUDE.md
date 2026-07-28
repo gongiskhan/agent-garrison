@@ -363,8 +363,8 @@ simply ahead of prod.
 | **DEV** | `~/dev/agent-garrison-dev` | 7777 | `~/.garrison-dev` | `~/.claude-garrison-dev` | `next dev` (edit = live on save) |
 | **PROD** | `~/dev/agent-garrison` | 8777 | `~/.garrison` | the real `~/.claude` | `next start` on `.next-prod` |
 
-Fittings follow the same offset: local-voice dev 7090 / prod 8090, jarvis-os
-7092 / 8092, dev-env 7086 / 8086, kanban-loop 7089 / 8089.
+Fittings follow the same offset: local-voice dev 7097 / prod 8097, jarvis-os
+7094 / 8094, dev-env 7086 / 8086, kanban-loop 7089 / 8089.
 
 - **HARD RULE — all editing happens in the DEV tree.** `~/dev/agent-garrison`
   is READ-ONLY. It never receives a hand edit; it only ever fast-forwards onto
@@ -463,6 +463,8 @@ file double-fires every scheduled job.
 ## What to read next, by intent
 
 - Spec / shape of v1 → [`docs/SPEC.md`](./docs/SPEC.md).
+- Instance ports, lifecycles, when changes reach prod / fittings restart →
+  [`docs/INSTANCES.md`](./docs/INSTANCES.md).
 - Adding or auditing a Fitting →
   [`docs/METADATA.md`](./docs/METADATA.md),
   [`docs/FITTINGS.md`](./docs/FITTINGS.md),

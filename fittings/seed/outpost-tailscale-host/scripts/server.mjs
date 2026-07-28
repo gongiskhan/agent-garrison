@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // outpost-tailscale-host backend — UI server on port 7082 that proxies to the
-// outpost-host daemon (default 127.0.0.1:23702). Lists registered outposts, forwards
+// outpost-host daemon (base 127.0.0.1:3702). Lists registered outposts, forwards
 // register / pair / unregister / RPC / invocation-log reads, and owns the SSH
 // provisioning flow (spawns ssh, streams the provision script output over SSE).
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, watch as fsWatch } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -12,6 +12,17 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import {
+  CLAUDE_DIR,
+  PORTABLE_DIRS,
+  PORTABLE_FILES,
+  readTargets,
+  upsertTarget,
+  removeTarget,
+  syncAll,
+  syncOne,
+  syncTarget,
+} from "./lib/config-sync.mjs";
 
 const HOME = os.homedir();
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
@@ -30,11 +41,11 @@ function parseArgs(argv) {
     // (ownPortConfigEnv); the bare names remain for standalone use.
     port: Number(process.env.GARRISON_OUTPOSTTAILSCALEHOST_PORT || process.env.OUTPOST_UI_PORT || 7082),
     host:
-      process.env.GARRISON_OUTPOSTTAILSCALEHOST_BIND_HOST || process.env.OUTPOST_UI_HOST || "127.0.0.1",
+      process.env.GARRISON_OUTPOSTTAILSCALEHOST_BIND_HOST || process.env.OUTPOST_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     outpostHostUrl:
       process.env.GARRISON_OUTPOSTTAILSCALEHOST_OUTPOST_HOST_URL ||
       process.env.OUTPOST_HOST_URL ||
-      "http://127.0.0.1:23702"
+      "http://127.0.0.1:3702"
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -54,19 +65,77 @@ function jsonRes(res, status, body) {
 // Local-origin guard for state-changing requests (provision/register/pair/rpc/
 // unregister). Unauthenticated + loopback-bound, so without this a page the user
 // visits could POST /provision (trigger SSH) or /outposts/<x>/rpc (run a command
-// on a paired Mac), or DNS-rebind to reach any of them. Reject a non-loopback
-// Host (rebinding) and a cross-site Origin (CSRF). True when blocked (answered).
+// on a paired Mac), or DNS-rebind to reach any of them.
+//
+// DNS-rebinding: guard on the TCP socket's remoteAddress (always loopback when
+// tailscale serve proxies to 127.0.0.1, and when the browser is on the same
+// machine). Checking the Host header alone would block legitimate tailnet
+// requests because tailscale forwards the original tailnet Host.
+//
+// CSRF: require the Origin to be same-host as the Host header. This blocks
+// third-party pages regardless of whether the server is reached via loopback or
+// tailnet, while allowing same-origin tailnet fetches.
+//
+// True when blocked (answered).
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+// A connecting IP is TRUSTED when it is loopback, an RFC1918 private address, a
+// tailnet CGNAT address (100.64.0.0/10), or an IPv6 ULA / link-local literal.
+// When the fitting is bound beyond loopback (GARRISON_BIND_HOST=0.0.0.0) a direct
+// hit at the box's tailnet IP arrives from the client's tailnet IP, which is
+// trusted; a public source is still rejected. Kept identical across the guarded
+// fittings (ports-default, power-default, outpost-tailscale-host).
+function isTrustedHost(value) {
+  const h = String(value || "").replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "").toLowerCase();
+  if (!h) return true;
+  if (LOOPBACK_HOSTS.has(h)) return true;
+  if (h === "::1" || h.endsWith(".ts.net")) return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // tailnet CGNAT
+    return false;
+  }
+  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe80"))) return true;
+  return false;
+}
 function crossSiteBlocked(req, res) {
-  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
-  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
-    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+  // Source-IP guard: the TCP connection must arrive from a trusted (loopback or
+  // private/tailnet) source, not a public one.
+  const remoteIp = (req.socket?.remoteAddress ?? "").replace(/^::ffff:/, "");
+  if (remoteIp && !isTrustedHost(remoteIp)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `untrusted connection from '${remoteIp}' (DNS-rebinding guard)` });
     return true;
   }
+  // DNS-rebinding guard: the HOST HEADER must also be trusted. This check is the
+  // one that actually stops rebinding and it was missing here, unlike in
+  // ports-default/power-default. The source-IP check above cannot stand in for
+  // it: in a rebinding attack the victim's own browser makes the request, so the
+  // source IP is the victim's (trusted), while Host carries the attacker's
+  // domain. The Origin check below cannot either - the attacker page's Origin
+  // and Host are BOTH evil.example, so they match each other and pass. Widening
+  // the source check without adding this left the whole guard satisfiable by a
+  // hostile page, on a server that runs rsync-over-ssh and writes host config
+  // unauthenticated.
+  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
+  if (hostName && !isTrustedHost(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `untrusted Host '${hostName}' (DNS-rebinding guard)` });
+    return true;
+  }
+  // CSRF guard: if an Origin is present it must be same-host as the Host header
+  // (covers both loopback and tailnet same-origin requests) OR a bare loopback
+  // origin (backward-compat for direct loopback access without a Host header).
   const origin = req.headers["origin"];
   if (origin) {
+    const hostHeader = String(req.headers["host"] || "").toLowerCase();
     let ok = false;
-    try { ok = LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); } catch { ok = false; }
+    try {
+      const originUrl = new URL(origin);
+      ok = originUrl.host.toLowerCase() === hostHeader || LOOPBACK_HOSTS.has(originUrl.hostname.toLowerCase());
+    } catch { ok = false; }
     if (!ok) { jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" }); return true; }
   }
   return false;
@@ -128,6 +197,9 @@ async function handlePair(req, res, opts) {
 
 async function handleUnregisterOutpost(req, res, opts, name) {
   const result = await proxyJson(`${opts.outpostHostUrl}/registry/${encodeURIComponent(name)}`, { method: "DELETE" });
+  // Also drop the config-sync target so the healer stops pushing to a
+  // decommissioned outpost (the two stores are otherwise independent).
+  try { removeTarget(name); } catch { /* best effort */ }
   jsonRes(res, result.status, result.data);
 }
 
@@ -177,6 +249,7 @@ function pushLine(job, line) {
 }
 
 function finishJob(job, exitCode) {
+  if (job.done) return; // a spawn "error" + "close" can both fire; finish once
   job.done = true;
   job.exitCode = exitCode;
   const payload = `event: done\ndata: ${JSON.stringify({ exitCode })}\n\n`;
@@ -264,8 +337,24 @@ async function handleProvision(req, res, opts) {
   };
   child.stdout.on("data", relay);
   child.stderr.on("data", relay);
-  child.on("close", (code) => {
+  child.on("close", async (code) => {
     pushLine(job, code === 0 ? "==> Provisioning finished (exit 0)." : `==> Provisioning exited with code ${code}.`);
+    if (code === 0) {
+      // Register this Mac as a config-sync target and push the portable
+      // ~/.claude subset now (the "skills bundle" provision-outpost.sh leaves
+      // as a TODO). Ongoing sync is driven by the file watcher.
+      try {
+        upsertTarget({ name: machine, sshUser, sshHost });
+        pushLine(job, "==> Syncing Claude config to the outpost (skills, commands, agents, rules, CLAUDE.md)…");
+        const r = await syncOne(machine);
+        for (const it of r.items || []) {
+          pushLine(job, `    ${it.ok ? "ok  " : "FAIL"} ${it.name}${it.ok ? "" : " — " + (it.error || "error")}`);
+        }
+        pushLine(job, r.ok ? "==> Config sync complete." : "==> Config sync had errors (will retry on the next change).");
+      } catch (e) {
+        pushLine(job, `==> Config sync skipped: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     finishJob(job, code ?? 1);
   });
 
@@ -302,6 +391,44 @@ function handleProvisionStream(req, res, jobId) {
   }
   job.subs.add(res);
   req.on("close", () => { job.subs.delete(res); });
+}
+
+// ---------------------------------------------------------------------------
+// Config sync — mirror the portable ~/.claude subset onto the outposts.
+// State-changing routes are guarded by crossSiteBlocked (they drive rsync/ssh).
+// ---------------------------------------------------------------------------
+
+function handleListSyncTargets(req, res) {
+  jsonRes(res, 200, { claudeDir: CLAUDE_DIR, portable: { dirs: PORTABLE_DIRS, files: PORTABLE_FILES }, targets: readTargets() });
+}
+
+async function handleAddSyncTarget(req, res) {
+  const body = await readBody(req);
+  const sshHost = String(body?.sshHost || body?.host || "").trim();
+  const sshUser = String(body?.sshUser || body?.user || "").trim();
+  const name = String(body?.name || sshHost).trim();
+  if (!sshHost || !sshUser) return jsonRes(res, 400, { error: "sshUser and sshHost (strings) required" });
+  try {
+    const target = upsertTarget({ name, sshUser, sshHost });
+    jsonRes(res, 200, { ok: true, target });
+  } catch (e) {
+    jsonRes(res, 400, { error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function handleRemoveSyncTarget(req, res, name) {
+  const removed = removeTarget(name);
+  jsonRes(res, removed ? 200 : 404, removed ? { ok: true } : { error: "no such sync target" });
+}
+
+async function handleSyncAll(req, res) {
+  const summary = await syncAll();
+  jsonRes(res, 200, summary);
+}
+
+async function handleSyncOne(req, res, name) {
+  const r = await syncOne(name);
+  jsonRes(res, r.ok ? 200 : (r.error === "no such target" ? 404 : 200), r);
 }
 
 function serveStatic(req, res, distDir) {
@@ -341,6 +468,57 @@ async function clearStatusFile() {
   try { await unlink(STATUS_FILE); } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// Config-sync watcher — keep every configured outpost reflecting this host's
+// portable ~/.claude config "always". Debounced push on change + a periodic
+// healer so an outpost that was offline during a change catches up.
+// ---------------------------------------------------------------------------
+
+let syncDebounce = null;
+function scheduleSync(reason) {
+  if (syncDebounce) clearTimeout(syncDebounce);
+  syncDebounce = setTimeout(async () => {
+    syncDebounce = null;
+    if (!Object.keys(readTargets()).length) return;
+    try {
+      const r = await syncAll();
+      const ok = r.results.filter((x) => x.ok).length;
+      console.log(`[outpost] config sync (${reason}): ${ok}/${r.count} outposts ok`);
+    } catch (e) {
+      console.error("[outpost] config sync failed:", e instanceof Error ? e.message : String(e));
+    }
+  }, 4000);
+}
+
+function startConfigWatcher() {
+  const watchers = [];
+  // Recursive watch on each portable dir (Node 20+ supports recursive on Linux).
+  for (const dir of PORTABLE_DIRS) {
+    const abs = path.join(CLAUDE_DIR, dir);
+    if (!existsSync(abs)) continue;
+    try {
+      watchers.push(fsWatch(abs, { recursive: true, persistent: false }, () => scheduleSync(`change:${dir}`)));
+    } catch (e) {
+      console.error(`[outpost] cannot watch ${abs}:`, e instanceof Error ? e.message : String(e));
+    }
+  }
+  // Non-recursive watch on ~/.claude for the top-level CLAUDE.md only (avoids the
+  // churn of projects/, sessions/, todos/ that live alongside it).
+  try {
+    watchers.push(fsWatch(CLAUDE_DIR, { persistent: false }, (_ev, fname) => {
+      if (fname === "CLAUDE.md") scheduleSync("change:CLAUDE.md");
+    }));
+  } catch { /* CLAUDE_DIR may not exist yet */ }
+  const HEAL_MS = Number(process.env.GARRISON_OUTPOST_SYNC_HEAL_MS || 10 * 60 * 1000);
+  const heal = setInterval(() => { if (Object.keys(readTargets()).length) scheduleSync("heal"); }, HEAL_MS);
+  heal.unref?.();
+  // Initial catch-up at boot so a config that changed while the fitting was down
+  // is pushed as soon as it comes up.
+  if (Object.keys(readTargets()).length) scheduleSync("boot");
+  console.log(`[outpost] config watcher armed on ${CLAUDE_DIR} (dirs: ${PORTABLE_DIRS.join(", ")})`);
+  return { watchers, heal };
+}
+
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const distDir = path.resolve(here, "..", "dist");
@@ -362,6 +540,14 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
       const provStreamMatch = pathname.match(/^\/provision\/([^/]+)\/stream$/);
       if (provStreamMatch && method === "GET") return await handleProvisionStream(req, res, decodeURIComponent(provStreamMatch[1]));
+
+      if (pathname === "/sync/targets" && method === "GET") return handleListSyncTargets(req, res);
+      if (pathname === "/sync/targets" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleAddSyncTarget(req, res); }
+      if (pathname === "/sync" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleSyncAll(req, res); }
+      const syncTargetMatch = pathname.match(/^\/sync\/targets\/([^/]+)$/);
+      if (syncTargetMatch && method === "DELETE") { if (crossSiteBlocked(req, res)) return; return handleRemoveSyncTarget(req, res, decodeURIComponent(syncTargetMatch[1])); }
+      const syncOneMatch = pathname.match(/^\/outposts\/([^/]+)\/sync$/);
+      if (syncOneMatch && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleSyncOne(req, res, decodeURIComponent(syncOneMatch[1])); }
 
       const logMatch = pathname.match(/^\/outposts\/([^/]+)\/log$/);
       if (logMatch && method === "GET") return await handleLog(req, res, liveOpts, decodeURIComponent(logMatch[1]), parsed.query?.limit);
@@ -391,6 +577,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     server.listen(liveOpts.port, liveOpts.host, async () => {
       await writeStatusFile(liveOpts);
       console.log(`[outpost] listening on http://${liveOpts.host}:${liveOpts.port} (outpost-host=${liveOpts.outpostHostUrl})`);
+      try { startConfigWatcher(); } catch (e) { console.error("[outpost] config watcher failed to start:", e instanceof Error ? e.message : String(e)); }
       resolve();
     });
   });

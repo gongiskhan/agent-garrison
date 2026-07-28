@@ -413,6 +413,18 @@ export interface GarrisonMetadata {
   // D5: the Quarters descriptor this runtime ships — deep (registered
   // implementation by id) or generic (descriptor-rendered native-config surface).
   quarters_descriptor?: QuartersDescriptor;
+  // RUNTIME-ACCOUNTS-V1 D6: how a (non-Anthropic) runtime logs in natively.
+  // The UI runs `command` in a PTY with the same guided surface as the
+  // Anthropic setup-token flow; env_var/storage_hint document where the
+  // resulting credential lives. Best-effort — absent on most Fittings.
+  login?: RuntimeLoginSpec;
+}
+
+// D6: a runtime Fitting's native login declaration.
+export interface RuntimeLoginSpec {
+  command: string;
+  env_var?: string;
+  storage_hint?: string;
 }
 
 // D3: the declared provider-override mechanism of a runtime Fitting.
@@ -582,6 +594,40 @@ export interface Composition {
 export interface VaultSecret {
   key: string;
   value: string;
+}
+
+// What the HTTP layer is allowed to say about a secret. GET /api/vault/secrets
+// used to return every VaultSecret with its plaintext `value`, so a single
+// unauthenticated request from any tailnet device dumped the whole vault (the
+// app is fronted by `tailscale serve`, which proxies to loopback — so a
+// remote-address check cannot tell a remote caller from a local one). The wire
+// shape is masked; the plaintext leaves the server only through an explicit,
+// audited, one-key-at-a-time reveal.
+export interface MaskedVaultSecret {
+  key: string;
+  // Whether a non-empty value is stored. Distinguishes "set but hidden" from
+  // "present as an empty string", which the UI renders differently.
+  set: boolean;
+  // A short, non-reconstructable hint (head + tail) so a human can tell two
+  // similar-looking credentials apart without revealing either.
+  preview: string;
+}
+
+// A PUT entry. `value` ABSENT means "leave whatever is stored untouched" — the
+// UI holds masks, not plaintext, so echoing a masked row back must never
+// overwrite the real secret with its own preview.
+export interface VaultSecretUpdate {
+  key: string;
+  value?: string;
+}
+
+// A row in the Vault UI. Starts life as the masked wire shape; `value` appears
+// only once the row has been explicitly revealed or typed into. `dirty` is what
+// the save path keys on — a revealed-but-untouched row must round-trip as
+// "unchanged", not as a write of the value it happens to be displaying.
+export interface VaultSecretRow extends MaskedVaultSecret {
+  value?: string;
+  dirty?: boolean;
 }
 
 export interface VerifyResult {

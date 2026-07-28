@@ -29,7 +29,7 @@ export async function discoverFitting(fittingId, defaultPort) {
 // (faster-whisper), which is why it's tried first.
 export async function discoverVoice() {
   const candidates = [
-    { id: "local-voice", port: 7090, streaming: false, keyless: true },
+    { id: "local-voice", port: 7097, streaming: false, keyless: true },
     { id: "deepgram-voice", port: 7085, streaming: true, keyless: false }
   ];
   const found = [];

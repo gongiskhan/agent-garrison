@@ -7,6 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import type { StateModel, PrimitiveSurface } from "@/lib/primitive-state";
 import type { RuntimeQuartersEntry } from "@/lib/quarters-runtimes";
 import { QUARTERS_CATEGORIES, WRITER_LABEL, type QuartersCategory } from "./quartersTypes";
+import { InstallBanner } from "./InstallBanner";
 
 function icon(name: string): LucideIcon {
   return ((Lucide as unknown as Record<string, LucideIcon>)[name] ?? Lucide.Square) as LucideIcon;
@@ -114,6 +115,8 @@ export function QuartersIndex() {
             <code>~/.claude</code>, other engines a generic tier.
           </p>
         </div>
+
+        <InstallBanner />
 
         {error ? (
           <div className="banner alarm" data-testid="quarters-error">

@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,14 +24489,14 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/drill/ui/main.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_client = __toESM(require_client(), 1);
 
-// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 var import_react = __toESM(require_react(), 1);
 
-// ../../../node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
+// node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
 function isObject(subject) {
   return Object.prototype.toString.call(subject) === "[object Object]";
 }
@@ -24534,7 +24534,7 @@ function arePluginsEqual(pluginsA, pluginsB) {
   });
 }
 
-// ../../../node_modules/embla-carousel/esm/embla-carousel.esm.js
+// node_modules/embla-carousel/esm/embla-carousel.esm.js
 function isNumber(subject) {
   return typeof subject === "number";
 }
@@ -26162,7 +26162,7 @@ function EmblaCarousel(root2, userOptions, userPlugins) {
 }
 EmblaCarousel.globalOptions = void 0;
 
-// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 function useEmblaCarousel(options = {}, plugins = []) {
   const storedOptions = (0, import_react.useRef)(options);
   const storedPlugins = (0, import_react.useRef)(plugins);
@@ -26195,19 +26195,19 @@ function useEmblaCarousel(options = {}, plugins = []) {
 }
 useEmblaCarousel.globalOptions = void 0;
 
-// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react3 = __toESM(require_react());
 
-// ../../../node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../../../node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react2 = __toESM(require_react());
 
-// ../../../node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -26220,7 +26220,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../../../node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react2.forwardRef)(
   ({
     color = "currentColor",
@@ -26252,7 +26252,7 @@ var Icon = (0, import_react2.forwardRef)(
   }
 );
 
-// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react3.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react3.createElement)(Icon, {
@@ -26266,22 +26266,22 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../../../node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/check.js
+// node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/crosshair.js
+// node_modules/lucide-react/dist/esm/icons/crosshair.js
 var Crosshair = createLucideIcon("Crosshair", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "22", x2: "18", y1: "12", y2: "12", key: "l9bcsi" }],
@@ -26290,14 +26290,14 @@ var Crosshair = createLucideIcon("Crosshair", [
   ["line", { x1: "12", x2: "12", y1: "22", y2: "18", key: "15g9kq" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/external-link.js
+// node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/eye.js
+// node_modules/lucide-react/dist/esm/icons/eye.js
 var Eye = createLucideIcon("Eye", [
   [
     "path",
@@ -26309,7 +26309,7 @@ var Eye = createLucideIcon("Eye", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/file-code-2.js
+// node_modules/lucide-react/dist/esm/icons/file-code-2.js
 var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4", key: "1pf5j1" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
@@ -26317,7 +26317,7 @@ var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/film.js
+// node_modules/lucide-react/dist/esm/icons/film.js
 var Film = createLucideIcon("Film", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
@@ -26329,13 +26329,13 @@ var Film = createLucideIcon("Film", [
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/flag.js
+// node_modules/lucide-react/dist/esm/icons/flag.js
 var Flag = createLucideIcon("Flag", [
   ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", key: "i9b6wo" }],
   ["line", { x1: "4", x2: "4", y1: "22", y2: "15", key: "1cm3nv" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/layout-grid.js
+// node_modules/lucide-react/dist/esm/icons/layout-grid.js
 var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
@@ -26343,14 +26343,14 @@ var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/list-filter.js
+// node_modules/lucide-react/dist/esm/icons/list-filter.js
 var ListFilter = createLucideIcon("ListFilter", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M7 12h10", key: "b7w52i" }],
   ["path", { d: "M10 18h4", key: "1ulq68" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/locate-fixed.js
+// node_modules/lucide-react/dist/esm/icons/locate-fixed.js
 var LocateFixed = createLucideIcon("LocateFixed", [
   ["line", { x1: "2", x2: "5", y1: "12", y2: "12", key: "bvdh0s" }],
   ["line", { x1: "19", x2: "22", y1: "12", y2: "12", key: "1tbv5k" }],
@@ -26360,14 +26360,19 @@ var LocateFixed = createLucideIcon("LocateFixed", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/monitor.js
+// node_modules/lucide-react/dist/esm/icons/message-square.js
+var MessageSquare = createLucideIcon("MessageSquare", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/notebook-pen.js
+// node_modules/lucide-react/dist/esm/icons/notebook-pen.js
 var NotebookPen = createLucideIcon("NotebookPen", [
   ["path", { d: "M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4", key: "re6nr2" }],
   ["path", { d: "M2 6h4", key: "aawbzj" }],
@@ -26383,24 +26388,13 @@ var NotebookPen = createLucideIcon("NotebookPen", [
   ]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/pause.js
-var Pause = createLucideIcon("Pause", [
-  ["rect", { x: "14", y: "4", width: "4", height: "16", rx: "1", key: "zuxfzm" }],
-  ["rect", { x: "6", y: "4", width: "4", height: "16", rx: "1", key: "1okwgv" }]
-]);
-
-// ../../../node_modules/lucide-react/dist/esm/icons/play.js
-var Play = createLucideIcon("Play", [
-  ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
-]);
-
-// ../../../node_modules/lucide-react/dist/esm/icons/plus.js
+// node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
+// node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
 var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "14sxne" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
@@ -26408,31 +26402,43 @@ var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M16 16h5v5", key: "ccwih5" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/smartphone.js
+// node_modules/lucide-react/dist/esm/icons/smartphone.js
 var Smartphone = createLucideIcon("Smartphone", [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/tablet.js
+// node_modules/lucide-react/dist/esm/icons/square-pen.js
+var SquarePen = createLucideIcon("SquarePen", [
+  ["path", { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" }],
+  [
+    "path",
+    {
+      d: "M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
+      key: "ohrbg2"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/tablet.js
 var Tablet = createLucideIcon("Tablet", [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", ry: "2", key: "76otgf" }],
   ["line", { x1: "12", x2: "12.01", y1: "18", y2: "18", key: "1dp563" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/terminal.js
+// node_modules/lucide-react/dist/esm/icons/terminal.js
 var Terminal = createLucideIcon("Terminal", [
   ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
   ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/video.js
+// node_modules/lucide-react/dist/esm/icons/video.js
 var Video = createLucideIcon("Video", [
   [
     "path",
@@ -26444,13 +26450,24 @@ var Video = createLucideIcon("Video", [
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/x.js
+// node_modules/lucide-react/dist/esm/icons/wrench.js
+var Wrench = createLucideIcon("Wrench", [
+  [
+    "path",
+    {
+      d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+      key: "cbrjhi"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// ui/main.tsx
+// fittings/seed/drill/ui/main.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 async function apiGet(path) {
   const r = await fetch(path);
@@ -26481,6 +26498,21 @@ function resolveEmbedUrl(url, tailnetUrl) {
   const rebound = url.replace(/^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i, `$1${here}`);
   if (window.location.protocol === "https:" && rebound.startsWith("http://")) return "";
   return rebound;
+}
+function revealWithinScrollParent(el) {
+  if (!el) return;
+  let parent = el.parentElement;
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const overflowY = getComputedStyle(parent).overflowY;
+    if (/(auto|scroll)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) {
+      const pr = parent.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      if (er.top < pr.top) parent.scrollTop -= pr.top - er.top;
+      else if (er.bottom > pr.bottom) parent.scrollTop += er.bottom - pr.bottom;
+      return;
+    }
+    parent = parent.parentElement;
+  }
 }
 function fullBrowserViewUrl(canvasUrl) {
   try {
@@ -27002,7 +27034,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", onClick: onOpenPicker, children: "Select project" })
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Help, { children: [
-      "The Drill Book is this project's QA plan, stored in the repo under ",
+      "The Drill Book is this project\u2019s QA plan, stored in the repo under ",
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "drills/" }),
       ": every page of the app, the checks (steps) to run on it, and the named states they apply to. Tick the pages you care about and Run selected - or Plan book to have an agent author the plan for you. Click a page name to open it in Authoring."
     ] }),
@@ -27134,22 +27166,70 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   ] });
 }
 function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemove, onEditDescription, onJumpRef }) {
+  const [editing, setEditing] = (0, import_react4.useState)(false);
+  const taRef = (0, import_react4.useRef)(null);
+  const commit = () => {
+    const el = taRef.current;
+    if (el && el.value !== step.description) onEditDescription(el.value);
+    setEditing(false);
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-step", style: { opacity: step.enabled ? 1 : 0.5 }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Checkbox, { label: `${step.enabled ? "Disable" : "Enable"} check ${step.description || step.id}`, on: step.enabled, onClick: onToggleEnabled }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      editing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "textarea",
         {
+          ref: taRef,
           className: "dr-step-desc",
-          "aria-label": `Check description for ${step.id}`,
+          "aria-label": `Edit check description for ${step.id}`,
           defaultValue: step.description,
-          onBlur: (e) => {
-            if (e.target.value !== step.description) onEditDescription(e.target.value);
+          autoFocus: true,
+          rows: Math.min(12, Math.max(3, Math.ceil((step.description?.length || 0) / 56) + 1)),
+          onBlur: commit,
+          onKeyDown: (e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              commit();
+            } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "div",
+        {
+          className: "dr-step-text" + (step.description ? "" : " empty"),
+          role: "button",
+          tabIndex: 0,
+          title: "Click to edit this check",
+          onClick: () => setEditing(true),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              setEditing(true);
+            }
           },
-          rows: 2
+          children: step.description || "No check written yet \u2014 click to add one"
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 4 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: "dr-edit chip click" + (editing ? " sage active" : ""),
+            onMouseDown: (e) => e.preventDefault(),
+            onClick: () => editing ? commit() : setEditing(true),
+            "aria-label": editing ? `Finish editing ${step.id}` : `Edit check ${step.description || step.id}`,
+            children: editing ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 10 }),
+              " Done"
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SquarePen, { size: 10 }),
+              " Edit"
+            ] })
+          }
+        ),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "button",
           {
@@ -27814,7 +27894,7 @@ function AuthoringView({ initialPageId, onPageChange }) {
             title: `${page.title} interactive browser`,
             onLoad: () => setAreaResolutionRevision((n) => n + 1)
           }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cv-unreachable", role: "note", children: "Live interaction is unavailable from this device: the Browser fitting's port is not published to the tailnet. Run scripts/tailnet-serve-views.mjs on the Garrison machine, then reload. The screenshot preview above still tracks the page." })),
+        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-cv-unreachable", role: "note", children: "Live interaction is unavailable from this device: the Browser fitting\u2019s port is not published to the tailnet. Run scripts/tailnet-serve-views.mjs on the Garrison machine, then reload. The screenshot preview above still tracks the page." })),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "div",
           {
@@ -28040,6 +28120,13 @@ function overrideForEntry(overrides, entry) {
   const recordKey = `${entry.pageId}:${entry.stepId}`;
   return overrides?.[`${recordKey}:${entry.viewportId}`] ?? overrides?.[recordKey];
 }
+function stepUnproven(entry) {
+  if (entry.terminal) return entry.terminal.kind === "unproven";
+  return entry.result?.result?.requiresInteraction === true;
+}
+function effectiveStepUnproven(run, entry) {
+  return overrideForEntry(run.overrides, entry) ? false : stepUnproven(entry);
+}
 function effectiveStepPassed(run, entry) {
   const review = overrideForEntry(run.overrides, entry);
   return review ? review.verdict === "passed" : stepPassed(entry);
@@ -28084,46 +28171,95 @@ function fmtOffset(ms) {
   const s = Math.max(0, Math.floor(ms / 1e3));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+function fmtDuration(ms) {
+  const s = Math.max(0, Math.round(ms / 1e3));
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+}
 function RunEvidenceVideo({ runId, video, steps }) {
   const ref = (0, import_react4.useRef)(null);
   const [failed, setFailed] = (0, import_react4.useState)(false);
+  const [index, setIndex] = (0, import_react4.useState)(null);
+  const [full, setFull] = (0, import_react4.useState)(false);
+  (0, import_react4.useEffect)(() => {
+    let live = true;
+    setIndex(null);
+    setFull(false);
+    fetch(evidenceFileUrl(runId, "video-index.json")).then((r) => r.ok ? r.json() : null).then((j) => {
+      if (live && j?.tight) setIndex(j);
+    }).catch(() => {
+    });
+    return () => {
+      live = false;
+    };
+  }, [runId]);
   if (failed) return null;
+  const tightAvailable = Boolean(index);
+  const showingTight = tightAvailable && !full;
+  const src = showingTight ? evidenceFileUrl(runId, index.tight) : evidenceFileUrl(runId, video);
+  const offsetFor = (row) => {
+    if (!showingTight) return Number.isFinite(row.startMs) ? row.startMs ?? 0 : null;
+    const ch = index.chapters.find(
+      (c) => c.pageId === row.pageId && c.stepId === row.stepId && c.viewportId === row.viewportId
+    );
+    return Number.isFinite(ch?.tightMs) ? ch.tightMs : null;
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "The whole run in one recording. Jump to a check with its chapter button." })
-    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
+        showingTight ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+          "Highlights only \u2014 ",
+          fmtDuration(index.tightDurationMs),
+          " of ",
+          fmtDuration(index.originalDurationMs),
+          ", with ",
+          fmtDuration(index.removedMs),
+          " of idle time cut. Jump to a check with its chapter button."
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+          tightAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording.",
+          " ",
+          "Jump to a check with its chapter button."
+        ] })
+      ] }),
+      tightAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setFull((f) => !f), children: full ? "Show highlights" : "Show full recording" })
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       "video",
       {
         ref,
         controls: true,
         preload: "metadata",
-        src: evidenceFileUrl(runId, video),
+        src,
         onError: () => setFailed(true),
         style: { width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }
-      }
-    ),
-    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-      "button",
-      {
-        className: "btn small",
-        title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
-        onClick: () => {
-          const v = ref.current;
-          if (!v || !Number.isFinite(row.startMs)) return;
-          v.currentTime = (row.startMs ?? 0) / 1e3;
-          void v.play().catch(() => {
-          });
-        },
-        children: [
-          row.stepId,
-          " @",
-          fmtOffset(row.startMs ?? 0)
-        ]
       },
-      row.item
-    )) })
+      src
+    ),
+    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => {
+      const at = offsetFor(row);
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "button",
+        {
+          className: "btn small",
+          disabled: at === null,
+          title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
+          onClick: () => {
+            const v = ref.current;
+            if (!v || at === null) return;
+            v.currentTime = at / 1e3;
+            void v.play().catch(() => {
+            });
+          },
+          children: [
+            row.stepId,
+            " @",
+            fmtOffset(at ?? 0)
+          ]
+        },
+        row.item
+      );
+    }) })
   ] });
 }
 function stepPassed(entry) {
@@ -28198,18 +28334,9 @@ function HighlightOverlay({ rect }) {
     }
   );
 }
-var DWELL_OPTIONS = [
-  { ms: 1e3, label: "1s" },
-  { ms: 1500, label: "1.5s" },
-  { ms: 2500, label: "2.5s" },
-  { ms: 4e3, label: "4s" },
-  { ms: 6e3, label: "6s" }
-];
 function ReelCarousel({
   runId,
   frames,
-  dwellMs,
-  setDwellMs,
   showAll,
   onToggleShowAll,
   onActiveFrameChange,
@@ -28219,14 +28346,14 @@ function ReelCarousel({
   onFlag,
   reelCount,
   candidateCount,
-  curationPending
+  curationPending,
+  curationFailed,
+  curationDegraded
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = (0, import_react4.useState)(0);
-  const [playing, setPlaying] = (0, import_react4.useState)(true);
-  const [held, setHeld] = (0, import_react4.useState)(false);
   (0, import_react4.useEffect)(() => {
-    if (!emblaApi) return;
+    if (!emblaApi || frames.length === 0) return;
     emblaApi.reInit();
     emblaApi.scrollTo(0, true);
     setSelected(0);
@@ -28244,15 +28371,6 @@ function ReelCarousel({
   (0, import_react4.useEffect)(() => {
     onActiveFrameChange(active);
   }, [active, onActiveFrameChange]);
-  (0, import_react4.useEffect)(() => {
-    if (!emblaApi || !playing || held || frames.length <= 1) return;
-    const base = active?.importance === "high" ? Math.max(dwellMs, 4e3) : dwellMs;
-    const timer = window.setTimeout(() => {
-      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
-      else emblaApi.scrollTo(0);
-    }, base);
-    return () => window.clearTimeout(timer);
-  }, [emblaApi, playing, held, selected, dwellMs, frames, active]);
   (0, import_react4.useEffect)(() => {
     if (!active) return;
     const name = active.name;
@@ -28275,7 +28393,7 @@ function ReelCarousel({
   };
   if (frames.length === 0) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No captured frames for this scope." : curationPending ? "Curation is still selecting the reel for this scope." : "No reel frames for this scope. Toggle Show all frames to see raw candidates." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No frames were captured for this scope." : curationPending ? "Curation is still selecting the reel for this scope." : curationFailed ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here." : "No reel frames for this scope." }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-reel-controls", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
         " ",
@@ -28287,25 +28405,16 @@ function ReelCarousel({
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", tabIndex: 0, onKeyDown, "aria-label": "Screenshot reel", role: "group", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-carousel", ref: emblaRef, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-track", children: frames.map((frame, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-slide", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "div",
-        {
-          className: "dr-db-stage",
-          onPointerDown: () => setHeld(true),
-          onPointerUp: () => setHeld(false),
-          onPointerLeave: () => setHeld(false),
-          onPointerCancel: () => setHeld(false),
-          children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-frame", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-db-frame-img", src: evidenceFileUrl(runId, frame.name), alt: frame.annotation || frame.trigger || frame.name, draggable: false }),
-            frame.inReel && frame.highlight && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HighlightOverlay, { rect: frame.highlight })
-          ] })
-        }
-      ) }, `${frame.name}:${i}`)) }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-carousel", ref: emblaRef, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-track", children: frames.map((frame, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-slide", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-stage", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-frame", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-db-frame-img", src: evidenceFileUrl(runId, frame.name), alt: frame.annotation || frame.trigger || frame.name, draggable: false }),
+        frame.inReel && frame.highlight && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HighlightOverlay, { rect: frame.highlight })
+      ] }) }) }, `${frame.name}:${i}`)) }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot" + (active?.importance === "high" ? " high" : ""), children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot-meta", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-trigger", children: active?.trigger ?? "" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-time mono", children: fmtOffset(active?.tMs ?? 0) }),
           active?.importance === "high" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "key moment" }),
+          active?.floor && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-nr", children: "auto-selected" }),
           active && !active.inReel && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-nr", children: "not in reel" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-annot-text", children: active?.inReel && active.annotation ? active.annotation : active && !active.inReel ? `Raw candidate - ${active.trigger || "captured frame"}` : "" }),
@@ -28327,15 +28436,10 @@ function ReelCarousel({
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-controls", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-transport", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": "Previous frame", onClick: () => emblaApi?.scrollPrev(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 14 }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": playing ? "Pause" : "Play", onClick: () => setPlaying((p) => !p), children: playing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 14 }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dr-db-iconbtn", "aria-label": "Next frame", onClick: () => emblaApi?.scrollNext(), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { size: 14 }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-counter mono", children: frames.length === 0 ? "0 / 0" : `${selected + 1} / ${frames.length}` })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-right", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dr-db-dwell", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Dwell" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: dwellMs, onChange: (e) => setDwellMs(Number(e.target.value)), "aria-label": "Frame dwell time", children: DWELL_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: opt.ms, children: opt.label }, opt.ms)) })
-          ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
             " ",
@@ -28348,7 +28452,8 @@ function ReelCarousel({
           ] })
         ] })
       ] }),
-      curationPending && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation pending - showing raw candidates until the reel is selected." })
+      curationPending && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation pending - showing raw candidates until the reel is selected." }),
+      curationDegraded && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation was incomplete for this run - some frames were never judged, so parts of this reel were auto-selected rather than chosen." })
     ] })
   );
 }
@@ -28568,7 +28673,7 @@ function LiveBrowser({ runId, steps, scope, scopeKeys, session, onSession, warni
       ] })
     ] }),
     showSession && session && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-session", children: [
-      session.canvasUrl && resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-stage", style: liveStageStyle(session.canvasUrl), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("iframe", { className: "dr-db-live-frame", src: resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl), title: "Live browser session" }) }) : session.canvasUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-recover", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "The live session is open on the Garrison machine, but the Browser fitting's port is not published to the tailnet, so it cannot be embedded from this device. Run scripts/tailnet-serve-views.mjs there, then reload." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-recover", children: [
+      session.canvasUrl && resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-stage", style: liveStageStyle(session.canvasUrl), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("iframe", { className: "dr-db-live-frame", src: resolveEmbedUrl(session.canvasUrl, session.canvasTailnetUrl), title: "Live browser session" }) }) : session.canvasUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-live-recover", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "The live session is open on the Garrison machine, but the Browser fitting\u2019s port is not published to the tailnet, so it cannot be embedded from this device. Run scripts/tailnet-serve-views.mjs there, then reload." }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-recover", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "A live session is active for this run, but its canvas link is only returned when it is opened." }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: busy, onClick: () => reopen(session), children: "Reopen to view" }) })
       ] }),
@@ -28644,8 +28749,8 @@ function DebriefView({
   const [scope, setScope] = (0, import_react4.useState)({ kind: "all" });
   const [tab, setTab] = (0, import_react4.useState)("screenshots");
   const [showAll, setShowAll] = (0, import_react4.useState)(false);
-  const [dwellMs, setDwellMs] = (0, import_react4.useState)(2500);
   const [reel, setReel] = (0, import_react4.useState)(null);
+  const [reelMissing, setReelMissing] = (0, import_react4.useState)(false);
   const [spotter, setSpotter] = (0, import_react4.useState)(null);
   const [activeFrame, setActiveFrame] = (0, import_react4.useState)(null);
   const [flagged, setFlagged] = (0, import_react4.useState)(() => /* @__PURE__ */ new Set());
@@ -28659,24 +28764,29 @@ function DebriefView({
   const checkRefs = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
   const findingRefs = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
   const indexItems = evidenceIndex?.items ?? [];
-  const hasReelRow = indexItems.some((i) => i.kind === "reel");
   const hasSpotterRow = indexItems.some((i) => i.kind === "spotter");
-  const curationPending = hasSpotterRow && !hasReelRow;
+  const runFinished = Boolean(run.endedAt);
+  const curationPending = hasSpotterRow && !reel && !reelMissing;
+  const curationFailed = hasSpotterRow && runFinished && reelMissing;
   const videoItem = indexItems.find((i) => i.kind === "video");
   const videoPruned = !!videoItem?.pruned;
   const videoName = run.evidence?.video ?? null;
   (0, import_react4.useEffect)(() => {
     setReel(null);
+    setReelMissing(false);
     let cancelled = false;
-    if (!hasReelRow) return;
     fetch(evidenceFileUrl(run.id, "reel.json")).then((r) => r.ok ? r.json() : null).then((j) => {
-      if (!cancelled) setReel(j);
+      if (!cancelled) {
+        setReel(j);
+        setReelMissing(!j);
+      }
     }).catch(() => {
+      if (!cancelled) setReelMissing(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [run.id, hasReelRow]);
+  }, [run.id]);
   (0, import_react4.useEffect)(() => {
     setSpotter(null);
     let cancelled = false;
@@ -28712,7 +28822,8 @@ function DebriefView({
           importance: v?.importance === "high" ? "high" : "normal",
           annotation: inReel ? v?.annotation ?? "" : "",
           highlight: inReel ? v?.highlight ?? null : null,
-          inReel
+          inReel,
+          floor: v?.floor === true
         };
       }).sort((a, b) => a.tMs - b.tMs);
     }
@@ -28726,7 +28837,8 @@ function DebriefView({
         importance: f.importance === "high" ? "high" : "normal",
         annotation: f.annotation ?? "",
         highlight: f.highlight ?? null,
-        inReel: true
+        inReel: true,
+        floor: f.floor === true
       })).sort((a, b) => a.tMs - b.tMs);
     }
     return (spotter?.frames ?? []).filter((f) => inScope(f.chunk ?? null)).map((f) => ({
@@ -28738,15 +28850,20 @@ function DebriefView({
       importance: "normal",
       annotation: "",
       highlight: null,
-      inReel: false
+      inReel: false,
+      floor: false
     })).sort((a, b) => a.tMs - b.tMs);
   }, [showAll, reel, spotter, reelByName, scopeKeys]);
+  const curationDegraded = Boolean(reel?.health?.degraded) || (reel?.counts?.floored ?? 0) > 0;
   const reelCount = reel?.counts?.reel ?? reel?.frames.filter((f) => f.keep === true).length ?? 0;
   const candidateCount = spotter?.frames.length ?? reel?.counts?.candidates ?? reel?.frames.length ?? 0;
   const passedByChunk = (0, import_react4.useMemo)(() => {
     const map = /* @__PURE__ */ new Map();
     for (const entry of run.pages) {
-      map.set(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId), effectiveStepPassed(run, entry));
+      map.set(
+        chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId),
+        effectiveStepUnproven(run, entry) ? "unproven" : effectiveStepPassed(run, entry)
+      );
     }
     return map;
   }, [run]);
@@ -28769,9 +28886,9 @@ function DebriefView({
   const activeChunk = activeFrame?.chunk ?? null;
   (0, import_react4.useEffect)(() => {
     if (!activeChunk) return;
-    checkRefs.current.get(activeChunk)?.scrollIntoView({ block: "nearest" });
+    revealWithinScrollParent(checkRefs.current.get(activeChunk));
     const finding = issues.productFindings.find((f) => findingChunk(f) === activeChunk);
-    if (finding) findingRefs.current.get(finding.id)?.scrollIntoView({ block: "nearest" });
+    if (finding) revealWithinScrollParent(findingRefs.current.get(finding.id));
   }, [activeChunk, issues.productFindings]);
   const toggleShowAll = () => {
     setShowAll((prev) => {
@@ -28803,8 +28920,9 @@ function DebriefView({
       setScope({ kind: "page", pageId: finding.pageId });
     }
   };
-  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry)).length;
-  const failedCount = run.pages.length - passedCount;
+  const unprovenCount = run.pages.filter((entry) => effectiveStepUnproven(run, entry)).length;
+  const passedCount = run.pages.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length;
+  const failedCount = run.pages.length - passedCount - unprovenCount;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-topline", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -28827,7 +28945,8 @@ function DebriefView({
               passedCount,
               " passed \xB7 ",
               failedCount,
-              " failed"
+              " failed",
+              unprovenCount > 0 ? ` \xB7 ${unprovenCount} unproven` : ""
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -28856,7 +28975,7 @@ function DebriefView({
               const passed = passedByChunk.get(key);
               const isScoped = scope.kind === "check" && scope.pageId === check.pageId && scope.stepId === check.stepId && scope.viewportId === check.viewportId;
               const isActive = activeChunk === key;
-              const tone = passed === void 0 ? "" : passed ? " pass" : " fail";
+              const tone = passed === void 0 ? "" : passed === "unproven" ? " unproven" : passed ? " pass" : " fail";
               return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
                 "button",
                 {
@@ -28865,12 +28984,19 @@ function DebriefView({
                   },
                   className: "dr-db-check" + tone + (isScoped ? " scoped" : "") + (isActive ? " live" : ""),
                   "aria-pressed": isScoped,
-                  title: `${check.pageId}#${check.stepId} at ${check.viewportId}`,
+                  title: `${check.stepId} @ ${check.viewportId}
+
+${check.title?.trim() || ""}`,
                   onClick: () => selectCheck(check),
                   children: [
                     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-dot" + tone, "aria-hidden": "true" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-check-label", children: check.title?.trim() || check.stepId }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip dr-db-vp", children: check.viewportId })
+                    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-check-main", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-db-check-id mono", children: [
+                        check.stepId,
+                        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip dr-db-vp", children: check.viewportId })
+                      ] }),
+                      check.title?.trim() && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-check-desc", children: check.title.trim() })
+                    ] })
                   ]
                 },
                 key
@@ -28954,6 +29080,11 @@ function DebriefView({
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
             " Live Browser ",
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-exp-chip", children: "experimental" })
+          ] }),
+          (run.sessions?.length ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "session", className: "dr-db-tab" + (tab === "session" ? " on" : ""), title: "The Claude session(s) that resolved this run's vision checks", onClick: () => setTab("session"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13 }),
+            " Session",
+            (run.sessions?.length ?? 0) > 1 ? "s" : ""
           ] })
         ] }),
         tab === "screenshots" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -28961,8 +29092,6 @@ function DebriefView({
           {
             runId: run.id,
             frames,
-            dwellMs,
-            setDwellMs,
             showAll,
             onToggleShowAll: toggleShowAll,
             onActiveFrameChange: setActiveFrame,
@@ -28972,7 +29101,9 @@ function DebriefView({
             onFlag,
             reelCount,
             candidateCount,
-            curationPending
+            curationPending,
+            curationFailed,
+            curationDegraded
           }
         ),
         tab === "video" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -28997,7 +29128,8 @@ function DebriefView({
             warnings: liveWarnings,
             onWarnings: setLiveWarnings
           }
-        )
+        ),
+        tab === "session" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionViewer, { runId: run.id, sessions: run.sessions ?? [], live: false })
       ] })
     ] })
   ] });
@@ -29025,9 +29157,22 @@ function ClassicRunDetail({
   convertObsToStep,
   convertObsToFinding,
   triage,
-  dispatch
+  dispatch,
+  onRerun,
+  rerunBusy
 }) {
   const evidenceRowFor = (entry) => evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  const rerunScope = (entries) => {
+    if (!onRerun || !entries.length) return;
+    onRerun(
+      [...new Set(entries.map((e) => e.pageId))],
+      [...new Set(entries.map((e) => e.viewportId))],
+      [...new Set(entries.map((e) => e.stepId))]
+    );
+  };
+  const notPassed = productPageEntries.filter(
+    (entry) => !effectiveStepPassed(run, entry) || effectiveStepUnproven(run, entry)
+  );
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
     run.evidence?.video && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RunEvidenceVideo, { runId: run.id, video: run.evidence.video, steps: evidenceRows ?? [] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
@@ -29043,12 +29188,16 @@ function ClassicRunDetail({
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry)).length }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length }),
             " passed"
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry)).length }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => !effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length }),
             " failed"
+          ] }),
+          productPageEntries.some((entry) => effectiveStepUnproven(run, entry)) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { title: "Ran clean, but the evidence cannot show the behaviour the check asserts.", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepUnproven(run, entry)).length }),
+            " unproven"
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: activeFindings.length }),
@@ -29059,6 +29208,39 @@ function ClassicRunDetail({
             " infra-affected or skipped"
           ] })
         ] })
+      ] }),
+      onRerun && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-rerun-bar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small",
+            disabled: rerunBusy || !productPageEntries.length,
+            title: "Run every check in this run's selection again",
+            onClick: () => rerunScope(productPageEntries),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 12 }),
+              " Re-run all ",
+              productPageEntries.length,
+              " checks"
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "button",
+          {
+            className: "btn small",
+            disabled: rerunBusy || !notPassed.length,
+            title: "Run only the checks that did not pass",
+            onClick: () => rerunScope(notPassed),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 12 }),
+              " Re-run ",
+              notPassed.length,
+              " not passed"
+            ]
+          }
+        ),
+        rerunBusy && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-rerun-busy", children: "A run is already in flight." })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-card-heading", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Check results" }),
@@ -29078,17 +29260,40 @@ function ClassicRunDetail({
         const stepDefinition = pages.find((page) => page.id === entry.pageId)?.steps.find((step) => step.id === entry.stepId);
         const resultReasoning = entry.result?.result?.reasoning ?? entry.terminal?.reasoning;
         const deterministicWithoutScreenshot = originalPassed && entry.status === "completed" && !!entry.result && !entry.result.evidencePath && !resultReasoning;
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${passed ? "--sage" : "--alarm"})` }, children: [
+        const unproven = effectiveStepUnproven(run, entry);
+        const edge = unproven ? "--brass" : passed ? "--sage" : "--alarm";
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-res", style: { borderLeft: `3px solid var(${edge})` }, children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", children: [
-            passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
+            unproven ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontWeight: 700 }, title: "Not verified", children: "?" }) : passed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 14, style: { color: "var(--sage)" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--alarm)", fontWeight: 700 }, children: "\xD7" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 11, color: "var(--mute)" }, children: [
               entry.pageId,
               "#",
               entry.stepId
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: entry.viewportId }),
-            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier })
+            entry.result?.tier && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip " + tierTone(entry.result.tier), children: entry.result.tier }),
+            unproven && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", title: "The evidence is a page this check never interacted with.", children: "unproven" })
           ] }),
+          unproven && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-result-unproven", role: "status", children: [
+            "This check asserts a behaviour, but nothing in this run performed it",
+            entry.terminal?.missingInteraction ? ` (missing: ${entry.terminal.missingInteraction})` : "",
+            ". The screenshot below shows the page as it loaded, so it cannot prove the claim either way. Add ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "actions" }),
+            " to this check so the run drives the app to the asserted state."
+          ] }),
+          onRerun && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              className: "btn small dr-result-rerun",
+              disabled: rerunBusy,
+              title: "Run just this check again",
+              onClick: () => onRerun([entry.pageId], [entry.viewportId], [entry.stepId]),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCcw, { size: 11 }),
+                " Re-run this check"
+              ]
+            }
+          ),
           stepDefinition?.description && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-description", children: stepDefinition.description }),
           resultReasoning && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-result-reason", children: resultReasoning }),
           entry.result?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { color: "var(--alarm)", fontSize: 11, marginTop: 4 }, children: entry.result.error }),
@@ -29315,6 +29520,333 @@ function ClassicRunDetail({
     ] })
   ] });
 }
+function SessionTextBlock({ text, role }) {
+  if (role === "user" && text.length > 280) {
+    const head = text.slice(0, 140).split("\n")[0];
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-session-longtext", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+        head,
+        "\u2026"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre", children: text })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-text", children: text });
+}
+function SessionToolBlock({ block, result }) {
+  const hint = (block.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-toolwrap", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-session-tool", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Wrench, { size: 11, "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: block.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-tool-hint", children: hint }),
+        result?.isError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip alarm", children: "error" })
+      ] }),
+      block.input && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre", children: block.input }),
+      result?.text && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre result", children: result.text })
+    ] }),
+    (result?.images ?? []).map((image, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "img",
+      {
+        className: "dr-session-img",
+        src: `data:${image.mediaType};base64,${image.data}`,
+        alt: `${block.name ?? "tool"} result image ${index + 1}`,
+        loading: "lazy"
+      },
+      index
+    ))
+  ] });
+}
+function SessionStream({ runId, sessionId, live }) {
+  const [events, setEvents] = (0, import_react4.useState)([]);
+  const [title, setTitle] = (0, import_react4.useState)(null);
+  const [status, setStatus] = (0, import_react4.useState)("connecting");
+  const scrollRef = (0, import_react4.useRef)(null);
+  const stickRef = (0, import_react4.useRef)(true);
+  (0, import_react4.useEffect)(() => {
+    setEvents([]);
+    setTitle(null);
+    setStatus("connecting");
+    stickRef.current = true;
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?session=${encodeURIComponent(sessionId)}`);
+    source.onmessage = (message) => {
+      let payload;
+      try {
+        payload = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      if (payload.type === "init") {
+        setEvents(payload.events ?? []);
+        if (payload.title) setTitle(payload.title);
+        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
+      } else if (payload.type === "events") {
+        if (payload.title) setTitle(payload.title);
+        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
+      } else if (payload.type === "end") {
+        setStatus((current) => current === "unavailable" ? current : "ended");
+        source.close();
+      }
+    };
+    source.onerror = () => {
+      setStatus((current) => current === "unavailable" ? current : "ended");
+      source.close();
+    };
+    return () => source.close();
+  }, [runId, sessionId]);
+  (0, import_react4.useEffect)(() => {
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [events]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
+  const resultsByToolUse = (0, import_react4.useMemo)(() => {
+    const map = /* @__PURE__ */ new Map();
+    for (const event of events) {
+      for (const block of event.blocks) {
+        if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
+      }
+    }
+    return map;
+  }, [events]);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13, "aria-hidden": "true" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? "Verify session" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-session-id", children: sessionId.slice(0, 8) }),
+      live && status === "streaming" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "live" }),
+      status === "connecting" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "connecting\u2026" }),
+      status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "transcript unavailable" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-scroll", ref: scrollRef, onScroll, children: [
+      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : "No session activity fell inside this run's window." }),
+      events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-role", children: event.role === "user" ? "Prompt" : "Assistant" }),
+        event.blocks.map((block, blockIndex) => {
+          if (block.type === "text") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionTextBlock, { text: block.text ?? "", role: event.role }, blockIndex);
+          if (block.type === "thinking") {
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-session-thinking", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", { children: "Thinking" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "dr-session-pre", children: block.text })
+            ] }, blockIndex);
+          }
+          if (block.type === "tool_use") {
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionToolBlock, { block, result: block.toolUseId ? resultsByToolUse.get(block.toolUseId) : void 0 }, blockIndex);
+          }
+          return null;
+        })
+      ] }, event.id ?? `event-${index}`))
+    ] })
+  ] });
+}
+function SessionViewer({ runId, sessions, live }) {
+  const [selected, setSelected] = (0, import_react4.useState)(sessions[0]?.id ?? null);
+  const sessionKey = sessions.map((session) => session.id).join(",");
+  (0, import_react4.useEffect)(() => {
+    if (sessions.length === 0) {
+      setSelected(null);
+      return;
+    }
+    setSelected((current) => current && sessions.some((session) => session.id === current) ? current : sessions[0].id);
+  }, [sessionKey]);
+  if (sessions.length === 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-empty", children: [
+      "No verify sessions recorded",
+      live ? " yet - the first vision-resolved check opens one" : " for this run. Cached and deterministic checks run without a model session",
+      "."
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-viewer", children: [
+    sessions.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-session-tabs", role: "tablist", "aria-label": "Verify sessions", children: sessions.map((session, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "button",
+      {
+        role: "tab",
+        "aria-selected": selected === session.id,
+        className: "chip click" + (selected === session.id ? " ink active" : ""),
+        onClick: () => setSelected(session.id),
+        children: [
+          "Session ",
+          index + 1,
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-count", children: [
+            session.checks ?? 0,
+            " check",
+            (session.checks ?? 0) === 1 ? "" : "s"
+          ] })
+        ]
+      },
+      session.id
+    )) }),
+    selected && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionStream, { runId, sessionId: selected, live }, selected)
+  ] });
+}
+function LiveCheckThumb({ src, alt }) {
+  const [imageUrl, setImageUrl] = (0, import_react4.useState)(null);
+  (0, import_react4.useEffect)(() => {
+    let cancelled = false;
+    let objectUrl = null;
+    const attempt = async (remaining) => {
+      try {
+        const response = await fetch(src, { cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (!cancelled) setImageUrl(objectUrl);
+      } catch {
+        if (!cancelled && remaining > 0) setTimeout(() => void attempt(remaining - 1), 1200);
+      }
+    };
+    void attempt(4);
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
+  if (!imageUrl) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "dr-live-check-shot", href: src, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: imageUrl, alt }) });
+}
+function LiveRunPanel({ runId, startedAt, onFinished }) {
+  const [planned, setPlanned] = (0, import_react4.useState)(null);
+  const [current, setCurrent] = (0, import_react4.useState)(null);
+  const [checks, setChecks] = (0, import_react4.useState)([]);
+  const [circuit, setCircuit] = (0, import_react4.useState)(null);
+  const [runStartedAt, setRunStartedAt] = (0, import_react4.useState)(startedAt);
+  const [streamLost, setStreamLost] = (0, import_react4.useState)(false);
+  const [, setTick] = (0, import_react4.useState)(0);
+  const finishedRef = (0, import_react4.useRef)(false);
+  const streamLostRef = (0, import_react4.useRef)(false);
+  const onFinishedRef = (0, import_react4.useRef)(onFinished);
+  (0, import_react4.useEffect)(() => {
+    onFinishedRef.current = onFinished;
+  });
+  (0, import_react4.useEffect)(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 1e3);
+    return () => clearInterval(timer);
+  }, []);
+  (0, import_react4.useEffect)(() => {
+    finishedRef.current = false;
+    streamLostRef.current = false;
+    setChecks([]);
+    setCurrent(null);
+    setCircuit(null);
+    setStreamLost(false);
+    setPlanned(null);
+    setRunStartedAt(startedAt);
+    const finish = () => {
+      if (finishedRef.current) return;
+      finishedRef.current = true;
+      onFinishedRef.current(runId);
+    };
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events`);
+    source.onmessage = (message) => {
+      let event;
+      try {
+        event = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      if (streamLostRef.current) {
+        streamLostRef.current = false;
+        setStreamLost(false);
+      }
+      if (event.type === "run_started") {
+        setPlanned(event.plannedChecks ?? null);
+        if (event.startedAt) setRunStartedAt(event.startedAt);
+      } else if (event.type === "check_started") {
+        setCurrent(event);
+      } else if (event.type === "check_finished") {
+        setCurrent(null);
+        setChecks((rows) => rows.some((row) => row.index === event.index) ? rows.map((row) => row.index === event.index ? event : row) : [event, ...rows]);
+      } else if (event.type === "circuit_opened") {
+        setCircuit(event);
+      } else if (event.type === "run_finished" || event.type === "run_unknown") {
+        source.close();
+        finish();
+      }
+    };
+    source.onerror = () => {
+      streamLostRef.current = true;
+      setStreamLost(true);
+    };
+    const poll = setInterval(() => {
+      if (finishedRef.current || !streamLostRef.current) return;
+      apiGet(`/api/runs/${encodeURIComponent(runId)}`).then((response) => {
+        if (response.run?.endedAt) {
+          source.close();
+          finish();
+        }
+      }).catch(() => {
+      });
+    }, 5e3);
+    return () => {
+      source.close();
+      clearInterval(poll);
+    };
+  }, [runId]);
+  const elapsedMs = runStartedAt ? Date.now() - new Date(runStartedAt).getTime() : null;
+  const elapsed = elapsedMs !== null && Number.isFinite(elapsedMs) && elapsedMs >= 0 ? elapsedMs < 6e4 ? `${Math.floor(elapsedMs / 1e3)}s elapsed` : `${Math.floor(elapsedMs / 6e4)}m ${Math.floor(elapsedMs % 6e4 / 1e3)}s elapsed` : null;
+  const sessions = (0, import_react4.useMemo)(() => {
+    const byId = /* @__PURE__ */ new Map();
+    for (const check of [...checks].sort((a, b) => a.index - b.index)) {
+      if (!check.sessionId) continue;
+      const existing = byId.get(check.sessionId);
+      if (existing) existing.checks = (existing.checks ?? 0) + 1;
+      else byId.set(check.sessionId, { id: check.sessionId, checks: 1 });
+    }
+    return [...byId.values()];
+  }, [checks]);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card dr-live-run", role: "region", "aria-label": "Run in progress", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run in progress" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Checks stream in as they execute; the verify session is live below. Closing this page does not stop the run." })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-run-id", children: runId })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-progress", role: "status", "aria-live": "polite", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-spinner", "aria-hidden": "true" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: circuit ? `Circuit opened${circuit.code ? ` - ${circuit.code}` : ""}` : current ? `Check ${current.index}/${current.total}: ${current.description ?? current.stepId}` : checks.length > 0 ? `Executed ${checks.length}/${planned ?? checks[0]?.total ?? "?"} checks` : "Starting run\u2026" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+          current ? `${current.pageId} \xB7 ${current.stepId} \xB7 ${current.viewportId}` : "Waiting for the next check\u2026",
+          elapsed ? ` \xB7 ${elapsed}` : "",
+          streamLost ? " \xB7 live stream lost - polling the run record" : ""
+        ] })
+      ] })
+    ] }),
+    circuit && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-inline-error", role: "alert", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+      circuit.message ?? "The run circuit opened.",
+      Number.isFinite(circuit.skippedChecks) ? ` Remaining ${circuit.skippedChecks} checks were skipped.` : ""
+    ] }) }),
+    checks.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-live-checks", "aria-label": "Executed checks", children: checks.slice(0, 40).map((check) => {
+      const shot = check.failureScreenshot ?? check.screenshot;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-live-check", title: check.reasoning ?? check.message ?? void 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `chip ${check.kind === "passed" ? "sage" : check.kind === "product-failure" ? "alarm" : "brass"}`, children: check.kind === "passed" ? "pass" : check.kind === "product-failure" ? "fail" : check.kind }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-live-check-name", children: [
+          check.pageId,
+          " \xB7 ",
+          check.stepId,
+          " ",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", children: [
+            "[",
+            check.viewportId,
+            "]"
+          ] })
+        ] }),
+        Number.isFinite(check.durationMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-live-check-ms mono", children: [
+          ((check.durationMs ?? 0) / 1e3).toFixed(1),
+          "s"
+        ] }),
+        shot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveCheckThumb, { src: evidenceFileUrl(runId, shot), alt: `${check.stepId} screenshot` })
+      ] }, `${check.index}-${check.pageId}-${check.stepId}-${check.viewportId}`);
+    }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-live-session-wrap", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Verify session" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionViewer, { runId, sessions, live: true })
+    ] })
+  ] });
+}
 function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onConsumeInitialSelection, initialRunId, onRunViewed }) {
   const [pages, setPages] = (0, import_react4.useState)([]);
   const [pagesLoaded, setPagesLoaded] = (0, import_react4.useState)(false);
@@ -29364,6 +29896,8 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [deleteArm, setDeleteArm] = (0, import_react4.useState)(null);
   const [dispatching, setDispatching] = (0, import_react4.useState)(false);
   const [pendingGate, setPendingGate] = (0, import_react4.useState)(null);
+  const [watchRunId, setWatchRunId] = (0, import_react4.useState)(null);
+  const [watchStartedAt, setWatchStartedAt] = (0, import_react4.useState)(null);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
       setPages(p.pages);
@@ -29377,9 +29911,27 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       setRunsLoaded(true);
       setError(e.message);
     });
+    apiGet("/api/runs/active").then((response) => {
+      const active = (response.runs ?? [])[0];
+      if (active?.id) {
+        setWatchRunId((current) => current ?? active.id);
+        setWatchStartedAt((current) => current ?? active.startedAt ?? null);
+      }
+    }).catch(() => {
+    });
   };
   (0, import_react4.useEffect)(load, []);
-  const startRun = async (pageIdsArg, viewportsArg, stateArg) => {
+  const onWatchedRunFinished = (finishedRunId) => {
+    setWatchRunId(null);
+    setWatchStartedAt(null);
+    void openRun(finishedRunId);
+    load();
+  };
+  const startRun = async (pageIdsArg, viewportsArg, stateArg, stepIdsArg) => {
+    if (running || watchRunId) {
+      setError("a run is already in progress - wait for it to finish");
+      return;
+    }
     const pageIds = pageIdsArg ?? [...selectedPages];
     const viewports = viewportsArg ?? [...selectedViewports];
     if (pageIds.length === 0 || viewports.length === 0) {
@@ -29393,7 +29945,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         (step) => step.enabled !== false && (step.state || "default") === requestedState && (!step.viewports?.length || step.viewports.includes(viewportId))
       )).map((viewportId) => `${page?.title || pageId} \xB7 ${viewportId}`);
     });
-    if (uncovered.length > 0) {
+    if (uncovered.length > 0 && !stepIdsArg?.length) {
       setError(
         `No enabled ${requestedState === "default" ? "default-state " : `${requestedState} `}checks cover ${uncovered.join(", ")}. Adjust the page, state, or viewport selection before running.`
       );
@@ -29405,11 +29957,23 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     try {
       await ensureAppUp(setPhase);
       setPhase(null);
-      const r = await apiPost("/api/runs", { pageIds, viewports, state: requestedState, contextTag: "drill" });
+      const r = await apiPost("/api/runs", {
+        pageIds,
+        viewports,
+        ...stepIdsArg?.length ? { stepIds: stepIdsArg } : {},
+        state: requestedState,
+        contextTag: "drill",
+        background: true
+      });
       if (r.held) {
         setPendingGate({ plan: r.plan, resume: r.resume });
       } else {
         setRun(r.run);
+        if (r.background && r.run?.id) {
+          setWatchRunId(r.run.id);
+          setWatchStartedAt(r.run.startedAt ?? null);
+          onRunViewed(r.run.id);
+        }
         load();
       }
     } catch (e) {
@@ -29424,6 +29988,10 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     setSelectedPages(new Set(initialRun.pageIds));
     setSelectedViewports(new Set(initialRun.viewports));
     onConsumeInitialRun();
+    if (running || watchRunId) {
+      setNotice("A run is already in progress - your selection is set; start it when the current run finishes.");
+      return;
+    }
     startRun(initialRun.pageIds, initialRun.viewports, "default");
   }, [initialRun, pages.length]);
   (0, import_react4.useEffect)(() => {
@@ -29439,9 +30007,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     if (!pendingGate) return;
     setRunning(true);
     try {
-      const r = await apiPost("/api/runs", pendingGate.resume);
+      const r = await apiPost("/api/runs", { ...pendingGate.resume, background: true });
       setPendingGate(null);
       setRun(r.run);
+      if (r.background && r.run?.id) {
+        setWatchRunId(r.run.id);
+        setWatchStartedAt(r.run.startedAt ?? null);
+        onRunViewed(r.run.id);
+      }
       load();
     } catch (e) {
       setError(e.message);
@@ -29654,10 +30227,11 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         v.id
       )) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions dr-run-launch-actions", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: () => startRun(), children: running ? phase ?? "Running\u2026" : "Run selected" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running || watchRunId !== null, onClick: () => startRun(), children: running ? phase ?? "Starting\u2026" : watchRunId ? "Run in progress\u2026" : "Run selected" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
       ] })
     ] }),
+    watchRunId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveRunPanel, { runId: watchRunId, startedAt: watchStartedAt, onFinished: onWatchedRunFinished }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -29797,7 +30371,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       ] })
     ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
-    run && (() => {
+    run && run.id !== watchRunId && (() => {
       const showDebrief = debriefAvailable && !classicView;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         debriefAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-modeswitch", role: "group", "aria-label": "Run detail view", children: [
@@ -29867,7 +30441,9 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
             convertObsToStep,
             convertObsToFinding,
             triage,
-            dispatch
+            dispatch,
+            onRerun: (pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds),
+            rerunBusy: running || watchRunId !== null
           }
         )
       ] });
@@ -30237,17 +30813,18 @@ lucide-react/dist/esm/icons/flag.js:
 lucide-react/dist/esm/icons/layout-grid.js:
 lucide-react/dist/esm/icons/list-filter.js:
 lucide-react/dist/esm/icons/locate-fixed.js:
+lucide-react/dist/esm/icons/message-square.js:
 lucide-react/dist/esm/icons/monitor.js:
 lucide-react/dist/esm/icons/notebook-pen.js:
-lucide-react/dist/esm/icons/pause.js:
-lucide-react/dist/esm/icons/play.js:
 lucide-react/dist/esm/icons/plus.js:
 lucide-react/dist/esm/icons/refresh-ccw.js:
 lucide-react/dist/esm/icons/rotate-cw.js:
 lucide-react/dist/esm/icons/smartphone.js:
+lucide-react/dist/esm/icons/square-pen.js:
 lucide-react/dist/esm/icons/tablet.js:
 lucide-react/dist/esm/icons/terminal.js:
 lucide-react/dist/esm/icons/video.js:
+lucide-react/dist/esm/icons/wrench.js:
 lucide-react/dist/esm/icons/x.js:
 lucide-react/dist/esm/lucide-react.js:
   (**

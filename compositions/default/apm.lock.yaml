@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-21T15:59:30.406360+00:00'
+generated_at: '2026-07-25T10:29:15.352456+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -74,7 +74,7 @@ dependencies:
   - .claude/skills/garrison-drill
   - .claude/skills/garrison-drill/SKILL.md
   deployed_file_hashes:
-    .claude/skills/garrison-drill/SKILL.md: sha256:292fa6440a86a18597355473eb95514caef1f67dedf9972ebbc32fad22277516
+    .claude/skills/garrison-drill/SKILL.md: sha256:d08cbd8011b1e01f23abcc35701f9c57a2da194470fb4455761ba516ac5e7ab7
   source: local
   local_path: ../../fittings/seed/drill
 - repo_url: _local/file-browser
@@ -101,6 +101,17 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/gemini-runtime
+- repo_url: _local/google
+  name: google
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/google-calendar
+  - .claude/skills/google-calendar/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/google-calendar/SKILL.md: sha256:8818d0a97c2b3ace35aba433114df755746a1b3983f5f27e07f4a8348c83e9c8
+  source: local
+  local_path: ../../fittings/seed/google
 - repo_url: _local/http-gateway
   name: http-gateway
   version: 0.2.0
@@ -111,6 +122,12 @@ dependencies:
     .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
   source: local
   local_path: ../../fittings/seed/http-gateway
+- repo_url: _local/huggingface-runtime
+  name: huggingface-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/huggingface-runtime
 - repo_url: _local/identity-gary
   name: identity-gary
   version: 0.1.0
@@ -147,6 +164,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/opencode-runtime
+- repo_url: _local/openrouter-runtime
+  name: openrouter-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/openrouter-runtime
 - repo_url: _local/orchestrator
   name: orchestrator
   version: 0.2.0
@@ -159,7 +182,7 @@ dependencies:
   local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/outpost-tailscale-host
   name: outpost-tailscale-host
-  version: 0.2.0
+  version: 0.3.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/outpost-tailscale-host

@@ -48,9 +48,22 @@ async function waitHealthy(ms: number) {
 // graceful chromium teardown, so an HTTP probe going dark proves nothing
 // about the profile being released. A null exitCode+signalCode afterwards
 // means waitExit hit its SIGKILL fallback - i.e. the shutdown hung.
-async function waitGone(child: ChildProcess | null, ms = 25000) {
-  await waitExit(child, ms);
-  expect((child!.exitCode ?? child!.signalCode) !== null).toBe(true);
+// 120s, not 60s (and originally not 25s): chromium teardown regularly exceeds the
+// previous windows when the full suite saturates the box - observed failing at 67s
+// in a full run while passing in 4s standalone. Orphaned headless chromium from
+// earlier runs makes this worse, since each one holds RSS and a /tmp profile: if
+// this ever fails again, check for chromium reparented to `systemd --user`
+// (`ps -o ppid= -p <pid>`) and clear it before suspecting a code regression.
+// The assertion is about NEVER exiting, not about exiting fast, so a longer window
+// costs nothing on a healthy shutdown and only delays a genuine hang's report.
+async function waitGone(child: ChildProcess | null, ms = 120000) {
+  // Assert on waitExit's verdict, NOT on child.exitCode/signalCode: after the
+  // SIGKILL fallback fires, the exit has been signalled but not yet delivered,
+  // so both fields are still null in this tick and the old form failed even
+  // when the process was on its way out. The verdict is the fact we actually
+  // care about - did it shut down on its own, or did it have to be killed.
+  const exitedOnItsOwn = await waitExit(child, ms);
+  expect(exitedOnItsOwn, `server had to be SIGKILLed after ${ms}ms - shutdown hung`).toBe(true);
 }
 
 async function openTab(url: string): Promise<string> {
@@ -173,11 +186,23 @@ describe("browser-default persistent profile", () => {
       } catch { return ""; /* pgrep absent - skip the assertion */ }
     };
     let leaked = probe();
-    const grace = Date.now() + 10000;
+    // 60s, not 10s. The loop exits the instant the probe comes back empty, so a
+    // wider window is free in the happy path (~4s alone) and only spends time
+    // when there is something to wait for. Under the FULL suite the box is busy
+    // enough that chromium's own teardown had not finished inside 10s and the
+    // run failed with the main chrome still listed - a load artefact, not a leak.
+    // Grace must stay well under the test timeout below, or the timeout fires
+    // mid-shutdown and orphans the very processes being asserted on.
+    const grace = Date.now() + 60000;
     while (leaked && Date.now() < grace) {
       await new Promise((r) => setTimeout(r, 250));
       leaked = probe();
     }
     expect(leaked).toBe("");
-  }, 60000);
+    // The budget must exceed this test's OWN worst case, or a timeout kills the
+    // server mid-shutdown and orphans the very chromium the assertion looks
+    // for. With waitGone at 120s that worst case is waitGone 120 + waitHealthy
+    // 20 + poke 3 + waitGone 120 + grace 60 = 323s. 360s clears it with margin;
+    // it passes alone in ~4s either way.
+  }, 360000);
 });

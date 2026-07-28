@@ -43,7 +43,7 @@ x-garrison:
             bind_host: 127.0.0.1
         - id: jarvis-os
           config:
-            port: 7092
+            port: 7094
             bind_host: 127.0.0.1
             gateway_url: ''
             # Smart endpointing (2026-07-02): Silero closes a segment after
@@ -69,7 +69,7 @@ x-garrison:
             wake_idle_timeout_s: 90
         - id: local-voice
           config:
-            port: 7090
+            port: 7097
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             # Spoken cadence: seconds of silence inserted after each punctuation

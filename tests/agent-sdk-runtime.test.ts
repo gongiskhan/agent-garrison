@@ -49,6 +49,41 @@ describe("Runtime freedom — the Agent SDK reaches Anthropic + third-party endp
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
+  // RUNTIME-ACCOUNTS-V1: named-account pin on the subscription path.
+  it("anthropic + target.account → token vars from ANTHROPIC_ACCOUNT__<name>", () => {
+    const TOKEN = "sk-ant-oat01-test-token-work1";
+    const { env, baseUrl, vaultKey } = buildSdkEnv(
+      { provider: "anthropic", account: "work1" },
+      { secrets: { ANTHROPIC_ACCOUNT__work1: TOKEN } }
+    );
+    expect(baseUrl).toBe(null);
+    expect(vaultKey).toBe("ANTHROPIC_ACCOUNT__work1");
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+    expect(env.ANTHROPIC_API_KEY).toBe("");
+  });
+
+  it("anthropic + account with no vault token FAILS LOUD (absent and locked)", () => {
+    expect(() => buildSdkEnv({ provider: "anthropic", account: "ghost" }, { secrets: {} })).toThrow(/ANTHROPIC_ACCOUNT__ghost/);
+    expect(() => buildSdkEnv({ provider: "anthropic", account: "ghost" }, { secrets: null })).toThrow(/LOCKED/);
+  });
+
+  it("anthropic WITHOUT account inherits the launching session's pin; third-party never does", () => {
+    const TOKEN = "sk-ant-oat01-test-token-work1";
+    const pinned = { GARRISON_ACCOUNT: "work1", ANTHROPIC_AUTH_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: TOKEN };
+    const { env } = buildSdkEnv({ provider: "anthropic" }, { baseEnv: pinned });
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+    const third = buildSdkEnv(
+      { provider: "deepseek", model: "deepseek-chat" },
+      { baseEnv: pinned, secrets: { DEEPSEEK_API_KEY: "sk-dk" } }
+    );
+    expect(third.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-dk");
+    expect(third.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(third.env.GARRISON_ACCOUNT).toBeUndefined();
+  });
+
   it("authModeFor reports subscription / api-key / local per provider", () => {
     expect(authModeFor({ provider: "anthropic" })).toBe("subscription");
     expect(authModeFor({ provider: "ollama-local" })).toBe("local");
@@ -97,9 +132,27 @@ describe("THE HARNESS — per-target promptMode (harness-ok)", () => {
     expect(h.skillsMounted).toBe(false);
   });
 
-  it("never loads 'user' settings (defence-in-depth for #217)", () => {
+  it("never loads 'user' settings in full/lean (defence-in-depth for #217)", () => {
     expect(buildHarness("full").settingSources).not.toContain("user");
     expect(buildHarness("lean").settingSources).not.toContain("user");
+  });
+
+  it("coding → claude_code preset + the user's real Claude Code profile (settingSources[user,project])", () => {
+    const h = buildHarness("coding");
+    expect(h.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
+    expect(h.settingSources).toEqual(["user", "project"]);
+    expect(h.preset).toBe("claude_code");
+    expect(h.claudeMdLoaded).toBe(true);
+    expect(h.skillsMounted).toBe(true);
+    expect(h.disallowedTools).toEqual([]);
+  });
+
+  it("coding supports preset + append like full", () => {
+    expect(buildHarness("coding", { append: "garrison rules" }).systemPrompt).toEqual({
+      type: "preset",
+      preset: "claude_code",
+      append: "garrison rules"
+    });
   });
 
   it("lean disables ALL built-in tools (pure chat → small models answer, not hallucinate); full keeps tools", () => {
@@ -252,6 +305,30 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.capabilities.provider).toBe("anthropic");
     const opts = adapter.buildQueryOptions(s);
     expect(opts.env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
+  it("honors promptMode coding on the Anthropic subscription path (user profile loads)", async () => {
+    const adapter = adapterYielding([]);
+    const s = await adapter.spawn({
+      provider: "anthropic",
+      model: "sonnet",
+      compositionDir: "/work",
+      promptMode: "coding",
+    });
+    expect(s.harness.promptMode).toBe("coding");
+    expect(adapter.buildQueryOptions(s).settingSources).toEqual(["user", "project"]);
+  });
+
+  it("downgrades promptMode coding to full for a base-URL provider (the #217 guard)", async () => {
+    const adapter = adapterYielding([]);
+    const s = await adapter.spawn({
+      provider: "ollama-local",
+      model: "qwen3:8b",
+      compositionDir: "/work",
+      promptMode: "coding",
+    });
+    expect(s.harness.promptMode).toBe("full");
+    expect(adapter.buildQueryOptions(s).settingSources).toEqual(["project"]);
   });
 
   it("forwards requested effort to the SDK only for a supported Anthropic target", async () => {

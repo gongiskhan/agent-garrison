@@ -167,3 +167,64 @@ describe("resolveProviderSpec malformed-entry loudness (S2 ratchet)", () => {
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 });
+
+// ── RUNTIME-ACCOUNTS-V1: account pin on routed plan targets ──────────────────
+describe("buildLaunchEnv account pin (RUNTIME-ACCOUNTS-V1)", () => {
+  const TOKEN = "sk-ant-oat01-test-token-work1";
+  const opusWork1 = { ...opus, account: "work1" };
+
+  it("plan target with account → token vars from ANTHROPIC_ACCOUNT__<name>, API key masked", () => {
+    const env = buildLaunchEnv(opusWork1 as any, {
+      baseEnv: { PATH: "/bin" },
+      secrets: { ANTHROPIC_ACCOUNT__work1: TOKEN },
+      providers: PROVIDERS_LIST
+    });
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+    expect(env.ANTHROPIC_API_KEY).toBe("");
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
+  it("named account with no vault token throws MissingProviderKeyError (locked and absent)", () => {
+    expect(() =>
+      buildLaunchEnv(opusWork1 as any, { baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST })
+    ).toThrowError(MissingProviderKeyError);
+    expect(() =>
+      buildLaunchEnv(opusWork1 as any, { baseEnv: {}, secrets: null, providers: PROVIDERS_LIST })
+    ).toThrowError(MissingProviderKeyError);
+  });
+
+  it("plan target WITHOUT account inherits the launching session's pin (soul-switch respawn keeps the account)", () => {
+    const env = buildLaunchEnv(opus as any, {
+      baseEnv: { GARRISON_ACCOUNT: "work1", ANTHROPIC_AUTH_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: TOKEN },
+      secrets: {},
+      providers: PROVIDERS_LIST
+    });
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(TOKEN);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+    expect(env.GARRISON_ACCOUNT).toBe("work1");
+  });
+
+  it("a third-party target never inherits an account pin (no cross-account leak)", () => {
+    const env = buildLaunchEnv(deepseek as any, {
+      baseEnv: { GARRISON_ACCOUNT: "work1", ANTHROPIC_AUTH_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: TOKEN },
+      secrets: { DEEPSEEK_API_KEY: "sk-deepseek-xyz" },
+      providers: PROVIDERS_LIST
+    });
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("sk-deepseek-xyz");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.GARRISON_ACCOUNT).toBeUndefined();
+  });
+
+  it("plan target with NO account and NO inherited pin stays the clean ambient-login path", () => {
+    const env = buildLaunchEnv(opus as any, {
+      baseEnv: { ANTHROPIC_AUTH_TOKEN: "stray-token-without-account-marker" },
+      secrets: {},
+      providers: PROVIDERS_LIST
+    });
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.GARRISON_ACCOUNT).toBeUndefined();
+  });
+});

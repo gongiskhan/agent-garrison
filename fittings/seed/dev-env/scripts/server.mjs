@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dev-env backend — the consolidated Dev Env Fitting (port 7086). One server
+// dev-env backend — the consolidated Dev Env Fitting (base port 7086). One server
 // folds the retired dev-work Fittings into a single surface:
 //   - PTY terminals (ptys.mjs, from terminal-armory-default)
 //   - session state + Claude Code hook receiver + session CRUD (state.mjs,
@@ -8,7 +8,8 @@
 // Scaffolding (routing, WS upgrade, status file, static serving) follows the
 // terminal donor.
 
-import { createReadStream, existsSync, readFileSync, statSync, accessSync, constants as fsConstants } from "node:fs";
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync, accessSync, constants as fsConstants } from "node:fs";
+import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -95,7 +96,7 @@ const EXTERNAL_STATUSES = new Set(["working", "waiting", "starting"]);
 function parseArgs(argv) {
   const out = {
     port: Number(process.env.GARRISON_DEVENV_PORT || process.env.DEV_ENV_PORT || DEFAULT_PORT),
-    host: process.env.GARRISON_DEVENV_BIND_HOST || process.env.DEV_ENV_HOST || "127.0.0.1",
+    host: process.env.GARRISON_DEVENV_BIND_HOST || process.env.DEV_ENV_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     defaultShell: process.env.DEV_ENV_SHELL || process.env.SHELL || "/bin/zsh",
     dirtyTtlMs: Number(process.env.DEV_ENV_DIRTY_TTL_MS || 10_000),
     // PTY backing: auto (tmux if installed, else direct), on (require tmux),
@@ -609,7 +610,7 @@ async function handleDeleteSession(req, res, sessionId) {
 
 // Ask Garrison's orchestrator front door to place a session: returns
 // { mode, promptPath, model, effort, role }. Base URL overridable via
-// GARRISON_BASE_URL (default the local Garrison Next app on 7777).
+// GARRISON_BASE_URL (default the local Garrison Next app on the base port 7777).
 async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
   const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
   // forward the active composition when we know it (GARRISON_COMPOSITION_ID), so a
@@ -905,7 +906,7 @@ function handleClaudeInterrupt(req, res, sessionId) {
 }
 
 // ─────────────────────────── voice proxy (/voice/* and /sessions/:id/voice/*)
-// Thin same-origin bridge to the deepgram-voice fitting (port 7085) so the
+// Thin same-origin bridge to the deepgram-voice fitting (base port 7085) so the
 // browser never needs to cross-origin to it. The voice URL is rediscovered from
 // the status file on EVERY request (the port can change / the fitting can come
 // and go); if the file is missing or its /health fails we return 503 with a
@@ -1014,6 +1015,65 @@ async function handleVoiceStt(req, res) {
     const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
     jsonRes(res, timedOut ? 504 : 502, { error: `voice stt ${timedOut ? "timed out" : "failed"}: ${err.message}` });
   }
+}
+
+// ── Host-aware URL + file rendering (issues #3/#4) ──────────────────────────
+async function handleHostMap(res) {
+  let map = new Map();
+  try { map = await getTailnetServeMap(); } catch { /* empty */ }
+  jsonRes(res, 200, { map: Object.fromEntries(map) });
+}
+
+const FILE_IMAGE_MIME = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp"
+};
+const FILE_TEXT_MIME = {
+  ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
+  ".json": "application/json; charset=utf-8", ".log": "text/plain; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8", ".yml": "text/plain; charset=utf-8",
+  ".yaml": "text/plain; charset=utf-8", ".pdf": "application/pdf"
+};
+const FILE_SENSITIVE = /(?:^|\/)(?:\.env(?:\.|$)|id_rsa|id_ed25519|[^/]*\.pem|vault\.json)|\/\.git\//i;
+
+function realpathConfined(target, roots) {
+  let real;
+  try { real = realpathSync(target); } catch { return null; }
+  for (const root of roots) {
+    let realRoot;
+    try { realRoot = realpathSync(root); } catch { continue; }
+    if (real === realRoot || real.startsWith(realRoot + path.sep)) return real;
+  }
+  return null;
+}
+
+function handleFile(req, res) {
+  const parsed = url.parse(req.url || "", true);
+  const raw = typeof parsed.query.path === "string" ? parsed.query.path : "";
+  if (!raw || !path.isAbsolute(raw)) return jsonRes(res, 400, { error: "absolute path required" });
+  if (FILE_SENSITIVE.test(raw)) return jsonRes(res, 403, { error: "forbidden" });
+  const garrisonHome = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
+  const compDir = process.env.GARRISON_COMPOSITION_DIR || process.cwd();
+  const roots = [path.join(compDir, ".garrison", "uploads"), path.join(garrisonHome, "runs"), compDir];
+  const confined = realpathConfined(raw, roots);
+  if (!confined) return jsonRes(res, 404, { error: "not found or out of bounds" });
+  let stat;
+  try { stat = statSync(confined); } catch { return jsonRes(res, 404, { error: "not found" }); }
+  if (!stat.isFile()) return jsonRes(res, 404, { error: "not a file" });
+  const ext = path.extname(confined).toLowerCase();
+  const image = FILE_IMAGE_MIME[ext];
+  const text = FILE_TEXT_MIME[ext];
+  res.statusCode = 200;
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+  res.setHeader("Cache-Control", "private, max-age=60");
+  if (image) res.setHeader("Content-Type", image);
+  else if (text) res.setHeader("Content-Type", text);
+  else {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(confined).replace(/["\r\n]/g, "")}"`);
+  }
+  createReadStream(confined).pipe(res);
 }
 
 function serveStatic(req, res, distDir) {
@@ -1133,6 +1193,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
 
       if (pathname === "/health") return handleHealth(req, res, liveOpts);
+      // Host-aware URL/file rendering (issues #3/#4): same-origin so they inherit
+      // this origin's tailscale serve mapping.
+      if (pathname === "/host-map" && method === "GET") return handleHostMap(res);
+      if (pathname === "/file" && method === "GET") return handleFile(req, res);
       // Presence heartbeat relay (GARRISON-UNIFY-V1 S14, D34): the UI POSTs
       // same-origin; we relay to the Power fitting's own-port server via its
       // status file. Power absent → 204 silently (advisory).

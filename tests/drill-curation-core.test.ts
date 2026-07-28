@@ -18,7 +18,7 @@ import {
   drillEvidenceRoot
 } from "@/lib/drill-curation";
 // @ts-ignore — pure ESM .mjs, no .d.ts
-import { selectCurationCandidates, curationConfig, CURATION_DEFAULTS } from "../fittings/seed/drill/lib/curation.mjs";
+import { selectCurationCandidates, curationConfig, effectiveMaxCurated, applyReelFloor, CURATION_DEFAULTS } from "../fittings/seed/drill/lib/curation.mjs";
 
 const runDir = path.join(ghome, "drill", "evidence", "abc123def456", "01RUN");
 const outsideDir = mkdtempSync(path.join(tmpdir(), "garrison-curation-outside-"));
@@ -144,21 +144,115 @@ describe("selectCurationCandidates + curationConfig (drill side)", () => {
     { name: "f5", trigger: "message-growth", tMs: 500 }
   ];
 
-  it("prioritizes signal triggers under the budget, preserves time order", () => {
+  it("shows the settled state first, then real changes latest-first", () => {
+    // The settled step-end frame is the state the check's verdict was actually
+    // formed on, so it outranks everything. Among signal triggers, LATER beats
+    // earlier: the first change after a navigation is almost always the load
+    // spinner, and the latest is closest to the asserted state.
     const three = selectCurationCandidates(frames, 3);
-    expect(three.map((f: any) => f.name)).toEqual(["f1", "f3", "f5"]);
+    expect(three.map((f: any) => f.name)).toEqual(["f2", "f3", "f5"]); // step-end + the two latest signals
     const five = selectCurationCandidates(frames, 5);
-    expect(five.map((f: any) => f.name)).toEqual(["f0", "f1", "f2", "f3", "f5"]);
+    expect(five.map((f: any) => f.name)).toEqual(["f1", "f2", "f3", "f4", "f5"]);
     expect(selectCurationCandidates(frames, 10)).toHaveLength(6);
   });
 
+  it("sinks blank/loading frames below everything else", () => {
+    // A spinner on an empty page compresses to a fraction of a rendered page.
+    // Measured on a real run: spinner 12-30% of the chunk's largest frame,
+    // settled state 77-100%. Without this the budget was spent on spinners.
+    const withBytes = [
+      { name: "spinner", trigger: "phash", tMs: 900, chunk: "p--a--desktop", bytes: 6458 },
+      { name: "rendered", trigger: "phash", tMs: 100, chunk: "p--a--desktop", bytes: 50000 }
+    ];
+    // The spinner is LATER, so time order alone would pick it first.
+    expect(selectCurationCandidates(withBytes, 1).map((f: any) => f.name)).toEqual(["rendered"]);
+  });
+
   it("curationConfig merges book under body and honors disable flags", () => {
-    expect(curationConfig({}, undefined)).toEqual(CURATION_DEFAULTS);
+    expect(curationConfig({}, undefined)).toEqual({
+      maxCurated: CURATION_DEFAULTS.maxCurated,
+      maxCuratedExplicit: false,
+      batchSize: CURATION_DEFAULTS.batchSize
+    });
     expect(curationConfig({ spotter: { curation: { maxCurated: 10 } } }, { curation: { batchSize: 5 } }))
-      .toEqual({ maxCurated: 10, batchSize: 5 });
+      .toEqual({ maxCurated: 10, maxCuratedExplicit: true, batchSize: 5 });
     expect(curationConfig({ spotter: { curation: false } }, undefined)).toBeNull();
     expect(curationConfig({}, { curation: false })).toBeNull();
     expect(curationConfig({ spotter: { curation: { maxCurated: 9999, batchSize: 0 } } }, undefined))
-      .toEqual({ maxCurated: 40, batchSize: 1 });
+      .toEqual({ maxCurated: CURATION_DEFAULTS.maxCuratedCeiling, maxCuratedExplicit: true, batchSize: 1 });
+  });
+
+  it("scales the vision budget with the run size unless the operator pinned one", () => {
+    // A fixed 30-frame budget cannot give 36 checks even one frame each; that
+    // starvation is what left 28 of 36 checks with an empty Debrief scope.
+    const auto = curationConfig({}, undefined)!;
+    expect(effectiveMaxCurated(auto, 36)).toBe(72);
+    expect(effectiveMaxCurated(auto, 2)).toBe(CURATION_DEFAULTS.maxCurated); // never below the floor
+    expect(effectiveMaxCurated(auto, 5000)).toBe(CURATION_DEFAULTS.maxCuratedCeiling); // never runs away
+    const pinned = curationConfig({ spotter: { curation: { maxCurated: 10 } } }, undefined)!;
+    expect(effectiveMaxCurated(pinned, 36)).toBe(10);
+  });
+
+  it("allocates the budget fairly across checks instead of front-loading it", () => {
+    // 3 checks; the first is phash-heavy. Time-ordered signal-first selection
+    // spent the whole budget on it and starved the other two.
+    const frames = [
+      ...Array.from({ length: 8 }, (_, i) => ({ name: `a${i}`, trigger: "phash", chunk: "p--a--desktop", tMs: i * 10 })),
+      { name: "b0", trigger: "step-start", chunk: "p--b--desktop", tMs: 100 },
+      { name: "b1", trigger: "step-end", chunk: "p--b--desktop", tMs: 110 },
+      { name: "c0", trigger: "step-start", chunk: "p--c--desktop", tMs: 200 },
+      { name: "c1", trigger: "step-end", chunk: "p--c--desktop", tMs: 210 }
+    ];
+    const picked = selectCurationCandidates(frames, 3);
+    expect(new Set(picked.map((f: any) => f.chunk)).size).toBe(3);
+    // Within a chunk, step-end (the settled state) outranks step-start, which
+    // fires before this check's navigation and shows the PREVIOUS check's page.
+    expect(picked.map((f: any) => f.name)).toContain("b1");
+    expect(picked.map((f: any) => f.name)).not.toContain("b0");
+  });
+
+  it("floors every check to at least one frame when curation kept none", () => {
+    const rows = [
+      { name: "a0", trigger: "step-start", chunk: "p--a--desktop", tMs: 0, uncurated: true },
+      { name: "a1", trigger: "phash", chunk: "p--a--desktop", tMs: 5, uncurated: true },
+      { name: "b0", trigger: "step-end", chunk: "p--b--desktop", tMs: 10, keep: true }
+    ] as any[];
+    const floored = applyReelFloor(rows);
+    expect(floored).toBe(1); // only the chunk with no keep is floored
+    const a = rows.find((r) => r.name === "a1");
+    expect(a.keep).toBe(true);
+    expect(a.floor).toBe(true); // flagged, so the UI never passes it off as a choice
+    expect(a.uncurated).toBeUndefined();
+    expect(a.annotation).toMatch(/Auto-selected/);
+    expect(rows.find((r) => r.name === "b0").floor).toBeUndefined(); // untouched
+    // The guarantee: every chunk now has a frame.
+    const chunks = new Set(rows.map((r) => r.chunk));
+    const covered = new Set(rows.filter((r) => r.keep === true).map((r) => r.chunk));
+    expect(covered.size).toBe(chunks.size);
+  });
+
+  it("floors to the SETTLED frame, not the first change after navigation", () => {
+    // This is the regression that made the Debrief mostly spinners: ranking
+    // signal triggers above step-end (correct when choosing what a model should
+    // judge) picked the first phash of the chunk, which is the load spinner on a
+    // blank page. The floor wants the state the verdict was formed on.
+    const rows = [
+      { name: "spinner", trigger: "phash", chunk: "p--a--desktop", tMs: 100, bytes: 6458, uncurated: true },
+      { name: "mid", trigger: "phash", chunk: "p--a--desktop", tMs: 400, bytes: 40000, uncurated: true },
+      { name: "settled", trigger: "step-end", chunk: "p--a--desktop", tMs: 900, bytes: 52000, uncurated: true }
+    ] as any[];
+    applyReelFloor(rows);
+    expect(rows.find((r) => r.floor === true).name).toBe("settled");
+    expect(rows.find((r) => r.name === "spinner").keep).toBeUndefined();
+  });
+
+  it("never floors to a blank frame when any rendered frame exists", () => {
+    const rows = [
+      { name: "blank-end", trigger: "step-end", chunk: "p--a--desktop", tMs: 900, bytes: 6000, uncurated: true },
+      { name: "rendered", trigger: "phash", chunk: "p--a--desktop", tMs: 300, bytes: 50000, uncurated: true }
+    ] as any[];
+    applyReelFloor(rows);
+    // step-end normally wins, but not when the page was still blank at judgment.
+    expect(rows.find((r) => r.floor === true).name).toBe("rendered");
   });
 });

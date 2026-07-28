@@ -48,6 +48,10 @@ x-garrison:
       type: string
       default: ""
       description: Advanced — explicit ANTHROPIC_BASE_URL override. Leave empty to use the provider's registered base URL. Ignored for anthropic-plan.
+    - key: account
+      type: string
+      default: ""
+      description: Which Anthropic identity this runtime launches under - Machine login (this box's own Claude login), Auto (Garrison rotates your registered accounts by rate-limit usage, holding when all are over ceiling), or a pinned account. anthropic-plan only. Set the mode here; manage the accounts on the Accounts page.
   provides:
     - kind: runtime
       name: claude-code

@@ -11,6 +11,7 @@ import {
 import { computeStateModel } from "./primitive-state";
 import { emitFitting, primitiveHash } from "./reconcile";
 import { recordWritten, parkEntry, unparkEntry, reattributeEntry } from "./provenance";
+import { assertClaudeWritable } from "./install-state";
 import type { ApmRunner } from "./apm-exec";
 import type { ApmDependencyInput } from "./apm-manifest";
 
@@ -42,6 +43,7 @@ function depToInput(dep: ApmLockDepView): ApmDependencyInput | null {
 // emission), append it as a dep, apm install (which claims the on-disk file into
 // the lock), then snapshot the ledger to pre-suppress the watcher echo.
 export async function promote(primitiveId: string, opts: TransitionOpts = {}): Promise<TransitionResult> {
+  await assertClaudeWritable("promote a primitive in ~/.claude");
   const home = opts.claudeHome ?? claudeHome();
   const model = await computeStateModel({ claudeHome: home });
   const rec = model.records.find((r) => r.id === primitiveId);
@@ -81,6 +83,7 @@ export async function promote(primitiveId: string, opts: TransitionOpts = {}): P
 // as loose orphans (verified), so Garrison saves the captured fitting to the
 // parked store and deletes the orphaned disk files itself.
 export async function park(fittingId: string, opts: TransitionOpts = {}): Promise<TransitionResult> {
+  await assertClaudeWritable("park a primitive from ~/.claude");
   const home = opts.claudeHome ?? claudeHome();
   const prevLock = await readGlobalLock();
   const dep = prevLock.deps.find((d) => d.name === fittingId);
@@ -138,6 +141,7 @@ export async function unpark(
   target: "owned" | "loose",
   opts: TransitionOpts = {}
 ): Promise<TransitionResult> {
+  await assertClaudeWritable("unpark a primitive into ~/.claude");
   const home = opts.claudeHome ?? claudeHome();
   const parked = path.join(parkedStoreDir(), slug);
   if (!(await pathExists(parked))) return { ok: false, code: "not-found", deployed: [], cleanedOrphans: [] };

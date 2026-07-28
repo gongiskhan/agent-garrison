@@ -6,6 +6,12 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): Gemini CLI native auth.
+  # The CLI prompts Google OAuth on first interactive start; run it in the
+  # guided PTY and follow the flow.
+  login:
+    command: gemini
+    storage_hint: "~/.gemini/oauth_creds.json (Google OAuth; one account at a time)"
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:
@@ -21,6 +27,10 @@ x-garrison:
       type: string
       default: gemini-2.5-flash
       description: Default Gemini model for delegated tasks (validated against the per-provider allowlist).
+    - key: account
+      type: string
+      default: ""
+      description: Which Google identity Gemini runs under - Machine login (this box's own ~/.gemini login) or a pinned account, whether Gemini is primary or a delegate target. A Google-subscription account runs Gemini in its own GEMINI_CLI_HOME; an API-key account is injected as GEMINI_API_KEY. Manage accounts on the Accounts page.
   provides:
     - kind: runtime
       name: gemini

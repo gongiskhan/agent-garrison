@@ -9,6 +9,9 @@ function terminal({
   const recoveryFailure = outcome?.recoveryFailure
     ? fromStructuredFailure(outcome.recoveryFailure, "recovery", outcome.fixerNote, null)
     : null;
+  // Vision session linkage: a completed step carries it inside result.vision,
+  // a failed one at the step-record top level (engine attaches err.visionMeta).
+  const vision = outcome?.result?.vision ?? outcome?.vision ?? null;
   return {
     kind,
     source,
@@ -19,6 +22,19 @@ function terminal({
     ...(outcome?.evidencePath ? { evidencePath: outcome.evidencePath } : {}),
     ...(outcome?.durationMs !== undefined ? { durationMs: outcome.durationMs } : {}),
     ...(outcome?.result?.reasoning ? { reasoning: String(outcome.result.reasoning) } : {}),
+    ...(outcome?.result?.missingInteraction
+      ? { missingInteraction: String(outcome.result.missingInteraction) }
+      : {}),
+    ...(vision?.sessionId
+      ? {
+          session: {
+            id: String(vision.sessionId),
+            ...(vision.transcriptPath
+              ? { transcriptPath: String(vision.transcriptPath) }
+              : {})
+          }
+        }
+      : {}),
     ...(recoveryFailure ? { recoveryFailure } : {})
   };
 }
@@ -31,6 +47,20 @@ function fromStructuredFailure(failure, source, message, outcome) {
       source,
       code: failure.code || "assertion-failed",
       component: failure.component || "app",
+      message,
+      outcome
+    });
+  }
+  // A check the runner could not exercise as written (S6). Not the app's
+  // fault, so it must not land in the findings pool as a product defect; it is
+  // the same "this check did not verify its claim" state the vision honesty
+  // gate produces, reached from the recovery path instead.
+  if (failure.class === "unverifiable") {
+    return terminal({
+      kind: "unproven",
+      source,
+      code: failure.code || "check-unrunnable",
+      component: failure.component || "check",
       message,
       outcome
     });
@@ -100,6 +130,26 @@ export function terminalFromAutomationRun(run, expectedStepId) {
         code: "assertion-failed",
         component: "app",
         message: target.result.reasoning || target.error || `${expectedStepId} failed`,
+        outcome: target
+      });
+    }
+    // Honesty gate (S6): the model reported that the expected outcome cannot
+    // be observed without an interaction that never happened. That is not a
+    // pass — the check's evidence is a page nothing was done to — but it is
+    // not a product failure either, since nothing about the app was actually
+    // shown to be wrong. It is a THIRD state: the check did not verify what it
+    // claims to verify. Reporting it as `passed` is precisely the false
+    // confidence this gate exists to remove.
+    if (target.result?.requiresInteraction === true) {
+      return terminal({
+        kind: "unproven",
+        source: "step",
+        code: "requires-interaction",
+        component: "drill",
+        message:
+          target.result.missingInteraction
+            ? `Not verified: the check asserts a behaviour that requires "${target.result.missingInteraction}", which this run never performed.`
+            : "Not verified: the check asserts a behaviour no interaction in this run performed.",
         outcome: target
       });
     }

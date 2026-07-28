@@ -44,6 +44,18 @@ import {
 import { garrisonDir } from "./claude-home";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
 import { claimComposition, releaseComposition } from "./composition-owner";
+import { accountTokenForSpawn, listAccounts, resolveRuntimeAccountEnv, setAccountNeedsRelogin } from "./accounts";
+import { accountVaultKey } from "./account-env";
+import {
+  PaymasterHoldError,
+  candidatesFrom,
+  ensurePaymasterHeartbeat,
+  formatDecisionLines,
+  readUsageCache,
+  refreshUsage,
+  resolveAutoAccount,
+  resolvePaymaster
+} from "./paymaster";
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
@@ -99,6 +111,17 @@ interface RunnerRecord {
   watcher?: FSWatcher;
   restartTimer?: NodeJS.Timeout;
   gateway?: GatewayInfo;
+  // RUNTIME-ACCOUNTS-V1 D5: the account the running operative is pinned to,
+  // so an auth failure in the log stream can flag it needs-relogin (once).
+  activeAccount?: string;
+  authFailureFlagged?: boolean;
+  // PAYMASTER D10: a mid-run usage-limit hit is surfaced once (sticky session,
+  // no migration) with the resolver's current best alternative pre-computed.
+  limitFlagged?: boolean;
+  // After a limit trigger that a live probe DISPROVED (session output merely
+  // mentioning limit phrases), suppress re-checking until this timestamp so a
+  // chatty log cannot spam probes - while a real hit later still surfaces.
+  limitCooldownUntil?: number;
 }
 
 interface RunnerRuntime {
@@ -359,9 +382,10 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // The DEFAULT id keeps default semantics from EITHER source (policy or
     // legacy key): claude-code is synthesizable without its fitting, so naming
     // the default must never fail a composition that doesn't compose it.
+    const runtimeEntries = buildRuntimeEntries(soulEntries, composition.selections);
     const primaryRuntime = resolvePrimaryRuntime({
       primaryRuntimeId: effectivePrimary === DEFAULT_PRIMARY_RUNTIME ? undefined : effectivePrimary,
-      runtimeEntries: buildRuntimeEntries(soulEntries, composition.selections)
+      runtimeEntries
     });
     // P4 (GARRISON-RUNTIMES-V1): a non-claude primary is HOSTED now — the
     // gateway pool warms the named engine's RuntimeAdapter as the operative
@@ -384,11 +408,97 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     const providersList = await resolveProvidersList(composition.directory, (message) =>
       appendLog(compositionId, "stderr", message)
     );
-    const { env: primaryEnv, providerLaunch: primaryProviderLaunch } = buildPrimaryRuntimeEnv(
-      primaryRuntime,
-      (key) => primaryVaultEnv[key],
-      providersList
+    // RUNTIME-ACCOUNTS-V1: the account token is NOT in the fitting's
+    // secret_scope (account names are dynamic), so it is delivered explicitly
+    // here — audit-recorded like every other vault read — and merged into the
+    // lookup that buildPrimaryRuntimeEnv resolves ANTHROPIC_ACCOUNT__* through.
+    let primaryAccount = String(primaryRuntime.config.account ?? "").trim();
+    const primaryProviderId = String(primaryRuntime.config.provider ?? "anthropic-plan");
+    const primaryOnPlan =
+      primaryProviderId === "anthropic-plan" ||
+      providersList.find((p) => p && p.id === primaryProviderId)?.kind === "anthropic-plan";
+    // PAYMASTER D7/D8/D9: `auto` resolves to a concrete account HERE, before
+    // the pure env builder - resolver inputs and pick always logged (hard
+    // constraint). A hold (no eligible account) fails the up loudly with every
+    // account's numbers instead of burning a scorched window; zero registered
+    // accounts fall back to the machine login so fresh installs keep working.
+    let effectivePrimaryRuntime = primaryRuntime;
+    if (primaryAccount === "auto" && primaryOnPlan) {
+      try {
+        const resolution = await resolveAutoAccount();
+        if (resolution.mode === "machine-login") {
+          appendLog(
+            compositionId,
+            "runner",
+            "Paymaster: account is Auto but no accounts are registered - launching on the machine's own login."
+          );
+          primaryAccount = "";
+        } else {
+          appendLog(compositionId, "runner", "Paymaster auto-selection inputs:");
+          for (const line of formatDecisionLines(resolution.decision)) {
+            appendLog(compositionId, "runner", `  ${line}`);
+          }
+          appendLog(compositionId, "runner", `Paymaster picked account "${resolution.name}".`);
+          primaryAccount = resolution.name;
+        }
+      } catch (error) {
+        if (error instanceof PaymasterHoldError) {
+          appendLog(compositionId, "stderr", error.message);
+        }
+        throw error;
+      }
+      effectivePrimaryRuntime = {
+        ...primaryRuntime,
+        config: { ...primaryRuntime.config, account: primaryAccount }
+      };
+    }
+    void ensurePaymasterHeartbeat().catch(() => undefined);
+    const accountEnv: Record<string, string> = {};
+    if (primaryAccount && primaryOnPlan) {
+      accountEnv[accountVaultKey(primaryAccount)] = await accountTokenForSpawn(
+        primaryAccount,
+        primaryRuntime.runtimeId
+      );
+    }
+    const { env: primaryEnv, providerLaunch: primaryProviderLaunch, account: pinnedAccount } =
+      buildPrimaryRuntimeEnv(
+        effectivePrimaryRuntime,
+        (key) => primaryVaultEnv[key] ?? accountEnv[key],
+        providersList
+      );
+    record.activeAccount = pinnedAccount;
+    record.authFailureFlagged = false;
+    record.limitFlagged = false;
+    // RUNTIME-ACCOUNTS-V2: inject non-Anthropic runtime accounts (Codex/Gemini/
+    // custom) into the operative spawn env. Secondary runtime bridges inherit it
+    // via process.env, and a non-Anthropic PRIMARY (codex/gemini) is authed here
+    // too — buildPrimaryRuntimeEnv only handles the Anthropic plan path. Anthropic
+    // is excluded (single process-wide token owned by the primary/auto path).
+    const runtimeAccountEnv = await resolveRuntimeAccountEnv(
+      runtimeEntries.map((entry) => ({
+        id: entry.id,
+        account: entry.config?.account != null ? String(entry.config.account) : undefined
+      })),
+      { log: (message) => appendLog(compositionId, "runner", message) }
     );
+    if (pinnedAccount) {
+      appendLog(
+        compositionId,
+        "runner",
+        `Primary runtime ${primaryRuntime.runtimeId} pinned to Anthropic account "${pinnedAccount}"`
+      );
+    } else if (primaryAccount) {
+      // Only an ANTHROPIC account is "ignored" off the plan path — a non-Anthropic
+      // primary account is injected above by resolveRuntimeAccountEnv.
+      const acct = (await listAccounts()).find((a) => a.name === primaryAccount);
+      if (!acct || acct.platform === "anthropic") {
+        appendLog(
+          compositionId,
+          "stderr",
+          `Runtime account "${primaryAccount}" is configured but the selected provider is not the Anthropic plan — account ignored for this launch.`
+        );
+      }
+    }
     if (primaryProviderLaunch) {
       appendLog(
         compositionId,
@@ -438,6 +548,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         gateway,
         {
           ...(gatewayExtraEnv ?? {}),
+          ...runtimeAccountEnv,
           ...primaryEnv,
           ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {}),
           ...(orchestratorModeEnv(gateway, composition, promptPath) ?? {})
@@ -450,7 +561,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         compositionId,
         composition.directory,
         promptPath,
-        primaryEnv,
+        { ...runtimeAccountEnv, ...primaryEnv },
         primaryProviderLaunch
       );
       record.gateway = undefined;
@@ -2093,9 +2204,92 @@ function updateState(compositionId: string, update: Partial<RunnerState>): void 
   record.state = { ...record.state, ...update, compositionId };
 }
 
+// RUNTIME-ACCOUNTS-V1 D5: an auth failure surfacing in a session's log stream
+// while the operative is pinned to a named account flags that account
+// needs-relogin (once per up; setup tokens are replaced, never refreshed).
+const ACCOUNT_AUTH_FAILURE_RE = /401 .*(bearer|oauth|authenticat)|Failed to authenticate/i;
+
+// PAYMASTER D10: a usage-limit hit in the log stream while pinned to an
+// account. The regex is only a TRIGGER - ordinary session output can mention
+// these phrases (the operative works on this very repo), so the hit is
+// confirmed with a live probe of the pinned account before alarming. The
+// session stays sticky (no mid-run migration - that waits for Handoff
+// Packets); the surfacing pre-computes "resume on <best account now>".
+const ACCOUNT_LIMIT_RE =
+  /usage limit reached|rate.?limit.?(error|reached|exceeded)|"type"\s*:\s*"rate_limit_error"/i;
+
+function surfaceMidRunLimit(compositionId: string, account: string): void {
+  void (async () => {
+    const accounts = await listAccounts();
+    const pinned = accounts.filter((candidate) => candidate.name === account);
+    const usage = await refreshUsage({ ttlMs: 0, force: true, accounts: pinned });
+    const active = usage[account];
+    // Fresh successful probe -> judge by the unified status/utilization; an
+    // unreadable probe (network/401) leaves the trigger trusted.
+    const freshProbe =
+      active && !active.error && Date.now() - Date.parse(active.probedAt) < 60_000;
+    const limited = freshProbe
+      ? active.status !== "allowed" ||
+        active.fiveHour.status !== "allowed" ||
+        active.weekly.status !== "allowed" ||
+        active.fiveHour.pct >= 100 ||
+        active.weekly.pct >= 100
+      : true;
+    const record = getRecord(compositionId);
+    if (!limited) {
+      // False positive (log line merely mentioned a limit phrase): re-arm the
+      // detector after a cooldown so a real hit later still surfaces.
+      record.limitFlagged = false;
+      record.limitCooldownUntil = Date.now() + 5 * 60_000;
+      return;
+    }
+    const cache = await readUsageCache();
+    const decision = resolvePaymaster(
+      candidatesFrom(accounts.filter((candidate) => candidate.name !== account), cache)
+    );
+    appendLog(
+      compositionId,
+      "runner",
+      decision.pick
+        ? `Account "${account}" hit its usage limit mid-run (session stays pinned, D10). ` +
+            `Resume on "${decision.pick}" - restart the operative with account Auto or pin it there.`
+        : `Account "${account}" hit its usage limit mid-run and no other account is eligible right now` +
+            (decision.nearestResetAt ? ` - nearest reset ${decision.nearestResetAt}.` : ".")
+    );
+  })().catch(() => undefined);
+}
+
 function appendLog(compositionId: string, stream: LogEvent["stream"], message: string): void {
   const record = getRecord(compositionId);
   for (const line of message.split(/\r?\n/).filter((value) => value.length > 0)) {
+    if (
+      record.activeAccount &&
+      !record.authFailureFlagged &&
+      (stream === "stdout" || stream === "stderr") &&
+      ACCOUNT_AUTH_FAILURE_RE.test(line)
+    ) {
+      record.authFailureFlagged = true;
+      const account = record.activeAccount;
+      void setAccountNeedsRelogin(account, true)
+        .then(() =>
+          appendLog(
+            compositionId,
+            "runner",
+            `Auth failure observed under account "${account}" — flagged needs-relogin (re-run setup-token from the runtime config).`
+          )
+        )
+        .catch(() => undefined);
+    }
+    if (
+      record.activeAccount &&
+      !record.limitFlagged &&
+      (record.limitCooldownUntil ?? 0) <= Date.now() &&
+      (stream === "stdout" || stream === "stderr") &&
+      ACCOUNT_LIMIT_RE.test(line)
+    ) {
+      record.limitFlagged = true;
+      surfaceMidRunLimit(compositionId, record.activeAccount);
+    }
     const event: LogEvent = { ts: new Date().toISOString(), stream, message: line };
     record.logs.push(event);
     record.logBytes += Buffer.byteLength(line);

@@ -91,7 +91,7 @@ function publishEvent(runId, event) {
 }
 
 const FITTING_ID = "automations";
-const DEFAULT_PORT = 7080;
+const DEFAULT_PORT = 7090;
 const GARRISON_DIR = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
 const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
@@ -471,9 +471,9 @@ export function createServer() {
 
 export async function startServer() {
   // Port precedence (house convention, same as improver/ports-default): the
-  // runner-projected composition config first (per-instance, e.g. main=7080
-  // vs codex=27080), then the legacy explicit env (tests), then the default.
-  const host = process.env.GARRISON_AUTOMATIONS_BIND_HOST || process.env.AUTOMATIONS_UI_HOST || "127.0.0.1";
+  // runner-projected composition config first (per-instance, e.g. main=7090
+  // vs codex=27090), then the legacy explicit env (tests), then the default.
+  const host = process.env.GARRISON_AUTOMATIONS_BIND_HOST || process.env.AUTOMATIONS_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1";
   const port = Number(process.env.GARRISON_AUTOMATIONS_PORT || process.env.AUTOMATIONS_UI_PORT || DEFAULT_PORT);
   assertStatusSlotFree();
   const server = createServer();

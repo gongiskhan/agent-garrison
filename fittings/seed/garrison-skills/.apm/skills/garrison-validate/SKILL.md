@@ -1,6 +1,6 @@
 ---
 name: garrison-validate
-description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement — read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, ux-qa gate clean-or-below-threshold for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. Use for "validate the Definition of Done", "check the gate markers and decide Done or Implement", "write the durable gate record for this slice", or as the engine of the Kanban Validate list. NOT a test runner (that is garrison-test) and NOT a code review (that is garrison-review).
+description: Validate a slice's Definition of Done from its durable gate markers and decide Done vs Implement - read the gate-status.json under a passed-in runDir + sliceId, check every DoD gate (tests/typecheck/lint/build/e2e exit 0, ux-qa gate clean-or-below-threshold for UI, fresh-context review approve, independent test pass, and a VERIFIED walkthrough video), write the durable `validated` gate record, and end with a parseable Done|Implement last line. NOT a test runner (that is garrison-test) and NOT a code review (that is garrison-review). Invoked by the Garrison run engine as its validation step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-validate

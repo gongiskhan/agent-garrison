@@ -377,7 +377,7 @@ function parseArgs(argv) {
     // runner-projected composition config first (per-instance, e.g. main=7084
     // vs codex=27084), then the legacy env / --port (tests), then the default.
     port: Number(process.env.GARRISON_BROWSERDEFAULT_PORT || process.env.BROWSER_PORT || 7084),
-    host: process.env.GARRISON_BROWSERDEFAULT_BIND_HOST || process.env.BROWSER_HOST || "127.0.0.1",
+    host: process.env.GARRISON_BROWSERDEFAULT_BIND_HOST || process.env.BROWSER_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     // Defaults match the LOW quality preset — responsive over Tailscale beats
     // sharpness for the common case. The canvas's quality toggle bumps it.
     viewportWidth: Number(process.env.BROWSER_VIEWPORT_WIDTH || 800),
@@ -1143,6 +1143,17 @@ async function handleCaptureChunkStart(req, res) {
   const body = (await readBody(req)) || {};
   const session = liveCaptureSession(body);
   if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
+  // Spotter boundary (D2a) FIRST, before the tracing guard and outside the
+  // try: frame attribution must not depend on Playwright tracing. When tracing
+  // was unavailable this used to return early, leaving currentChunk pointing at
+  // the PREVIOUS check — so every frame of this check was filed under its
+  // predecessor's key. `name` is the caller's check key, the same key the
+  // chunk-stop trace carries, so frames join checks downstream.
+  session.spotter?.onChunkStart(
+    typeof body.name === "string" && body.name
+      ? body.name.slice(0, 200)
+      : typeof body.title === "string" ? body.title.slice(0, 200) : null
+  );
   if (!session.tracing) return jsonRes(res, 200, { ok: false, error: "tracing unavailable for this session" });
   try {
     if (session.chunkOpen) {
@@ -1151,14 +1162,6 @@ async function handleCaptureChunkStart(req, res) {
     }
     await session.context.tracing.startChunk({ title: typeof body.title === "string" ? body.title : undefined });
     session.chunkOpen = true;
-    // Spotter boundary (D2a): tag the new check window and always keep a
-    // frame at the step boundary. `name` is the caller's check key — the same
-    // key the chunk-stop trace will carry — so frames join checks downstream.
-    session.spotter?.onChunkStart(
-      typeof body.name === "string" && body.name
-        ? body.name.slice(0, 200)
-        : typeof body.title === "string" ? body.title.slice(0, 200) : null
-    );
     jsonRes(res, 200, { ok: true });
   } catch (err) {
     jsonRes(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -1171,10 +1174,14 @@ async function handleCaptureChunkStop(req, res) {
   if (!session) return jsonRes(res, 404, { ok: false, error: "capture session not found" });
   const name = safeArtifactName(body.name);
   if (!name) return jsonRes(res, 400, { ok: false, error: "name ([A-Za-z0-9][A-Za-z0-9._-]*) required" });
-  if (!session.tracing || !session.chunkOpen) {
-    return jsonRes(res, 200, { ok: false, error: "no open trace chunk" });
-  }
+  // The forced step-end frame is the per-check frame GUARANTEE the Debrief's
+  // reel floor depends on, so it must fire even when there is no trace chunk to
+  // close. The spotter boundary succeeded; there simply is no trace, which is
+  // ok:true with a null trace, not a failure.
   session.spotter?.onChunkStop();
+  if (!session.tracing || !session.chunkOpen) {
+    return jsonRes(res, 200, { ok: true, trace: null });
+  }
   try {
     const rel = `trace-${name}.zip`;
     await session.context.tracing.stopChunk({ path: path.join(session.dir, rel) });

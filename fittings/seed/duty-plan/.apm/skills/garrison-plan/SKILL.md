@@ -1,6 +1,6 @@
 ---
 name: garrison-plan
-description: Reproduce Claude Code plan mode autonomously — explore the request and codebase with read-only Explore subagents, design with Plan subagents, then write a concise, durable implementation plan file. Does NOT call native EnterPlanMode/ExitPlanMode (they fail in agent and auto contexts) and never mutates the system except the plan file. Use proactively BEFORE any non-trivial implementation task — a new feature, multiple valid approaches, changes that affect existing behavior or structure, architectural decisions, multi-file changes (more than 2-3 files), or unclear requirements that need exploring first. Do NOT use for single-line or few-line fixes, adding one well-specified function, tasks with very specific detailed instructions, or pure research. garrison invokes this as its planning phase; also usable standalone.
+description: Reproduce Claude Code plan mode autonomously - explore the request and codebase with read-only Explore subagents, design with Plan subagents, then write a concise, durable implementation plan file. Does NOT call native EnterPlanMode/ExitPlanMode (they fail in agent and auto contexts) and never mutates the system except the plan file. This is the planning step of a Garrison run, distinct from garrison-implement (writing code) and garrison-test (verifying it). Invoked by the Garrison run engine as its planning step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-plan

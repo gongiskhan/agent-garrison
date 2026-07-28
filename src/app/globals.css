@@ -476,7 +476,12 @@ nav.tabs .item .ct.tone-off::before { background: var(--rule-2); }
      and the composition switcher stay reachable when the nav overflows. */
   position: sticky;
   bottom: 0;
-  background: linear-gradient(180deg, rgba(23, 32, 25, .94), var(--shell) 18%);
+  /* OPAQUE, not a .94-alpha gradient. The footer is sticky over a scrolling
+     nav list, so any transparency lets the row passing underneath bleed
+     through and renders text on top of text. If a fade is ever wanted back,
+     it belongs in a separate zero-height strip ABOVE the footer, not behind
+     its first row. */
+  background: var(--shell);
 }
 .side-foot .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .side-foot .row b {
@@ -682,6 +687,14 @@ main {
   50%, 100% { opacity: 0.3; }
 }
 
+/* Work-in-progress indicator. Any surface that waits on a host process or a
+   network probe uses this — a wait with no motion reads as a hang. */
+@keyframes garrison-spin { to { transform: rotate(360deg); } }
+.spin { animation: garrison-spin 0.85s linear infinite; transform-origin: 50% 50%; }
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration: 2.4s; }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -732,6 +745,9 @@ main {
 .banner.alarm { background: var(--alarm-soft); border-color: rgba(155,54,45,0.3); color: var(--alarm); }
 .banner.warn { background: var(--warn-soft); border-color: rgba(176,114,21,0.35); color: var(--warn); }
 .banner.info { background: var(--paper-2); border-color: var(--rule-2); color: var(--ink-2); }
+/* the success tone — the sage already used for verified/live elsewhere, so a
+   confirmed action reads as clearly as a failed one. */
+.banner.ok { background: var(--sage-soft); border-color: rgba(49,86,63,0.32); color: var(--sage); }
 .banner .glyph {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
   font-weight: 700;
@@ -994,6 +1010,55 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   flex-direction: column;
   align-items: flex-end;
 }
+/* The "New" menu. Anchored under the trigger, which sits in a position:fixed
+   corner block, so the wrap becomes the positioning context. */
+.composition-creator-trigger-wrap { position: relative; }
+.composition-creator-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 232px;
+  display: flex;
+  flex-direction: column;
+  background: var(--shell);
+  border: 1px solid rgba(238, 226, 202, .16);
+  box-shadow: 0 10px 30px rgba(23, 32, 25, .28);
+  z-index: 41;
+}
+.composition-creator-menu > * {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(238, 226, 202, .09);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  color: var(--shell-ink);
+  font: inherit;
+}
+.composition-creator-menu > *:last-child { border-bottom: 0; }
+.composition-creator-menu > *:hover:not(:disabled),
+.composition-creator-menu > *:focus-visible {
+  background: rgba(238, 226, 202, .07);
+  outline: none;
+}
+.composition-creator-menu > *:disabled { opacity: .45; cursor: default; }
+.composition-creator-menu b {
+  font-family: var(--font-sans), sans-serif;
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+.composition-creator-menu small {
+  font-family: var(--font-mono), monospace;
+  font-size: 9.5px;
+  letter-spacing: .04em;
+  color: var(--shell-mute, rgba(238, 226, 202, .55));
+}
+
 .composition-creator-trigger-wrap {
   padding: 3px;
   border: 1px solid rgba(238, 226, 202, .16);

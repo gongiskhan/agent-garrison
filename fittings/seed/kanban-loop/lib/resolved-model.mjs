@@ -44,6 +44,44 @@ export const GATE_PHASES = new Set([
   "validate"
 ]);
 
+// The canonical develop-pipeline SPINE, in order. This matches the built-in
+// default board (scripts/kanban.mjs) and every phase template's routerPrompt
+// (review tells the operative to emit `adversarial-review`, adversarial-review to
+// emit `test`, and so on). A no-duty / legacy card has no resolved sequence, so it
+// falls back to the board's STATIC validNext — which buildBoard must derive from
+// this spine, not from the raw composition phase-union order. Otherwise a phase
+// like `review` (whose template says "end with adversarial-review") gets a
+// union-order neighbour such as `drill`, the operative's compliant verdict is
+// refused, and the card parks with correct work. Duty-driven cards ignore this
+// entirely (they route on validNextForCard / their own sequence).
+export const CANONICAL_SPINE = [
+  "plan",
+  "implement",
+  "review",
+  "adversarial-review",
+  "test",
+  "adversarial-test",
+  "walkthrough",
+  "validate"
+];
+
+// The forward edge for a phase on the no-duty fallback chain. A spine phase
+// advances to the next spine phase that is actually PRESENT in the model (skipping
+// any the composition did not select), ending at "done"; a non-spine phase keeps
+// its union-order neighbour (a no-duty card never routes INTO those, and a
+// duty card ignores the static edge). Keeping the static validNext consistent with
+// the phase template's routerPrompt is what lets a legacy card's compliant verdict
+// advance instead of parking.
+export function forwardForPhase(id, presentPhases, unionForward) {
+  const spineIdx = CANONICAL_SPINE.indexOf(id);
+  if (spineIdx === -1) return unionForward;
+  const present = presentPhases instanceof Set ? presentPhases : new Set(presentPhases);
+  for (let j = spineIdx + 1; j < CANONICAL_SPINE.length; j++) {
+    if (present.has(CANONICAL_SPINE[j])) return CANONICAL_SPINE[j];
+  }
+  return "done";
+}
+
 export function kanbanModelFile(root) {
   const garrisonHome = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
   return path.join(
@@ -353,8 +391,12 @@ export function buildBoard(model, opts = {}) {
     push({ ...cfg, id: "discuss", title: cfg.title || titleFor("discuss"), validNext: [discussForward] });
   }
 
+  const presentPhases = new Set(phases);
   phases.forEach((id, i) => {
-    const forward = i + 1 < phases.length ? phases[i + 1] : "done";
+    const unionForward = i + 1 < phases.length ? phases[i + 1] : "done";
+    // Spine phases route on the canonical successor (consistent with their
+    // template routerPrompt); non-spine phases keep the union-order neighbour.
+    const forward = forwardForPhase(id, presentPhases, unionForward);
     const validNext = GATE_PHASES.has(id) && failEdge && failEdge !== forward ? [forward, failEdge] : [forward];
     const cfg = phaseConfigFromTemplate(templates[id], id);
     push({ ...cfg, id, title: cfg.title || titleFor(id), validNext });

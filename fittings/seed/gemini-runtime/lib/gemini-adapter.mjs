@@ -23,15 +23,39 @@ export function buildArgs(config = {}) {
   return { bin: config.bin || "gemini", argv, stdinFromPrompt: true };
 }
 
-function defaultRunExec({ bin, argv, env, cwd, stdin }) {
+// SIGTERM first so the CLI can unwind and flush; SIGKILL after this grace if it
+// is still alive. Mirrors the codex adapter - the runtime fittings are
+// independent packages and must not import from one another.
+const CANCEL_GRACE_MS = 2000;
+
+// `child.pid` stays set and `child.killed` flips the moment kill() is CALLED, so
+// neither is a liveness signal. "No exit observed yet" is the real predicate.
+function childAlive(child) {
+  return !!child && child.exitCode == null && child.signalCode == null;
+}
+
+function defaultRunExec({ bin, argv, env, cwd, stdin, onSpawn }) {
   return new Promise((resolve) => {
     const child = spawn(bin, argv, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     let err = "";
+    let settled = false;
+    // Settle once: a cancel resolves the turn early with the partial buffer, and
+    // the dying child's later close must not overwrite that result.
+    const settle = (result) => {
+      if (settled) return false;
+      settled = true;
+      resolve(result);
+      return true;
+    };
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
-    child.on("close", (code) => resolve({ code, stdout: out, stderr: err }));
-    child.on("error", (e) => resolve({ code: -1, stdout: out, stderr: String(e?.message || e) }));
+    child.on("close", (code) => settle({ code, stdout: out, stderr: err }));
+    child.on("error", (e) => settle({ code: -1, stdout: out, stderr: String(e?.message || e) }));
+    // Hand the live child (plus its buffered output and an early-settle) back to
+    // the adapter, otherwise it stays local to this promise and cancel() has
+    // nothing to signal.
+    if (typeof onSpawn === "function") onSpawn({ child, partial: () => out, settle });
     child.stdin.end(stdin ?? "");
   });
 }
@@ -44,18 +68,82 @@ export class GeminiAdapter {
   }
 
   async spawn(config = {}) {
-    return { config, alive: true };
+    // proc/cancelRequested are the cancel bookkeeping: the in-flight child (parked
+    // per turn by sendTurn) and the user's Stop intent. Declared for shape honesty.
+    return { config, alive: true, proc: null, cancelRequested: false };
   }
   async awaitReady() {}
   async sendTurn(session, text) {
     const { bin, argv } = buildArgs(session.config);
-    this._pending.set(session, this._runExec({ bin, argv, env: session.config.env ?? process.env, cwd: session.config.compositionDir, stdin: text }));
+    // A prior turn's cancel must never leak into this one.
+    session.cancelRequested = false;
+    session.proc = null;
+    this._pending.set(
+      session,
+      this._runExec({
+        bin,
+        argv,
+        env: session.config.env ?? process.env,
+        cwd: session.config.compositionDir,
+        stdin: text,
+        // Park the live child on the session so cancel() can signal it. An
+        // injected runExec that ignores onSpawn leaves session.proc null and
+        // cancel() degrades to a documented no-op.
+        onSpawn: (proc) => {
+          session.proc = proc;
+        }
+      })
+    );
   }
+
+  // Real cancel (2026-07-25 web-channel run-context §9): SIGTERM the stored child,
+  // escalate to SIGKILL after a grace, and settle the in-flight turn immediately
+  // with whatever gemini already printed. teardown() kills nothing, so before this
+  // a routed gemini turn ran to completion regardless of the user's Stop.
+  async cancel(session) {
+    const proc = session?.proc ?? null;
+    // Nothing running: a no-op that deliberately does NOT set cancelRequested,
+    // which would otherwise poison the NEXT turn's awaitResponse.
+    if (!proc?.child) return false;
+    // Idempotent: a second Stop must not arm a second escalation timer.
+    if (session.cancelRequested) return true;
+    session.cancelRequested = true;
+    const { child } = proc;
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
+    if (childAlive(child)) {
+      const timer = setTimeout(() => {
+        if (!childAlive(child)) return;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, CANCEL_GRACE_MS);
+      // Never hold the gateway's event loop open on a grace timer.
+      timer.unref?.();
+    }
+    proc.settle?.({ code: -1, stdout: proc.partial?.() ?? "", stderr: "cancelled by user" });
+    return true;
+  }
+
   async awaitResponse(session) {
     const p = this._pending.get(session);
     if (!p) throw new Error("GeminiAdapter: awaitResponse without a pending sendTurn");
     this._pending.delete(session);
     const r = await p;
+    session.proc = null;
+    // A cancelled turn's child was signalled, so it "fails" with only partial
+    // output. Settle it with that partial text plus the explicit stop reason
+    // instead of throwing a runtime error the user did not cause.
+    if (session.cancelRequested) {
+      session.cancelRequested = false;
+      const partial = r.stdout ?? "";
+      return { text: partial, artifacts: scrapeArtifactPaths(partial), stoppedReason: "cancelled" };
+    }
     if (r.code !== 0) throw new Error(`gemini exited ${r.code}: ${r.stderr?.slice(0, 200)}`);
     // Capability artifacts (e.g. generated image paths) are scraped from output.
     const artifacts = scrapeArtifactPaths(r.stdout ?? "");
@@ -72,6 +160,9 @@ export class GeminiAdapter {
   }
   async teardown(session) {
     session.alive = false;
+    // Back-compat: teardown still kills nothing (cancel() is the kill primitive),
+    // but it releases the handle so a torn-down session never pins a dead child.
+    session.proc = null;
   }
 }
 

@@ -35,6 +35,13 @@ export interface KanbanDutyCell {
   model: string | null;
   provider: string | null;
   type: string | null;
+  // Agent-SDK harness knobs from the target's params. Carried on the cell so the
+  // duty-repoint (applyDutyCells) that injects the cell's target into the routing
+  // matrix does not strip them — without this, a coding duty routed through an
+  // agent-sdk target silently loses its claude_code profile (promptMode) and runs
+  // the default 12-turn cap instead of the composition's value.
+  promptMode: string | null;
+  maxTurns: number | null;
 }
 
 export interface KanbanResolvedStep {
@@ -159,7 +166,9 @@ export function computeKanbanResolvedModel(
           runtime: spec?.runtime ?? null,
           model: spec?.model ?? null,
           provider: spec?.provider ?? null,
-          type: typeof params.type === "string" ? params.type : null
+          type: typeof params.type === "string" ? params.type : null,
+          promptMode: typeof params.promptMode === "string" ? params.promptMode : null,
+          maxTurns: typeof params.maxTurns === "number" ? params.maxTurns : null
         };
       });
       if (Object.keys(perLevel).length) cells[id] = perLevel;

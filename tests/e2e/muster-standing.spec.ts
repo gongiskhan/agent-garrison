@@ -5,7 +5,9 @@ import yaml from "js-yaml";
 
 // The Muster Standing Fittings section (S5b): slot cards for the standing
 // (non-duty) faculty slots, each with its current fitting(s), config form, a
-// swap picker, health, and — for the runtimes slot — the create-runtime flow.
+// swap picker, and health. Runtimes are NOT on this tab: they have their own
+// first-class Muster tab (RuntimesPanel — featured primary card, secondary
+// grid, set-primary/create/swap/test flows), covered below.
 // A dedicated fixture composition seeds real, registered fittings so the slots
 // have content and the swap picker has faculty-scoped candidates. COMPOSITIONS_DIR
 // is the repo's compositions/ (cwd-relative), shared with the dev server.
@@ -31,7 +33,10 @@ function writeFixture(): void {
           channels: [{ id: "web-channel-default", config: { port: 27083 } }],
           runtimes: [
             { id: "claude-code-runtime", config: {} },
-            { id: "agent-sdk-runtime", config: {} }
+            { id: "agent-sdk-runtime", config: {} },
+            // garrison-call sits in the runtimes slot but provides no engine —
+            // it must render as a "support" card with no Set-as-primary/Test.
+            { id: "garrison-call", config: {} }
           ]
         },
         duties: ["plan", "implement", "review", "test"].map((id) => ({
@@ -71,17 +76,107 @@ test("(a) the Standing Fittings section renders slot cards with the current fitt
   // dev server that route compiles lazily on first hit, so allow for the compile.
   await expect(page.getByTestId("standing-section")).toBeVisible({ timeout: 15000 });
 
-  // The eight standing slot cards are present, and stationed fittings show.
+  // The standing slot cards are present, and stationed fittings show.
   await expect(page.getByTestId("standing-slot-gateway")).toBeVisible();
-  await expect(page.getByTestId("standing-slot-runtimes")).toBeVisible();
   await expect(page.getByTestId("standing-slot-channels")).toBeVisible();
   await expect(page.getByTestId("standing-fitting-http-gateway")).toBeVisible();
-  await expect(page.getByTestId("standing-fitting-agent-sdk-runtime")).toBeVisible();
 
-  // The runtimes slot exposes the create-runtime entry point.
-  await expect(page.getByTestId("standing-new-runtime")).toBeVisible();
+  // Runtimes are NOT rendered here — they live on their own Muster tab.
+  await expect(page.getByTestId("standing-slot-runtimes")).toHaveCount(0);
+  await expect(page.getByTestId("standing-fitting-agent-sdk-runtime")).toHaveCount(0);
+  await expect(page.getByTestId("standing-new-runtime")).toHaveCount(0);
 
   expect(appErrors(errors)).toEqual([]);
+});
+
+test("the Runtimes tab features the primary card and a secondary grid", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("runtimes-panel")).toBeVisible({ timeout: 15000 });
+
+  // No policy file in the fixture → the default primary (claude-code-runtime)
+  // is the featured card, wearing the primary badge; the other runtime sits in
+  // the secondary grid with a Set-as-primary action.
+  await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible();
+  await expect(page.getByTestId("rt-primary-badge-claude-code-runtime")).toBeVisible();
+  await expect(page.getByTestId("rt-set-primary-agent-sdk-runtime")).toBeVisible();
+
+  // Spec chips summarise config without unfolding the form (claude-code-runtime
+  // carries provider/model defaults).
+  await expect(page.getByTestId("rt-specs-claude-code-runtime")).toBeVisible();
+
+  // garrison-call is stationed under runtimes but provides no engine: it renders
+  // as a "support" card and is NOT offered Set-as-primary or Test.
+  await expect(page.getByTestId("rt-support-garrison-call")).toBeVisible();
+  await expect(page.getByTestId("rt-set-primary-garrison-call")).toHaveCount(0);
+  await expect(page.getByTestId("rt-test-garrison-call")).toHaveCount(0);
+
+  // Config folds by default on runtime cards; add/create entry points show.
+  await expect(page.getByTestId("rt-cfg-toggle-claude-code-runtime")).toBeVisible();
+  await expect(page.getByTestId("runtimes-add-fitting")).toBeVisible();
+  await expect(page.getByTestId("runtimes-new-runtime")).toBeVisible();
+
+  expect(appErrors(errors)).toEqual([]);
+});
+
+test("a runtime card text-config edit autosaves to the manifest (debounced)", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible({ timeout: 15000 });
+
+  // Unfold the primary runtime's config and edit its base_url (a debounced text
+  // field — the code path that previously dropped edits on tab-away).
+  await page.getByTestId("rt-cfg-toggle-claude-code-runtime").click();
+  const urlField = page.getByTestId("standing-config-runtimes-claude-code-runtime-base_url");
+  await expect(urlField).toBeVisible();
+  await urlField.fill("http://127.0.0.1:11434");
+
+  // Debounced autosave (no Save button) lands in the composition manifest.
+  await expect(async () => {
+    const manifest = yaml.load(fs.readFileSync(path.join(FIXTURE_DIR, "apm.yml"), "utf8")) as {
+      "x-garrison": { composition: { selections: { runtimes: Array<{ id: string; config?: Record<string, unknown> }> } } };
+    };
+    const cc = manifest["x-garrison"].composition.selections.runtimes.find((r) => r.id === "claude-code-runtime");
+    expect(cc?.config?.base_url).toBe("http://127.0.0.1:11434");
+  }).toPass({ timeout: 10000 });
+});
+
+test("Test runs a runtime connection check and renders the result", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible({ timeout: 15000 });
+
+  await page.getByTestId("rt-test-claude-code-runtime").click();
+  const result = page.getByTestId("rt-test-result-claude-code-runtime");
+  await expect(result).toBeVisible({ timeout: 15000 });
+  // At least one check row rendered inside the result (accessible status region).
+  await expect(result).toHaveAttribute("role", "status");
+  await expect(result.locator("div").first()).toBeVisible();
+});
+
+test("Remove drops a secondary runtime and persists", async ({ page }) => {
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("rt-set-primary-agent-sdk-runtime")).toBeVisible({ timeout: 15000 });
+
+  await page.getByTestId("rt-remove-agent-sdk-runtime").click();
+
+  // The card disappears and the removal is durable across a reload.
+  await expect(page.getByTestId("rt-set-primary-agent-sdk-runtime")).toHaveCount(0);
+  await page.reload();
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId("rt-set-primary-agent-sdk-runtime")).toHaveCount(0);
+
+  const manifest = yaml.load(fs.readFileSync(path.join(FIXTURE_DIR, "apm.yml"), "utf8")) as {
+    "x-garrison": { composition: { selections: { runtimes: Array<{ id: string }> } } };
+  };
+  expect(manifest["x-garrison"].composition.selections.runtimes.map((r) => r.id)).not.toContain("agent-sdk-runtime");
 });
 
 test("(b) the swap picker opens and lists faculty-scoped candidates", async ({ page }) => {
@@ -118,8 +213,8 @@ test("(c) picking a candidate swaps the fitting and persists", async ({ page }) 
 
 test("(d) the create-runtime flow opens a clone-from-template picker", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
-  await page.getByTestId("section-nav-fittings").click();
-  await page.getByTestId("standing-new-runtime").click();
+  await page.getByTestId("section-nav-runtimes").click();
+  await page.getByTestId("runtimes-new-runtime").click();
 
   const modal = page.getByTestId("standing-create-modal");
   await expect(modal).toBeVisible();
@@ -145,13 +240,18 @@ test("(f) config folds by default and the fitting files editor opens", async ({ 
   await expect(editor.getByText("apm.yml")).toBeVisible({ timeout: 15000 });
 });
 
-test("the primary control writes the composition routing policy", async ({ page }) => {
+test("Set as primary promotes the runtime and writes the routing policy", async ({ page }) => {
   await page.goto(`/muster?composition=${FIXTURE_ID}`);
-  await page.getByTestId("section-nav-fittings").click();
-  const primary = page.getByTestId("standing-primary-agent-sdk-runtime");
-  await expect(primary).toHaveText(/make primary/i);
-  await primary.click();
-  await expect(primary).toHaveText(/primary runtime/i);
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible();
+
+  await page.getByTestId("rt-set-primary-agent-sdk-runtime").click();
+
+  // The promoted runtime becomes the featured primary card (badge and all);
+  // the former primary drops into the secondary grid with its own promote action.
+  await expect(page.getByTestId("rt-primary-agent-sdk-runtime")).toBeVisible();
+  await expect(page.getByTestId("rt-primary-badge-agent-sdk-runtime")).toBeVisible();
+  await expect(page.getByTestId("rt-set-primary-claude-code-runtime")).toBeVisible();
 
   const policy = JSON.parse(
     fs.readFileSync(path.join(FIXTURE_DIR, ".garrison", "routing.json"), "utf8")
@@ -205,6 +305,20 @@ test("(e) no horizontal overflow at 390px", async ({ page }) => {
   // Open the swap picker (the widest surface) before measuring.
   await page.getByTestId("standing-swap-gateway-http-gateway").click();
   await expect(page.getByTestId("standing-swap-modal")).toBeVisible();
+
+  const overflow = await page.evaluate(() => {
+    const el = document.documentElement;
+    return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+  });
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+});
+
+test("(e2) the Runtimes tab has no horizontal overflow at 390px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  await page.getByTestId("section-nav-runtimes").click();
+  await expect(page.getByTestId("runtimes-panel")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible();
 
   const overflow = await page.evaluate(() => {
     const el = document.documentElement;

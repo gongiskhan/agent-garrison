@@ -55,7 +55,15 @@ export function applyPatch(steps, currentIndex, patch) {
   const out = steps.slice();
   switch (patch.kind) {
     case "insert_before":
-      out.splice(currentIndex, 0, normaliseInserted(patch.newStep));
+      // Pass the ids already in play: the fix prompt shows the model the
+      // failing step's full JSON (id included), so it can echo that id back in
+      // newStep. That would put TWO steps with the same id in one run, which
+      // breaks the step-id uniqueness invariant validateAutomation enforces at
+      // authoring time — the caches are keyed (automationId, stepId,
+      // fingerprint), so the inserted step would write its action/assertion
+      // into the real check's cache slot and be replayed AS that check on the
+      // next run, and per-step result lookups would resolve ambiguously.
+      out.splice(currentIndex, 0, normaliseInserted(patch.newStep, new Set(out.map((s) => s?.id).filter(Boolean))));
       return out;
     case "replace_current": {
       // A replacement still fulfills the same logical plan item. Preserve the
@@ -80,9 +88,15 @@ export function applyPatch(steps, currentIndex, patch) {
   }
 }
 
-function normaliseInserted(step) {
+// `takenIds` (insert paths only) forces a fresh id when the model echoes one
+// that is already in the run. replace_current deliberately does NOT pass it —
+// it replaces in place, so reusing the id is correct and creates no duplicate.
+function normaliseInserted(step, takenIds) {
   if (!step || typeof step !== "object") throw new Error("patch newStep must be a step object");
-  const id = step.id && String(step.id).trim() ? step.id : `fix-${Math.random().toString(36).slice(2, 8)}`;
+  const mint = () => `fix-${Math.random().toString(36).slice(2, 8)}`;
+  const proposed = step.id && String(step.id).trim() ? String(step.id) : null;
+  let id = proposed && !(takenIds && takenIds.has(proposed)) ? proposed : mint();
+  while (takenIds && takenIds.has(id)) id = mint();
   return { ...step, id };
 }
 
@@ -98,7 +112,14 @@ export function validatePatch(value) {
   const kind = value.patch ?? value.kind;
   const reasoning = typeof value.reasoning === "string" ? value.reasoning : "";
   if (kind === "skip_current") return { kind: "skip_current", reasoning };
-  if (kind === "abort") return { kind: "abort", reasoning };
+  if (kind === "abort") {
+    // Two very different situations end in abort, and conflating them is how a
+    // check that was never actually exercised gets reported as an app defect.
+    // Default to the conservative reading (a real product failure) so a model
+    // that omits the field can never silently downgrade a genuine defect.
+    const cause = value.cause === "check-unrunnable" ? "check-unrunnable" : "outcome-not-met";
+    return { kind: "abort", reasoning, cause };
+  }
   if (kind === "pause_for_user") {
     return { kind: "pause_for_user", reasoning, userInstructions: value.userInstructions ?? "Act on the page, then Continue." };
   }

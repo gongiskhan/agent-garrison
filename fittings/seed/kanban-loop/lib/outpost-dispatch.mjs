@@ -51,7 +51,14 @@ export function resolveOutpostDispatch(card, outposts = []) {
 //     a single blocking exec.run. Do not grow this function toward that — it is the seam,
 //     not the destination.
 export function outpostRunFn(daemonUrl, outpostName) {
-  const base = String(daemonUrl || "http://127.0.0.1:23702").replace(/\/+$/, "");
+  // No baked-in default. A literal here pins ONE instance family (it used to
+  // carry the codex-offset port, so on dev and prod it silently addressed an
+  // instance that isn't running). The daemon URL comes from the composition
+  // (`outpost_host_url`, port-shifted by applyPortOffsetToConfig); a caller that
+  // cannot supply it must fail loudly, not guess.
+  const raw = String(daemonUrl ?? "").trim();
+  if (!raw) throw new Error("outpostRunFn: daemonUrl is required (no default — it is instance-specific)");
+  const base = raw.replace(/\/+$/, "");
   return async ({ prompt }) => {
     const b64 = Buffer.from(String(prompt ?? ""), "utf8").toString("base64");
     // Decode the prompt on the remote and pipe it into claude print-mode. printf keeps the

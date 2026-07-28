@@ -5,6 +5,8 @@ import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "./claude-home";
 import { getInternalToken } from "./internal-token";
+import { currentProfile, profilePort } from "./instance-profile";
+import { publishPortToTailnet } from "./tailnet-publish";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
@@ -32,6 +34,40 @@ const PROJECTED_CONFIG_ENV_PATTERN = /^GARRISON_[A-Z0-9]+_[A-Z0-9_]+$/;
 // separators DROPPED (file-browser reads GARRISON_FILEBROWSER_ROOT) and the
 // key's separators normalised to "_". Only scalar values (string, number,
 // boolean) project; nested objects/arrays are skipped.
+const LOOPBACK_BIND = /^(?:127\.0\.0\.1|localhost|::1|\[::1\])$/i;
+// The env key a fitting server reads its port from, e.g. drill -> GARRISON_DRILL_PORT.
+export function ownPortEnvKey(fittingId: string): string {
+  return `GARRISON_${fittingId.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}_PORT`;
+}
+
+// Guarantee the spawn env names a port for THIS instance.
+//
+// Without this, a caller that cannot resolve the composition config (the Views
+// Start/Restart routes when no composition is in the `running` state) spawned
+// the fitting with vault-only env. The server then fell through to its own
+// baked-in default, which silently belongs to whichever instance family that
+// literal was written for — so a dev-profile fitting bound another instance's
+// port, answered for it, and read the wrong GARRISON_HOME. eager-boot.ts
+// already documents this failure ("with prod and dev running side by side it is
+// fatal"); fixing it per-caller left the two routes behind, so the guarantee
+// lives here instead, at the single point every caller funnels through.
+//
+// The declared default_port is a BASE-family value (the committed 7xxx map);
+// profilePort shifts it into the running profile. A caller that DID resolve the
+// config always wins — this only fills a gap, it never overrides.
+function withGuaranteedPort(
+  entry: LibraryEntry,
+  extraEnv: Record<string, string> | undefined
+): Record<string, string> {
+  const env = { ...(extraEnv ?? {}) };
+  const key = ownPortEnvKey(entry.id);
+  if (env[key]) return env;
+  const base = entry.metadata?.default_port;
+  if (typeof base !== "number" || !Number.isInteger(base)) return env;
+  env[key] = String(profilePort(base));
+  return env;
+}
+
 export function ownPortConfigEnv(
   fittingId: string,
   config: Record<string, unknown>
@@ -42,6 +78,15 @@ export function ownPortConfigEnv(
     if (value === undefined || value === null) continue;
     if (typeof value === "object") continue;
     const normKey = key.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+    // bind_host is a deployment concern owned by the instance-wide
+    // GARRISON_BIND_HOST (dev=0.0.0.0 for direct tailscale-IP access,
+    // prod=127.0.0.1 behind `tailscale serve`). A LOOPBACK value here is just the
+    // apm.yml schema default baked into the composition, NOT a deliberate choice -
+    // projecting it as GARRISON_<ID>_BIND_HOST would outrank and defeat the
+    // instance knob. Skip it so GARRISON_BIND_HOST governs. A NON-loopback value
+    // (e.g. 0.0.0.0 to expose a single fitting to the LAN) is a real override and
+    // still projects + wins.
+    if (normKey === "BIND_HOST" && LOOPBACK_BIND.test(String(value).trim())) continue;
     env[`GARRISON_${id}_${normKey}`] = String(value);
   }
   return env;
@@ -354,6 +399,34 @@ export interface StartOptions {
   healOnEnvDrift?: boolean;
 }
 
+// Fire-and-forget: once a just-started own-port fitting has written its status
+// file (which carries the bound port), front that port on the HTTPS tailnet so
+// its view/links work from a phone/iPad (issue #6). PROD ONLY - only prod is
+// published to the always-on tailnet address; a dev/codex start must never remap
+// it. Idempotent (publishPortToTailnet keeps an existing mapping), so calling it
+// on every start heals a fitting that came up after the last redeploy without
+// waiting for scripts/tailnet-serve-views.mjs to re-run.
+function publishToTailnetAfterStart(fittingId: string): void {
+  if (currentProfile() !== "prod") return;
+  void (async () => {
+    for (let i = 0; i < 20; i++) {
+      let port: number | null = null;
+      try {
+        const raw = await readFile(statusFilePath(fittingId), "utf8");
+        const parsed = JSON.parse(raw) as { port?: number };
+        if (typeof parsed.port === "number" && Number.isFinite(parsed.port)) port = parsed.port;
+      } catch {
+        /* status file not written yet */
+      }
+      if (port !== null) {
+        await publishPortToTailnet(port).catch(() => {});
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  })();
+}
+
 export async function startOwnPortFitting(
   entry: LibraryEntry,
   extraEnv?: Record<string, string>,
@@ -380,7 +453,14 @@ async function startOwnPortFittingLocked(
     return { ok: false, error: `fitting ${entry.id} is not an own-port Fitting`, status: 400 };
   }
   const consumesVault = entryConsumesVault(entry);
+  // Derived from the CALLER's env, before the port guarantee below fills a gap:
+  // the injected port is Garrison's own bookkeeping, not evidence that the
+  // caller delivered secrets/config, and treating it as such would flip the
+  // vault-heal semantics for a caller that legitimately passed nothing.
   const hasExtraEnv = extraEnv !== undefined && Object.keys(extraEnv).length > 0;
+  // From here on the env ALWAYS names a port for this instance. Applied before
+  // the fingerprint so drift detection and the spawn agree on one env.
+  extraEnv = withGuaranteedPort(entry, extraEnv);
   const record = await readSpawnRecord(entry.id);
   let livePid = await runningStatusPid(entry.id);
   // Boot window: a child Garrison spawned that has not yet written its status
@@ -449,6 +529,7 @@ async function startOwnPortFittingLocked(
       }
     }
     if (!heal) {
+      publishToTailnetAfterStart(entry.id);
       return { ok: true, alreadyRunning: true };
     }
   }
@@ -528,6 +609,7 @@ async function startOwnPortFittingLocked(
     secretsDelivered: !consumesVault || hasExtraEnv,
     envFingerprint: envFingerprintForExtraEnv(extraEnv)
   });
+  publishToTailnetAfterStart(entry.id);
   if (heal) {
     return { ok: true, pid: child.pid, healed: true, healReason: healReason ?? "vault" };
   }

@@ -396,6 +396,103 @@ describe("Codex secondary-instance isolation", () => {
     expect(ports.get(7099)).toBe("scheduler");
   });
 
+  // The assertion above resolves `selected.config?.port ?? metadata.default_port`
+  // — and since every own-port selection carries an explicit port, the
+  // `?? default_port` branch never executed and the declared defaults went
+  // unchecked. They had all drifted to the codex family (base + 20000), so any
+  // spawn that failed to project a port bound the CODEX instance's port. That is
+  // not hypothetical: a dev-profile drill was found live on 0.0.0.0:27096,
+  // squatting the port of the codex instance running on the same box.
+  //
+  // The fallback is what gets used precisely when something has gone wrong, so
+  // pin it directly rather than through the config that normally shadows it.
+  it("keeps every own-port fitting's declared default_port on the base family, matching the composition", () => {
+    const composition = readYaml(path.join(ROOT, "compositions", "default", "apm.yml"));
+    const selections = composition["x-garrison"].composition.selections as Record<
+      string,
+      Array<{ id: string; config?: Record<string, unknown> }>
+    >;
+    const declaredPort = new Map<string, number>();
+    for (const entries of Object.values(selections)) {
+      for (const selected of entries ?? []) {
+        const port = selected.config?.port;
+        if (typeof port === "number") declaredPort.set(selected.id, port);
+      }
+    }
+
+    const seedDir = path.join(ROOT, "fittings", "seed");
+    const fittingIds = readdirSync(seedDir).filter((id) =>
+      existsSync(path.join(seedDir, id, "apm.yml"))
+    );
+    let checked = 0;
+
+    for (const id of fittingIds) {
+      const metadata = readYaml(path.join(seedDir, id, "apm.yml"))["x-garrison"] ?? {};
+      if (metadata.own_port !== true) continue;
+      const declared = metadata.default_port;
+      if (declared === undefined) continue;
+      // coord-agentmail sits OUTSIDE the offset model entirely: 28765 is not a
+      // base port and no composition declares one for it, so all three
+      // instances resolve the same listener. That is a real isolation gap, but
+      // the port is baked into MCP registrations held by other sessions, so
+      // moving it is a deliberate migration rather than a rename. Exempted
+      // explicitly, not silently, so it stays visible.
+      if (id === "coord-agentmail") continue;
+      checked++;
+
+      // The offset model only works if the declared value is a BASE port: every
+      // profile is the committed map plus its offset, so a default already
+      // carrying an offset resolves into another instance's range.
+      expect(
+        declared,
+        `${id}: default_port ${declared} is in another instance's family; it must be a base (7xxx) port`
+      ).toBeLessThan(20000);
+
+      const base = declaredPort.get(id);
+      if (base !== undefined) {
+        expect(
+          declared,
+          `${id}: default_port ${declared} disagrees with the composition's ${base}, so an unprojected start binds a different port than a projected one`
+        ).toBe(base);
+      }
+    }
+
+    expect(checked, "expected own-port fittings to be discovered").toBeGreaterThan(10);
+  });
+
+  // Companion to the above: the manifest is only half the fallback. Each server
+  // script carries its own literal, and the two drifting apart reintroduces the
+  // same bug from the other side.
+  it("keeps each own-port server script's fallback literal off the other instances' families", () => {
+    const seedDir = path.join(ROOT, "fittings", "seed");
+    // See the exemption note above.
+    const EXEMPT = new Set(["coord-agentmail"]);
+    const offenders: string[] = [];
+    for (const id of readdirSync(seedDir)) {
+      if (EXEMPT.has(id)) continue;
+      const scriptsDir = path.join(seedDir, id, "scripts");
+      if (!existsSync(scriptsDir)) continue;
+      for (const file of readdirSync(scriptsDir).filter((f) => f.endsWith(".mjs"))) {
+        const source = readFileSync(path.join(scriptsDir, file), "utf8");
+        for (const raw of source.split("\n")) {
+          const line = raw.trim();
+          // Comments are prose: discussing the codex family is legal.
+          if (line.startsWith("//") || line.startsWith("*")) continue;
+          // Durations share the 5-digit shape; only PORT-bearing positions count.
+          if (/_MS\b|TIMEOUT|INTERVAL|DELAY/i.test(line)) continue;
+          const match = line.match(
+            /[A-Z_]*PORT[A-Z_]*\s*=\s*(?:Number\()?(\d{5})\b|[A-Z_]*PORT[A-Z_]*\s*(?:\|\||\?\?)\s*"?(\d{5})\b|\bport:\s*(\d{5})\b|127\.0\.0\.1:(\d{5})\b/
+          );
+          const value = match && Number(match[1] ?? match[2] ?? match[3] ?? match[4]);
+          if (value && value >= 20000) offenders.push(`${id}/scripts/${file}: ${line}`);
+        }
+      }
+    }
+    expect(offenders, `fallback ports must be base-family values:\n${offenders.join("\n")}`).toEqual(
+      []
+    );
+  });
+
   it("keeps every shipped default profile on the primary state roots", () => {
     for (const profile of ["default", "default-build", "default-economy", "default-premium"]) {
       const composition = readYaml(path.join(ROOT, "compositions", profile, "apm.yml"));
@@ -728,5 +825,66 @@ describe("Codex secondary-instance isolation", () => {
     expect(browserSkill).toContain("garrison-browser tabs");
     expect(drillSkill).not.toContain("~/.garrison/orchestrator/policy.json");
     expect(drillSkill).toContain("$GARRISON_POLICY_PATH");
+  });
+
+  // The outpost daemon URL is instance-specific (dev 3702 / prod 4702 / codex
+  // 23702). Three sites baked the CODEX literal into code every profile runs,
+  // so on dev and prod the kanban engine probed a daemon that does not exist,
+  // `outposts` came back empty, and EVERY card with an `outpost` affinity parked
+  // as "outpost offline" — the failure looked like a dead Mac, not a wrong port.
+  it("resolves the outpost daemon URL from config, never from a baked-in port", () => {
+    const engine = readFileSync(
+      path.join(ROOT, "fittings", "seed", "kanban-loop", "lib", "engine.mjs"),
+      "utf8"
+    );
+    const dispatch = readFileSync(
+      path.join(ROOT, "fittings", "seed", "kanban-loop", "lib", "outpost-dispatch.mjs"),
+      "utf8"
+    );
+    const hostDaemon = readFileSync(path.join(ROOT, "scripts", "outpost-host.mjs"), "utf8");
+
+    // No profile-specific literal survives in code any profile executes.
+    for (const [name, source] of [
+      ["engine.mjs", engine],
+      ["outpost-dispatch.mjs", dispatch]
+    ] as const) {
+      expect(source.includes("23702"), `${name} hardcodes the codex outpost port`).toBe(false);
+      expect(source.includes("4702"), `${name} hardcodes the prod outpost port`).toBe(false);
+      expect(source.includes("3702"), `${name} hardcodes an outpost port`).toBe(false);
+    }
+
+    // The engine reads the projected composition key.
+    expect(engine).toContain("GARRISON_KANBANLOOP_OUTPOST_HOST_URL");
+
+    // The bare-run fallback in the daemon is the BASE of the family (dev), per
+    // instance-profile.ts's "an unset profile IS dev" doctrine — not codex.
+    expect(hostDaemon).toContain('process.env.GARRISON_OUTPOST_PORT || "3702"');
+    expect(hostDaemon).not.toContain("23702");
+  });
+
+  it("declares outpost_host_url in every composition that stations kanban-loop", () => {
+    const compositionsDir = path.join(ROOT, "compositions");
+    let checked = 0;
+    for (const id of readdirSync(compositionsDir)) {
+      const manifest = path.join(compositionsDir, id, "apm.yml");
+      if (!existsSync(manifest)) continue;
+      const doc = yaml.load(readFileSync(manifest, "utf8")) as Record<string, unknown>;
+      const composition = (doc?.["x-garrison"] as Record<string, unknown> | undefined)
+        ?.composition as Record<string, unknown> | undefined;
+      const selections = composition?.selections as
+        | Record<string, Array<{ id?: string; config?: Record<string, unknown> }>>
+        | undefined;
+      if (!selections) continue;
+      for (const entries of Object.values(selections)) {
+        for (const entry of entries ?? []) {
+          if (entry?.id !== "kanban-loop") continue;
+          checked += 1;
+          // Base-family value: shiftLoopbackUrl rewrites the loopback port per
+          // profile, so the committed literal must be the 3702 base.
+          expect(entry.config?.outpost_host_url, `${id} kanban-loop`).toBe("http://127.0.0.1:3702");
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });

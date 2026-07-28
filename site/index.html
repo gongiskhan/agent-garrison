@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Garrison: the structured base for your AI development setup</title>
-<meta name="description" content="Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code setup." />
+<title>Garrison: the structured base for your AI ecosystem</title>
+<meta name="description" content="Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code / Codex / Agent SDK setup, or any other CLI/SDK." />
 <link rel="icon" href="brand/icon-512.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -180,6 +180,26 @@
     max-width: 760px;
     margin: 0;
   }
+  .pitch { max-width: 720px; }
+  .pitch p {
+    font-family: var(--serif);
+    font-size: 17.5px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    margin: 0 0 18px;
+  }
+  .pitch p:last-child { margin-bottom: 0; }
+  .compdef {
+    max-width: 680px;
+    margin: 34px 0 0;
+    padding: 16px 22px;
+    background: var(--sage-soft);
+    border-left: 3px solid var(--brass);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.6;
+    color: var(--ink-2);
+  }
 
   /* personas */
   .personas {
@@ -306,6 +326,41 @@
     background: var(--brass);
   }
   .fitting li b { color: var(--ink); font-weight: 600; }
+  .fitting .problem {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 16.5px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    border-left: 2px solid var(--alarm);
+    padding-left: 16px;
+    margin: 0 0 20px;
+    max-width: 54ch;
+  }
+  .fitting .seedlabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--sage-2);
+    margin: 0 0 12px;
+  }
+  .fitting .swap {
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px dashed var(--rule);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--mute);
+    max-width: 62ch;
+  }
+
+  /* ---------- the veterans ---------- */
+  .vets {
+    background: var(--paper-2);
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
   .fitting-panel .pulse {
     transform-origin: center;
     transform-box: fill-box;
@@ -336,6 +391,14 @@
   .shot .cap { padding: 16px 20px 20px; }
   .shot h3 { font-family: var(--serif); font-size: 19px; font-weight: 600; margin: 0 0 6px; }
   .shot p { margin: 0; font-size: 13.5px; color: var(--mute); line-height: 1.55; }
+  .shot a.img, .shot-xl a.img { display: block; }
+  .shot-xl { border: 1px solid var(--rule); background: white; margin-top: 24px; }
+  .shot-xl img { width: 100%; display: block; border-bottom: 1px solid var(--rule); }
+  .shot-xl .cap { padding: 18px 22px 22px; }
+  .shot-xl h3 { font-family: var(--serif); font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  .shot-xl p { margin: 0; font-size: 14px; color: var(--mute); line-height: 1.6; max-width: 88ch; }
+  .features .groupkick { margin: 64px 0 0; }
+  .features .shots { margin-top: 24px; }
   .plains {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
@@ -388,7 +451,7 @@
       <h1 class="headword" data-i18n="hero.headword">gar·ri·son</h1>
       <p class="gram" data-i18n-html="hero.gram">/&#712;&#609;ar&#618;s&#601;n/ &nbsp;&middot;&nbsp; <i>noun</i> &nbsp;&middot;&nbsp; [O.Fr. <i>garison</i>, “defence, provision”; cf. L. <i>praesidium</i>]</p>
       <p class="classic" data-i18n="hero.classic">A fortified post where a body of troops is stationed to hold and defend it.</p>
-      <p class="gloss" data-i18n-html="hero.gloss">In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed: <b>faculties</b> (capability slots) filled by swappable <b>fittings</b>, an <b>Orchestrator</b> directing, all quartered over your own Claude Code setup in the <b>Quarters</b>.</p>
+      <p class="gloss" data-i18n-html="hero.gloss">In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed: <b>faculties</b> (capability slots) filled by swappable <b>fittings</b>, an <b>Orchestrator</b> directing, all quartered over your own Claude Code / Codex / Agent SDK setup (or any other CLI/SDK) in the <b>Quarters</b>. Composed the way <b>veterans</b> run it.</p>
     </div>
     <div class="logo"><img src="brand/icon-512.png" alt="Garrison: a wheat palisade fence on deep forest green" data-i18n-alt="alt.logo" width="168" height="168" /></div>
   </div>
@@ -398,8 +461,14 @@
 <section class="what">
   <div class="wrap">
     <p class="kicker" data-i18n="what.kicker">01 &middot; The base</p>
-    <h2 class="big" data-i18n="what.line">The structured base for your whole AI development setup.</h2>
-    <p class="differentiator" data-i18n="what.diff">Every tool, model, runtime, skill, and setting in one place, swappable in a click. Try anything new without rebuilding your workflow; assemble agent systems like Hermes or OpenClaw, reined in and transparent. Platform, CLI, and model agnostic.</p>
+    <h2 class="big" data-i18n="what.line">The structured base for your whole AI ecosystem.</h2>
+    <div class="pitch">
+      <p data-i18n="what.p1">Working with AI agents means keeping up with too much: which tools are best right now, which MCPs, which models, which skills, what each can actually do. You need expertise in five areas to get good work out of one agent.</p>
+      <p data-i18n="what.p2">Then comes the juggling: platforms, tools, providers, and models, each with its own setup, accounts, and way of doing things.</p>
+      <p data-i18n="what.p3">No single platform solves this, and none is coming soon. The big providers (Anthropic, OpenAI) build generalist tools that don't bend to your workflow; the small ones do one thing well and nothing else.</p>
+      <p data-i18n="what.p4">Garrison is the base where it all comes together. Pick the tools, providers, and harnesses you want; Garrison makes them work as one system. Start from curated compositions that veterans run daily, then change anything: adjust by configuration, or clone a part and redo it. Opinionated, never rigid.</p>
+    </div>
+    <p class="compdef" data-i18n-html="what.compdef">A <b>composition</b> is a chosen set of fittings filling the faculties: reasonable defaults, fully swappable, customizable with no development knowledge.</p>
   </div>
 </section>
 
@@ -468,7 +537,7 @@
           </g>
         </svg>
         <h3 data-i18n="o1.h">Operatives are model-agnostic.</h3>
-        <p data-i18n="o1.p">The Orchestrator, the operative's single entry point, routes each task to the right runtime, model, effort, and skills.</p>
+        <p data-i18n="o1.p">The Orchestrator, the operative's single entry point, routes each task to the right runtime, model, effort, and skills. Any runtime can hold the primary post; the rest take delegations.</p>
       </article>
 
       <!-- II. secure -->
@@ -517,7 +586,7 @@
           <path d="M388 196 v26 l6 -7 l5 11 l7 -3 l-5 -11 l9 -1 Z" fill="#e9dcb0" stroke="#141f18" stroke-width="1"/>
         </svg>
         <h3 data-i18n="o3.h">Opinionated, but completely flexible.</h3>
-        <p data-i18n="o3.p">Garrison ships the defaults of daily AI development; swapping a fitting is one click.</p>
+        <p data-i18n="o3.p">Garrison ships the defaults of the daily AI ecosystem; swapping a fitting is one click.</p>
       </article>
 
       <!-- IV. transparent -->
@@ -584,7 +653,7 @@
       <!-- VI. compose, don't own -->
       <article class="order">
         <p class="num">VI</p>
-        <svg viewBox="0 0 560 300" role="img" aria-label="A thin Garrison layer arranging blocks over an intact ~/.claude base; a crossed-out layer that swallows the base">
+        <svg viewBox="0 0 560 300" role="img" aria-label="A thin Garrison layer arranging blocks over an intact ~/.claude and ~/.codex base; a crossed-out layer that swallows the base">
           <g transform="translate(60,40)">
             <rect x="0" y="0" width="300" height="30" class="o-line" fill="rgba(216,168,46,0.1)"/>
             <text x="150" y="20" text-anchor="middle" class="o-label">Garrison &middot; arranges</text>
@@ -593,7 +662,7 @@
             <rect x="170" y="48" width="60" height="34" class="o-line wheat o-fill"/>
             <rect x="246" y="48" width="36" height="34" class="o-line soft"/>
             <rect x="0" y="98" width="300" height="60" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
-            <text x="150" y="134" text-anchor="middle" class="o-label">~/.claude &middot; whole and visible</text>
+            <text x="150" y="134" text-anchor="middle" class="o-label">~/.claude &middot; ~/.codex &middot; whole and visible</text>
           </g>
           <g transform="translate(410,80)">
             <rect x="0" y="0" width="100" height="86" class="o-line soft"/>
@@ -606,7 +675,7 @@
           </g>
         </svg>
         <h3 data-i18n="o6.h">Compose, don't own.</h3>
-        <p data-i18n="o6.p">Garrison arranges your real ~/.claude; it never replaces your tools or traps you in a runtime of its own.</p>
+        <p data-i18n="o6.p">Garrison arranges your real ~/.claude, ~/.codex, ~/.gemini; it never replaces your tools or traps you in a runtime of its own.</p>
       </article>
 
       <!-- VII. local-first -->
@@ -666,33 +735,37 @@
         <p data-i18n="o8.p">The Improver reads every session, sharpening your skills, routing, and memory with use.</p>
       </article>
 
-      <!-- IX. plan before build -->
+      <!-- IX. distributed to outposts -->
       <article class="order">
         <p class="num">IX</p>
-        <svg viewBox="0 0 560 300" role="img" aria-label="Board lanes flowing discuss, plan, implement, with a plan document acting as a gate">
-          <rect x="50" y="70" width="130" height="160" class="o-line soft"/>
-          <text x="115" y="94" text-anchor="middle" class="o-label">discuss</text>
-          <rect x="66" y="110" width="98" height="26" class="o-line soft o-fill"/>
-          <rect x="66" y="146" width="98" height="26" class="o-line soft o-fill"/>
-          <path d="M180 150 H210" class="o-line wheat"/>
-          <rect x="212" y="70" width="130" height="160" class="o-line soft"/>
-          <text x="277" y="94" text-anchor="middle" class="o-label">plan</text>
-          <g transform="translate(247,116)">
-            <path d="M0 0 h44 l16 16 v52 h-60 Z" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
-            <path d="M44 0 v16 h16" class="o-line wheat"/>
-            <line x1="10" y1="30" x2="50" y2="30" class="o-line soft"/>
-            <line x1="10" y1="44" x2="50" y2="44" class="o-line soft"/>
-            <line x1="10" y1="58" x2="38" y2="58" class="o-line soft"/>
+        <svg viewBox="0 0 560 300" role="img" aria-label="A base holding memory, coordination, codebase, vault keys and improvements, fanning tasks out to outposts: a second machine, a cloud box, a container, a GPU box">
+          <rect x="30" y="86" width="180" height="128" class="o-line" fill="rgba(216,168,46,0.08)"/>
+          <text x="120" y="112" text-anchor="middle" class="o-label" style="letter-spacing:2px">BASE</text>
+          <g class="o-label dim" font-size="9" text-anchor="middle">
+            <text x="120" y="134">memory &middot; coordination</text>
+            <text x="120" y="150">codebase &middot; vault keys</text>
+            <text x="120" y="166">improvements</text>
           </g>
-          <path d="M342 150 H370" class="o-line wheat"/>
-          <rect x="368" y="64" width="10" height="172" fill="#b4862a"/>
-          <text x="373" y="52" text-anchor="middle" class="o-label" font-size="10">gate</text>
-          <rect x="392" y="70" width="130" height="160" class="o-line soft"/>
-          <text x="457" y="94" text-anchor="middle" class="o-label">implement</text>
-          <rect x="408" y="110" width="98" height="26" class="o-line soft o-fill"/>
+          <text x="120" y="196" text-anchor="middle" class="o-label" font-size="9">one copy &middot; shared by all</text>
+          <text x="480" y="26" text-anchor="middle" class="o-label dim">outposts</text>
+          <path d="M210 120 C300 84 360 62 416 55" class="o-line soft"/>
+          <path d="M210 140 C300 126 360 118 416 115" class="o-line" stroke-width="2.2"/>
+          <path d="M210 160 C300 170 360 174 416 175" class="o-line soft"/>
+          <path d="M210 180 C300 214 360 230 416 235" class="o-line soft"/>
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="418" y="40" width="124" height="30" class="o-line soft"/><text x="428" y="59" class="o-label dim">second machine</text>
+            <rect x="418" y="100" width="124" height="30" class="o-line wheat" fill="rgba(233,220,176,0.12)"/><text x="428" y="119" class="o-label">cloud box</text>
+            <rect x="418" y="160" width="124" height="30" class="o-line soft"/><text x="428" y="179" class="o-label dim">container</text>
+            <rect x="418" y="220" width="124" height="30" class="o-line soft"/><text x="428" y="239" class="o-label dim">gpu box</text>
+          </g>
+          <rect x="310" y="106" width="54" height="18" fill="#d8a82e"/>
+          <text x="337" y="119" text-anchor="middle" class="o-label dark" font-size="10">task</text>
+          <path d="M416 128 C360 142 300 148 212 146" class="o-line soft" stroke-dasharray="4 3"/>
+          <text x="300" y="162" text-anchor="middle" class="o-label dim" font-size="9">evidence back</text>
+          <text x="280" y="288" text-anchor="middle" class="o-label dim" font-size="9">work fans out &middot; state stays one</text>
         </svg>
-        <h3 data-i18n="o9.h">Plan before you build.</h3>
-        <p data-i18n="o9.p">On the Kanban Loop a plan gates every build, so nothing runs off on its own.</p>
+        <h3 data-i18n="o9.h">One base, many outposts.</h3>
+        <p data-i18n="o9.p">Work fans out to outposts: your other machines, cloud boxes, containers. Every outpost shares the base's memory, coordination, codebase, vault keys, and improvements.</p>
       </article>
 
       <!-- X. open -->
@@ -732,71 +805,15 @@
   </div>
 </section>
 
-<!-- ============ THE FITTINGS ============ -->
+<!-- ============ THE PAINS ============ -->
 <section class="fittings">
   <div class="wrap">
-    <p class="kicker" data-i18n="fit.kicker">04 &middot; The fittings</p>
-    <h2 class="big" data-i18n="fit.header">Three flagship fittings.</h2>
-    <p class="lede" data-i18n="fit.lede">The panels are illustrative. The bullets are what runs today.</p>
+    <p class="kicker" data-i18n="fit.kicker">04 &middot; The pains</p>
+    <h2 class="big" data-i18n="fit.header">Four pains, one seed composition.</h2>
+    <p class="lede" data-i18n="fit.lede">Each pain below is solved by the current seed composition; every part of it can be swapped. Panels are illustrative; the bullets are what runs today.</p>
 
-    <!-- Web Channel -->
+    <!-- Pain 1 · coordination (Kanban Loop) -->
     <div class="fitting">
-      <div class="fitting-panel tall">
-        <svg viewBox="0 0 340 560" role="img" aria-label="A mobile chat frame: a message starting with the mode name Joe, a reply card with a collapsed detail chip and a read-aloud glyph, and a mic with pulsing silence-detection rings">
-          <rect x="10" y="8" width="320" height="544" class="o-line soft"/>
-          <text x="170" y="38" text-anchor="middle" class="o-label" style="letter-spacing:3px">WEB CHANNEL</text>
-          <line x1="10" y1="56" x2="330" y2="56" class="o-line soft" opacity="0.5"/>
-          <rect x="26" y="74" width="58" height="26" class="o-line soft"/>
-          <text x="55" y="91" text-anchor="middle" class="o-label dim">Gary</text>
-          <rect x="94" y="74" width="50" height="26" class="o-line wheat" fill="rgba(233,220,176,0.14)"/>
-          <text x="119" y="91" text-anchor="middle" class="o-label">Joe</text>
-          <rect x="154" y="74" width="64" height="26" class="o-line soft"/>
-          <text x="186" y="91" text-anchor="middle" class="o-label dim">James</text>
-          <rect x="110" y="128" width="204" height="40" class="o-line wheat" fill="rgba(233,220,176,0.12)"/>
-          <text x="124" y="152" class="o-label" font-size="10"><tspan fill="#d8a82e">Joe:</tspan> fix the flaky test</text>
-          <rect x="26" y="184" width="250" height="168" class="o-line soft" fill="rgba(233,220,176,0.05)"/>
-          <text x="40" y="210" class="o-label">plan &middot; 3 steps</text>
-          <line x1="40" y1="222" x2="262" y2="222" class="o-line soft" opacity="0.4"/>
-          <g class="o-line soft" opacity="0.35">
-            <line x1="40" y1="240" x2="250" y2="240"/>
-            <line x1="40" y1="256" x2="230" y2="256"/>
-            <line x1="40" y1="272" x2="240" y2="272"/>
-            <line x1="40" y1="288" x2="180" y2="288"/>
-          </g>
-          <rect x="40" y="306" width="84" height="26" class="o-line soft" stroke-dasharray="4 3"/>
-          <text x="52" y="323" class="o-label dim">detail +</text>
-          <path d="M228 314 h10 l12 -10 v26 l-12 -10 h-10 Z" class="o-line wheat"/>
-          <path d="M256 312 a10 10 0 0 1 0 12 M262 307 a17 17 0 0 1 0 22" class="o-line wheat"/>
-          <text x="248" y="372" text-anchor="middle" class="o-label dim" font-size="9">read aloud</text>
-          <rect x="140" y="398" width="174" height="36" class="o-line soft"/>
-          <text x="154" y="420" class="o-label dim" font-size="10"><tspan fill="#d8a82e">Gary:</tspan> plan my day</text>
-          <rect x="26" y="468" width="288" height="58" class="o-line soft"/>
-          <line x1="40" y1="497" x2="200" y2="497" class="o-line soft" opacity="0.35"/>
-          <circle cx="282" cy="497" r="19" class="o-line soft pulse" stroke-dasharray="3 3"/>
-          <circle cx="282" cy="497" r="19" class="o-line soft pulse p2" stroke-dasharray="3 3"/>
-          <circle cx="282" cy="497" r="13" class="o-line wheat"/>
-          <rect x="278" y="489" width="8" height="11" rx="4" fill="#dbc892"/>
-          <path d="M275 496 a7 7 0 0 0 14 0 M282 503 v4" class="o-line wheat"/>
-          <text x="272" y="542" text-anchor="middle" class="o-label dim" font-size="9">silence detection</text>
-        </svg>
-      </div>
-      <div class="fitting-copy">
-        <p class="fname" data-i18n="fit.wc.name">Web Channel</p>
-        <h3 data-i18n="fit.wc.h">One chat, three hats.</h3>
-        <ul>
-          <li data-i18n-html="fit.wc.b1">Mobile-first chat over your operative. Start a message with a name to switch hats: <b>Gary</b>, <b>Joe</b>, or <b>James</b>.</li>
-          <li data-i18n-html="fit.wc.b2"><b>Gary</b> is the personal assistant. Knows your memories, your work, your personal life. Manages and schedules tasks and puts it all together.</li>
-          <li data-i18n-html="fit.wc.b3"><b>Joe</b> is the software developer and automations expert. Works your projects folder: plans, executes, runs autonomous flows, and leaves evidence with links to videos you can watch from the phone after being away.</li>
-          <li data-i18n-html="fit.wc.b4"><b>James</b> is the product manager and architect. Knows your projects and products, discusses new features with you until you are satisfied, and produces the documents Joe then builds from.</li>
-          <li data-i18n-html="fit.wc.b5">Voice in, voice out, at no cost: local STT and TTS with silence detection. Talk to it interactively; have replies and documents read aloud.</li>
-          <li data-i18n-html="fit.wc.b6">Shows what is relevant, not the raw session. Drill into detail only when you want it.</li>
-          <li data-i18n-html="fit.wc.b7">Enable or disable parts of the flow through Orchestrator rules.</li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- Kanban Loop -->
-    <div class="fitting flip">
       <div class="fitting-panel">
         <svg viewBox="0 0 560 330" role="img" aria-label="A kanban board with eleven lanes from Backlog to Needs Attention, a brass rule marking the autonomous lanes, and an open card with log, screenshot and video evidence chips">
           <g class="o-label dim" font-size="7.5" text-anchor="middle">
@@ -845,38 +862,34 @@
         </svg>
       </div>
       <div class="fitting-copy">
-        <p class="fname" data-i18n="fit.kl.name">Kanban Loop</p>
-        <h3 data-i18n="fit.kl.h">Autonomous development you can watch from your phone.</h3>
+        <p class="fname" data-i18n="p1.name">Pain 1 &middot; Coordination</p>
+        <h3 data-i18n="p1.h">Parallel sessions that know nothing about each other.</h3>
+        <p class="problem" data-i18n="p1.prob">You open a second session and it immediately steps on the first. You end up serializing work, or babysitting branches.</p>
+        <p class="seedlabel" data-i18n="seed.label">The seed composition:</p>
         <ul>
-          <li data-i18n-html="fit.kl.b1">One board for everything: dev tasks, personal tasks, manual work. The visual face of the AutoThink skill that ships in the seed composition.</li>
-          <li data-i18n-html="fit.kl.b2"><b>Discuss</b> with James on the card and produce the brief. Or skip straight from To Do to Plan and let it run fully autonomous.</li>
-          <li data-i18n-html="fit.kl.b3"><b>Plan</b> uses your instincts, collected by the Improver from your sessions and memories. Over time plans come out the way you would have written them, without intervention.</li>
-          <li data-i18n-html="fit.kl.b4"><b>Implement</b> with evidence for everything: logs linked from the card, viewable in the interface, editable in a built-in Monaco editor, screenshots where relevant.</li>
-          <li data-i18n-html="fit.kl.b5"><b>Review</b> includes a security audit. Then <b>adversarial review</b>. Then automated tests, e2e tests written from them, then adversarial tests. Evidence collected at every stage, linked on the card.</li>
-          <li data-i18n-html="fit.kl.b6"><b>Walkthrough</b> produces videos of what was done, in the browser and over highlighted logs, verifiable end to end. Good enough to hand to someone as a demo.</li>
-          <li data-i18n-html="fit.kl.b7">Mobile-first. Follow development from your phone with every link and every piece of evidence. Tailscale is detected and recommended for easy access from anywhere.</li>
-          <li data-i18n-html="fit.kl.b8"><b>Done</b> is where you judge the work. Not good? Drag the card back to any stage. Blocked work self-heals when possible, otherwise it lands in <b>Needs Attention</b>.</li>
+          <li data-i18n-html="p1.b1">Every task is a visible card on the <b>Kanban Loop</b>: dev tasks, personal tasks, manual work, one board.</li>
+          <li data-i18n-html="p1.b2">A <b>coordination fitting</b> lets agents see what the others are doing and build on each other's work.</li>
+          <li data-i18n-html="p1.b3">Everything runs on the <b>main branch</b>. No worktrees needed: cards and coordination make trampling impossible.</li>
+          <li data-i18n-html="p1.b4">A <b>heartbeat</b> picks up finished cards and tests them together in one batch.</li>
+          <li data-i18n-html="p1.b5">Plans gate builds; evidence lands on the card at every stage: logs, screenshots, videos you can judge from your phone.</li>
         </ul>
+        <p class="swap" data-i18n="p1.swap">Prefer worktrees? That exists as an alternative composition. Use what veterans run, adjust it, or build your own, vetted through APM.</p>
       </div>
     </div>
 
-    <!-- Dev Env -->
-    <div class="fitting">
+    <!-- Pain 2 · capacity (runtimes, accounts, machines) -->
+    <div class="fitting flip">
       <div class="fitting-panel">
-        <svg viewBox="0 0 560 360" role="img" aria-label="Three panes: a session list with worktree badges, stacked terminal panes, and a browser pane tied to the session by a CDP chip">
+        <svg viewBox="0 0 560 360" role="img" aria-label="Three panes: a session list of runtimes, stacked terminal panes, and a browser pane tied to the session by a CDP chip">
           <rect x="16" y="16" width="132" height="328" class="o-line soft"/>
           <text x="28" y="40" class="o-label dim" font-size="9">sessions</text>
           <rect x="24" y="54" width="116" height="34" class="o-line wheat" fill="rgba(233,220,176,0.12)"/>
           <circle cx="36" cy="71" r="3" fill="#d8a82e"/>
-          <text x="46" y="75" class="o-label" font-size="10">main</text>
+          <text x="46" y="75" class="o-label" font-size="10">claude</text>
           <rect x="24" y="96" width="116" height="34" class="o-line soft"/>
-          <rect x="32" y="106" width="22" height="14" class="o-line soft"/>
-          <text x="43" y="116" text-anchor="middle" class="o-label dim" font-size="8">wt</text>
-          <text x="62" y="117" class="o-label dim" font-size="10">login</text>
+          <text x="36" y="117" class="o-label dim" font-size="10">codex</text>
           <rect x="24" y="138" width="116" height="34" class="o-line soft"/>
-          <rect x="32" y="148" width="22" height="14" class="o-line soft"/>
-          <text x="43" y="158" text-anchor="middle" class="o-label dim" font-size="8">wt</text>
-          <text x="62" y="159" class="o-label dim" font-size="10">api</text>
+          <text x="36" y="159" class="o-label dim" font-size="10">gemini</text>
           <rect x="24" y="180" width="116" height="34" class="o-line soft" stroke-dasharray="4 3"/>
           <text x="82" y="201" text-anchor="middle" class="o-label dim">+ new</text>
           <rect x="164" y="16" width="196" height="150" class="o-line soft" fill="rgba(20,31,24,0.5)"/>
@@ -916,48 +929,307 @@
         </svg>
       </div>
       <div class="fitting-copy">
-        <p class="fname" data-i18n="fit.de.name">Dev Env</p>
-        <h3 data-i18n="fit.de.h">Your sessions, your browser, your terminals. One pane of glass.</h3>
+        <p class="fname" data-i18n="p2.name">Pain 2 &middot; Capacity</p>
+        <h3 data-i18n="p2.h">Juggling accounts, providers, limits, and machines.</h3>
+        <p class="problem" data-i18n="p2.prob">Usage caps hit mid-task. You hold accounts on several providers and switch by hand. Your other machines sit idle.</p>
+        <p class="seedlabel" data-i18n="seed.label">The seed composition:</p>
         <ul>
-          <li data-i18n-html="fit.de.b1">See every Claude Code session (or other runtime) that is running. Start sessions on main or in worktrees.</li>
-          <li data-i18n-html="fit.de.b2">Parallel sessions do not trample each other: the seed composition's coordination tools handle it, on main or across worktrees.</li>
-          <li data-i18n-html="fit.de.b3">Per session, choose plain Claude Code or the Garrison Orchestrator. The model router picks effort, model, and runtime per task by rule.</li>
-          <li data-i18n-html="fit.de.b4">Runtimes today: Claude Code on a warm pool of PTY sessions, Agent SDK, Codex, Gemini CLI, and any runtime you add.</li>
-          <li data-i18n-html="fit.de.b5">A browser pane wired to the session over CDP. The session sees what you see and can drive it. No screenshots, no leaving the environment.</li>
-          <li data-i18n-html="fit.de.b6">Open more terminals and arrange them as panes. tmux-backed persistent sessions survive a reboot and can be revived, with full session history.</li>
+          <li data-i18n-html="p2.b1"><b>Runtime fittings</b> for Claude Code on a warm PTY pool, Agent SDK, Codex, Gemini CLI, opencode, and any runtime you add; any of them can be the primary.</li>
+          <li data-i18n-html="p2.b2">The <b>Orchestrator</b> classifies each task and picks runtime, model, and effort by rule, automatically or by your override.</li>
+          <li data-i18n-html="p2.b3">Register several accounts; the <b>Paymaster</b> hands each session the least-used one, holds when all are capped, and flags dead tokens for re-login.</li>
+          <li data-i18n-html="p2.b4">Swap the whole policy by switching composition: cheap, quality, or balanced daily.</li>
+          <li data-i18n-html="p2.b5"><b>Outposts</b> link your other machines: run commands, read and write files, mirror directories on a schedule.</li>
+          <li data-i18n-html="p2.b6">Memory travels with you: the Obsidian vault git-syncs across machines, shared by every runtime and agent.</li>
         </ul>
+        <p class="swap" data-i18n="p2.swap">All defaults. Use the routing and account policy veterans run, adjust it, or build your own, vetted through APM.</p>
+      </div>
+    </div>
+
+    <!-- Pain 3 · testing (Drill) -->
+    <div class="fitting">
+      <div class="fitting-panel">
+        <svg viewBox="0 0 560 330" role="img" aria-label="A Drill Book of editable test steps beside a run pane where a vision eye inspects a screenshot, with findings chips and a graduation arrow from vision runs to a repeatable e2e suite">
+          <rect x="16" y="16" width="222" height="298" class="o-line soft"/>
+          <text x="30" y="42" class="o-label" style="letter-spacing:3px">DRILL BOOK</text>
+          <text x="152" y="42" class="o-label dim" font-size="9">pages/login.yml</text>
+          <line x1="16" y1="54" x2="238" y2="54" class="o-line soft" opacity="0.5"/>
+          <g>
+            <rect x="30" y="70" width="12" height="12" class="o-line wheat"/>
+            <path d="M33 76 l3 4 l6 -8" class="o-line wheat"/>
+            <text x="52" y="80" class="o-label dim" font-size="10">open /login</text>
+            <rect x="30" y="96" width="12" height="12" class="o-line wheat"/>
+            <path d="M33 102 l3 4 l6 -8" class="o-line wheat"/>
+            <text x="52" y="106" class="o-label dim" font-size="10">sign in &middot; stored auth</text>
+            <rect x="30" y="122" width="12" height="12" class="o-line wheat"/>
+            <path d="M33 128 l3 4 l6 -8" class="o-line wheat"/>
+            <text x="52" y="132" class="o-label dim" font-size="10">create a card</text>
+          </g>
+          <rect x="24" y="146" width="206" height="30" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
+          <rect x="30" y="155" width="12" height="12" class="o-line wheat"/>
+          <text x="52" y="166" class="o-label" font-size="10">board updates</text>
+          <rect x="180" y="152" width="42" height="18" fill="#d8a82e"/>
+          <text x="201" y="165" text-anchor="middle" class="o-label dark" font-size="9">edit</text>
+          <rect x="30" y="190" width="12" height="12" class="o-line soft" stroke-dasharray="3 2"/>
+          <text x="52" y="200" class="o-label dim" font-size="10" opacity="0.6">delete card &middot; off</text>
+          <g transform="translate(24,264)">
+            <rect x="0" y="6" width="14" height="12" class="o-line wheat"/>
+            <path d="M3 6 V3 a4 4 0 0 1 8 0 V6" class="o-line wheat"/>
+            <text x="22" y="16" class="o-label dim" font-size="9">auth: provided once</text>
+          </g>
+          <rect x="254" y="16" width="290" height="192" class="o-line soft" fill="rgba(20,31,24,0.5)"/>
+          <text x="268" y="40" class="o-label dim" font-size="9">run 14 &middot; step 4 of 6</text>
+          <line x1="254" y1="50" x2="544" y2="50" class="o-line soft" opacity="0.5"/>
+          <rect x="268" y="64" width="176" height="112" class="o-line soft o-fill"/>
+          <g class="o-line soft" opacity="0.35">
+            <line x1="282" y1="88" x2="420" y2="88"/>
+            <line x1="282" y1="104" x2="400" y2="104"/>
+            <line x1="282" y1="120" x2="412" y2="120"/>
+          </g>
+          <path d="M452 108 C468 90 504 90 520 108 C504 126 468 126 452 108 Z" class="o-line wheat"/>
+          <circle cx="486" cy="108" r="8" class="o-line wheat"/>
+          <circle cx="486" cy="108" r="3" fill="#d8a82e"/>
+          <text x="486" y="142" text-anchor="middle" class="o-label dim" font-size="9">vision</text>
+          <rect x="268" y="184" width="56" height="18" class="o-line wheat"/>
+          <text x="296" y="197" text-anchor="middle" class="o-label" font-size="9">pass</text>
+          <rect x="332" y="184" width="72" height="18" class="o-bad"/>
+          <text x="368" y="197" text-anchor="middle" class="o-label dim" font-size="9">finding</text>
+          <g transform="translate(254,240)">
+            <rect x="0" y="0" width="88" height="26" class="o-line soft"/>
+            <text x="44" y="17" text-anchor="middle" class="o-label dim" font-size="9">vision run</text>
+            <path d="M96 13 H186" class="o-line wheat"/>
+            <path d="M186 8 L196 13 L186 18 Z" fill="#dbc892"/>
+            <rect x="202" y="0" width="88" height="26" class="o-line wheat" fill="rgba(233,220,176,0.1)"/>
+            <text x="246" y="17" text-anchor="middle" class="o-label" font-size="9">e2e suite</text>
+            <text x="146" y="52" text-anchor="middle" class="o-label dim" font-size="9">assertions graduate with green runs</text>
+          </g>
+        </svg>
+      </div>
+      <div class="fitting-copy">
+        <p class="fname" data-i18n="p3.name">Pain 3 &middot; Testing</p>
+        <h3 data-i18n="p3.h">Being the test browser yourself.</h3>
+        <p class="problem" data-i18n="p3.prob">Every change means opening the browser, logging in again, clicking through the same flow to see what broke.</p>
+        <p class="seedlabel" data-i18n="seed.label">The seed composition:</p>
+        <ul>
+          <li data-i18n-html="p3.b1"><b>Drill</b> plans tests as visible, editable steps: a Drill Book per page of your app, diffable in the repo.</li>
+          <li data-i18n-html="p3.b2">Give feedback on any step and see exactly what happened in it, run by run.</li>
+          <li data-i18n-html="p3.b3">Provide authentication once; runs log in by themselves and stop stumbling on logins.</li>
+          <li data-i18n-html="p3.b4">Browser automation with <b>vision</b> runs the steps; assertions graduate into a repeatable <b>e2e suite</b> that catches regressions without you watching.</li>
+        </ul>
+        <p class="swap" data-i18n="p3.swap">The seed default. Use the QA flow veterans run, adjust it, or build your own, vetted through APM.</p>
+      </div>
+    </div>
+
+    <!-- Pain 4 · presence (Web Channel) -->
+    <div class="fitting flip">
+      <div class="fitting-panel tall">
+        <svg viewBox="0 0 340 560" role="img" aria-label="A mobile chat frame: a message starting with the mode name Joe, a reply card with a collapsed detail chip and a read-aloud glyph, and a mic with pulsing silence-detection rings">
+          <rect x="10" y="8" width="320" height="544" class="o-line soft"/>
+          <text x="170" y="38" text-anchor="middle" class="o-label" style="letter-spacing:3px">WEB CHANNEL</text>
+          <line x1="10" y1="56" x2="330" y2="56" class="o-line soft" opacity="0.5"/>
+          <rect x="26" y="74" width="58" height="26" class="o-line soft"/>
+          <text x="55" y="91" text-anchor="middle" class="o-label dim">Gary</text>
+          <rect x="94" y="74" width="50" height="26" class="o-line wheat" fill="rgba(233,220,176,0.14)"/>
+          <text x="119" y="91" text-anchor="middle" class="o-label">Joe</text>
+          <rect x="154" y="74" width="64" height="26" class="o-line soft"/>
+          <text x="186" y="91" text-anchor="middle" class="o-label dim">James</text>
+          <rect x="110" y="128" width="204" height="40" class="o-line wheat" fill="rgba(233,220,176,0.12)"/>
+          <text x="124" y="152" class="o-label" font-size="10"><tspan fill="#d8a82e">Joe:</tspan> fix the flaky test</text>
+          <rect x="26" y="184" width="250" height="168" class="o-line soft" fill="rgba(233,220,176,0.05)"/>
+          <text x="40" y="210" class="o-label">plan &middot; 3 steps</text>
+          <line x1="40" y1="222" x2="262" y2="222" class="o-line soft" opacity="0.4"/>
+          <g class="o-line soft" opacity="0.35">
+            <line x1="40" y1="240" x2="250" y2="240"/>
+            <line x1="40" y1="256" x2="230" y2="256"/>
+            <line x1="40" y1="272" x2="240" y2="272"/>
+            <line x1="40" y1="288" x2="180" y2="288"/>
+          </g>
+          <rect x="40" y="306" width="84" height="26" class="o-line soft" stroke-dasharray="4 3"/>
+          <text x="52" y="323" class="o-label dim">detail +</text>
+          <path d="M228 314 h10 l12 -10 v26 l-12 -10 h-10 Z" class="o-line wheat"/>
+          <path d="M256 312 a10 10 0 0 1 0 12 M262 307 a17 17 0 0 1 0 22" class="o-line wheat"/>
+          <text x="248" y="372" text-anchor="middle" class="o-label dim" font-size="9">read aloud</text>
+          <rect x="140" y="398" width="174" height="36" class="o-line soft"/>
+          <text x="154" y="420" class="o-label dim" font-size="10"><tspan fill="#d8a82e">Gary:</tspan> plan my day</text>
+          <rect x="26" y="468" width="288" height="58" class="o-line soft"/>
+          <line x1="40" y1="497" x2="200" y2="497" class="o-line soft" opacity="0.35"/>
+          <circle cx="282" cy="497" r="19" class="o-line soft pulse" stroke-dasharray="3 3"/>
+          <circle cx="282" cy="497" r="19" class="o-line soft pulse p2" stroke-dasharray="3 3"/>
+          <circle cx="282" cy="497" r="13" class="o-line wheat"/>
+          <rect x="278" y="489" width="8" height="11" rx="4" fill="#dbc892"/>
+          <path d="M275 496 a7 7 0 0 0 14 0 M282 503 v4" class="o-line wheat"/>
+          <text x="272" y="542" text-anchor="middle" class="o-label dim" font-size="9">silence detection</text>
+        </svg>
+      </div>
+      <div class="fitting-copy">
+        <p class="fname" data-i18n="p4.name">Pain 4 &middot; Presence</p>
+        <h3 data-i18n="p4.h">Work stopping when you leave the desk.</h3>
+        <p class="problem" data-i18n="p4.prob">You step away and everything waits for you.</p>
+        <p class="seedlabel" data-i18n="seed.label">The seed composition:</p>
+        <ul>
+          <li data-i18n-html="p4.b1">The <b>Web Channel</b>: responsive, mobile-first chat over your operative. Three hats: <b>Gary</b> the assistant, <b>Joe</b> the developer, <b>James</b> the product manager.</li>
+          <li data-i18n-html="p4.b2">Discuss a task with James until the brief is right, queue it, or run something simple immediately.</li>
+          <li data-i18n-html="p4.b3">Type, talk, or listen: local or Deepgram voice with silence detection; replies and documents read aloud.</li>
+          <li data-i18n-html="p4.b4">Schedule and automate. Every card stays on the <b>Kanban Loop</b>, evidence comes back to the channel, and you review results without retesting.</li>
+        </ul>
+        <p class="swap" data-i18n="p4.swap">Also swappable: a Slack channel instead, or whatever veterans run next; adjust it or build your own, vetted through APM.</p>
       </div>
     </div>
 
   </div>
 </section>
 
+<!-- ============ THE VETERANS ============ -->
+<section class="vets">
+  <div class="wrap">
+    <p class="kicker" data-i18n="vets.kicker">05 &middot; The veterans</p>
+    <h2 class="big" data-i18n="vets.header">Use what the veterans use.</h2>
+    <p class="differentiator" data-i18n="vets.body">Every composition and fitting is a package other builders can battle-test and pass on. Adopt what veterans run daily, adjust one that almost fits, or build your own; every package goes through APM security scanning. The seed composition is the first veteran composition. Yours can be next.</p>
+  </div>
+</section>
+
 <!-- ============ RUNNING TODAY ============ -->
 <section class="features" style="padding-top: 0;">
   <div class="wrap">
-    <p class="kicker" data-i18n="run.kicker">05 &middot; The state of the art</p>
+    <p class="kicker" data-i18n="run.kicker">06 &middot; The state of the art</p>
     <h2 class="big" data-i18n="run.header">Running today.</h2>
-    <p class="lede" data-i18n="run.lede">Real screenshots from a live base, not a roadmap.</p>
+    <p class="lede" data-i18n="run.lede">Every image below is a real screenshot of one live base, taken the day this page shipped: an operative running, verify clean. Not mockups, not a roadmap. Stay for the tour and you will know how the whole system works.</p>
 
+    <p class="kicker groupkick" data-i18n="g6.base.k">The base</p>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/home.png" target="_blank" rel="noreferrer"><img src="brand/home.png" alt="The Garrison dashboard with a running operative" data-i18n-alt="alt.home" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.home.h">The dashboard</h3><p data-i18n="g6.home.p">One operative running over the Dogfood Dev composition: 33/33 verify hooks green, 12 of 17 faculties stationed, board summary and attention queue in one glance. Restart or stop the operative from here; every fitting view in the sidebar is one click deep.</p></figcaption>
+    </figure>
+
+    <p class="kicker groupkick" data-i18n="g6.compose.k">Compose</p>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/composition-duties.png" target="_blank" rel="noreferrer"><img src="brand/composition-duties.png" alt="The Composition page on the Duties tab" data-i18n-alt="alt.duties" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.duties.h">Composition &middot; Duties</h3><p data-i18n="g6.duties.p">The 17 duties this composition routes: Code, Research, Discuss, Plan, Implement, Review, Drill, and more. Each duty has levels, and each level's description is its routing criterion. On the right, the target rail: Claude Code, Agent SDK, Codex, Gemini, and local Ollama models, draggable onto any level.</p></figcaption>
+    </figure>
     <div class="shots">
       <figure class="shot" style="margin:0">
-        <img src="brand/composition.png" alt="The Garrison composition grid" data-i18n-alt="alt.comp" loading="lazy" />
-        <figcaption class="cap"><h3 data-i18n="run.comp.h">Composition</h3><p data-i18n="run.comp.p">The whole operative on one grid: every faculty and fitting, verify hooks green before it runs.</p></figcaption>
+        <a class="img" href="brand/composition-fittings.png" target="_blank" rel="noreferrer"><img src="brand/composition-fittings.png" alt="The Composition page on the Fittings tab" data-i18n-alt="alt.fittings" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.fittings.h">Composition &middot; Fittings</h3><p data-i18n="g6.fittings.p">The standing Fittings by faculty: channels, gateways, and the Runtimes column with Claude Code marked PRIMARY. Any runtime can hold that post; every card carries its configuration, Swap, and Edit files.</p></figcaption>
       </figure>
       <figure class="shot" style="margin:0">
-        <img src="brand/quarters.png" alt="The Quarters view over ~/.claude" data-i18n-alt="alt.quarters" loading="lazy" />
-        <figcaption class="cap"><h3 data-i18n="run.quarters.h">Quarters</h3><p data-i18n="run.quarters.p">Your real ~/.claude, every artifact by name, owned or loose, always visible.</p></figcaption>
+        <a class="img" href="brand/composition-orchestrator.png" target="_blank" rel="noreferrer"><img src="brand/composition-orchestrator.png" alt="The Orchestrator routing policy" data-i18n-alt="alt.orch" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.orch.h">Composition &middot; Orchestrator</h3><p data-i18n="g6.orch.p">The routing policy the run engine reads: per-work-kind rails whose phase chips name the skill, runtime, model, and effort of every gate; cc&middot;opus, cc&middot;fable, cx&middot;gpt-5.5, sdk&middot;haiku. Edits autosave and recompile the policy.</p></figcaption>
+      </figure>
+    </div>
+
+    <p class="kicker groupkick" data-i18n="g6.quarters.k">Quarters</p>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/quarters.png" target="_blank" rel="noreferrer"><img src="brand/quarters.png" alt="Quarters with claude-code and codex expanded, gemini and opencode below" data-i18n-alt="alt.quarters" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.quarters.h">Quarters</h3><p data-i18n="g6.quarters.p">Native config for every runtime in the composition. Claude Code gets the full surface over the real ~/.claude: settings, context, skills, hooks, MCPs, plugins, scripts, plans, logs, sessions, Agent SDK. Codex, Gemini, and opencode get the same treatment over their own native files. Owned vs loose is always visible, and APM is the only package writer.</p></figcaption>
+    </figure>
+
+    <p class="kicker groupkick" data-i18n="g6.keys.k">Keys and lines out</p>
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/vault.png" target="_blank" rel="noreferrer"><img src="brand/vault.png" alt="The Vault with keychain-sealed secrets" data-i18n-alt="alt.vault" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.vault.h">Vault</h3><p data-i18n="g6.vault.p">Keychain-sealed stores: AES-256-GCM at rest, decrypted only into the server process, values hidden until you reveal one. Scoped delivery: a Fitting receives only the secrets it declared.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/connectors.png" target="_blank" rel="noreferrer"><img src="brand/connectors.png" alt="The Connectors page with Vault-sealed services" data-i18n-alt="alt.connectors" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.connectors.h">Connectors</h3><p data-i18n="g6.connectors.p">Authenticated lines beyond localhost: Google Workspace, Slack, Trello, Deepgram voice. Each is an action catalog with Vault-sealed credentials released only when that route runs. Honest states, too: one connector is still waiting for its OAuth.</p></figcaption>
+      </figure>
+    </div>
+
+    <p class="kicker groupkick" data-i18n="g6.ground.k">Shared ground</p>
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/coordination.png" target="_blank" rel="noreferrer"><img src="brand/coordination.png" alt="The Coordination page: sessions, planning locks, leases" data-i18n-alt="alt.coordination" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.coordination.h">Coordination</h3><p data-i18n="g6.coordination.p">One picture of shared ground: the agent-mail server up, the planning gate holding the repo lock with its summary, and every active session by repo with its hook fires. Release lock works on any lock, even one left behind by a dead session.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/outposts.png" target="_blank" rel="noreferrer"><img src="brand/outposts.png" alt="Garrison Outposts with a cloud machine online" data-i18n-alt="alt.outposts" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.outposts.h">Outposts</h3><p data-i18n="g6.outposts.p">A real second machine, a cloud box named dev-madrid, bridged in over Tailscale: exec, file, and process verbs, heartbeat seconds old. Below, config sync mirrors the portable agent setup to every outpost; memory, keys, and improvements stay one copy at the base.</p></figcaption>
+      </figure>
+    </div>
+
+    <p class="kicker groupkick" data-i18n="g6.loop.k">The loop</p>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/kanban.png" target="_blank" rel="noreferrer"><img src="brand/kanban.png" alt="The Kanban Loop board" data-i18n-alt="alt.kanban" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.kanban.h">Kanban Loop</h3><p data-i18n="g6.kanban.p">Every task is a card: dev tasks, personal tasks, manual work, one board. Lanes run from Backlog through Discuss, Plan, and Code to Done; cards carry Advance, Watch, and a Terminal that drops you into the session doing the work.</p></figcaption>
+    </figure>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/web-channel.png" target="_blank" rel="noreferrer"><img src="brand/web-channel.png" alt="The Web Channel with a discuss conversation" data-i18n-alt="alt.webchannel" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.webchannel.h">Web Channel</h3><p data-i18n="g6.webchannel.p">The mobile-first chat over your operative. Here James talks a work item through before it goes to planning: four clarifying questions, terse answers, brief written, card ready for build. Model chips on every turn show what it ran on; TALK and the mic drive voice both ways.</p></figcaption>
+    </figure>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/dev-env.png" target="_blank" rel="noreferrer"><img src="brand/dev-env.png" alt="The Dev Env: Claude session, shell, and live browser pane" data-i18n-alt="alt.devenv" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.devenv.h">Dev Env</h3><p data-i18n="g6.devenv.p">One session tab, three panes: Claude Code finishing a copy review on the left, a tmux-backed shell serving the site below it, and the live browser rendering the page on the right. Sessions survive restarts; the browser is CDP-driven, so the agent sees exactly what you see.</p></figcaption>
+    </figure>
+
+    <p class="kicker groupkick" data-i18n="g6.drill.k">Drill &middot; visual QA</p>
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/drill-book.png" target="_blank" rel="noreferrer"><img src="brand/drill-book.png" alt="The Drill Book: the QA plan for the app under test" data-i18n-alt="alt.drillbook" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.drillbook.h">Drill &middot; the book</h3><p data-i18n="g6.drillbook.p">The QA plan the agent maintains for the app under test, versioned in the repo: pages, checks, states, global rules. The app-up chip is a live probe; if the app is down, Drill starts it through the project's own run skill.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/drill-authoring.png" target="_blank" rel="noreferrer"><img src="brand/drill-authoring.png" alt="Drill authoring: checks beside a live preview" data-i18n-alt="alt.drillauthoring" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.drillauthoring.h">Drill &middot; authoring</h3><p data-i18n="g6.drillauthoring.p">One page at a time: the checks on the left, vision or judgment, per viewport; the live, viewport-accurate preview on the right, with console and full view a click away.</p></figcaption>
+      </figure>
+    </div>
+    <figure class="shot-xl" style="margin-left:0;margin-right:0">
+      <a class="img" href="brand/drill-run.png" target="_blank" rel="noreferrer"><img src="brand/drill-run.png" alt="Drill run results: findings beside evidence tabs" data-i18n-alt="alt.drillrun" loading="lazy" /></a>
+      <figcaption class="cap"><h3 data-i18n="g6.drillrun.h">Drill &middot; run &amp; results</h3><p data-i18n="g6.drillrun.p">A finished run with a real catch. Two findings proposed, Confirm or Dismiss, and the evidence four ways: annotated screenshots, video, a live-browser replay, and the agent sessions themselves. The Vault check passed; the dashboard finding became a code fix the same afternoon.</p></figcaption>
+    </figure>
+
+    <p class="kicker groupkick" data-i18n="g6.improve.k">It improves itself</p>
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/improver.png" target="_blank" rel="noreferrer"><img src="brand/improver.png" alt="The Improver review queue with pending proposals" data-i18n-alt="alt.improver" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.improver.h">Improver</h3><p data-i18n="g6.improver.p">The review queue after a run: proposals mined from real session friction, each with a diff, a confidence, and Approve / Reject. Nothing self-applies unless you, or the autonomy dial, say so.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/garrison-assistant.png" target="_blank" rel="noreferrer"><img src="brand/garrison-assistant.png" alt="The Garrison Assistant answering from local doctrine" data-i18n-alt="alt.assistant" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.assistant.h">Garrison Assistant</h3><p data-i18n="g6.assistant.p">Ask the base about itself. Answers are retrieved from the local documentation and installed Fitting instructions, with source paths kept in view; no external model call.</p></figcaption>
+      </figure>
+    </div>
+
+    <p class="kicker groupkick" data-i18n="g6.protect.k">Presence and protection</p>
+    <div class="shots">
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/screen-share.png" target="_blank" rel="noreferrer"><img src="brand/screen-share.png" alt="Screen Share streaming the machine's desktop" data-i18n-alt="alt.screenshare" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.screenshare.h">Screen Share</h3><p data-i18n="g6.screenshare.p">The machine's actual screen streamed into the base; here it is showing the base itself, fullscreen. Useful from a phone when you want eyes on a long run.</p></figcaption>
+      </figure>
+      <figure class="shot" style="margin:0">
+        <a class="img" href="brand/snapshots.png" target="_blank" rel="noreferrer"><img src="brand/snapshots.png" alt="Snapshots: encrypted restic backups of the Garrison state" data-i18n-alt="alt.snapshots" loading="lazy" /></a>
+        <figcaption class="cap"><h3 data-i18n="g6.snapshots.h">Snapshots</h3><p data-i18n="g6.snapshots.p">Encrypted restic backups of the whole Garrison state, ~/.garrison and ~/.claude, on a timer independent of Garrison itself. Restore is deliberately manual: the exact command is printed for you to run.</p></figcaption>
       </figure>
     </div>
 
     <p class="kicker" style="margin-top:56px" data-i18n="run.also">Also live</p>
     <div class="plains" style="margin-top:0">
       <div class="plain"><span class="tag">live</span><h3 data-i18n="run.router.h">Orchestrator / Model Router</h3><p data-i18n="run.router.p">Classifies each task, then picks runtime, model, effort, and skill by rule: expert, standard, fast.</p></div>
-      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.improver.h">Improver</h3><p data-i18n="run.improver.p">Reads every session and consolidates overnight, as sleep consolidates a day. Skills, routing, and memory drift toward how you would have done it.</p></div>
       <div class="plain"><span class="tag">live</span><h3 data-i18n="run.memory.h">Memory (Obsidian)</h3><p data-i18n="run.memory.p">An Obsidian vault, graph-linked, shared across machines, runtimes, and agents.</p></div>
       <div class="plain"><span class="tag">live</span><h3 data-i18n="run.auto.h">Automations engine</h3><p data-i18n="run.auto.p">Scheduled and triggered jobs, cron-simple.</p></div>
       <div class="plain"><span class="tag">live</span><h3 data-i18n="run.voice.h">Voice</h3><p data-i18n="run.voice.p">Local or Deepgram: push-to-talk in, read-aloud out.</p></div>
-      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.vault.h">Vault</h3><p data-i18n="run.vault.p">AES-256-GCM under your keychain, scoped, never logged.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.browser.h">Browser &amp; File Browser</h3><p data-i18n="run.browser.p">A CDP-driven browser pane and a namespaced artifact store, both their own views.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.monitor.h">Monitor</h3><p data-i18n="run.monitor.p">The runtime log of everything the operative does, live-tailed.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.devenv.h">Dev Env</h3><p data-i18n="run.devenv.p">Tabbed sessions per project: a Claude PTY, a tmux shell, and the live browser pane, all surviving restarts.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.drill.h">Drill</h3><p data-i18n="run.drill.p">Visual QA: a Drill Book per app, vision-run checks, findings with evidence.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.assistant.h">Garrison Assistant</h3><p data-i18n="run.assistant.p">Grounded answers about the base itself, from local docs and Fitting instructions.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.improver.h">Improver</h3><p data-i18n="run.improver.p">Mines sessions for friction and queues proposals with diffs; you approve.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.kanban.h">Kanban Loop</h3><p data-i18n="run.kanban.p">The board every task lives on; a heartbeat wakes the operative to advance it.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.outposts.h">Outposts</h3><p data-i18n="run.outposts.p">Other machines bridged in over Tailscale: exec, files, processes, config sync.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.ports.h">Ports</h3><p data-i18n="run.ports.p">Every listening port on the base, labelled by the Fitting that owns it.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.power.h">Power</h3><p data-i18n="run.power.p">An idle watcher: six busy signals decide when the machine may sleep.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.screenshare.h">Screen Share</h3><p data-i18n="run.screenshare.p">The machine's screen, streamed; watch a long run from your phone.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.snapshots.h">Snapshots</h3><p data-i18n="run.snapshots.p">Encrypted restic backups of the whole state, on an independent timer.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.webchannel.h">Web Channel</h3><p data-i18n="run.webchannel.p">The mobile-first chat over your operative, voice in both directions.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.httpgw.h">HTTP Gateway</h3><p data-i18n="run.httpgw.p">The one door in: every channel reaches the operative through it, on a warm PTY pool.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.mcpgw.h">MCP Gateway</h3><p data-i18n="run.mcpgw.p">Exposes the stationed faculties as MCP tools to every interactive session: talk_to, wait_for, and kin.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.scheduler.h">Scheduler</h3><p data-i18n="run.scheduler.p">An always-on job daemon, independent of the operative: cron ticks and listeners that fire either way.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.dispatcher.h">Dispatcher</h3><p data-i18n="run.dispatcher.p">The routing brain: one structured call on a small fast model turns a message into a duty and a level.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.identity.h">Identity (Gary)</h3><p data-i18n="run.identity.p">The resting persona: Gary handles the day and hands real work to the right duty.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.call.h">Garrison Call</h3><p data-i18n="run.call.p">Single-shot structured LLM calls on three wire shapes: Anthropic, OpenAI-compatible, Ollama.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.slack.h">Slack Channel</h3><p data-i18n="run.slack.p">The same operative in Slack: mentions and DMs round-trip through the gateway.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.briefing.h">Morning Briefing</h3><p data-i18n="run.briefing.p">A scheduled prompt that composes the day's briefing and posts it to your channel.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.vaultsync.h">Vault Git Sync</h3><p data-i18n="run.vaultsync.p">Commits, rebases, and pushes the Obsidian vault between machines; never hard-resets.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.taste.h">Taste</h3><p data-i18n="run.taste.p">The design-taste skill pair: anti-slop frontend taste and an audit-first redesign protocol.</p></div>
+      <div class="plain"><span class="tag">live</span><h3 data-i18n="run.discussauto.h">Discuss an Automation</h3><p data-i18n="run.discussauto.p">A James conversation that designs an automation, writes the brief, and hands it to the planner.</p></div>
     </div>
   </div>
 </section>
@@ -982,10 +1254,14 @@ var STRINGS = {
     "hero.headword": "gar·ri·son",
     "hero.gram": "/ˈɡarɪsən/  ·  <i>noun</i>  ·  [O.Fr. <i>garison</i>, “defence, provision”; cf. L. <i>praesidium</i>]",
     "hero.classic": "A fortified post where a body of troops is stationed to hold and defend it.",
-    "hero.gloss": "In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed: <b>faculties</b> (capability slots) filled by swappable <b>fittings</b>, an <b>Orchestrator</b> directing, all quartered over your own Claude Code setup in the <b>Quarters</b>.",
+    "hero.gloss": "In Garrison: the local base where your <b>operatives</b> (AI agents you configure) are stationed: <b>faculties</b> (capability slots) filled by swappable <b>fittings</b>, an <b>Orchestrator</b> directing, all quartered over your own Claude Code / Codex / Agent SDK setup (or any other CLI/SDK) in the <b>Quarters</b>. Composed the way <b>veterans</b> run it.",
     "what.kicker": "01 · The base",
-    "what.line": "The structured base for your whole AI development setup.",
-    "what.diff": "Every tool, model, runtime, skill, and setting in one place, swappable in a click. Try anything new without rebuilding your workflow; assemble agent systems like Hermes or OpenClaw, reined in and transparent. Platform, CLI, and model agnostic.",
+    "what.line": "The structured base for your whole AI ecosystem.",
+    "what.p1": "Working with AI agents means keeping up with too much: which tools are best right now, which MCPs, which models, which skills, what each can actually do. You need expertise in five areas to get good work out of one agent.",
+    "what.p2": "Then comes the juggling: platforms, tools, providers, and models, each with its own setup, accounts, and way of doing things.",
+    "what.p3": "No single platform solves this, and none is coming soon. The big providers (Anthropic, OpenAI) build generalist tools that don't bend to your workflow; the small ones do one thing well and nothing else.",
+    "what.p4": "Garrison is the base where it all comes together. Pick the tools, providers, and harnesses you want; Garrison makes them work as one system. Start from curated compositions that veterans run daily, then change anything: adjust by configuration, or clone a part and redo it. Opinionated, never rigid.",
+    "what.compdef": "A <b>composition</b> is a chosen set of fittings filling the faculties: reasonable defaults, fully swappable, customizable with no development knowledge.",
     "who.kicker": "02 · The ranks",
     "who.header": "Who Garrison is for.",
     "who.dev.h": "developers",
@@ -998,91 +1274,211 @@ var STRINGS = {
     "orders.header": "Standing Orders",
     "orders.lede": "Ten articles the garrison follows without question.",
     "o1.h": "Operatives are model-agnostic.",
-    "o1.p": "The Orchestrator, the operative's single entry point, routes each task to the right runtime, model, effort, and skills.",
+    "o1.p": "The Orchestrator, the operative's single entry point, routes each task to the right runtime, model, effort, and skills. Any runtime can hold the primary post; the rest take delegations.",
     "o2.h": "Operatives are secure.",
     "o2.p": "Every fitting is a scanned, vetted APM package; secrets are Vault-sealed with AES-256-GCM and never logged.<span class=\"aside\">APM is Microsoft's package manager for agent parts: npm, but for skills, access, and memory.</span>",
     "o3.h": "Opinionated, but completely flexible.",
-    "o3.p": "Garrison ships the defaults of daily AI development; swapping a fitting is one click.",
+    "o3.p": "Garrison ships the defaults of the daily AI ecosystem; swapping a fitting is one click.",
     "o4.h": "Everything is transparent and observable.",
     "o4.p": "Every action is logged and visible; every faculty, fitting, and setting carries a plain description.",
     "o5.h": "Every fitting fulfils a faculty contract.",
     "o5.p": "One contract lets parts in any language or runtime fill the same slot; the operative never asks how a part was built.",
     "o6.h": "Compose, don't own.",
-    "o6.p": "Garrison arranges your real ~/.claude; it never replaces your tools or traps you in a runtime of its own.",
+    "o6.p": "Garrison arranges your real ~/.claude, ~/.codex, ~/.gemini; it never replaces your tools or traps you in a runtime of its own.",
     "o7.h": "Local-first. Your machine, your data, your keys.",
     "o7.p": "Operatives run on your hardware; secrets, memory, and logs stay with you.",
     "o8.h": "The system improves itself.",
     "o8.p": "The Improver reads every session, sharpening your skills, routing, and memory with use.",
-    "o9.h": "Plan before you build.",
-    "o9.p": "On the Kanban Loop a plan gates every build, so nothing runs off on its own.",
+    "o9.h": "One base, many outposts.",
+    "o9.p": "Work fans out to outposts: your other machines, cloud boxes, containers. Every outpost shares the base's memory, coordination, codebase, vault keys, and improvements.",
     "o10.h": "Open by default.",
     "o10.p": "MIT-licensed, auditable end to end, no lock-in.",
-    "fit.kicker": "04 · The fittings",
-    "fit.header": "Three flagship fittings.",
-    "fit.lede": "The panels are illustrative. The bullets are what runs today.",
-    "fit.wc.name": "Web Channel",
-    "fit.wc.h": "One chat, three hats.",
-    "fit.wc.b1": "Mobile-first chat over your operative. Start a message with a name to switch hats: <b>Gary</b>, <b>Joe</b>, or <b>James</b>.",
-    "fit.wc.b2": "<b>Gary</b> is the personal assistant. Knows your memories, your work, your personal life. Manages and schedules tasks and puts it all together.",
-    "fit.wc.b3": "<b>Joe</b> is the software developer and automations expert. Works your projects folder: plans, executes, runs autonomous flows, and leaves evidence with links to videos you can watch from the phone after being away.",
-    "fit.wc.b4": "<b>James</b> is the product manager and architect. Knows your projects and products, discusses new features with you until you are satisfied, and produces the documents Joe then builds from.",
-    "fit.wc.b5": "Voice in, voice out, at no cost: local STT and TTS with silence detection. Talk to it interactively; have replies and documents read aloud.",
-    "fit.wc.b6": "Shows what is relevant, not the raw session. Drill into detail only when you want it.",
-    "fit.wc.b7": "Enable or disable parts of the flow through Orchestrator rules.",
-    "fit.kl.name": "Kanban Loop",
-    "fit.kl.h": "Autonomous development you can watch from your phone.",
-    "fit.kl.b1": "One board for everything: dev tasks, personal tasks, manual work. The visual face of the AutoThink skill that ships in the seed composition.",
-    "fit.kl.b2": "<b>Discuss</b> with James on the card and produce the brief. Or skip straight from To Do to Plan and let it run fully autonomous.",
-    "fit.kl.b3": "<b>Plan</b> uses your instincts, collected by the Improver from your sessions and memories. Over time plans come out the way you would have written them, without intervention.",
-    "fit.kl.b4": "<b>Implement</b> with evidence for everything: logs linked from the card, viewable in the interface, editable in a built-in Monaco editor, screenshots where relevant.",
-    "fit.kl.b5": "<b>Review</b> includes a security audit. Then <b>adversarial review</b>. Then automated tests, e2e tests written from them, then adversarial tests. Evidence collected at every stage, linked on the card.",
-    "fit.kl.b6": "<b>Walkthrough</b> produces videos of what was done, in the browser and over highlighted logs, verifiable end to end. Good enough to hand to someone as a demo.",
-    "fit.kl.b7": "Mobile-first. Follow development from your phone with every link and every piece of evidence. Tailscale is detected and recommended for easy access from anywhere.",
-    "fit.kl.b8": "<b>Done</b> is where you judge the work. Not good? Drag the card back to any stage. Blocked work self-heals when possible, otherwise it lands in <b>Needs Attention</b>.",
-    "fit.de.name": "Dev Env",
-    "fit.de.h": "Your sessions, your browser, your terminals. One pane of glass.",
-    "fit.de.b1": "See every Claude Code session (or other runtime) that is running. Start sessions on main or in worktrees.",
-    "fit.de.b2": "Parallel sessions do not trample each other: the seed composition's coordination tools handle it, on main or across worktrees.",
-    "fit.de.b3": "Per session, choose plain Claude Code or the Garrison Orchestrator. The model router picks effort, model, and runtime per task by rule.",
-    "fit.de.b4": "Runtimes today: Claude Code on a warm pool of PTY sessions, Agent SDK, Codex, Gemini CLI, and any runtime you add.",
-    "fit.de.b5": "A browser pane wired to the session over CDP. The session sees what you see and can drive it. No screenshots, no leaving the environment.",
-    "fit.de.b6": "Open more terminals and arrange them as panes. tmux-backed persistent sessions survive a reboot and can be revived, with full session history.",
-    "run.kicker": "05 · The state of the art",
+    "fit.kicker": "04 · The pains",
+    "fit.header": "Four pains, one seed composition.",
+    "fit.lede": "Each pain below is solved by the current seed composition; every part of it can be swapped. Panels are illustrative; the bullets are what runs today.",
+    "seed.label": "The seed composition:",
+    "p1.name": "Pain 1 · Coordination",
+    "p1.h": "Parallel sessions that know nothing about each other.",
+    "p1.prob": "You open a second session and it immediately steps on the first. You end up serializing work, or babysitting branches.",
+    "p1.b1": "Every task is a visible card on the <b>Kanban Loop</b>: dev tasks, personal tasks, manual work, one board.",
+    "p1.b2": "A <b>coordination fitting</b> lets agents see what the others are doing and build on each other's work.",
+    "p1.b3": "Everything runs on the <b>main branch</b>. No worktrees needed: cards and coordination make trampling impossible.",
+    "p1.b4": "A <b>heartbeat</b> picks up finished cards and tests them together in one batch.",
+    "p1.b5": "Plans gate builds; evidence lands on the card at every stage: logs, screenshots, videos you can judge from your phone.",
+    "p1.swap": "Prefer worktrees? That exists as an alternative composition. Use what veterans run, adjust it, or build your own, vetted through APM.",
+    "p2.name": "Pain 2 · Capacity",
+    "p2.h": "Juggling accounts, providers, limits, and machines.",
+    "p2.prob": "Usage caps hit mid-task. You hold accounts on several providers and switch by hand. Your other machines sit idle.",
+    "p2.b1": "<b>Runtime fittings</b> for Claude Code on a warm PTY pool, Agent SDK, Codex, Gemini CLI, opencode, and any runtime you add; any of them can be the primary.",
+    "p2.b2": "The <b>Orchestrator</b> classifies each task and picks runtime, model, and effort by rule, automatically or by your override.",
+    "p2.b3": "Register several accounts; the <b>Paymaster</b> hands each session the least-used one, holds when all are capped, and flags dead tokens for re-login.",
+    "p2.b4": "Swap the whole policy by switching composition: cheap, quality, or balanced daily.",
+    "p2.b5": "<b>Outposts</b> link your other machines: run commands, read and write files, mirror directories on a schedule.",
+    "p2.b6": "Memory travels with you: the Obsidian vault git-syncs across machines, shared by every runtime and agent.",
+    "p2.swap": "All defaults. Use the routing and account policy veterans run, adjust it, or build your own, vetted through APM.",
+    "p3.name": "Pain 3 · Testing",
+    "p3.h": "Being the test browser yourself.",
+    "p3.prob": "Every change means opening the browser, logging in again, clicking through the same flow to see what broke.",
+    "p3.b1": "<b>Drill</b> plans tests as visible, editable steps: a Drill Book per page of your app, diffable in the repo.",
+    "p3.b2": "Give feedback on any step and see exactly what happened in it, run by run.",
+    "p3.b3": "Provide authentication once; runs log in by themselves and stop stumbling on logins.",
+    "p3.b4": "Browser automation with <b>vision</b> runs the steps; assertions graduate into a repeatable <b>e2e suite</b> that catches regressions without you watching.",
+    "p3.swap": "The seed default. Use the QA flow veterans run, adjust it, or build your own, vetted through APM.",
+    "p4.name": "Pain 4 · Presence",
+    "p4.h": "Work stopping when you leave the desk.",
+    "p4.prob": "You step away and everything waits for you.",
+    "p4.b1": "The <b>Web Channel</b>: responsive, mobile-first chat over your operative. Three hats: <b>Gary</b> the assistant, <b>Joe</b> the developer, <b>James</b> the product manager.",
+    "p4.b2": "Discuss a task with James until the brief is right, queue it, or run something simple immediately.",
+    "p4.b3": "Type, talk, or listen: local or Deepgram voice with silence detection; replies and documents read aloud.",
+    "p4.b4": "Schedule and automate. Every card stays on the <b>Kanban Loop</b>, evidence comes back to the channel, and you review results without retesting.",
+    "p4.swap": "Also swappable: a Slack channel instead, or whatever veterans run next; adjust it or build your own, vetted through APM.",
+    "vets.kicker": "05 · The veterans",
+    "vets.header": "Use what the veterans use.",
+    "vets.body": "Every composition and fitting is a package other builders can battle-test and pass on. Adopt what veterans run daily, adjust one that almost fits, or build your own; every package goes through APM security scanning. The seed composition is the first veteran composition. Yours can be next.",
+    "run.kicker": "06 · The state of the art",
     "run.header": "Running today.",
-    "run.lede": "Real screenshots from a live base, not a roadmap.",
-    "run.comp.h": "Composition",
-    "run.comp.p": "The whole operative on one grid: every faculty and fitting, verify hooks green before it runs.",
-    "run.quarters.h": "Quarters",
-    "run.quarters.p": "Your real ~/.claude, every artifact by name, owned or loose, always visible.",
+    "run.lede": "Every image below is a real screenshot of one live base, taken the day this page shipped: an operative running, verify clean. Not mockups, not a roadmap. Stay for the tour and you will know how the whole system works.",
+    "g6.base.k": "The base",
+    "g6.home.h": "The dashboard",
+    "g6.home.p": "One operative running over the Dogfood Dev composition: 33/33 verify hooks green, 12 of 17 faculties stationed, board summary and attention queue in one glance. Restart or stop the operative from here; every fitting view in the sidebar is one click deep.",
+    "g6.compose.k": "Compose",
+    "g6.duties.h": "Composition · Duties",
+    "g6.duties.p": "The 17 duties this composition routes: Code, Research, Discuss, Plan, Implement, Review, Drill, and more. Each duty has levels, and each level's description is its routing criterion. On the right, the target rail: Claude Code, Agent SDK, Codex, Gemini, and local Ollama models, draggable onto any level.",
+    "g6.fittings.h": "Composition · Fittings",
+    "g6.fittings.p": "The standing Fittings by faculty: channels, gateways, and the Runtimes column with Claude Code marked PRIMARY. Any runtime can hold that post; every card carries its configuration, Swap, and Edit files.",
+    "g6.orch.h": "Composition · Orchestrator",
+    "g6.orch.p": "The routing policy the run engine reads: per-work-kind rails whose phase chips name the skill, runtime, model, and effort of every gate; cc·opus, cc·fable, cx·gpt-5.5, sdk·haiku. Edits autosave and recompile the policy.",
+    "g6.quarters.k": "Quarters",
+    "g6.quarters.h": "Quarters",
+    "g6.quarters.p": "Native config for every runtime in the composition. Claude Code gets the full surface over the real ~/.claude: settings, context, skills, hooks, MCPs, plugins, scripts, plans, logs, sessions, Agent SDK. Codex, Gemini, and opencode get the same treatment over their own native files. Owned vs loose is always visible, and APM is the only package writer.",
+    "g6.keys.k": "Keys and lines out",
+    "g6.vault.h": "Vault",
+    "g6.vault.p": "Keychain-sealed stores: AES-256-GCM at rest, decrypted only into the server process, values hidden until you reveal one. Scoped delivery: a Fitting receives only the secrets it declared.",
+    "g6.connectors.h": "Connectors",
+    "g6.connectors.p": "Authenticated lines beyond localhost: Google Workspace, Slack, Trello, Deepgram voice. Each is an action catalog with Vault-sealed credentials released only when that route runs. Honest states, too: one connector is still waiting for its OAuth.",
+    "g6.ground.k": "Shared ground",
+    "g6.coordination.h": "Coordination",
+    "g6.coordination.p": "One picture of shared ground: the agent-mail server up, the planning gate holding the repo lock with its summary, and every active session by repo with its hook fires. Release lock works on any lock, even one left behind by a dead session.",
+    "g6.outposts.h": "Outposts",
+    "g6.outposts.p": "A real second machine, a cloud box named dev-madrid, bridged in over Tailscale: exec, file, and process verbs, heartbeat seconds old. Below, config sync mirrors the portable agent setup to every outpost; memory, keys, and improvements stay one copy at the base.",
+    "g6.loop.k": "The loop",
+    "g6.kanban.h": "Kanban Loop",
+    "g6.kanban.p": "Every task is a card: dev tasks, personal tasks, manual work, one board. Lanes run from Backlog through Discuss, Plan, and Code to Done; cards carry Advance, Watch, and a Terminal that drops you into the session doing the work.",
+    "g6.webchannel.h": "Web Channel",
+    "g6.webchannel.p": "The mobile-first chat over your operative. Here James talks a work item through before it goes to planning: four clarifying questions, terse answers, brief written, card ready for build. Model chips on every turn show what it ran on; TALK and the mic drive voice both ways.",
+    "g6.devenv.h": "Dev Env",
+    "g6.devenv.p": "One session tab, three panes: Claude Code finishing a copy review on the left, a tmux-backed shell serving the site below it, and the live browser rendering the page on the right. Sessions survive restarts; the browser is CDP-driven, so the agent sees exactly what you see.",
+    "g6.drill.k": "Drill · visual QA",
+    "g6.drillbook.h": "Drill · the book",
+    "g6.drillbook.p": "The QA plan the agent maintains for the app under test, versioned in the repo: pages, checks, states, global rules. The app-up chip is a live probe; if the app is down, Drill starts it through the project's own run skill.",
+    "g6.drillauthoring.h": "Drill · authoring",
+    "g6.drillauthoring.p": "One page at a time: the checks on the left, vision or judgment, per viewport; the live, viewport-accurate preview on the right, with console and full view a click away.",
+    "g6.drillrun.h": "Drill · run & results",
+    "g6.drillrun.p": "A finished run with a real catch. Two findings proposed, Confirm or Dismiss, and the evidence four ways: annotated screenshots, video, a live-browser replay, and the agent sessions themselves. The Vault check passed; the dashboard finding became a code fix the same afternoon.",
+    "g6.improve.k": "It improves itself",
+    "g6.improver.h": "Improver",
+    "g6.improver.p": "The review queue after a run: proposals mined from real session friction, each with a diff, a confidence, and Approve / Reject. Nothing self-applies unless you, or the autonomy dial, say so.",
+    "g6.assistant.h": "Garrison Assistant",
+    "g6.assistant.p": "Ask the base about itself. Answers are retrieved from the local documentation and installed Fitting instructions, with source paths kept in view; no external model call.",
+    "g6.protect.k": "Presence and protection",
+    "g6.screenshare.h": "Screen Share",
+    "g6.screenshare.p": "The machine's actual screen streamed into the base; here it is showing the base itself, fullscreen. Useful from a phone when you want eyes on a long run.",
+    "g6.snapshots.h": "Snapshots",
+    "g6.snapshots.p": "Encrypted restic backups of the whole Garrison state, ~/.garrison and ~/.claude, on a timer independent of Garrison itself. Restore is deliberately manual: the exact command is printed for you to run.",
     "run.also": "Also live",
     "run.router.h": "Orchestrator / Model Router",
     "run.router.p": "Classifies each task, then picks runtime, model, effort, and skill by rule: expert, standard, fast.",
-    "run.improver.h": "Improver",
-    "run.improver.p": "Reads every session and consolidates overnight, as sleep consolidates a day. Skills, routing, and memory drift toward how you would have done it.",
     "run.memory.h": "Memory (Obsidian)",
     "run.memory.p": "An Obsidian vault, graph-linked, shared across machines, runtimes, and agents.",
     "run.auto.h": "Automations engine",
     "run.auto.p": "Scheduled and triggered jobs, cron-simple.",
     "run.voice.h": "Voice",
     "run.voice.p": "Local or Deepgram: push-to-talk in, read-aloud out.",
-    "run.vault.h": "Vault",
-    "run.vault.p": "AES-256-GCM under your keychain, scoped, never logged.",
-    "meta.title": "Garrison: the structured base for your AI development setup",
-    "meta.desc": "Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code setup.",
+    "run.browser.h": "Browser & File Browser",
+    "run.browser.p": "A CDP-driven browser pane and a namespaced artifact store, both their own views.",
+    "run.monitor.h": "Monitor",
+    "run.monitor.p": "The runtime log of everything the operative does, live-tailed.",
+    "run.devenv.h": "Dev Env",
+    "run.devenv.p": "Tabbed sessions per project: a Claude PTY, a tmux shell, and the live browser pane, all surviving restarts.",
+    "run.drill.h": "Drill",
+    "run.drill.p": "Visual QA: a Drill Book per app, vision-run checks, findings with evidence.",
+    "run.assistant.h": "Garrison Assistant",
+    "run.assistant.p": "Grounded answers about the base itself, from local docs and Fitting instructions.",
+    "run.improver.h": "Improver",
+    "run.improver.p": "Mines sessions for friction and queues proposals with diffs; you approve.",
+    "run.kanban.h": "Kanban Loop",
+    "run.kanban.p": "The board every task lives on; a heartbeat wakes the operative to advance it.",
+    "run.outposts.h": "Outposts",
+    "run.outposts.p": "Other machines bridged in over Tailscale: exec, files, processes, config sync.",
+    "run.ports.h": "Ports",
+    "run.ports.p": "Every listening port on the base, labelled by the Fitting that owns it.",
+    "run.power.h": "Power",
+    "run.power.p": "An idle watcher: six busy signals decide when the machine may sleep.",
+    "run.screenshare.h": "Screen Share",
+    "run.screenshare.p": "The machine's screen, streamed; watch a long run from your phone.",
+    "run.snapshots.h": "Snapshots",
+    "run.snapshots.p": "Encrypted restic backups of the whole state, on an independent timer.",
+    "run.webchannel.h": "Web Channel",
+    "run.webchannel.p": "The mobile-first chat over your operative, voice in both directions.",
+    "run.httpgw.h": "HTTP Gateway",
+    "run.httpgw.p": "The one door in: every channel reaches the operative through it, on a warm PTY pool.",
+    "run.mcpgw.h": "MCP Gateway",
+    "run.mcpgw.p": "Exposes the stationed faculties as MCP tools to every interactive session: talk_to, wait_for, and kin.",
+    "run.scheduler.h": "Scheduler",
+    "run.scheduler.p": "An always-on job daemon, independent of the operative: cron ticks and listeners that fire either way.",
+    "run.dispatcher.h": "Dispatcher",
+    "run.dispatcher.p": "The routing brain: one structured call on a small fast model turns a message into a duty and a level.",
+    "run.identity.h": "Identity (Gary)",
+    "run.identity.p": "The resting persona: Gary handles the day and hands real work to the right duty.",
+    "run.call.h": "Garrison Call",
+    "run.call.p": "Single-shot structured LLM calls on three wire shapes: Anthropic, OpenAI-compatible, Ollama.",
+    "run.slack.h": "Slack Channel",
+    "run.slack.p": "The same operative in Slack: mentions and DMs round-trip through the gateway.",
+    "run.briefing.h": "Morning Briefing",
+    "run.briefing.p": "A scheduled prompt that composes the day's briefing and posts it to your channel.",
+    "run.vaultsync.h": "Vault Git Sync",
+    "run.vaultsync.p": "Commits, rebases, and pushes the Obsidian vault between machines; never hard-resets.",
+    "run.taste.h": "Taste",
+    "run.taste.p": "The design-taste skill pair: anti-slop frontend taste and an audit-first redesign protocol.",
+    "run.discussauto.h": "Discuss an Automation",
+    "run.discussauto.p": "A James conversation that designs an automation, writes the brief, and hands it to the planner.",
+    "meta.title": "Garrison: the structured base for your AI ecosystem",
+    "meta.desc": "Garrison is the local base where your AI operatives are stationed: faculties filled by swappable fittings, directed by an orchestrator, quartered over your own Claude Code / Codex / Agent SDK setup, or any other CLI/SDK.",
     "aria.lang": "Language",
     "alt.logo": "Garrison: a wheat palisade fence on deep forest green",
-    "alt.comp": "The Garrison composition grid",
-    "alt.quarters": "The Quarters view over ~/.claude",
+    "alt.home": "The Garrison dashboard with a running operative",
+    "alt.duties": "The Composition page on the Duties tab",
+    "alt.fittings": "The Composition page on the Fittings tab",
+    "alt.orch": "The Orchestrator routing policy",
+    "alt.quarters": "Quarters with claude-code and codex expanded, gemini and opencode below",
+    "alt.vault": "The Vault with keychain-sealed secrets",
+    "alt.connectors": "The Connectors page with Vault-sealed services",
+    "alt.coordination": "The Coordination page: sessions, planning locks, leases",
+    "alt.outposts": "Garrison Outposts with a cloud machine online",
+    "alt.kanban": "The Kanban Loop board",
+    "alt.webchannel": "The Web Channel with a discuss conversation",
+    "alt.devenv": "The Dev Env: Claude session, shell, and live browser pane",
+    "alt.drillbook": "The Drill Book: the QA plan for the app under test",
+    "alt.drillauthoring": "Drill authoring: checks beside a live preview",
+    "alt.drillrun": "Drill run results: findings beside evidence tabs",
+    "alt.improver": "The Improver review queue with pending proposals",
+    "alt.assistant": "The Garrison Assistant answering from local doctrine",
+    "alt.screenshare": "Screen Share streaming the machine's desktop",
+    "alt.snapshots": "Snapshots: encrypted restic backups of the Garrison state",
     "foot.left": "Garrison · open source · <a href=\"https://github.com/gongiskhan/agent-garrison\">GitHub</a> · MIT licence"
   },
   pt: {
     "hero.headword": "guar·ni·ção",
     "hero.gram": "/ɡwɐɾniˈsɐ̃w̃/  ·  <i>substantivo</i>  ·  [do fr. ant. <i>garison</i>, “defesa, provisão”; cf. lat. <i>praesidium</i>]",
     "hero.classic": "Posto fortificado onde uma força se encontra estacionada para o defender.",
-    "hero.gloss": "No Garrison: a base local onde os teus <b>operatives</b> (agentes de IA que configuras) ficam estacionados: <b>faculties</b> (slots de capacidade) preenchidas por <b>fittings</b> substituíveis, um <b>Orchestrator</b> a dirigir, tudo aquartelado sobre a tua configuração do Claude Code, nos <b>Quarters</b>.",
+    "hero.gloss": "No Garrison: a base local onde os teus <b>operatives</b> (agentes de IA que configuras) ficam estacionados: <b>faculties</b> (slots de capacidade) preenchidas por <b>fittings</b> substituíveis, um <b>Orchestrator</b> a dirigir, tudo aquartelado sobre a tua configuração do Claude Code / Codex / Agent SDK (ou qualquer outro CLI/SDK), nos <b>Quarters</b>. Composto como os <b>veterans</b> o usam.",
     "what.kicker": "01 · A base",
-    "what.line": "A base estruturada para toda a tua configuração de desenvolvimento com IA.",
-    "what.diff": "Todas as ferramentas, modelos, runtimes, skills e definições num só lugar, substituíveis com um clique. Experimenta o que surge sem reconstruir o teu fluxo de trabalho; monta sistemas de agentes como o Hermes ou o OpenClaw, de rédea curta e com transparência. Agnóstico à plataforma, à CLI e ao modelo.",
+    "what.line": "A base estruturada para todo o teu ecossistema de IA.",
+    "what.p1": "Trabalhar com agentes de IA obriga a acompanhar demasiada coisa: quais as melhores ferramentas neste momento, que MCPs, que modelos, que skills, o que cada um consegue realmente fazer. Precisas de ser perito em cinco áreas para tirar bom trabalho de um agente.",
+    "what.p2": "Depois vem o malabarismo: plataformas, ferramentas, fornecedores e modelos, cada um com a sua configuração, contas e maneira de fazer as coisas.",
+    "what.p3": "Nenhuma plataforma única resolve isto, e não há nenhuma a caminho. Os grandes fornecedores (Anthropic, OpenAI) fazem ferramentas generalistas que não se dobram ao teu fluxo de trabalho; os pequenos fazem uma coisa bem e mais nada.",
+    "what.p4": "O Garrison é a base onde tudo se junta. Escolhe as ferramentas, os fornecedores e os harnesses que quiseres; o Garrison fá-los funcionar como um só sistema. Começa por composições curadas que os veterans usam todos os dias e depois muda o que quiseres: ajusta por configuração, ou clona uma peça e refá-la. Com opções assumidas, nunca rígido.",
+    "what.compdef": "Uma <b>composição</b> é um conjunto escolhido de fittings a preencher as faculties: bons valores por defeito, tudo substituível, personalizável sem saber programar.",
     "who.kicker": "02 · As fileiras",
     "who.header": "Para quem é o Garrison.",
     "who.dev.h": "programadores",
@@ -1095,81 +1491,197 @@ var STRINGS = {
     "orders.header": "Standing Orders",
     "orders.lede": "Dez artigos que a guarnição segue sem questionar.",
     "o1.h": "Os operatives são agnósticos ao modelo.",
-    "o1.p": "O Orchestrator, o ponto de entrada único do operative, encaminha cada tarefa para as skills, o modelo, o esforço e o runtime certos.",
+    "o1.p": "O Orchestrator, o ponto de entrada único do operative, encaminha cada tarefa para as skills, o modelo, o esforço e o runtime certos. Qualquer runtime pode ocupar o posto principal; os restantes recebem delegações.",
     "o2.h": "Os operatives são seguros.",
     "o2.p": "Cada fitting é um pacote APM analisado e validado; os segredos são selados no Vault com AES-256-GCM e nunca registados.<span class=\"aside\">O APM é o gestor de pacotes da Microsoft para peças de agentes: npm, mas para skills, acessos e memória.</span>",
     "o3.h": "Com opções assumidas, mas totalmente flexível.",
-    "o3.p": "O Garrison traz as escolhas por defeito do desenvolvimento diário com IA; trocar um fitting é um clique.",
+    "o3.p": "O Garrison traz as escolhas por defeito do ecossistema de IA do dia a dia; trocar um fitting é um clique.",
     "o4.h": "Tudo é transparente e observável.",
     "o4.p": "Cada ação é registada e visível; cada faculty, fitting e definição traz uma descrição simples.",
     "o5.h": "Cada fitting cumpre o contrato de uma faculty.",
     "o5.p": "Um único contrato deixa peças em qualquer linguagem ou runtime preencher o mesmo slot; o operative nunca pergunta como uma peça foi construída.",
     "o6.h": "Compor, não possuir.",
-    "o6.p": "O Garrison organiza o teu ~/.claude real; nunca substitui as tuas ferramentas nem te prende a um runtime próprio.",
+    "o6.p": "O Garrison organiza os teus ~/.claude, ~/.codex, ~/.gemini reais; nunca substitui as tuas ferramentas nem te prende a um runtime próprio.",
     "o7.h": "Local em primeiro lugar. A tua máquina, os teus dados, as tuas chaves.",
     "o7.p": "Os operatives correm no teu hardware; os segredos, a memória e os registos ficam contigo.",
     "o8.h": "O sistema melhora-se a si próprio.",
     "o8.p": "O Improver lê cada sessão e afina as tuas skills, o encaminhamento e a memória com o uso.",
-    "o9.h": "Planear antes de construir.",
-    "o9.p": "No Kanban Loop, cada build passa primeiro por um plano, para que nada avance sozinho.",
+    "o9.h": "Uma base, muitos outposts.",
+    "o9.p": "O trabalho distribui-se por outposts: as tuas outras máquinas, caixas na cloud, containers. Todos partilham a memória, a coordenação, o código, as chaves do vault e as melhorias da base.",
     "o10.h": "Aberto por definição.",
     "o10.p": "Licença MIT, auditável de ponta a ponta, sem aprisionamento.",
-    "fit.kicker": "04 · Os fittings",
-    "fit.header": "Três fittings de referência.",
-    "fit.lede": "Os painéis são ilustrativos. As listas dizem o que corre hoje.",
-    "fit.wc.name": "Web Channel",
-    "fit.wc.h": "Um chat, três chapéus.",
-    "fit.wc.b1": "Chat mobile-first sobre o teu operative. Começa a mensagem com um nome para trocar de chapéu: <b>Gary</b>, <b>Joe</b> ou <b>James</b>.",
-    "fit.wc.b2": "O <b>Gary</b> é o assistente pessoal. Conhece as tuas memórias, o teu trabalho, a tua vida pessoal. Gere e agenda tarefas e junta tudo.",
-    "fit.wc.b3": "O <b>Joe</b> é o programador e especialista em automações. Trabalha a tua pasta de projetos: planeia, executa, corre fluxos autónomos e deixa provas com links para vídeos que podes ver no telemóvel quando voltares.",
-    "fit.wc.b4": "O <b>James</b> é o gestor de produto e arquiteto. Conhece os teus projetos e produtos, discute funcionalidades novas contigo até ficares satisfeito, e produz os documentos a partir dos quais o Joe constrói.",
-    "fit.wc.b5": "Entrada e saída por voz, sem custo: STT e TTS locais com deteção de silêncio. Fala com ele interativamente; ouve respostas e documentos em voz alta.",
-    "fit.wc.b6": "Mostra o que é relevante, não a sessão em bruto. Entra no detalhe só quando quiseres.",
-    "fit.wc.b7": "Ativa ou desativa partes do fluxo com regras do Orchestrator.",
-    "fit.kl.name": "Kanban Loop",
-    "fit.kl.h": "Desenvolvimento autónomo que acompanhas do telemóvel.",
-    "fit.kl.b1": "Um quadro para tudo: tarefas de dev, tarefas pessoais, trabalho manual. A face visível da skill AutoThink que vem na composição seed.",
-    "fit.kl.b2": "<b>Discuss</b>: fala com o James no cartão e produz o brief. Ou salta de To Do para Plan e deixa-o correr de forma totalmente autónoma.",
-    "fit.kl.b3": "<b>Plan</b> usa os teus instintos, recolhidos pelo Improver das tuas sessões e memórias. Com o tempo os planos saem como tu os terias escrito, sem intervenção.",
-    "fit.kl.b4": "<b>Implement</b> com provas de tudo: logs ligados ao cartão, visíveis na interface, editáveis num editor Monaco integrado, capturas de ecrã onde for relevante.",
-    "fit.kl.b5": "<b>Review</b> inclui uma auditoria de segurança. Depois <b>revisão adversarial</b>. Depois testes automatizados, testes e2e escritos a partir deles, depois testes adversariais. Provas recolhidas em cada fase, ligadas ao cartão.",
-    "fit.kl.b6": "<b>Walkthrough</b> produz vídeos do que foi feito, no browser e sobre logs realçados, verificáveis de ponta a ponta. Suficientemente bons para entregar como demo.",
-    "fit.kl.b7": "Mobile-first. Acompanha o desenvolvimento do telemóvel com todos os links e todas as provas. O Tailscale é detetado e recomendado para acesso fácil de qualquer lugar.",
-    "fit.kl.b8": "<b>Done</b> é onde julgas o trabalho. Não presta? Arrasta o cartão de volta para qualquer fase. O trabalho bloqueado cura-se sozinho quando possível; caso contrário cai em <b>Needs Attention</b>.",
-    "fit.de.name": "Dev Env",
-    "fit.de.h": "As tuas sessões, o teu browser, os teus terminais. Um só painel.",
-    "fit.de.b1": "Vê cada sessão do Claude Code (ou de outro runtime) que está a correr. Inicia sessões na main ou em worktrees.",
-    "fit.de.b2": "Sessões paralelas não se atropelam: as ferramentas de coordenação da composição seed tratam disso, na main ou entre worktrees.",
-    "fit.de.b3": "Por sessão, escolhe Claude Code simples ou o Garrison Orchestrator. O model router escolhe esforço, modelo e runtime por tarefa, por regra.",
-    "fit.de.b4": "Runtimes hoje: Claude Code numa warm pool de sessões PTY, Agent SDK, Codex, Gemini CLI, e qualquer runtime que adiciones.",
-    "fit.de.b5": "Um painel de browser ligado à sessão por CDP. A sessão vê o que tu vês e consegue controlá-lo. Sem capturas de ecrã, sem sair do ambiente.",
-    "fit.de.b6": "Abre mais terminais e organiza-os como painéis. Sessões persistentes com tmux sobrevivem a um reboot e podem ser retomadas, com o histórico completo.",
-    "run.kicker": "05 · O estado da arte",
+    "fit.kicker": "04 · As dores",
+    "fit.header": "Quatro dores, uma composição seed.",
+    "fit.lede": "Cada dor abaixo é resolvida pela composição seed atual; cada parte dela pode ser trocada. Os painéis são ilustrativos; as listas dizem o que corre hoje.",
+    "seed.label": "A composição seed:",
+    "p1.name": "Dor 1 · Coordenação",
+    "p1.h": "Sessões paralelas que não sabem nada umas das outras.",
+    "p1.prob": "Abres uma segunda sessão e ela atropela logo a primeira. Acabas a serializar o trabalho, ou a tomar conta de branches.",
+    "p1.b1": "Cada tarefa é um cartão visível no <b>Kanban Loop</b>: tarefas de dev, tarefas pessoais, trabalho manual, um só quadro.",
+    "p1.b2": "Um <b>fitting de coordenação</b> deixa os agentes ver o que os outros estão a fazer e construir sobre o trabalho uns dos outros.",
+    "p1.b3": "Tudo corre na <b>branch main</b>. Sem worktrees: os cartões e a coordenação tornam o atropelo impossível.",
+    "p1.b4": "Um <b>heartbeat</b> apanha os cartões terminados e testa-os juntos, num só lote.",
+    "p1.b5": "Os planos servem de portão aos builds; as provas ficam no cartão em cada fase: logs, capturas de ecrã, vídeos que julgas do telemóvel.",
+    "p1.swap": "Preferes worktrees? Existe como composição alternativa. Usa o que os veterans usam, ajusta, ou constrói a tua, validada pelo APM.",
+    "p2.name": "Dor 2 · Capacidade",
+    "p2.h": "Malabarismo com contas, fornecedores, limites e máquinas.",
+    "p2.prob": "Os limites de utilização chegam a meio da tarefa. Tens contas em vários fornecedores e trocas à mão. As tuas outras máquinas ficam paradas.",
+    "p2.b1": "<b>Fittings de runtime</b> para Claude Code numa warm pool de PTY, Agent SDK, Codex, Gemini CLI, opencode, e qualquer runtime que adiciones; qualquer um deles pode ser o principal.",
+    "p2.b2": "O <b>Orchestrator</b> classifica cada tarefa e escolhe runtime, modelo e esforço por regra, automaticamente ou por ordem tua.",
+    "p2.b3": "Regista várias contas; o <b>Paymaster</b> dá a cada sessão a menos usada, espera quando estão todas no limite, e marca tokens mortos para novo login.",
+    "p2.b4": "Troca a política inteira mudando de composição: barata, de qualidade, ou equilibrada para o dia a dia.",
+    "p2.b5": "Os <b>Outposts</b> ligam as tuas outras máquinas: correm comandos, leem e escrevem ficheiros, espelham diretórios a horas certas.",
+    "p2.b6": "A memória vai contigo: o vault Obsidian sincroniza-se por git entre máquinas, partilhado por todos os runtimes e agentes.",
+    "p2.swap": "Tudo valores por defeito. Usa a política de routing e contas que os veterans usam, ajusta, ou constrói a tua, validada pelo APM.",
+    "p3.name": "Dor 3 · Testes",
+    "p3.h": "Seres tu o browser de testes.",
+    "p3.prob": "Cada alteração obriga a abrir o browser, fazer login outra vez, clicar pelo mesmo fluxo para ver o que partiu.",
+    "p3.b1": "O <b>Drill</b> planeia testes como passos visíveis e editáveis: um Drill Book por página da tua app, versionado no repositório.",
+    "p3.b2": "Dá feedback em qualquer passo e vê exatamente o que aconteceu nele, corrida a corrida.",
+    "p3.b3": "Fornece a autenticação uma vez; as corridas fazem login sozinhas e deixam de tropeçar nele.",
+    "p3.b4": "Automação de browser com <b>visão</b> corre os passos; as asserções graduam para uma <b>suite e2e</b> repetível que apanha regressões sem estares a ver.",
+    "p3.swap": "O valor por defeito da seed. Usa o fluxo de QA que os veterans usam, ajusta, ou constrói o teu, validado pelo APM.",
+    "p4.name": "Dor 4 · Presença",
+    "p4.h": "O trabalho parar quando sais da secretária.",
+    "p4.prob": "Afastas-te e fica tudo à tua espera.",
+    "p4.b1": "O <b>Web Channel</b>: chat responsivo, mobile-first, sobre o teu operative. Três chapéus: o <b>Gary</b> assistente, o <b>Joe</b> programador, o <b>James</b> gestor de produto.",
+    "p4.b2": "Discute uma tarefa com o James até o brief estar certo, mete-a na fila, ou corre já algo simples.",
+    "p4.b3": "Escreve, fala ou ouve: voz local ou Deepgram com deteção de silêncio; respostas e documentos lidos em voz alta.",
+    "p4.b4": "Agenda e automatiza. Cada cartão fica no <b>Kanban Loop</b>, as provas voltam ao canal, e reveres os resultados sem re-testar.",
+    "p4.swap": "Também substituível: um canal Slack, ou o que os veterans usarem a seguir; ajusta ou constrói o teu, validado pelo APM.",
+    "vets.kicker": "05 · Os veterans",
+    "vets.header": "Usa o que os veterans usam.",
+    "vets.body": "Cada composição e cada fitting é um pacote que outros builders podem testar em combate e passar adiante. Adota o que os veterans usam todos os dias, ajusta o que quase serve, ou constrói o teu; cada pacote passa pela análise de segurança do APM. A composição seed é a primeira composição veteran. A tua pode ser a próxima.",
+    "run.kicker": "06 · O estado da arte",
     "run.header": "A funcionar hoje.",
-    "run.lede": "Capturas reais de uma base em funcionamento, não um roadmap.",
-    "run.comp.h": "Composição",
-    "run.comp.p": "Todo o operative numa grelha: cada faculty e fitting, verify hooks verdes antes de arrancar.",
-    "run.quarters.h": "Quarters",
-    "run.quarters.p": "O teu ~/.claude real, cada artefacto pelo nome, gerido ou solto, sempre visível.",
+    "run.lede": "Cada imagem abaixo é uma captura real de uma única base viva, tirada no dia em que esta página foi publicada: um operative a correr, verify limpo. Nem mockups, nem roadmap. Fica para a visita e sais a saber como o sistema inteiro funciona.",
+    "g6.base.k": "A base",
+    "g6.home.h": "O dashboard",
+    "g6.home.p": "Um operative a correr sobre a composição Dogfood Dev: 33/33 verify hooks verdes, 12 de 17 faculties preenchidas, o resumo do quadro e a fila de atenção num relance. Reinicia ou pára o operative daqui; cada vista de fitting na barra lateral está a um clique.",
+    "g6.compose.k": "Compor",
+    "g6.duties.h": "Composição · Duties",
+    "g6.duties.p": "As 17 duties que esta composição encaminha: Code, Research, Discuss, Plan, Implement, Review, Drill e mais. Cada duty tem níveis, e a descrição de cada nível é o seu critério de encaminhamento. À direita, o corredor de targets: Claude Code, Agent SDK, Codex, Gemini e modelos Ollama locais, arrastáveis para qualquer nível.",
+    "g6.fittings.h": "Composição · Fittings",
+    "g6.fittings.p": "Os Fittings permanentes por faculty: canais, gateways e a coluna de Runtimes com o Claude Code marcado PRIMARY. Qualquer runtime pode ocupar esse posto; cada cartão traz a sua configuração, Swap e edição de ficheiros.",
+    "g6.orch.h": "Composição · Orchestrator",
+    "g6.orch.p": "A política de encaminhamento que o motor de execução lê: carris por tipo de trabalho cujas fases nomeiam a skill, o runtime, o modelo e o esforço de cada portão; cc·opus, cc·fable, cx·gpt-5.5, sdk·haiku. As edições gravam sozinhas e recompilam a política.",
+    "g6.quarters.k": "Quarters",
+    "g6.quarters.h": "Quarters",
+    "g6.quarters.p": "Configuração nativa de cada runtime da composição. O Claude Code tem a superfície completa sobre o ~/.claude real: settings, contexto, skills, hooks, MCPs, plugins, scripts, planos, logs, sessões, Agent SDK. Codex, Gemini e opencode recebem o mesmo tratamento sobre os seus próprios ficheiros nativos. Gerido vs solto está sempre visível, e o APM é o único escritor de pacotes.",
+    "g6.keys.k": "Chaves e linhas para fora",
+    "g6.vault.h": "Vault",
+    "g6.vault.p": "Cofres selados pelo keychain: AES-256-GCM em repouso, decifrado apenas para o processo do servidor, valores escondidos até revelares um. Entrega com âmbito: um Fitting recebe apenas os segredos que declarou.",
+    "g6.connectors.h": "Connectors",
+    "g6.connectors.p": "Linhas autenticadas para lá do localhost: Google Workspace, Slack, Trello, voz Deepgram. Cada um é um catálogo de ações com credenciais seladas no Vault, libertadas apenas quando essa rota corre. Estados honestos, também: um connector ainda espera pelo seu OAuth.",
+    "g6.ground.k": "Terreno partilhado",
+    "g6.coordination.h": "Coordenação",
+    "g6.coordination.p": "Uma só imagem do terreno partilhado: o servidor agent-mail de pé, o portão de planeamento a segurar o lock do repositório com o seu resumo, e cada sessão ativa por repositório com os seus hook fires. O botão de libertar funciona com qualquer lock, mesmo um deixado por uma sessão morta.",
+    "g6.outposts.h": "Outposts",
+    "g6.outposts.p": "Uma segunda máquina real, uma caixa na cloud chamada dev-madrid, ligada por Tailscale: verbos de execução, ficheiros e processos, heartbeat com segundos. Em baixo, a sincronização de configuração espelha o setup portátil do agente para cada outpost; memória, chaves e melhorias ficam numa só cópia, na base.",
+    "g6.loop.k": "O ciclo",
+    "g6.kanban.h": "Kanban Loop",
+    "g6.kanban.p": "Cada tarefa é um cartão: tarefas de dev, tarefas pessoais, trabalho manual, um só quadro. As faixas vão do Backlog a Done passando por Discuss, Plan e Code; os cartões trazem Advance, Watch e um Terminal que te larga na sessão que está a fazer o trabalho.",
+    "g6.webchannel.h": "Web Channel",
+    "g6.webchannel.p": "O chat mobile-first sobre o teu operative. Aqui o James discute um item de trabalho antes de ir para planeamento: quatro perguntas de clarificação, respostas curtas, brief escrito, cartão pronto para build. As etiquetas de modelo em cada turno mostram onde correu; TALK e o microfone fazem a voz nos dois sentidos.",
+    "g6.devenv.h": "Dev Env",
+    "g6.devenv.p": "Um separador de sessão, três painéis: o Claude Code a terminar uma revisão de copy à esquerda, uma shell em tmux a servir o site por baixo, e o browser ao vivo a renderizar a página à direita. As sessões sobrevivem a reinícios; o browser é conduzido por CDP, por isso o agente vê exatamente o que tu vês.",
+    "g6.drill.k": "Drill · QA visual",
+    "g6.drillbook.h": "Drill · o livro",
+    "g6.drillbook.p": "O plano de QA que o agente mantém para a app em teste, versionado no repositório: páginas, verificações, estados, regras globais. O selo app-up é uma sonda viva; se a app estiver em baixo, o Drill arranca-a através da run skill do próprio projeto.",
+    "g6.drillauthoring.h": "Drill · autoria",
+    "g6.drillauthoring.p": "Uma página de cada vez: as verificações à esquerda, visão ou julgamento, por viewport; a pré-visualização viva e fiel ao viewport à direita, com consola e vista completa a um clique.",
+    "g6.drillrun.h": "Drill · corridas & resultados",
+    "g6.drillrun.p": "Uma corrida terminada com uma captura real. Dois findings propostos, Confirmar ou Dispensar, e as provas de quatro formas: capturas anotadas, vídeo, replay em browser ao vivo, e as próprias sessões do agente. A verificação do Vault passou; o finding do dashboard virou correção de código na mesma tarde.",
+    "g6.improve.k": "Melhora-se a si próprio",
+    "g6.improver.h": "Improver",
+    "g6.improver.p": "A fila de revisão depois de uma corrida: propostas extraídas de fricção real das sessões, cada uma com diff, confiança e Aprovar / Rejeitar. Nada se aplica sozinho sem tu, ou o dial de autonomia, o dizerem.",
+    "g6.assistant.h": "Garrison Assistant",
+    "g6.assistant.p": "Pergunta à base sobre ela própria. As respostas vêm da documentação local e das instruções dos Fittings instalados, com os caminhos das fontes à vista; sem chamada a modelo externo.",
+    "g6.protect.k": "Presença e proteção",
+    "g6.screenshare.h": "Screen Share",
+    "g6.screenshare.p": "O ecrã real da máquina transmitido para a base; aqui a mostrar a própria base, em ecrã inteiro. Útil a partir do telemóvel quando queres olhos numa corrida longa.",
+    "g6.snapshots.h": "Snapshots",
+    "g6.snapshots.p": "Cópias restic cifradas de todo o estado do Garrison, ~/.garrison e ~/.claude, num temporizador independente do próprio Garrison. O restauro é deliberadamente manual: o comando exato é impresso para o correres tu.",
     "run.also": "Também a funcionar",
     "run.router.h": "Orchestrator / Model Router",
     "run.router.p": "Classifica cada tarefa e escolhe runtime, modelo, esforço e skill por regra: expert, standard, fast.",
-    "run.improver.h": "Improver",
-    "run.improver.p": "Lê cada sessão e consolida durante a noite, como o sono consolida um dia. Skills, encaminhamento e memória aproximam-se de como tu o terias feito.",
     "run.memory.h": "Memória (Obsidian)",
     "run.memory.p": "Um vault Obsidian, ligado em grafo, partilhado entre máquinas, runtimes e agentes.",
     "run.auto.h": "Motor de automações",
     "run.auto.p": "Tarefas agendadas ou acionadas por gatilhos, simples como o cron.",
     "run.voice.h": "Voz",
     "run.voice.p": "Local ou Deepgram: push-to-talk para falar, leitura em voz alta na resposta.",
-    "run.vault.h": "Vault",
-    "run.vault.p": "AES-256-GCM sob o teu keychain; segredos com âmbito limitado, nunca registados.",
-    "meta.title": "Garrison: a base estruturada para o teu desenvolvimento com IA",
-    "meta.desc": "O Garrison é a base local onde os teus operatives de IA ficam estacionados: faculties preenchidas por fittings substituíveis, um Orchestrator a dirigir, tudo aquartelado sobre a tua própria configuração do Claude Code.",
+    "run.browser.h": "Browser & File Browser",
+    "run.browser.p": "Um painel de browser conduzido por CDP e um repositório de artefactos com namespaces, cada um com a sua vista.",
+    "run.monitor.h": "Monitor",
+    "run.monitor.p": "O registo em tempo real de tudo o que o operative faz.",
+    "run.devenv.h": "Dev Env",
+    "run.devenv.p": "Sessões em separadores por projeto: um PTY do Claude, uma shell em tmux e o painel de browser ao vivo, tudo a sobreviver a reinícios.",
+    "run.drill.h": "Drill",
+    "run.drill.p": "QA visual: um Drill Book por app, verificações corridas com visão, findings com provas.",
+    "run.assistant.h": "Garrison Assistant",
+    "run.assistant.p": "Respostas fundamentadas sobre a própria base, a partir de docs locais e instruções dos Fittings.",
+    "run.improver.h": "Improver",
+    "run.improver.p": "Extrai fricção das sessões e enfileira propostas com diffs; tu aprovas.",
+    "run.kanban.h": "Kanban Loop",
+    "run.kanban.p": "O quadro onde vive cada tarefa; um heartbeat acorda o operative para a avançar.",
+    "run.outposts.h": "Outposts",
+    "run.outposts.p": "Outras máquinas ligadas por Tailscale: execução, ficheiros, processos, sincronização de configuração.",
+    "run.ports.h": "Ports",
+    "run.ports.p": "Cada porto em escuta na base, etiquetado pelo Fitting que o detém.",
+    "run.power.h": "Power",
+    "run.power.p": "Um vigia de inatividade: seis sinais de ocupação decidem quando a máquina pode dormir.",
+    "run.screenshare.h": "Screen Share",
+    "run.screenshare.p": "O ecrã da máquina, transmitido; acompanha uma corrida longa do telemóvel.",
+    "run.snapshots.h": "Snapshots",
+    "run.snapshots.p": "Cópias restic cifradas de todo o estado, num temporizador independente.",
+    "run.webchannel.h": "Web Channel",
+    "run.webchannel.p": "O chat mobile-first sobre o teu operative, com voz nos dois sentidos.",
+    "run.httpgw.h": "HTTP Gateway",
+    "run.httpgw.p": "A única porta de entrada: todos os canais chegam ao operative por aqui, numa warm pool de PTY.",
+    "run.mcpgw.h": "MCP Gateway",
+    "run.mcpgw.p": "Expõe as faculties estacionadas como ferramentas MCP a cada sessão interativa: talk_to, wait_for e afins.",
+    "run.scheduler.h": "Scheduler",
+    "run.scheduler.p": "Um daemon de tarefas sempre ligado, independente do operative: ticks de cron e listeners que disparam de qualquer forma.",
+    "run.dispatcher.h": "Dispatcher",
+    "run.dispatcher.p": "O cérebro do encaminhamento: uma chamada estruturada num modelo pequeno e rápido transforma uma mensagem numa duty e num nível.",
+    "run.identity.h": "Identidade (Gary)",
+    "run.identity.p": "A persona de descanso: o Gary trata do dia e entrega o trabalho a sério à duty certa.",
+    "run.call.h": "Garrison Call",
+    "run.call.p": "Chamadas LLM estruturadas de um só tiro em três formatos: Anthropic, compatível com OpenAI, Ollama.",
+    "run.slack.h": "Canal Slack",
+    "run.slack.p": "O mesmo operative no Slack: menções e DMs em ida e volta pelo gateway.",
+    "run.briefing.h": "Morning Briefing",
+    "run.briefing.p": "Um prompt agendado que compõe o briefing do dia e o publica no teu canal.",
+    "run.vaultsync.h": "Vault Git Sync",
+    "run.vaultsync.p": "Faz commit, rebase e push do vault Obsidian entre máquinas; nunca hard-resets.",
+    "run.taste.h": "Taste",
+    "run.taste.p": "O par de skills de gosto de design: gosto frontend anti-slop e um protocolo de redesign que começa por auditar.",
+    "run.discussauto.h": "Discutir uma Automação",
+    "run.discussauto.p": "Uma conversa com o James que desenha a automação, escreve o brief e o entrega ao planner.",
+    "meta.title": "Garrison: a base estruturada para o teu ecossistema de IA",
+    "meta.desc": "O Garrison é a base local onde os teus operatives de IA ficam estacionados: faculties preenchidas por fittings substituíveis, um Orchestrator a dirigir, tudo aquartelado sobre a tua própria configuração do Claude Code / Codex / Agent SDK, ou qualquer outro CLI/SDK.",
     "aria.lang": "Idioma",
     "alt.logo": "Garrison: uma paliçada de madeira clara sobre verde-floresta escuro",
-    "alt.comp": "A grelha de composição do Garrison",
-    "alt.quarters": "A vista Quarters sobre o ~/.claude",
+    "alt.home": "O dashboard do Garrison com um operative a correr",
+    "alt.duties": "A página de Composição no separador Duties",
+    "alt.fittings": "A página de Composição no separador Fittings",
+    "alt.orch": "A política de encaminhamento do Orchestrator",
+    "alt.quarters": "Quarters com claude-code e codex expandidos, gemini e opencode abaixo",
+    "alt.vault": "O Vault com segredos selados pelo keychain",
+    "alt.connectors": "A página de Connectors com serviços selados no Vault",
+    "alt.coordination": "A página de Coordenação: sessões, locks de planeamento, leases",
+    "alt.outposts": "Os Outposts do Garrison com uma máquina na cloud online",
+    "alt.kanban": "O quadro Kanban Loop",
+    "alt.webchannel": "O Web Channel com uma conversa de discussão",
+    "alt.devenv": "O Dev Env: sessão Claude, shell e painel de browser ao vivo",
+    "alt.drillbook": "O Drill Book: o plano de QA da app em teste",
+    "alt.drillauthoring": "Autoria no Drill: verificações ao lado de uma pré-visualização viva",
+    "alt.drillrun": "Resultados de uma corrida do Drill: findings ao lado das provas",
+    "alt.improver": "A fila de revisão do Improver com propostas pendentes",
+    "alt.assistant": "O Garrison Assistant a responder a partir da doutrina local",
+    "alt.screenshare": "O Screen Share a transmitir o ecrã da máquina",
+    "alt.snapshots": "Snapshots: cópias restic cifradas do estado do Garrison",
     "foot.left": "Garrison · código aberto · <a href=\"https://github.com/gongiskhan/agent-garrison\">GitHub</a> · licença MIT"
   }
 };

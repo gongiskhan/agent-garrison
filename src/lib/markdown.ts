@@ -1,4 +1,5 @@
 import { Marked } from "marked";
+import { filePathMarkedExtension } from "./host-rewrite";
 
 // Shared, safe Markdown renderer for produced documents / assistant replies.
 // A PRIVATE Marked instance (never the global singleton) so configuring it can't
@@ -49,6 +50,11 @@ md.use({
     }
   } as any
 });
+// Render bare absolute filesystem paths (attachments, run artifacts) as inline
+// images / same-origin /file links. Root-relative, so safe at SSR here (no
+// client host needed); loopback-URL rewriting is a client concern handled by the
+// live chat surfaces (ClaudeChat, kanban).
+md.use({ extensions: [filePathMarkedExtension()] });
 
 export function renderMarkdown(src: string): string {
   return md.parse(src) as string;

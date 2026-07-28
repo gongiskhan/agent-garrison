@@ -37,6 +37,16 @@ in the duty layer, not in a subagent — A5):
    when deterministic locators and assertions are evident (B9) — the same
    Router-routed pattern as the automations planner. Save via the Drill fitting's
    store (atomic writes; never hand-edit the YAML files directly).
+   **A check that asserts a BEHAVIOUR gets `actions`.** If the description is
+   about what happens when the user clicks, presses, types, submits, hovers,
+   drags or scrolls, author an ordered `actions:` list on that step (same
+   vocabulary as the Book's `auth.steps` and a state's `reachPath`: one
+   plain-English instruction per entry) that drives the app to the asserted
+   state before the check is judged. Without it the runner only navigates and
+   looks, so the check is judged against an untouched page and its verdict is
+   wrong either way - a behavioural description with no actions is a
+   mis-authored check. `reachPath` moves the PAGE into a named state shared by
+   many steps; `actions` are the one-off interactions a SINGLE check needs.
 2. **Gate.** `autonomy: "gated"` (drillbook.yml) holds here with the plan diff
    shown for approval — a human or agent "go" resumes into stage 2, same shape
    as the `discuss` duty's `gate: "explicit"` hold (one Kanban list, no list
@@ -94,6 +104,16 @@ boot-time pin:
 - **Loaded-machine waits.** Emitted specs (Phase 5, graduation) carry generous
   waits for boot/login-class steps (60-90s). A pure timeout re-runs once in
   isolation; if it passes alone, fix the spec's wait, not the verdict.
+- **Login-gated apps (auth).** If the app needs a login to reach its pages, the
+  Drill Book's `auth` block carries the login — `loginPath`, the ordered login
+  `steps`, and a `success` signal — with REAL test credentials (committed,
+  test-only, never production). The runner logs in ONCE before the checks, in
+  the shared browser context, so the session persists across runs (a cheap
+  probe reuses it; the full flow re-runs only on a miss or a `cacheMinutes`
+  refresh). A login failure collapses into ONE incident with the checks
+  skipped — it NEVER reports N page failures for one auth problem. Author `auth`
+  during Plan whenever a page is unreachable without a session; never leave a
+  gated app to fail every check on its login screen.
 - **Flaky/env re-run.** A flaky or environment failure re-runs once in
   isolation before it counts against the run, and never consumes a fix budget.
 - **Findings must be reproducible, never an impression.** A fail carries the

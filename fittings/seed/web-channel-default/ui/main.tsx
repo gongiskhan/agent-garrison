@@ -24,7 +24,11 @@ import {
   ClaudeChat,
   createHttpTransport,
   type ChatTransport,
+  SessionStream,
   type ComposerAdornmentApi,
+  type RailOptions,
+  type RouteAttribution,
+  type TurnRouting,
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
@@ -143,13 +147,51 @@ interface ThreadMeta {
   createdAt: string | null;
   updatedAt: string | null;
   messageCount: number;
+  /** ISO time a still-running turn started, or null/absent when idle. Server-owned
+   *  and in-memory: a turn outlives the tab, so on reopen this is the ONLY thing
+   *  that distinguishes "still working" from "finished" - persisted history stays
+   *  empty until the turn settles. */
+  runningSince?: string | null;
 }
-interface ThreadMessage { role: "user" | "assistant"; text: string; ts?: string }
+interface ThreadMessage {
+  role: "user" | "assistant";
+  text: string;
+  ts?: string;
+  /** The run context of an assistant reply, persisted per message by threads.mjs
+   *  (contract §10). Carried onto the seeded Turn so the rail's badges survive a
+   *  reload AND the 10s poll's re-mount - the in-memory Turn.route did not. */
+  route?: RouteAttribution;
+  /** The pins that were in force when a user message was sent. */
+  overrides?: TurnRouting;
+}
 interface Thread extends ThreadMeta {
   mode: string | null;
   context?: unknown;
+  /** The conversation-sticky pins (contract §13). Server-owned, so a pin follows the
+   *  user across devices over the tailnet; null when nothing is pinned. */
+  routing?: TurnRouting | null;
   messages: ThreadMessage[];
 }
+
+/** One completed exchange as ClaudeChat seeds it, with the run context attached to
+ *  the reply it describes. */
+interface HistoryExchange {
+  user: string;
+  assistant: string;
+  hideUser?: boolean;
+  route?: RouteAttribution;
+  overrides?: TurnRouting;
+}
+
+// The Turn Rail's menu vocabulary, read from the web-channel's OWN same-origin
+// proxy: this fitting serves its own origin, so it can neither call Garrison's Next
+// /api/* nor be handed a machine-local gateway URL. Shape mirrors the gateway's
+// GET /route/options one-for-one (plus the proxy's `sources` flags, read below).
+//
+// This is the PACKAGE's RailOptions, not a local copy: the rail consumes what we
+// pass, so a hand-rolled structural twin would silently drift from the component
+// that renders it the moment either side gains a field.
+type RouteOptions = RailOptions;
 
 async function apiListThreads(): Promise<ThreadMeta[]> {
   try {
@@ -180,22 +222,85 @@ async function apiEnsureThread(payload: { id?: string; title?: string; source?: 
 async function apiDelete(id: string): Promise<void> {
   try { await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" }); } catch { /* ignore */ }
 }
+// Autosave, no Save button (house rule): every rail tap PUTs the whole pin set.
+async function apiSetRouting(id: string, routing: TurnRouting): Promise<void> {
+  try {
+    await fetch(`/api/threads/${encodeURIComponent(id)}/routing`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ routing }),
+    });
+  } catch { /* the pin is already applied locally; the next tap retries */ }
+}
+
+const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+
+// GET /api/route-options → the rail's menus. `?refresh=1` bypasses the proxy's 10s
+// cache, used when the user comes back to the tab having just started the board or
+// the operative (a 10s-stale "nothing available" reads as a broken UI).
+// Exported (like toHistory below) purely so the option/degradation mapping is
+// unit-testable - this module mounts itself, so a test drives it through stubs.
+export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | null> {
+  try {
+    const r = await fetch(`/api/route-options${refresh ? "?refresh=1" : ""}`, { cache: "no-store" });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || typeof d !== "object") return null;
+    // Per-DIMENSION honesty. An empty list from a side that did not answer is not
+    // "you have no options", it is "that service is not running" - the rail renders
+    // the reason on inert rows instead of offering pins nothing would honor.
+    const sources = (d.sources ?? {}) as { gateway?: boolean; board?: boolean };
+    const unavailable: NonNullable<RouteOptions["unavailable"]> = {};
+    if (sources.gateway === false) {
+      const why = "the gateway is not answering - start the operative to pin routing";
+      unavailable.target = why;
+      unavailable.model = why;
+      unavailable.effort = why;
+      unavailable.duty = why;
+      unavailable.account = why;
+    }
+    if (sources.board === false) {
+      unavailable.project = "the kanban board is not running - it is where the project list comes from";
+    }
+    return {
+      targets: asArray<NonNullable<RouteOptions["targets"]>[number]>(d.targets),
+      duties: asArray<NonNullable<RouteOptions["duties"]>[number]>(d.duties),
+      efforts: asArray<string>(d.efforts),
+      accounts: asArray<NonNullable<RouteOptions["accounts"]>[number]>(d.accounts),
+      projects: asArray<string>(d.projects),
+      ...(Object.keys(unavailable).length > 0 ? { unavailable } : {}),
+    };
+  } catch { return null; }
+}
 
 // Pair a flat role/text transcript into the {user, assistant} exchanges the chat
-// component seeds from. Robust to a trailing unanswered user turn.
-function toHistory(messages: ThreadMessage[]): { user: string; assistant: string }[] {
-  const out: { user: string; assistant: string }[] = [];
-  let pendingUser: string | null = null;
+// component seeds from. Robust to a trailing unanswered user turn. The run context
+// travels with the pair: `route` (what RAN) comes off the assistant message,
+// `overrides` (what was ASKED for) off the user message that provoked it, and both
+// land on the exchange so ClaudeChat can seed the turn's badges.
+export function toHistory(messages: ThreadMessage[]): HistoryExchange[] {
+  const out: HistoryExchange[] = [];
+  let pendingUser: ThreadMessage | null = null;
+  const unanswered = (m: ThreadMessage): HistoryExchange => ({
+    user: m.text,
+    assistant: "",
+    ...(m.overrides ? { overrides: m.overrides } : {}),
+  });
   for (const m of messages ?? []) {
     if (m.role === "user") {
-      if (pendingUser !== null) out.push({ user: pendingUser, assistant: "" });
-      pendingUser = m.text;
+      if (pendingUser !== null) out.push(unanswered(pendingUser));
+      pendingUser = m;
     } else if (m.role === "assistant") {
-      out.push({ user: pendingUser ?? "", assistant: m.text });
+      out.push({
+        user: pendingUser?.text ?? "",
+        assistant: m.text,
+        ...(m.route ? { route: m.route } : {}),
+        ...(pendingUser?.overrides ? { overrides: pendingUser.overrides } : {}),
+      });
       pendingUser = null;
     }
   }
-  if (pendingUser !== null) out.push({ user: pendingUser, assistant: "" });
+  if (pendingUser !== null) out.push(unanswered(pendingUser));
   return out;
 }
 
@@ -306,6 +411,31 @@ function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () =>
 }
 
 // ── Threaded app (sidebar + chat) ───────────────────────────────────────────
+// "Still working" banner for a turn that was already running when this view
+// mounted (reopened tab / navigated back). Counts up from the server-reported
+// start so the elapsed time is the TURN's, not this component's.
+function ResumedWorkingNotice({ since }: { since: string }) {
+  const started = useMemo(() => {
+    const t = Date.parse(since);
+    return Number.isNaN(t) ? Date.now() : t;
+  }, [since]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const secs = Math.max(0, Math.floor((now - started) / 1000));
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  return (
+    <div className="wc-resumed" role="status" aria-live="polite">
+      <span className="wc-resumed-dot" aria-hidden />
+      <span>Still working on this conversation</span>
+      <span className="wc-resumed-clock">{clock}</span>
+      <span className="wc-resumed-hint">the reply lands here when it finishes</span>
+    </div>
+  );
+}
+
 function ThreadedApp({ url }: { url: UrlState }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -321,6 +451,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // The kickoff is auto-sent only for a FRESH thread opened from a host (Discuss),
   // never when reopening a thread that already has history or when switching.
   const [kickoffFor, setKickoffFor] = useState<string | null>(null);
+  // The Turn Rail's pins for the open conversation, adopted from the thread on open
+  // and written straight back on every change. Held here rather than read off
+  // activeThread on every render so a local tap is never undone by the idle poll's
+  // (older) copy of the thread.
+  const [pins, setPins] = useState<TurnRouting | null>(null);
+  const [routeOptions, setRouteOptions] = useState<RouteOptions | null>(null);
+  // The routed runtime's own session, opened from a turn's `transcript` badge (§12):
+  // the spawned session is not a separate place, it is a drill-down on the bubble it
+  // produced.
+  const [transcriptSession, setTranscriptSession] = useState<string | null>(null);
 
   const refreshList = useCallback(async () => {
     setThreads(await apiListThreads());
@@ -330,8 +470,36 @@ function ThreadedApp({ url }: { url: UrlState }) {
     const t = await apiGetThread(id);
     setActiveId(id);
     setActiveThread(t);
+    setPins(t?.routing ?? null);
+    setTranscriptSession(null);
     setKickoffFor(opts?.kickoff && (!t || t.messages.length === 0) ? id : null);
     setSidebarOpen(false);
+  }, []);
+
+  // One options read per mount, revalidated when the tab regains focus (the user was
+  // just in Muster, or has only now started the board). A failed read leaves the rail
+  // READ-ONLY - an options fetch must never be able to block the chat.
+  useEffect(() => {
+    let alive = true;
+    const load = (refresh: boolean) => {
+      void apiRouteOptions(refresh).then((o) => { if (alive && o) setRouteOptions(o); });
+    };
+    load(false);
+    const onFocus = () => load(true);
+    window.addEventListener("focus", onFocus);
+    return () => { alive = false; window.removeEventListener("focus", onFocus); };
+  }, []);
+
+  const savePins = useCallback((next: TurnRouting) => {
+    setPins(next);
+    if (activeId) void apiSetRouting(activeId, next);
+  }, [activeId]);
+
+  // One slide-over at a time: the brief editor and the session transcript occupy the
+  // same panel slot, and stacking them just hides one behind the other.
+  const openTranscript = useCallback((sessionId: string) => {
+    setBriefOpen(false);
+    setTranscriptSession(sessionId);
   }, []);
 
   // First load: open the host-provided thread (Discuss), else the most recent,
@@ -414,6 +582,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const busyRef = useRef(false);
   const busySinceRef = useRef(0);
   const [historyRev, setHistoryRev] = useState(0);
+  // Matches the 600px composer breakpoint in styles.css. Tracked live so a
+  // rotate/resize swaps the placeholder without a reload.
+  const [narrowComposer, setNarrowComposer] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 600px)");
+    const apply = () => setNarrowComposer(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const onTurnSettled = useCallback(async () => {
     busyRef.current = false;
@@ -440,8 +618,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
   }, [activeId]);
 
   const history = useMemo(() => {
-    if (!activeThread) return [] as { user: string; assistant: string; hideUser?: boolean }[];
-    const h: { user: string; assistant: string; hideUser?: boolean }[] = toHistory(activeThread.messages);
+    if (!activeThread) return [] as HistoryExchange[];
+    const h: HistoryExchange[] = toHistory(activeThread.messages);
     // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
     // hide its user bubble so the transcript starts with James's question, not the prompt.
     const isDiscuss = activeThread.mode === "james" || activeThread.source === "discuss";
@@ -485,6 +663,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         lastBriefRef.current = content;
         setBriefReloadKey((k) => k + 1);
         setBriefOpen(true);
+        setTranscriptSession(null); // same panel slot - see openTranscript
       }
     } catch { /* best effort - auto-open is a convenience */ }
   }, [briefPath]);
@@ -575,7 +754,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
               <button
                 type="button"
                 className={`wc-briefbtn${briefOpen ? " wc-briefbtn-active" : ""}`}
-                onClick={() => setBriefOpen((v) => !v)}
+                onClick={() => { setBriefOpen((v) => !v); setTranscriptSession(null); }}
                 title="View or edit the brief"
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -588,13 +767,45 @@ function ThreadedApp({ url }: { url: UrlState }) {
           </div>
         )}
         {briefOpen && briefPath && <BriefPanel key={`${briefPath}:${briefReloadKey}`} path={briefPath} onClose={() => setBriefOpen(false)} />}
+        {transcriptSession && (
+          <div className="wc-xscript" role="dialog" aria-label="Session transcript">
+            <div className="wc-xscript-head">
+              <span className="wc-xscript-title">
+                Session
+                <span className="wc-xscript-id" title={transcriptSession}>{transcriptSession}</span>
+              </span>
+              <button
+                type="button"
+                className="wc-xscript-close"
+                onClick={() => setTranscriptSession(null)}
+                aria-label="Close session transcript"
+              >
+                ×
+              </button>
+            </div>
+            <div className="wc-xscript-body">
+              <SessionStream url={`/api/session-stream?session=${encodeURIComponent(transcriptSession)}`} />
+            </div>
+          </div>
+        )}
+        {/* A turn that was in flight when this view unmounted is still running
+            server-side, but the remounted chat rebuilds from persisted history -
+            which stays empty until the turn settles - so it renders as an idle
+            conversation. This is the only signal that the operative is still
+            working, and it disappears on its own when the reply lands and the
+            history poll brings it in. */}
+        {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
         ) : (
           <ClaudeChat
             key={`${activeId}:${historyRev}`}
+            draftKey={activeId ?? undefined}
             transport={transport}
             title="Operative"
+            /* The phone composer row also carries voice, mic and attach, leaving
+               the field ~180px - the full hint truncates mid-word there. */
+            placeholder={narrowComposer ? "Message…" : undefined}
             composerAdornment={voiceAdornment}
             context={ctx}
             mode={mode}
@@ -602,6 +813,18 @@ function ThreadedApp({ url }: { url: UrlState }) {
             initialMessageHidden={Boolean(kickoff)}
             initialHistory={history}
             onTurnComplete={() => { void onTurnSettled(); void checkBriefAfterTurn(); }}
+            transcriptUrl={activeId ? `/api/session-stream?thread=${encodeURIComponent(activeId)}` : undefined}
+            // The Turn Rail (contract §13). `voice` stays OFF - the streaming mic in
+            // the composer adornment supersedes the component's batch voice - so
+            // `routing` is what brings the toolbar (and its Route chip) into the web
+            // channel at all. `musterUrl` is deliberately NOT passed: Muster is a
+            // Garrison route on ANOTHER origin, and a machine-local absolute URL is
+            // exactly what a remote client cannot follow.
+            features={{ routing: true }}
+            routing={pins}
+            routeOptions={routeOptions}
+            onPinChange={savePins}
+            onOpenTranscript={openTranscript}
           />
         )}
       </main>
@@ -626,7 +849,7 @@ function ConsoleApp() {
       } catch {
         /* rich surface unreachable - fall through to the orchestrator path */
       }
-      if (!cancelled) setTransport(rich ? createHttpTransport("/api") : createOrchestratorTransport("/api"));
+      if (!cancelled) setTransport(rich ? createHttpTransport("/api", { uploads: true }) : createOrchestratorTransport("/api"));
     })();
     return () => { cancelled = true; };
   }, []);
@@ -665,6 +888,69 @@ function App() {
       window.clearInterval(t);
       window.removeEventListener("pointerdown", markInput);
       window.removeEventListener("keydown", markInput);
+    };
+  }, []);
+
+  // Selecting text copies it. Reading a reply and wanting a snippet of it is the
+  // single most common thing done in this surface, and on a phone the native
+  // copy affordance is a long-press away.
+  //
+  // Bound to the END of a selection gesture (pointerup / touch end / keyboard
+  // release), never to `selectionchange`: that fires on every character as a
+  // drag grows and would write the clipboard dozens of times per selection.
+  // Staying inside the gesture also keeps the write inside the user-activation
+  // window that the async clipboard API requires.
+  useEffect(() => {
+    // The composer and any other field own their own selection - copying there
+    // would fight the user's edit, and the value is already theirs.
+    const inEditable = (node: Node | null): boolean => {
+      const el = node instanceof Element ? node : node?.parentElement ?? null;
+      return Boolean(el?.closest("input, textarea, [contenteditable='true']"));
+    };
+
+    let lastCopied = "";
+    const copySelection = () => {
+      const sel = document.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+      const text = sel.toString().trim();
+      // A stray click clears to "" and a click-through re-fires with the same
+      // range; neither should touch the clipboard.
+      if (!text || text === lastCopied) return;
+      if (inEditable(sel.anchorNode) || inEditable(sel.focusNode)) return;
+      lastCopied = text;
+      // navigator.clipboard needs a SECURE context. The channel is reachable over
+      // plain http at a tailnet/LAN address, where it is simply absent, so fall
+      // back to the legacy path rather than throwing and copying nothing.
+      const legacy = () => {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          // Restore the user's visible selection, which ta.select() stole.
+          sel.removeAllRanges();
+        } catch {
+          /* clipboard unavailable - selection still works normally */
+        }
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(legacy);
+      } else {
+        legacy();
+      }
+    };
+
+    // Defer one frame: on pointerup the selection is not always committed yet.
+    const onEnd = () => window.setTimeout(copySelection, 0);
+    document.addEventListener("pointerup", onEnd);
+    document.addEventListener("keyup", onEnd);
+    return () => {
+      document.removeEventListener("pointerup", onEnd);
+      document.removeEventListener("keyup", onEnd);
     };
   }, []);
 

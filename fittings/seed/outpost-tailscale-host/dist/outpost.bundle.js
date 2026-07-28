@@ -24791,9 +24791,9 @@ function AddOutpost({ onChanged }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "installer-cmd", children: installer })
       ] })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "tab-body", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "hint", children: "Provision a reachable Mac over SSH (key auth; BatchMode). Output streams live below." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "hint", children: "Provision a reachable Mac over SSH (key auth; BatchMode): installs the bridge, then mirrors this host's Claude config to it and registers it for ongoing sync. Output streams live below." }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "form-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: sshHost, onChange: (e) => setSshHost(e.target.value), placeholder: "tailnet host or IP" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: sshHost, onChange: (e) => setSshHost(e.target.value), placeholder: "Tailscale IP or host" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: sshUser, onChange: (e) => setSshUser(e.target.value), placeholder: "ssh user" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: provBusy || !sshHost.trim() || !sshUser.trim(), onClick: () => void provision(), children: provBusy ? "Provisioning\u2026" : "Provision" })
       ] }),
@@ -24803,6 +24803,139 @@ function AddOutpost({ onChanged }) {
         provDone != null ? `
 
 [done, exit ${provDone}]` : ""
+      ] })
+    ] })
+  ] });
+}
+function ConfigSync() {
+  const [targets, setTargets] = (0, import_react.useState)({});
+  const [portable, setPortable] = (0, import_react.useState)({ dirs: [], files: [] });
+  const [err, setErr] = (0, import_react.useState)(null);
+  const [syncing, setSyncing] = (0, import_react.useState)(null);
+  const [results, setResults] = (0, import_react.useState)({});
+  const [addName, setAddName] = (0, import_react.useState)("");
+  const [addHost, setAddHost] = (0, import_react.useState)("");
+  const [addUser, setAddUser] = (0, import_react.useState)("");
+  const [adding, setAdding] = (0, import_react.useState)(false);
+  const refresh = (0, import_react.useCallback)(async () => {
+    try {
+      const res = await fetch("/sync/targets", { cache: "no-store" });
+      const data = await res.json();
+      setTargets(data?.targets ?? {});
+      if (data?.portable) setPortable(data.portable);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+  (0, import_react.useEffect)(() => {
+    void refresh();
+    const id = setInterval(refresh, POLL_MS);
+    return () => clearInterval(id);
+  }, [refresh]);
+  async function syncAll() {
+    setSyncing("*");
+    setErr(null);
+    try {
+      const res = await fetch("/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) setErr(data?.error ?? `HTTP ${res.status}`);
+      const map = {};
+      for (const r of data?.results ?? []) map[r.name] = r;
+      setResults(map);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(null);
+    }
+  }
+  async function syncOne(name) {
+    setSyncing(name);
+    setErr(null);
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(name)}/sync`, { method: "POST" });
+      const data = await res.json();
+      setResults((prev) => ({ ...prev, [name]: data }));
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(null);
+    }
+  }
+  async function addTarget() {
+    if (!addHost.trim() || !addUser.trim()) return;
+    setAdding(true);
+    setErr(null);
+    try {
+      const res = await fetch("/sync/targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: addName.trim() || addHost.trim(), sshUser: addUser.trim(), sshHost: addHost.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data?.error ?? `HTTP ${res.status}`);
+      } else {
+        setAddName("");
+        setAddHost("");
+        setAddUser("");
+        await refresh();
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding(false);
+    }
+  }
+  async function removeTarget(name) {
+    if (!window.confirm(`Stop syncing Claude config to "${name}"?`)) return;
+    try {
+      await fetch(`/sync/targets/${encodeURIComponent(name)}`, { method: "DELETE" });
+      await refresh();
+    } catch {
+    }
+  }
+  const list = Object.values(targets);
+  const subset = [...portable.dirs, ...portable.files].join(", ") || "skills, commands, agents, rules, CLAUDE.md";
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "add config-sync", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "cs-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Claude config sync" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: syncing != null || list.length === 0, onClick: () => void syncAll(), children: syncing === "*" ? "Syncing\u2026" : "Sync all now" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "hint", children: [
+      "This host's portable Claude config (",
+      subset,
+      ") is mirrored to every configured outpost - on change, and here on demand. Machine-specific state (settings.json, plugins, sessions) is intentionally not synced."
+    ] }),
+    err && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert small", children: err }),
+    list.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "muted cs-empty", children: "No sync targets yet. Provision a Mac over SSH (it auto-registers), or add one by Tailscale IP below." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cs-list", children: list.map((t) => {
+      const r = results[t.name];
+      const ok = t.lastSyncOk;
+      const state = t.lastSyncAt ? ok ? "sage" : "alarm" : "brass";
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "cs-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot " + state }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "cs-name", children: t.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("code", { className: "host", children: [
+          t.sshUser,
+          "@",
+          t.sshHost
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "grow" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "cs-status", children: t.lastSyncAt ? `${ok ? "synced" : "failed"} ${fmtAgo(t.lastSyncAt)}` : "never synced" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", disabled: syncing != null, onClick: () => void syncOne(t.name), children: syncing === t.name ? "Syncing\u2026" : "Sync" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn danger", disabled: syncing != null, onClick: () => void removeTarget(t.name), children: "Remove" }),
+        (t.lastError || r && !r.ok) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cs-err", children: t.lastError || r?.error || (r?.items || []).filter((i) => !i.ok).map((i) => `${i.name}: ${i.error}`).join("; ") })
+      ] }, t.name);
+    }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "cs-add", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "hint", children: "Add a sync target by Tailscale IP (must be SSH-reachable with key auth from this host)." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "form-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: addName, onChange: (e) => setAddName(e.target.value), placeholder: "name (optional)" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: addHost, onChange: (e) => setAddHost(e.target.value), placeholder: "Tailscale IP or host" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: addUser, onChange: (e) => setAddUser(e.target.value), placeholder: "ssh user" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: adding || !addHost.trim() || !addUser.trim(), onClick: () => void addTarget(), children: adding ? "Adding\u2026" : "Add target" })
       ] })
     ] })
   ] });
@@ -24856,7 +24989,8 @@ function App() {
     ] }),
     error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert", children: error }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AddOutpost, { onChanged: refresh }),
-    outposts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "No outposts registered. Pair a Mac or provision one over SSH above." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cards", children: outposts.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OutpostCard, { o, onRemove: remove }, o.name)) })
+    outposts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "No outposts registered. Pair a Mac or provision one over SSH above." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cards", children: outposts.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OutpostCard, { o, onRemove: remove }, o.name)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ConfigSync, {})
   ] });
 }
 var rootEl = document.getElementById("root");

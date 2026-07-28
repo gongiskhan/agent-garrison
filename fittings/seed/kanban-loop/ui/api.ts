@@ -280,6 +280,9 @@ export interface CardDetail {
   decisionLog: DecisionRun[];
   // The full execution timeline, newest-first (the Activity feed).
   events?: CardEvent[];
+  // Files the user attached via ClaudeChat (parsed from the description, issue #2).
+  // Derived server-side; each carries a same-origin serve URL.
+  attachments?: { i: number; name: string; image: boolean; url: string }[];
 }
 
 async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {

@@ -22,3 +22,15 @@ steps:
       - smoke
     judgment: true
 states: []
+spotter:
+  stability:
+    phash:
+      decision: keep
+      runs: 1
+      lastRunId: 01KY7NHPN9SX3AY3WN359GBQ34
+      annotation: >-
+        Composition Duties tab listing all 17 routing duties (Code, Research,
+        Test, Review, etc.) with the Targets panel on
+
+        the right — final state of the composition smoke check.
+  rules: []

@@ -142,6 +142,39 @@ describe("S4a (c) — adding a duty adds its list; removing removes it", () => {
   });
 });
 
+describe("no-duty fallback routes on the canonical spine, not the raw union order", () => {
+  // The real default composition's shape: the phase-union interleaves content/QA
+  // phases between the gate phases (review is immediately followed by `drill` in
+  // the union; adversarial-review sits far later). A legacy / no-duty card has no
+  // resolved sequence, so it falls back to the board's STATIC validNext — which
+  // must still route review -> adversarial-review -> test -> done to match each
+  // phase template's routerPrompt, or the operative's compliant verdict parks.
+  const model = {
+    version: 1,
+    compositionId: "test",
+    kanbanLists: ["plan", "implement", "review", "drill", "test", "image", "adversarial-review", "ux-qa"],
+    sequences: {}
+  } as const;
+  const board = buildBoard(model, { templates: templates() });
+  const vn = (id: string) => board.lists.find((l: any) => l.id === id)?.validNext;
+
+  it("review routes to adversarial-review (canonical), not drill (its union neighbour)", () => {
+    expect(vn("review")).toEqual(["adversarial-review", "implement"]);
+  });
+  it("adversarial-review routes forward to test, skipping the interleaved content phases", () => {
+    expect(vn("adversarial-review")).toEqual(["test", "implement"]);
+  });
+  it("the last PRESENT spine phase (test) routes to done when later spine phases are deselected", () => {
+    expect(vn("test")).toEqual(["done", "implement"]);
+  });
+  it("non-gate spine phases still chain canonically (implement -> review)", () => {
+    expect(vn("implement")).toEqual(["review"]);
+  });
+  it("a non-spine phase keeps its union-order neighbour (unused by no-duty cards)", () => {
+    expect(vn("drill")).toEqual(["test"]);
+  });
+});
+
 describe("S4a (d) — the goal hook / next-phase decider reads the resolved sequence", () => {
   const model = makeModel(["develop", "adversarial-review", "adversarial-test", "walkthrough", "validate"]);
   const seq2 = model.sequences.develop["2"]; // [plan, implement, review, test]
@@ -553,8 +586,8 @@ describe("duty cells projection (the duties->router repoint input)", () => {
     }
   ];
   const targets = [
-    { id: "sdk-haiku", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", params: { type: "runtime-target" } },
-    { id: "cc-sonnet", runtime: "claude-code", model: "sonnet", provider: "anthropic-plan", params: { type: "runtime-target" } }
+    { id: "sdk-haiku", runtime: "agent-sdk", model: "claude-haiku-4-5", provider: "anthropic", params: { type: "runtime-target" } as Record<string, string | number | boolean> },
+    { id: "cc-sonnet", runtime: "agent-sdk", model: "sonnet", provider: "anthropic", params: { type: "runtime-target", promptMode: "coding", maxTurns: 100 } as Record<string, string | number | boolean> }
   ];
 
   it("joins each leaf level's cell with its target spec; composite levels have no cell", () => {
@@ -566,10 +599,16 @@ describe("duty cells projection (the duties->router repoint input)", () => {
       runtime: "agent-sdk",
       model: "claude-haiku-4-5",
       provider: "anthropic",
-      type: "runtime-target"
+      type: "runtime-target",
+      promptMode: null,
+      maxTurns: null
     });
     expect(model.cells.code["2"].model).toBe("sonnet");
     expect(model.cells.code["2"].effort).toBe("medium");
+    // Agent-SDK harness knobs travel with the cell so the duty repoint keeps the
+    // coding profile + turn cap instead of falling back to full/12.
+    expect(model.cells.code["2"].promptMode).toBe("coding");
+    expect(model.cells.code["2"].maxTurns).toBe(100);
     // The composite duty's only level is a sequence — no cell projected.
     expect(model.cells).not.toHaveProperty("pipeline");
   });
@@ -582,7 +621,9 @@ describe("duty cells projection (the duties->router repoint input)", () => {
       runtime: null,
       model: null,
       provider: null,
-      type: null
+      type: null,
+      promptMode: null,
+      maxTurns: null
     });
   });
 });

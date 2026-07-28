@@ -375,10 +375,22 @@ body {
   font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
 .dr-step { display: flex; gap: 8px; padding: 8px 4px; border-bottom: 1px dashed var(--rule); align-items: flex-start; }
-.dr-step-desc {
-  width: 100%; font-size: 12px; padding: 5px 7px; border: 1px solid var(--rule); background: var(--paper);
-  color: var(--ink); font-family: var(--sans); resize: vertical;
+/* Default view: the whole check reads as wrapping prose, nothing clipped. */
+.dr-step-text {
+  width: 100%; font-size: 12.5px; line-height: 1.55; color: var(--ink); font-family: var(--sans);
+  white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; background: transparent;
+  padding: 5px 7px; border: 1px solid transparent; border-radius: 2px; cursor: text;
 }
+.dr-step-text:hover { background: var(--paper-2); border-color: var(--rule); }
+.dr-step-text:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+.dr-step-text.empty { color: var(--mute); font-style: italic; }
+.dr-edit { flex: none; }
+/* Edit mode: a roomy, auto-rows textarea (never the old cramped 2 rows). */
+.dr-step-desc {
+  width: 100%; font-size: 12.5px; line-height: 1.55; padding: 6px 7px; border: 1px solid var(--brass);
+  background: var(--paper); color: var(--ink); font-family: var(--sans); resize: vertical; min-height: 3.4em;
+}
+.dr-step-desc:focus { outline: 0; box-shadow: 0 0 0 2px var(--warn-soft); }
 .dr-mode {
   padding: 2px 7px; border-radius: 0; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center;
   gap: 4px; cursor: pointer; border: 1px solid; font-family: var(--sans); background: transparent;
@@ -731,7 +743,7 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-db-scope-clear { display: inline-flex; background: none; border: 0; color: var(--mute-2); cursor: pointer; padding: 0; flex: none; }
 .dr-db-scope-clear:hover { color: var(--alarm); }
 
-.dr-db-grid { display: grid; grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.dr-db-grid { display: grid; grid-template-columns: minmax(300px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 900px) { .dr-db-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .dr-db-rail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -761,16 +773,39 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-db-scope-num { flex: none; font-family: var(--mono); font-size: 10px; color: var(--mute-2); }
 
 .dr-db-check {
-  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: none;
-  cursor: pointer; font-family: var(--sans); color: var(--ink-2); padding: 6px 11px 6px 20px; font-size: 11.5px;
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; border: 0; background: none;
+  cursor: pointer; font-family: var(--sans); color: var(--ink-2); padding: 7px 11px 7px 16px; font-size: 12px;
 }
 .dr-db-check:hover { background: var(--paper-3); }
 .dr-db-check.scoped { background: var(--sage-soft); box-shadow: inset 3px 0 0 var(--sage-2); }
 .dr-db-check.live { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--brass); }
-.dr-db-check-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dr-db-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mute-2); }
+/* A check's description is a full sentence. Clamping it to ONE nowrap line in a
+   ~190px column showed ~30 characters, which made the scope list unreadable and
+   indistinguishable row to row. Lead with the id, wrap the description under it. */
+.dr-db-check-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dr-db-check-id {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: 11px; color: var(--ink); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dr-db-check-desc {
+  font-size: 11px; line-height: 1.35; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.dr-db-check.scoped .dr-db-check-desc, .dr-db-check.scoped .dr-db-check-id { color: var(--ink); }
+.dr-db-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mute-2); margin-top: 4px; }
 .dr-db-dot.pass { background: var(--sage-2); }
 .dr-db-dot.fail { background: var(--alarm); }
+/* Unproven (S6): ran clean, but the evidence cannot show the asserted
+   behaviour. Deliberately neither green nor red - a hollow brass ring, so it
+   reads as "no verdict" rather than pass or fail. */
+.dr-db-dot.unproven { background: transparent; border: 2px solid var(--brass); }
+.dr-db-check.unproven .dr-db-check-id { color: var(--brass-ink, var(--ink)); }
+.dr-result-unproven {
+  margin-top: 6px; padding: 7px 9px; font-size: 11px; line-height: 1.45;
+  color: var(--ink-2); background: var(--warn-soft); border-left: 2px solid var(--brass); border-radius: 3px;
+}
 .dr-db-vp { flex: none; font-size: 9.5px; padding: 1px 6px; }
 
 .dr-db-finding { border-bottom: 1px dashed var(--rule); padding: 7px 11px; }
@@ -965,3 +1000,106 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
   --sb-thumb: rgba(215, 227, 220, 0.16);
   --sb-thumb-hover: rgba(215, 227, 220, 0.32);
 }
+
+/* ── Live run panel + session viewer (S31) ──────────────────────────────────
+   The Run page's in-flight surface: check rows streaming in with evidence
+   thumbnails, and a Claude-desktop-style transcript of the verify session
+   (collapsed tool calls, inline screenshots). Same field-manual idiom -
+   sharp corners, paper surfaces, brass/sage/alarm tones, AA ink on paper. */
+
+.dr-live-run .dr-db-live-progress { margin-bottom: 10px; }
+
+.dr-live-checks {
+  border: 1px solid var(--rule);
+  background: white;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.dr-live-check {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-bottom: 1px dashed var(--rule);
+  font-size: 11.5px; color: var(--ink-2); min-width: 0;
+}
+.dr-live-check:last-child { border-bottom: none; }
+.dr-live-check-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-live-check-name .mono { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+.dr-live-check-ms { flex: none; font-family: var(--mono); font-size: 10px; color: var(--mute); }
+.dr-live-check-shot { flex: none; display: block; line-height: 0; }
+.dr-live-check-shot img {
+  height: 34px; width: 56px; object-fit: cover; object-position: top;
+  border: 1px solid var(--rule-2); display: block; background: var(--paper-2);
+}
+.dr-live-session-wrap .dr-lbl { margin-bottom: 6px; }
+
+.dr-session-viewer { min-width: 0; }
+.dr-session-tabs { margin-bottom: 8px; }
+.dr-session { border: 1px solid var(--rule-2); background: white; }
+.dr-session-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--rule);
+  background: var(--paper-2); color: var(--ink);
+}
+.dr-session-head b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-session-head svg { flex: none; color: var(--sage-2); }
+.dr-session-id { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+.dr-session-scroll {
+  max-height: 460px; overflow-y: auto; padding: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.dr-session-turn { min-width: 0; }
+.dr-session-turn.user { border-left: 2px solid var(--rule-2); padding-left: 8px; }
+.dr-session-turn.assistant { border-left: 2px solid var(--sage-2); padding-left: 8px; }
+.dr-session-role {
+  display: block; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mute); margin-bottom: 3px;
+}
+.dr-session-text, .dr-session-pre {
+  margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
+  white-space: pre-wrap; word-break: break-word; font-family: var(--sans);
+}
+.dr-session-pre {
+  font-family: var(--mono); font-size: 10.5px;
+  background: var(--paper); border: 1px solid var(--rule);
+  padding: 6px 8px; margin-top: 4px; max-height: 240px; overflow-y: auto;
+}
+.dr-session-pre.result { border-left: 2px solid var(--sage-2); }
+.dr-session-longtext summary, .dr-session-thinking summary, .dr-session-tool summary {
+  cursor: pointer; font-size: 11px; color: var(--ink-mute);
+}
+.dr-session-longtext summary { font-style: italic; }
+.dr-session-thinking { margin: 4px 0; }
+.dr-session-thinking summary { color: var(--mute); font-style: italic; }
+.dr-session-thinking .dr-session-pre { color: var(--mute); }
+.dr-session-toolwrap { margin: 4px 0; min-width: 0; }
+.dr-session-tool summary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border: 1px solid var(--rule); background: var(--paper-2);
+  min-width: 0;
+}
+.dr-session-tool summary b { font-size: 11px; color: var(--ink); flex: none; }
+.dr-session-tool summary svg { flex: none; color: var(--warn-ink); }
+.dr-session-tool-hint {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 9.5px; color: var(--mute);
+}
+.dr-session-img {
+  display: block; margin-top: 6px; max-width: 100%; max-height: 340px;
+  border: 1px solid var(--rule-2); background: var(--paper-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-db-spinner { animation-duration: 2.4s; }
+}
+
+@media (max-width: 760px) {
+  .dr-session-scroll { max-height: 55vh; }
+  .dr-live-check-name { white-space: normal; }
+}
+
+/* Re-run affordances on the results page (S7). Looking at a result and wanting
+   to run it again is the most common next action; it used to require going back
+   to the Book view and re-selecting by hand. */
+.dr-rerun-bar { margin-top: 10px; gap: 8px; align-items: center; }
+.dr-rerun-busy { font-size: 11px; color: var(--mute); }
+.dr-result-rerun { margin-top: 6px; }

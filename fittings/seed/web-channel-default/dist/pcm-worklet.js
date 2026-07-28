@@ -1,5 +1,5 @@
-// PCM capture worklet (S6b, D20) — the modern replacement for the deprecated
-// ScriptProcessorNode path in legacy-voice.tsx.
+// PCM capture worklet (S6b, D20) — the modern replacement for the retired
+// ScriptProcessorNode-based capture path.
 //
 // Runs OFF the main thread. Each render quantum it:
 //   1. linear-interpolates the input (the AudioContext's native rate — 48000 on

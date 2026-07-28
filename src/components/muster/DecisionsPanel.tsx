@@ -28,6 +28,26 @@ function shortTime(at: string | null): string {
   });
 }
 
+// Full precision for the hover title: the row shows minutes, but decisions
+// inside one turn land seconds apart, so the exact stamp has to be reachable.
+function fullWhen(at: string | null): string {
+  if (!at) return "";
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" });
+}
+
+// Fallback label when a session has no title yet: the leading segment of the id
+// is enough to tell two sessions apart without spilling the whole uuid.
+function shortSession(id: string): string {
+  return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+
+// Web Channel session deep-link. The channel keys threads by an opaque id, so
+// this is the same handle the sidebar Views entry opens.
+function sessionHref(id: string): string {
+  return `/fitting/web-channel-default/?thread=${encodeURIComponent(id)}`;
+}
+
 export function DecisionsPanel({ compositionId }: { compositionId: string }) {
   const [decisions, setDecisions] = useState<DecisionView[]>([]);
   const [status, setStatus] = useState<Status>("loading");
@@ -97,13 +117,28 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
                     {d.level != null ? <span className={styles.decisionLevel}>L{d.level}</span> : null}
                   </span>
                   <span className={styles.decisionReason}>{d.reason ?? ""}</span>
-                  <span className={styles.decisionTarget}>
-                    {d.target ? (
-                      d.target
-                    ) : (
-                      <span className={styles.decisionAt}>{shortTime(d.at)}</span>
-                    )}
+                  <span className={styles.decisionTarget}>{d.target ?? ""}</span>
+                  {/* Time is its OWN column, always rendered. It used to live in
+                      the target cell's else-branch, so a decision WITH a target
+                      (the normal case) showed no timestamp at all - the feed read
+                      as an undated list. */}
+                  <span className={styles.decisionAt} title={fullWhen(d.at)}>
+                    {shortTime(d.at)}
                   </span>
+                  {/* The session that produced this decision, when the record
+                      carries one. Records written before sessionId was recorded
+                      have none, so this is absent rather than a dead link. */}
+                  {d.sessionId ? (
+                    <a
+                      className={styles.decisionSession}
+                      href={sessionHref(d.sessionId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`Open the session that made this decision (${d.sessionId})`}
+                    >
+                      {d.sessionTitle || shortSession(d.sessionId)}
+                    </a>
+                  ) : null}
                 </div>
               );
             })}

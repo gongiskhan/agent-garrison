@@ -167,7 +167,7 @@
     "name": "Voice (Local)",
     "repo": "local:fittings/seed/local-voice",
     "localPath": "fittings/seed/local-voice",
-    "summary": "Fully local, multilingual speech I/O on port 7090. No cloud, no API key: a Node wrapper supervises a faster-whisper STT + Kokoro/Piper TTS voice-server and exposes the same kind:voice contract as deepgram-voice. STT auto-detects the spoken language (PT/FR/EN/ES/IT) and TTS replies in that language's own voice — Portuguese via Piper's native European pt_PT voice, the rest via Kokoro — so channels consume it unchanged for push-to-talk and read-aloud.",
+    "summary": "Fully local, multilingual speech I/O on port 7097. No cloud, no API key: a Node wrapper supervises a faster-whisper STT + Kokoro/Piper TTS voice-server and exposes the same kind:voice contract as deepgram-voice. STT auto-detects the spoken language (PT/FR/EN/ES/IT) and TTS replies in that language's own voice — Portuguese via Piper's native European pt_PT voice, the rest via Kokoro — so channels consume it unchanged for push-to-talk and read-aloud.",
     "platforms": [
       "claude-code"
     ],
@@ -182,7 +182,7 @@
     "name": "Jarvis Agentic OS",
     "repo": "local:fittings/seed/jarvis-os",
     "localPath": "fittings/seed/jarvis-os",
-    "summary": "Voice-first Jarvis-style HUD on port 7092. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
+    "summary": "Voice-first Jarvis-style HUD on port 7094. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
     "platforms": [
       "claude-code"
     ],
@@ -336,6 +336,36 @@
       "github_stars_url": "https://github.com/gongiskhan/garrison-gemini-runtime",
       "global": 4.3,
       "claude_code": 4.3
+    }
+  },
+  {
+    "id": "openrouter-runtime",
+    "name": "OpenRouter runtime",
+    "repo": "local:fittings/seed/openrouter-runtime",
+    "localPath": "fittings/seed/openrouter-runtime",
+    "summary": "Runtimes Faculty (secondary) - one API key, 345+ models from every major lab behind a single OpenAI-compatible endpoint. Pick the model per delegation; authenticate by pinning an OpenRouter account (OPENROUTER_API_KEY).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-openrouter-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "huggingface-runtime",
+    "name": "Hugging Face runtime",
+    "repo": "local:fittings/seed/huggingface-runtime",
+    "localPath": "fittings/seed/huggingface-runtime",
+    "summary": "Runtimes Faculty (secondary) - open-weight models through Hugging Face's Inference Providers router (OpenAI-compatible). Authenticate by pinning a Hugging Face account (HF_TOKEN).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-huggingface-runtime",
+      "global": 4.2,
+      "claude_code": 4.2
     }
   },
   {

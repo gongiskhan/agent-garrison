@@ -84,7 +84,7 @@ Workflow:
 1. Edit in `~/dev/agent-garrison-dev`.
 2. Test there — `npm run dev:start` if the dev server is down, then check
    `http://127.0.0.1:7777`. Fitting ports are the prod ones minus 1000
-   (dev-env 7086, kanban-loop 7089, local-voice 7090, jarvis-os 7092).
+   (dev-env 7086, kanban-loop 7089, local-voice 7097, jarvis-os 7094).
    Run `npx vitest run <file>` and `npx tsc --noEmit` for anything non-trivial.
 3. Tell the user what you changed and let them try it on dev.
 4. **When the user says they're happy / asks for a commit, that means promote:**

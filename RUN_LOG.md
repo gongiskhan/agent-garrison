@@ -463,3 +463,130 @@ FULL RUN STATE (post-compaction resume reads THIS):
 - typecheck clean; lint clean on all touched files; `npm test` green modulo the two documented concurrency-only flakes + one unrelated pre-existing live-network test.
 - Kanban card `01KXKDM2198RA23ATFZE9QD495` already at `done` (kanban-loop's own routing closed it earlier in the session; verified, not re-touched).
 - Working tree clean of scratch artifacts (temp Playwright configs, debug scripts); `test-results/phase9-screenshots/` restored to its committed state.
+
+## RUN-START 20260725-030300-3a7ac388 — 2026-07-25T03:07:52Z
+- **Brief:** Drill run-results are impossible to analyse. Fix + greatly improve UX: (1) run video wastes minutes on a static page, (2) per-check evidence does not show the asserted state, (3) Debrief step text unreadable, (4) Debrief reports "no screenshots" for checks that have them. "Verifying the results of the drill is as important as the tests themselves."
+- **Session model:** claude-opus-5, effort inherited. **Host:** dev-madrid. **Branch:** main.
+- **Profile:** pending-sizing (Phase 1 assigns).
+- **gatesConfig:** all true (no operator flags passed).
+- **Preflight:** ffmpeg 6.1.1 + ffprobe present (/usr/bin). node 20.19.4. Target evidence run: 01KY4DREZ1VD3Z1JT59P0PKZP0 (~/.garrison/drill/evidence/23846f9025ca/).
+
+### DECISION 2026-07-25T08:32:24Z — profile + scope
+- **Profile:** build (6 slices). Turn cap raised to 480.
+- **Operator-answered (AskUserQuestion):** honesty gate = auto-author actions + `unproven` state for the remainder; scope = everything, presentation first.
+- **Assumption:** `unproven` is a THIRD terminal check state (not pass, not fail) so the fix does not manufacture 17 red failures overnight; it is excluded from the passed count.
+
+### DECISION 2026-07-25T08:32:24Z — S1 feasibility proven before implementation
+- ffmpeg tight-cut prototyped against the real 27.3-min run: **1640.36s -> 185.72s (11.3%), 61.9MB -> 9.0MB, 93s encode** (46 merged activity windows, VP8, 25fps CFR source).
+- Keyframes are every 5.12s (321 total) => stream-copy cutting is too coarse; a re-encode is required. Accepted: 93s of background post-processing against a 27-min run.
+- Chapter remap verified by extracting frames at remapped offsets (12.2s / 16.6s / 42.1s) and confirming they land on the right check.
+
+### GATE 2026-07-25T08:47:27Z — S1 video tight-cut (passed) — commit f05811f
+- typecheck clean; lint 0 errors on touched files (also cleared 3 pre-existing react/no-unescaped-entities); 13 new unit tests + 62 drill core tests green.
+- Live proof on real run 01KY4DREZ1VD3Z1JT59P0PKZP0: 1640s -> 186s (11.3%), 61.9MB -> 8.8MB, 46 segments, 91s encode, 36/36 chapters remapped, 0 past end.
+
+### GATE 2026-07-25T08:47:27Z — S2+S3 curation floor + Debrief legibility (passed) — commit 1341a17
+- typecheck clean; lint 0 errors; 49 tests green across 6 drill suites.
+- Live proof: chunk coverage 8/36 -> 36/36 under fair allocation; applyReelFloor with ZERO verdicts still covers 36/36.
+- Healed the existing run's reel.json in place so the fix is visible without a re-run: kept frames 3 -> 37, scopes covered 2/36 -> 36/36.
+
+### DECISION 2026-07-25T08:47:27Z — two existing tests updated (test-bug, no retry-ceiling cost)
+- curationConfig gained `maxCuratedExplicit`; the reel is deliberately no longer a strict subset of model keeps (the floor adds frames). Both tests now assert the STRONGER guarantee (every chunk covered, floored frames flagged + annotated) rather than being relaxed.
+- The e2e caught a real design flaw mid-fix: a floored frame the model had explicitly dropped kept its dismissive annotation ("superseded by frame-0003") while being shown as a check's evidence. Fixed in code (auto-selected prefix, model note preserved as context), not by relaxing the assertion.
+
+### GATE 2026-07-25T09:50:03Z — S4+S5+S6 (passed) — commit 65cf05b
+- FULL suite green: 370 files / 3464 tests / 0 failures. New tests: drill-actions (15), drill-honesty-gate (9), fixer duplicate-id (2).
+- Live browser e2e (drill-spotter-capture-e2e): 0 step-start frames, >=4 step-end, phash/console-burst/message-growth intact.
+- typecheck clean; lint 0 errors on all touched files.
+
+### DECISION 2026-07-25T09:50:03Z — claim partly refuted under investigation
+- My earlier "fixer retry desyncs evidence" claim was PARTLY WRONG: the engine pushes no record for a non-terminal attempt (every catch-path push returns), so a same-index retry yields exactly one record whose bytes match its metadata. The REACHABLE divergence is a duplicate stepId minted by an insert_before patch echoing the failing step's id. Fixed at the root (id re-mint) plus the LAST-match alignment in resolveStepOutcome. Recorded because the original claim shipped in a user-facing message.
+
+### DECISION 2026-07-25T09:50:03Z — migration required beyond code
+- A graduated check carries a cachedAssertion and never calls vision, so the honesty gate could not fire for the 18 already-graduated behavioural checks. Migration: injected `actions` into ekoa's chat/users books AND cleared their stale assertion+spec (back to vision mode), plus wiped 60 stale assertions from 49 drill automation caches (action caches preserved; backup at ~/.garrison/automations/cache.bak-1784972901).
+- ekoa's book changes are left UNCOMMITTED for operator review: that tree already carried prior drill output, and it is not this task's target repo.
+
+### DEVIATION 2026-07-25T09:50:03Z — unrelated change swept into commit f05811f
+- The S1 commit included a pre-existing uncommitted `GARRISON_BIND_HOST` line in drill/scripts/server.mjs (from the bind-host work). Detected afterwards; the equivalent line in browser-default was then split into its own commit (7f61389) rather than repeating the mistake. Disclosed to the operator.
+
+### GATE 2026-07-25T10:21:45Z — LIVE VERIFICATION RUN 01KYCB0G480JGAWKK1DPXE98E0 (36 checks, ekoa-code)
+Measured against baseline 01KY4DREZ1VD3Z1JT59P0PKZP0 (same selection: chat+users, desktop).
+
+| metric | baseline | this run |
+|---|---|---|
+| wall clock | 27.8 min | 21.5 min (while performing strictly more work) |
+| video | 27.3 min / 61.9 MB | 3.5 min / 11.1 MB — 17.3 min of dead air cut, 39 segments, 249s encode |
+| chapters | into dead air | 36/36 remapped, monotonic, 0 past end; Range-served (206) |
+| spotter step-start frames | ~36, each showing the PREVIOUS check | **0** |
+| spotter step-end frames | partial | **36 — exactly one per check** |
+| null-chunk frames | present | **0** |
+| curation candidates | 30 (8/36 chunks) | 72 (36/36 chunks), 72/72 curated |
+| failed curation batches | 1 of 2, silent | **0 of 6** |
+| Debrief scopes with a frame | **2 of 36** | **36 of 36** |
+| interactions performed | **0** | 18 checks drive the app |
+| verdicts | 29 passed / 7 failed | 32 passed / 4 unrunnable |
+
+Verdict text changed character, e.g. composer-send-message went from judging an
+empty composer to "The message 'Ola drill' appears as a right-aligned dark
+bubble"; composer-attach-menu from asserting popover text without clicking to
+"the attachment popover is open".
+
+### FINDING 2026-07-25T10:21:45Z — curation itself is over-dropping (follow-up, not a regression)
+- The model kept only 5 of 72 curated frames; the deterministic floor supplied
+  the other 32. Coverage is correct and every floored frame is flagged, but the
+  drop-biased prompt ("when in doubt, DROP") is doing far more than "well under
+  half". Worth revisiting the curation prompt separately.
+
+### DECISION 2026-07-25T10:21:45Z — one full-suite failure was contention, not a regression
+- tests/browser-persistent-profile.test.ts failed at :160 in a full-suite run
+  executed CONCURRENTLY with the tight-cut ffmpeg encode and a live drill
+  browser session. Re-run in isolation: 4/4 green. Recorded in
+  docs/autothing/known-flakes.md; no code change.
+
+### DECISION 2026-07-25T10:27:51Z — S6b was NOT live in the first verification attempt
+- Re-ran the users page (01KYCCP56GW1S43XK2A8Y4SDR9) expecting `delete-user-confirm-dialog`
+  to come back `unproven`. It came back `product-failure` / `recovery-aborted`.
+- Cause: S6b was committed AFTER the redeploy. The Garrison app serves the fix-mode
+  vision prompt and was built pre-change; the automations fitting (pid 1190487,
+  :8090) holds engine.mjs + fixer.mjs and was started pre-change; the drill
+  fitting holds run-outcome.mjs. Three long-lived processes, all on old code.
+- This is exactly the trap CLAUDE.md warns about ("commit is not landed until
+  prod is redeployed"). Caught by checking the verdict instead of assuming the
+  code path was live. Second redeploy issued, then a third users-page run.
+
+### GATE 2026-07-25T10:34:56Z — S6b LIVE PROOF, run 01KYCD87N9B0MQWET90QEN9J93 (users, 17 checks)
+After the second redeploy put the new fix-mode prompt + engine + run-outcome live:
+
+| | before S6b (01KYCCP56G...) | after S6b (01KYCD87N9...) |
+|---|---|---|
+| kind | product-failure | **unproven** |
+| code | recovery-aborted | **check-unrunnable** |
+| component | app | **check** |
+| findings against the app | 1 | **0** |
+| summary | failed:1 unproven:0 | **failed:0 unproven:1** |
+
+Model verbatim: "No non-super-admin user was created earlier in this run, so the
+precondition for this step was never established." The model reliably emitted the
+new `cause`, so the honesty gate now covers BOTH directions: a check that cannot
+prove its claim is never green, and a check that cannot be exercised is never
+reported as an app defect.
+
+### GATE 2026-07-25T13:59:38Z — S7 spinner frames + results-page re-run (passed) — commit 356ee9a
+- **Spinner regression was MINE.** The reel floor ranked signal triggers above
+  step-end (correct for candidate selection, wrong for the floor), so it picked
+  the first phash of each chunk — reliably the loading spinner on a blank page.
+  All 32 floored frames in the verification run were that, at 0.0s into chunk.
+- Fix: shared content-aware ordering. JPEG size is a clean model-free blank-page
+  signal (measured: spinner 12-30% of chunk max, settled 77-100%); <40% sinks
+  below everything. Within a chunk: step-end first, then signals LATEST-first.
+- Replayed on the run's own frames: floored picks 32 first-phash spinners ->
+  **36/36 step-end**, avg **96%** of chunk max, **0** below threshold.
+  Re-seated both stored runs; composer-attach-menu now shows the settled popover
+  (frame-0020) instead of the blank spinner (frame-0015).
+- **Re-run from results:** POST /api/runs gained an optional `stepIds` filter
+  (absent = whole selection; unknown ids match nothing so a stale page cannot
+  400; narrowing survives the gate's resume). Verified live: 17 -> 2 checks.
+  UI: Re-run all / Re-run not-passed on the results header, Re-run this check on
+  every card.
+- typecheck clean; lint 0 errors; 44 tests across 7 drill suites + 3 new
+  regression tests (settled-not-spinner floor, blank-frame exclusion, stepIds).

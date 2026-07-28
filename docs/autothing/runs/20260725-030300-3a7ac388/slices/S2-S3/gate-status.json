@@ -1,0 +1,18 @@
+{
+  "slice": "S2+S3",
+  "title": "Curation reel floor + failure resilience; Debrief legibility and honest empty states",
+  "kind": "mixed",
+  "status": "passed",
+  "gates": {
+    "typecheck": { "status": "passed" },
+    "lint": { "status": "passed", "note": "0 errors on touched files" },
+    "test": { "status": "passed", "evidence": "49 tests across curation-core, curation-e2e, video-tighten, evidence-retention, results-e2e, ux-e2e" },
+    "liveProof": {
+      "status": "passed",
+      "evidence": "replayed real run 01KY4DREZ1VD3Z1JT59P0PKZP0 spotter frames: chunk coverage 8/36 -> 36/36 under the new fair allocation (budget 30 -> 72 for 36 checks); applyReelFloor with ZERO model verdicts still yields 36/36 chunks covered"
+    }
+  },
+  "notes": [
+    "Two existing tests were updated, not weakened: curationConfig gained maxCuratedExplicit, and the reel is no longer a strict subset of model keeps because the floor adds frames. Both now assert the stronger guarantee (every chunk covered; floored frames flagged and annotated)."
+  ]
+}

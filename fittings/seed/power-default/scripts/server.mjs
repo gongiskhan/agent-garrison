@@ -65,11 +65,10 @@ export function hostPowerActionsDisabled(env = process.env) {
   return env.GARRISON_DISABLE_HOST_DAEMONS === "1";
 }
 
-// 7094: 7092 belongs to jarvis-os and 7090 to local-voice in the unified base
-// family (2026-07-21 renumbering), and
+// 7092, not 7090: the automations engine holds 7090 as its canonical port, and
 // own-port servers bind exactly or exit 1 (no findFreePort shift since 07ba683).
 const DEFAULT_CONFIG = {
-  port: 7094,
+  port: 7092,
   bind_host: "127.0.0.1",
   idle_minutes: 30,
   load_threshold: 1.0,
@@ -101,7 +100,7 @@ function envConfig() {
     return undefined;
   };
   const port = pick("GARRISON_POWERDEFAULT_PORT", "POWER_PORT");
-  const bindHost = pick("GARRISON_POWERDEFAULT_BIND_HOST", "POWER_BIND_HOST");
+  const bindHost = pick("GARRISON_POWERDEFAULT_BIND_HOST", "POWER_BIND_HOST", "GARRISON_BIND_HOST");
   const idle = pick("GARRISON_POWERDEFAULT_IDLE_MINUTES", "POWER_IDLE_MINUTES");
   const load = pick("GARRISON_POWERDEFAULT_LOAD_THRESHOLD", "POWER_LOAD_THRESHOLD");
   const pageUrl = pick("GARRISON_POWERDEFAULT_POWER_PAGE_URL", "POWER_PAGE_URL");
@@ -565,21 +564,50 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-// Local-origin guard for state-changing requests. The server is unauthenticated
-// + loopback-bound, so without this a page the user visits could POST /api/suspend
-// (drive-by suspend) or DNS-rebind to reach it. Reject a non-loopback Host
-// (rebinding) and a cross-site Origin (CSRF). Returns true when blocked (answered).
+// Local-origin guard for state-changing requests. The server is unauthenticated,
+// so without this a page the user visits could POST /api/suspend (drive-by
+// suspend) or DNS-rebind to reach it. Reject an untrusted (public) Host
+// (rebinding) and a cross-site Origin (CSRF). The Host may be the box's tailnet
+// IP when the fitting is bound beyond loopback (GARRISON_BIND_HOST=0.0.0.0), so
+// "trusted" means loopback OR a private/tailnet address; a public attacker domain
+// as Host is still rejected. Returns true when blocked (answered).
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+// A host/IP is TRUSTED when it is loopback, an RFC1918 private address, a tailnet
+// CGNAT address (100.64.0.0/10), an IPv6 ULA / link-local literal, or a *.ts.net
+// name. Kept identical across the guarded fittings (ports-default, power-default,
+// outpost-tailscale-host).
+function isTrustedHost(value) {
+  const h = String(value || "").replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "").toLowerCase();
+  if (!h) return true;
+  if (LOOPBACK_HOSTS.has(h)) return true;
+  if (h === "::1" || h.endsWith(".ts.net")) return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // tailnet CGNAT
+    return false;
+  }
+  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe80"))) return true;
+  return false;
+}
 function crossSiteBlocked(req, res) {
-  const hostName = String(req.headers["host"] || "").replace(/:\d+$/, "").toLowerCase();
-  if (hostName && !LOOPBACK_HOSTS.has(hostName)) {
-    jsonRes(res, 403, { error: "forbidden", reason: `non-loopback Host '${hostName}' (DNS-rebinding guard)` });
+  const hostHeader = String(req.headers["host"] || "");
+  const hostName = hostHeader.replace(/:\d+$/, "").toLowerCase();
+  if (hostName && !isTrustedHost(hostName)) {
+    jsonRes(res, 403, { error: "forbidden", reason: `untrusted Host '${hostName}' (DNS-rebinding guard)` });
     return true;
   }
   const origin = req.headers["origin"];
   if (origin) {
     let ok = false;
-    try { ok = LOOPBACK_HOSTS.has(new URL(origin).hostname.toLowerCase()); } catch { ok = false; }
+    try {
+      const u = new URL(origin);
+      ok = LOOPBACK_HOSTS.has(u.hostname.toLowerCase()) || u.host.toLowerCase() === hostHeader.toLowerCase();
+    } catch { ok = false; }
     if (!ok) { jsonRes(res, 403, { error: "forbidden", reason: "cross-site Origin (CSRF guard)" }); return true; }
   }
   return false;
