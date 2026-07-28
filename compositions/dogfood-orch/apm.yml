@@ -15,8 +15,6 @@ dependencies:
     - path: ../../fittings/seed/projects-index
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
-    - path: ../../fittings/seed/soul-architect
-    - path: ../../fittings/seed/soul-engineer
     - path: ../../fittings/seed/testing
     - path: ../../fittings/seed/tier-classifier
 x-garrison:
@@ -60,12 +58,6 @@ x-garrison:
             subagent_permission_mode: bypassPermissions
             max_plan_turns: 30
             max_execute_turns: 200
-        - id: soul-engineer
-          config:
-            base_path: ~/dev
-        - id: soul-architect
-          config:
-            base_path: ~/dev
         - id: testing
           config: {}
         - id: tier-classifier

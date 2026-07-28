@@ -5,7 +5,7 @@ dependencies:
   apm:
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/memory
+    - path: ../../fittings/seed/basic-memory
 x-garrison:
   composition:
     id: router-v4
@@ -26,5 +26,5 @@ x-garrison:
           config:
             port: 24778
       memory:
-        - id: memory
+        - id: basic-memory
           config: {}

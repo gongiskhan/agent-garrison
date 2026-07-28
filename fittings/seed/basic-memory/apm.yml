@@ -43,6 +43,10 @@ x-garrison:
     idempotent: true
     timeout_ms: 180000
   verify:
+    # 60s, not 15s: the hook shells out to the basic-memory CLI (python start-up
+    # + a SQLite-backed project lookup) and to `claude mcp get`. Standalone it
+    # lands around 5s, but run by the runner right after the setup-hook sweep it
+    # blew past 15s every time and the whole `up` aborted on a false negative.
     command: bash apm_modules/_local/basic-memory/scripts/verify.sh
     expect: ok
-    timeout_ms: 15000
+    timeout_ms: 60000

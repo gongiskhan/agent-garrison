@@ -1,32 +1,59 @@
 lockfile_version: '1'
-generated_at: '2026-06-11T10:06:42.935061+00:00'
-apm_version: 0.11.0
+generated_at: '2026-07-28T12:18:44.780433+00:00'
+apm_version: 0.25.0
 dependencies:
+- repo_url: _local/basic-memory
+  name: basic-memory
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-memory
+  - .claude/skills/garrison-memory/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-memory/SKILL.md: sha256:b5a06076544c6148d64afe34ea6e8fbe3742e34adc3cd6d9e610c01446bccf3b
+  source: local
+  local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/coding-subagent
+  name: coding-subagent
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/coding-subagent
+  - .claude/skills/coding-subagent/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/coding-subagent/SKILL.md: sha256:22a4f3a1fb0617f128c10e3943bb0f439e6dc3f0708996867df2e8a74982cb47
   source: local
   local_path: ../../fittings/seed/coding-subagent
 - repo_url: _local/dev-env
+  name: dev-env
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
 - repo_url: _local/documents
+  name: documents
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/documents
+  - .claude/skills/documents/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/documents/SKILL.md: sha256:b063d8832532f573ff0ff9a1fe3b1d9031ebbf144d6272a303a4b7d3e12d8f02
   source: local
   local_path: ../../fittings/seed/documents
 - repo_url: _local/garrison-orchestrator
+  name: garrison-orchestrator
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/commands/garrison-orchestrator.md
   deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:b342b142520bbe5809dd2619feb9406a4add88fb78cb04d178fee6a4c12e3a46
+    .claude/commands/garrison-orchestrator.md: sha256:96b0a6ae70a444d96ed723f0b1f22fb28b963736f2b5a6fd0d2ab689a69d1e42
   source: local
   local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/http-gateway
+  name: http-gateway
+  version: 0.2.0
   package_type: apm_package
   deployed_files:
   - .claude/rules/http-gateway.md
@@ -35,6 +62,8 @@ dependencies:
   source: local
   local_path: ../../fittings/seed/http-gateway
 - repo_url: _local/loop-heartbeat
+  name: loop-heartbeat
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/rules/loop-heartbeat.md
@@ -43,58 +72,195 @@ dependencies:
   source: local
   local_path: ../../fittings/seed/loop-heartbeat
 - repo_url: _local/mcp-gateway
+  name: garrison-mcp-gateway
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/mcp-gateway
-- repo_url: _local/memory
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/garrison-memory
-  source: local
-  local_path: ../../fittings/seed/memory
 - repo_url: _local/monitor-default
+  name: monitor-default
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
 - repo_url: _local/projects-index
+  name: projects-index
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/projects-index
+  - .claude/skills/projects-index/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/projects-index/SKILL.md: sha256:a867ae65bfcd51214b8fd43e80b7019a90d122fdabb6da93200485f1e10528c9
   source: local
   local_path: ../../fittings/seed/projects-index
 - repo_url: _local/scheduler
+  name: scheduler
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/scheduler
+  - .claude/skills/scheduler/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/scheduler/SKILL.md: sha256:3137fb60e14786dd4c5755dbb34f2d1295ab8c342391f9b518f919f3d31a939e
   source: local
   local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
+  name: screen-share-default
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/screen-share-default
-- repo_url: _local/soul-architect
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/soul-architect.md
-  deployed_file_hashes:
-    .claude/commands/soul-architect.md: sha256:ac51a882d1299af89c8850f389add0ee765d716fb3e1eeb2dad3809007d37fe3
-  source: local
-  local_path: ../../fittings/seed/soul-architect
-- repo_url: _local/soul-engineer
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/soul-engineer.md
-  deployed_file_hashes:
-    .claude/commands/soul-engineer.md: sha256:58dbcdabc0b0a14d16670b7709dd5f5eac3de8a9b7bc2829c88cb327d6157e0b
-  source: local
-  local_path: ../../fittings/seed/soul-engineer
 - repo_url: _local/testing
+  name: garrison-testing
+  version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/testing
 - repo_url: _local/tier-classifier
+  name: garrison-tier-classifier
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .claude/skills/tier-classifier
+  - .claude/skills/tier-classifier/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/tier-classifier/SKILL.md: sha256:d9e1736e49218eeae30b57ffa5f7227cdecf1647ca21002a673ab4632d652ea5
   source: local
   local_path: ../../fittings/seed/tier-classifier
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/commands/garrison-orchestrator.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/garrison-orchestrator
+  active_owner: ../../fittings/seed/garrison-orchestrator
+  content_hash: sha256:96b0a6ae70a444d96ed723f0b1f22fb28b963736f2b5a6fd0d2ab689a69d1e42
+- kind: project-relative
+  target: claude
+  value: .claude/rules/http-gateway.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/http-gateway
+  active_owner: ../../fittings/seed/http-gateway
+  content_hash: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+- kind: project-relative
+  target: claude
+  value: .claude/rules/loop-heartbeat.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/loop-heartbeat
+  active_owner: ../../fittings/seed/loop-heartbeat
+  content_hash: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
+- kind: project-relative
+  target: claude
+  value: .claude/skills/coding-subagent
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/coding-subagent
+  active_owner: ../../fittings/seed/coding-subagent
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/coding-subagent/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/coding-subagent
+  active_owner: ../../fittings/seed/coding-subagent
+  content_hash: sha256:22a4f3a1fb0617f128c10e3943bb0f439e6dc3f0708996867df2e8a74982cb47
+- kind: project-relative
+  target: claude
+  value: .claude/skills/documents
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/documents
+  active_owner: ../../fittings/seed/documents
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/documents/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/documents
+  active_owner: ../../fittings/seed/documents
+  content_hash: sha256:b063d8832532f573ff0ff9a1fe3b1d9031ebbf144d6272a303a4b7d3e12d8f02
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-memory
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/basic-memory
+  active_owner: ../../fittings/seed/basic-memory
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-memory/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/basic-memory
+  active_owner: ../../fittings/seed/basic-memory
+  content_hash: sha256:b5a06076544c6148d64afe34ea6e8fbe3742e34adc3cd6d9e610c01446bccf3b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/projects-index
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/projects-index
+  active_owner: ../../fittings/seed/projects-index
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/projects-index/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/projects-index
+  active_owner: ../../fittings/seed/projects-index
+  content_hash: sha256:a867ae65bfcd51214b8fd43e80b7019a90d122fdabb6da93200485f1e10528c9
+- kind: project-relative
+  target: claude
+  value: .claude/skills/scheduler
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/scheduler
+  active_owner: ../../fittings/seed/scheduler
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/scheduler/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/scheduler
+  active_owner: ../../fittings/seed/scheduler
+  content_hash: sha256:3137fb60e14786dd4c5755dbb34f2d1295ab8c342391f9b518f919f3d31a939e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/tier-classifier
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/tier-classifier
+  active_owner: ../../fittings/seed/tier-classifier
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/tier-classifier/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/tier-classifier
+  active_owner: ../../fittings/seed/tier-classifier
+  content_hash: sha256:d9e1736e49218eeae30b57ffa5f7227cdecf1647ca21002a673ab4632d652ea5

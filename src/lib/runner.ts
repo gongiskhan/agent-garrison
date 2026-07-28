@@ -1128,6 +1128,21 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
 
   const results: VerifyResult[] = [];
 
+  // Project each fitting's composition config as env vars, exactly as
+  // runSetupHooks does. Without this a verify hook only ever sees its
+  // config_schema DEFAULTS, so a fitting configured away from them fails its
+  // own verify: projects-index with projects_root ~/dev still probed
+  // ~/Projects and reported "projects_root not found", blocking dogfood-orch.
+  const verifyConfigById = new Map<string, Record<string, unknown>>();
+  for (const items of Object.values(composition.selections)) {
+    for (const item of items ?? []) {
+      verifyConfigById.set(
+        item.id,
+        applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>)
+      );
+    }
+  }
+
   for (const entry of entries) {
     const started = Date.now();
     const verifyInfo = entry.metadata.verify;
@@ -1135,7 +1150,8 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
     const result = await runShellCommand(
       composition.directory,
       verifyInfo.command,
-      verifyInfo.timeout_ms
+      verifyInfo.timeout_ms,
+      setupConfigEnv(entry.id, verifyConfigById.get(entry.id) ?? {})
     );
     const stdout = result.stdout.trim();
     const ok = result.exitCode === 0 && stdout.includes(verifyInfo.expect);

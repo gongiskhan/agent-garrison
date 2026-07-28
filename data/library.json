@@ -827,5 +827,15 @@
     "platforms": [
       "all"
     ]
+  },
+  {
+    "id": "loop-heartbeat",
+    "name": "Loop heartbeat",
+    "repo": "local:fittings/seed/loop-heartbeat",
+    "localPath": "fittings/seed/loop-heartbeat",
+    "summary": "Scheduled loop that wakes the operative and dispatches through the gateway.",
+    "platforms": [
+      "claude-code"
+    ]
   }
 ]

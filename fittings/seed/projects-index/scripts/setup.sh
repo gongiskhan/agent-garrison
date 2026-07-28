@@ -19,7 +19,7 @@ fi
 
 # Resolve the projects root for visibility. Tilde expansion via the
 # shell here matches the script's runtime expansion.
-ROOT="${PROJECTS_INDEX_ROOT:-$HOME/Projects}"
+ROOT="${PROJECTS_INDEX_PROJECTS_ROOT:-${PROJECTS_INDEX_ROOT:-$HOME/Projects}}"
 ROOT="${ROOT/#\~/$HOME}"
 
 if [ ! -d "$ROOT" ]; then

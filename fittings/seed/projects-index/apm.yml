@@ -5,7 +5,7 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  faculty: knowledge-base
+  faculty: knowledge
   cardinality_hint: multi
   component_shape: skill
   platforms:

@@ -47,7 +47,12 @@ MAX_READ_BYTES = 200 * 1024  # 200KB
 
 
 def root() -> Path:
-    raw = os.environ.get("PROJECTS_INDEX_ROOT")
+    # PROJECTS_INDEX_PROJECTS_ROOT is what the runner projects from the
+    # composition config key `projects_root`; PROJECTS_INDEX_ROOT is the
+    # legacy hand-set name, kept as a fallback.
+    raw = os.environ.get("PROJECTS_INDEX_PROJECTS_ROOT") or os.environ.get(
+        "PROJECTS_INDEX_ROOT"
+    )
     return Path(raw).expanduser().resolve() if raw else DEFAULT_ROOT.resolve()
 
 
