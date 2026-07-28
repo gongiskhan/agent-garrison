@@ -2640,6 +2640,11 @@ export async function startServer() {
   heartbeatTimer.unref?.();
   const shutdown = async () => {
     clearInterval(heartbeatTimer);
+    // Exploration tabs are held open across requests for the life of a plan
+    // session. A restart mid-plan would otherwise abandon them in the Browser
+    // fitting, which outlives this process - and every restart during a day of
+    // planning would leak another one.
+    await closeAllExplore().catch(() => {});
     try { await unlink(STATUS_FILE); } catch {}
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000);
