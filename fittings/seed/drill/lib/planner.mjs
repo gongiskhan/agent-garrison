@@ -148,7 +148,10 @@ function exploreSection(drillBaseUrl, root) {
     ``,
     `Work page by page: open it, read the screenshot, then USE it - click the menus, open the dialogs,`,
     `submit the forms, try the empty and error paths. You cannot plan a page you have only read the source`,
-    `of. If the app needs a login, log in through act (fill, fill, click) before exploring anything else.`
+    `of. If the app needs a login, log in through act (fill, fill, click) before exploring anything else.`,
+    ``,
+    `Author each page's file right after you finish exploring that page, not all of them at the end. A`,
+    `plan that runs long is then still a plan: N complete pages on disk, rather than nothing.`
   ];
 }
 
@@ -187,7 +190,12 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
     ...goal,
     ``,
     `How to work:`,
-    `1. Read the codebase first: the router/pages structure, navigation, and main user flows tell you the real page list. Plan pages a USER visits - not API routes, not build artifacts.`,
+    `1. Get the ROUTE LIST from the router - the set of pages a USER visits, not API routes or build`,
+    `   artifacts. That is all the codebase is for here, and it is minutes of work: list the route files,`,
+    `   note which need auth, move on. Do NOT audit the code, read the test suite, or work through the`,
+    `   project's docs and findings; you are planning what to CHECK on each page, and that is decided by`,
+    `   looking at the page, not by reading about it. Time spent reading is time not spent exploring, and`,
+    `   the exploring is what makes the plan worth anything.`,
     runSkill
       ? `2. The app must be SERVING before you can explore it. If it is not, start it through the "${runSkill}" skill (.claude/skills/${runSkill}/SKILL.md - start long-running processes detached with output to a log file).`
       : `2. The app must be SERVING before you can explore it. There is no run-* skill in this repo, so if it is not already serving, say so via DRILL_PLAN_FAILED rather than authoring a blind plan.`,

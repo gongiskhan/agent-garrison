@@ -114,7 +114,32 @@ interface Step {
   spec?: string;
   tags: string[];
   judgment?: boolean; // B9/Q3: needs ongoing model judgment (drillJudge()) - never a one-time deterministic find
-  assertion?: unknown; // set once graduated (B8)
+  assertion?: unknown; // a deterministic answer: authored at plan time, or discovered by graduation (B8)
+  assertionSource?: "authored"; // present until a whole run has confirmed a plan-authored assertion
+  actions?: Array<{ id?: string; description?: string; resolved?: unknown } | string>;
+}
+
+// How this check gets answered, and therefore what it costs. The three lanes
+// are the whole point of the planning stage, and they were invisible here: two
+// checks that look identical in this list can differ by a model call on every
+// single run, forever.
+function answerLane(step: Step): { label: string; title: string; tone: string } {
+  const actions = Array.isArray(step.actions) ? step.actions : [];
+  const pinned = actions.filter((a) => a && typeof a === "object" && (a as { resolved?: unknown }).resolved).length;
+  if (step.judgment) {
+    return { label: "judged", tone: "brass", title: "A model judges this on every run. That is the design for subjective criteria - it never gets cheaper." };
+  }
+  if (step.assertion) {
+    return step.assertionSource === "authored"
+      ? { label: "deterministic · unconfirmed", tone: "sage", title: "Authored at plan time and validated against the live page, so it already runs with no model call. It joins the committed spec once a whole run confirms it." }
+      : { label: "deterministic", tone: "sage", title: "Answered by a deterministic assertion proven by a run. No model call, ever." };
+  }
+  if (actions.length) {
+    return pinned === actions.length
+      ? { label: `${actions.length} action${actions.length === 1 ? "" : "s"} · pinned`, tone: "sage", title: "The interactions resolved to real Playwright and are replayed deterministically. The verdict itself still needs a model until it graduates." }
+      : { label: `${actions.length} action${actions.length === 1 ? "" : "s"} · ${pinned}/${actions.length} pinned`, tone: "", title: "Interactions not yet resolved. The first run resolves them through a model once and pins them; later runs replay them." };
+  }
+  return { label: "vision", tone: "", title: "No deterministic answer yet. A model answers this every run until a passing run graduates it." };
 }
 interface DrillState { id: string; label: string; matcher?: unknown; reachPath?: unknown; screenshotPath?: string | null }
 interface DrillPage {
@@ -1039,6 +1064,10 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
               judgment
             </button>
           )}
+          {(() => {
+            const lane = answerLane(step);
+            return <span className={"chip" + (lane.tone ? ` ${lane.tone}` : "")} title={lane.title}>{lane.label}</span>;
+          })()}
           {step.spec && <span className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>{step.spec}</span>}
           {step.viewports.map((v) => {
             const vp = VIEWPORTS.find((x) => x.id === v);
