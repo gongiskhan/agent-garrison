@@ -34,9 +34,15 @@ const tiers = {};
 const byPage = new Map();
 let checks = 0;
 
+let proven = 0;
 for (const entry of run.pages ?? []) {
   checks++;
-  const tier = entry.result?.tier ?? entry.tier ?? "(none)";
+  // The PERSISTED record keeps the tier on `terminal` and drops it from the
+  // nested engine result, so terminal is the field to trust here - reading
+  // result.tier first reported "(none)" for every check on a run that was in
+  // fact entirely deterministic.
+  const tier = entry.terminal?.tier ?? entry.result?.tier ?? "(none)";
+  if (entry.assertionProven) proven++;
   tiers[tier] = (tiers[tier] ?? 0) + 1;
   const row = byPage.get(entry.pageId) ?? { checks: 0, cached: 0, vision: 0, recovered: 0 };
   row.checks++;
@@ -56,6 +62,7 @@ for (const [tier, n] of Object.entries(tiers).sort((a, b) => b[1] - a[1])) {
   const note = tier === "cached" ? "  <- no model call" : tier === "vision" ? "  <- one model call each" : "";
   console.log(`${tier.padEnd(12)} ${String(n).padStart(4)}  ${share.padStart(4)}${note}`);
 }
+if (proven) console.log(`\nplan-authored assertions confirmed by this run (spec emitted): ${proven}`);
 // Interaction steps live on the automation runs, not the check rows, so this is
 // the check-level verdict cost only - the honest scope of what it can see.
 console.log(`\n(check verdicts only; interaction steps are counted per automation, not here)`);

@@ -163,8 +163,9 @@ export function emittableSteps(page) {
 export function emitPageSpec(page, targetUrl) {
   const steps = emittableSteps(page);
   const needsJudge = steps.some((s) => s.judgment);
-  const header = `// AUTO-EMITTED by Drill (B8) from a passing vision run. Hand-edit at your
-// own risk — the next graduation of any step on this page rewrites this file.
+  const header = `// AUTO-EMITTED by Drill from checks a run has PROVEN — either a vision pass
+// that discovered the assertion, or one the plan authored and a run confirmed.
+// Hand-edit at your own risk: the next graduation on this page rewrites it.
 import { test, expect } from "@playwright/test";
 ${needsJudge ? 'import { drillJudge } from "./support/drill-judge";\n' : ""}
 test.describe(${JSON.stringify(page.title ?? page.id)}, () => {
