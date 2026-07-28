@@ -722,6 +722,27 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
     const saved = await patchBook({ pages: nextPages });
     setBook(saved.book);
   };
+  // Every page on disk is ticked (either explicitly, or because Full Drill
+  // ticks the lot). Drives the header checkbox's state AND which way it goes.
+  const allPagesSelected = pages.length > 0 && pages.every((p) => book.fullDrill || selectedIds.has(p.id));
+  const toggleAllPages = async () => {
+    const next = !allPagesSelected;
+    const known = new Map(book.pages.map((p) => [p.id, p]));
+    const rows = pages.map((p) => ({
+      ...(known.get(p.id) ?? { id: p.id, title: p.title, path: p.path, mode: "steps" as const }),
+      selected: next
+    }));
+    // Book rows for pages no longer on disk keep whatever they recorded - this
+    // gesture is about what is in front of the user, not the whole file.
+    const orphans = book.pages.filter((p) => !pages.some((d) => d.id === p.id));
+    // Full Drill is a superset switch that wins over the per-page ticks, so
+    // clearing the selection while it is on would visibly change nothing. The
+    // one gesture turns it off too. Ticking all leaves it alone: Full Drill
+    // additionally covers pages added later, which "all of today's pages"
+    // does not, so it is not ours to turn on.
+    const saved = await patchBook({ pages: [...rows, ...orphans], ...(next ? {} : { fullDrill: false }) });
+    setBook(saved.book);
+  };
   const toggleFullDrill = async () => {
     const saved = await patchBook({ fullDrill: !book.fullDrill });
     setBook(saved.book);
@@ -893,7 +914,18 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
       <div className="dr-sec dr-tablewrap">
         <table className="dr-table">
           <thead>
-            <tr><th /><th>Page</th><th>Mode</th><th>Areas</th><th>Steps</th><th>States</th></tr>
+            <tr>
+              <th>
+                {pages.length > 0 && (
+                  <Checkbox
+                    label={allPagesSelected ? "Clear every page from runs" : "Include every page in runs"}
+                    on={allPagesSelected}
+                    onClick={toggleAllPages}
+                  />
+                )}
+              </th>
+              <th>Page</th><th>Mode</th><th>Areas</th><th>Steps</th><th>States</th>
+            </tr>
           </thead>
           <tbody>
             {pages.length === 0 && (
@@ -4396,6 +4428,14 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   // background server-side; the panel attaches to the run's SSE event stream.
   const [watchRunId, setWatchRunId] = useState<string | null>(null);
   const [watchStartedAt, setWatchStartedAt] = useState<string | null>(null);
+  // The gate panel renders under the Run button, but a long page-chip list can
+  // still push it past the fold on a short viewport - reveal it either way.
+  // `block: "nearest"` is a no-op when it is already on screen, so the common
+  // case does not jump.
+  const gateRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (pendingGate) gateRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [pendingGate]);
 
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")])
@@ -4808,6 +4848,39 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         </div>
       </div>
 
+      {/* The gate is the direct answer to the Run click, so it renders HERE -
+          immediately under the button - not after the run-history table, where
+          a book with any history put it well below the fold and the click read
+          as "nothing happened". */}
+      {pendingGate && (
+        <div ref={gateRef} className="dr-sec card" role="region" aria-label="Gated run plan" style={{ borderColor: "var(--brass)", borderWidth: 1.5 }}>
+          <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
+            <b className="t12">Plan ready - gated, awaiting approval</b>
+          </div>
+          {pendingGate.plan.map((p) => (
+            // A whole-book run previews hundreds of steps; per-group <details>
+            // keeps the gate scannable (a page's step list is one click away),
+            // while a small scoped run stays fully expanded.
+            <details key={`${p.pageId}:${p.viewportId}`} className="t11" style={{ marginBottom: 6 }} open={pendingGate.plan.length <= 4}>
+              <summary style={{ cursor: "pointer" }}>
+                <b>{p.pageId}</b> <span className="chip sage">{p.viewportId}</span>{" "}
+                <span className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>{p.steps.length} step{p.steps.length === 1 ? "" : "s"}</span>
+              </summary>
+              <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
+                {p.steps.map((s) => (
+                  <li key={s.id} className="t11">{s.description} <span className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>({s.mode})</span></li>
+                ))}
+                {p.steps.length === 0 && <li className="t11" style={{ color: "var(--mute)" }}>(no enabled steps)</li>}
+              </ul>
+            </details>
+          ))}
+          <div className="dr-rowwrap" style={{ marginTop: 8 }}>
+            <button className="btn primary" disabled={running} onClick={approveGate}>{running ? "Running…" : "Approve and run"}</button>
+            <button className="btn small" onClick={() => setPendingGate(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {watchRunId && (
         <LiveRunPanel runId={watchRunId} startedAt={watchStartedAt} onFinished={onWatchedRunFinished} />
       )}
@@ -4907,35 +4980,6 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         <div className="dr-notice dr-results-notice" role="status">
           <span>{notice}</span>
           <button className="btn small" onClick={() => setNotice(null)}>Dismiss</button>
-        </div>
-      )}
-
-      {pendingGate && (
-          <div className="dr-sec card" role="region" aria-label="Gated run plan" style={{ borderColor: "var(--brass)", borderWidth: 1.5 }}>
-          <div className="dr-rowwrap" style={{ marginBottom: 8 }}>
-            <b className="t12">Plan ready - gated, awaiting approval</b>
-          </div>
-          {pendingGate.plan.map((p) => (
-            // A whole-book run previews hundreds of steps; per-group <details>
-            // keeps the gate scannable (a page's step list is one click away),
-            // while a small scoped run stays fully expanded.
-            <details key={`${p.pageId}:${p.viewportId}`} className="t11" style={{ marginBottom: 6 }} open={pendingGate.plan.length <= 4}>
-              <summary style={{ cursor: "pointer" }}>
-                <b>{p.pageId}</b> <span className="chip sage">{p.viewportId}</span>{" "}
-                <span className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>{p.steps.length} step{p.steps.length === 1 ? "" : "s"}</span>
-              </summary>
-              <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
-                {p.steps.map((s) => (
-                  <li key={s.id} className="t11">{s.description} <span className="mono" style={{ fontSize: 10, color: "var(--mute)" }}>({s.mode})</span></li>
-                ))}
-                {p.steps.length === 0 && <li className="t11" style={{ color: "var(--mute)" }}>(no enabled steps)</li>}
-              </ul>
-            </details>
-          ))}
-          <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-            <button className="btn primary" disabled={running} onClick={approveGate}>{running ? "Running…" : "Approve and run"}</button>
-            <button className="btn small" onClick={() => setPendingGate(null)}>Cancel</button>
-          </div>
         </div>
       )}
 

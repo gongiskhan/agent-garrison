@@ -26970,6 +26970,18 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     const saved = await patchBook({ pages: nextPages });
     setBook(saved.book);
   };
+  const allPagesSelected = pages.length > 0 && pages.every((p) => book.fullDrill || selectedIds.has(p.id));
+  const toggleAllPages = async () => {
+    const next = !allPagesSelected;
+    const known = new Map(book.pages.map((p) => [p.id, p]));
+    const rows = pages.map((p) => ({
+      ...known.get(p.id) ?? { id: p.id, title: p.title, path: p.path, mode: "steps" },
+      selected: next
+    }));
+    const orphans = book.pages.filter((p) => !pages.some((d) => d.id === p.id));
+    const saved = await patchBook({ pages: [...rows, ...orphans], ...next ? {} : { fullDrill: false } });
+    setBook(saved.book);
+  };
   const toggleFullDrill = async () => {
     const saved = await patchBook({ fullDrill: !book.fullDrill });
     setBook(saved.book);
@@ -27126,7 +27138,14 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-sec dr-tablewrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "dr-table", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {}),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: pages.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          Checkbox,
+          {
+            label: allPagesSelected ? "Clear every page from runs" : "Include every page in runs",
+            on: allPagesSelected,
+            onClick: toggleAllPages
+          }
+        ) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Page" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Mode" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Areas" }),
@@ -29951,6 +29970,10 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [pendingGate, setPendingGate] = (0, import_react4.useState)(null);
   const [watchRunId, setWatchRunId] = (0, import_react4.useState)(null);
   const [watchStartedAt, setWatchStartedAt] = (0, import_react4.useState)(null);
+  const gateRef = (0, import_react4.useRef)(null);
+  (0, import_react4.useEffect)(() => {
+    if (pendingGate) gateRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [pendingGate]);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
       setPages(p.pages);
@@ -30284,6 +30307,43 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
       ] })
     ] }),
+    pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { ref: gateRef, className: "dr-sec card", role: "region", "aria-label": "Gated run plan", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { className: "t12", children: "Plan ready - gated, awaiting approval" }) }),
+      pendingGate.plan.map((p) => (
+        // A whole-book run previews hundreds of steps; per-group <details>
+        // keeps the gate scannable (a page's step list is one click away),
+        // while a small scoped run stays fully expanded.
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "t11", style: { marginBottom: 6 }, open: pendingGate.plan.length <= 4, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.pageId }),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: p.viewportId }),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
+              p.steps.length,
+              " step",
+              p.steps.length === 1 ? "" : "s"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: "4px 0 0 18px", padding: 0 }, children: [
+            p.steps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "t11", children: [
+              s.description,
+              " ",
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
+                "(",
+                s.mode,
+                ")"
+              ] })
+            ] }, s.id)),
+            p.steps.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", style: { color: "var(--mute)" }, children: "(no enabled steps)" })
+          ] })
+        ] }, `${p.pageId}:${p.viewportId}`)
+      )),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: approveGate, children: running ? "Running\u2026" : "Approve and run" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPendingGate(null), children: "Cancel" })
+      ] })
+    ] }),
     watchRunId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveRunPanel, { runId: watchRunId, startedAt: watchStartedAt, onFinished: onWatchedRunFinished }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
@@ -30385,43 +30445,6 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     notice && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-notice dr-results-notice", role: "status", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: notice }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setNotice(null), children: "Dismiss" })
-    ] }),
-    pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", role: "region", "aria-label": "Gated run plan", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { className: "t12", children: "Plan ready - gated, awaiting approval" }) }),
-      pendingGate.plan.map((p) => (
-        // A whole-book run previews hundreds of steps; per-group <details>
-        // keeps the gate scannable (a page's step list is one click away),
-        // while a small scoped run stays fully expanded.
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "t11", style: { marginBottom: 6 }, open: pendingGate.plan.length <= 4, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.pageId }),
-            " ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: p.viewportId }),
-            " ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
-              p.steps.length,
-              " step",
-              p.steps.length === 1 ? "" : "s"
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: "4px 0 0 18px", padding: 0 }, children: [
-            p.steps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "t11", children: [
-              s.description,
-              " ",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
-                "(",
-                s.mode,
-                ")"
-              ] })
-            ] }, s.id)),
-            p.steps.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", style: { color: "var(--mute)" }, children: "(no enabled steps)" })
-          ] })
-        ] }, `${p.pageId}:${p.viewportId}`)
-      )),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: approveGate, children: running ? "Running\u2026" : "Approve and run" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPendingGate(null), children: "Cancel" })
-      ] })
     ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
     run && run.id !== watchRunId && (() => {

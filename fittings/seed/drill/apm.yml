@@ -53,14 +53,35 @@ x-garrison:
         (vision or graduated e2e) per selected viewport, and triage the
         resulting findings into a batch fix. One duty, two internal stages —
         plan, then a configurable gate, then run.
+      # Three levels, monotonically more capable. Drill's model work is
+      # authoring judgment (what is worth checking on this page, and what
+      # assertion proves it) plus per-step vision resolution - both degrade
+      # into vague checks and unstable selectors on a weaker cell, and a vague
+      # check never graduates, so it pays the vision cost again on every future
+      # run. Escalation is the lever when a page keeps producing ambiguous
+      # verdicts, not a bigger retry count.
       levels:
         - description: >-
-            Standard drill pass — plan/update the plan for changed pages, gate
+            Standard drill pass - plan/update the plan for changed pages, gate
             for approval (configurable), then run and report findings.
           cell:
             skill: garrison-drill
-            target: cc-sonnet
-            effort: medium
+            target: cc-opus
+            effort: high
+        - description: >-
+            Deep pass - same stages at maximum reasoning, for an unfamiliar or
+            large surface, or a page whose checks keep coming back ambiguous.
+          cell:
+            skill: garrison-drill
+            target: cc-opus
+            effort: max
+        - description: >-
+            Frontier pass - the hardest surfaces, where even a maximum-effort
+            pass cannot settle what the page is supposed to prove.
+          cell:
+            skill: garrison-drill
+            target: fable
+            effort: max
   setup:
     command: bash scripts/setup.sh
     idempotent: true
