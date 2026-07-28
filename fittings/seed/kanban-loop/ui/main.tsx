@@ -1252,12 +1252,17 @@ function DetailSheet({ cardId, onClose, onChanged }: { cardId: string; onClose: 
 }
 
 // ── watch sheet — live terminal + SSE log (never tmux) ──────────────────────
-// Two panes: TERMINAL shows the operative session's actual rendered screen
-// (the gateway's PTY render, proxied same-origin via /operative/screen) -
-// what you'd see in a real terminal, live. LOG tails the card's iteration log
-// over SSE, or replays the linked static logs when nothing is live. The
-// interactive Discuss list does NOT use this - it has its own
-// Discuss button that opens a James-mode session (see App.onDiscuss).
+// Two panes: LOG tails THIS card's own iteration log over SSE (the reliable,
+// card-specific view - phase headers and GATE verdicts render inline) or
+// replays the linked static logs when nothing is live. TERMINAL shows the
+// operative's shared session screen (the gateway's PTY render, proxied
+// same-origin via /operative/screen) - useful for watching the operative in
+// general, but every card dispatched through the gateway interleaves on that
+// SAME session/channel, so it is NOT a per-card view and can show other
+// cards' activity, or nothing at all under an orchestrator+souls gateway
+// (no /screen route there yet). The interactive Discuss list does NOT use
+// this - it has its own Discuss button that opens a James-mode session (see
+// App.onDiscuss).
 function WatchSheet({
   card,
   onClose
@@ -1265,14 +1270,16 @@ function WatchSheet({
   card: CardSummary;
   onClose: () => void;
 }) {
-  // Terminal is the default view for a RUNNING card (the live session is what
-  // you came to see); an idle/parked card opens on its logs.
-  const [tab, setTab] = useState<"terminal" | "log">(card.status === "running" ? "terminal" : "log");
+  // Log is always the default: it is the one view guaranteed to be THIS
+  // card's own real-time output. Terminal is a secondary, best-effort view of
+  // the shared operative screen.
+  const [tab, setTab] = useState<"terminal" | "log">("log");
   const [lines, setLines] = useState<string>("");
   const [live, setLive] = useState<boolean | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [screen, setScreen] = useState<string[] | null>(null);
   const [termLive, setTermLive] = useState<boolean | null>(null);
+  const [termReason, setTermReason] = useState<string | null>(null);
   const scrRef = useRef<HTMLDivElement | null>(null);
 
   // The terminal stream connects only while its tab is showing - the screen
@@ -1281,7 +1288,11 @@ function WatchSheet({
     if (tab !== "terminal") return;
     const es = new EventSource("/operative/screen");
     es.addEventListener("mode", (e) => {
-      try { setTermLive(JSON.parse((e as MessageEvent).data).live !== false); } catch { setTermLive(false); }
+      try {
+        const d = JSON.parse((e as MessageEvent).data);
+        setTermLive(d.live !== false);
+        setTermReason(d.reason ?? null);
+      } catch { setTermLive(false); }
     });
     es.addEventListener("screen", (e) => {
       try { setScreen(JSON.parse((e as MessageEvent).data).lines ?? null); setTermLive(true); } catch { /* ignore */ }
@@ -1332,13 +1343,27 @@ function WatchSheet({
       {card.status === "needs-attention" && card.attentionReason && (
         <div className="state-callout parked" style={{ marginTop: 0 }}>{card.attentionReason}</div>
       )}
+      <div className="wmeta">
+        <span className="chip">iter {card.iterations}</span>
+        {card.status === "running" && (
+          <span className="chip run"><span className="run-spin" aria-hidden />running <Elapsed since={card.runningSince} /></span>
+        )}
+        {card.lastRoute && routeChipText(card.lastRoute) && (
+          <span className="chip route" title={routeTitle(card.lastRoute)}>{routeChipText(card.lastRoute)}</span>
+        )}
+        {card.lastEvent && (
+          <span className="wmeta-last" title={card.lastEvent.detail || card.lastEvent.message}>
+            {card.lastEvent.message} · {fmtRelative(card.lastEvent.at)}
+          </span>
+        )}
+      </div>
       <div className="watch">
         <div className="wbar">
           <span className="wtabs">
             <button className={`wtab${tab === "terminal" ? " on" : ""}`} onClick={() => setTab("terminal")}
-              title="the operative session's live terminal screen">Terminal</button>
+              title="the operative's shared session screen - not specific to this card">Terminal</button>
             <button className={`wtab${tab === "log" ? " on" : ""}`} onClick={() => setTab("log")}
-              title="this card's phase log">Log</button>
+              title="this card's own phase log - the reliable real-time view">Log</button>
           </span>
           card {card.id.slice(0, 6)} · {card.list}
           {tab === "terminal" ? (
@@ -1355,7 +1380,11 @@ function WatchSheet({
           <div className="wterm">
             {screen
               ? <pre>{screen.join("\n")}</pre>
-              : <span className="wterm-empty">{termLive === false ? "No live operative session - start a run, or check the gateway." : "connecting to the operative session…"}</span>}
+              : <span className="wterm-empty">
+                  {termLive === false
+                    ? <>No shared operative session available{termReason ? ` (${termReason})` : ""} — this card's own real-time output is on the <button type="button" className="wterm-link" onClick={() => setTab("log")}>Log</button> tab.</>
+                    : "connecting to the operative session…"}
+                </span>}
           </div>
         ) : (
           <div className="wscr" ref={scrRef}>
