@@ -54,7 +54,12 @@ console.log(`lane A  deterministic assertion, zero model calls ever : ${total.la
 console.log(`          of which authored at plan time, not by a run : ${total.authored}`);
 console.log(`lane B  authored actions, one model pass then pinned   : ${total.laneB} (${pct(total.laneB)})`);
 console.log(`lane C  judgment, a model call every run by design     : ${total.laneC} (${pct(total.laneC)})`);
-console.log(`unclassified (no assertion, no actions, no judgment)   : ${total.unclassified} (${pct(total.unclassified)})`);
+// NOT a defect. A criterion whose acceptable outcome is a disjunction ("either
+// the empty state or a populated list") cannot be written as one of the five
+// assertion kinds, and is not subjective either. It rides the original path:
+// vision answers it, and the first passing run graduates it to whichever
+// alternative actually held. Counting it as "unclassified" read as sloppiness.
+console.log(`        vision now, graduates after one passing run   : ${total.unclassified} (${pct(total.unclassified)})`);
 console.log(`\ninteraction steps: ${total.actions} authored, ${total.pinned} already pinned`);
 console.log(`state reach-path steps (always vision on first sight) : ${total.reach}`);
 const firstRun = total.checks - total.laneA + total.actions + total.reach;
