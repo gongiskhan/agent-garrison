@@ -78,6 +78,21 @@ export async function navigateTab(tabId, url, { fetchImpl = globalThis.fetch } =
   }));
 }
 
+// Perform ONE resolved action ({kind, role, name, value, selector, testId, …})
+// through the Browser fitting's locator ladder — the same executor a run uses,
+// so an interaction the plan agent performs while exploring behaves exactly as
+// it will when a check drives it later.
+export async function executeAction(tabId, action, { fetchImpl = globalThis.fetch } = {}) {
+  const base = requireBase();
+  const r = await json(await fetchImpl(`${base}/tabs/${encodeURIComponent(tabId)}/execute`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action })
+  }));
+  if (!r.ok) throw new Error(r.error || "execute failed");
+  return r;
+}
+
 export async function tabAction(tabId, action, { fetchImpl = globalThis.fetch } = {}) {
   if (!["back", "forward", "reload"].includes(action)) throw new Error(`invalid tab action: ${action}`);
   const base = requireBase();

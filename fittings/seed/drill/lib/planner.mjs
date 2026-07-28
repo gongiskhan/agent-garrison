@@ -25,6 +25,7 @@ import path from "node:path";
 import { findRunSkill } from "./projects.mjs";
 import { listPages } from "./store.mjs";
 import { drillHomeDir } from "./runs-store.mjs";
+import { closeExplore } from "./explore.mjs";
 
 const jobs = new Map(); // root -> job
 
@@ -106,7 +107,46 @@ export async function reapOrphanPlanAgents() {
 // parses it (store.mjs/compile.mjs) so drift is a one-file diff. Steps get no
 // fabricated `assertion` (graduation sets it later, B8) and ids are filename-
 // safe (store.safeId rejects anything else).
-function planPrompt(root, { brief, runSkill }) {
+// The exploration contract handed to the plan agent. Written as concrete curl
+// calls because the agent has a shell and no MCP surface into Drill - and
+// because a vague "probe the app when useful" is exactly what produced Books
+// authored entirely from source, with no assertions and criteria the rendered
+// page could not answer.
+function exploreSection(drillBaseUrl, root) {
+  const q = (o) => JSON.stringify(JSON.stringify({ root, ...o }));
+  return [
+    `LOOK AT THE APP. This is not optional and it is not a formality - it is how you decide what is worth`,
+    `checking and how you write a check that can actually be answered. Drill drives a real browser for you`,
+    `and every reply names a screenshot file: READ that file with the Read tool. Your own eyes are the`,
+    `vision here; nothing behind these endpoints calls a model.`,
+    ``,
+    `  # go to a page (path resolves against the Book's app.url; viewport: desktop|tablet|mobile)`,
+    `  curl -sS -X POST ${drillBaseUrl}/api/explore/open -H 'content-type: application/json' \\`,
+    `    -d ${q({ path: "/some/route" })}`,
+    ``,
+    `  # click/type/etc, then see the page it produced`,
+    `  curl -sS -X POST ${drillBaseUrl}/api/explore/act -H 'content-type: application/json' \\`,
+    `    -d ${q({ action: { kind: "click", role: "button", name: "Save" } })}`,
+    ``,
+    `  # ask whether a candidate assertion is TRUE of the page right now`,
+    `  curl -sS -X POST ${drillBaseUrl}/api/explore/assert -H 'content-type: application/json' \\`,
+    `    -d ${q({ assertion: { kind: "visible", role: "button", name: "Save" } })}`,
+    ``,
+    `  # when you are completely finished exploring`,
+    `  curl -sS -X POST ${drillBaseUrl}/api/explore/close -H 'content-type: application/json' -d ${q({})}`,
+    ``,
+    `open/act return: url, title, heading, screenshot (a PNG path - Read it), elements (role+name pairs,`,
+    `the exact vocabulary assertions and actions are written in), consoleErrors. act takes ONE resolved`,
+    `action: {kind: click|fill|select|check|hover|press, plus a locator - role+name, testId, label,`,
+    `placeholder, or selector - and value for fill/select/press}.`,
+    ``,
+    `Work page by page: open it, read the screenshot, then USE it - click the menus, open the dialogs,`,
+    `submit the forms, try the empty and error paths. You cannot plan a page you have only read the source`,
+    `of. If the app needs a login, log in through act (fill, fill, click) before exploring anything else.`
+  ];
+}
+
+function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
   const goal = brief
     ? [
         `Mode: UPDATE. A change landed and the Drill Book must cover it. The change brief:`,
@@ -137,10 +177,13 @@ function planPrompt(root, { brief, runSkill }) {
     ...goal,
     ``,
     `How to work:`,
-    `1. Explore the codebase first: the router/pages structure, navigation, and main user flows tell you the real page list. Plan pages a USER visits - not API routes, not build artifacts.`,
+    `1. Read the codebase first: the router/pages structure, navigation, and main user flows tell you the real page list. Plan pages a USER visits - not API routes, not build artifacts.`,
     runSkill
-      ? `2. Probe the live app when useful: if it is not serving, you may start it through the "${runSkill}" skill (.claude/skills/${runSkill}/SKILL.md - start long-running processes detached with output to a log file). Visiting real pages sharpens the plan, but a code-only plan is acceptable.`
-      : `2. Probe the live app when useful; there is no run-* skill in this repo, so only use the app if it is already serving. A code-only plan is acceptable.`,
+      ? `2. The app must be SERVING before you can explore it. If it is not, start it through the "${runSkill}" skill (.claude/skills/${runSkill}/SKILL.md - start long-running processes detached with output to a log file).`
+      : `2. The app must be SERVING before you can explore it. There is no run-* skill in this repo, so if it is not already serving, say so via DRILL_PLAN_FAILED rather than authoring a blind plan.`,
+    ``,
+    ...exploreSection(drillBaseUrl, root),
+    ``,
     `3. Write the plan as YAML files in THIS repo (create the directories if missing):`,
     `   - drills/drillbook.yml - the Book`,
     `   - drills/pages/<pageId>.yml - one file per page`,
@@ -172,7 +215,7 @@ function planPrompt(root, { brief, runSkill }) {
     `  steps:                       (the heart of the plan - be thorough, cover the page)`,
     `    - id: <slug, unique in the page, [A-Za-z0-9_-]>`,
     `      area: 0                  (0 = page-level; only reference an area number that already exists)`,
-    `      mode: vision | e2e       (vision = needs model judgment: visual quality, generated content, "looks right". e2e = a deterministic locator + assertion is evident from the code. When unsure, vision.)`,
+    `      mode: vision | e2e       (set by the routing rule in HOW EACH CHECK IS ANSWERED, below)`,
     `      enabled: true`,
     `      viewports: <copy the Book's viewports list here, unless the step is genuinely specific to one viewport>`,
     `      state: default           (most steps belong to state: default - the direct Run executes default-state steps; a state-scoped step runs only in a state-targeted run, so scope a step to a state id from states[] only when it is meaningless outside that state)`,
@@ -182,7 +225,40 @@ function planPrompt(root, { brief, runSkill }) {
     `      (Keep actions minimal and page-local. If reaching the state takes more than a few actions, or several checks need the same setup, author a state with a reachPath instead and scope those steps to it.)`,
     `      tags: []`,
     `      judgment: true | false   (true when the check needs ONGOING model judgment even after graduation - subjective quality, generative output)`,
-    `      (NEVER write an "assertion" field - graduation sets it after a passing run)`,
+    `      assertion: <OMIT unless this is a LANE A check - see below>`,
+    `      assertionSource: authored  (write this whenever you write an assertion, and only then)`,
+    ``,
+    `HOW EACH CHECK IS ANSWERED - route every check into exactly one of three lanes.`,
+    `Every check you leave in lane B or C costs a model call per run, forever. Lane A costs nothing after`,
+    `you write it. So prefer lane A wherever the criterion honestly fits, and never force one that does not.`,
+    ``,
+    `LANE A - deterministic, no model at run time. A static fact about the page as it LOADS: an element is`,
+    `  present/absent, a count, visible text, the URL. Author it as:`,
+    `      mode: e2e`,
+    `      assertion: { ... }         (one of the five kinds below)`,
+    `      assertionSource: authored`,
+    `  You MUST validate it first: navigate to the page with /api/explore/open, then POST the exact`,
+    `  assertion to /api/explore/assert and confirm passed:true. That endpoint is the same evaluator the`,
+    `  run uses, so a passing answer means the check will pass. If it comes back false, your assertion is`,
+    `  wrong - fix it or drop it. NEVER write an assertion you did not see return passed:true.`,
+    `  The five kinds (nothing else is valid):`,
+    `      { kind: visible,           role|testId|label|placeholder|selector, name?: <accessible name> }`,
+    `      { kind: count,             role|testId|selector, name?, op: eq|gte|lte|gt|lt, value: <n> }`,
+    `      { kind: text-contains,     text: <substring of the title, main heading, or any element name> }`,
+    `      { kind: url-matches,       pattern: <substring>, mode?: regex }`,
+    `      { kind: attribute-equals,  role|testId|selector, name?, attribute: <attr>, value: <expected> }`,
+    ``,
+    `LANE B - behavioural: the criterion is about what HAPPENS when the user interacts. Author \`actions\``,
+    `  (plain English, above) and NO assertion, mode: vision. The first run drives your actions through a`,
+    `  model once, records the concrete Playwright it resolved, and pins it - every later run replays that`,
+    `  deterministically. So lane B costs the model once, not forever. Do not try to pre-resolve it here.`,
+    ``,
+    `LANE C - judgment: the criterion is genuinely subjective (visual polish, tone, whether generated`,
+    `  content reads correctly). mode: vision, judgment: true, no assertion. This one always costs a model`,
+    `  call, by design. Use it only where a machine truly cannot answer.`,
+    ``,
+    `A check can be lane A even on a page that needed interaction to REACH - reaching is what states and`,
+    `reachPath are for. Lane B is for criteria whose SUBJECT is the interaction.`,
     `  states:                      (only for pages with meaningfully distinct states)`,
     `    - id: <slug>`,
     `      label: <human label>`,
@@ -269,7 +345,7 @@ export function getPlanJob(root) {
 
 // Kick (or return the already-running) plan job for `root`. Resolution
 // happens in a detached poll loop; callers watch GET /api/plan/status.
-export async function startPlan({ root, brief = null, timeoutMs = defaultTimeoutMs() }) {
+export async function startPlan({ root, brief = null, timeoutMs = defaultTimeoutMs(), drillBaseUrl = "http://127.0.0.1:7096" }) {
   const existing = jobs.get(root);
   if (existing && existing.status === "planning") return existing;
 
@@ -291,6 +367,10 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   const finish = (status, patch = {}) => {
     Object.assign(job, patch, { status, endedAt: new Date().toISOString() });
     clearJobRecord(root);
+    // The plan session owns the exploration tab; a plan that ends any way at
+    // all (done, failed, timed out, killed) must not leave a driven browser
+    // tab behind for the next one to inherit mid-flow.
+    closeExplore({ root }).catch(() => {});
   };
 
   let logStream;
@@ -327,7 +407,7 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
 
   const bin = process.env.DRILL_AGENT_CMD || "claude";
   const proc = spawn(bin, [
-    "-p", planPrompt(root, { brief, runSkill: findRunSkill(root) }),
+    "-p", planPrompt(root, { brief, runSkill: findRunSkill(root), drillBaseUrl }),
     "--permission-mode", "bypassPermissions",
     "--session-id", sessionId
   ], {

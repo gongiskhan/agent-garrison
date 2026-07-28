@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fingerprintFromParts, fingerprintKey } from "../fittings/seed/automations/lib/fingerprint.mjs";
 import { lookupActionCache, writeActionCache, evictAction, lookupAssertionCache, writeAssertionCache } from "../fittings/seed/automations/lib/cache.mjs";
 import { runBrowserStep } from "../fittings/seed/automations/lib/browser-orchestrator.mjs";
+// @ts-expect-error - plain .mjs sibling package, no types
+import { makeAssertionEvaluator } from "../fittings/seed/automations/lib/browser-client.mjs";
 
 // F2 — the cache->vision->execute orchestration. Pure tier logic with injected
 // observe/execute/vision deps; sandboxed cache dir.
@@ -47,6 +49,44 @@ describe("action cache (F2)", () => {
     expect((await lookupActionCache("auto1", "s1", fp)).successCount).toBe(2);
     expect(await evictAction("auto1", "s1", fp)).toBe(true);
     expect(await lookupActionCache("auto1", "s1", fp)).toBeNull();
+  });
+});
+
+// The single evaluator behind BOTH "does this assertion hold right now" callers:
+// the run loop's executeAssertion, and the /api/assert endpoint Drill's plan
+// agent uses to validate an assertion before writing it into the Book. They
+// have to be the same code - an authored assertion blessed by a different
+// implementation than the one that later judges it is worth nothing.
+describe("makeAssertionEvaluator", () => {
+  const clientFor = (over = {}) => ({
+    observe: async () => obsFor({ title: "Doc A", headingText: "Q3 Report", a11y: [{ role: "button", name: "Export" }] }),
+    assert: async () => ({ passed: true }),
+    ...over
+  });
+
+  it("answers text-contains and url-matches locally, without a browser probe", async () => {
+    let probes = 0;
+    const evaluate = makeAssertionEvaluator(clientFor({ assert: async () => { probes++; return { passed: true }; } }));
+    expect(await evaluate({ kind: "text-contains", text: "q3 report" })).toBe(true);
+    expect(await evaluate({ kind: "text-contains", text: "nowhere" })).toBe(false);
+    expect(await evaluate({ kind: "url-matches", pattern: "/document/" })).toBe(true);
+    expect(await evaluate({ kind: "url-matches", pattern: "/spreadsheet/" })).toBe(false);
+    expect(probes).toBe(0);
+  });
+
+  it("sends the locator-bound kinds to the browser probe", async () => {
+    const seen: unknown[] = [];
+    const evaluate = makeAssertionEvaluator(clientFor({
+      assert: async (a: unknown) => { seen.push(a); return { passed: false }; }
+    }));
+    for (const kind of ["count", "visible", "attribute-equals"]) {
+      expect(await evaluate({ kind, role: "button", name: "Export" })).toBe(false);
+    }
+    expect(seen).toHaveLength(3);
+  });
+
+  it("defaults a kindless assertion to text-contains, matching the run loop", async () => {
+    expect(await makeAssertionEvaluator(clientFor())({ text: "Export" })).toBe(true);
   });
 });
 

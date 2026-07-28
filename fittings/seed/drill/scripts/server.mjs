@@ -17,13 +17,17 @@ import {
   navigateTab, tabAction, closeTab, tabInfo, readConsole
 } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
+import { openExplore, actExplore, assertExplore, closeExplore, closeAllExplore } from "../lib/explore.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import {
   selectSteps, compileStepAutomation,
   hasAuth, resolveAuthUrl, authSuccess, compileAuthProbe, compileAuthLogin, AUTH_VERIFY_STEP
 } from "../lib/compile.mjs";
 import { readAuthState, writeAuthState, authFingerprint } from "../lib/auth-state.mjs";
-import { graduationPlanFor, graduateStep, actionPinFor, pinStepActions } from "../lib/graduate.mjs";
+import {
+  graduationPlanFor, graduateStep, actionPinFor, pinStepActions,
+  confirmsAuthoredAssertion, promoteAuthoredAssertion
+} from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
 import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
@@ -687,7 +691,10 @@ async function handle(req, res) {
         if (brief) return send(res, 409, { error: "a plan is already running for this project - wait for it to finish before planning an update", job: publicPlanJob(existing) });
         return send(res, 200, { started: false, job: publicPlanJob(existing) });
       }
-      const job = await startPlan({ root, brief });
+      // The agent explores through THIS server, so it needs this instance's
+      // own base URL - never a baked default, which would point a dev plan at
+      // prod's Drill (or a codex-profile port that nothing is serving).
+      const job = await startPlan({ root, brief, drillBaseUrl: selfBaseUrl() });
       if (job.status === "failed") {
         return send(res, 502, { error: job.error, job: publicPlanJob(job) });
       }
@@ -744,6 +751,71 @@ async function handle(req, res) {
     }
 
     // Authoring: open/reuse a tab for a page at a given viewport (B1/S19).
+    // ── Plan-time exploration (the planning agent's eyes) ──────────────────
+    // Navigate, act, and validate a candidate assertion against the LIVE app.
+    // The agent supplies its own vision: every response names a screenshot file
+    // it reads directly. See lib/explore.mjs for why validation is delegated to
+    // the automations engine rather than answered here.
+    if (pathname === "/api/explore/open" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      const { root } = resolved;
+      let viewport = null;
+      if (body.viewport) {
+        try { viewport = resolveViewport(String(body.viewport)); } catch (err) { return send(res, 400, { error: err.message }); }
+      }
+      const book = await getDrillBook(root);
+      const appUrl = book.app.url || "http://localhost:3000";
+      let target = appUrl;
+      if (body.url) target = String(body.url);
+      else if (body.path) {
+        try { target = new URL(String(body.path), appUrl).toString(); } catch { return send(res, 400, { error: `cannot resolve path against ${appUrl}` }); }
+      }
+      try {
+        return send(res, 200, await openExplore({ root, url: target, viewport }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/explore/act" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      if (!body.action || typeof body.action !== "object") {
+        return send(res, 400, { error: "action object required, e.g. {kind:'click',role:'button',name:'Save'}" });
+      }
+      try {
+        return send(res, 200, await actExplore({ root: resolved.root, action: body.action }));
+      } catch (err) {
+        // A locator that does not resolve is the agent's problem to correct,
+        // not an outage - say so with a 400 so it retries rather than aborts.
+        return send(res, /browser 400|execute failed/.test(err.message) ? 400 : 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/explore/assert" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      if (!body.assertion || typeof body.assertion !== "object") {
+        return send(res, 400, { error: "assertion object required" });
+      }
+      try {
+        return send(res, 200, await assertExplore({ root: resolved.root, assertion: body.assertion }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/explore/close" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      try {
+        return send(res, 200, await closeExplore({ root: resolved.root }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
     if (pathname === "/api/authoring/tab" && req.method === "POST") {
       const body = await readJsonBody(req);
       const pageId = String(body.pageId ?? "");
@@ -1595,8 +1667,17 @@ async function handle(req, res) {
                 pr.graduated = { specFile, judgment: !!plan.judgment };
               } else {
                 // No graduation this time (already graduated, or the verify
-                // still has no deterministic answer) - but the interactions
-                // this run resolved are still worth keeping. Without this a
+                // still has no deterministic answer) - but two things this run
+                // learned are still worth keeping.
+                //
+                // First: a plan-authored assertion that just held on the
+                // deterministic path has now been proven by a whole check, so
+                // it earns its place in the committed spec.
+                if (confirmsAuthoredAssertion(step, outcome)) {
+                  const { specFile } = await promoteAuthoredAssertion(book, pr.pageId, pr.stepId, root);
+                  pr.assertionProven = specFile;
+                }
+                // Second: the interactions this run resolved. Without this a
                 // check that graduated before it had interactions pays a
                 // model call per interaction on every run for the rest of
                 // its life, since it never re-enters graduation.

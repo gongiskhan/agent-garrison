@@ -94,6 +94,7 @@ declare module "*/drill/lib/spec-emit.mjs" {
   export function emitAssertionCode(assertion: any): string;
   export function emittableSteps(page: any): any[];
   export function emitPageSpec(page: any, targetUrl: string): string;
+  export function isProvenAssertion(step: any): boolean;
 }
 declare module "*/drill/lib/graduate.mjs" {
   export function harvestResolvedActions(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
@@ -102,6 +103,8 @@ declare module "*/drill/lib/graduate.mjs" {
   export function graduateStep(book: any, pageId: string, stepId: string, plan: any): Promise<any>;
   export function actionPinFor(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
   export function pinStepActions(book: any, pageId: string, stepId: string, actions: any[], root?: string): Promise<any>;
+  export function confirmsAuthoredAssertion(step: any, outcome: any): boolean;
+  export function promoteAuthoredAssertion(book: any, pageId: string, stepId: string, root?: string): Promise<any>;
 }
 declare module "*/drill/lib/snapshots.mjs" {
   export function drillHomeDir(): string;

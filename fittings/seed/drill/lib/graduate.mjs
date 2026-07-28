@@ -162,3 +162,25 @@ export async function pinStepActions(book, pageId, stepId, actions, root = drill
   if (!actions?.length) throw new Error("pinStepActions requires at least one resolved action");
   return writeStepUpdate(book, pageId, stepId, { actions }, root);
 }
+
+// A plan-authored assertion (lane A) is validated against the live page before
+// it is written, so it RUNS deterministically from the first pass - it arrives
+// as the step's cachedAssertion and the check answers with no model call at
+// all. What it has not yet earned is a place in the committed spec: validated
+// once, standing on a page the plan agent had navigated to by hand, is a weaker
+// claim than a whole check passing end to end - navigation, reach path, actions
+// and all. This is the moment it earns that: the check just passed on the
+// deterministic path in a real run.
+export function confirmsAuthoredAssertion(step, outcome) {
+  if (step?.assertionSource !== "authored" || !step.assertion) return false;
+  if (!outcome || outcome.status !== "completed") return false;
+  // "cached" is the deterministic path - the authored assertion itself held.
+  // A vision/recovered pass means it did NOT hold and the model answered
+  // instead; that is graduation's business (it will overwrite the assertion
+  // with what actually proved true), not a promotion of the authored one.
+  return outcome.tier === "cached";
+}
+
+export async function promoteAuthoredAssertion(book, pageId, stepId, root = drillTargetRoot()) {
+  return writeStepUpdate(book, pageId, stepId, { assertionSource: undefined }, root);
+}

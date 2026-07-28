@@ -13,6 +13,8 @@ import { runAutomation, runAutomationMatrix } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
 import { normalizeAutomation, validateAutomation } from "../lib/types.mjs";
 import { buildDiscussParams, freshAutomationSlug } from "../lib/discuss.mjs";
+import { makeBrowserClient, makeAssertionEvaluator } from "../lib/browser-client.mjs";
+import { ASSERTION_KINDS, isAssertionKind } from "../lib/assertions.mjs";
 import { ulid } from "../lib/ulid.mjs";
 import { readFile as readFileAsync } from "node:fs/promises";
 
@@ -292,6 +294,28 @@ async function handle(req, res) {
     // these to Garrison's top window so it navigates to /embed/<channel> (a
     // relative/own-port URL would resolve against THIS server, not Garrison). The
     // absolute `url` is a standalone fallback. 409 when no web channel runs.
+    // Evaluate a deterministic assertion against a tab someone else is driving
+    // (Drill's plan-time exploration). This is the same evaluator the run loop
+    // uses, deliberately: an assertion authored at plan time is only worth
+    // committing if the thing that blessed it is the thing that will judge it.
+    // Read-only — it observes and probes, never acts.
+    if (pathname === "/api/assert" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const tabId = String(body.tabId ?? "");
+      const assertion = body.assertion;
+      if (!tabId) return send(res, 400, { error: "tabId required" });
+      if (!assertion || typeof assertion !== "object") return send(res, 400, { error: "assertion object required" });
+      const kind = assertion.kind ?? "text-contains";
+      if (!isAssertionKind(kind)) {
+        return send(res, 400, { error: `unsupported assertion kind: ${kind} (known: ${ASSERTION_KINDS.join(", ")})` });
+      }
+      try {
+        const evaluate = makeAssertionEvaluator(makeBrowserClient({ adoptTabId: tabId }));
+        return send(res, 200, { ok: true, kind, passed: await evaluate(assertion) });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
     if (pathname === "/api/automations/discuss-url" && req.method === "GET") {
       const name = url.searchParams.get("name") || undefined;
       const channel = await readWebChannelStatus();
