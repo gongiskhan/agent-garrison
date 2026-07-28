@@ -42,12 +42,18 @@ function safeName(root) {
 
 // A hostile/broken env value must degrade to the default, not to a NaN
 // deadline that never trips (a hung agent would stay "planning" forever).
-// 30min default: a FULL plan of a real project is a long agent session
-// (explore the codebase, probe the live app, author every page file) -
-// a live 15min run on a mid-sized monorepo was killed still working.
+//
+// 2h default. It was 30min back when planning was a reading exercise, and even
+// then a live 15min run on a mid-sized monorepo was killed still working. A
+// plan now DRIVES the app - opens every page, clicks through its menus and
+// dialogs, and validates each deterministic assertion against the live page
+// before writing it - which is minutes per page, not seconds. Killing that at
+// 30 minutes throws away a mostly-authored Book and, worse, teaches the next
+// run to plan shallowly. The cost of a too-long timeout is a hung agent noticed
+// late; the cost of a too-short one is paid on every full plan.
 function defaultTimeoutMs() {
   const t = Number(process.env.DRILL_PLAN_TIMEOUT_MS);
-  return Number.isFinite(t) && t > 0 ? t : 1800000;
+  return Number.isFinite(t) && t > 0 ? t : 7200000;
 }
 
 // ── orphan pid records ──────────────────────────────────────────────────────
@@ -163,6 +169,10 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
       ]
     : [
         `Mode: FULL PLAN. Author the Drill Book for the ENTIRE project on your best judgment - the works:`,
+        `An ABSENT drills/ directory means author a fresh Book, and nothing else. Do not restore one from`,
+        `git (no checkout, no revert, no reading it out of a past commit): a Book is removed deliberately,`,
+        `because it was authored under rules that no longer hold, and resurrecting it re-imports exactly`,
+        `the mistakes the removal was meant to clear. Missing is an instruction, not damage.`,
         `every real user-facing page, what matters on it, how to verify it (functionality, UX quality,`,
         `visual polish, responsive behavior), and the page states worth pinning (logged out, empty,`,
         `populated, error). If a Book already exists, extend and correct it - never discard manual work.`,
