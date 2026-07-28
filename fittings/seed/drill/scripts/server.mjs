@@ -74,7 +74,7 @@ let liveReplay = null; // { sessionId, tabId, runId, pageId, stepId, viewportId,
 // incrementally after every check - this registry only adds the push channel
 // and the current-check pointer; a poller reading the record sees the same
 // state one save behind.
-const activeRuns = new Map(); // runId -> { record, events, listeners, done, current, lastActivityAt }
+const activeRuns = new Map(); // runId -> { record, events, listeners, done, current, lastActivityAt, canceled }
 const RUN_EVENT_CAP = 4000;
 const FINISHED_RUN_LINGER_MS = 60_000;
 
@@ -94,7 +94,10 @@ function registerActiveRun(record) {
     listeners: new Set(),
     done: false,
     current: null,
-    lastActivityAt: new Date().toISOString()
+    lastActivityAt: new Date().toISOString(),
+    // Set by POST /api/runs/:id/cancel; the check loop reads it between
+    // checks. Never an error state - see the loop's cancel arm.
+    canceled: null
   };
   activeRuns.set(record.id, entry);
   return entry;
@@ -1363,6 +1366,26 @@ async function handle(req, res) {
       const checkArtifacts = [];
 
       for (const job of jobs) {
+        // User-requested stop (POST /api/runs/:id/cancel). Deliberately NOT a
+        // circuit: a circuit means the run was BLOCKED by a fault and drives
+        // the incident/finding surfaces, whereas a cancel is an intended stop
+        // and must never be reported as an app or infra failure. Same
+        // reasoning as /api/plan/cancel's distinct "canceled" status.
+        //
+        // Granularity is BETWEEN checks, not mid-check: a check owns an engine
+        // run, a browser context and a capture session, and tearing those down
+        // mid-flight would leave the shared browser in an unknown state for the
+        // next run. So a cancel lands after the current check completes - up to
+        // ~60s for a vision check.
+        if (live.canceled) {
+          record.canceled = {
+            at: live.canceled.at,
+            afterCheck: record.executedChecks,
+            skippedChecks: Math.max(0, jobs.length - record.executedChecks)
+          };
+          publishRunEvent(record.id, { type: "run_canceled", runId: record.id, ...record.canceled });
+          break;
+        }
         record.executedChecks += 1;
         const jobStartedAt = Date.now();
         live.current = {
@@ -1742,6 +1765,53 @@ async function handle(req, res) {
         ? entries
         : entries.filter((entry) => !entry.record.project || entry.record.project === activeRoot);
       return send(res, 200, { runs: scoped.map(activeRunSnapshot) });
+    }
+    // Cancel a running run - the safe stop that a multi-hour run had no way to
+    // ask for (the only way to stop one was restarting the fitting, which
+    // circuit-breaks the record as `drill-restarted-mid-run` and reads as an
+    // infra fault). Mirrors /api/plan/cancel: a user-requested stop gets its
+    // own terminal shape (`record.canceled`), never `record.circuit`, so it is
+    // never counted as an incident or a finding.
+    //
+    // Idempotent: cancelling an already-cancelling run is a 200, not a
+    // conflict, so a double-click cannot error. 409 only when there is nothing
+    // executing to cancel - matching /api/plan/cancel's shape.
+    const runCancelPost = pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
+    if (runCancelPost && req.method === "POST") {
+      const runId = decodeURIComponent(runCancelPost[1]);
+      const entry = activeRuns.get(runId);
+      if (!entry || entry.done) {
+        let record = null;
+        try { record = await getDrillRun(runId); } catch { record = null; }
+        return send(res, 409, {
+          canceled: false,
+          error: record
+            ? "run is not executing - it already finished"
+            : "no run is executing for this id",
+          endedAt: record?.endedAt ?? null
+        });
+      }
+      const at = entry.canceled?.at ?? new Date().toISOString();
+      const already = !!entry.canceled;
+      entry.canceled = { at };
+      if (!already) {
+        // The stop lands after the in-flight check returns, so tell the client
+        // that rather than letting it believe the run is already stopped.
+        publishRunEvent(runId, {
+          type: "run_canceling",
+          runId,
+          at,
+          afterCheck: entry.record?.executedChecks ?? 0
+        });
+      }
+      return send(res, 200, {
+        canceled: true,
+        runId,
+        at,
+        already,
+        afterCheck: entry.record?.executedChecks ?? 0,
+        pending: entry.current ?? null
+      });
     }
     // S31: per-run progress stream. Replays the buffered events, then stays
     // live until run_finished. For a run not active in this process the

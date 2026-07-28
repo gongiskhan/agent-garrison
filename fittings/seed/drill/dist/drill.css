@@ -354,6 +354,18 @@ body {
   margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--alarm);
   background: var(--alarm-soft); color: var(--alarm); font-size: 11px;
 }
+/* A user-requested stop is neither a failure nor a success: .dr-inline-error
+   (alarm) would read as a fault and .dr-notice (sage) as a clean result, so a
+   cancel gets its own neutral treatment. */
+.dr-inline-note {
+  margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--rule);
+  background: rgba(255,255,255,.48); color: var(--ink-2); font-size: 11px;
+}
+.dr-live-run-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dr-canceled-summary {
+  display: flex; flex-direction: column; gap: 5px;
+  border-left: 3px solid var(--rule); color: var(--ink-2); font-size: 11px;
+}
 .dr-results-error { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 18px; }
 .dr-results-error > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .dr-results-error > .btn { flex: 0 0 auto; }

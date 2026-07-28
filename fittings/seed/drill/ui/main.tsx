@@ -2054,6 +2054,9 @@ interface DrillRun {
   plannedChecks?: number;
   executedChecks?: number;
   circuit?: RunCircuit | null;
+  // User-requested stop. Distinct from `circuit` on purpose: a canceled run is
+  // not a fault and must not render as an incident.
+  canceled?: { at: string; afterCheck: number; skippedChecks: number } | null;
   sessions?: RunSessionInfo[];
   feedback: Record<string, Array<{ id: string; note: string; at: string }>>;
   overrides: Record<string, { verdict: string; note: string; at: string }>;
@@ -2089,6 +2092,9 @@ interface DrillRunSummary {
   plannedChecks?: number;
   executedChecks?: number;
   circuit?: RunCircuit | null;
+  // User-requested stop. Distinct from `circuit` on purpose: a canceled run is
+  // not a fault and must not render as an incident.
+  canceled?: { at: string; afterCheck: number; skippedChecks: number } | null;
   overrides: Record<string, { verdict: string; note: string; at: string }>;
   findings: Finding[];
   infraErrors?: InfraError[];
@@ -2221,6 +2227,11 @@ function activeProductFindings(run: DrillRun | DrillRunSummary, findings: Findin
 
 function runVerdict(run: DrillRunSummary) {
   if (!run.endedAt) return "Running";
+  // A user-stopped run only covered part of its plan, so it can never claim
+  // "Passed" - the unrun checks are unknown, not green. Reported before the
+  // findings/infra arms because a cancel is not a fault and must not be
+  // folded into "Incomplete" (which drives the incident surfaces).
+  if (run.canceled) return "Stopped";
   const { productFindings, infraErrors } = splitRunIssues(run);
   if (
     run.circuit ||
@@ -3660,6 +3671,16 @@ function ClassicRunDetail({
             })}
           </div>
 
+          {run.canceled && (
+            <div className="dr-sec card dr-canceled-summary">
+              <b>Stopped at your request</b>
+              <span>
+                Executed {run.executedChecks ?? run.canceled.afterCheck} of {run.plannedChecks ?? ((run.canceled.afterCheck ?? 0) + (run.canceled.skippedChecks ?? 0))} planned checks;
+                {" "}{run.canceled.skippedChecks} were not run. The results below cover only what executed - the rest are unknown, not passing.
+              </span>
+            </div>
+          )}
+
           {displayedInfra.length > 0 && (
             <details className="dr-sec dr-infra">
               <summary>
@@ -4093,6 +4114,13 @@ function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; started
   const [current, setCurrent] = useState<{ index: number; total: number; pageId: string; stepId: string; viewportId: string; description?: string } | null>(null);
   const [checks, setChecks] = useState<LiveCheckRow[]>([]);
   const [circuit, setCircuit] = useState<{ code?: string; message?: string; skippedChecks?: number } | null>(null);
+  // Cancel is a two-phase state: `canceling` from the moment the server accepts
+  // the request, `canceled` once the in-flight check returns and the loop
+  // actually stops. Showing only the second would leave the button looking dead
+  // for up to ~60s while a vision check finishes.
+  const [canceling, setCanceling] = useState(false);
+  const [canceled, setCanceled] = useState<{ afterCheck?: number; skippedChecks?: number } | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<string | null>(startedAt);
   const [streamLost, setStreamLost] = useState(false);
   const [, setTick] = useState(0);
@@ -4113,6 +4141,9 @@ function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; started
     setChecks([]);
     setCurrent(null);
     setCircuit(null);
+    setCanceling(false);
+    setCanceled(null);
+    setCancelError(null);
     setStreamLost(false);
     setPlanned(null);
     setRunStartedAt(startedAt);
@@ -4144,6 +4175,13 @@ function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; started
           : [event, ...rows]);
       } else if (event.type === "circuit_opened") {
         setCircuit(event);
+      } else if (event.type === "run_canceling") {
+        // Replayed from the server buffer too, so a reconnect mid-cancel
+        // restores the pending state rather than showing a live Cancel button.
+        setCanceling(true);
+      } else if (event.type === "run_canceled") {
+        setCanceling(false);
+        setCanceled(event);
       } else if (event.type === "run_finished" || event.type === "run_unknown") {
         source.close();
         finish();
@@ -4198,8 +4236,45 @@ function LiveRunPanel({ runId, startedAt, onFinished }: { runId: string; started
           <b>Run in progress</b>
           <p>Checks stream in as they execute; the verify session is live below. Closing this page does not stop the run.</p>
         </div>
-        <span className="mono dr-run-id">{runId}</span>
+        <div className="dr-live-run-actions">
+          <span className="mono dr-run-id">{runId}</span>
+          {!canceled && (
+            <button
+              type="button"
+              className="btn"
+              disabled={canceling}
+              onClick={() => {
+                setCancelError(null);
+                setCanceling(true);
+                apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, {})
+                  .catch((err) => {
+                    setCanceling(false);
+                    setCancelError(err?.message ?? "Could not cancel the run.");
+                  });
+              }}
+            >
+              {canceling ? "Stopping…" : "Stop run"}
+            </button>
+          )}
+        </div>
       </div>
+      {canceling && !canceled && (
+        <div className="dr-inline-note" role="status">
+          <span>Stopping after the current check finishes - a vision check can take up to a minute. Checks already executed are kept.</span>
+        </div>
+      )}
+      {canceled && (
+        <div className="dr-inline-note" role="status">
+          <span>
+            Run stopped at your request{Number.isFinite(canceled.afterCheck) ? ` after ${canceled.afterCheck} check(s)` : ""}
+            {Number.isFinite(canceled.skippedChecks) ? `; ${canceled.skippedChecks} were not run.` : "."}
+            {" "}This is not a failure - the executed checks and their evidence are saved.
+          </span>
+        </div>
+      )}
+      {cancelError && (
+        <div className="dr-inline-error" role="alert"><span>{cancelError}</span></div>
+      )}
       <div className="dr-db-live-progress" role="status" aria-live="polite">
         <span className="dr-db-spinner" aria-hidden="true" />
         <div>
