@@ -105,6 +105,75 @@ describe("tier orchestration (F2)", () => {
     expect((await lookupActionCache("auto3", "s1", fp)).action).toMatchObject({ name: "Fresh" });
   });
 
+  // A pinned action (step.cachedAction) is the action-side twin of
+  // cachedAssertion. It exists because the fingerprint store cannot serve a
+  // real app: the key carries the pathname and a DOM-shape digest, so a URL
+  // with a session id in it, or a page that renders a different amount of
+  // content, misses on every run and re-resolves through vision forever.
+  it("a pinned cachedAction replays with no vision call and no cache lookup", async () => {
+    let visionCalls = 0;
+    let executed: unknown = null;
+    const deps = {
+      observe: async () => obsFor(),
+      resolveViaVision: async () => { visionCalls++; return { kind: "click", name: "Vision" }; },
+      executeAction: async (a: unknown) => { executed = a; }
+    };
+    const step = { id: "s1", type: "browser", description: "click Export", cachedAction: { kind: "click", role: "button", name: "Export" } };
+    const r = await runBrowserStep({ automationId: "pin1", step, deps });
+    expect(r.tier).toBe("cached");
+    expect(executed).toEqual({ kind: "click", role: "button", name: "Export" });
+    expect(visionCalls).toBe(0);
+  });
+
+  it("the pin wins over a DIFFERENT action cached under this fingerprint", async () => {
+    // Otherwise the plan's answer would silently lose to whatever a previous
+    // run happened to resolve on a page that fingerprinted the same.
+    const fp = fingerprintFromParts(obsFor());
+    await writeActionCache({ automationId: "pin2", stepId: "s1", fingerprint: fp, action: { kind: "click", name: "FromCache" } });
+    let executed: unknown = null;
+    const r = await runBrowserStep({
+      automationId: "pin2",
+      step: { id: "s1", type: "browser", cachedAction: { kind: "click", name: "FromPin" } },
+      deps: { observe: async () => obsFor(), executeAction: async (a: unknown) => { executed = a; }, resolveViaVision: async () => ({ kind: "click", name: "Vision" }) }
+    });
+    expect(r.tier).toBe("cached");
+    expect(executed).toEqual({ kind: "click", name: "FromPin" });
+  });
+
+  it("a stale pin heals via vision and reports tier recovered so the caller can re-pin", async () => {
+    let executeCalls = 0;
+    const r = await runBrowserStep({
+      automationId: "pin3",
+      step: { id: "s1", type: "browser", cachedAction: { kind: "click", name: "Gone" } },
+      deps: {
+        observe: async () => obsFor(),
+        executeAction: async () => { executeCalls++; if (executeCalls === 1) throw new Error("selector gone"); },
+        resolveViaVision: async () => ({ kind: "click", name: "Fresh" })
+      }
+    });
+    expect(r.tier).toBe("recovered");
+    expect(r.action).toMatchObject({ name: "Fresh" });
+    // The healed action still lands in the store - the pin lives in the
+    // caller's plan and is not ours to rewrite from in here.
+    expect((await lookupActionCache("pin3", "s1", fingerprintFromParts(obsFor()))).action).toMatchObject({ name: "Fresh" });
+  });
+
+  it("browser step: ignores a pinned cachedAction when bypassCache=true", async () => {
+    let visionCalls = 0;
+    const r = await runBrowserStep({
+      automationId: "pin4",
+      step: { id: "s1", type: "browser", cachedAction: { kind: "click", name: "Pinned" } },
+      deps: {
+        observe: async () => obsFor(),
+        executeAction: async () => {},
+        resolveViaVision: async () => { visionCalls++; return { kind: "click", name: "Vision" }; }
+      },
+      bypassCache: true
+    });
+    expect(r.tier).toBe("vision");
+    expect(visionCalls).toBe(1);
+  });
+
   it("verify uses vision and writes the assertion cache on pass", async () => {
     const deps = {
       observe: async () => obsFor(),

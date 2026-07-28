@@ -2,10 +2,10 @@
 // (decision F2: lives INSIDE the Automations fitting; the Browser fitting stays a
 // pure service). Ported from ekoa's tier model:
 //   - navigate: deterministic (no vision).
-//   - browser:  cache hit -> replay cached action (tier "cached"); on miss OR a
-//               cache-action failure -> vision-resolve via the Router, execute,
-//               write the cache (tier "vision", or "recovered" if a cached action
-//               had failed first).
+//   - browser:  planner cachedAction / action cache -> replay it (tier "cached");
+//               on miss OR a deterministic-action failure -> vision-resolve via
+//               the Router, execute, write the cache (tier "vision", or
+//               "recovered" if a deterministic action had failed first).
 //   - verify:   planner cachedAssertion / assertion cache (deterministic) else
 //               vision verify; write the assertion cache on pass.
 // All model + browser I/O is injected via `deps` so the tier logic is unit-tested
@@ -159,21 +159,39 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
     }, obs, step);
   }
 
-  // browser action step
-  const cached = !bypassCache && (await lookupActionCache(automationId, step.id, fp));
-  if (cached) {
+  // browser action step. Two sources of a deterministic action, in order:
+  //
+  //   1. step.cachedAction — PINNED by the caller's plan, exactly the role
+  //      cachedAssertion plays for verify. This exists because the
+  //      fingerprint below is a content hash (pathname + title/heading/DOM-
+  //      shape digests): an app whose URL carries a session id, or whose node
+  //      counts move as content loads, fingerprints differently on EVERY run,
+  //      so the store alone can never make a real app's interactions
+  //      deterministic — it just accumulates one entry per run and re-resolves
+  //      through vision anyway. A pin is keyed to the step, not to what the
+  //      page happened to look like when it was learned.
+  //   2. the fingerprint-keyed store — still worth consulting for steps the
+  //      caller has no pin for (an ad-hoc automation, a repaired step).
+  //
+  // Both are withheld when bypassCache is set, same as cachedAssertion.
+  const pinned = bypassCache ? null : step.cachedAction ?? null;
+  const cached = pinned || bypassCache ? null : await lookupActionCache(automationId, step.id, fp);
+  const deterministic = pinned ?? cached?.action ?? null;
+  if (deterministic) {
     try {
-      await deps.executeAction(cached.action);
-      return withEvidence({ tier: "cached", action: cached.action }, obs, step);
+      await deps.executeAction(deterministic);
+      return withEvidence({ tier: "cached", action: deterministic }, obs, step);
     } catch {
-      // cached selector stale — evict and recover via vision
-      await evictAction(automationId, step.id, fp);
+      // Stale selector. Only the fingerprint entry is ours to evict — a pin
+      // lives in the caller's plan, and "recovered" below is how the caller
+      // learns the pin no longer matches and re-pins the healed action.
+      if (cached) await evictAction(automationId, step.id, fp);
     }
   }
   const action = await deps.resolveViaVision({ observation: obs, step });
   await deps.executeAction(action);
   if (!bypassCache) {
-    await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: cached ? "medium" : "high" });
+    await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: deterministic ? "medium" : "high" });
   }
-  return withEvidence({ tier: cached ? "recovered" : "vision", action }, obs, step);
+  return withEvidence({ tier: deterministic ? "recovered" : "vision", action }, obs, step);
 }

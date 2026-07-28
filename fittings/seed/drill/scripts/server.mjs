@@ -23,7 +23,7 @@ import {
   hasAuth, resolveAuthUrl, authSuccess, compileAuthProbe, compileAuthLogin, AUTH_VERIFY_STEP
 } from "../lib/compile.mjs";
 import { readAuthState, writeAuthState, authFingerprint } from "../lib/auth-state.mjs";
-import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
+import { graduationPlanFor, graduateStep, actionPinFor, pinStepActions } from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
 import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
@@ -1589,13 +1589,25 @@ async function handle(req, res) {
           const step = page?.steps.find((candidate) => candidate.id === pr.stepId);
           if (step) {
             const plan = graduationPlanFor(step, outcome, automationRun);
-            if (plan) {
-              try {
+            try {
+              if (plan) {
                 const { specFile } = await graduateStep(book, pr.pageId, pr.stepId, plan, root);
                 pr.graduated = { specFile, judgment: !!plan.judgment };
-              } catch (err) {
-                pr.graduationError = err.message;
+              } else {
+                // No graduation this time (already graduated, or the verify
+                // still has no deterministic answer) - but the interactions
+                // this run resolved are still worth keeping. Without this a
+                // check that graduated before it had interactions pays a
+                // model call per interaction on every run for the rest of
+                // its life, since it never re-enters graduation.
+                const pins = actionPinFor(step, automationRun);
+                if (pins) {
+                  await pinStepActions(book, pr.pageId, pr.stepId, pins, root);
+                  pr.actionsPinned = pins.length;
+                }
               }
+            } catch (err) {
+              pr.graduationError = err.message;
             }
           }
         }

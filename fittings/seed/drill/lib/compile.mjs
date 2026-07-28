@@ -9,6 +9,7 @@
 // falls back to vision and re-caches (the healing path, B7/self-test item 5).
 
 import { anchorsToLocatorHint } from "./picker.mjs";
+import { isEmittableAction } from "./spec-emit.mjs";
 
 // Resolve a page's target URL against the Drill Book's app URL, mirroring the
 // server's /api/authoring/tab resolution (data:/about: bases have no real
@@ -166,6 +167,13 @@ export function normalizeAuthSteps(book) {
 // ids are (the engine's per-step cache and result addressing key off stepId),
 // and here they must also avoid colliding with the navigate step, the reach
 // path, and the check's own id — they all land in ONE automation.
+//
+// `resolved` is the concrete Playwright action graduation harvested for this
+// interaction and wrote back into the Book. It rides through so the compiled
+// step can PIN it (see compileStepAutomation) instead of paying a vision call
+// to re-derive an answer the Book already holds. Only an emittable action is
+// carried: an unemittable one (unknown kind, no usable locator) or one whose
+// value was redacted as a secret is not something to replay blind.
 export function normalizeStepActions(step, { reserved = [] } = {}) {
   const raw = Array.isArray(step?.actions) ? step.actions : [];
   const out = [];
@@ -181,7 +189,12 @@ export function normalizeStepActions(step, { reserved = [] } = {}) {
     if (!description) continue;
     const rawId = entry && typeof entry === "object" ? entry.id : null;
     const base = typeof rawId === "string" && /^[A-Za-z0-9_-]+$/.test(rawId) ? rawId : `__act-${out.length}`;
-    out.push({ id: uniqueId(base), description });
+    const resolved = entry && typeof entry === "object" ? entry.resolved : null;
+    out.push({
+      id: uniqueId(base),
+      description,
+      ...(isEmittableAction(resolved) ? { resolved } : {})
+    });
   }
   return out;
 }
@@ -246,9 +259,23 @@ export function compileStepAutomation(book, page, step, { blind = false } = {}) 
   // already included blind for the same reason: a blind pass that never
   // reaches the state is not an independent check of the same thing, it is a
   // check of a different, unreached page.
+  //
+  // A previously-resolved interaction is PINNED onto the compiled step as
+  // cachedAction — the action-side twin of cachedAssertion. Without it a fully
+  // graduated check still burns one model call per interaction on every run,
+  // because the engine's own action cache is keyed on a page fingerprint
+  // (pathname + content digests) that moves whenever the app carries a session
+  // id in the URL or renders a different amount of content. The pin is not
+  // gated on `blind`: the engine's bypassCache is the single authority on what
+  // a blind pass may reuse, and it already discards this along with the cache.
   const actionSteps = normalizeStepActions(step, {
     reserved: ["__drill_navigate", step.id, ...reachSteps.map((r) => r.id)]
-  }).map((a) => ({ id: a.id, type: "browser", description: a.description }));
+  }).map((a) => ({
+    id: a.id,
+    type: "browser",
+    description: a.description,
+    ...(a.resolved ? { cachedAction: a.resolved } : {})
+  }));
   return {
     id: `drill-${page.id}-${step.id}`,
     name: `Drill: ${page.title} / ${step.id}`,

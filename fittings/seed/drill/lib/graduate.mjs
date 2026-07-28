@@ -93,34 +93,72 @@ export function graduationPlanFor(step, outcome, automationRun) {
   return null;
 }
 
-// `root` pins the repo the graduation writes into - a run resolves it ONCE at
-// request start so a mid-run project switch can't land specs in another repo.
-export async function graduateStep(book, pageId, stepId, plan, root = drillTargetRoot()) {
+// Decide whether a check's INTERACTIONS need (re-)pinning, independently of
+// its verdict. Graduation only fires on a vision/recovered pass that produced
+// an assertion, which leaves two large populations permanently unpinned:
+// checks that graduated before they had interactions at all, and checks whose
+// verify now answers from its pinned assertion (tier "cached") and so never
+// re-enters graduation. Both would re-resolve every interaction through vision
+// on every run, forever. This is the separate, idempotent path for that — it
+// moves pins and nothing else, so it is safe on an already-graduated step.
+//
+// Returns null when there is nothing to write: no authored interactions, a
+// partial resolution (same all-or-nothing rule graduation uses — a half-pinned
+// check would drive some interactions deterministically and vision-resolve the
+// rest against a page the pinned ones already moved), or pins that already
+// match what this run resolved.
+export function actionPinFor(step, automationRun) {
+  const harvested = harvestResolvedActions(step, automationRun);
+  if (!harvested?.length) return null;
+  const current = Array.isArray(step.actions) ? step.actions : [];
+  const same = harvested.every((a, i) => {
+    const prev = current[i];
+    return prev && typeof prev === "object" && JSON.stringify(prev.resolved ?? null) === JSON.stringify(a.resolved);
+  });
+  return same ? null : harvested;
+}
+
+// Write a step patch back to its page and re-emit the page's committed spec.
+// Emission is unconditional because emitPageSpec renders the WHOLE page from
+// its currently-emittable steps — pinning actions can itself make a step
+// emittable, and a page with none emits an empty describe block, which is the
+// honest rendering of "nothing on this page has graduated yet".
+async function writeStepUpdate(book, pageId, stepId, patch, root) {
   const page = await getPage(pageId, root);
   if (!page) throw new Error(`page not found: ${pageId}`);
   const step = page.steps.find((s) => s.id === stepId);
   if (!step) throw new Error(`step not found: ${pageId}/${stepId}`);
-  if (!plan || (!plan.assertion && !plan.judgment)) throw new Error("graduateStep requires an assertion or judgment=true");
 
-  const updatedStep = {
-    ...step,
-    mode: "e2e",
-    spec: `${specRelPath(pageId)}#${stepId}`,
-    // Persist the resolved interactions alongside the assertion so the spec can
-    // be re-emitted without another live run, and so a reader of the Book can
-    // see what the check actually drives.
-    ...(plan.actions?.length ? { actions: plan.actions } : {}),
-    ...(plan.judgment ? { judgment: true, assertion: undefined } : { assertion: plan.assertion })
-  };
-  const nextSteps = page.steps.map((s) => (s.id === stepId ? updatedStep : s));
+  const nextSteps = page.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s));
   const updatedPage = { ...page, steps: nextSteps };
 
   await ensureDrillJudgeAsset(root);
-  const targetUrl = resolvePageUrl(book, updatedPage);
-  const specSource = emitPageSpec(updatedPage, targetUrl);
+  const specSource = emitPageSpec(updatedPage, resolvePageUrl(book, updatedPage));
   const specFile = path.join(root, specRelPath(pageId));
   await atomicWriteFile(specFile, specSource);
 
   const saved = await savePage(pageId, { steps: nextSteps }, root);
   return { step: saved.steps.find((s) => s.id === stepId), specFile };
+}
+
+// `root` pins the repo the graduation writes into - a run resolves it ONCE at
+// request start so a mid-run project switch can't land specs in another repo.
+export async function graduateStep(book, pageId, stepId, plan, root = drillTargetRoot()) {
+  if (!plan || (!plan.assertion && !plan.judgment)) throw new Error("graduateStep requires an assertion or judgment=true");
+  return writeStepUpdate(book, pageId, stepId, {
+    mode: "e2e",
+    spec: `${specRelPath(pageId)}#${stepId}`,
+    // Persist the resolved interactions alongside the assertion so the spec can
+    // be re-emitted without another live run, so a reader of the Book can see
+    // what the check actually drives, and so the next run replays them
+    // deterministically instead of re-resolving them (compile.mjs cachedAction).
+    ...(plan.actions?.length ? { actions: plan.actions } : {}),
+    ...(plan.judgment ? { judgment: true, assertion: undefined } : { assertion: plan.assertion })
+  }, root);
+}
+
+// Pin (or re-pin) a check's interactions without touching its verdict.
+export async function pinStepActions(book, pageId, stepId, actions, root = drillTargetRoot()) {
+  if (!actions?.length) throw new Error("pinStepActions requires at least one resolved action");
+  return writeStepUpdate(book, pageId, stepId, { actions }, root);
 }
