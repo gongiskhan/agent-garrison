@@ -92,4 +92,14 @@ describe("confirmsAuthoredAssertion", () => {
     // the promotion path owns this step, and a double-write would race it.
     expect(graduationPlanFor(authored, outcome(), { steps: [] })).toBeNull();
   });
+
+  it("but graduation DOES fire when the authored assertion turned out false", () => {
+    // The engine only reaches vision on a verify whose deterministic assertion
+    // failed. So a vision pass on an authored step means: the plan agent got it
+    // wrong, and the model found what is actually true. Graduation overwrites
+    // it - and the replacement is run-proven, so it must shed the marker (see
+    // the graduateStep patch) or it could never be emitted.
+    const plan = graduationPlanFor(authored, outcome({ tier: "vision", result: { assertion: { kind: "visible", testId: "real-one" } } }), { steps: [] });
+    expect(plan).toMatchObject({ assertion: { kind: "visible", testId: "real-one" } });
+  });
 });

@@ -153,6 +153,13 @@ export async function graduateStep(book, pageId, stepId, plan, root = drillTarge
     // what the check actually drives, and so the next run replays them
     // deterministically instead of re-resolving them (compile.mjs cachedAction).
     ...(plan.actions?.length ? { actions: plan.actions } : {}),
+    // Graduation reaches a step that ALREADY carried a plan-authored assertion
+    // in exactly one situation: that assertion did not hold, the check fell
+    // through to vision, and vision proved a different one. What lands here is
+    // therefore run-proven by definition, and must shed the authored marker -
+    // left on, it would permanently bar a legitimately graduated check from its
+    // committed spec, and describe it in the UI as unconfirmed forever.
+    assertionSource: undefined,
     ...(plan.judgment ? { judgment: true, assertion: undefined } : { assertion: plan.assertion })
   }, root);
 }
