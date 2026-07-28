@@ -32,6 +32,7 @@ import {
   OperativePtySession,
   captureLines,
   extractReply,
+  parseActivity,
   openRichStream,
   richStatus,
   keySequence,
@@ -1077,6 +1078,41 @@ export function buildRouteOptions() {
  *  turn → honored check. The operative session is served by the routing pool.
  *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
  *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity. */
+// Liveness for the INTERACTIVE lane, which has no structured event stream: the
+// TUI draws thinking and tool use instead of emitting them, so a channel sees
+// nothing between "sent" and the final reply. Scrape the screen for the current
+// activity and forward it as the same `activity` frame the routed SDK lanes emit.
+//
+// Deduped (a tool line stays on screen for the rest of the turn, so an undeduped
+// emitter would repeat it forever) and throttled (onScreen fires on every
+// repaint, which is many times a second while a spinner animates).
+export function screenActivityEmitter(handle, onActivity, nowFn = Date.now) {
+  if (typeof onActivity !== "function" || !handle) return () => {};
+  let last = "";
+  let lastAt = 0;
+  return () => {
+    const now = nowFn();
+    if (now - lastAt < 400) return;
+    lastAt = now;
+    const activity = parseActivity(handle);
+    if (!activity?.text) return;
+    const key = `${activity.kind}:${activity.text}`;
+    if (key === last) return;
+    last = key;
+    // Match the wire shape the SDK lanes already emit, or the client drops it:
+    // a tool frame is keyed on `name`, a thinking frame on `text`.
+    const payload =
+      activity.kind === "tool"
+        ? { kind: "tool", name: activity.text }
+        : { kind: "thinking", text: activity.text };
+    try {
+      onActivity(payload);
+    } catch {
+      /* a streaming consumer must never break the turn */
+    }
+  };
+}
+
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   await router.ensureOperative();
   // NOTE (S3d review R1): the Discuss reply-as-answer / explicit-go interception is NOT
@@ -1641,10 +1677,16 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       materialized: { oneShot: true, assembledChars: ctxBlock.length, internal: isInternal },
     };
   }
+
   let lastEmitted = "";
+  // Runs even when onChunk is absent: the activity hint is the ONLY feedback a
+  // caller gets on this lane, so it must not be gated on text streaming.
+  const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
   const onScreen =
-    onChunk && session.handle
+    session.handle
       ? () => {
+          emitScreenActivity();
+          if (!onChunk) return;
           const current = extractReply(session.handle, annotated);
           if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
             onChunk(current.slice(lastEmitted.length));
@@ -1762,19 +1804,20 @@ async function runTurn(message, onChunk, hints, opts = {}) {
       await spawnOperative({ resume: true });
     }
     let lastEmitted = "";
-    const onScreen = onChunk
-      ? () => {
-          const current = extractReply(session.handle, message);
-          if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
-            onChunk(current.slice(lastEmitted.length));
-            lastEmitted = current;
-          } else if (current && current !== lastEmitted) {
-            // Reflow / divergence - re-emit the whole thing as a correction.
-            onChunk(current, true);
-            lastEmitted = current;
-          }
-        }
-      : undefined;
+    const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
+    const onScreen = () => {
+      emitScreenActivity();
+      if (!onChunk) return;
+      const current = extractReply(session.handle, message);
+      if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
+        onChunk(current.slice(lastEmitted.length));
+        lastEmitted = current;
+      } else if (current && current !== lastEmitted) {
+        // Reflow / divergence - re-emit the whole thing as a correction.
+        onChunk(current, true);
+        lastEmitted = current;
+      }
+    };
     // The legacy single-session path is a Claude PTY too, so ESC stops it.
     registerTurnStop("standing-pty", () => {
       if (typeof session?.writeKeys !== "function") return false;

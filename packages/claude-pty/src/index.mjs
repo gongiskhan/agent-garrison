@@ -34,6 +34,7 @@ export {
   extractReply,
   extractLatestAssistant,
   parseStatus,
+  parseActivity,
   parsePermissionMode,
   isBusy,
   isWorking,

@@ -105,6 +105,66 @@ export function isPromptReady(handle) {
   return false;
 }
 
+// A tool invocation line: "⏺ Read(src/foo.ts)". Requires a Capitalised identifier
+// immediately followed by "(" so ordinary assistant prose under the same "⏺"
+// marker ("⏺ Looking at the config…") can never match.
+const TOOL_CALL = /^\s*[⏺●]\s*([A-Z][A-Za-z0-9_]*)\(\s*(.*)$/;
+// The verb the spinner is currently showing: "✻ Infusing… (2s · esc to interrupt)"
+// → "Infusing". Claude cycles dozens of whimsical verbs, so match the SHAPE
+// (leading glyph, a word, then "…" or the progress parenthetical) rather than
+// enumerating them.
+const SPINNER_VERB = /^\s*(?:[✻✶✷✵✳✲✴✦✧❋❉∗*·•✽✢✜✛]\s*)?([A-Za-z][A-Za-z ]{1,28}?)\s*(?:…|\.\.\.|\()/;
+
+/**
+ * What the TUI is doing RIGHT NOW, for a liveness hint.
+ *
+ * The interactive lane has no structured event stream — thinking and tool use
+ * are DRAWN, not emitted — so a channel watching it has nothing to show between
+ * "sent" and the final reply. The screen is the only signal there is, so read
+ * the two things it does say: the newest tool invocation, and the spinner's own
+ * verb for the current phase.
+ *
+ * Returns null when the screen shows neither (idle, or a frame mid-repaint).
+ * Callers should DEDUPE on the returned text — a tool line stays on screen for
+ * the rest of the turn, so an undeduped caller would repeat it forever.
+ */
+export function parseActivity(handle) {
+  let lines;
+  try {
+    lines = captureLines(handle);
+  } catch {
+    return null; // handle torn down mid-turn
+  }
+  let tool = null;
+  let verb = null;
+  // Bottom-up: the newest signal wins. The spinner sits below the transcript, so
+  // it is found first; the tool line is the most recent one above it.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!verb && isWorkingLine(line)) {
+      const m = SPINNER_VERB.exec(line);
+      // Skip the interrupt hint itself ("esc to interrupt") being read as a verb.
+      if (m && !/^esc\b/i.test(m[1])) verb = m[1].trim();
+    }
+    if (!tool) {
+      const m = TOOL_CALL.exec(line);
+      if (m) {
+        const args = m[2].replace(/\)\s*$/, "").trim();
+        tool = { name: m[1], args };
+      }
+    }
+    if (tool && verb) break;
+  }
+  // A tool name is far more informative than "Infusing…", so it wins when both
+  // are on screen.
+  if (tool) {
+    const detail = tool.args ? `${tool.name}(${tool.args.slice(0, 60)})` : tool.name;
+    return { kind: "tool", text: detail };
+  }
+  if (verb) return { kind: "thinking", text: verb };
+  return null;
+}
+
 /** Extract the rich status line + mode + context% from the bottom rows. */
 export function parseStatus(handle) {
   const lines = captureLines(handle);
