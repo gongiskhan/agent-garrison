@@ -807,5 +807,25 @@
       "global": 4,
       "claude_code": 4
     }
+  },
+  {
+    "id": "garrison-orchestrator",
+    "name": "Garrison Orchestrator",
+    "repo": "local:fittings/seed/garrison-orchestrator",
+    "localPath": "fittings/seed/garrison-orchestrator",
+    "summary": "Thin routing Orchestrator that delegates to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "knowledge",
+    "name": "Knowledge",
+    "repo": "local:fittings/seed/knowledge",
+    "localPath": "fittings/seed/knowledge",
+    "summary": "Fills the memory role with the Knowledge composite. v1: a canonical markdown vault + idempotent cross-runtime projections (AGENTS.md canonical; CLAUDE.md + GEMINI.md thin imports of @AGENTS.md) + a minimal stdio MCP server (recall over the vault) + idempotent provisioning that wires the knowledge/codegraph/serena MCP servers into a project. CodeGraph + Serena join as consumed sub-fittings.",
+    "platforms": [
+      "all"
+    ]
   }
 ]
