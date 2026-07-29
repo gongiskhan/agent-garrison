@@ -4,7 +4,7 @@
 // takes effect immediately, not only at the next setup. A scheduler-beat list fires
 // `kanban.mjs --tick-list <id>` on its own cron (e.g. Test every 5h).
 import { existsSync } from "node:fs";
-import { instanceEnvPrefix } from "./instance-env.mjs";
+import { instanceEnvPrefix, wouldDowngradeJob } from "./instance-env.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +51,13 @@ export async function syncListBeat(list, { log = console.log } = {}) {
   if (!existsSync(cli)) {
     log(`kanban-loop: scheduler CLI not found at ${cli} (skipping beat for ${list.id}).`);
     return { action: "skipped-no-cli" };
+  }
+  // Never downgrade: `--setup` has no gateway URL in scope, the board server does, and
+  // both re-register. Without this the setup hook silently replaces a working beat with
+  // a dead one (exactly what happened to kanban-tick).
+  if (list.trigger === "scheduler-beat" && wouldDowngradeJob(beatId)) {
+    log(`kanban-loop: no gateway URL in scope — KEEPING the existing ${beatId} registration (refusing to downgrade it).`);
+    return { action: "kept" };
   }
   const { spawnSync } = await import("node:child_process");
   // Always remove first so a trigger flip (scheduler-beat → manual) un-registers it.

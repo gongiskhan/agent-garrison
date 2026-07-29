@@ -2705,8 +2705,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   if (liveOpts.gatewayUrl) {
     try {
       const { registerTick } = await import("./kanban.mjs");
+      const { syncAllBeats } = await import("../lib/scheduler-beats.mjs");
       process.env.GARRISON_GATEWAY_URL = process.env.GARRISON_GATEWAY_URL || liveOpts.gatewayUrl;
       await registerTick();
+      // The per-list BEATS (the Test list) have the identical problem and the identical
+      // fix: only the setup hook ever registered them, and it has no gateway URL, so
+      // kanban-test-beat was as dead as the tick was.
+      await syncAllBeats(await loadBoard(liveOpts.root), { log: () => {} }).catch(() => {});
     } catch (err) {
       console.error("[kanban-loop] tick re-registration failed:", err?.message || err);
     }

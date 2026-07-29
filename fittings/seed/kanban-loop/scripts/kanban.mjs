@@ -17,7 +17,7 @@ import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } f
 import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
-import { resolveGatewayUrl, instanceEnvPrefix } from "../lib/instance-env.mjs";
+import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
@@ -285,20 +285,6 @@ async function registerSchedulerBeats() {
 // config block (tick_cron / review_cron / review_stall_hours in config_schema),
 // so a composition value takes effect without the user exporting anything;
 // the bare KANBAN_* name stays the explicit operator override on top.
-// Does the ALREADY-REGISTERED tick job carry a gateway URL? Read straight from the
-// scheduler's jobs file — it is the persisted command string that actually runs, and
-// the whole point is that it outlives whichever process registered it.
-function registeredTickHasGateway(id = "kanban-tick") {
-  try {
-    const home = process.env.GARRISON_HOME || path.join(process.env.HOME || "", ".garrison");
-    const jobs = JSON.parse(readFileSync(path.join(home, "scheduler-jobs.json"), "utf8"));
-    const job = (Array.isArray(jobs) ? jobs : jobs?.jobs ?? []).find((j) => j?.id === id);
-    return typeof job?.command === "string" && /GARRISON_GATEWAY_URL=/.test(job.command);
-  } catch {
-    return false;
-  }
-}
-
 export async function registerTick() {
   const cron = process.env.KANBAN_TICK_CRON || process.env.KANBAN_LOOP_TICK_CRON || "*/2 * * * *"; // every 2 minutes
   const cli = schedulerCli();
@@ -318,7 +304,7 @@ export async function registerTick() {
   // registration with an env-less one, and the tick goes dead again — observed
   // immediately after the first deploy of this fix.
   if (!resolveGatewayUrl()) {
-    if (registeredTickHasGateway()) {
+    if (registeredJobHasGateway("kanban-tick")) {
       console.log(
         "kanban-loop: no gateway URL in scope — KEEPING the existing kanban-tick " +
         "registration, which already carries one (refusing to downgrade it)."

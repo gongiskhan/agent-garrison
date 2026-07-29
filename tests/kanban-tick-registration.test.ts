@@ -21,6 +21,7 @@ import { instanceEnvPrefix } from "../fittings/seed/kanban-loop/lib/instance-env
 // Non-literal specifier: tsc treats a pure .mjs import as `any` instead of erroring
 // on missing declarations (the convention used by the other kanban tests).
 const KANBAN_CLI_MODULE = "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+const BEATS_MODULE = "../fittings/seed/kanban-loop/lib/scheduler-beats.mjs";
 
 const SAVED = { ...process.env };
 let home: string;
@@ -118,6 +119,24 @@ describe("registerTick — never downgrades a working registration", () => {
 // (which statically imports scheduler-beats) created a cycle that never settles, so
 // the process exited 13 mid-setup and a live `up` failed with
 // "setup failed for kanban-loop: exit 13". This runs the real entrypoint.
+describe("syncListBeat — the Test beat never downgrades either", () => {
+  it("KEEPS an existing beat that carries a gateway URL when none is in scope", async () => {
+    const good =
+      "GARRISON_GATEWAY_URL='http://127.0.0.1:5777' node /x/kanban.mjs --tick-list test";
+    writeJobs([{ id: "kanban-test-beat", cron: "0 */5 * * *", command: good, enabled: true }]);
+
+    // @ts-ignore pure .mjs, no declarations
+    const { syncListBeat } = await import(BEATS_MODULE);
+    const res = await syncListBeat(
+      { id: "test", trigger: "scheduler-beat", beatCron: "0 */5 * * *" },
+      { log: () => {} }
+    );
+
+    expect(res.action).toBe("kept");
+    expect(readJobs().find((j) => j.id === "kanban-test-beat").command).toBe(good);
+  });
+});
+
 describe("kanban.mjs --setup — the apm.yml hook actually completes", () => {
   it("exits 0 and registers both the tick and the Test beat with this instance's identity", async () => {
     const { spawnSync } = await import("node:child_process");

@@ -5,6 +5,8 @@
 // kanban.mjs instead created a cycle — kanban.mjs imports scheduler-beats at load,
 // scheduler-beats would then dynamically import kanban.mjs mid-setup — which never
 // settles and makes `node scripts/kanban.mjs --setup` exit 13, failing `up`.
+import path from "node:path";
+import { readFileSync } from "node:fs";
 
 // The gateway URL the tick dispatches through. There is deliberately NO literal
 // port fallback (HARD RULE: never hardcode a port). The old fallback was
@@ -48,4 +50,30 @@ export function instanceEnvPrefix() {
   return Object.entries(vars)
     .filter(([, v]) => typeof v === "string" && v.trim() && !v.includes("'"))
     .map(([k, v]) => `${k}='${v.trim()}'`);
+}
+
+// Does the ALREADY-REGISTERED scheduler job carry a gateway URL? Read straight from
+// the scheduler's jobs file — that persisted command string is what actually runs, and
+// outliving whichever process registered it is the entire point.
+//
+// This exists because registration happens from TWO places with different visibility:
+// the apm.yml `--setup` hook (no gateway URL in scope) and the board server (which has
+// one). Both re-register, so without this check whichever ran last wins, and the setup
+// hook silently replaces a working job with a dead one.
+export function registeredJobHasGateway(id) {
+  try {
+    const home = process.env.GARRISON_HOME || path.join(process.env.HOME || "", ".garrison");
+    const raw = JSON.parse(readFileSync(path.join(home, "scheduler-jobs.json"), "utf8"));
+    const jobs = Array.isArray(raw) ? raw : raw?.jobs ?? [];
+    const job = jobs.find((j) => j?.id === id);
+    return typeof job?.command === "string" && /GARRISON_GATEWAY_URL=/.test(job.command);
+  } catch {
+    return false;
+  }
+}
+
+// Should this process register `id` at all? No, when it cannot resolve a gateway URL
+// and the existing registration already has one — never downgrade a working job.
+export function wouldDowngradeJob(id) {
+  return !resolveGatewayUrl() && registeredJobHasGateway(id);
 }
