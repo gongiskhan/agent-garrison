@@ -1283,6 +1283,10 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   margin: 0;
   width: 12px;
   height: 12px;
+  /* Match the sheet's other checkbox (.field .row input). Left unset, these render
+     in the browser's default blue, which reads as a foreign control against the
+     cream/sage palette - and the run spec puts a dozen of them on screen at once. */
+  accent-color: var(--sage);
 }
 .chip.toggle.off {
   opacity: 0.5;

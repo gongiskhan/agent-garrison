@@ -1,6 +1,40 @@
 # RUN-SPEC-V1 — explicit per-run decisions, auto by default
 
-**Status:** in progress (started 2026-07-29)
+**Status:** SHIPPED 2026-07-29 (d643ed7, 687e4f0 + follow-ups), verified live on prod.
+
+## What shipped
+
+- **One pin vocabulary, ten dimensions**: `target` (runtime+provider+model),
+  `model`, `effort`, `duty`, `level`, `project`, `account`, plus the new `tier`,
+  `workKind` and `phasesOff`. Every one defaults to Automatic on both surfaces.
+- **Web Channel**: the Turn Rail gained tier / work kind / phases. An auto-chosen
+  value is marked `auto` on its badge (and in the badge title, so it is not
+  colour-only).
+- **Kanban New Card**: a collapsed *Run spec* block with the whole set, populated
+  from the board's new same-origin proxy of the gateway's `/route/options` — the
+  same vocabulary the gateway validates a pin against. The card stores ONE
+  `routing` object, editable via `PATCH` before the run.
+- **Classifier skip**: a pinned duty+tier IS a classification, so `preRoute` no
+  longer classifies and then overrides the answer. A pin that cannot skip it still
+  overrules the classifier on the axis it names. Reported as `classifierSkipped`.
+- **Decisions**: stable id per record (derived by the same formula on both sides for
+  the ~3800 that carry none), the run dimensions surfaced as fields, and a verdict
+  (right / wrong / not sure) plus a counterfactual, appended to the Improver's
+  EXISTING `feedback-queue.jsonl`. `feedback-rule.mjs` learned `retarget` /
+  `replan` so a counterfactual is no longer silently dropped.
+
+**Proven live**: gateway `/route/options` serves the vocabulary; both proxies
+return it identically; a card round-trips a full spec through create → projection →
+PATCH; a posted verdict lands in the queue; two agreeing verdicts produce the
+proposal `feedback-retarget-… "the operator would have chosen cc-opus-high"`.
+
+## Known limit (pre-existing, NOT introduced here)
+
+The Improver's `applyVia` is a DISPLAY STRING — nothing dispatches on it. Approving
+an `orchestrator/policy` proposal appends a marked block to a memory markdown file;
+it does NOT write `routing.json`. So the loop currently ends at *"a reviewable
+proposal that quotes your correction"*, not at an applied policy change. Closing
+that is a separate piece of work in the improver.
 
 ## The ask
 

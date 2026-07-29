@@ -79,6 +79,14 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   unsure: "Not sure"
 };
 
+/** Human names for the correction fields. The wire names are camelCase, and
+ *  uppercased in the UI they render as WORKKIND / PHASESOFF - identifiers, not
+ *  words. Only the two that need it are listed; the rest are already words. */
+const FIELD_LABEL: Partial<Record<string, string>> = {
+  workKind: "work kind",
+  phasesOff: "phases off"
+};
+
 /**
  * The verdict control for one decision.
  *
@@ -136,7 +144,7 @@ function VerdictControls({
           <div className={styles.correctionGrid}>
             {CORRECTION_FIELDS.map((field) => (
               <label key={field} className={styles.correctionField}>
-                <span>{field}</span>
+                <span>{FIELD_LABEL[field] ?? field}</span>
                 <input
                   type="text"
                   value={correction[field] ?? ""}
