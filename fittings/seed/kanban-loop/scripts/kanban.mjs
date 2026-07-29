@@ -524,7 +524,7 @@ function resolveGatewayUrl() {
 // threshold). Without this the tick cannot tell prod from dev from codex.
 // Values are single-quoted for `sh -c`; anything containing a quote is dropped
 // rather than escaped (these are ports, URLs and paths — never quoted strings).
-function instanceEnvPrefix() {
+export function instanceEnvPrefix() {
   const vars = {
     GARRISON_GATEWAY_URL: resolveGatewayUrl(),
     GARRISON_HOME: process.env.GARRISON_HOME,
@@ -621,6 +621,20 @@ async function tick() {
 // per-card path (manual single-list kick).
 async function tickList(listId) {
   const gatewayUrl = resolveGatewayUrl();
+  // Parity with tick(): release lost runs first (no operative needed), and say
+  // "no gateway configured" distinctly from "the gateway is down". Without the
+  // first branch this would print `gateway not reachable at null` — the same
+  // indistinguishable message that hid the dead prod tick for weeks.
+  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
+  for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
+  if (!gatewayUrl) {
+    console.log(
+      "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +
+      "GARRISON_GATEWAY_PORT is set) — the beat cannot dispatch. Re-run `kanban.mjs --setup` " +
+      "from the running fitting so the job command carries this instance's gateway."
+    );
+    return;
+  }
   if (!(await gatewayReachable(gatewayUrl))) {
     console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (cards wait for an operative).`);
     return;

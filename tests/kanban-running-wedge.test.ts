@@ -28,7 +28,7 @@ import { tmpdir, hostname } from "node:os";
 import path from "node:path";
 
 // @ts-ignore pure mjs
-import { processCard, sweepOrphanedRuns, orphanRunThresholdMs } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processCard, sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore pure mjs
 import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
@@ -457,4 +457,49 @@ describe("commitRunResult — the card is never left running, on any path", () =
     expect(onDisk.runningSince ?? null).toBeNull();
     void outcome;
   }, 20000);
+});
+
+// The boot sweep must not clear a run driven by a LIVE process that is not us. The
+// board server is not the only dispatcher — a `--tick` CLI drives runs from its own
+// short-lived process — so every prod:redeploy would otherwise reset a card mid-turn,
+// and that turn's own commitRunResult would then correctly refuse to write, silently
+// discarding a finished run's verdict.
+describe("recoverInterruptedRuns — a live foreign driver is left alone", () => {
+  it("clears a run with a DEAD owner", async () => {
+    const card = await makeCard(tmp, {
+      id: "01BOOTSWEEP000000000000001",
+      status: "running",
+      runningSince: new Date().toISOString(),
+      runOwner: { pid: 4194303, host: hostname(), at: new Date().toISOString() }
+    });
+    const recovered = await recoverInterruptedRuns(tmp);
+    expect(recovered).toContain(card.id);
+    const onDisk: any = await loadCard(tmp, card.id);
+    expect(onDisk.status).toBe("ok");
+    expect(onDisk.runOwner ?? null).toBeNull(); // the stale stamp is cleared too
+  });
+
+  it("does NOT clear a run whose driver is another live process on this host", async () => {
+    // A pid that is alive but is not us: our own parent.
+    const livePid = process.ppid;
+    const card = await makeCard(tmp, {
+      id: "01BOOTSWEEP000000000000002",
+      status: "running",
+      runningSince: new Date().toISOString(),
+      runOwner: { pid: livePid, host: hostname(), at: new Date().toISOString() }
+    });
+    const recovered = await recoverInterruptedRuns(tmp);
+    expect(recovered).not.toContain(card.id);
+    expect(((await loadCard(tmp, card.id)) as any).status).toBe("running");
+  });
+
+  it("still clears a run stamped by THIS pid — that is our own previous life, not a live driver", async () => {
+    const card = await makeCard(tmp, {
+      id: "01BOOTSWEEP000000000000003",
+      status: "running",
+      runningSince: new Date().toISOString(),
+      runOwner: { pid: process.pid, host: hostname(), at: new Date().toISOString() }
+    });
+    expect(await recoverInterruptedRuns(tmp)).toContain(card.id);
+  });
 });

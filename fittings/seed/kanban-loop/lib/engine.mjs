@@ -2156,6 +2156,18 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
 // Recovery is deliberately "clear to retryable", exactly like the boot sweep: the
 // driver died, so the phase's work may be half-finished and the honest move is to
 // let it run again rather than to infer success from whatever it managed to write.
+// Is this card's run being driven, right now, by a live process that is NOT us?
+// The one predicate both recovery sweeps consult, so the boot sweep and the tick
+// sweep can never disagree about who is alive.
+export function ownedByAnotherLiveDriver(card, host = hostname()) {
+  const o = card?.runOwner;
+  if (!o || typeof o !== "object") return false;
+  if (o.host !== host) return false;              // another machine — we cannot tell
+  if (!Number.isInteger(o.pid)) return false;
+  if (o.pid === process.pid) return false;        // our own previous life: not live
+  return isPidAlive(o.pid);
+}
+
 export function orphanRunThresholdMs() {
   const turn = Number(process.env.KANBAN_TURN_TIMEOUT_MS) || 25 * 60 * 1000;
   const slack = Number(process.env.KANBAN_ORPHAN_SLACK_MS) || 5 * 60 * 1000;
@@ -2217,12 +2229,20 @@ export async function recoverInterruptedRuns(root, now = () => new Date().toISOS
   const recovered = [];
   for (const card of cards) {
     if (card.status !== "running") continue;
+    // Do NOT clear a run driven by a LIVE process that is not us. The board server is
+    // not the only dispatcher — a `--tick` CLI drives runs from its own short-lived
+    // process — so a board restart (every prod:redeploy) would otherwise reset a card
+    // mid-turn, and that turn's own commitRunResult would then correctly refuse the
+    // write, silently discarding a finished run's verdict.
+    if (ownedByAnotherLiveDriver(card)) continue;
     const res = await updateCardCAS(root, card.id, (c) => {
       if (c.status !== "running") return null; // raced: someone else already cleared it
+      if (ownedByAnotherLiveDriver(c)) return null;
       return {
         ...c,
         status: "ok",
         runningSince: null,
+        runOwner: null,
         lastDispatchError: {
           at: now(),
           reason: "interrupted",
@@ -2732,6 +2752,11 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         iterations: iteration,
         logIndex,
         runningSince: now(),
+        // Same owner + generation stamp as the single-card acquire, so a batched run
+        // is equally sweepable when its driver dies and equally unable to clobber a
+        // later generation of itself.
+        runOwner: { pid: process.pid, host: hostname(), at: now() },
+        runSeq: (card.runSeq ?? 0) + 1,
         events: withEvent(card, { at: now(), kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
       }, baseRev, now());
       if (!acq.ok) { outcomes.push({ id: card.id, status: "skipped", reason: "conflict", project }); continue; }
@@ -2785,7 +2810,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         // per-card defer. Parking here stranded a whole project group whenever
         // the gateway hiccupped.
         for (const a of acquired) {
-          const res = await saveCardCAS(root, {
+          const res = await commitRunResult(root, { base: a.running, runRev: a.running.rev, dispatchedFrom: listId, now, target: {
             ...a.running,
             status: a.original.status ?? "ok",
             iterations: a.original.iterations || 0,
@@ -2802,7 +2827,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
               message: `Gateway unavailable on ${listTitle} (batched) — left in place, will retry`,
               detail: String(err?.message || err)
             })
-          }, a.running.rev, now());
+          } });
           await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
           outcomes.push({ id: a.original.id, status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err), project });
         }
@@ -2811,13 +2836,13 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // A real (non-transport) batch failure — park every acquired card with the reason.
       for (const a of acquired) {
         const failReason = `The ${listTitle} batch run for ${project} errored: ${String(err?.message || err)}. Parked — open the log, then move it back to retry.`;
-        const res = await saveCardCAS(root, {
+        const res = await commitRunResult(root, { base: a.running, runRev: a.running.rev, dispatchedFrom: listId, now, target: {
           ...a.running,
           ...parkFields(a.running, listId, failReason, "failed"),
           runningSince: null,
           lastReply: replySnippet(String(err?.message || err)),
           events: withEvent(a.running, { at: now(), kind: "failed", message: `Batch run errored on ${listTitle}`, detail: String(err?.message || err) })
-        }, a.running.rev, now());
+        } });
         await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\nbatch run failed: ${err?.message || err}\n`);
         outcomes.push({ id: a.original.id, status: "needs-attention", reason: "run-failed", error: String(err?.message || err), project });
       }
@@ -3116,8 +3141,16 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           events: withEvent(a.running, { at: now(), kind: "parked", message: `Parked from ${listTitle}: no valid verdict in the batch reply`, detail: `Expected: ${a.original.id} <${cardExpected}>\n\nBatch reply:\n${reply}` })
         };
       }
-      const res = await saveCardCAS(root, target, a.running.rev, now());
-      if (!res.ok) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "conflict-during-run", project }); continue; }
+      // Same rebase discipline as the single-card path: the Test list is BATCHED, so a
+      // concurrent write during a batch turn used to strand EVERY card in the group in
+      // "running", exactly the way the incident card was stranded.
+      const res = await commitRunResult(root, { base: a.running, target, runRev: a.running.rev, dispatchedFrom: listId, now });
+      if (!res.ok) {
+        outcomes.push(res.takenOver
+          ? { id: a.original.id, status: "skipped", reason: "taken-over-during-run", project }
+          : { id: a.original.id, status: "needs-attention", reason: "conflict-during-run", project });
+        continue;
+      }
       // Cross-card side-writes + mail, after this card's own save committed.
       for (const bw of batchBlockerWrites) await applyBlockerWrite(root, bw, now);
       if (batchCoordActive && batchMails.length && batchAllCards) {

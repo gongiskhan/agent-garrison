@@ -493,6 +493,68 @@ describe("Codex secondary-instance isolation", () => {
     );
   });
 
+  // The guard above discriminates by MAGNITUDE (5 digits, >= 20000), so it only ever
+  // caught the codex family. `http://127.0.0.1:4777` — the DEV gateway — sailed
+  // through it twice, in the kanban tick and the kanban board server, and the prod
+  // scheduler tick spent weeks pinging another instance's gateway as a result: every
+  // 2 minutes it logged "gateway not reachable" and dispatched, advanced and swept
+  // nothing. On dev the literal happened to be correct, so nothing ever surfaced it.
+  //
+  // Magnitude is the wrong axis. What matters is the ROLE of the literal:
+  //   • defaulting your OWN listen port to the base family is fine (and is positively
+  //     asserted elsewhere in this file) — the launcher shifts it per profile;
+  //   • defaulting ANOTHER process's address (a gateway, an app base URL, an outpost
+  //     host) is a GUESS about which instance you belong to. There is no safe guess:
+  //     be told, or fail loudly.
+  //
+  // KNOWN_PEER_ADDRESS_LITERALS is a ratchet, not an approval. Every entry is a live
+  // instance of this bug in a fitting that has not been audited yet. Do not add to it
+  // to make a new literal pass — remove the literal instead.
+  it("no fitting GUESSES another instance's address with a port literal", () => {
+    const KNOWN_PEER_ADDRESS_LITERALS = new Set([
+      "automations/scripts/server.mjs",
+      "automations/lib/planner.mjs",
+      "automations/lib/fixer.mjs",
+      "automations/lib/engine.mjs",
+      "loop-heartbeat/scripts/heartbeat.mjs",
+      "dev-env/scripts/server.mjs",
+      "drill/lib/curation.mjs",
+      "drill/assets/drill-judge.ts"
+    ]);
+    // An env var naming a PEER service, not this process's own port.
+    const PEER =
+      /\b(GARRISON_GATEWAY_URL|GARRISON_GATEWAY_PORT|GARRISON_OUTPOST_URL|[A-Z_]*_HOST_URL|[A-Z_]*_BASE_URL|[A-Z_]*_GATEWAY_URL)\b/;
+    const LITERAL = /127\.0\.0\.1:(\d{4,5})|\|\|\s*"?(\d{4,5})"?\s*[`)]/;
+
+    const seedDir = path.join(ROOT, "fittings", "seed");
+    const offenders: string[] = [];
+    const walk = (dir: string, rel: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name === "dist") continue;
+        const abs = path.join(dir, entry.name);
+        const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) { walk(abs, relPath); continue; }
+        if (!/\.(mjs|ts|tsx)$/.test(entry.name)) continue;
+        const source = readFileSync(abs, "utf8");
+        source.split("\n").forEach((raw) => {
+          const line = raw.trim();
+          if (line.startsWith("//") || line.startsWith("*")) return; // prose may cite ports
+          if (!PEER.test(line) || !LITERAL.test(line)) return;
+          if (KNOWN_PEER_ADDRESS_LITERALS.has(relPath)) return; // known debt, ratcheted
+          offenders.push(`${relPath}: ${line}`);
+        });
+      }
+    };
+    walk(seedDir, "");
+
+    expect(
+      offenders,
+      "A fitting must be TOLD a peer's address (env projected by the runner), never guess it " +
+        "from a port literal — the guess names one instance and silently sends another " +
+        "instance's traffic there:\n" + offenders.join("\n")
+    ).toEqual([]);
+  });
+
   it("keeps every shipped default profile on the primary state roots", () => {
     for (const profile of ["default", "default-build", "default-economy", "default-premium"]) {
       const composition = readYaml(path.join(ROOT, "compositions", profile, "apm.yml"));

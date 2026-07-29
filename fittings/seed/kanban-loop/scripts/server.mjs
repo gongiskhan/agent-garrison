@@ -363,7 +363,10 @@ export function cardSummary(card) {
     // What this card WILL run on (resolved from its duty/level + the current phase),
     // so a queued or in-flight card carries runtime/model/effort badges too — not
     // just a card whose turn already settled.
-    expectedRoute: expectedRouteFor(card, resolvedModelCached()),
+    // kanbanRoot() explicitly, not an implicit default: it is the SAME source
+    // parseArgs uses for opts.root, so the badge can never resolve its model from a
+    // different instance's kanban home than the rest of the server reads.
+    expectedRoute: expectedRouteFor(card, resolvedModelCached(kanbanRoot())),
     eventCount: Array.isArray(card.events) ? card.events.length : 0,
     runningSince: card.runningSince ?? null,
     // Project-inference state for a no-project card: running | done | none | skipped |

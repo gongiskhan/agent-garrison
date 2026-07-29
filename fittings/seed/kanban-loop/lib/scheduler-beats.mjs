@@ -60,7 +60,12 @@ export async function syncListBeat(list, { log = console.log } = {}) {
     log(`kanban-loop: list '${list.id}' is scheduler-beat but has no beatCron — not registered.`);
     return { action: "no-cron" };
   }
-  const cmd = `node ${kanbanCli()} --tick-list ${list.id}`;
+  // Same instance env the tick job carries: a beat runs from the scheduler daemon's
+  // env, which has no gateway URL and no kanban home, so a bare command would address
+  // whichever instance the literal defaults happened to name (that is exactly how the
+  // prod tick spent weeks pinging the dev gateway).
+  const { instanceEnvPrefix } = await import("../scripts/kanban.mjs");
+  const cmd = [...instanceEnvPrefix(), "node", kanbanCli(), "--tick-list", list.id].join(" ");
   const add = spawnSync("node", [cli, "add", beatId, cron, cmd], { encoding: "utf8" });
   if (add.status === 0) {
     log(`kanban-loop: registered ${beatId} @ '${cron}' -> ${cmd}`);
