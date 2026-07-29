@@ -44,7 +44,7 @@ import {
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
 // Kanban → Drill handoff: a done card's change brief, posted to the Drill fitting.
-import { sendCardToDrill, drillEligibility, drillStamp } from "../lib/drill-handoff.mjs";
+import { sendCardToDrill, drillEligibility, resolveDrillProject, drillStamp } from "../lib/drill-handoff.mjs";
 import { readOriginRecord, readOriginEventsSince } from "../lib/origins.mjs";
 // S3c: steering sidecars (steering.md guidance + steering.json revisit directive).
 import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringApplied, readSteeringDirective, isEarlierPhase } from "../lib/steering.mjs";
@@ -1712,9 +1712,16 @@ async function handleSendToDrill(req, res, opts, id) {
   const eligible = drillEligibility(card);
   if (!eligible.ok) return jsonRes(res, 400, { error: eligible.reason });
 
+  // A card's `project` is a LABEL ("garrison"), not necessarily a path. Drill
+  // pins its plan + run to an absolute root and rejects anything else, so
+  // resolve the label here through the board's own project resolution.
+  const board = await loadBoard(root);
+  const resolved = resolveDrillProject(card, board, repoPathForProject);
+  if (resolved.error) return jsonRes(res, 400, { error: resolved.error });
+
   let handoff;
   try {
-    handoff = await sendCardToDrill(root, card);
+    handoff = await sendCardToDrill(root, card, { repoPath: resolved.repoPath });
   } catch (err) {
     // A failed handoff is stamped on the card, not just returned: the user
     // pressed a button and walked away, and "it never went" has to be visible

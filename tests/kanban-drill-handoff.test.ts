@@ -32,9 +32,11 @@ import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.
 // @ts-ignore
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
-import { saveBoard, createCard, loadCard, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { saveBoard, loadBoard, createCard, loadCard, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore
-import { composeChangeBrief, drillEligibility } from "../fittings/seed/kanban-loop/lib/drill-handoff.mjs";
+import { composeChangeBrief, drillEligibility, resolveDrillProject } from "../fittings/seed/kanban-loop/lib/drill-handoff.mjs";
+// @ts-ignore
+import { repoPathForProject } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
 
 let server: http.Server;
 let base = "";
@@ -59,12 +61,16 @@ function readJson(req: http.IncomingMessage): Promise<any> {
   });
 }
 
+// A real directory on disk: the card's project LABEL has to resolve to an
+// existing absolute repo root before Drill will accept the handoff.
+const PROJECT_ROOT = mkdtempSync(join(tmpdir(), "drillho-project-"));
+
 /** A done card with the full close-out shape a real run leaves behind. */
 async function makeDoneCard(extra: Record<string, unknown> = {}) {
   const card = await createCard(KANBAN_DIR, {
     title: "Turn Rail badges",
     description: "Show runtime/model badges on every web-channel turn.",
-    project: "/home/user/dev/garrison",
+    project: PROJECT_ROOT,
     list: "backlog"
   });
   const next = {
@@ -110,7 +116,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise((r) => server?.close(() => r(undefined)));
   await new Promise((r) => fakeDrill?.close(() => r(undefined)));
-  for (const d of [KANBAN_DIR, GARRISON_HOME, RUNS_DIR]) rmSync(d, { recursive: true, force: true });
+  for (const d of [KANBAN_DIR, GARRISON_HOME, RUNS_DIR, PROJECT_ROOT]) rmSync(d, { recursive: true, force: true });
 });
 
 describe("composeChangeBrief — the change description Drill's plan agent reads", () => {
@@ -163,6 +169,33 @@ describe("drillEligibility", () => {
   });
 });
 
+describe("resolveDrillProject — a card's project is a LABEL, Drill needs a PATH", () => {
+  // Caught live, not in a unit test: real boards carry "garrison" / "ekoa-code"
+  // as the project far more often than an absolute path, and Drill rejects
+  // anything that is not an existing absolute directory rather than silently
+  // widening to its own cwd. Handing the raw label over 400s every such card.
+  it("resolves a bare label through the board's project map", () => {
+    // The mapped path must EXIST — repoPathForProject only trusts a board entry
+    // it can see on disk, and otherwise falls through to the dev-root lookup.
+    const board = { projects: { scratchrepo: { path: PROJECT_ROOT } } };
+    expect(resolveDrillProject({ project: "scratchrepo" }, board, repoPathForProject).repoPath)
+      .toBe(PROJECT_ROOT);
+  });
+
+  it("passes an absolute path straight through", () => {
+    const resolve = (label: string) => (label.startsWith("/") ? label : null);
+    expect(resolveDrillProject({ project: "/home/user/dev/ekoa-code" }, {}, resolve as any).repoPath)
+      .toBe("/home/user/dev/ekoa-code");
+  });
+
+  it("explains an unresolvable label instead of handing Drill something it will reject", () => {
+    const out = resolveDrillProject({ project: "not-a-repo" }, {}, () => null);
+    expect(out.repoPath).toBeUndefined();
+    expect(out.error).toContain("not-a-repo");
+    expect(out.error).toMatch(/does not resolve/);
+  });
+});
+
 describe("POST /cards/:id/drill", () => {
   it("hands the card's change to Drill and stamps the card", async () => {
     handoffs = [];
@@ -177,7 +210,8 @@ describe("POST /cards/:id/drill", () => {
     // Drill got a real brief scoped to this card's repo.
     expect(handoffs).toHaveLength(1);
     expect(handoffs[0].card.id).toBe(card.id);
-    expect(handoffs[0].project).toBe("/home/user/dev/garrison");
+    expect(handoffs[0].project).toBe(PROJECT_ROOT);
+    expect(handoffs[0].card.project).toBe(PROJECT_ROOT);
     expect(handoffs[0].brief).toContain("Turn Rail badges");
     expect(handoffs[0].brief).toContain("Badges render on every turn");
 
@@ -194,6 +228,27 @@ describe("POST /cards/:id/drill", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/done/);
     expect(handoffs).toHaveLength(0); // nothing was handed over
+  });
+
+  it("resolves a bare project LABEL to its repo path before handing over", async () => {
+    // The live failure this closes: real cards carry project: "garrison", and
+    // Drill 400s anything that is not an existing absolute directory.
+    handoffs = [];
+    const board = await loadBoard(KANBAN_DIR);
+    await saveBoard({ ...board, projects: { ...(board.projects ?? {}), scratchrepo: { path: PROJECT_ROOT } } }, KANBAN_DIR);
+    const card = await makeDoneCard({ project: "scratchrepo" });
+    const res = await fetch(`${base}/cards/${card.id}/drill`, { method: "POST" });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(handoffs[0].project).toBe(PROJECT_ROOT);
+  });
+
+  it("refuses — with the label named — a project that resolves to nothing here", async () => {
+    handoffs = [];
+    const card = await makeDoneCard({ project: "no-such-repo-anywhere" });
+    const res = await fetch(`${base}/cards/${card.id}/drill`, { method: "POST" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("no-such-repo-anywhere");
+    expect(handoffs).toHaveLength(0);
   });
 
   it("refuses a done card with no project", async () => {

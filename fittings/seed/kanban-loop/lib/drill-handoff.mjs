@@ -110,11 +110,33 @@ export function drillEligibility(card) {
 }
 
 /**
+ * The absolute repo root Drill must plan and run in.
+ *
+ * A card's `project` is a LABEL, not a path: real boards carry "garrison" and
+ * "ekoa-code" as often as "/home/user/dev/ekoa-code". Drill only accepts an
+ * absolute directory (a stale/bare label is rejected outright rather than
+ * silently widened to its cwd), so the label is resolved here through the same
+ * precedence every other card-to-repo path uses — board.projects, an absolute
+ * label, then the dev-root name lookup the project picker reads.
+ *
+ * `resolve` is injected so this stays a pure decision the test can drive.
+ */
+export function resolveDrillProject(card, board, resolve) {
+  const label = typeof card?.project === "string" ? card.project.trim() : "";
+  if (!label) return { error: "the card has no project repo, so there is nothing to test" };
+  const repoPath = resolve(label, board);
+  if (!repoPath) {
+    return { error: `the card's project "${label}" does not resolve to a repo on this machine - set an absolute path on the card, or add it to the board's projects` };
+  }
+  return { repoPath };
+}
+
+/**
  * POST the card's change brief to Drill. Returns Drill's job record.
  * Throws with a readable message — the caller is a user-initiated button
  * press, so a failure must be shown, not swallowed.
  */
-export async function sendCardToDrill(root, card, { fetchImpl = fetch } = {}) {
+export async function sendCardToDrill(root, card, { repoPath, fetchImpl = fetch } = {}) {
   const base = drillBaseUrl();
   if (!base) throw new Error("the Drill fitting is not running - start it from Views, then try again");
   let packet = null;
@@ -130,11 +152,13 @@ export async function sendCardToDrill(root, card, { fetchImpl = fetch } = {}) {
       card: {
         id: card.id,
         title: card.title ?? null,
-        project: card.project ?? null,
+        // The RESOLVED repo path, not the card's label: Drill pins its plan and
+        // run to an absolute root and rejects anything else.
+        project: repoPath ?? card.project ?? null,
         originChannel: card.originChannel ?? null
       },
       brief: composeChangeBrief(card, packet),
-      project: card.project,
+      project: repoPath ?? card.project,
       boardUrl: boardBaseUrl()
     })
   });
