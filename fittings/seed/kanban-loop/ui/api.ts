@@ -277,6 +277,45 @@ export interface PolicyView {
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
 }
 
+/**
+ * The card's explicit run spec (RUN-SPEC-V1). Structurally the same `TurnRouting`
+ * pin the Web Channel sends, so both surfaces decide a run in one vocabulary.
+ *
+ * Every field is OPTIONAL and absent means AUTOMATIC — the orchestrator decides.
+ * That is the default for every card; the controls exist to opt OUT of it.
+ */
+export interface CardRouting {
+  /** A composition target id — picks runtime + provider + model coherently. */
+  target?: string;
+  /** Free-text model id, overlaid on the resolved target. */
+  model?: string;
+  effort?: string;
+  duty?: string;
+  level?: number;
+  /** Dev-root child NAME (not a path) — the turn's cwd. */
+  project?: string;
+  account?: string;
+  tier?: string;
+  workKind?: string;
+  /** Comma-separated phase ids turned OFF for this run. */
+  phasesOff?: string;
+}
+
+/** The gateway's routing vocabulary, proxied by the board. `sources.gateway: false`
+ *  means the operative is down: the menus are empty for a REASON, and the UI says
+ *  which rather than drawing dropdowns that would refuse everything. */
+export interface RouteOptionsView {
+  targets: { id: string; runtime?: string | null; provider?: string | null; model?: string | null; effort?: string | null }[];
+  duties: { id: string; title?: string | null; levels?: { n: number; description?: string | null }[] | null }[];
+  efforts: string[];
+  accounts: { name: string; platform?: string | null }[];
+  tiers: string[];
+  workKinds: { id: string; description?: string | null; phases?: string[] | null }[];
+  defaultWorkKind: string | null;
+  projects: string[];
+  sources: { gateway: boolean };
+}
+
 export interface ListsView {
   version: number;
   rev: number;
@@ -358,11 +397,18 @@ export const api = {
   // Title is optional — the server infers it from the description when blank.
   // workKind + phases (D17): the policy phase plan this run follows and the
   // per-card toggle map (false = OFF, recorded off, never silent).
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; continues?: string }) =>
+  // `routing` is the card's explicit run spec (RUN-SPEC-V1) — the SAME TurnRouting
+  // pin the Web Channel's rail produces. Every field is optional and an absent one
+  // means automatic, which is the default for every card.
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
   policy: () => jfetch<PolicyView>("/policy"),
+  // GET /route-options — the board's same-origin proxy of the gateway's routing
+  // vocabulary. The ONE source for every run-spec dropdown, so the form can never
+  // offer a value the gateway would refuse.
+  routeOptions: () => jfetch<RouteOptionsView>("/route-options"),
   patch: (id: string, body: Record<string, unknown>) =>
     jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}`, {
       method: "PATCH",

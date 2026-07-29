@@ -254,6 +254,65 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
     }
   });
 
+  // ── RUN-SPEC-V1: the run-plan pins ────────────────────────────────────────
+  // These are validated against the LIVE policy vocabulary rather than a list
+  // hardcoded here, so the tests pass one in explicitly (which is also what stops a
+  // hidden module-global from making a test pass while production refuses).
+  const VOCAB = {
+    tiers: ["T0-trivial", "T1-standard", "T2-deep"],
+    workKinds: ["full-feature", "docs-change"],
+    phases: ["plan", "implement", "review", "adversarial-review", "walkthrough"]
+  };
+
+  it("keeps well-formed tier / workKind / phasesOff pins", () => {
+    const { routing, rejected } = gw.sanitizeRouting(
+      { tier: " T2-deep ", workKind: "docs-change", phasesOff: "review, walkthrough" },
+      VOCAB
+    );
+    expect(routing).toEqual({ tier: "T2-deep", workKind: "docs-change", phasesOff: "review,walkthrough" });
+    expect(rejected).toEqual([]);
+  });
+
+  it("refuses an out-of-vocabulary tier or work kind", () => {
+    expect(gw.sanitizeRouting({ tier: "T9-heroic" }, VOCAB)).toEqual({
+      routing: null,
+      rejected: [{ field: "tier", reason: "tier-not-in-vocabulary" }]
+    });
+    expect(gw.sanitizeRouting({ workKind: "vibes" }, VOCAB)).toEqual({
+      routing: null,
+      rejected: [{ field: "workKind", reason: "workKind-not-in-vocabulary" }]
+    });
+  });
+
+  it("refuses the WHOLE phasesOff pin when any phase is unknown", () => {
+    // All-or-nothing on purpose: keeping the recognised half would turn "skip these
+    // two gates" into "skip one of them", with a phase the user believes is off
+    // still running and nothing on the badge to say so.
+    const { routing, rejected } = gw.sanitizeRouting({ phasesOff: "review,teleport" }, VOCAB);
+    expect(routing).toBe(null);
+    expect(rejected).toEqual([{ field: "phasesOff", reason: "unknown-phase:teleport" }]);
+  });
+
+  it("blames the missing policy, not the user, when the vocabulary cannot be read", () => {
+    const empty = { tiers: [], workKinds: [], phases: [] };
+    for (const field of ["tier", "workKind", "phasesOff"]) {
+      const { routing, rejected } = gw.sanitizeRouting({ [field]: "anything" }, empty);
+      expect(routing, field).toBe(null);
+      expect(rejected, field).toEqual([{ field, reason: "policy-unavailable" }]);
+    }
+  });
+
+  it("folds a phasesOff pin into the toggle map the card and the rail already speak", () => {
+    expect(gw.phaseTogglesFromCsv("review,walkthrough")).toEqual({ review: false, walkthrough: false });
+    // Empty stays NULL so an unpinned turn's hints are byte-identical to before.
+    for (const empty of [null, undefined, "", " , "]) expect(gw.phaseTogglesFromCsv(empty)).toBe(null);
+    // The inverse reports a RESOLVED plan back onto the badge row. Only `false`
+    // entries are "off" - a `true` means the phase runs and must not be listed.
+    expect(gw.phaseTogglesToCsv({ review: false, plan: true, walkthrough: false })).toBe("review,walkthrough");
+    expect(gw.phaseTogglesToCsv({ plan: true })).toBe(null);
+    expect(gw.phaseTogglesToCsv(null)).toBe(null);
+  });
+
   it("is wired into routeHintsFromBody together with the turnSeq echo (§5)", () => {
     const hints = gw.routeHintsFromBody({ message: "hi", channel: "web", routing: { effort: "max", level: 99 }, turnSeq: 4 });
     expect(hints.routing).toEqual({ effort: "max" });

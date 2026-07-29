@@ -23,6 +23,8 @@ import {
   type ListConfigPatch,
   type ArtifactRef,
   type PolicyView,
+  type CardRouting,
+  type RouteOptionsView,
   type WaitingOn,
   type DrillStamp
 } from "./api";
@@ -634,6 +636,193 @@ function Card({
 // from any real project name).
 const PROJECT_CUSTOM = "__custom__";
 
+// ── the run spec (RUN-SPEC-V1) ──────────────────────────────────────────────
+//
+// One control block for every dimension of a run, on the surface where the run is
+// created. It writes the SAME `routing` pin the Web Channel's Turn Rail writes, and
+// its options come from the SAME gateway vocabulary (`GET /route-options`), so the
+// two surfaces can decide a run identically and neither can offer a value the
+// gateway would then refuse.
+//
+// The widget is deliberately NOT the Turn Rail component: the rail is a mono badge
+// line built for a chat composer, and this sheet is a form of native selects. What
+// is shared is the vocabulary and the wire shape - the two things that would
+// actually drift. The rendering belongs to its host.
+//
+// EVERY control defaults to "Automatic". Automatic is not a value that gets sent:
+// it is the ABSENCE of a pin, which is what makes "auto by default, decide when you
+// want to" true rather than a label on a default choice.
+const AUTO = "";
+
+/** A labelled select whose first row is always Automatic. `hint` explains what
+ *  Automatic will do, so the default is never a mystery. */
+function SpecSelect({
+  id,
+  label,
+  hint,
+  value,
+  disabled,
+  options,
+  onChange
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  disabled?: string | null;
+  options: { value: string; label: string; detail?: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="spec-field">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} value={value} disabled={Boolean(disabled)} onChange={(e) => onChange(e.target.value)}>
+        <option value={AUTO}>Automatic{hint ? ` — ${hint}` : ""}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+            {o.detail ? ` — ${o.detail}` : ""}
+          </option>
+        ))}
+      </select>
+      {/* An empty menu is never silent: say WHY, or the control reads as broken. */}
+      {disabled ? <div className="spec-note">{disabled}</div> : null}
+    </div>
+  );
+}
+
+function RunSpec({
+  spec,
+  setSpec,
+  options,
+  optionsError
+}: {
+  spec: CardRouting;
+  setSpec: (next: CardRouting) => void;
+  options: RouteOptionsView | null;
+  optionsError: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  // A pin is "in force" only when it holds a real value - null/blank both mean
+  // automatic, exactly as TurnRouting defines it.
+  const pinnedCount = Object.values(spec).filter((v) => v !== null && v !== undefined && v !== "").length;
+  const down = options && options.sources?.gateway === false;
+  const why = down
+    ? "the operative is not running — start it to choose a runtime"
+    : optionsError
+      ? `could not load the options (${optionsError})`
+      : null;
+
+  // The phases of the SELECTED plan, in plan order. Falls back to the default work
+  // kind's plan, which is what an unpinned card actually walks.
+  const kindId = spec.workKind || options?.defaultWorkKind || "";
+  const planPhases = (options?.workKinds ?? []).find((k) => k.id === kindId)?.phases ?? [];
+  const off = new Set((spec.phasesOff ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+  // Serialised in PLAN order, never tap order, so the same selection always
+  // produces the same pin.
+  const setOff = (next: Set<string>) => {
+    const csv = planPhases.filter((p) => next.has(p)).join(",");
+    setSpec({ ...spec, phasesOff: csv || undefined });
+  };
+
+  const set = (field: keyof CardRouting) => (v: string) =>
+    setSpec({ ...spec, [field]: v || undefined });
+
+  return (
+    <div className="field">
+      <button type="button" className="spec-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {open ? "▾" : "▸"} Run spec
+        <span className="muted">
+          {pinnedCount === 0 ? "everything automatic" : `${pinnedCount} chosen, the rest automatic`}
+        </span>
+      </button>
+      {open && (
+        <div className="spec-grid">
+          <SpecSelect
+            id="nc-duty" label="Duty" hint="the classifier decides"
+            value={spec.duty ?? AUTO} disabled={why}
+            options={(options?.duties ?? []).map((d) => ({ value: d.id, label: d.id, detail: d.title ?? undefined }))}
+            onChange={set("duty")}
+          />
+          <SpecSelect
+            id="nc-tier" label="Tier" hint="the classifier decides"
+            value={spec.tier ?? AUTO} disabled={why}
+            options={(options?.tiers ?? []).map((t) => ({ value: t, label: t }))}
+            onChange={set("tier")}
+          />
+          <SpecSelect
+            id="nc-target" label="Runtime + model" hint="the composition's routing"
+            value={spec.target ?? AUTO} disabled={why}
+            // A target picks runtime+provider+model COHERENTLY. They are not
+            // separate menus on purpose: there is no model catalog in the repo, so
+            // independent dropdowns would happily produce gemini + opus.
+            options={(options?.targets ?? []).map((t) => ({
+              value: t.id,
+              label: t.id,
+              detail: [t.runtime, t.model].filter(Boolean).join(" / ") || undefined
+            }))}
+            onChange={set("target")}
+          />
+          <SpecSelect
+            id="nc-effort" label="Effort" hint="the duty's effort"
+            value={spec.effort ?? AUTO} disabled={why}
+            options={(options?.efforts ?? []).map((e) => ({ value: e, label: e }))}
+            onChange={set("effort")}
+          />
+          <SpecSelect
+            id="nc-account" label="Account" hint="the composition's account"
+            value={spec.account ?? AUTO} disabled={why}
+            options={(options?.accounts ?? []).map((a) => ({ value: a.name, label: a.name, detail: a.platform ?? undefined }))}
+            onChange={set("account")}
+          />
+          <SpecSelect
+            id="nc-kind" label="Work kind" hint="inferred from the tier"
+            value={spec.workKind ?? AUTO} disabled={why}
+            options={(options?.workKinds ?? []).map((k) => ({
+              value: k.id,
+              label: k.id === options?.defaultWorkKind ? `${k.id} (default)` : k.id,
+              detail: k.description ?? undefined
+            }))}
+            // Switching plans invalidates the OFF set - those ids belong to the old
+            // plan, and carrying them over would disable phases never looked at.
+            onChange={(v) => setSpec({ ...spec, workKind: v || undefined, phasesOff: undefined })}
+          />
+          {planPhases.length > 0 && (
+            <div className="spec-field spec-field-wide">
+              <label>Phases</label>
+              <div className="rail-toggles">
+                {planPhases.map((ph) => (
+                  <label
+                    key={ph}
+                    className={`chip toggle${off.has(ph) ? " off" : ""}`}
+                    title={off.has(ph) ? `${ph} is recorded OFF for this run (never a silent pass)` : `${ph} runs; tap to turn it off`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!off.has(ph)}
+                      onChange={(e) => {
+                        const next = new Set(off);
+                        if (e.target.checked) next.delete(ph);
+                        else next.add(ph);
+                        setOff(next);
+                      }}
+                    />
+                    {ph}
+                  </label>
+                ))}
+              </div>
+              <div className="spec-note">
+                {kindId ? `The ${kindId} plan, in order.` : "The default plan, in order."} A phase turned off stays on the
+                rail, recorded off — never silently skipped.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
   // Project picker: "auto" = leave blank (the server infers it from the description);
@@ -643,11 +832,13 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
-  // D17: the work kind (policy phase plan) + per-card phase toggles. Loaded
-  // from the board's GET /policy passthrough; absent policy → plain creation.
-  const [policy, setPolicy] = useState<PolicyView | null>(null);
-  const [workKind, setWorkKind] = useState<string>("");
-  const [phasesOff, setPhasesOff] = useState<Record<string, boolean>>({});
+  // RUN-SPEC-V1: ONE explicit run spec for the card, in the same shape the Web
+  // Channel's Turn Rail pins. It replaces the separate D17 work-kind select + phase
+  // toggles that used to live here (those are now two dimensions of the spec) so
+  // there is one place, not two, to decide how a card runs.
+  const [spec, setSpec] = useState<CardRouting>({});
+  const [options, setOptions] = useState<RouteOptionsView | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -656,19 +847,14 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   useEffect(() => {
     let alive = true;
     api.projects().then((v) => { if (alive) setProjects(v.projects); }).catch(() => { /* leave empty */ });
-    api.policy().then((v) => { if (alive) { setPolicy(v); setWorkKind(v.defaultWorkKind ?? ""); } }).catch(() => { /* no policy — plain create */ });
+    // The run-spec vocabulary. A failure here disables the spec controls WITH A
+    // REASON rather than rendering empty dropdowns; card creation itself is
+    // unaffected, because every dimension is automatic by default.
+    api.routeOptions()
+      .then((v) => { if (alive) setOptions(v); })
+      .catch((e) => { if (alive) setOptionsError(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
   }, []);
-
-  // The phases of the selected work kind's plan, in pipeline order — the
-  // toggleable rail preview. Unknown kind → empty (no toggles offered).
-  const railPhases: string[] = (() => {
-    if (!policy || !workKind) return [];
-    const kind = policy.workKinds[workKind];
-    const plan = kind ? policy.phasePlans[kind.phasePlan] : null;
-    if (!plan) return [];
-    return plan.phases.map((ph) => (typeof ph === "string" ? ph : ph.id));
-  })();
 
   async function submit() {
     // Title is optional — it's inferred from the description when blank. Only block when
@@ -680,15 +866,18 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setSaving(true);
     setErr(null);
     const proj = projectMode === "auto" ? undefined : (project.trim() || undefined);
-    const offMap = Object.fromEntries(Object.entries(phasesOff).filter(([, off]) => off).map(([ph]) => [ph, false]));
+    // Drop empty values: an absent field is what "automatic" MEANS on the wire, and
+    // sending "" would look like a pin the gateway then has to refuse.
+    const routing = Object.fromEntries(
+      Object.entries(spec).filter(([, v]) => v !== null && v !== undefined && v !== "")
+    ) as CardRouting;
     try {
       await api.create({
         title: title.trim() || undefined,
         project: proj,
         description,
         goalMode,
-        workKind: workKind || undefined,
-        phases: Object.keys(offMap).length ? offMap : undefined
+        ...(Object.keys(routing).length ? { routing } : {})
       });
       onCreated();
       onClose();
@@ -754,30 +943,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
           goalMode (attach acceptance + bounded iterations)
         </label>
       </div>
-      {policy && (
-        <div className="field">
-          <label htmlFor="nc-kind">Work kind <span className="muted" style={{ fontWeight: 400 }}>(the policy phase plan this run follows)</span></label>
-          <select id="nc-kind" value={workKind} onChange={(e) => { setWorkKind(e.target.value); setPhasesOff({}); }}>
-            {Object.entries(policy.workKinds).map(([k, v]) => (
-              <option key={k} value={k}>{k}{k === policy.defaultWorkKind ? " (default)" : ""}{v.description ? ` — ${v.description}` : ""}</option>
-            ))}
-          </select>
-          {railPhases.length > 0 && (
-            <div className="rail-toggles">
-              {railPhases.map((ph) => (
-                <label key={ph} className={`chip toggle${phasesOff[ph] ? " off" : ""}`} title={phasesOff[ph] ? `${ph} will be recorded OFF for this run (never a silent pass)` : `${ph} runs; tap to turn it off for this run`}>
-                  <input
-                    type="checkbox"
-                    checked={!phasesOff[ph]}
-                    onChange={(e) => setPhasesOff((m) => ({ ...m, [ph]: !e.target.checked }))}
-                  />
-                  {ph}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <RunSpec spec={spec} setSpec={setSpec} options={options} optionsError={optionsError} />
       {err && <div className="banner">{err}</div>}
       <button className="btn primary" disabled={saving} onClick={() => void submit()}>
         {saving ? "Creating…" : "Create card"}
@@ -791,10 +957,17 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
 // reveal a compact inline form (title required, description + project optional)
 // that POSTs straight to /cards — which always lands the card in Backlog — and
 // refreshes the board in place, no reload. Distinct from the top-bar "New card"
-// sheet, which carries the full run-policy options (goalMode / work kind / phase
-// toggles): this is the fast capture path, sized for touch (≥44px controls,
-// usable at 390px). Reuses PROJECT_CUSTOM + the project-picker semantics of the
-// New Card sheet so the two entry points behave the same.
+// sheet, which carries goalMode and the full Run spec: this is the fast capture
+// path, sized for touch (≥44px controls, usable at 390px). Reuses PROJECT_CUSTOM +
+// the project-picker semantics of the New Card sheet so the two entry points behave
+// the same.
+//
+// It deliberately does NOT get a second copy of the Run spec controls (RUN-SPEC-V1):
+// two doors offering the same nine dimensions is exactly the duplication this change
+// removes, and the point of the quick path is capture speed. A card created here is
+// fully automatic, which is the default anyway — and the spec stays editable on the
+// card afterwards (PATCH accepts `routing`). The form says so, so "no controls here"
+// reads as a decision rather than an omission.
 function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -902,6 +1075,7 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
           onChange={(e) => setProject(e.target.value)}
         />
       )}
+      <div className="ba-note">Everything about the run is automatic. Use New card to choose.</div>
       {err && <div className="ba-err" role="alert">{err}</div>}
       <div className="ba-actions">
         <button type="button" className="ba-btn primary" disabled={saving || !title.trim()} onClick={() => void submit()}>

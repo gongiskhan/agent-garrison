@@ -46,12 +46,24 @@ describe("normalizeDecision", () => {
       reason: "→ develop L2, confidence high"
     });
     expect(v).toEqual<DecisionView>({
+      // Derived, because this record carries no `id` — the ~3800 already on disk
+      // never will, and a row with no handle is a row the user cannot judge.
+      id: expect.stringMatching(/^[0-9a-f]{16}$/) as unknown as string,
       at: "2026-07-13T10:00:00.000Z",
       kind: "dispatch",
       duty: "develop",
       level: 2,
       target: null,
       reason: "→ develop L2, confidence high",
+      // The run dimensions this record does not carry stay null - the feed reports
+      // what was logged and never fills a gap with a guess.
+      runtime: null,
+      model: null,
+      effort: null,
+      tier: null,
+      taskType: null,
+      via: null,
+      classifierSkipped: null,
       // The digest IS surfaced - it is the safe correlation handle (a sha256
       // prefix, never the raw message; codex S5b/S5c).
       messageDigest: "abc123",
@@ -59,6 +71,41 @@ describe("normalizeDecision", () => {
       // case the panel must render as "no link" rather than a dead one.
       sessionId: null,
       sessionTitle: null
+    });
+  });
+
+  it("gives every record a STABLE handle, distinct per line, and prefers a written id", () => {
+    const raw = { at: "2026-07-13T10:00:00.000Z", promptDigest: "abc123", targetId: "cc-opus-high" };
+    // Same record + same position → same id, so a verdict survives a re-read.
+    expect(normalizeDecision(raw, 7)!.id).toBe(normalizeDecision(raw, 7)!.id);
+    // A misroute appends a SECOND full copy of a decision with the same timestamp,
+    // digest and target. Keyed on content alone a verdict would land on both, so
+    // the line position disambiguates them.
+    expect(normalizeDecision(raw, 7)!.id).not.toBe(normalizeDecision(raw, 8)!.id);
+    // A record the gateway stamped keeps ITS id rather than a derived one.
+    expect(normalizeDecision({ ...raw, id: "written00000000" }, 7)!.id).toBe("written00000000");
+  });
+
+  it("surfaces the run dimensions as fields instead of burying them in the reason", () => {
+    const v = normalizeDecision({
+      at: "2026-07-13T10:00:00.000Z",
+      taskType: "implement",
+      tier: "T2-deep",
+      targetId: "cc-opus-high",
+      runtime: "agent-sdk",
+      model: "opus",
+      effort: "high",
+      via: "turn-override",
+      classifierSkipped: true
+    })!;
+    expect(v).toMatchObject({
+      runtime: "agent-sdk",
+      model: "opus",
+      effort: "high",
+      tier: "T2-deep",
+      taskType: "implement",
+      via: "turn-override",
+      classifierSkipped: true
     });
   });
 
@@ -103,7 +150,7 @@ describe("normalizeDecision", () => {
     expect(normalizeDecision([1, 2, 3])).toBeNull();
   });
 
-  it("NEVER surfaces a path or arbitrary field — only the 9 whitelisted keys", () => {
+  it("NEVER surfaces a path or arbitrary field — only the whitelisted keys", () => {
     const v = normalizeDecision({
       at: "x",
       kind: "dispatch",
@@ -115,16 +162,27 @@ describe("normalizeDecision", () => {
       rawMessage: "my private prompt text",
       apiKey: "sk-should-never-appear"
     })!;
+    // The list GREW for RUN-SPEC-V1 (id + the run dimensions a verdict is given
+    // about), and it is still a closed list of scalars. Every addition is a value
+    // the writer already logged - no new source, no free text, no paths.
     expect(Object.keys(v).sort()).toEqual([
       "at",
+      "classifierSkipped",
       "duty",
+      "effort",
+      "id",
       "kind",
       "level",
       "messageDigest",
+      "model",
       "reason",
+      "runtime",
       "sessionId",
       "sessionTitle",
-      "target"
+      "target",
+      "taskType",
+      "tier",
+      "via"
     ]);
     const serialized = JSON.stringify(v);
     expect(serialized).not.toContain("/home/");

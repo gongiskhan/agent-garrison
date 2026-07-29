@@ -196,6 +196,38 @@ export function projectNameForRouting(project) {
   return name;
 }
 
+/**
+ * The `routing` pin for one card turn (RUN-SPEC-V1) — the card's explicit run spec
+ * plus the cwd derived from its project, as ONE object.
+ *
+ * This is the single place a card's run spec becomes a request body. The batched
+ * Test runner goes through gatewayRunFn too, so teaching this function a dimension
+ * teaches every card turn at once — the alternative (each caller assembling its own
+ * routing) is how `autonomous` ended up wired at both ends and dropped in the
+ * middle.
+ *
+ * The card's own `project` pin WINS over the project label: if the user explicitly
+ * chose where this runs, that is the answer, and `card.project` is only a label
+ * (on a real board, half slugs and half absolute paths).
+ *
+ * Returns null when nothing is pinned at all, so an unpinned card's body stays
+ * byte-identical to the pre-run-spec shape.
+ */
+export function cardTurnRouting(card) {
+  const spec = card?.routing && typeof card.routing === "object" && !Array.isArray(card.routing) ? card.routing : {};
+  const routing = {};
+  for (const [field, value] of Object.entries(spec)) {
+    if (value === null || value === undefined || value === "") continue;
+    routing[field] = value;
+  }
+  // Normalise whichever project we end up sending: the gateway's resolveProjectName
+  // refuses anything containing a slash.
+  const project = projectNameForRouting(routing.project ?? card?.project);
+  if (project) routing.project = project;
+  else delete routing.project;
+  return Object.keys(routing).length ? routing : null;
+}
+
 export function gatewayRunFn(gatewayUrl) {
   return async ({
     prompt,
@@ -293,7 +325,7 @@ export function gatewayRunFn(gatewayUrl) {
           // (sanitizeRouting) and resolves to a git repo under the dev root. An
           // unresolvable name is REJECTED and reported in overridesRejected — never
           // silently run in the composition dir while claiming the project.
-          ...(projectNameForRouting(card?.project) ? { routing: { project: projectNameForRouting(card.project) } } : {}),
+          ...(cardTurnRouting(card) ? { routing: cardTurnRouting(card) } : {}),
           timeoutMs: KANBAN_TURN_TIMEOUT_MS,
           // S1b: whether this duty holds off compaction + the card+phase key, so the
           // gateway's turn-boundary check honors the hold and stamps the compact log.

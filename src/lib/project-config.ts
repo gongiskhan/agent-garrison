@@ -1,3 +1,18 @@
+// DEAD as of the RUN-SPEC-V1 audit (2026-07-29) — nothing in `src/` or any fitting
+// imports this; its only consumer is tests/project-config.test.ts.
+//
+// DO NOT wire it into a project picker. `resolveProjectRepoPath` below encodes a
+// THIRD, incompatible project→path precedence (`~/.garrison/projects/<id>.yml` →
+// `~/.garrison/sessions/state.json` → `~/Projects|~/dev|~/code`) that agrees with
+// NEITHER of the two live resolvers:
+//   • the gateway's `resolveProjectName` (project-source.mjs) — dev-root confined,
+//     realpath-checked, `.git` required. The ONLY one safe for channel input, and
+//     the one every run-spec `routing.project` pin is validated against.
+//   • the board's `repoPathForProject` (kanban-loop/lib/coordination.mjs) — what a
+//     card's project LABEL resolves to.
+// Kept only because deleting a module with a passing test is the user's call, not a
+// side effect of an unrelated change.
+
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";

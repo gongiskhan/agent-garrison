@@ -53,9 +53,44 @@ export function collectFeedback(file = feedbackQueuePath(), cap = 2000) {
 // ── Pure analysis (D27) ───────────────────────────────────────────────────────
 // Direction categories a record's answer maps to, per provenance. `null` = no
 // signal (a "right call" / "went well" / dismissed answer proposes nothing).
+// The run dimensions a decision verdict can correct, split by WHAT they change:
+// which engine ran the work, vs which pipeline the work walked. The two produce
+// different proposals against different parts of the policy, so they are counted
+// separately rather than collapsed into the existing deeper/lighter axis (a
+// correction from haiku to opus is not "deeper", it is a different cell).
+const COMPUTE_DIMENSIONS = ["target", "model", "effort", "account"];
+const PLAN_DIMENSIONS = ["workKind", "phasesOff", "duty", "tier"];
+
+/** The first corrected dimension of a decision verdict, as {field, value}, or null
+ *  when the user said it was wrong without saying what it should have been (still
+ *  a real signal — just a weaker one, categorized as "poor"). */
+function correctedDimension(rec) {
+  const applied = rec?.applied;
+  if (!applied || typeof applied !== "object") return null;
+  for (const field of [...COMPUTE_DIMENSIONS, ...PLAN_DIMENSIONS]) {
+    const value = applied[field];
+    if (typeof value === "string" && value.trim()) return { field, value: value.trim() };
+  }
+  return null;
+}
+
 function categorize(rec) {
   const answer = String(rec?.answer ?? "").trim().toLowerCase();
   if (!answer || answer === "dismissed") return null;
+  // RUN-SPEC-V1: an explicit verdict from the Decisions panel. The answer
+  // vocabulary is CLOSED (right / wrong / unsure), so there is nothing to
+  // pattern-match and nothing to guess at.
+  if (rec.provenance === "decision-verdict") {
+    // Agreement records nothing, exactly as it does for every other producer here:
+    // the queue is a record of corrections, and treating "that was right" as a
+    // signal would let ordinary approval drift the policy. "unsure" is likewise
+    // deliberately inert — it exists so the user can answer honestly, not so it
+    // can vote.
+    if (answer !== "wrong") return null;
+    const corrected = correctedDimension(rec);
+    if (!corrected) return "poor"; // wrong, but the user did not say what instead
+    return COMPUTE_DIMENSIONS.includes(corrected.field) ? "retarget" : "replan";
+  }
   if (rec.provenance === "override") {
     const plan = rec?.applied?.plan || null;
     if (plan === "full") return "deeper";
@@ -71,6 +106,14 @@ function categorize(rec) {
 }
 
 function kindOf(rec) {
+  // A decision verdict groups by the CORRECTION, not by work kind: three verdicts
+  // all saying "this should have run on cc-opus-high" are one accumulating signal
+  // about that dimension, while three verdicts about three different dimensions are
+  // three separate observations that should not add up to a proposal.
+  if (rec?.provenance === "decision-verdict") {
+    const corrected = correctedDimension(rec);
+    return corrected ? `${corrected.field}=${corrected.value}` : "(no counterfactual)";
+  }
   if (rec?.provenance === "override") return rec?.applied?.workKind || rec?.original?.workKind || "(unspecified)";
   return rec?.classification?.kind || "(unspecified)";
 }
@@ -130,6 +173,35 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         evidence,
         diff: `exceptions / classifier keywords for ${kind} — review the matcher that routes ${kind} work (composer › Exceptions)`,
         decision: `Review the classifier/kind matcher for ${kind} work?`,
+        applyVia,
+        at,
+      });
+    } else if (cat === "retarget") {
+      // `kind` here is "<dimension>=<value>" (see kindOf): the user named a
+      // concrete replacement, so the claim can quote it verbatim instead of
+      // gesturing at a direction.
+      const [field, value] = kind.split("=");
+      proposals.push({
+        id: `feedback-retarget-${shortHash(kind)}`,
+        rule: "feedback",
+        targetClass: "orchestrator/policy",
+        claim: `${count} decision verdicts say the orchestrator picked the wrong ${field} — the operator would have chosen ${value}.`,
+        evidence,
+        diff: `matrix cells / targets — route this work to ${field} ${value} (composer › Matrix / Targets)`,
+        decision: `Make ${value} the ${field} for this kind of work?`,
+        applyVia,
+        at,
+      });
+    } else if (cat === "replan") {
+      const [field, value] = kind.split("=");
+      proposals.push({
+        id: `feedback-replan-${shortHash(kind)}`,
+        rule: "feedback",
+        targetClass: "orchestrator/policy",
+        claim: `${count} decision verdicts say the orchestrator planned this work wrongly — the operator would have set ${field} to ${value}.`,
+        evidence,
+        diff: `workKinds / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Work kinds / Tiers)`,
+        decision: `Default ${field} to ${value} for this kind of work?`,
         applyVia,
         at,
       });

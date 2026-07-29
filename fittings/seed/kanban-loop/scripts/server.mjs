@@ -39,6 +39,7 @@ import {
   cardBriefFile,
   cardBriefRel,
   normalisePlacement,
+  sanitiseCardRouting,
   atomicWriteJSON
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
@@ -74,7 +75,7 @@ import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
-import { loadPolicy, railForCard, railIsManualOnly } from "../lib/policy.mjs";
+import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
   readTouchSet,
   coordinationConfig,
@@ -1148,9 +1149,25 @@ async function handleCreateCard(req, res, opts) {
     // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
     // phase toggles merged over it, the tier (direct field or the D8 payload's
     // classification), and the origin of the registration.
-    workKind: typeof body.workKind === "string" ? body.workKind : null,
-    phases: body.phases && typeof body.phases === "object" ? body.phases : null,
-    tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
+    // RUN-SPEC-V1: the work kind, the tier and the phase toggles all have a home
+    // inside the card's `routing` pin now, so accept EITHER spelling and let the
+    // pin win. The legacy top-level fields stay for the gateway's card payload
+    // builder and every existing API client; the UI sends only the pin.
+    workKind:
+      typeof body.workKind === "string" ? body.workKind : (typeof body.routing?.workKind === "string" ? body.routing.workKind : null),
+    // The CSV pin is the ONE wire form for "phases off" (the same converter the
+    // gateway uses); the toggle map remains what the card stores, because that is
+    // what railForCard reads.
+    phases: body.phases && typeof body.phases === "object" ? body.phases : phaseTogglesFromCsv(body.routing?.phasesOff),
+    tier:
+      typeof body.tier === "string"
+        ? body.tier
+        : typeof body.routing?.tier === "string"
+          ? body.routing.tier
+          : typeof body.classification?.tier === "string"
+            ? body.classification.tier
+            : null,
+    routing: body.routing ?? null,
     origin: typeof body.origin === "string" ? body.origin : null,
     // Where the task came from ({channel, threadId}) — createCard validates the
     // shape; the engine posts the card's outcome back to that thread.
@@ -1428,6 +1445,23 @@ async function handlePatchCard(req, res, opts, id) {
     next.sliceId = s || null;
   }
   if (typeof body.acceptance === "string") next.acceptance = body.acceptance;
+  // RUN-SPEC-V1: the card's explicit run spec is EDITABLE, unlike the create-only
+  // workKind/tier/duty it partly supersedes. A control you can set once and never
+  // correct is not a control - and the common case is exactly "this parked card
+  // should have run on opus". Engine-owned cards are already refused above
+  // (isEngineOwned), so this can only reach a card the human still holds.
+  //
+  // Whole-object replace, not a merge: `null` on a field means "back to automatic",
+  // and a merge could never express that. Sending `routing: null` clears the lot.
+  if (body.routing !== undefined) {
+    next.routing = sanitiseCardRouting(body.routing);
+    // The three fields the card ALSO stores flat (they are read by railForCard and
+    // the classification hint) are re-derived, or the two copies disagree the
+    // moment a spec is edited.
+    next.workKind = next.routing?.workKind ?? null;
+    next.tier = next.routing?.tier ?? null;
+    next.phases = phaseTogglesFromCsv(next.routing?.phasesOff);
+  }
   // Outpost Dispatch: WHERE the card runs. `host` (the default) means the local
   // operative; any other value names a paired machine that must pull the card
   // via the dispatch API. Editable by a human ONLY before a worker has claimed
@@ -2536,6 +2570,56 @@ function handleProjects(req, res) {
   jsonRes(res, 200, { devRoot, projects });
 }
 
+// Same-origin proxy of the gateway's route-options vocabulary (RUN-SPEC-V1).
+//
+// Short-TTL cached: the New Card sheet fetches it on every open, and the menu
+// vocabulary changes only when the composition is recomposed. A DEGRADED answer
+// (gateway down) is cached far more briefly - the usual cause is a fitting still
+// coming up, and pinning "nothing available" for a full TTL reads as a broken UI.
+//
+// `sources.gateway: false` is the honest signal the UI renders as "start the
+// operative to choose a runtime" instead of drawing empty dropdowns.
+const ROUTE_OPTIONS_TTL_MS = 10_000;
+const ROUTE_OPTIONS_DEGRADED_TTL_MS = 2_000;
+let routeOptionsCache = null; // { expiresAt, body }
+
+async function handleRouteOptions(req, res, opts) {
+  const refresh = /[?&]refresh=(1|true)\b/.test(req.url || "");
+  if (!refresh && routeOptionsCache && routeOptionsCache.expiresAt > Date.now()) {
+    return jsonRes(res, 200, routeOptionsCache.body);
+  }
+  let gateway = null;
+  if (opts?.gatewayUrl) {
+    try {
+      const target = new URL("/route/options", opts.gatewayUrl);
+      const r = await fetch(target, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+      if (r.ok) {
+        const j = await r.json();
+        if (j && typeof j === "object" && !Array.isArray(j)) gateway = j;
+      }
+    } catch {
+      gateway = null; // gateway down → a degraded, honest answer, never a 500
+    }
+  }
+  const body = {
+    targets: [],
+    duties: [],
+    efforts: [],
+    accounts: [],
+    tiers: [],
+    workKinds: [],
+    defaultWorkKind: null,
+    projects: [],
+    ...(gateway ?? {}),
+    sources: { gateway: gateway !== null }
+  };
+  routeOptionsCache = {
+    expiresAt: Date.now() + (gateway ? ROUTE_OPTIONS_TTL_MS : ROUTE_OPTIONS_DEGRADED_TTL_MS),
+    body
+  };
+  jsonRes(res, 200, body);
+}
+
 // GET /skills — the skills installed under ~/.claude/skills, for the list-config skill
 // field. Returns { skills:[{name,description}] }. Best-effort (empty when none found).
 function handleSkills(req, res) {
@@ -2740,6 +2824,13 @@ export function makeRequestHandler(opts, distDir) {
           phaseSkills: policy.phaseSkills || { bindings: {}, overrides: {} }
         });
       }
+      // GET /route-options — same-origin PROXY of the gateway's GET /route/options,
+      // exactly as the web channel does it. The run-spec dropdowns on the New Card
+      // sheet are populated from the SAME vocabulary the gateway validates a pin
+      // against, so the form can never offer a target/tier/work kind that would then
+      // be refused. Deliberately a proxy and not a second reader of policy.json:
+      // two shapes over one file is how the two surfaces drift apart.
+      if (pathname === "/route-options" && method === "GET") return await handleRouteOptions(req, res, opts);
       if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
       if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
       // Same-origin SSE proxy of the gateway's live operative terminal screen

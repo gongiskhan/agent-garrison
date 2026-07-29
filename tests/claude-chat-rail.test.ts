@@ -46,6 +46,12 @@ const OPTIONS: RailOptions = {
   efforts: ["low", "medium", "high", "xhigh", "max"],
   accounts: [{ name: "work", platform: "anthropic" }],
   projects: ["garrison", "ekoa"],
+  tiers: ["T0-trivial", "T1-standard", "T2-deep"],
+  workKinds: [
+    { id: "full-feature", description: "the full gated pipeline", phases: ["plan", "implement", "review", "adversarial-review", "walkthrough"] },
+    { id: "docs-change", description: "prose only", phases: ["implement"] },
+  ],
+  defaultWorkKind: "full-feature",
 };
 
 // ── railDisplayBadges: the pure model plus the interaction facts ──────────────
@@ -94,14 +100,47 @@ describe("railDisplayBadges", () => {
   it("offers a placeholder per unpinned dimension ONLY with offerAll, labelled with the dimension name", () => {
     expect(railDisplayBadges({ route: {}, pins: {} })).toEqual([]);
     const offered = railDisplayBadges({ route: {}, pins: {}, offerAll: true });
-    expect(offered.map((b) => b.key)).toEqual(["duty", "target", "model", "effort", "account", "project"]);
-    // A placeholder never invents a VALUE - its label is the dimension's name and
-    // its title says it is not pinned.
+    // Every dimension a run can be decided on, in meaning-first order. The three
+    // run-plan dimensions (RUN-SPEC-V1) sit alongside the compute ones because the
+    // premise is that ALL of them default to auto and ALL of them are reachable.
+    expect(offered.map((b) => b.key)).toEqual([
+      "duty",
+      "tier",
+      "target",
+      "model",
+      "effort",
+      "account",
+      "project",
+      "workKind",
+      "phasesOff",
+    ]);
+    // A placeholder never invents a VALUE - its label is the dimension's HUMAN name
+    // and its title says it is not pinned.
+    const humanName: Record<string, string> = { workKind: "work kind", phasesOff: "phases" };
     for (const b of offered) {
       expect(b.placeholder).toBe(true);
-      expect(b.label).toBe(b.key);
+      expect(b.label).toBe(humanName[b.key] ?? b.key);
       expect(b.title).toContain("not pinned");
+      // A placeholder is not "auto": nothing ran, so there is no automatic choice
+      // to report. Auto marks a REPORTED value the user did not pin.
+      expect(b.auto).toBeUndefined();
     }
+  });
+
+  it("marks a reported-but-unpinned dimension `auto`, and never marks a pinned one", () => {
+    const route: RouteAttribution = {
+      route: "cc-haiku-low",
+      model: "claude-haiku-4-5",
+      effort: "low",
+      project: "garrison",
+    };
+    const badges = railDisplayBadges({ route, pins: { effort: "low" } });
+    // model was chosen by the orchestrator...
+    expect(badges.find((b) => b.key === "model")?.auto).toBe(true);
+    expect(badges.find((b) => b.key === "project")?.auto).toBe(true);
+    // ...effort was chosen by the user, even though the two agree.
+    expect(badges.find((b) => b.key === "effort")?.auto).toBeUndefined();
+    expect(badges.find((b) => b.key === "effort")?.pinned).toBe(true);
   });
 
   it("does not add a placeholder for a dimension the turn already reported", () => {
@@ -126,6 +165,69 @@ describe("railDisplayBadges", () => {
 });
 
 // ── menuForField: the dropdown vocabulary ────────────────────────────────────
+
+describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
+  it("offers every tier under an Automatic row, and says whether pinning one skips the classifier", () => {
+    const alone = menuForField("tier", OPTIONS, {});
+    expect(alone?.rows.map((r) => r.label)).toEqual([
+      "Automatic - the classifier decides",
+      "T0-trivial",
+      "T1-standard",
+      "T2-deep",
+    ]);
+    // Tier alone is only HALF the {taskType, tier} key, so the menu must not imply
+    // it bought a skipped classification.
+    expect(alone?.rows[1].detail).toContain("classifier still picks the task type");
+    // With a duty pinned, the pair is complete and no classifier runs.
+    const withDuty = menuForField("tier", OPTIONS, { duty: "plan" });
+    expect(withDuty?.rows[1].detail).toContain("no classifier runs");
+  });
+
+  it("labels the default work kind and clears a stale phase selection when the plan changes", () => {
+    const menu = menuForField("workKind", OPTIONS, { workKind: "docs-change", phasesOff: "walkthrough" });
+    // Source order is preserved: the gateway already sorts the catalogue, and a
+    // second sort here would be a second opinion about ordering.
+    expect(menu?.rows.map((r) => r.label)).toEqual([
+      "Automatic - the plan inferred from the tier",
+      "full-feature (default)",
+      "docs-change",
+    ]);
+    const fullFeature = menu?.rows.find((r) => r.key === "full-feature");
+    // Those OFF ids belong to the OLD plan; carrying them over would silently
+    // disable phases in the new one that the user never looked at.
+    expect(fullFeature?.patch).toEqual({ workKind: "full-feature", phasesOff: null });
+    expect(menu?.rows.find((r) => r.key === "docs-change")?.selected).toBe(true);
+  });
+
+  it("turns the phases menu into per-phase toggles over the selected plan, in plan order", () => {
+    const menu = menuForField("phasesOff", OPTIONS, { workKind: "full-feature", phasesOff: "review" });
+    expect(menu?.label).toBe("Phases this run walks");
+    expect(menu?.rows.map((r) => r.key)).toEqual([
+      "auto",
+      "plan",
+      "implement",
+      "review",
+      "adversarial-review",
+      "walkthrough",
+    ]);
+    // An OFF phase stays IN the list, rendered off - never hidden.
+    const review = menu?.rows.find((r) => r.key === "review");
+    expect(review?.label).toBe("review - off");
+    expect(review?.selected).toBe(false);
+    expect(review?.patch).toEqual({ phasesOff: null }); // tapping it turns it back on
+    // Tapping an ON phase adds it to the OFF set, serialized in PLAN order (not tap
+    // order) so the same selection always produces the same pin.
+    expect(menu?.rows.find((r) => r.key === "plan")?.patch).toEqual({ phasesOff: "plan,review" });
+    // "Automatic" is selected only when nothing is off.
+    expect(menu?.rows[0].selected).toBe(false);
+    expect(menuForField("phasesOff", OPTIONS, { workKind: "full-feature" })?.rows[0].selected).toBe(true);
+  });
+
+  it("falls back to the DEFAULT work kind's phases when no kind is pinned", () => {
+    const menu = menuForField("phasesOff", OPTIONS, {});
+    expect(menu?.rows.map((r) => r.key)).toContain("adversarial-review");
+  });
+});
 
 describe("menuForField", () => {
   it("flattens duty x level into one list and marks the pinned pair", () => {

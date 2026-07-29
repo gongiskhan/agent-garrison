@@ -1790,7 +1790,11 @@ export class RoutedGateway {
       overridesApplied: overridesApplied.length ? overridesApplied : null,
       overridesRejected: overridesRejected.length ? overridesRejected : null,
       project: override.project,
-      projectPath: override.projectPath
+      projectPath: override.projectPath,
+      // The v4 duty lane resolves an assigned cell directly and never calls
+      // classify() at all - so this is unconditionally true here, where the
+      // classifier-path preRoute has to earn it.
+      classifierSkipped: true
     };
   }
 
@@ -1868,14 +1872,28 @@ export class RoutedGateway {
     const explicit = opts.classification;
     const validTask = Array.isArray(this.config.taskTypes) ? this.config.taskTypes : [];
     const validTier = Array.isArray(this.config.tiers) ? this.config.tiers : [];
-    const honored = !!(
-      explicit &&
-      typeof explicit.taskType === "string" &&
-      typeof explicit.tier === "string" &&
-      validTask.includes(explicit.taskType) &&
-      validTier.includes(explicit.tier)
-    );
-    const raw = honored ? explicit : await this.classify(message);
+    // RUN-SPEC-V1: the user's per-turn pin is a classification the user already
+    // made. `duty` is the settable spelling of `taskType` and `tier` is pinnable
+    // directly, so a turn that carries both is ALREADY classified and must not pay
+    // for a classifier call. (A duty+level pin never reaches here - it took the v4
+    // lane at :1825 - so this is the duty-WITHOUT-level case, which until now fell
+    // silently through to the classifier.)
+    const inList = (list, v) => typeof v === "string" && list.includes(v);
+    const pinnedTask = inList(validTask, ov?.duty) ? ov.duty : null;
+    const pinnedTier = inList(validTier, ov?.tier) ? ov.tier : null;
+    const taskType = pinnedTask ?? (inList(validTask, explicit?.taskType) ? explicit.taskType : null);
+    const tier = pinnedTier ?? (inList(validTier, explicit?.tier) ? explicit.tier : null);
+    const honored = !!(taskType && tier);
+    let raw = honored
+      ? { taskType, tier, ...(explicit?.matchedException ? { matchedException: explicit.matchedException } : {}) }
+      : await this.classify(message);
+    // A pin that could not skip classification on its own still OVERRULES the
+    // classifier's answer on the axis it names. Otherwise pinning a tier would
+    // change nothing whenever the task type was left automatic - a control that
+    // silently does nothing is worse than no control.
+    if (!honored && (pinnedTask || pinnedTier)) {
+      raw = { ...raw, ...(pinnedTask ? { taskType: pinnedTask } : {}), ...(pinnedTier ? { tier: pinnedTier } : {}) };
+    }
     // D18: `execution` is no longer a classification axis. Where work runs is
     // derived from the resolved phase plan — a multi-phase or cross-model plan is
     // engine-dispatched, a trivial plan runs inline (see the D19 carding in
@@ -1884,7 +1902,15 @@ export class RoutedGateway {
     // routed decision, the decisions.jsonl record, or the preRoute output.
     const { execution: _legacyExecution, ...classification } = raw;
     if (honored) {
-      this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
+      this.logFn({
+        kind: "classification-honored",
+        taskType: classification.taskType,
+        tier: classification.tier,
+        skill: opts.skill ?? null,
+        // Which side supplied it, so "no classifier ran" is attributable rather
+        // than just asserted.
+        source: pinnedTask || pinnedTier ? "turn-override" : "caller"
+      });
     }
     const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     // §7: the pin lands HERE - after the route resolves, before the decision record
@@ -1902,6 +1928,10 @@ export class RoutedGateway {
     // target) — persist it so "which effort served this turn" is provable
     // from the decision log alone.
     decision.effort = route.target?.effort ?? route.effort ?? null;
+    // Whether this decision cost a classifier turn. Persisted because it is the
+    // evidence for "explicit choices are cheaper" - and because the Decisions feed
+    // needs to distinguish a route the orchestrator picked from one the user did.
+    decision.classifierSkipped = honored;
     // Which conversation caused this decision. Without it the Muster Decisions
     // feed is a list of routing outcomes with no way back to the turn that
     // produced them. An OPAQUE handle only - never the message, which stays a
@@ -1950,7 +1980,11 @@ export class RoutedGateway {
       overridesApplied: override.applied.length ? override.applied : null,
       overridesRejected: rejected.length ? rejected : null,
       project: override.project,
-      projectPath: override.projectPath
+      projectPath: override.projectPath,
+      // Reported, not inferred: the rail badges "no classifier ran" only when the
+      // router can say so. `honored` is exactly that fact at the one place it is
+      // known.
+      classifierSkipped: honored
     };
   }
 

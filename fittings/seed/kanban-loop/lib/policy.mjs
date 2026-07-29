@@ -59,6 +59,27 @@ export function phaseForList(list) {
   return list?.phase ?? list?.id ?? null;
 }
 
+/**
+ * `routing.phasesOff` (a CSV of the OFF set — the ONE wire form for "skip these
+ * phases", RUN-SPEC-V1) → the `{phase: false}` toggle map a card stores and
+ * `railForCard` reads.
+ *
+ * A byte-for-byte MIRROR of the gateway's `phaseTogglesFromCsv`
+ * (fittings/seed/http-gateway/scripts/gateway-pty.mjs). It is duplicated rather
+ * than imported because the board and the gateway are separate installed packages
+ * at runtime and a cross-fitting import would break the board's containment — the
+ * same contract TURN_EFFORTS/dutyEfforts and DISPATCH_LEASE_SECONDS already follow.
+ * The two are pinned equal by tests/kanban-run-spec.test.ts.
+ *
+ * Null for an empty pin: a card with no toggles must store `phases: null`, exactly
+ * as every card created before this existed does.
+ */
+export function phaseTogglesFromCsv(csv) {
+  const ids = String(csv ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) return null;
+  return Object.fromEntries(ids.map((id) => [id, false]));
+}
+
 // The skill bound to a phase: per-work-kind override wins over the global
 // binding (D3). Null when the policy has no binding (the dispatch prompt then
 // omits the skill line; the phase skill contract still applies downstream).

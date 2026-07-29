@@ -17,7 +17,17 @@ export const taskTypes = [
 ] as const;
 
 export const routeTiers = ["T0-trivial", "T1-standard", "T2-deep"] as const;
-export const effortLevels = ["low", "medium", "high", "xhigh", "ultracode"] as const;
+/**
+ * The effort vocabulary. RE-EXPORTED from `dutyEfforts` rather than restated.
+ *
+ * This module used to declare its own list ending in `ultracode` where every other
+ * vocabulary in the repo ends in `max` — a FOURTH spelling of one concept, with no
+ * drift test, still reached through /api/automations/{plan,vision}. A validator
+ * built on it would reject a `max` target that the live router accepts, so the two
+ * disagreed about what a valid config even is. There is one effort vocabulary.
+ */
+import { dutyEfforts } from "./types";
+export const effortLevels = dutyEfforts;
 export const targetTypes = ["native-model", "skill", "workflow", "ollama"] as const;
 export const continuationVerbs = ["store", "ask", "route", "notify"] as const;
 

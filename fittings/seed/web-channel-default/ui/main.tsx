@@ -257,6 +257,12 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       unavailable.effort = why;
       unavailable.duty = why;
       unavailable.account = why;
+      // The run-plan menus come from the compiled policy, which only the gateway
+      // process holds - so they are unavailable for the same reason and must say so
+      // rather than rendering as three empty dropdowns.
+      unavailable.tier = why;
+      unavailable.workKind = why;
+      unavailable.phasesOff = why;
     }
     if (sources.board === false) {
       unavailable.project = "the kanban board is not running - it is where the project list comes from";
@@ -267,6 +273,9 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       efforts: asArray<string>(d.efforts),
       accounts: asArray<NonNullable<RouteOptions["accounts"]>[number]>(d.accounts),
       projects: asArray<string>(d.projects),
+      tiers: asArray<string>(d.tiers),
+      workKinds: asArray<NonNullable<RouteOptions["workKinds"]>[number]>(d.workKinds),
+      defaultWorkKind: typeof d.defaultWorkKind === "string" ? d.defaultWorkKind : null,
       ...(Object.keys(unavailable).length > 0 ? { unavailable } : {}),
     };
   } catch { return null; }
