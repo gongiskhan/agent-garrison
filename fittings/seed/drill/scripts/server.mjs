@@ -55,6 +55,9 @@ import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
 import {
   readJsonlLines, parseTranscriptLines, linesInWindow, noteRunSession, sessionSliceName
 } from "../lib/session-transcript.mjs";
+import {
+  startCardDrill, getCardDrillJob, listCardDrillJobs, publicCardDrillJob, reapOrphanCardDrills
+} from "../lib/card-drill.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
@@ -2460,6 +2463,49 @@ async function handle(req, res) {
       }
     }
 
+    // Card-driven drill (the Kanban "Send to Drill" button). A card that
+    // reached `done` hands over its change brief; Drill plans the checks for
+    // THAT change, runs them unattended, and notifies every way it can when
+    // the verdict is in. The whole chain lives in lib/card-drill.mjs — this
+    // route only validates and registers.
+    if (pathname === "/api/card-drill" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const card = body.card && typeof body.card === "object" ? body.card : null;
+      if (!card || typeof card.id !== "string" || !card.id) {
+        return send(res, 400, { error: "card.id required" });
+      }
+      const brief = typeof body.brief === "string" && body.brief.trim() ? body.brief.trim() : null;
+      if (!brief) return send(res, 400, { error: "brief required - Drill plans the change, so it needs to be told what changed" });
+      // The CARD's project, not the live picker selection: the button was
+      // pressed on a card that names its own repo, and Drill may be pointed
+      // somewhere else entirely by the time this lands.
+      const rootResolved = resolveMutationRoot(body.project || card.project);
+      if (rootResolved.error) return send(res, 400, { error: rootResolved.error });
+      try {
+        const { job, started } = await startCardDrill({
+          card,
+          brief,
+          project: rootResolved.root,
+          boardUrl: typeof body.boardUrl === "string" ? body.boardUrl : await kanbanBaseUrl(),
+          drillBaseUrl: selfBaseUrl()
+        });
+        return send(res, 200, { job: publicCardDrillJob(job), started });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/card-drill" && req.method === "GET") {
+      const cardId = url.searchParams.get("cardId");
+      const list = await listCardDrillJobs({ cardId: cardId || null });
+      return send(res, 200, { jobs: list.map(publicCardDrillJob) });
+    }
+    const cardDrillGet = pathname.match(/^\/api\/card-drill\/([^/]+)$/);
+    if (cardDrillGet && req.method === "GET") {
+      const job = await getCardDrillJob(decodeURIComponent(cardDrillGet[1])).catch(() => null);
+      if (!job) return send(res, 404, { error: "not found" });
+      return send(res, 200, { job: publicCardDrillJob(job) });
+    }
+
     // R10: dispatch the confirmed findings as ONE batch fix card. Manual
     // (the button) and Immediate dispatch now; Heartbeat records intent -
     // the actual periodic pickup is a self-contained sweep (heartbeat.mjs)
@@ -2624,6 +2670,16 @@ export async function startServer() {
     for (const rec of reaped) console.log(`[drill] reaped orphaned plan agent pid=${rec.pid} root=${rec.root}`);
   } catch (err) {
     console.error(`[drill] orphan plan-agent sweep failed: ${err.message}`);
+  }
+  // A card-driven drill's chain is an in-memory driver: a restart kills it and
+  // nothing would ever finish the job — leaving the CARD stuck at "planning"
+  // with its button disabled. Close every open job honestly, and notify, so an
+  // interrupted drill is visibly interrupted rather than silently pending.
+  try {
+    const closed = await reapOrphanCardDrills();
+    for (const id of closed) console.log(`[drill] closed orphaned card-drill job ${id} (server restarted mid-flight)`);
+  } catch (err) {
+    console.error(`[drill] orphan card-drill sweep failed: ${err.message}`);
   }
   // S31: run records persist incrementally while executing (endedAt null =
   // running). A record still open at boot belonged to a previous server

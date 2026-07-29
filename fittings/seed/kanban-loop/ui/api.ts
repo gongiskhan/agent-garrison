@@ -66,6 +66,22 @@ export interface WaitingOn {
   since?: string;
 }
 
+// The Drill handoff stamped on a card by "Send to Drill". `state` walks
+// planning → running → passed | failed | error; the rest fills in as Drill learns it.
+export interface DrillStamp {
+  state: "planning" | "running" | "passed" | "failed" | "error";
+  at: string;
+  jobId?: string | null;
+  runId?: string | null;
+  runUrl?: string | null;
+  jobUrl?: string | null;
+  drillUrl?: string | null;
+  findings?: number | null;
+  checks?: number | null;
+  failed?: number | null;
+  error?: string | null;
+}
+
 // The card's LATEST commit fence (S2, Q5) — the board shows the most recent one as a
 // subtle chip; the full chain is not projected.
 export interface FenceSummary {
@@ -133,6 +149,10 @@ export interface CardSummary {
   // fences / no abandonment.
   fences?: FenceSummary | null;
   preparedRevert?: PreparedRevertSummary | null;
+  // The card's Drill handoff (Send to Drill on a done card): its live state and,
+  // once the run finishes, the verdict + a link into the Drill run. Null on a card
+  // that was never sent.
+  drill?: DrillStamp | null;
   // ── execution visibility ──────────────────────────────────────────────────
   // A short task description (card front tooltip + operative context); the operative's
   // last reply snippet (what it actually said); the most-recent timeline event + count
@@ -367,6 +387,14 @@ export const api = {
     jfetch<{ card: CardSummary; preparedRevert: PreparedRevertSummary | null; reverted?: string[] }>(
       `/cards/${encodeURIComponent(id)}/revert`,
       { method: "POST", body: JSON.stringify({ confirm: true }) }
+    ),
+  // Send a done card's change to Drill: it plans the checks for that change, runs
+  // them, and notifies every way it can when the verdict is in. A second press
+  // while a job is in flight joins it (started:false) rather than starting a rival.
+  sendToDrill: (id: string) =>
+    jfetch<{ card: CardSummary; job: { id: string; state: string } | null; started: boolean }>(
+      `/cards/${encodeURIComponent(id)}/drill`,
+      { method: "POST" }
     ),
   inferProject: (id: string) =>
     jfetch<{ card: CardSummary; inferring?: boolean; note?: string }>(

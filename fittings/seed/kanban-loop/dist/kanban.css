@@ -1626,3 +1626,41 @@ button:active, .btn:active { transform: translateY(1px); }
   color: var(--alarm);
 }
 .chip.exec.exec-project { border-color: rgba(61,98,73,0.4); background: var(--sage-soft); color: var(--sage); }
+
+/* ── drill handoff (Send to Drill) ────────────────────────────────────────────
+   The card-front + detail block showing where a card's drill has got to. Neutral
+   (paper-2 / rule) while it is in flight, and it inherits the chip's own sage/alarm
+   tint for the verdict, so a passing drill never shouts and a failing one does.
+   Sits under the card body with the same rhythm as .revert-block. */
+.drill-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.drill-block.passed { border-color: rgba(61,98,73,0.4); background: var(--sage-soft); }
+.drill-block.failed,
+.drill-block.error { border-color: rgba(155,54,45,0.3); background: var(--alarm-soft); }
+.drill-block .db-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.drill-block .db-link {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--sage-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.drill-block .db-link:hover { color: var(--sage); }
+/* In the detail sheet the block is a section of its own, not a card footnote. */
+.drill-detail { margin-bottom: 16px; }

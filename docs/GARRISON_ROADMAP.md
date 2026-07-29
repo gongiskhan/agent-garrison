@@ -361,6 +361,24 @@ re-consolidated where noted (2026-06-11 Dev Env consolidation):
   rendered in a sidebar surface; Artifact Store as the underlying
   storage with namespaced filesystem layout. Used in Stage 4
   primarily, but already wired.
+- **Card → Drill handoff (shipped 2026-07-29).** A done Kanban card
+  carries a **Send to Drill** button. It composes the card's change
+  brief from the WS2 handoff packet (ask, close-out summary, key
+  decisions, files touched, commit shas) and posts it to Drill's
+  `POST /api/card-drill`, which then runs unattended: an UPDATE-mode
+  plan agent scoped to that change, a diff of `drills/pages/` to learn
+  which pages the plan touched, and a run of **only those pages**
+  (autonomy gate bypassed — the button was the approval). On the
+  terminal edge it fans the verdict out across every delivery means
+  available (`fittings/seed/drill/lib/broadcast.mjs`): the web channel
+  (the originating thread when the card came from one, else a
+  `drill-reports` thread), the originating card itself
+  (`POST /cards/:id/drill-result`), the Slack connector when sealed +
+  a channel is configured, and a generic JSON webhook
+  (`notify_webhook`). Each means reports delivered / skipped-with-a-
+  reason — a notification that went nowhere is never reported as sent.
+  A restart closes any in-flight job honestly (`reapOrphanCardDrills`)
+  rather than leaving the card stuck at "planning".
 
 ### What remains for Stage 1
 

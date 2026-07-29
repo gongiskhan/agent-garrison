@@ -23,7 +23,8 @@ import {
   type ListConfigPatch,
   type ArtifactRef,
   type PolicyView,
-  type WaitingOn
+  type WaitingOn,
+  type DrillStamp
 } from "./api";
 import {
   PlayIcon,
@@ -39,6 +40,7 @@ import {
   ChatIcon,
   TerminalIcon,
   WrenchIcon,
+  DrillIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
@@ -308,6 +310,59 @@ function waitingClause(w: WaitingOn): string {
   return `${w.grade} overlap, until ${w.until}`;
 }
 
+// ── drill handoff (Send to Drill) ────────────────────────────────────────────
+// One block, rendered on both the card front and the detail sheet, so a card's
+// drill state reads the same wherever you meet it. It is deliberately explicit
+// about the IN-FLIGHT states: a plan + run takes minutes to hours, and a card
+// that just said "sent" with nothing after it is indistinguishable from one
+// where the handoff silently died.
+
+const DRILL_LABEL: Record<string, string> = {
+  planning: "Drill: planning the test for this change…",
+  running: "Drill: running the checks…",
+  passed: "Drill passed",
+  failed: "Drill found issues",
+  error: "Drill could not finish"
+};
+
+function drillChipClass(state: string): string {
+  if (state === "passed") return "chip ok";
+  if (state === "failed" || state === "error") return "chip attn";
+  return "chip";
+}
+
+// The Drill run/job link, rewritten for the viewing host: Drill publishes a
+// loopback URL in its status file, and this page is usually open over the
+// tailnet where 127.0.0.1 is a different machine entirely.
+function drillLink(drill: DrillStamp): string | null {
+  const raw = drill.runUrl || drill.jobUrl || drill.drillUrl || null;
+  if (!raw) return null;
+  // "" means the target cannot be reached without mixed content from this page —
+  // drop the link rather than render a dead one.
+  return rewriteHostUrl(raw, hostCtx()) || null;
+}
+
+function DrillBlock({ drill, compact = false }: { drill: DrillStamp; compact?: boolean }) {
+  const inFlight = drill.state === "planning" || drill.state === "running";
+  const href = drillLink(drill);
+  const detail: string[] = [];
+  if (Number.isFinite(drill.checks as number)) detail.push(`${drill.checks} checks`);
+  if ((drill.findings ?? 0) > 0) detail.push(`${drill.findings} finding${drill.findings === 1 ? "" : "s"}`);
+  return (
+    <div className={`drill-block ${drill.state}`}>
+      {inFlight && <span className="run-spin" aria-hidden />}
+      <span className={drillChipClass(drill.state)}>{DRILL_LABEL[drill.state] ?? drill.state}</span>
+      {detail.length > 0 && <span className="db-detail">{detail.join(" · ")}</span>}
+      {drill.error && !compact && <span className="db-detail">{drill.error}</span>}
+      {href && (
+        <a className="db-link" href={href} target="_blank" rel="noreferrer">
+          open in Drill
+        </a>
+      )}
+    </div>
+  );
+}
+
 // ── card front ──────────────────────────────────────────────────────────────
 function Card({
   card,
@@ -321,6 +376,7 @@ function Card({
   onDiscuss,
   onRevert,
   onContinue,
+  onDrill,
   busy
 }: {
   card: CardSummary;
@@ -334,6 +390,7 @@ function Card({
   onDiscuss: (c: CardSummary) => void;
   onRevert: (c: CardSummary) => void;
   onContinue: (c: CardSummary) => void;
+  onDrill: (c: CardSummary) => void;
   busy: boolean;
 }) {
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
@@ -467,6 +524,10 @@ function Card({
           </button>
         </div>
       )}
+      {/* DRILL: the handoff's live state on a card that was sent. Shown wherever the
+          card is (not just on done) so a card moved on afterwards still carries the
+          verdict of the drill it triggered. */}
+      {card.drill && <DrillBlock drill={card.drill} compact />}
       {parked && card.lastReply && !card.attentionReason?.includes(card.lastReply.slice(0, 24)) && (
         <div className="card-reply" title="the operative's reply">“{card.lastReply}”</div>
       )}
@@ -537,6 +598,23 @@ function Card({
         {list.terminal && (
           <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => onContinue(card)}>
             <PlayIcon /> Continue
+          </button>
+        )}
+        {/* Send to Drill: plan the checks for THIS card's change, run them, and
+            notify when the verdict lands. Only on done (there is no landed change
+            to test before that) and only with a project (nothing to test in). */}
+        {list.terminal && card.project && (
+          <button
+            className="btn small"
+            disabled={busy || card.drill?.state === "planning" || card.drill?.state === "running"}
+            title={
+              card.drill?.state === "planning" || card.drill?.state === "running"
+                ? "a drill is already running for this card"
+                : "plan a test for this card's change, run it, and notify when it's done"
+            }
+            onClick={() => onDrill(card)}
+          >
+            <DrillIcon /> {card.drill ? "Re-drill" : "Send to Drill"}
           </button>
         )}
         <button className="btn small" onClick={() => onOpen(card)}>
@@ -1051,6 +1129,7 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   // S2 (Q7): abandonment + revert action state — separate from the delete flow.
   const [abandoning, setAbandoning] = useState(false);
   const [reverting, setReverting] = useState(false);
+  const [drilling, setDrilling] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [projectDraft, setProjectDraft] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
@@ -1098,6 +1177,23 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setDeleting(false);
+    }
+  }
+
+  // Send to Drill: hand this card's change over for an automatic test plan + run.
+  // Fire-and-return — the plan alone takes minutes, so the button's job is to start
+  // the job and let the drill block (kept fresh by the 3s poll) carry the state.
+  async function doDrill() {
+    setDrilling(true);
+    setActionErr(null);
+    try {
+      await api.sendToDrill(cardId);
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll will refresh */ });
+      onChanged();
+      setDrilling(false);
     }
   }
 
@@ -1176,7 +1272,28 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
             <TerminalIcon /> Terminal
           </button>
         )}
+        {/* Send to Drill — done cards only: the change has to have landed before
+            there is anything to test. Disabled (with the reason) while a job runs. */}
+        {card.list === "done" && card.project && (
+          <button
+            className="btn small"
+            disabled={drilling || card.drill?.state === "planning" || card.drill?.state === "running"}
+            title={
+              card.drill?.state === "planning" || card.drill?.state === "running"
+                ? "a drill is already running for this card"
+                : "plan a test for this card's change, run it automatically, and notify when it's done"
+            }
+            onClick={() => void doDrill()}
+          >
+            <DrillIcon /> {drilling ? "Sending…" : card.drill ? "Re-drill" : "Send to Drill"}
+          </button>
+        )}
       </div>
+      {card.drill && (
+        <div className="drill-detail">
+          <DrillBlock drill={card.drill} />
+        </div>
+      )}
 
       {/* Current-state callout — the single most important "what's going on" line. */}
       {running && (
@@ -2201,6 +2318,28 @@ function App() {
     }
   }
 
+  // Send a done card's change to Drill. The server only registers the job (the plan
+  // agent alone runs for minutes), so this returns immediately and the card's drill
+  // block — refreshed by the board poll — carries the state from there. The finish
+  // arrives as a notification, not as a spinner you have to sit and watch.
+  async function onDrill(card: CardSummary) {
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      const res = await api.sendToDrill(card.id);
+      setNotice(
+        res.started
+          ? "Sent to Drill — planning the test for this change. You'll be notified when the run finishes."
+          : "Already being drilled — joined the in-flight job."
+      );
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      await load();
+      setBusyCard(null);
+    }
+  }
+
   // Infer the project for a no-project card — fire-and-forget on the server; the
   // "inferring…" pill + the result event show on the next poll.
   async function onInfer(card: CardSummary) {
@@ -2294,6 +2433,7 @@ function App() {
                       onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
                       onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
                       onContinue={onContinue}
+                      onDrill={onDrill}
                     />
                   );
                   // D19: the Done column groups quick cards (trivial-plan inline tasks)

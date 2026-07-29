@@ -36,6 +36,26 @@ x-garrison:
         Projected as GARRISON_DRILL_TARGET_REPO. The UI's project picker
         selection persists in ~/.garrison/drill/active-project.json and
         wins over this default.
+    # Notification fan-out for an unattended card-driven drill (the Kanban
+    # "Send to Drill" button). Both are OPTIONAL additions to the always-on
+    # means (the web channel + the originating card) - see lib/broadcast.mjs.
+    - key: notify_webhook
+      type: string
+      default: ""
+      description: >-
+        Optional URL that receives a JSON POST when a card-driven drill
+        finishes (ntfy, Discord, a Slack incoming webhook, a phone push
+        bridge - anything that accepts a POST). Projected as
+        GARRISON_DRILL_NOTIFY_WEBHOOK. Empty = that means is skipped, and the
+        job record says so rather than silently dropping it.
+    - key: notify_slack_channel
+      type: string
+      default: ""
+      description: >-
+        Optional Slack channel id for the same notification, delivered with
+        the `slack` connector's Vault-sealed bot token. Projected as
+        GARRISON_DRILL_NOTIFY_SLACK_CHANNEL. Needs the Slack connector
+        connected in the Vault; unsealed or unset = skipped with a reason.
   provides:
     - kind: duty
       name: drill

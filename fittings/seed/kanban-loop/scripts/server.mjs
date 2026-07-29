@@ -43,6 +43,8 @@ import {
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
+// Kanban → Drill handoff: a done card's change brief, posted to the Drill fitting.
+import { sendCardToDrill, drillEligibility, drillStamp } from "../lib/drill-handoff.mjs";
 import { readOriginRecord, readOriginEventsSince } from "../lib/origins.mjs";
 // S3c: steering sidecars (steering.md guidance + steering.json revisit directive).
 import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringApplied, readSteeringDirective, isEarlierPhase } from "../lib/steering.mjs";
@@ -340,6 +342,10 @@ export function cardSummary(card) {
           preparedAt: card.preparedRevert.preparedAt ?? null
         }
       : null,
+    // The card's Drill handoff, if it was ever sent: { state (planning | running |
+    // passed | failed | error), jobId, runUrl, findings, … }. The board renders it
+    // as a chip on a done card + the Send-to-Drill button's live state.
+    drill: card.drill ?? null,
     // Why a card is parked + where it came from (set by the engine when it moves a
     // card to the needs-attention column). The UI shows the reason on the card.
     attentionReason: card.attentionReason ?? null,
@@ -1689,6 +1695,102 @@ async function handleAbandonCard(req, res, opts, id) {
   return jsonRes(res, 200, { card: cardSummary(updated), preparedRevert: cardSummary(updated).preparedRevert });
 }
 
+// POST /cards/:id/drill — hand this card's change to Drill: plan the checks for it,
+// run them, and notify when the verdict is in. Human-only and `done`-only: the point
+// is "the change landed, now prove it works", and a card that has not landed has no
+// change to test. Idempotent-ish by way of Drill's own per-card in-flight guard — a
+// second press while a job runs joins that job (started:false) instead of starting a
+// competing plan against the same repo.
+async function handleSendToDrill(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin drill dispatch rejected" });
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id;
+
+  const eligible = drillEligibility(card);
+  if (!eligible.ok) return jsonRes(res, 400, { error: eligible.reason });
+
+  let handoff;
+  try {
+    handoff = await sendCardToDrill(root, card);
+  } catch (err) {
+    // A failed handoff is stamped on the card, not just returned: the user
+    // pressed a button and walked away, and "it never went" has to be visible
+    // on the board too, not only in the toast they may not have seen.
+    const message = err?.message || String(err);
+    await updateCard(root, id, (c) => ({
+      ...c,
+      drill: drillStamp({ state: "error", error: message }),
+      events: withEvent(c, { at: new Date().toISOString(), kind: "dispatch", message: `Send to Drill failed — ${message}` })
+    }));
+    return jsonRes(res, 502, { error: message });
+  }
+
+  const job = handoff.job ?? null;
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    drill: drillStamp({
+      state: job?.state ?? "planning",
+      jobId: job?.id ?? null,
+      // No per-job route exists in Drill's UI (it routes ?view=…&run=…), so
+      // while the job is still planning the link is Drill's Run & results view.
+      // Once the run exists, drill-result replaces this with the run's own URL.
+      drillUrl: handoff.drillUrl,
+      jobUrl: `${handoff.drillUrl}/?view=results`
+    }),
+    events: withEvent(c, {
+      at: new Date().toISOString(),
+      kind: "dispatch",
+      message: handoff.started
+        ? "Sent to Drill — planning the test for this change, then running it"
+        : "Already being drilled — joined the in-flight job"
+    })
+  }));
+  return jsonRes(res, 200, { card: cardSummary(updated ?? card), job, started: handoff.started });
+}
+
+// POST /cards/:id/drill-result — Drill's completion callback, and one of the four
+// notification means (broadcast.mjs): the verdict lands back ON the card, so the
+// board shows it without opening Drill. Engine-context (Drill posts it), never a
+// human action.
+async function handleDrillResult(req, res, opts, id) {
+  const root = opts.root;
+  const body = (await readBody(req)) ?? {};
+  const state = ["passed", "failed", "error"].includes(body.state) ? body.state : null;
+  if (!state) return jsonRes(res, 400, { error: "state must be passed | failed | error" });
+
+  const text = (v, max = 400) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  const findings = num(body.findings) ?? 0;
+  const headline = text(body.headline, 1200);
+  const message =
+    state === "passed"
+      ? "Drill passed — every check on this change's pages passed"
+      : state === "failed"
+        ? `Drill found ${findings} issue${findings === 1 ? "" : "s"} on this change`
+        : "Drill could not finish this change's test run";
+
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    drill: drillStamp({
+      state,
+      jobId: text(body.jobId, 64),
+      runId: text(body.runId, 64),
+      runUrl: text(body.runUrl, 500),
+      findings,
+      checks: num(body.checks),
+      failed: num(body.failed),
+      // Keep the dispatch link so the card can still reach Drill after the job ends.
+      drillUrl: typeof c.drill?.drillUrl === "string" ? c.drill.drillUrl : null
+    }),
+    events: withEvent(c, { at: new Date().toISOString(), kind: state === "passed" ? "dispatch" : "failed", message, detail: headline })
+  }));
+  if (!updated) return jsonRes(res, 404, { error: `card not found: ${id}` });
+  return jsonRes(res, 200, { card: cardSummary(updated) });
+}
+
 // POST /cards/:id/revert — apply a card's prepared revert (S2, Q7, D8). Requires an
 // EXPLICIT { confirm: true } body — anything else is a 400 (the revert is NEVER
 // auto-applied). Runs only when a descriptor in state "prepared" exists; a
@@ -2650,7 +2752,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachment|\/session-stream|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachment|\/session-stream|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -2667,6 +2769,8 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);
         if (sub === "/handoff" && method === "GET") return await handleGetHandoff(req, res, opts, id);
         if (sub === "/steer" && method === "POST") return await handleSteerCard(req, res, opts, id);
+        if (sub === "/drill" && method === "POST") return await handleSendToDrill(req, res, opts, id);
+        if (sub === "/drill-result" && method === "POST") return await handleDrillResult(req, res, opts, id);
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);
