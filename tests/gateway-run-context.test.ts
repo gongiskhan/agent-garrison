@@ -416,6 +416,9 @@ describe("applyTurnOverride — the pin reaches the route, refusals carry a reas
     expect(applyTurnOverride(CONFIG, sdk, { effort: "high" }).rejected[0].reason).toBe("provider-has-no-effort-control");
     expect(effortControllable({ runtime: "agent-sdk", provider: "anthropic" })).toBe(true);
     expect(effortControllable({ runtime: "codex" })).toBe(true);
+    // Cursor bakes effort into its model ids (gpt-5.3-codex-low vs -high), so an
+    // effort pin has nothing behind it — same verdict as gemini, different cause.
+    expect(effortControllable({ runtime: "cursor" })).toBe(false);
   });
 
   it("resolves a project to a real cwd, and REFUSES rather than falling back", () => {

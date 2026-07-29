@@ -28,7 +28,8 @@ const seedIds = [
   "file-browser",
   "garrison-orchestrator",
   "taste",
-  "opencode-runtime"
+  "opencode-runtime",
+  "cursor-runtime"
 ] as const;
 
 interface RawManifest {

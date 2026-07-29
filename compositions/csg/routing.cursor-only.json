@@ -1,0 +1,676 @@
+{
+  "version": 2,
+  "activeProfile": "balanced",
+  "primaryRuntime": "cursor-runtime",
+  "taskTypes": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "security-review",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report",
+    "probe-question",
+    "code",
+    "research",
+    "writing",
+    "image",
+    "video",
+    "ops",
+    "other"
+  ],
+  "tiers": [
+    "T0-trivial",
+    "T1-standard",
+    "T2-deep"
+  ],
+  "tierDefinitions": {
+    "T0-trivial": "A one-shot answer or a single mechanical edit: a rename, a typo, a fact lookup, a one-line config tweak. No multi-file reasoning, no design choices.",
+    "T1-standard": "Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused refactor, a normal review. Some reasoning across a few files; outcome is checkable by a test.",
+    "T2-deep": "High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear cause, a security-sensitive change, a multi-subsystem migration. Warrants the strongest model, full gates, and recorded evidence."
+  },
+  "providers": [
+    {
+      "id": "anthropic-plan",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "Max OAuth, no base URL, no key"
+    },
+    {
+      "id": "anthropic",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
+    },
+    {
+      "id": "ollama-local",
+      "kind": "local",
+      "baseUrl": "http://localhost:11434",
+      "dummyToken": "ollama",
+      "notes": "local Ollama Anthropic-compatible endpoint"
+    },
+    {
+      "id": "deepseek",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.deepseek.com/anthropic",
+      "vaultKey": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "zai-glm",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.z.ai/api/anthropic",
+      "vaultKey": "ZAI_API_KEY"
+    }
+  ],
+  "exceptions": [
+    {
+      "id": "ex-secrets",
+      "when": "the prompt involves secrets, credentials, auth tokens, or the vault",
+      "target": "cursor-codex"
+    },
+    {
+      "id": "ex-automation-vision-adversarial",
+      "when": "caller-asserted: an internal automation vision turn requests an independent adversarial verdict",
+      "target": "cursor-opus"
+    },
+    {
+      "id": "ex-automation-vision",
+      "when": "caller-asserted: an internal automation vision turn must inspect a local browser screenshot",
+      "target": "cursor-codex"
+    },
+    {
+      "id": "ex-drill-curation",
+      "when": "caller-asserted: Drill Spotter evidence curation, batch-judging captured frames into the Debrief reel",
+      "target": "cursor-codex"
+    },
+    {
+      "id": "ex-image",
+      "when": "the prompt asks to generate, edit, or analyze an image",
+      "target": "cursor-auto"
+    },
+    {
+      "id": "ex-video",
+      "when": "the prompt asks to generate or edit a video",
+      "target": "cursor-auto"
+    }
+  ],
+  "targets": [
+    {
+      "id": "cursor-auto",
+      "type": "secondary",
+      "runtime": "cursor",
+      "model": "auto"
+    },
+    {
+      "id": "cursor-fast",
+      "type": "secondary",
+      "runtime": "cursor",
+      "model": "composer-2.5"
+    },
+    {
+      "id": "cursor-codex",
+      "type": "secondary",
+      "runtime": "cursor",
+      "model": "gpt-5.3-codex-high"
+    },
+    {
+      "id": "cursor-opus",
+      "type": "secondary",
+      "runtime": "cursor",
+      "model": "claude-opus-5-thinking-high"
+    },
+    {
+      "id": "cursor-classifier",
+      "type": "secondary",
+      "runtime": "cursor",
+      "model": "composer-2.5",
+      "pinned": true
+    }
+  ],
+  "profiles": {
+    "balanced": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "cursor-codex"
+        },
+        "columns": {
+          "T2-deep": "cursor-opus"
+        },
+        "rows": {
+          "plan": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "implement": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-codex",
+              "T2-deep": "cursor-opus"
+            }
+          },
+          "review": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "adversarial-review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "test": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "validate": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "report": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "code": {
+            "default": "cursor-codex",
+            "cells": {
+              "T0-trivial": "cursor-fast",
+              "T2-deep": "cursor-opus"
+            }
+          },
+          "research": {
+            "default": "cursor-codex",
+            "cells": {
+              "T2-deep": "cursor-opus"
+            }
+          },
+          "image": {
+            "default": "cursor-auto",
+            "cells": {}
+          },
+          "video": {
+            "default": "cursor-auto",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cursor-codex",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "ops": {
+            "default": "cursor-codex",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "other": {
+            "default": "cursor-codex",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "cursor-fast",
+        "cursor-codex",
+        "cursor-opus"
+      ],
+      "disciplineOverrides": {}
+    },
+    "economy": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "cursor-fast"
+        },
+        "columns": {
+          "T2-deep": "cursor-fast"
+        },
+        "rows": {
+          "plan": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "implement": {
+            "default": "cursor-fast",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "review": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "adversarial-review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "test": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "validate": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "report": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "code": {
+            "default": "cursor-fast",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "research": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "image": {
+            "default": "cursor-auto",
+            "cells": {}
+          },
+          "video": {
+            "default": "cursor-auto",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cursor-fast",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "ops": {
+            "default": "cursor-fast",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          },
+          "other": {
+            "default": "cursor-fast",
+            "cells": {
+              "T0-trivial": "cursor-fast"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "cursor-fast",
+        "cursor-fast",
+        "cursor-fast"
+      ],
+      "disciplineOverrides": {
+        "T2-deep": {
+          "review": "self-review",
+          "testing": "tests",
+          "evidence": "text",
+          "distribution": "none"
+        }
+      },
+      "exceptionOverrides": {
+        "ex-secrets": "cursor-fast"
+      }
+    },
+    "premium": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "cursor-opus"
+        },
+        "columns": {
+          "T2-deep": "cursor-opus"
+        },
+        "rows": {
+          "plan": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "implement": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-codex"
+            }
+          },
+          "review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "adversarial-review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "test": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "validate": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "cursor-codex",
+            "cells": {}
+          },
+          "report": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "cursor-fast",
+            "cells": {}
+          },
+          "code": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-codex"
+            }
+          },
+          "research": {
+            "default": "cursor-opus",
+            "cells": {}
+          },
+          "image": {
+            "default": "cursor-auto",
+            "cells": {}
+          },
+          "video": {
+            "default": "cursor-auto",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-codex"
+            }
+          },
+          "ops": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-codex"
+            }
+          },
+          "other": {
+            "default": "cursor-opus",
+            "cells": {
+              "T0-trivial": "cursor-codex"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "cursor-codex",
+        "cursor-opus",
+        "cursor-opus"
+      ],
+      "disciplineOverrides": {},
+      "exceptionOverrides": {
+        "ex-secrets": "cursor-opus"
+      }
+    }
+  },
+  "discipline": {
+    "T0-trivial": {
+      "review": "none",
+      "testing": "none",
+      "evidence": "none",
+      "distribution": "none"
+    },
+    "T1-standard": {
+      "review": "self-review",
+      "testing": "tests",
+      "evidence": "text",
+      "distribution": "none"
+    },
+    "T2-deep": {
+      "review": "review-by:default",
+      "testing": "full-gates",
+      "evidence": "video",
+      "distribution": "link"
+    }
+  },
+  "continuations": [
+    {
+      "id": "cont-plan",
+      "when": "plan",
+      "then": [
+        {
+          "verb": "ask",
+          "arg": "Implement this plan?"
+        },
+        {
+          "verb": "route",
+          "arg": "cursor-codex"
+        }
+      ]
+    },
+    {
+      "id": "cont-report",
+      "when": "report",
+      "then": [
+        {
+          "verb": "store"
+        },
+        {
+          "verb": "ask",
+          "arg": "Act on this report?"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "security-review",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report"
+  ],
+  "phasePlans": {
+    "implement-only-text": {
+      "phases": [
+        "implement"
+      ],
+      "evidence": "text"
+    },
+    "implement-only-logs": {
+      "phases": [
+        "implement"
+      ],
+      "evidence": "logs"
+    },
+    "implement-test": {
+      "phases": [
+        "implement",
+        "test"
+      ],
+      "evidence": "logs"
+    },
+    "ui-change": {
+      "phases": [
+        "implement",
+        "review",
+        "ux-qa",
+        "walkthrough"
+      ],
+      "evidence": "video"
+    },
+    "full": {
+      "phases": [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "ux-qa",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ],
+      "evidence": "video"
+    },
+    "manual-only": {
+      "phases": [],
+      "evidence": "none"
+    }
+  },
+  "workKinds": {
+    "docs-change": {
+      "phasePlan": "implement-only-text",
+      "description": "Documentation or prose-only change"
+    },
+    "api-change": {
+      "phasePlan": "implement-test",
+      "description": "API/backend change with tests, no walkthrough"
+    },
+    "video-edit": {
+      "phasePlan": "implement-only-logs",
+      "description": "Video production/edit work"
+    },
+    "ui-change": {
+      "phasePlan": "ui-change",
+      "description": "UI change through review + UX QA + a walkthrough"
+    },
+    "full-feature": {
+      "phasePlan": "full",
+      "description": "Feature work through the full gated pipeline"
+    },
+    "personal": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Personal task - rides backlog/todo/done by hand, no agent phases"
+    },
+    "channel": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge"
+    }
+  },
+  "defaultWorkKind": "full-feature",
+  "phaseSkills": {
+    "bindings": {
+      "plan": "garrison-plan",
+      "implement": "garrison-implement",
+      "review": "garrison-review",
+      "adversarial-review": "garrison-adversarial-review",
+      "security-review": "garrison-security-review",
+      "test": "garrison-test",
+      "adversarial-test": "garrison-adversarial-test",
+      "ux-qa": "garrison-ux-qa",
+      "walkthrough": "garrison-walkthrough",
+      "validate": "garrison-validate",
+      "codex-checkpoint": "garrison-codex-checkpoint",
+      "report": "garrison-report"
+    },
+    "overrides": {}
+  },
+  "projects": {
+    "agent-garrison": {
+      "security_sensitive": false,
+      "profile": {
+        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:27777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
+      }
+    }
+  },
+  "uxQa": {
+    "severityThreshold": "major"
+  },
+  "coordination": {
+    "enabled": true,
+    "thresholds": {
+      "heavyFiles": 3,
+      "heavyRatio": 0.5
+    },
+    "exclusiveLeases": [
+      "apm.lock.yaml",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock"
+    ],
+    "fences": {
+      "enabled": true,
+      "trailer": "Garrison-Card"
+    },
+    "leaseTtlMinutes": 60,
+    "serializeWhenUnavailable": true
+  }
+}

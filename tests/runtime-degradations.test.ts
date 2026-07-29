@@ -18,7 +18,7 @@ describe("runtime degradations (S2d)", () => {
   });
 
   it("every non-claude primary carries the full enforcement-degradation list", () => {
-    for (const engine of ["codex", "gemini", "opencode", "agent-sdk"]) {
+    for (const engine of ["codex", "gemini", "opencode", "cursor", "agent-sdk"]) {
       expect(isEnforcementDegraded(engine)).toBe(true);
       expect(degradationsForEngine(engine)).toBe(ENFORCEMENT_DEGRADATIONS);
       expect(degradationsForEngine(engine).length).toBeGreaterThan(0);

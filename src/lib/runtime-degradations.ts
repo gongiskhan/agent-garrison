@@ -24,7 +24,7 @@ export const ENFORCEMENT_DEGRADATIONS: readonly RuntimeDegradation[] = [
   },
   {
     behavior: "Resume",
-    advisory: "adapter-native (codex resume / opencode -s / SDK sessionId), not --continue",
+    advisory: "adapter-native (codex resume / opencode -s / cursor --resume / SDK sessionId), not --continue",
     why: "Each runtime re-attaches by its own session id — same intent, different mechanism."
   },
   {

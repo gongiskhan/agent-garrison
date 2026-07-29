@@ -672,6 +672,11 @@ async function initRouting() {
       claudeBinary: CLAUDE_BINARY,
     },
     initialTarget: { provider: PRIMARY_PROVIDER, model: MODEL, effort: null },
+    // Pin the ROUTING BRAIN (Stage-A classification + the Dispatcher's
+    // single-shot call) to the PRIMARY engine (gateway fitting config
+    // `routing_on_primary`). Unset = the historical cheap claude-code haiku
+    // classifier + garrison-call dispatch, byte-for-byte.
+    ...(process.env.GARRISON_ROUTING_ON_PRIMARY === "1" ? { routingOnPrimary: true } : {}),
     logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
   });
   await router.start();

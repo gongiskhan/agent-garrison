@@ -180,7 +180,10 @@ function ollamaDelegate(fitting, tmp) {
   return { status: "degraded", note: `delegate over ollama/${OLLAMA_MODEL} did not return a summary (small-local-model quality / transport): ${why}` };
 }
 
-function codexDelegate(fitting, tmp, env) {
+// One BILLED delegate round-trip through a subscription-backed exec runtime
+// (codex on a ChatGPT plan, cursor on a Cursor plan). Budget-gated by the caller
+// to a single call per harness run — `label` only names the engine in the note.
+function billedDelegate(fitting, tmp, env, label = "codex") {
   const spec = { task: TURN_PROMPT, paths: [], constraints: [], cwd: tmp };
   const r = runtimeBridge(fitting, ["delegate"], { input: JSON.stringify(spec), timeout: 240000, env });
   let parsed = null;
@@ -190,10 +193,10 @@ function codexDelegate(fitting, tmp, env) {
     /* leave null */
   }
   if (r.code === 0 && parsed && typeof parsed.summary === "string") {
-    return { status: "pass", note: `codex delegate round-trip ok (budgeted single call); summary "${parsed.summary.slice(0, 60).replace(/\s+/g, " ")}"` };
+    return { status: "pass", note: `${label} delegate round-trip ok (budgeted single call); summary "${parsed.summary.slice(0, 60).replace(/\s+/g, " ")}"` };
   }
   const why = (parsed?.message || r.stderr.trim() || `exit ${r.code}`).replace(/\s+/g, " ").slice(0, 180);
-  return { status: "degraded", note: `codex delegate returned no summary: ${why}` };
+  return { status: "degraded", note: `${label} delegate returned no summary: ${why}` };
 }
 
 // Connector catalog parse — no external calls; just assert the manifest's
@@ -271,13 +274,26 @@ async function runCell(fitting, primary, ctx) {
           : { status: "verify-only", note: "no delegate bridge (primary-only runtime); health via probe" };
       } else if (action.engine === "codex") {
         if (primary === "codex" && !ctx.budget.codexDelegateConsumed) {
-          a = codexDelegate(fitting, ctx.tmp, ctx.codexEnv);
+          a = billedDelegate(fitting, ctx.tmp, ctx.codexEnv, "codex");
           ctx.budget.codexDelegateConsumed = true;
         } else {
           const pr = bridgeProbe(fitting);
           a = pr.ok
             ? { status: "verify-only", note: "codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed)" }
             : { status: "fail", note: `codex probe failed: ${pr.out.slice(0, 120)}` };
+        }
+      } else if (action.engine === "cursor") {
+        // Cursor bills a real subscription per turn, exactly like codex — same
+        // one-call budget gate. Falling through to the ollama branch below would
+        // hand it `ollama-local/qwen2.5:3b`, a model id Cursor has no notion of.
+        if (primary === "cursor" && !ctx.budget.cursorDelegateConsumed) {
+          a = billedDelegate(fitting, ctx.tmp, undefined, "cursor");
+          ctx.budget.cursorDelegateConsumed = true;
+        } else {
+          const pr = bridgeProbe(fitting);
+          a = pr.ok
+            ? { status: "verify-only", note: "cursor delegate round-trip is budget-gated to ONE call (spent in the cursor column); read-only --probe here (CLI authed)" }
+            : { status: "fail", note: `cursor probe failed: ${pr.out.slice(0, 120)}` };
         }
       } else {
         // agent-sdk / opencode → free ollama delegate
@@ -613,7 +629,7 @@ function loadCache(p) {
       /* fall through to fresh */
     }
   }
-  return { runAt: null, env: null, order: [], primaries: {}, fittingOrder: [], fittingMeta: {}, budget: { codexDelegateConsumed: false } };
+  return { runAt: null, env: null, order: [], primaries: {}, fittingOrder: [], fittingMeta: {}, budget: { codexDelegateConsumed: false, cursorDelegateConsumed: false } };
 }
 
 async function main() {
@@ -631,7 +647,7 @@ async function main() {
   cache.fittingMeta = Object.fromEntries(fittings.map((f) => [f.id, { faculty: f.faculty, action: classifyAction(f).type }]));
   cache.env = probeEnv();
   cache.runAt = new Date().toISOString();
-  cache.budget = cache.budget ?? { codexDelegateConsumed: false };
+  cache.budget = cache.budget ?? { codexDelegateConsumed: false, cursorDelegateConsumed: false };
 
   const primaries = args.primaries ?? DEFAULT_PRIMARIES;
   for (const p of primaries) {

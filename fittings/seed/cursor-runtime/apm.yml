@@ -1,0 +1,152 @@
+name: cursor-runtime
+version: 0.1.0
+description: Cursor Agent CLI runtime (Runtimes Faculty) — drives `cursor-agent -p` (non-interactive, prompt via stdin, single JSON result object, `--resume` chat continuity) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. Usable as a secondary delegate target or as the composition's PRIMARY engine.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  # Cursor's own native login — a browser OAuth flow that lands a credential in
+  # Cursor's config dir. There is no Garrison account plane for Cursor yet (no
+  # AccountPlatform, so this fitting deliberately declares NO `account` config
+  # key rather than showing an inert picker); the box's own login is the identity,
+  # or a CURSOR_API_KEY in the environment.
+  login:
+    command: cursor-agent login
+    storage_hint: "~/.config/cursor/auth.json (Cursor account OAuth; one account at a time). Set NO_OPEN_BROWSER to get a pasteable URL."
+  cardinality_hint: multi
+  component_shape: cli-skill
+  platforms:
+    - all
+  summary: >-
+    A Runtimes fitting for the Cursor Agent CLI. Implements the RuntimeAdapter
+    contract over `cursor-agent -p --output-format json` (clean non-PTY channel —
+    the prompt travels via stdin, never argv; one machine-readable result object
+    per run) and ships a runtime-bridge exposing the uniform
+    delegate(task_spec) -> {summary, artifacts} tool. Cursor fronts a large
+    multi-lab model catalog (GPT/Codex, Claude, Gemini, Grok, Composer, Kimi)
+    behind ONE subscription, so a composition can route every duty through it.
+    Multi-turn continuity comes from Cursor's own `--resume <chatId>` — no
+    standing server needed. Works as a secondary delegate target and as the
+    PRIMARY engine.
+  config_schema:
+    - key: model
+      type: string
+      default: auto
+      description: >-
+        Default Cursor model for delegated tasks — a model id from
+        `cursor-agent --list-models` (auto, gpt-5.3-codex-high, claude-opus-5-thinking-high,
+        composer-2.5, gemini-3.6-flash-high, …). Reasoning effort is part of the id;
+        there is no separate effort control.
+  provides:
+    - kind: runtime
+      name: cursor
+  consumes: []
+  # D3 (GARRISON-RUNTIMES-V1): Cursor overrides apply through the ENVIRONMENT and
+  # the per-run model argument, not a config table — CURSOR_API_ENDPOINT retargets
+  # the API, CURSOR_API_KEY authenticates, and the model is `--model`. Its native
+  # cli-config.json holds permissions/editor/display, NOT provider wiring, so an
+  # honest declaration is `env`, not `config-file`.
+  provider_mechanism:
+    type: env
+    base_url_env: CURSOR_API_ENDPOINT
+    auth_env: CURSOR_API_KEY
+    model_arg: --model
+    notes: >-
+      Reasoning effort is encoded in the model id (…-low / …-high / …-xhigh), not a
+      flag. The bracket-override form the CLI advertises is accepted only by its
+      parameterized models, so Garrison never synthesizes one.
+  # D5/P6: the generic Quarters tier renders the Cursor engine's native config
+  # surfaces from this descriptor — labels verified against the installed CLI
+  # (cursor-agent 2026.07.23): cli-config.json is the settings + permissions
+  # surface, mcp.json is the MCP surface (`mcpServers`), AGENTS.md is the
+  # context-file convention (verified live: an AGENTS.md in the workspace IS
+  # obeyed), and ~/.cursor/projects/<slug>/worker.log is the tailable output.
+  quarters_descriptor:
+    tier: generic
+    id: cursor
+    home_dir: ~/.cursor
+    settings_files:
+      - path: ~/.cursor/cli-config.json
+        format: json
+        label: cli-config.json — permissions allow/deny, editor, display, notifications
+    context_file: AGENTS.md
+    mcp_config:
+      path: ~/.cursor/mcp.json
+      format: json
+      key: mcpServers
+    log_paths:
+      - ~/.cursor/projects
+    categories:
+      - settings
+      - context
+      - mcps
+      - logs
+  setup:
+    # Every instance profile redirects XDG_CONFIG_HOME to $GARRISON_HOME/xdg/config,
+    # and that is exactly where Cursor keeps its login — so without this the box's
+    # own `cursor-agent login` is invisible to the runtime and every turn fails
+    # unauthenticated. Symlink (not copy: Cursor rotates its refresh token in
+    # place, and there is no account plane to isolate) the real ~/.config/cursor
+    # into the instance's XDG home. Idempotent; never clobbers existing state.
+    # NB: setup runs with cwd = the fitting's installed dir (verify runs from the
+    # composition dir) — hence the bare relative path here, not apm_modules/....
+    command: node scripts/link-config-home.mjs
+    idempotent: true
+    timeout_ms: 10000
+  verify:
+    command: node apm_modules/_local/cursor-runtime/scripts/bridge.mjs --probe
+    expect: ok
+    timeout_ms: 30000
+  for_consumers: |
+    Cursor-as-secondary. When the orchestrator resolves a task to
+    `secondary:cursor`, the primary calls this fitting's runtime-bridge tool:
+      delegate(task_spec) -> {summary, artifacts}
+    The task spec (JSON: task, paths, constraints, model, cwd, expectedSchema) is
+    passed via STDIN (never argv). Per turn the bridge runs a stateless
+    `cursor-agent -p --output-format json --trust --force --model <id>` subprocess
+    with the prompt on stdin, capturing the minted Cursor chat id so follow-up
+    turns resume it with `--resume`. Full output lands in the Artifact Store; the
+    return is a schema-validated summary + artifact paths; every delegation is
+    appended to decisions.jsonl. No machine-wide lock is needed — Cursor has no
+    shared-token revocation issue, so concurrent cursor-agent processes are safe.
+    CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
+    Probe: node scripts/bridge.mjs --probe   → prints "ok"
+
+    Models. `cursor-agent --list-models` is the authoritative catalog for the
+    signed-in account; it spans labs (gpt-5.x / Codex, claude-opus-5 / fable,
+    gemini-3.x, cursor-grok, composer, kimi). `auto` lets Cursor pick. Effort is
+    part of the id — `gpt-5.3-codex-low` vs `gpt-5.3-codex-high` — so to change
+    effort you route to a different model id, NOT an effort flag.
+
+    Permissions. The gateway's permission mode is mapped at the runtime boundary:
+    auto / bypassPermissions / full-auto → `--trust --force` (run everything);
+    acceptEdits / allow-file-edits → `--trust --force --sandbox enabled`;
+    anything else fails closed to `--trust --mode ask` (read-only Q&A). `--trust`
+    is on every path because an untrusted workspace makes cursor-agent exit 0 with
+    a human "Workspace Trust Required" notice — a silent no-op turn otherwise.
+
+    Auth. Cursor authenticates with its OWN login (`cursor-agent login`, stored at
+    ~/.config/cursor/auth.json) or a CURSOR_API_KEY. Pinning a Garrison account to
+    this runtime does nothing — there is no Cursor AccountPlatform yet, which is
+    why this fitting exposes no `account` config key. The bridge probe checks
+    authentication, not just the binary, so a logged-out box fails `up` loudly
+    instead of failing every turn later.
+
+    Auth and instance isolation (the non-obvious part). Cursor stores its login
+    under XDG — $XDG_CONFIG_HOME/cursor/auth.json — and every Garrison profile
+    redirects XDG_CONFIG_HOME to $GARRISON_HOME/xdg/config. So a box that HAS run
+    `cursor-agent login` still reads as unauthenticated inside an instance until
+    the setup hook links the real ~/.config/cursor into that XDG home. It is a
+    symlink, not a copy: Cursor rotates its refresh token in place, and a copy
+    would silently go stale. Consequence: all instances (dev/prod/codex) share the
+    one Cursor identity — the honest state of affairs, since Cursor has one
+    machine login. If you log out on the host, every instance is logged out too.
+
+    Context telemetry and compaction (degradation). Each turn is a fresh
+    `cursor-agent -p`, but `--resume <chatId>` means context DOES accumulate
+    server-side across turns. The result event carries a `usage` block
+    (inputTokens / outputTokens / cacheReadTokens / cacheWriteTokens), which the
+    adapter records on the session — but Cursor publishes no context-window size
+    or utilization, and exposes no compaction command, so a Cursor turn reports no
+    context %, no peak context, and no compactions.

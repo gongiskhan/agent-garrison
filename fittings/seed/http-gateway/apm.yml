@@ -20,6 +20,18 @@ x-garrison:
       type: string
       default: 127.0.0.1
       description: Local bind address.
+    - key: routing_on_primary
+      type: boolean
+      default: false
+      description: >-
+        Run the whole routing brain — Stage-A classification AND the Dispatcher's
+        single-shot call — on the PRIMARY runtime's own adapter, instead of the
+        default cheap Claude Code haiku classifier and garrison-call dispatch.
+        Turn this on for a single-engine composition (garrison-call speaks HTTP
+        wire shapes only, so it cannot reach a CLI engine at all), or on a box
+        where the claude CLI is on PATH but cannot actually spawn (this instance's
+        Claude config dir is not logged in) — otherwise the classifier fails to
+        warm and every turn falls through unclassified to the default route.
     # Compact controller (S1b). Global defaults; a per-runtime override map may be
     # carried in the same config object under `compaction` (keys: claude-code,
     # agent-sdk, openai-agents, codex, opencode) and is projected as JSON to the

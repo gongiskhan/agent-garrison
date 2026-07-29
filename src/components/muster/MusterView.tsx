@@ -46,6 +46,7 @@ function runtimeMark(runtime: string): string {
     case "codex": return "CX";
     case "gemini": return "GM";
     case "opencode": return "OP";
+    case "cursor": return "CR";
     case "garrison-call": return "GC";
     default: return (runtime || "?").slice(0, 2).toUpperCase();
   }

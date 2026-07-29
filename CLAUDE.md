@@ -149,7 +149,8 @@ Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
 `orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
 `sessions`, `surfaces`, `modes`. The 2026-06-18 split carved the overloaded `sessions`
 role into three: `sessions` keeps the Dev Env surface + artifact store,
-`runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini),
+`runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini /
+OpenCode / Cursor),
 and `surfaces` holds the auxiliary own-port viewers (screen-share / browser /
 outpost). Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings,
 Context, Plans — is now a **Quarters platform primitive** surfaced over the real
@@ -207,6 +208,54 @@ derived by the resolver from `ui.views[]` / `own_port`, never declared in
 `identity-gary`, and `duty` carries the per-duty behaviour. Dropped:
 `data-source` (2026-06-26, superseded by `connector`) and `artifact-store`
 (the file-browser Fitting is the artifact surface).
+
+### Runtime engines (adding one)
+
+Engine names live in the runtime Fitting's `provides: [{kind: runtime, name}]`;
+nothing else derives them. A new exec-style engine (a stateless
+`run`/`exec` subprocess per turn, prompt on stdin) is one Fitting +
+a short list of registrations:
+
+- `fittings/seed/<engine>-runtime/` — `apm.yml`, `lib/<engine>-adapter.mjs`
+  (the RuntimeAdapter), `scripts/bridge.mjs` (`--probe` + `delegate`).
+  The adapter file/class names are load-bearing: `resolveSecondaryDir` imports
+  `lib/<engine>-adapter.mjs`.
+- `data/library.json` — the registry entry that makes it selectable.
+- `gateway-routing.mjs` — `EXEC_ADAPTER_CLASS` (the ONE registry; the secondary
+  lane and the primary warm seam both read it), `EXEC_ENGINE_DEFAULTS`,
+  `KNOWN_PRIMARY_ENGINES`, and `effortControllable` / `accountPlatformForTarget`
+  when the engine lacks an effort control or an account vehicle.
+- `AGENTIC_RUNTIMES` in `src/lib/router-migrate.ts` **and**
+  `src/components/muster/cell-validation.ts`; the runtime marks in
+  `MusterView.tsx` / `PolicyPanel.tsx`.
+- `PRIMARY_CONTEXT_FILES` in `src/lib/orchestrator-projection.ts` when the engine
+  reads a native context file — that map is also the list `up()` projects for.
+
+**Cursor (2026-07-29).** `cursor-runtime` drives `cursor-agent -p
+--output-format json` (prompt on stdin, one JSON result object, `--resume`
+continuity), as a secondary target or as the PRIMARY. Two traps worth
+remembering: (1) Cursor encodes reasoning **effort in the model id**
+(`gpt-5.3-codex-low` vs `-high`) — there is no effort flag, so escalation means
+routing to another model; (2) every instance profile redirects
+`XDG_CONFIG_HOME`, and that is exactly where Cursor keeps its login, so the
+fitting's setup hook symlinks the real `~/.config/cursor` into the instance's XDG
+home — without it a logged-in box reads as unauthenticated. Cursor has no
+Garrison AccountPlatform, so the Fitting declares no `account` key and its
+targets declare no `provider` (the routing validator only knows providers from
+the policy's `providers` section). `compositions/csg/` is the all-Cursor
+composition: `primaryRuntime: cursor-runtime` plus a cursor-only target set.
+
+**`routing_on_primary` (http-gateway config, added with Cursor, default off).**
+Pins the whole routing brain — Stage-A classification AND the Dispatcher's
+single-shot call — to the primary runtime's own adapter. One key, because
+splitting them invites a composition that routes half on the primary and half on
+a second engine. Both halves otherwise reach elsewhere: the classifier defaults
+to a cheap Claude Code haiku PTY *whatever the primary is* (and
+`claudeCodeResolvable` is only a PATH probe — on an instance whose
+`CLAUDE_CONFIG_DIR` is not logged in the pool half-starts and every turn logs
+`classify-failed` and falls through, silently), while the Dispatcher calls
+through `garrison-call`, which speaks HTTP wire shapes only and cannot reach a
+CLI engine at all. Default-off keeps every existing composition byte-identical.
 
 ### The runner (`src/lib/runner.ts`)
 

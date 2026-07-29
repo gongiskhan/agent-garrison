@@ -159,7 +159,10 @@ export function orchestratorAppendSystemPrompt(instructions: string): string {
 // generic Quarters tier shows provenance and refuses raw edits over it.
 export const PRIMARY_CONTEXT_FILES: Record<string, string> = {
   codex: "AGENTS.md",
-  gemini: "GEMINI.md"
+  gemini: "GEMINI.md",
+  // Verified live against cursor-agent 2026.07.23: an AGENTS.md in the workspace
+  // IS read and obeyed by a headless `cursor-agent -p` run.
+  cursor: "AGENTS.md"
 };
 
 export interface PrimaryProjectionResult {

@@ -34,7 +34,7 @@ import {
   type RuntimeEntry
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
-import { projectPrimaryContext } from "./orchestrator-projection";
+import { PRIMARY_CONTEXT_FILES, projectPrimaryContext } from "./orchestrator-projection";
 import {
   clearKanbanResolvedModel,
   computeKanbanResolvedModel,
@@ -510,9 +510,11 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // P8/D7: per-primary orchestrator prompt delivery. claude-code keeps the
     // existing append-system-prompt path (untouched); agent-sdk consumes the
     // prompt through the SDK systemPrompt mechanism at the gateway warm seam;
-    // a codex/gemini primary gets the assembled prompt PROJECTED to its native
-    // context-file convention, with the authority warning PRINTED, not hidden.
-    if (primaryRuntime.engine === "codex" || primaryRuntime.engine === "gemini") {
+    // a codex/gemini/cursor primary gets the assembled prompt PROJECTED to its
+    // native context-file convention, with the authority warning PRINTED, not
+    // hidden. The engine list is PRIMARY_CONTEXT_FILES itself, so registering a
+    // new context-file convention there is the only edit an engine needs.
+    if (Object.hasOwn(PRIMARY_CONTEXT_FILES, primaryRuntime.engine)) {
       const assembled = await fs.readFile(promptPath, "utf8");
       const projection = await projectPrimaryContext({
         engine: primaryRuntime.engine,
@@ -1630,6 +1632,31 @@ function compactEnv(config: Record<string, unknown>): Record<string, string> {
   return env;
 }
 
+// Project the gateway fitting's `routing_on_primary` config into its spawn env.
+// It pins the whole ROUTING BRAIN — Stage-A classification AND the Dispatcher's
+// single-shot call — to the primary runtime's own adapter. One key, because
+// splitting them invites a composition that routes half on the primary and half
+// on a second engine.
+//
+// Why it exists, from two real failures on an all-Cursor composition:
+//   - the classifier defaults to a cheap Claude Code haiku PTY regardless of
+//     primary, and "is claude-code available" is a PATH probe that says nothing
+//     about whether that CLI can spawn (an instance with its own
+//     CLAUDE_CONFIG_DIR may be unauthenticated). When the spawn fails, the warm
+//     pool half-starts and EVERY turn logs classify-failed and falls through to
+//     the default route — silently.
+//   - the Dispatcher calls through garrison-call, which speaks HTTP wire shapes
+//     only, so it cannot reach a CLI engine at all: dispatch would always take
+//     the deterministic keyword fallback.
+//
+// Absent/false → byte-identical to the historical behaviour.
+function routingBrainEnv(config: Record<string, unknown>): Record<string, string> {
+  const raw = config.routing_on_primary;
+  if (raw === undefined || raw === null) return {};
+  const on = raw === true || String(raw).trim().toLowerCase() === "true";
+  return on ? { GARRISON_ROUTING_ON_PRIMARY: "1" } : {};
+}
+
 // ── gateway pid records ─────────────────────────────────────────────────────
 // The in-memory RunnerRecord dies with the Garrison server process, but the
 // gateway child does not: it keeps serving the OLD composition config on the
@@ -1793,6 +1820,7 @@ async function spawnGateway(
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
     ...compactEnv(gateway.config),
+    ...routingBrainEnv(gateway.config),
     ...(extraEnv ?? {})
   };
 
