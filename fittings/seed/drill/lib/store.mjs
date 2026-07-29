@@ -169,7 +169,7 @@ export async function savePage(pageId, patch, root = drillTargetRoot()) {
   await atomicWriteFile(file, yaml.dump(merged));
   const readBack = await readYaml(file);
   if (!readBack) throw new Error(`page ${id} write verification failed (read-back empty)`);
-  return readBack;
+  return normalizePage(readBack);
 }
 
 export async function deletePage(pageId, root = drillTargetRoot()) {
