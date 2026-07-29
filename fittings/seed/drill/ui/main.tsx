@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
 import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
+// Every page crossing into this UI goes through these - a page file may omit
+// `areas`/`steps`/`states` entirely, and an unguarded `.map` on one white-
+// screens the whole surface. See the module header.
+import { normalizePage, normalizePages } from "./page-normalize";
 
 // ─── API ─────────────────────────────────────────────────────────────────
 // Drill's own server serves this UI, so relative paths hit the same origin.
@@ -656,7 +660,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
 
   const load = () => {
     Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")])
-      .then(([b, p]) => { pinnedRootRef.current = b.root ?? pinnedRootRef.current; setBook(b.book); setPages(p.pages); })
+      .then(([b, p]) => { pinnedRootRef.current = b.root ?? pinnedRootRef.current; setBook(b.book); setPages(normalizePages<DrillPage>(p.pages)); })
       .catch((e) => setError(e.message));
   };
 
@@ -695,9 +699,9 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
       const [b, p] = await Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]);
       pinnedRootRef.current = b.root ?? pinnedRootRef.current;
       setBook(b.book);
-      setPages(p.pages);
+      const freshPages = normalizePages<DrillPage>(p.pages);
+      setPages(freshPages);
       const freshBook = b.book as DrillBook;
-      const freshPages = p.pages as DrillPage[];
       if (freshPages.length === 0) throw new Error("planning finished but the Book still has no pages - see the plan log");
       if (thenRun) {
         const ticked = freshBook.pages.filter((pg) => pg.selected).map((pg) => pg.id);
@@ -1197,11 +1201,12 @@ function AuthoringView({ initialPageId, onPageChange }: {
   const loadPages = () => {
     return apiGet("/api/pages").then((r) => {
       pinnedRootRef.current = r.root ?? pinnedRootRef.current;
-      setPages(r.pages);
+      const loaded = normalizePages<DrillPage>(r.pages);
+      setPages(loaded);
       const previous = pageIdRef.current;
-      const next = previous && r.pages.some((candidate: DrillPage) => candidate.id === previous)
+      const next = previous && loaded.some((candidate) => candidate.id === previous)
         ? previous
-        : (r.pages.length > 0 ? r.pages[0].id : null);
+        : (loaded.length > 0 ? loaded[0].id : null);
       pageIdRef.current = next;
       setPageId(next);
       // Keep the parent route in sync from this async completion, never from
@@ -1445,15 +1450,16 @@ function AuthoringView({ initialPageId, onPageChange }: {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.page) throw new Error(body.error || `save failed (${response.status})`);
+      const saved = normalizePage(body.page as DrillPage);
       pagesRef.current = pagesRef.current.map((candidate) =>
-        candidate.id === targetPageId ? body.page : candidate
+        candidate.id === targetPageId ? saved : candidate
       );
       setPages(pagesRef.current);
       setSaveStatus("saved");
       setPickError((currentError) =>
         currentError?.startsWith("Could not save the Drill Book:") ? null : currentError
       );
-      return body.page as DrillPage;
+      return saved;
     }).catch((err) => {
       setSaveStatus("error");
       setPickError(`Could not save the Drill Book: ${err.message}`);
@@ -4508,7 +4514,7 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")])
       .then(([p, b, r]) => {
-        setPages(p.pages);
+        setPages(normalizePages<DrillPage>(p.pages));
         setPagesLoaded(true);
         setBook(b.book);
         setRuns(r.runs);
@@ -5242,8 +5248,9 @@ function StatesView({
 
   const load = () => {
     apiGet("/api/pages").then((r) => {
-      setPages(r.pages);
-      if (!pageId && r.pages.length > 0) setPageId(r.pages[0].id);
+      const loaded = normalizePages<DrillPage>(r.pages);
+      setPages(loaded);
+      if (!pageId && loaded.length > 0) setPageId(loaded[0].id);
     }).catch((e) => setError(e.message));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch
@@ -5336,6 +5343,28 @@ const VIEWS: Array<{ id: string; label: string }> = [
   { id: "states", label: "States" },
   { id: "results", label: "Run & results" }
 ];
+
+// A render throw inside a view unmounts the ENTIRE app: React tears the tree
+// down and the user is left staring at a white rectangle, with the only trace
+// a stack in a console they would have to open DevTools to read. Blanking the
+// surface is a far worse failure than showing the error, so each view renders
+// inside this boundary - the shell (tabs, project bar) stays usable, the
+// message is on screen, and the other views are still reachable.
+class ViewErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) { console.error("[drill] view crashed", error); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="dr-placeholder">
+        <div><b>This view hit an error and stopped rendering.</b></div>
+        <div className="mono t11" style={{ margin: "8px 0", color: "var(--mute)" }}>{this.state.error.message}</div>
+        <button className="btn small" onClick={() => this.setState({ error: null })}>try again</button>
+      </div>
+    );
+  }
+}
 
 function App() {
   const initialLocation = () => {
@@ -5431,6 +5460,8 @@ function App() {
         </div>
       </div>
       <div className="dr-body">
+        {/* Keyed on the view so switching tabs clears a boundary that tripped. */}
+        <ViewErrorBoundary key={view}>
         {view === "book" && <BookView onRunSelected={runSelected} projInfo={projInfo} onOpenPicker={() => setPickerOpen(true)} onGoAuthoring={(pageId) => navigate("authoring", { pageId: pageId ?? null })} />}
         {view === "authoring" && (
           <AuthoringView
@@ -5470,6 +5501,7 @@ function App() {
             }}
           />
         )}
+        </ViewErrorBoundary>
       </div>
       {pickerOpen && projInfo && <ProjectPickerDialog info={projInfo} onClose={() => setPickerOpen(false)} />}
     </>
