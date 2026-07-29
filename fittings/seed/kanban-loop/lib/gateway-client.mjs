@@ -171,6 +171,7 @@ export function compactBoundaryFn(gatewayUrl) {
 export function gatewayRunFn(gatewayUrl) {
   return async ({
     prompt,
+    card,
     classification,
     list,
     skill,
@@ -251,6 +252,20 @@ export function gatewayRunFn(gatewayUrl) {
           stepIndex: Number.isInteger(stepIndex) ? stepIndex : null,
           sequence: Array.isArray(sequence) ? sequence : null,
           suppressContinuations: suppressContinuations ?? true,
+          // THE TURN'S CWD. A card names a project; its run must happen IN that
+          // project's repo. Without this the gateway had no projectPath, fell back to
+          // GARRISON_COMPOSITION_DIR, and every card's turn ran in the composition
+          // directory — work landed in the right repo only because the prompt named
+          // the project and the agent navigated there itself.
+          //
+          // It goes under `routing`, NOT as a bare top-level `project`: `body.project`
+          // already means the D19 card-creation label on other channels, and giving it
+          // cwd meaning here would silently change their behaviour. `routing.project`
+          // is the pinned-intent channel the gateway validates at the edge
+          // (sanitizeRouting) and resolves to a git repo under the dev root. An
+          // unresolvable name is REJECTED and reported in overridesRejected — never
+          // silently run in the composition dir while claiming the project.
+          routing: card?.project ? { project: card.project } : undefined,
           timeoutMs: KANBAN_TURN_TIMEOUT_MS,
           // S1b: whether this duty holds off compaction + the card+phase key, so the
           // gateway's turn-boundary check honors the hold and stamps the compact log.

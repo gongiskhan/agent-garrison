@@ -469,6 +469,10 @@ export function batchGatewayRunFn(gatewayUrl) {
     if (nudge) {
       return streamRunFn({
         prompt: nudge,
+        // A batch runs one session per PROJECT, so the whole group shares a cwd —
+        // the same routing.project the per-card path sends. Without it the batch
+        // (the Test list) ran in the composition dir too.
+        card: project ? { project } : null,
         classification,
         skill,
         suppressContinuations: suppressContinuations ?? true,
@@ -502,6 +506,8 @@ export function batchGatewayRunFn(gatewayUrl) {
     ].join("\n");
     return streamRunFn({
       prompt,
+      // The batch is grouped BY project, so every card in it shares this cwd.
+      card: project ? { project } : null,
       classification,
       skill,
       suppressContinuations: suppressContinuations ?? true,
