@@ -381,6 +381,12 @@ body {
 }
 .card .ct .title {
   flex: 1 1 auto;
+  /* A flex item's min-width defaults to auto, so a long unbroken token (a ULID
+     in a "Drill batch fix (report 01KX…)" title) forces the item wider than the
+     card and the text spills past its right edge. Pin the floor to 0 and let
+     the token break. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 600;
   font-size: 13px;
   color: var(--ink);
