@@ -69,6 +69,19 @@ export interface DispatchJob {
   run: DispatchRun;
   leaseSeconds: number;
   heartbeatSeconds: number;
+  // The environment to materialize before running (brief D2/D3). Absent when
+  // the card's project has no Loadout — the run then happens wherever the
+  // worker's workdir is, which is fine for a stub but not for real work.
+  loadout?: unknown;
+  // The ALREADY-RENDERED .env body, resolved from the vault ON THE HOST. This
+  // is the only form in which a secret travels: the vault file and its master
+  // key never leave this machine, and the worker never learns a vault key name
+  // it was not given a value for. Never log a job payload.
+  envContent?: string;
+  // Which vault entry supplied each name (the PROJECT__VAR override, or the
+  // bare name). Names only, never values — enough to debug a wrong-value
+  // report without printing the value.
+  envSources?: Record<string, string>;
 }
 
 interface RawCard {
@@ -255,7 +268,7 @@ export function findExpiredClaims(
   });
 }
 
-export function buildJob(card: ClaimableCard): DispatchJob | null {
+export function buildJob(card: ClaimableCard, extra: Partial<DispatchJob> = {}): DispatchJob | null {
   // v1 dispatches only stub commands — enough to prove claim → heartbeat →
   // status → evidence with zero model tokens. A card with no command is not
   // yet runnable remotely; returning null keeps it visible as unclaimable
@@ -268,7 +281,8 @@ export function buildJob(card: ClaimableCard): DispatchJob | null {
     project: card.project,
     run: { kind: "command", command: card.command },
     leaseSeconds: DISPATCH_LEASE_SECONDS,
-    heartbeatSeconds: DISPATCH_HEARTBEAT_SECONDS
+    heartbeatSeconds: DISPATCH_HEARTBEAT_SECONDS,
+    ...extra
   };
 }
 

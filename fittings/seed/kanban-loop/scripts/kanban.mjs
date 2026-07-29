@@ -14,7 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns } from "../lib/engine.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
@@ -540,6 +540,10 @@ async function tick() {
   // orphaned card is wedged regardless, and the sweep needs no operative.
   const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
   for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
+  // Same beat, the cross-machine case: a dispatched card whose worker stopped
+  // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
+  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
+  for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
   if (!gatewayUrl) {
     // Distinct from "the gateway is down": this instance never told the tick WHICH
     // gateway is its own, so dispatching would be a guess. Silently logging
@@ -609,6 +613,10 @@ async function tickList(listId) {
   // indistinguishable message that hid the dead prod tick for weeks.
   const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
   for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
+  // Same beat, the cross-machine case: a dispatched card whose worker stopped
+  // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
+  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
+  for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
   if (!gatewayUrl) {
     console.log(
       "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +

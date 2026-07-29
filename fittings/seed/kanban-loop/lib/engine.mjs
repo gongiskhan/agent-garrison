@@ -84,6 +84,7 @@ import {
   dutyGateExplicit,
   resolveExecutionStep
 } from "./resolved-model.mjs";
+import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mjs";
 import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief } from "./notify-origin.mjs";
 import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
 
@@ -2190,6 +2191,14 @@ export function orphanRunThresholdMs() {
 
 export function isOrphanedRun(card, { at = Date.now(), thresholdMs = orphanRunThresholdMs(), host = hostname() } = {}) {
   if (!card || card.status !== "running") return null;
+  // A card held by a LIVE dispatch claim is being driven by a worker on another
+  // machine, and its heartbeat is far better evidence than anything local. Both
+  // fallbacks below are single-machine and would misfire here: the runOwner pid
+  // belongs to another host (so isPidAlive is meaningless, and may even match an
+  // unrelated local process), and the run-age ceiling would reclaim a remote run
+  // that is progressing perfectly well. Expiry of a dispatch claim is handled by
+  // sweepExpiredDispatchClaims, which knows about the lease.
+  if (isDispatchClaimLive(card, { at })) return null;
   const owner = card.runOwner && typeof card.runOwner === "object" ? card.runOwner : null;
   if (owner && owner.host === host && Number.isInteger(owner.pid)) {
     if (!isPidAlive(owner.pid)) return `its driver (pid ${owner.pid}) is gone`;
@@ -2230,6 +2239,57 @@ export async function sweepOrphanedRuns(root, { now = () => new Date().toISOStri
           kind: "recovered",
           message: `Released a lost run on ${c.list} — ${why}`,
           detail: "The dispatch driver went away without writing a result. The card is retryable; any work its runDir already holds is preserved."
+        })
+      };
+    });
+    if (res) swept.push(card.id);
+  }
+  return swept;
+}
+
+// Reclaim cards whose remote worker went silent (Outpost Dispatch).
+//
+// The sibling of sweepOrphanedRuns, for the cross-machine case. A machine that
+// sleeps, loses its network, or dies mid-run stops heartbeating; without this
+// its card stays claimed forever and is invisible to every other machine,
+// because claimability() refuses a card whose claim is still held.
+//
+// PLACEMENT IS CLEARED on reclaim (the product decision): the card returns to
+// needs-attention untargeted, so it can be re-dispatched anywhere rather than
+// stranded waiting for a machine that may never come back. The machine is NAMED
+// in the reason — "it failed" is not actionable, "the Mac mini went silent" is.
+export async function sweepExpiredDispatchClaims(
+  root,
+  { now = () => new Date().toISOString(), at = () => Date.now() } = {}
+) {
+  const cards = await loadAllCards(root);
+  const swept = [];
+  for (const card of cards) {
+    if (!isDispatchClaimExpired(card, { at: at() })) continue;
+    const machine = card.dispatch?.machine || "an outpost";
+    const res = await updateCardCAS(root, card.id, (c) => {
+      // Re-check under the lock: the worker may have heartbeated or reported a
+      // terminal status between our read and this write.
+      if (!isDispatchClaimExpired(c, { at: at() })) return null;
+      const reason = `Dispatched run on ${machine} went silent (no heartbeat within the lease). The card was reclaimed and its placement cleared, so it can be sent to any machine.`;
+      return {
+        ...c,
+        list: "needs-attention",
+        status: "needs-attention",
+        runningSince: null,
+        runOwner: null,
+        // Untargeted, per the reclaim decision.
+        placement: { target: "host" },
+        // Keep the claim record as evidence of WHERE it was, marked terminal so
+        // it is neither live nor swept again.
+        dispatch: { ...c.dispatch, state: "failed", releasedAt: now(), detail: reason },
+        attentionReason: reason,
+        attentionKind: "failed",
+        events: withEvent(c, {
+          at: now(),
+          kind: "parked",
+          message: `Reclaimed from ${machine} — no heartbeat`,
+          detail: reason
         })
       };
     });

@@ -1451,6 +1451,18 @@ async function handlePatchCard(req, res, opts, id) {
   if (isEngineRequest(req) && body.dispatch !== undefined) {
     next.dispatch = body.dispatch === null ? null : body.dispatch;
   }
+  // A claimed card must READ as running on the board, or a card being worked on
+  // by a Mac looks idle here. Safe to set only because isOrphanedRun now skips a
+  // card held by a live dispatch claim — otherwise the local orphan sweep would
+  // reclaim a perfectly healthy remote run once it passed the single-turn age
+  // ceiling (the runOwner pid belongs to another host, so its liveness check is
+  // meaningless there).
+  if (isEngineRequest(req) && typeof body.status === "string") {
+    next.status = body.status;
+  }
+  if (isEngineRequest(req) && body.runningSince !== undefined) {
+    next.runningSince = typeof body.runningSince === "string" ? body.runningSince : null;
+  }
   if (isEngineRequest(req) && typeof body.attentionReason === "string") {
     next.attentionReason = body.attentionReason;
   }

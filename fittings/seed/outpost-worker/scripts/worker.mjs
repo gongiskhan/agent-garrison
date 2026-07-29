@@ -148,10 +148,79 @@ async function uploadEvidence(cardId, name, content) {
   }
 }
 
+// The branch a dispatched card works on (brief D4, as decided).
+//
+// ONE LONG-LIVED BRANCH PER MACHINE — `dispatch/<machine>` — not one per card.
+// Garrison creates no branches of its own (decision D10 removed worktrees and
+// per-task branches entirely), so this is a deliberate, narrow exemption granted
+// for dispatched work only. Do not generalise it.
+//
+// Why per-machine and not per-card: three machines editing one shared branch
+// race on every push and rewrite each other's files mid-session, while one
+// branch per card would multiply branches without bound. Per-machine gives each
+// machine a stable place to land commits, bounded at one branch per machine,
+// merged to main by the existing PR flow. Merging stays human — automatic
+// merging is explicitly out of scope.
+function dispatchBranchFor(machine) {
+  // Slugged: a machine name is free text in the registry, and a branch name
+  // cannot contain spaces, `~`, `^`, `:` or a trailing `.lock`.
+  const slug = String(machine).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `dispatch/${slug || "outpost"}`;
+}
+
+// Memory freshness around a dispatched card (brief D5).
+//
+// PULL before the card so it starts from what the other machines have written;
+// PUSH on terminal status so what this card wrote reaches them immediately
+// instead of waiting for the nightly job.
+//
+// Two things the naive version gets wrong, both learned the hard way:
+//   • The full sync also COMMITS AND PUSHES. Running it as the "pull" step would
+//     publish whatever happens to be dirty in the vault at that instant —
+//     another agent's in-flight writes, attributed to this card. Hence the
+//     dedicated --pull mode.
+//   • Exit 0 does NOT mean a sync happened: the single-instance lock returns 0
+//     without touching git. --require-fresh turns that into exit 75 so a
+//     genuinely skipped sync is visible rather than silently assumed.
+//
+// Best-effort by design: memory that is one cycle stale is a far smaller problem
+// than refusing to run the card at all, so a failure here is logged and the run
+// proceeds.
+async function syncVaultMemory(mode) {
+  const script = process.env.GARRISON_VAULT_SYNC_SCRIPT;
+  if (!script) return { skipped: "no GARRISON_VAULT_SYNC_SCRIPT configured" };
+  const result = await new Promise((resolve) => {
+    const child = spawn("/bin/sh", ["-lc", `bash ${JSON.stringify(script)} --${mode} --require-fresh`], {
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d.toString()));
+    child.stderr.on("data", (d) => (out += d.toString()));
+    // A sync must never outlive the card it is bracketing.
+    const timer = setTimeout(() => child.kill("SIGKILL"), 5 * 60 * 1000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ exitCode: code ?? -1, output: out.trim() });
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ exitCode: -1, output: err.message });
+    });
+  });
+  if (result.exitCode === 75) log(`vault ${mode}: skipped (another sync held the lock)`);
+  else if (result.exitCode !== 0) log(`vault ${mode} failed (continuing): ${result.output.slice(0, 200)}`);
+  else log(`vault ${mode}: ok`);
+  return result;
+}
+
 async function executeJob(job) {
   log(`claimed ${job.cardId} — ${job.title}`);
-  const cwd = path.join(WORKDIR, job.cardId);
+  // Before anything else: ingest what the other machines know.
+  await syncVaultMemory("pull").catch((err) => log(`vault pull error: ${err.message}`));
+  let cwd = path.join(WORKDIR, job.cardId);
   await mkdir(cwd, { recursive: true });
+  let materializeReport = null;
 
   let stopRequested = false;
   const beat = setInterval(async () => {
@@ -173,6 +242,42 @@ async function executeJob(job) {
 
   let result;
   try {
+    // Materialize the project environment BEFORE the run (D2). Verify must pass
+    // first, so a broken environment costs zero model tokens and reports as an
+    // environment failure rather than as a mysterious run failure.
+    if (job.loadout) {
+      log(`materializing ${job.loadout.id} on ${dispatchBranchFor(MACHINE)}`);
+      const { materialize, materializationTranscript } = await import("./materialize.mjs");
+      const projectsRoot =
+        job.loadout.projects_root_override || path.join(homedir(), "dev");
+      const m = await materialize(job.loadout, {
+        projectsRoot,
+        envContent: job.envContent ?? null,
+        branch: dispatchBranchFor(MACHINE),
+        log: (msg) => log(`  ${msg}`)
+      });
+      // Mask any secret VALUE that a setup/verify step echoed. The values are in
+      // memory here only because we just wrote them; they must not reach the
+      // host's evidence store in the clear.
+      const secretValues = (job.envContent || "")
+        .split("\n")
+        .filter((l) => l && !l.startsWith("#"))
+        .map((l) => l.slice(l.indexOf("=") + 1).replace(/^'(.*)'$/, "$1"))
+        .filter(Boolean);
+      materializeReport = materializationTranscript(m, { secretValues });
+
+      if (!m.ok) {
+        clearInterval(beat);
+        await uploadEvidence(job.cardId, "materialize.md", materializeReport);
+        const summary = `environment materialization failed at "${m.failed}" for ${job.loadout.id}`;
+        log(summary);
+        await api("status", { cardId: job.cardId, state: "failed", summary, exitCode: -1 });
+        return;
+      }
+      // The run happens IN the materialized checkout, not in the scratch dir.
+      cwd = m.target;
+    }
+
     if (job.run.kind !== "command") {
       result = {
         exitCode: -1,
@@ -215,12 +320,18 @@ async function executeJob(job) {
   // the board always already has its transcript attached — never a terminal card
   // with evidence still in flight.
   await uploadEvidence(job.cardId, "transcript.md", transcript);
+  if (materializeReport) await uploadEvidence(job.cardId, "materialize.md", materializeReport);
 
   const state = result.exitCode === 0 ? "done" : "failed";
   const summary =
     state === "done"
       ? (result.stdout.trim().split("\n").slice(-1)[0] || "completed").slice(0, 500)
       : `exit ${result.exitCode}: ${(result.stderr.trim() || result.stdout.trim()).slice(0, 400)}`;
+
+  // Push what this card wrote BEFORE reporting terminal, so the moment the board
+  // shows the card done, another machine picking up the follow-up already has
+  // the memory it produced.
+  await syncVaultMemory("push").catch((err) => log(`vault push error: ${err.message}`));
 
   const res = await api("status", { cardId: job.cardId, state, summary, exitCode: result.exitCode });
   if (!res.ok) log(`status report failed: ${res.status}`, res.body);
