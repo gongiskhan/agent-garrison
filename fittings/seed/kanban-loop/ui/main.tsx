@@ -321,6 +321,9 @@ const DRILL_LABEL: Record<string, string> = {
   planning: "Drill: planning the test for this change…",
   running: "Drill: running the checks…",
   passed: "Drill passed",
+  // Deliberately not a green "passed": some checks were never answered, so the
+  // change is not fully verified and the card must not read as if it were.
+  partial: "Drill passed what it could prove",
   failed: "Drill found issues",
   error: "Drill could not finish"
 };
@@ -348,6 +351,7 @@ function DrillBlock({ drill, compact = false }: { drill: DrillStamp; compact?: b
   const detail: string[] = [];
   if (Number.isFinite(drill.checks as number)) detail.push(`${drill.checks} checks`);
   if ((drill.findings ?? 0) > 0) detail.push(`${drill.findings} finding${drill.findings === 1 ? "" : "s"}`);
+  if ((drill.unproven ?? 0) > 0) detail.push(`${drill.unproven} unproven`);
   return (
     <div className={`drill-block ${drill.state}`}>
       {inFlight && <span className="run-spin" aria-hidden />}

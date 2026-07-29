@@ -74,6 +74,35 @@ describe("verdict — what the notification actually claims", () => {
     expect(verdictOf({ summary: { failed: 0 }, findings: [{ id: "f1" }] })).toBe("failed");
   });
 
+  it("never rounds an unproven check up to a pass", () => {
+    // Caught on the first LIVE run: 11 passed, 1 unproven, reported as
+    // "Every check passed". `unproven` is the engine's "I could not tell either
+    // way" — folding it into a pass makes the notification claim the change was
+    // verified when part of it was not.
+    expect(verdictOf({ summary: { failed: 0, unproven: 1 }, findings: [] })).toBe("partial");
+    expect(verdictOf({ summary: { failed: 0, unproven: 0 }, findings: [] })).toBe("passed");
+    // A real failure still outranks an unproven check.
+    expect(verdictOf({ summary: { failed: 1, unproven: 2 }, findings: [] })).toBe("failed");
+  });
+
+  it("names the unproven checks instead of implying the change is verified", () => {
+    const outcome = outcomeFrom({
+      id: "01RUN",
+      summary: { failed: 0, unproven: 1 },
+      executedChecks: 12,
+      findings: [],
+      pages: [
+        { pageId: "home", stepId: "hero-copy", terminal: { kind: "pass" } },
+        { pageId: "home", stepId: "hero-cta-opens-info", terminal: { kind: "unproven" } }
+      ]
+    });
+    expect(outcome.state).toBe("partial");
+    expect(outcome.headline).toContain("could not be proven either way");
+    expect(outcome.headline).toContain("home#hero-cta-opens-info");
+    expect(outcome.headline).toContain("not fully verified");
+    expect(outcome.headline).not.toContain("Every check");
+  });
+
   it("never reports a broken harness as a broken product", () => {
     // A circuit means the test rig fell over. Calling that "your change is
     // broken" sends you debugging code that was never exercised.
@@ -105,6 +134,17 @@ describe("verdict — what the notification actually claims", () => {
 });
 
 describe("outcomeText — the message every means renders", () => {
+  it("never announces a partial result as a pass", () => {
+    const text = outcomeText({
+      card: { id: "01CARD", title: "Site copy" },
+      outcome: { state: "partial", findings: 0, checks: 12, failed: 0, unproven: 1, headline: "Nothing failed, but 1 check could not be proven either way." },
+      links: {}
+    });
+    expect(text).toContain("Drill passed what it could prove");
+    expect(text).not.toMatch(/^Drill passed —/);
+    expect(text).toContain("1 unproven");
+  });
+
   it("carries the verdict, the numbers, and the links", () => {
     const text = outcomeText({
       card: { id: "01CARD", title: "Turn Rail badges" },

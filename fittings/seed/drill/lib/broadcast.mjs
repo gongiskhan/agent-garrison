@@ -70,9 +70,13 @@ export function outcomeText({ card, outcome, links = {} }) {
   const head =
     outcome.state === "passed"
       ? `Drill passed — ${title}`
-      : outcome.state === "failed"
-        ? `Drill found ${outcome.findings ?? 0} issue${outcome.findings === 1 ? "" : "s"} — ${title}`
-        : `Drill could not finish — ${title}`;
+      : outcome.state === "partial"
+        // Never "passed": some checks were not answered, so the change is not
+        // fully verified and the notification must not imply it was.
+        ? `Drill passed what it could prove — ${title}`
+        : outcome.state === "failed"
+          ? `Drill found ${outcome.findings ?? 0} issue${outcome.findings === 1 ? "" : "s"} — ${title}`
+          : `Drill could not finish — ${title}`;
   const lines = [head];
   if (outcome.headline) lines.push(outcome.headline);
   const stats = [];
@@ -140,7 +144,8 @@ async function deliverKanbanCard({ card, outcome, links, jobId, fetchImpl }) {
         runUrl: links.run ?? null,
         findings: outcome.findings ?? 0,
         checks: outcome.checks ?? null,
-        failed: outcome.failed ?? null
+        failed: outcome.failed ?? null,
+        unproven: outcome.unproven ?? 0
       })
     });
     if (!res.ok) return { means: "kanban-card", ok: false, error: `HTTP ${res.status}` };

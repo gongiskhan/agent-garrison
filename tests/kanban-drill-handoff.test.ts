@@ -316,6 +316,23 @@ describe("POST /cards/:id/drill-result — Drill's completion callback", () => {
     expect(ev.detail).toContain("the composer stays disabled");
   });
 
+  it("stamps a partial verdict WITHOUT calling it a pass", async () => {
+    const card = await makeDoneCard();
+    const res = await fetch(`${base}/cards/${card.id}/drill-result`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ state: "partial", findings: 0, failed: 0, unproven: 1, checks: 12 })
+    });
+    expect(res.status).toBe(200);
+    const onDisk = await loadCard(KANBAN_DIR, card.id);
+    expect(onDisk.drill.state).toBe("partial");
+    expect(onDisk.drill.unproven).toBe(1);
+    const ev = onDisk.events.find((e: any) => e.message.includes("what it could prove"));
+    expect(ev).toBeTruthy();
+    expect(ev.message).toContain("not fully verified");
+    expect(onDisk.events.some((e: any) => e.message === "Drill passed — every check on this change's pages passed")).toBe(false);
+  });
+
   it("rejects a state it does not understand", async () => {
     const card = await makeDoneCard();
     const res = await fetch(`${base}/cards/${card.id}/drill-result`, {

@@ -144,7 +144,7 @@ export function activeJobForCard(cardId) {
   return null;
 }
 
-const TERMINAL_STATES = new Set(["passed", "failed", "error"]);
+const TERMINAL_STATES = new Set(["passed", "partial", "failed", "error"]);
 
 // ── page-scope diff ─────────────────────────────────────────────────────────
 // mtime+size per page file, same evidence shape planner.mjs uses to prove an
@@ -202,7 +202,7 @@ function newJob({ card, brief, project, boardUrl }) {
   return {
     id: ulid(),
     kind: "card-drill",
-    state: "planning", // planning | running | passed | failed | error
+    state: "planning", // planning | running | passed | partial | failed | error
     card: {
       id: card.id,
       title: card.title ?? null,
@@ -373,9 +373,17 @@ async function drive(job, { drillBaseUrl, fetchImpl }) {
 }
 
 /**
- * passed | failed | error. A circuit (the harness broke) is NOT a product
- * failure — reporting a dead engine as "your change is broken" is the wrong
- * warning, so it lands as `error` with the circuit reason. Pure.
+ * passed | partial | failed | error. Pure.
+ *
+ * Two things this deliberately refuses to call a pass:
+ *   - a CIRCUIT (the harness broke). Reporting a dead engine as "your change is
+ *     broken" sends you debugging code that was never exercised, so it is
+ *     `error` with the circuit reason.
+ *   - an UNPROVEN check. The engine's own verdict for "I could not tell either
+ *     way" — a narrower harness gap, but a gap. Folding it into `passed` makes
+ *     the notification claim the change was verified when part of it was not,
+ *     which is the exact failure `unproven` exists to prevent. (Caught on the
+ *     first live run: 11 passed, 1 unproven, reported as "every check passed".)
  */
 export function verdictOf(record) {
   if (!record) return "error";
@@ -383,7 +391,8 @@ export function verdictOf(record) {
   if (record.circuit) return "error";
   const failed = record.summary?.failed ?? 0;
   const findings = (record.findings ?? []).length;
-  return failed > 0 || findings > 0 ? "failed" : "passed";
+  if (failed > 0 || findings > 0) return "failed";
+  return (record.summary?.unproven ?? 0) > 0 ? "partial" : "passed";
 }
 
 /** The notification payload distilled from a finished run record. Pure. */
@@ -400,6 +409,14 @@ export function outcomeFrom(record, job = null) {
   } else if (state === "failed") {
     const top = (record?.findings ?? []).slice(0, 3).map((f) => `- ${f.pageId}${f.stepId ? `#${f.stepId}` : ""}: ${f.text}`);
     headline = top.length ? top.join("\n") : `${failed} check${failed === 1 ? "" : "s"} failed.`;
+  } else if (state === "partial") {
+    // Name the gap rather than rounding it up to a pass: these checks were not
+    // answered, so the change is not fully verified.
+    const names = (record?.pages ?? [])
+      .filter((p) => p.terminal?.kind === "unproven")
+      .map((p) => `${p.pageId}${p.stepId ? `#${p.stepId}` : ""}`);
+    const which = [...new Set(names)].slice(0, 3);
+    headline = `Nothing failed, but ${unproven} check${unproven === 1 ? "" : "s"} could not be proven either way${which.length ? ` (${which.join(", ")})` : ""} - this change is not fully verified.`;
   } else {
     headline = job?.scope === "changed-pages"
       ? "Every check on the pages this card changed passed."

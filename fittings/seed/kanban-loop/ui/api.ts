@@ -69,7 +69,9 @@ export interface WaitingOn {
 // The Drill handoff stamped on a card by "Send to Drill". `state` walks
 // planning → running → passed | failed | error; the rest fills in as Drill learns it.
 export interface DrillStamp {
-  state: "planning" | "running" | "passed" | "failed" | "error";
+  // `partial` = nothing failed, but some checks came back unproven — the change
+  // is NOT fully verified, and must never render as a clean pass.
+  state: "planning" | "running" | "passed" | "partial" | "failed" | "error";
   at: string;
   jobId?: string | null;
   runId?: string | null;
@@ -79,6 +81,7 @@ export interface DrillStamp {
   findings?: number | null;
   checks?: number | null;
   failed?: number | null;
+  unproven?: number | null;
   error?: string | null;
 }
 

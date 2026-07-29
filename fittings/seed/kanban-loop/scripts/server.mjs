@@ -1765,19 +1765,22 @@ async function handleSendToDrill(req, res, opts, id) {
 async function handleDrillResult(req, res, opts, id) {
   const root = opts.root;
   const body = (await readBody(req)) ?? {};
-  const state = ["passed", "failed", "error"].includes(body.state) ? body.state : null;
-  if (!state) return jsonRes(res, 400, { error: "state must be passed | failed | error" });
+  const state = ["passed", "partial", "failed", "error"].includes(body.state) ? body.state : null;
+  if (!state) return jsonRes(res, 400, { error: "state must be passed | partial | failed | error" });
 
   const text = (v, max = 400) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
   const num = (v) => (Number.isFinite(v) ? v : null);
   const findings = num(body.findings) ?? 0;
   const headline = text(body.headline, 1200);
+  const unproven = num(body.unproven) ?? 0;
   const message =
     state === "passed"
       ? "Drill passed — every check on this change's pages passed"
-      : state === "failed"
-        ? `Drill found ${findings} issue${findings === 1 ? "" : "s"} on this change`
-        : "Drill could not finish this change's test run";
+      : state === "partial"
+        ? `Drill passed what it could prove — ${unproven} check${unproven === 1 ? "" : "s"} unproven, so this change is not fully verified`
+        : state === "failed"
+          ? `Drill found ${findings} issue${findings === 1 ? "" : "s"} on this change`
+          : "Drill could not finish this change's test run";
 
   const updated = await updateCard(root, id, (c) => ({
     ...c,
@@ -1789,6 +1792,7 @@ async function handleDrillResult(req, res, opts, id) {
       findings,
       checks: num(body.checks),
       failed: num(body.failed),
+      unproven,
       // Keep the dispatch link so the card can still reach Drill after the job ends.
       drillUrl: typeof c.drill?.drillUrl === "string" ? c.drill.drillUrl : null
     }),
