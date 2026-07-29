@@ -347,9 +347,21 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     try {
       disk = await loadCard(root, card.id);
     } catch {
-      disk = null; // first write of a brand-new card
+      disk = null;
     }
-    if (disk && (disk.rev ?? 0) !== expectedRev) {
+    // The card file is GONE — it was deleted while this writer held its in-memory
+    // copy. Writing would RESURRECT it, and the old code did exactly that: the
+    // missing-disk case skipped the rev check ("first write of a brand-new card")
+    // and wrote anyway. Observed live — a deleted card reappeared, parked, a minute
+    // later when the run that was still in flight committed its result.
+    //
+    // saveCardCAS never legitimately CREATES: createCard writes the first version
+    // with atomicWriteJSON directly, and every other caller is updating a card it
+    // just read. So a missing file is always a delete, and always a refusal.
+    if (!disk) {
+      return { ok: false, deleted: true, card: null };
+    }
+    if ((disk.rev ?? 0) !== expectedRev) {
       return { ok: false, conflict: true, card: disk };
     }
     const next = { ...card, rev: expectedRev + 1, updated: at };

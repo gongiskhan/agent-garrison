@@ -1460,6 +1460,7 @@ async function handlePatchCard(req, res, opts, id) {
   }
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
   const result = await saveCardCAS(root, next, expectedRev);
+  if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
 
   // "Moving to Plan starts planning": when the card is MOVED onto an immediate agent
@@ -1884,6 +1885,7 @@ async function handleStartCard(req, res, opts, id) {
     }
     const next = { ...card, list: target, status: "ok", events, ...recover };
     const result = await saveCardCAS(root, next, card.rev ?? 0);
+    if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
     // If we advanced onto an immediate agent list, kick the automated flow.
     if (shouldAutoDispatch(board, target) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {

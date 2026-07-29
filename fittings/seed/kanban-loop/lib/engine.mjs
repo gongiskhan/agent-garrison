@@ -1018,6 +1018,10 @@ async function commitRunResult(root, { base, target: rawTarget, runRev, dispatch
   const target = { ...rawTarget, runOwner: null };
   let res = await saveCardCAS(root, target, runRev, now());
   if (res.ok) return { ok: true, card: res.card, takenOver: false };
+  // The card was DELETED mid-run. There is nothing to write, nothing to rebase and
+  // nothing to release — and retrying would only re-attempt a write the store now
+  // (correctly) refuses. Stop cleanly: the user threw the work away on purpose.
+  if (res.deleted) return { ok: false, card: null, takenOver: true, deleted: true };
   for (let i = 0; i < tries; i++) {
     let fresh;
     try {
@@ -1776,10 +1780,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     const res = await commitRunResult(root, { base: runningCard, target: held, runRev, dispatchedFrom: card.list, now });
     if (!res.ok) {
       return {
-        card: res.card,
-        outcome: res.takenOver
-          ? { status: "skipped", reason: "taken-over-during-run" }
-          : { status: "needs-attention", reason: "conflict-during-run" }
+        // Never hand back null: a deleted card has no disk state, so report the
+        // last state THIS run knew, with an outcome that says what happened.
+        card: res.card ?? runningCard,
+        outcome: res.deleted
+          ? { status: "skipped", reason: "card-deleted-during-run" }
+          : res.takenOver
+            ? { status: "skipped", reason: "taken-over-during-run" }
+            : { status: "needs-attention", reason: "conflict-during-run" }
       };
     }
     routeBrief(root, res.card ?? runningCard, { brief: readCardBrief(root, runningCard.id, 2000), gate: "explicit" });
@@ -2074,10 +2082,12 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const res = await commitRunResult(root, { base: runningCard, target, runRev, dispatchedFrom: card.list, now });
   if (!res.ok) {
     return {
-      card: res.card,
-      outcome: res.takenOver
-        ? { status: "skipped", reason: "taken-over-during-run" }
-        : { status: "needs-attention", reason: "conflict-during-run" }
+      card: res.card ?? runningCard,
+      outcome: res.deleted
+        ? { status: "skipped", reason: "card-deleted-during-run" }
+        : res.takenOver
+          ? { status: "skipped", reason: "taken-over-during-run" }
+          : { status: "needs-attention", reason: "conflict-during-run" }
     };
   }
   // WS2 duty summary (D6): on a genuine advance the engine writes its own per-duty

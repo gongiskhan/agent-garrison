@@ -23,7 +23,7 @@
 // The contract these tests pin: a finished run ALWAYS lands its terminal state.
 // A benign concurrent write may not strand the card in "running".
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import path from "node:path";
 
@@ -34,7 +34,7 @@ import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore pure mjs
-import { atomicWriteJSON, loadCard, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { atomicWriteJSON, loadCard, updateCardCAS, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
@@ -501,5 +501,53 @@ describe("recoverInterruptedRuns — a live foreign driver is left alone", () =>
       runOwner: { pid: process.pid, host: hostname(), at: new Date().toISOString() }
     });
     expect(await recoverInterruptedRuns(tmp)).toContain(card.id);
+  });
+});
+
+// A DELETED card must stay deleted.
+//
+// Observed live: a probe card was deleted while its Plan turn was still in flight.
+// A minute later the card was BACK on the board, parked in needs-attention, with
+// only the artifacts of that final write in its directory. saveCardCAS skipped the
+// rev check whenever the card file was missing — commented "first write of a
+// brand-new card" — and wrote anyway, so any writer holding a stale in-memory copy
+// resurrected it. saveCardCAS never legitimately creates: createCard writes the
+// first version directly, and every other caller is updating a card it just read.
+describe("saveCardCAS — a deleted card is never resurrected", () => {
+  it("refuses the write and reports `deleted` when the card file is gone", async () => {
+    const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000001" });
+    rmSync(path.join(tmp, "cards", card.id), { recursive: true, force: true });
+
+    const res: any = await saveCardCAS(tmp, { ...card, list: "done" }, card.rev ?? 0);
+
+    expect(res.ok).toBe(false);
+    expect(res.deleted).toBe(true);
+    expect(existsSync(path.join(tmp, "cards", card.id, "card.json"))).toBe(false);
+  });
+
+  it("an in-flight run whose card was deleted mid-turn does not bring it back", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000002" });
+
+    // The user deletes the card while the operative is still working.
+    const runFn = async ({ card: c }: { card: any }) => {
+      rmSync(path.join(tmp, "cards", c.id), { recursive: true, force: true });
+      landGate(c.runDir as string, "implement", "review");
+      return { reply: "review" };
+    };
+
+    const { outcome, card: returned } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
+
+    expect(outcome.status).toBe("skipped");
+    expect(outcome.reason).toBe("card-deleted-during-run");
+    expect(existsSync(path.join(tmp, "cards", card.id, "card.json"))).toBe(false);
+    expect(returned).toBeTruthy(); // the caller still gets the last known state, never null
+  });
+
+  it("a normal update still works — the guard only fires on a missing file", async () => {
+    const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000003" });
+    const res: any = await saveCardCAS(tmp, { ...card, list: "done" }, card.rev ?? 0);
+    expect(res.ok).toBe(true);
+    expect(res.card.list).toBe("done");
   });
 });
