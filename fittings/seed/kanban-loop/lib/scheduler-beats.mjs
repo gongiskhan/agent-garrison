@@ -4,6 +4,7 @@
 // takes effect immediately, not only at the next setup. A scheduler-beat list fires
 // `kanban.mjs --tick-list <id>` on its own cron (e.g. Test every 5h).
 import { existsSync } from "node:fs";
+import { instanceEnvPrefix } from "./instance-env.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,7 +65,6 @@ export async function syncListBeat(list, { log = console.log } = {}) {
   // env, which has no gateway URL and no kanban home, so a bare command would address
   // whichever instance the literal defaults happened to name (that is exactly how the
   // prod tick spent weeks pinging the dev gateway).
-  const { instanceEnvPrefix } = await import("../scripts/kanban.mjs");
   const cmd = [...instanceEnvPrefix(), "node", kanbanCli(), "--tick-list", list.id].join(" ");
   const add = spawnSync("node", [cli, "add", beatId, cron, cmd], { encoding: "utf8" });
   if (add.status === 0) {

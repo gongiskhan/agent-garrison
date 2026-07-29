@@ -9,7 +9,7 @@
 //   --review           weekly board review: bucket cards into moving / stalled /
 //                      needs-attention, write a dated report, notify. Never moves cards.
 // The board UI is owned by other V1b slices; this is the engine spine.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } f
 import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
+import { resolveGatewayUrl, instanceEnvPrefix } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
@@ -284,6 +285,20 @@ async function registerSchedulerBeats() {
 // config block (tick_cron / review_cron / review_stall_hours in config_schema),
 // so a composition value takes effect without the user exporting anything;
 // the bare KANBAN_* name stays the explicit operator override on top.
+// Does the ALREADY-REGISTERED tick job carry a gateway URL? Read straight from the
+// scheduler's jobs file — it is the persisted command string that actually runs, and
+// the whole point is that it outlives whichever process registered it.
+function registeredTickHasGateway(id = "kanban-tick") {
+  try {
+    const home = process.env.GARRISON_HOME || path.join(process.env.HOME || "", ".garrison");
+    const jobs = JSON.parse(readFileSync(path.join(home, "scheduler-jobs.json"), "utf8"));
+    const job = (Array.isArray(jobs) ? jobs : jobs?.jobs ?? []).find((j) => j?.id === id);
+    return typeof job?.command === "string" && /GARRISON_GATEWAY_URL=/.test(job.command);
+  } catch {
+    return false;
+  }
+}
+
 export async function registerTick() {
   const cron = process.env.KANBAN_TICK_CRON || process.env.KANBAN_LOOP_TICK_CRON || "*/2 * * * *"; // every 2 minutes
   const cli = schedulerCli();
@@ -297,7 +312,19 @@ export async function registerTick() {
     console.log(`kanban-loop: scheduler CLI not found at ${cli} (skipping tick job; register manually).`);
     return;
   }
+  // NEVER DOWNGRADE. `--setup` runs from the apm.yml hook during `up`, which has no
+  // gateway URL in scope; the board server re-registers later with one. Both call this
+  // function, so without this guard the setup hook silently replaces a WORKING
+  // registration with an env-less one, and the tick goes dead again — observed
+  // immediately after the first deploy of this fix.
   if (!resolveGatewayUrl()) {
+    if (registeredTickHasGateway()) {
+      console.log(
+        "kanban-loop: no gateway URL in scope — KEEPING the existing kanban-tick " +
+        "registration, which already carries one (refusing to downgrade it)."
+      );
+      return;
+    }
     console.log(
       "kanban-loop: WARNING — registering kanban-tick with NO gateway URL " +
       "(neither GARRISON_GATEWAY_URL nor GARRISON_GATEWAY_PORT is set). The tick will " +
@@ -497,49 +524,6 @@ export function batchGatewayRunFn(gatewayUrl) {
   };
 }
 
-// The gateway URL the tick dispatches through. There is deliberately NO literal
-// port fallback (HARD RULE: never hardcode a port). The old fallback was
-// `http://127.0.0.1:4777` — the DEV gateway — so on prod (gateway :5777) and codex
-// (:24777) the scheduler tick pinged the wrong instance, found nothing, and logged
-// "gateway not reachable" every 2 minutes for as long as prod had been running.
-// Nothing was ever dispatched, advanced, retried or reaped by the tick, and because
-// the literal happened to be RIGHT on dev the whole failure was invisible in
-// development. `--tick` inherits only the scheduler daemon's env, which carries no
-// gateway URL, so registerTick() bakes the resolved URL into the job command
-// (instanceEnvPrefix) exactly as the weekly-review job bakes its stall threshold.
-// Returns null when the instance is unknown — the caller then says so loudly
-// instead of guessing an instance and silently doing nothing.
-function resolveGatewayUrl() {
-  const explicit = (process.env.GARRISON_GATEWAY_URL || "").trim();
-  if (explicit) return explicit;
-  const port = (process.env.GARRISON_GATEWAY_PORT || "").trim();
-  if (/^[0-9]+$/.test(port)) return `http://127.0.0.1:${port}`;
-  return null;
-}
-
-// The instance-identifying env baked into every scheduler job command this fitting
-// registers. The scheduler daemon runs jobs through `sh -c` with ITS OWN env, which
-// never carries the composition's projected values — so a job that needs them must
-// carry them itself (the pattern the weekly-review job already used for its stall
-// threshold). Without this the tick cannot tell prod from dev from codex.
-// Values are single-quoted for `sh -c`; anything containing a quote is dropped
-// rather than escaped (these are ports, URLs and paths — never quoted strings).
-export function instanceEnvPrefix() {
-  const vars = {
-    GARRISON_GATEWAY_URL: resolveGatewayUrl(),
-    GARRISON_HOME: process.env.GARRISON_HOME,
-    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR,
-    // The outpost daemon is instance-specific too, and the engine's affinity resolver
-    // has no fallback by design (its old literal named the codex port and parked every
-    // affinity card). Without this the tick cannot resolve an outpost either, and every
-    // outpost-affinity card it touches parks with "outpost offline".
-    GARRISON_KANBANLOOP_OUTPOST_HOST_URL: process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL,
-    GARRISON_OUTPOST_URL: process.env.GARRISON_OUTPOST_URL
-  };
-  return Object.entries(vars)
-    .filter(([, v]) => typeof v === "string" && v.trim() && !v.includes("'"))
-    .map(([k, v]) => `${k}='${v.trim()}'`);
-}
 
 // The scheduler tick runs out-of-band (launchd) with no operative, so PING the gateway
 // first and skip the whole tick when it is down — immediate cards WAIT for an operative
