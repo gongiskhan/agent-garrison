@@ -22,8 +22,10 @@
 // scheduler-beat) so tick() only processes immediate agent lists; Test
 // batching preserved as list mechanics (batched + its own beat).
 import path from "node:path";
+import { hostname } from "node:os";
+import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -503,13 +505,30 @@ export function routeStamp(route, phase = null) {
   const effort = route.effort ?? null;
   const effortApplied = typeof route.effortApplied === "boolean" ? route.effortApplied : null;
   const tier = route.tier ?? null;
+  // Pass-through of the gateway's turnAttribution block (widened alongside
+  // routeFromDone): the card is the only durable record of who served a phase, so
+  // narrowing the stamp here would re-drop the account / duty / project the gateway
+  // just told us. Additive — `suffix` is unchanged (it is asserted verbatim in tests).
+  const duty = route.duty ?? null;
+  const level = Number.isInteger(route.level) ? route.level : null;
+  const skill = route.skill ?? null;
+  const via = route.via ?? null;
+  const accountSource = route.accountSource ?? null;
+  const project = route.project ?? null;
+  const hasAccount = "account" in route && route.account !== undefined;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
-    effort == null && effortApplied == null && tier == null
+    effort == null && effortApplied == null && tier == null &&
+    duty == null && level == null && skill == null && via == null &&
+    accountSource == null && project == null && !hasAccount
   ) {
     return { route: null, suffix: "" };
   }
-  const stamp = { targetId, runtime, provider, model, effort, effortApplied, tier, phase: phase ?? null };
+  const stamp = {
+    targetId, runtime, provider, model, effort, effortApplied, tier, phase: phase ?? null,
+    duty, level, skill, via, accountSource, project
+  };
+  if (hasAccount) stamp.account = route.account ?? null;
   // "runtime/model" (runtime preferred, provider as fallback), then "(tier · effort)".
   const idPart = [runtime || provider, model].filter(Boolean).join("/");
   let suffix = "";
@@ -901,10 +920,159 @@ async function fireDutyBoundary(onDutyBoundary, card, phase, outcome) {
   }
 }
 
+// ── Committing a finished run (the "stuck in running forever" fix) ──────────
+//
+// processCard CAS-ACQUIRES the card (capturing `runRev`), awaits a turn that can
+// last many minutes, then writes the terminal state. Writing that state with the
+// ORIGINAL rev means ANY benign concurrent touch of the card in the meantime
+// fails the compare — and the old code then returned `conflict-during-run`
+// WITHOUT writing, leaving `status:"running"` on disk with no owner and nothing
+// that would ever clear it (observed 2026-07-29: the board's own fire-and-forget
+// project inference landed 4.4s into a run and wedged the card permanently).
+//
+// A finished run must ALWAYS land its terminal state. So on conflict we REBASE:
+// re-read the card, re-apply only the fields THIS RUN actually changed on top of
+// the concurrent writer's version, and CAS again at the fresh rev. Only a genuine
+// TAKEOVER (the card is no longer running, or was moved off the list this run
+// dispatched from, or a different run now owns it) refuses the write — and a
+// takeover has already cleared the running state by definition.
+
+// Merge this run's terminal decision onto a card that changed underneath it.
+// A key the run CHANGED (target[k] !== base[k]) is the run's verdict and wins;
+// every other key keeps the concurrent writer's value, so an inferred project,
+// a steering directive, or a coordination event written mid-run is preserved.
+// Events are unioned (never truncated to the run's stale view of the timeline).
+export function rebaseTerminalWrite(base, target, fresh) {
+  const out = { ...fresh };
+  for (const key of new Set([...Object.keys(target), ...Object.keys(base)])) {
+    if (key === "events" || key === "rev" || key === "updated") continue;
+    const changedByRun = !isDeepStrictEqual(target[key], base[key]);
+    if (changedByRun) out[key] = target[key];
+    else if (!(key in fresh) && key in target) out[key] = target[key];
+  }
+  const seen = new Set();
+  const keyOf = (e) => `${e?.at}|${e?.kind}|${e?.message}`;
+  const merged = [];
+  for (const e of [...(fresh.events || []), ...(target.events || [])]) {
+    const k = keyOf(e);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(e);
+  }
+  out.events = merged;
+  return out;
+}
+
+// Is `fresh` still the card THIS run is allowed to finalize? A run owns the card
+// while it is still running, still on the list the run dispatched from, and still
+// carries the same runId. Anything else is a human/other-process takeover.
+function runStillOwns(fresh, base, dispatchedFrom) {
+  if (!fresh) return false;
+  if (fresh.status !== "running") return false;
+  if (fresh.list !== dispatchedFrom) return false;
+  if ((fresh.runId ?? null) !== (base.runId ?? null)) return false;
+  // runId alone is NOT enough: mintRunFields is idempotent, so a card that was
+  // released (by the orphan sweep or a restart) and then re-dispatched keeps the
+  // SAME runId. Without a generation counter a zombie run — one whose driver we
+  // wrongly believed dead, or that came back late — would still pass this check and
+  // clobber the live run's state. runSeq is bumped on every acquire, so exactly one
+  // run generation can ever commit.
+  return (fresh.runSeq ?? 0) === (base.runSeq ?? 0);
+}
+
+// The ONE terminal write for a finished run. Never leaves the card running.
+// Returns { ok, card, takenOver }.
+// LAST RESORT. Whatever else happened, a finished run must not leave the card
+// showing "running" with nobody driving it — that is the whole bug. If the card is
+// still running under THIS run's generation, clear it to a retryable state with an
+// honest reason. A newer generation (runSeq moved on) is somebody else's live run
+// and is left strictly alone.
+async function releaseIfStillRunning(root, base, now, why) {
+  return updateCardCAS(root, base.id, (c) => {
+    if (c.status !== "running") return null;
+    if ((c.runSeq ?? 0) !== (base.runSeq ?? 0)) return null; // a newer run owns it now
+    return {
+      ...c,
+      status: "ok",
+      runningSince: null,
+      runOwner: null,
+      lastDispatchError: { at: now(), reason: "result-not-saved", listId: c.list, message: why },
+      events: withEvent(c, {
+        at: now(),
+        kind: "recovered",
+        message: "Released the run — its result could not be saved",
+        detail: `${why}. The card is retryable; its runDir and iteration logs are preserved.`
+      })
+    };
+  }).catch(() => null);
+}
+
+async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5 }) {
+  // The run is over, so its owner stamp is stale by definition — clear it here
+  // (the one terminal write) rather than in each of the ~29 places that build a
+  // terminal card, so a finished card can never look orphan-sweepable.
+  const target = { ...rawTarget, runOwner: null };
+  let res = await saveCardCAS(root, target, runRev, now());
+  if (res.ok) return { ok: true, card: res.card, takenOver: false };
+  for (let i = 0; i < tries; i++) {
+    let fresh;
+    try {
+      fresh = await loadCard(root, base.id);
+    } catch {
+      return { ok: false, card: res.card ?? base, takenOver: true };
+    }
+    fresh.id = base.id;
+    if (!runStillOwns(fresh, base, dispatchedFrom)) {
+      // Taken over. Usually the taker already cleared the running state — but a move
+      // that PRESERVES status:"running" would otherwise leave the card wedged with
+      // this run refusing to touch it. Clear it if it is still ours to clear.
+      const released = await releaseIfStillRunning(root, base, now, "the card was moved or re-owned while this run was in flight");
+      return { ok: false, card: released ?? fresh, takenOver: true };
+    }
+    const rebased = rebaseTerminalWrite(base, target, fresh);
+    res = await saveCardCAS(root, rebased, fresh.rev ?? 0, now());
+    if (res.ok) return { ok: true, card: res.card, takenOver: false };
+  }
+  // Rebase exhausted (a writer is hammering this card). Still never leave it running.
+  const released = await releaseIfStillRunning(root, base, now, `the terminal write lost the compare-and-swap ${tries} times running`);
+  return { ok: false, card: released ?? res.card ?? base, takenOver: false };
+}
+
+// Wait (briefly, boundedly) for a card's fire-and-forget project inference to settle
+// before a run mints its runDir and acquires the card. Two things go wrong without it:
+//   • the runDir is minted under `runs/no-project/` even though the project is known
+//     seconds later — and it can never be corrected, because the literal runDir path is
+//     already baked into the operative's prompt and gate-record instructions;
+//   • the inference's write lands mid-run, bumping the rev under the acquire.
+// Any settled state ("done" | "none" | "failed" | "skipped" | absent) proceeds
+// immediately, so a busy or missing operative can never block a dispatch.
+export async function settleProjectInference(root, card, baseRev, opts = {}) {
+  const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 250;
+  const checks = Number.isFinite(opts.checks) ? opts.checks : 24; // <= 6s, well under the 90s inference timeout
+  const sleep = typeof opts.sleep === "function"
+    ? opts.sleep
+    : (ms) => new Promise((r) => setTimeout(r, ms));
+  if (card.project || card.inferState !== "running") return { card, baseRev };
+  let current = card;
+  for (let i = 0; i < checks; i++) {
+    await sleep(intervalMs);
+    let fresh;
+    try {
+      fresh = await loadCard(root, card.id);
+    } catch {
+      return { card: current, baseRev };
+    }
+    fresh.id = card.id;
+    current = fresh;
+    if (fresh.project || fresh.inferState !== "running") break;
+  }
+  return { card: current, baseRev: current.rev ?? baseRev };
+}
+
 // Run ONE transition for a card on an agent list. runFn dispatches the prompt
 // through the orchestrator (preRoute) and returns { reply }. Returns the updated
 // card + an outcome ({status: moved|needs-attention|skipped, ...}).
-export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined }) {
+export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined, settle = {} }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
   // S3d (D9b): a clarity-gated discuss card is dispatched THROUGH the interactive
@@ -948,7 +1116,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const listTitle = list.title || card.list;
   // Every write is a compare-and-swap against the rev we read, so a concurrent tick or
   // a manual edit cannot be silently overwritten (lost update).
-  const baseRev = card.rev ?? 0;
+  let baseRev = card.rev ?? 0;
   if ((card.iterations || 0) >= cap) {
     const capReason = `Hit the iteration cap on ${listTitle} (${cap} runs without choosing a valid next step). Parked so it stops looping — move it back to retry, or open it to see why it kept failing.`;
     const res = await saveCardCAS(
@@ -1161,7 +1329,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-unavailable" } };
     }
   }
-  // the SAME acquire write so it is persisted CAS-safely (no extra write, no race).
+  // A card created WITHOUT a project kicks a fire-and-forget project inference, and
+  // an immediate dispatch beats it: the run mints its runDir under `runs/no-project/`
+  // (permanent — the literal path is baked into the prompt and the gate-record
+  // instructions, so it can never be re-homed afterwards), and the inference's write
+  // then lands mid-run and bumps the rev out from under the acquire. Wait for the
+  // inference to SETTLE first — it is bounded and short — then re-read the card so
+  // the acquire CAS uses the post-inference rev.
+  ({ card, baseRev } = await settleProjectInference(root, card, baseRev, settle));
   const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
   // `iterations` is the resettable convergence-cap counter. Log ordinals are a
   // separate monotonic sequence so recovery can reset the cap without reusing
@@ -1188,6 +1363,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       // When this run STARTED, so the UI can show a live "running 1:23" elapsed timer
       // (cleared/replaced on the terminal write below).
       runningSince: dispatchAt,
+      // WHO is driving this run. A run has no other liveness signal: the board
+      // server dispatches fire-and-forget and a `--tick` CLI process is
+      // short-lived, so a killed/crashed driver used to leave the card "running"
+      // with nothing able to tell that apart from a legitimately long turn.
+      // sweepOrphanedRuns reads this: a dead pid on THIS host is provably orphaned.
+      runOwner: { pid: process.pid, host: hostname(), at: dispatchAt },
+      // Monotonic run GENERATION. runId is idempotent across re-dispatches, so this
+      // is what lets commitRunResult tell "my run" from "a previous generation of my
+      // run that came back late" — see runStillOwns.
+      runSeq: (card.runSeq ?? 0) + 1,
       events: withEvent(card, dispatchEvent)
     },
     baseRev,
@@ -1328,29 +1513,37 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
           detail: String(err?.message || err)
         })
       };
-      const res = await saveCardCAS(root, reverted, runRev, now());
+      // Same rebase discipline as the success path: a benign concurrent write must
+      // not turn "the gateway was down, retry later" into a card stranded running.
+      const res = await commitRunResult(root, { base: runningCard, target: reverted, runRev, dispatchedFrom: card.list, now });
       return { card: res.card ?? runningCard, outcome: { status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err) } };
     }
     await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
     const failReason = `The ${listTitle} run errored: ${String(err?.message || err)}. Parked so you can see the failure — open the log for details, then move it back to retry.`;
-    const res = await saveCardCAS(root, {
-      ...runningCard,
-      ...parkFields(runningCard, card.list, failReason, "failed"),
-      runningSince: null,
-      lastReply: replySnippet(String(err?.message || err)),
-      lastDispatchError: {
-        at: now(),
-        reason: "run-failed",
-        listId: card.list,
-        message: String(err?.message || err)
+    const res = await commitRunResult(root, {
+      base: runningCard,
+      target: {
+        ...runningCard,
+        ...parkFields(runningCard, card.list, failReason, "failed"),
+        runningSince: null,
+        lastReply: replySnippet(String(err?.message || err)),
+        lastDispatchError: {
+          at: now(),
+          reason: "run-failed",
+          listId: card.list,
+          message: String(err?.message || err)
+        },
+        events: withEvent(runningCard, {
+          at: now(),
+          kind: "failed",
+          message: `Run errored on ${listTitle}`,
+          detail: String(err?.message || err)
+        })
       },
-      events: withEvent(runningCard, {
-        at: now(),
-        kind: "failed",
-        message: `Run errored on ${listTitle}`,
-        detail: String(err?.message || err)
-      })
-    }, runRev, now());
+      runRev,
+      dispatchedFrom: card.list,
+      now
+    });
     return { card: res.card ?? runningCard, outcome: { status: "needs-attention", reason: "run-failed", error: String(err?.message || err) } };
   }
 
@@ -1576,8 +1769,15 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         detail: snippet || null
       })
     };
-    const res = await saveCardCAS(root, held, runRev, now());
-    if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+    const res = await commitRunResult(root, { base: runningCard, target: held, runRev, dispatchedFrom: card.list, now });
+    if (!res.ok) {
+      return {
+        card: res.card,
+        outcome: res.takenOver
+          ? { status: "skipped", reason: "taken-over-during-run" }
+          : { status: "needs-attention", reason: "conflict-during-run" }
+      };
+    }
     routeBrief(root, res.card ?? runningCard, { brief: readCardBrief(root, runningCard.id, 2000), gate: "explicit" });
     return { card: res.card, outcome: { status: "held", reason: "discuss-gate-explicit" } };
   }
@@ -1863,8 +2063,19 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     };
     outcome = { status: "needs-attention", reason: "no-exact-match", validNext };
   }
-  const res = await saveCardCAS(root, target, runRev, now());
-  if (!res.ok) return { card: res.card, outcome: { status: "needs-attention", reason: "conflict-during-run" } };
+  // The terminal write REBASES over any benign concurrent card write (project
+  // inference, steering, a coordination event) instead of abandoning the card in
+  // `running`. Only a real takeover refuses it — and a takeover has already
+  // cleared the running state itself.
+  const res = await commitRunResult(root, { base: runningCard, target, runRev, dispatchedFrom: card.list, now });
+  if (!res.ok) {
+    return {
+      card: res.card,
+      outcome: res.takenOver
+        ? { status: "skipped", reason: "taken-over-during-run" }
+        : { status: "needs-attention", reason: "conflict-during-run" }
+    };
+  }
   // WS2 duty summary (D6): on a genuine advance the engine writes its own per-duty
   // rollup under the run dir (best-effort; skips when runDir is null).
   if (outcome?.status === "moved") {
@@ -1930,6 +2141,77 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
 // Watch tailing a log that will never grow. Swept at board-server boot: clear
 // the running state, KEEP the consumed iteration (a dispatch really happened),
 // and mark a retryable dispatch error so the UI offers Retry.
+// The SAME wedge, but while the board server keeps running: a dispatch driver that
+// died on its own (a killed `--tick` CLI, an OOM'd chain, a turn whose driver went
+// away) leaves the card "running" with nobody to finish it — and the tick SKIPS
+// running cards, so it is never looked at again. recoverInterruptedRuns only fires
+// at board-SERVER boot, which never comes for a long-lived prod server. This sweep
+// runs on every tick and closes that hole.
+//
+// A run is orphaned when its owner pid is provably dead on THIS host, or (owner
+// unknown / another host) when it has been running longer than any legitimate turn
+// can last. The threshold is derived from the per-turn timeout the dispatcher sends
+// (KANBAN_TURN_TIMEOUT_MS, default 25 min) plus generous slack — never a bare guess.
+//
+// Recovery is deliberately "clear to retryable", exactly like the boot sweep: the
+// driver died, so the phase's work may be half-finished and the honest move is to
+// let it run again rather than to infer success from whatever it managed to write.
+export function orphanRunThresholdMs() {
+  const turn = Number(process.env.KANBAN_TURN_TIMEOUT_MS) || 25 * 60 * 1000;
+  const slack = Number(process.env.KANBAN_ORPHAN_SLACK_MS) || 5 * 60 * 1000;
+  return turn + slack;
+}
+
+export function isOrphanedRun(card, { at = Date.now(), thresholdMs = orphanRunThresholdMs(), host = hostname() } = {}) {
+  if (!card || card.status !== "running") return null;
+  const owner = card.runOwner && typeof card.runOwner === "object" ? card.runOwner : null;
+  if (owner && owner.host === host && Number.isInteger(owner.pid)) {
+    if (!isPidAlive(owner.pid)) return `its driver (pid ${owner.pid}) is gone`;
+    return null; // a live owner is running a legitimately long turn — leave it alone
+  }
+  // No usable owner stamp (a card acquired before this field existed, or a run
+  // driven from another host): fall back to the age of the run.
+  const started = Date.parse(card.runningSince || "");
+  if (!Number.isFinite(started)) return null;
+  if (at - started > thresholdMs) {
+    return `it has been running for ${Math.round((at - started) / 60000)} min, past the ${Math.round(thresholdMs / 60000)} min ceiling for a single turn`;
+  }
+  return null;
+}
+
+export async function sweepOrphanedRuns(root, { now = () => new Date().toISOString(), at = () => Date.now() } = {}) {
+  const cards = await loadAllCards(root);
+  const swept = [];
+  for (const card of cards) {
+    const why = isOrphanedRun(card, { at: at() });
+    if (!why) continue;
+    const res = await updateCardCAS(root, card.id, (c) => {
+      if (c.status !== "running") return null; // raced: already cleared
+      if (!isOrphanedRun(c, { at: at() })) return null; // raced: a new run took it
+      return {
+        ...c,
+        status: "ok",
+        runningSince: null,
+        runOwner: null,
+        lastDispatchError: {
+          at: now(),
+          reason: "orphaned",
+          listId: c.list,
+          message: `The run was lost — ${why}. Nothing finished it, so the card was released. Run again to retry.`
+        },
+        events: withEvent(c, {
+          at: now(),
+          kind: "recovered",
+          message: `Released a lost run on ${c.list} — ${why}`,
+          detail: "The dispatch driver went away without writing a result. The card is retryable; any work its runDir already holds is preserved."
+        })
+      };
+    });
+    if (res) swept.push(card.id);
+  }
+  return swept;
+}
+
 export async function recoverInterruptedRuns(root, now = () => new Date().toISOString()) {
   const cards = await loadAllCards(root);
   const recovered = [];

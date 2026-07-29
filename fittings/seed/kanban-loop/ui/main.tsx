@@ -43,6 +43,7 @@ import {
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
 import { rewriteHostUrl } from "./host-rewrite";
+import { execBadges } from "./exec-badges";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
 // the card as an OPAQUE context blob; James (the operative) reads it.
@@ -246,6 +247,27 @@ function routeChipText(r: RouteStamp): string {
   return effort ? `${base} · ${effort}` : base;
 }
 
+// The badge row itself. Renders nothing at all when there is no attribution to
+// show — an empty row would read as "we know it ran on nothing".
+function ExecBadgeRow({ settled, expected }: { settled?: RouteStamp | null; expected?: RouteStamp | null }): React.ReactElement | null {
+  const { badges, expected: isExpected } = execBadges(settled, expected);
+  if (!badges.length) return null;
+  return (
+    <div className="cmeta exec-badges">
+      {badges.map((b) => (
+        <span
+          key={b.key}
+          className={`chip exec exec-${b.key}${isExpected ? " expected" : ""}`}
+          title={isExpected ? `${b.title} (expected — this phase has not run yet)` : b.title}
+        >
+          <span className="exec-k">{b.label}</span>
+          <span className="exec-v">{b.value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // The full-attribution tooltip for the card-front chip.
 function routeTitle(r: RouteStamp): string {
   const parts = [
@@ -365,9 +387,6 @@ function Card({
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
         {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
-        {card.lastRoute && routeChipText(card.lastRoute) && (
-          <span className="chip route" title={routeTitle(card.lastRoute)}>{routeChipText(card.lastRoute)}</span>
-        )}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
@@ -378,6 +397,12 @@ function Card({
           <span className="chip attn" title={dispatchErr.message}>{dispatchErr.reason}</span>
         )}
       </div>
+
+      {/* Execution identity: runtime · model · effort · duty · account. From the
+          settled route once a turn has served the card, from its resolved
+          (duty, level) before that — so a queued or RUNNING card shows what it is
+          burning instead of nothing until the turn ends. */}
+      <ExecBadgeRow settled={card.lastRoute} expected={card.expectedRoute} />
 
       {/* D17 honesty: phases the card's rail turned OFF render as dimmed chips —
           visible, never hidden. Sourced from the card's phases toggle map. */}

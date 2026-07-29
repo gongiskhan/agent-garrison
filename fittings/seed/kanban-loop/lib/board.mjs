@@ -242,7 +242,7 @@ const LOCK_STALE_MS = Number(process.env.GARRISON_KANBAN_LOCK_STALE_MS || 30000)
 // Is a pid alive on THIS host? kill(pid,0) probes without signalling: ESRCH = gone,
 // EPERM = alive-but-not-ours. (Single-machine, solo-dev deployment, so a pid is a
 // reliable liveness token; a cross-host lock falls back to the age heuristic.)
-function isPidAlive(pid) {
+export function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; }
   catch (e) { return e.code === "EPERM"; }

@@ -85,14 +85,38 @@ export function routeFromDone(done) {
   const ruleId = done.ruleId ?? null;
   const profile = done.profile ?? null;
   const honored = done.honored ?? null;
+  // The gateway ALSO folds a turnAttribution block into the same `done` frame
+  // (http-gateway/scripts/gateway-pty.mjs turnAttribution): who actually served the
+  // turn, under which account, in which project. Its own docstring says it lives
+  // there so this function "cannot break" — but the fixed field list above dropped
+  // every one of those keys, which is why a kanban card could never show an account,
+  // duty/level, or the project the turn really ran in. Pass them through.
+  const duty = done.duty ?? null;
+  const level = Number.isInteger(done.level) ? done.level : null;
+  const skill = done.skill ?? null;
+  const via = done.via ?? null;
+  // `account` is TRI-STATE: undefined = the gateway reported nothing (omit the
+  // badge), null = the machine login (a real, renderable answer), string = a named
+  // account. Collapsing undefined into null would invent attribution.
+  const account = "account" in done ? (done.account ?? null) : undefined;
+  const accountSource = done.accountSource ?? null;
+  const project = done.project ?? null;
+  const projectPath = done.projectPath ?? null;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
     effort == null && effortApplied == null &&
-    taskType == null && tier == null && ruleId == null && profile == null && honored == null
+    taskType == null && tier == null && ruleId == null && profile == null && honored == null &&
+    duty == null && level == null && skill == null && via == null &&
+    account === undefined && accountSource == null && project == null && projectPath == null
   ) {
     return null;
   }
-  return { targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored };
+  const out = {
+    targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored,
+    duty, level, skill, via, accountSource, project, projectPath
+  };
+  if (account !== undefined) out.account = account;
+  return out;
 }
 
 // The gateway's `done` SSE event also carries an additive `context` object (S1a /
@@ -167,10 +191,45 @@ export function gatewayRunFn(gatewayUrl) {
     // `open` event immediately (headers fast → no headersTimeout) and a 15s keepalive
     // heartbeat (data keeps flowing → no bodyTimeout), then a `done` event with the full
     // result — so the connection survives an arbitrarily long turn.
+    // TWO client-side deadlines. `timeoutMs` below is only a REQUEST to the gateway,
+    // and the gateway does not honour it on every lane (the agent-sdk lane — the one
+    // kanban cards actually run on — drops the hint entirely). With no client-side
+    // bound, a turn whose `done` frame never arrives left the caller awaiting this
+    // stream forever, and the card "running" forever with it.
+    //   • hard: the per-turn ceiling plus slack, so the gateway's own timeout still
+    //     wins whenever it works and this only catches the case where it doesn't.
+    //   • idle: no CONTENT frame for a while. It must be armed on content, NOT on
+    //     bytes: the gateway emits a `: keepalive` comment every 15s, so a
+    //     byte-triggered timer would never fire on a wedged-but-connected stream.
+    // Both are TRANSPORT failures (retriable): the card reverts and runs again, it
+    // does not park as if the operative had refused.
+    const hardMs = KANBAN_TURN_TIMEOUT_MS + (Number(process.env.KANBAN_TURN_SLACK_MS) || 2 * 60 * 1000);
+    const idleMs = Number(process.env.KANBAN_TURN_IDLE_MS) || 10 * 60 * 1000;
+    const ctrl = new AbortController();
+    let aborted = null;
+    const hardTimer = setTimeout(() => {
+      aborted = `no result after ${Math.round(hardMs / 60000)} min (per-turn ceiling)`;
+      ctrl.abort();
+    }, hardMs);
+    let idleTimer = null;
+    const armIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        aborted = `the gateway sent no output for ${Math.round(idleMs / 60000)} min`;
+        ctrl.abort();
+      }, idleMs);
+    };
+    const clearDeadlines = () => {
+      clearTimeout(hardTimer);
+      if (idleTimer) clearTimeout(idleTimer);
+    };
+    armIdle();
+
     let res;
     try {
       res = await fetch(`${gatewayUrl}/chat/stream`, {
         method: "POST",
+        signal: ctrl.signal,
         headers: {
           "content-type": "application/json",
           "x-garrison-origin": "channel",
@@ -200,16 +259,19 @@ export function gatewayRunFn(gatewayUrl) {
         })
       });
     } catch (err) {
-      const e = new Error(`gateway unreachable: ${err?.message || err}`);
+      clearDeadlines();
+      const e = new Error(aborted ? `gateway turn abandoned: ${aborted}` : `gateway unreachable: ${err?.message || err}`);
       e.transport = true;
       throw e;
     }
     if (!res.ok) {
+      clearDeadlines();
       const e = new Error(`kanban dispatch failed: HTTP ${res.status}`);
       if (res.status === 502 || res.status === 503 || res.status === 504) e.transport = true;
       throw e;
     }
     if (!res.body) {
+      clearDeadlines();
       const e = new Error("gateway dispatch: no stream body");
       e.transport = true;
       throw e;
@@ -243,6 +305,11 @@ export function gatewayRunFn(gatewayUrl) {
             if (line.startsWith("event:")) event = line.slice(6).trim();
             else if (line.startsWith("data:")) data += line.slice(5).trim();
           }
+          // Re-arm the idle deadline on a CONTENT frame only. A `: keepalive`
+          // comment carries no `event:` line, so it lands here as "message" and
+          // deliberately does NOT count as progress — otherwise a wedged turn on a
+          // healthy socket would be kept alive forever by its own heartbeat.
+          if (event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
           if (event === "chunk") {
             try { const c = JSON.parse(data); if (typeof c.text === "string") { live += c.text; emit(false); } } catch { /* ignore */ }
           } else if (event === "tool") {
@@ -259,11 +326,14 @@ export function gatewayRunFn(gatewayUrl) {
         }
       }
     } catch (err) {
-      // The stream dropped mid-turn (gateway restart, network) — retriable, not the card's fault.
-      const e = new Error(`gateway stream interrupted: ${err?.message || err}`);
+      // The stream dropped mid-turn (gateway restart, network, or one of OUR deadlines
+      // firing) — retriable, never the card's fault.
+      clearDeadlines();
+      const e = new Error(aborted ? `gateway turn abandoned: ${aborted}` : `gateway stream interrupted: ${err?.message || err}`);
       e.transport = true;
       throw e;
     }
+    clearDeadlines();
 
     if (streamErr) {
       // A turn-level error reported by the gateway (e.g. the per-turn timeout fired).

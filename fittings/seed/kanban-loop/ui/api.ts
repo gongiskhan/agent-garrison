@@ -23,6 +23,16 @@ export interface RouteStamp {
   effortApplied?: boolean | null;
   tier: string | null;
   phase?: string | null;
+  // Pass-through of the gateway's turnAttribution block: WHO served the turn and
+  // where. `account` is tri-state — absent means the gateway reported nothing (no
+  // badge), null means the machine login (a real answer worth rendering).
+  duty?: string | null;
+  level?: number | null;
+  skill?: string | null;
+  via?: string | null;
+  account?: string | null;
+  accountSource?: string | null;
+  project?: string | null;
 }
 
 // One entry on a card's execution timeline (the Activity feed). `kind` drives the
@@ -132,6 +142,11 @@ export interface CardSummary {
   // event's route stamp, or null when no turn has routed yet / souls mode. The board
   // renders a small "<phase> @ <model>" chip from it.
   lastRoute?: RouteStamp | null;
+  // What the card WILL run on, resolved from its (duty, level) + current phase
+  // against the runner-projected model. Present before and during a run, when
+  // lastRoute is still null. Rendered dashed — expected, never a claim about
+  // what actually served a turn.
+  expectedRoute?: RouteStamp | null;
   eventCount?: number;
   runningSince?: string | null;
   liveTail?: string | null;

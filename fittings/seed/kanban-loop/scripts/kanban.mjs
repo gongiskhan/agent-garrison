@@ -14,7 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList } from "../lib/engine.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
@@ -284,14 +284,25 @@ async function registerSchedulerBeats() {
 // config block (tick_cron / review_cron / review_stall_hours in config_schema),
 // so a composition value takes effect without the user exporting anything;
 // the bare KANBAN_* name stays the explicit operator override on top.
-async function registerTick() {
+export async function registerTick() {
   const cron = process.env.KANBAN_TICK_CRON || process.env.KANBAN_LOOP_TICK_CRON || "*/2 * * * *"; // every 2 minutes
   const cli = schedulerCli();
   const self = path.resolve(__dirname, "kanban.mjs");
-  const cmd = `node ${self} --tick`;
+  // Bake the instance's gateway URL + home into the command: the tick runs from the
+  // scheduler daemon's env, which has neither, and guessing them is what silently
+  // killed the prod tick (see resolveGatewayUrl).
+  const prefix = instanceEnvPrefix();
+  const cmd = [...prefix, "node", self, "--tick"].join(" ");
   if (!existsSync(cli)) {
     console.log(`kanban-loop: scheduler CLI not found at ${cli} (skipping tick job; register manually).`);
     return;
+  }
+  if (!resolveGatewayUrl()) {
+    console.log(
+      "kanban-loop: WARNING — registering kanban-tick with NO gateway URL " +
+      "(neither GARRISON_GATEWAY_URL nor GARRISON_GATEWAY_PORT is set). The tick will " +
+      "not dispatch anything until this fitting is started by the runner."
+    );
   }
   const { spawnSync } = await import("node:child_process");
   spawnSync("node", [cli, "remove", "kanban-tick"], { stdio: "ignore" });
@@ -486,10 +497,42 @@ export function batchGatewayRunFn(gatewayUrl) {
   };
 }
 
-// The gateway URL the tick dispatches through: explicit env, else the conventional
-// :24777 (matching the board server + web channel). The runner injects the live URL.
+// The gateway URL the tick dispatches through. There is deliberately NO literal
+// port fallback (HARD RULE: never hardcode a port). The old fallback was
+// `http://127.0.0.1:4777` — the DEV gateway — so on prod (gateway :5777) and codex
+// (:24777) the scheduler tick pinged the wrong instance, found nothing, and logged
+// "gateway not reachable" every 2 minutes for as long as prod had been running.
+// Nothing was ever dispatched, advanced, retried or reaped by the tick, and because
+// the literal happened to be RIGHT on dev the whole failure was invisible in
+// development. `--tick` inherits only the scheduler daemon's env, which carries no
+// gateway URL, so registerTick() bakes the resolved URL into the job command
+// (instanceEnvPrefix) exactly as the weekly-review job bakes its stall threshold.
+// Returns null when the instance is unknown — the caller then says so loudly
+// instead of guessing an instance and silently doing nothing.
 function resolveGatewayUrl() {
-  return process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`;
+  const explicit = (process.env.GARRISON_GATEWAY_URL || "").trim();
+  if (explicit) return explicit;
+  const port = (process.env.GARRISON_GATEWAY_PORT || "").trim();
+  if (/^[0-9]+$/.test(port)) return `http://127.0.0.1:${port}`;
+  return null;
+}
+
+// The instance-identifying env baked into every scheduler job command this fitting
+// registers. The scheduler daemon runs jobs through `sh -c` with ITS OWN env, which
+// never carries the composition's projected values — so a job that needs them must
+// carry them itself (the pattern the weekly-review job already used for its stall
+// threshold). Without this the tick cannot tell prod from dev from codex.
+// Values are single-quoted for `sh -c`; anything containing a quote is dropped
+// rather than escaped (these are ports, URLs and paths — never quoted strings).
+function instanceEnvPrefix() {
+  const vars = {
+    GARRISON_GATEWAY_URL: resolveGatewayUrl(),
+    GARRISON_HOME: process.env.GARRISON_HOME,
+    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR
+  };
+  return Object.entries(vars)
+    .filter(([, v]) => typeof v === "string" && v.trim() && !v.includes("'"))
+    .map(([k, v]) => `${k}='${v.trim()}'`);
 }
 
 // The scheduler tick runs out-of-band (launchd) with no operative, so PING the gateway
@@ -511,6 +554,21 @@ async function gatewayReachable(url) {
 // beat), manual, and interactive lists.
 async function tick() {
   const gatewayUrl = resolveGatewayUrl();
+  // Release lost runs FIRST, and do it whether or not a gateway is reachable: an
+  // orphaned card is wedged regardless, and the sweep needs no operative.
+  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
+  for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
+  if (!gatewayUrl) {
+    // Distinct from "the gateway is down": this instance never told the tick WHICH
+    // gateway is its own, so dispatching would be a guess. Silently logging
+    // "not reachable" here is what hid the dead prod tick for weeks.
+    console.log(
+      "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +
+      "GARRISON_GATEWAY_PORT is set) — the tick cannot dispatch. Re-run `kanban.mjs --setup` " +
+      "from the running fitting so the job command carries this instance's gateway."
+    );
+    return;
+  }
   if (!(await gatewayReachable(gatewayUrl))) {
     console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (immediate cards wait for an operative).`);
     return;

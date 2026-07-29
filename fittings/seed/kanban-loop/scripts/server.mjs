@@ -61,6 +61,13 @@ import {
   parkFields,
   ATTENTION_LIST
 } from "../lib/engine.mjs";
+import {
+  kanbanModelFile,
+  loadResolvedModel,
+  hasExecutionModel,
+  resolveCardSequence,
+  executionRouteFor
+} from "../lib/resolved-model.mjs";
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
@@ -200,6 +207,54 @@ export function buildBoardView(board, cards) {
 // The card fields the board front renders: title, project chip, list, iter/cap,
 // goalMode, status — plus the pointer set (so the UI can show Open without a
 // second fetch). It is a projection, not a copy of any artifact body.
+// ── expected execution identity (the badges a card carries BEFORE it runs) ───
+//
+// card.lastRoute only exists once a turn has SETTLED, so a queued card — and a
+// card for the entire duration of its run, which is exactly when you want to know
+// what is burning — showed no runtime/model/effort at all. The resolved model the
+// runner projects to ~/.garrison/kanban-loop/model.json already knows the answer
+// for any (duty, level, phase), so compute and serialize it. It is labelled
+// EXPECTED and rendered dashed in the UI: it is what the card WILL run on, never
+// a claim about what did run.
+let _modelCache = { key: null, model: null };
+function resolvedModelCached(root) {
+  try {
+    const file = kanbanModelFile(root);
+    const key = `${file}:${statSync(file).mtimeMs}`;
+    if (_modelCache.key !== key) _modelCache = { key, model: loadResolvedModel(root) };
+    return _modelCache.model;
+  } catch {
+    return null;
+  }
+}
+
+export function expectedRouteFor(card, model) {
+  if (!card || !model || !hasExecutionModel(model)) return null;
+  const duty = typeof card.duty === "string" && card.duty ? card.duty : null;
+  if (!duty) return null;
+  const level = Number.isInteger(card.level) ? card.level : 1;
+  const sequence = resolveCardSequence(card, model) || [];
+  // On a phase list, the phase IS that list. Off one (backlog / todo / done), show
+  // the FIRST phase of the card's sequence — the step it would run next.
+  const idx = sequence.indexOf(card.list);
+  const phase = idx >= 0 ? card.list : (sequence[0] ?? null);
+  const stepIndex = idx >= 0 ? idx : (sequence.length ? 0 : null);
+  const r = executionRouteFor({ duty, level, phase, stepIndex }, model);
+  if (!r) return null;
+  const t = r.target && typeof r.target === "object" ? r.target : {};
+  return {
+    targetId: r.targetId ?? null,
+    runtime: t.runtime ?? null,
+    provider: t.provider ?? null,
+    model: t.model ?? null,
+    effort: t.effort ?? null,
+    phase: r.phase ?? phase ?? null,
+    duty,
+    level,
+    skill: r.skill ?? null
+  };
+}
+
 export function cardSummary(card) {
   // The card's LATEST commit fence (S2, Q5) — the board shows only the most recent
   // one as a subtle chip; the full chain lives on the card, not in this projection.
@@ -305,6 +360,10 @@ export function cardSummary(card) {
     // null when no turn has routed yet / souls mode. The board renders a small
     // "<phase> @ <model>" chip from it.
     lastRoute: lastRouteOf(card),
+    // What this card WILL run on (resolved from its duty/level + the current phase),
+    // so a queued or in-flight card carries runtime/model/effort badges too — not
+    // just a card whose turn already settled.
+    expectedRoute: expectedRouteFor(card, resolvedModelCached()),
     eventCount: Array.isArray(card.events) ? card.events.length : 0,
     runningSince: card.runningSince ?? null,
     // Project-inference state for a no-project card: running | done | none | skipped |
@@ -2491,12 +2550,16 @@ function parseArgs(argv) {
     host: process.env.GARRISON_KANBANLOOP_BIND_HOST || process.env.KANBAN_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     root: kanbanRoot(),
     cwd: projectRoot(),
-    // Default to the gateway's conventional URL (like the web channel) so the board can
-    // dispatch agent-list runs even when GARRISON_GATEWAY_URL isn't explicitly injected.
-    // The runner injects the live URL; this default covers the common :24777 gateway.
+    // The gateway this instance dispatches through. NO literal port fallback (HARD
+    // RULE: never hardcode a port) — the old default was :4777, the DEV gateway, so a
+    // prod/codex board that lost its env would have silently dispatched into another
+    // instance's operative rather than failing visibly. A null here disables Start on
+    // agent lists (handled downstream) and is logged at boot.
     gatewayUrl:
-      process.env.GARRISON_GATEWAY_URL ||
-      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`,
+      (process.env.GARRISON_GATEWAY_URL || "").trim() ||
+      (/^[0-9]+$/.test(String(process.env.GARRISON_GATEWAY_PORT || "").trim())
+        ? `http://127.0.0.1:${String(process.env.GARRISON_GATEWAY_PORT).trim()}`
+        : null),
     cap: Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10)
   };
   for (let i = 0; i < argv.length; i++) {
@@ -2626,6 +2689,26 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   } catch (err) {
     console.error("[kanban-loop] interrupted-run recovery failed:", err?.message || err);
+  }
+
+  // Re-register the scheduler tick from HERE, where this instance's gateway URL is
+  // actually in scope. The job command is PERSISTED in the scheduler's jobs file, so
+  // a job registered once — by the apm.yml setup hook, which never sees a gateway URL
+  // — stays wrong forever. That is how prod ended up ticking against the DEV gateway
+  // (:4777) indefinitely: every 2 minutes it logged "gateway not reachable" and did
+  // nothing, so no card was ever dispatched, advanced or swept by the tick.
+  // Registration is idempotent (remove + add), so doing it on every boot makes a
+  // stale job self-healing on restart instead of needing a manual repair.
+  if (liveOpts.gatewayUrl) {
+    try {
+      const { registerTick } = await import("./kanban.mjs");
+      process.env.GARRISON_GATEWAY_URL = process.env.GARRISON_GATEWAY_URL || liveOpts.gatewayUrl;
+      await registerTick();
+    } catch (err) {
+      console.error("[kanban-loop] tick re-registration failed:", err?.message || err);
+    }
+  } else {
+    console.warn("[kanban-loop] no gateway URL — the scheduler tick was NOT re-registered and cannot dispatch");
   }
 
   const server = http.createServer(makeRequestHandler(liveOpts, distDir));

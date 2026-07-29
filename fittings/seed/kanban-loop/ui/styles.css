@@ -438,6 +438,49 @@ body {
 /* per-phase runtime/model attribution ("plan @ opus") — brass, subtle, mono */
 .chip.route { border-color: rgba(180,134,42,0.4); color: var(--brass); background: var(--warn-soft); }
 
+/* ── execution badges: runtime · model · effort · duty · account ──────────────
+   One badge per dimension, each a dim key + a readable value, so the card says
+   WHAT it is running on at a glance. The row sits tight under the meta chips and
+   wraps freely (the board column is ~250px, so 2-3 badges per line is normal). */
+.cmeta.exec-badges { margin-top: 5px; gap: 4px; }
+.chip.exec {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 6px;
+  border-color: rgba(180,134,42,0.34);
+  background: var(--warn-soft);
+  color: var(--brass);
+  max-width: 100%;
+  min-width: 0;
+}
+.chip.exec .exec-k {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.62;
+  flex: none;
+}
+.chip.exec .exec-v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* the runtime badge reads as the "where", so it is the quiet one */
+.chip.exec.exec-runtime { border-color: var(--rule); background: var(--paper-2); color: var(--ink-2); }
+.chip.exec.exec-duty { border-color: var(--rule); background: var(--paper-2); color: var(--ink-2); }
+.chip.exec.exec-account { border-color: rgba(90,74,140,0.4); background: rgba(90,74,140,0.07); color: #5a4a8c; }
+/* EXPECTED (this phase has not run yet): dashed + desaturated, so it can never be
+   misread as a claim about what actually served the turn. */
+.chip.exec.expected {
+  border-style: dashed;
+  background: transparent;
+  color: var(--mute);
+  border-color: var(--rule);
+}
+.chip.exec.expected .exec-k { opacity: 0.55; }
+
 .card .dispatch-err {
   margin-top: 7px;
   padding: 6px 9px;
