@@ -176,6 +176,26 @@ export function compactBoundaryFn(gatewayUrl) {
   };
 }
 
+// A card's `project` is stored in TWO shapes in the wild: a bare slug
+// ("ekoa-code") and an absolute path ("/home/ggomes/dev/ekoa-code") — on a real
+// board, both, roughly half and half. The gateway's resolver takes NAMES only
+// (resolveProjectName rejects anything containing a slash, since a path could
+// escape the dev root), so sending the raw value made every path-shaped card's
+// project refused and its turn run in the composition dir.
+//
+// Normalise to the dev-root child name. Deliberately no filesystem check here:
+// the gateway owns the dev root and does the real resolution, and a name it
+// cannot resolve is REJECTED and surfaced on the card — never silently accepted.
+export function projectNameForRouting(project) {
+  const raw = typeof project === "string" ? project.trim() : "";
+  if (!raw) return null;
+  const name = raw.includes("/") || raw.includes("\\")
+    ? raw.replace(/[\\/]+$/, "").split(/[\\/]/).pop()
+    : raw;
+  if (!name || name === "." || name === ".." || name.startsWith(".")) return null;
+  return name;
+}
+
 export function gatewayRunFn(gatewayUrl) {
   return async ({
     prompt,
@@ -273,7 +293,7 @@ export function gatewayRunFn(gatewayUrl) {
           // (sanitizeRouting) and resolves to a git repo under the dev root. An
           // unresolvable name is REJECTED and reported in overridesRejected — never
           // silently run in the composition dir while claiming the project.
-          routing: card?.project ? { project: card.project } : undefined,
+          ...(projectNameForRouting(card?.project) ? { routing: { project: projectNameForRouting(card.project) } } : {}),
           timeoutMs: KANBAN_TURN_TIMEOUT_MS,
           // S1b: whether this duty holds off compaction + the card+phase key, so the
           // gateway's turn-boundary check honors the hold and stamps the compact log.

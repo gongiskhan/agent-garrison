@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 // @ts-ignore pure mjs
-import { gatewayRunFn, routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+import { gatewayRunFn, routeFromDone, projectNameForRouting } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore pure mjs
 import { routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 import { execBadges } from "../fittings/seed/kanban-loop/ui/exec-badges";
@@ -167,5 +167,42 @@ describe("a refused project reaches the card and is rendered as a warning", () =
     const { badges, expected } = execBadges(null, { model: "sonnet", project: "ekoa-code" } as any);
     expect(expected).toBe(true);
     expect(badges.find((b) => b.key === "project")).toBeUndefined();
+  });
+});
+
+// A card's `project` exists in TWO shapes in the wild — a bare slug and an absolute
+// path — roughly half and half on a real board (7 of 18 cards were path-shaped when
+// this was found by running the app). The gateway's resolver takes NAMES only, since
+// a path could escape the dev root, so sending the raw value made every path-shaped
+// card's project refused and its turn run in the composition directory.
+describe("projectNameForRouting — both stored shapes of card.project resolve", () => {
+  it("passes a bare slug through", () => {
+    expect(projectNameForRouting("ekoa-code")).toBe("ekoa-code");
+  });
+
+  it("reduces an absolute path to its dev-root child name", () => {
+    expect(projectNameForRouting("/home/ggomes/dev/ekoa-code")).toBe("ekoa-code");
+    expect(projectNameForRouting("/home/ggomes/dev/garrison")).toBe("garrison");
+  });
+
+  it("tolerates a trailing slash and surrounding whitespace", () => {
+    expect(projectNameForRouting("  /home/ggomes/dev/ekoa-code/  ")).toBe("ekoa-code");
+  });
+
+  it("refuses what the gateway would refuse anyway, rather than sending junk", () => {
+    for (const bad of ["", "   ", null, undefined, "/", "..", ".", "/home/x/.hidden"]) {
+      expect(projectNameForRouting(bad as any)).toBeNull();
+    }
+  });
+
+  it("a path-shaped card actually dispatches a resolvable name", async () => {
+    const body = await captureBody((url) =>
+      gatewayRunFn(url)({
+        prompt: "x",
+        card: { id: "c1", project: "/home/ggomes/dev/ekoa-code" },
+        list: {}
+      })
+    );
+    expect(body.routing).toEqual({ project: "ekoa-code" });
   });
 });
