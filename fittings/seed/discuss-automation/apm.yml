@@ -8,6 +8,12 @@ x-garrison:
   faculty: building
   cardinality_hint: multi
   component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - all
   summary: The "Discuss an automation" skill — opens a James conversation ("What would you like to automate?"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/<slug>.md, then drives the Router-routed planner to turn the brief into reviewable, editable steps. Reuses the Kanban Discuss -> web-channel handoff; the plain-English goal box is replaced by this flow.

@@ -8,6 +8,12 @@ x-garrison:
   faculty: sessions
   cardinality_hint: multi
   component_shape: cli-skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - claude-code
   summary: Schedules a daily synthetic prompt that asks the Operative to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.

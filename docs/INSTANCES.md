@@ -129,7 +129,7 @@ The moment of truth is `npm run prod:redeploy`
 land: build -> down (stops the operative and its fittings on the old code) ->
 `systemctl --user restart garrison-prod` -> vault unlock (keychain-sealed, no
 passphrase - needed since account-pinned compositions fail a locked-vault up)
--> up (operative + eager fittings on the new code) -> tailnet serve mappings.
+-> up (operative + all its fittings on the new code) -> tailnet serve mappings.
 A failed build aborts with the last good build still serving.
 
 That redeploy IS disruptive: the operative PTY is killed and restarted fresh
@@ -143,10 +143,10 @@ live operative session.
 | event | dev | prod |
 |---|---|---|
 | source edit / commit / push | shell hot-reloads; fittings untouched | nothing changes |
-| `npm run prod:redeploy` | n/a | ALL: down (operative-bound fittings stopped) then up (eager fittings restarted on new code) |
-| `up` | eager own-port fittings started; running ones restarted if their env (gateway URL, composition id, config) changed | same |
-| `down` | operative-bound fittings stopped; eager (server-lifecycle) fittings SURVIVE | same |
-| non-eager fitting needed | on demand from the Views UI (`/api/fittings/[id]/start`) or a self-heal path (e.g. drill -> automations) | same |
+| `npm run prod:redeploy` | n/a | ALL: down (every own-port fitting stopped) then up (every one restarted on new code) |
+| `up` | every own-port fitting started; running ones restarted if their env (gateway URL, composition id, config) changed | same |
+| `down` | every own-port fitting stopped | same |
+| fitting crashed / needs a solo code reload | `/api/fittings/[id]/start` / `restart` (recovery controls on `/fitting/<id>`), or a self-heal path (e.g. drill -> automations) | same |
 | vault unlock | keyless-started vault-consuming fittings healed (restarted with secrets) | same |
 | local-path fitting dep edited in `dev(composition)` mode | chokidar reruns `apm install` + restarts | n/a |
 

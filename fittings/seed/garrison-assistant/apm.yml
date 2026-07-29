@@ -10,7 +10,6 @@ x-garrison:
   component_shape: plugin
   own_port: true
   default_port: 7095
-  lifecycle: operative-bound
   platforms:
     - all
   summary: >-

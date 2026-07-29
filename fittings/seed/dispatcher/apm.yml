@@ -21,6 +21,12 @@ x-garrison:
   faculty: gateway
   cardinality_hint: single
   component_shape: script
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - all
   summary: >-

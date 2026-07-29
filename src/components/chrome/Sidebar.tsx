@@ -245,7 +245,7 @@ export function Sidebar() {
           <b>{verifyTotal ? `${verifyOk}/${verifyTotal}` : "-"}</b>
         </div>
         <div className="row">
-          <span>views</span>
+          <span>fittings</span>
           <b>{knownViews ? `${liveViews}/${knownViews} live` : "-"}</b>
         </div>
         <div className="row">
@@ -343,7 +343,7 @@ function useIsMobileViewport(): boolean {
   return isMobile;
 }
 
-// Per-Fitting icons for the sidebar Views list. Resolution is layered so a
+// Per-Fitting icons for the sidebar Fittings list. Resolution is layered so a
 // brand-new own-port Fitting still gets a sensible glyph without editing this
 // file: exact id first (most meaningful), then the capability kind it
 // provides, then its Faculty role, then a generic embedded/own-port fallback.
@@ -421,19 +421,6 @@ function FittingViewsLinks({
   }
   const stationed = library.filter((entry) => selectedIds.has(entry.id));
 
-  // Embedded views: Fittings whose metadata declares a sidebar-surface view.
-  // Routed to /fitting/<id> inside Garrison.
-  const embedded = stationed.filter((entry) =>
-    (entry.metadata.ui?.views ?? []).some(
-      (view) => view.placement === "sidebar-surface"
-    )
-  );
-
-  // Own-port views: Fittings whose Faculty is in OWN_PORT_FACULTIES (Monitor
-  // pattern). They register at runtime via ~/.garrison/ui-fittings/<id>.json;
-  // useFittingViewStatus surfaces health + URL.
-  const ownPort = stationed.filter((entry) => isOwnPortFitting(entry));
-
   const statusByFittingId = new Map<string, FittingViewStatus>(
     viewStatuses.map((s) => [s.fittingId, s])
   );
@@ -442,24 +429,31 @@ function FittingViewsLinks({
     | { kind: "embedded"; entry: LibraryEntry }
     | { kind: "own-port"; entry: LibraryEntry; status: FittingViewStatus | null };
 
-  const rows: Row[] = [
-    ...embedded.map((entry) => ({ kind: "embedded" as const, entry })),
-    ...ownPort.map((entry) => ({
-      kind: "own-port" as const,
-      entry,
-      status: statusByFittingId.get(entry.id) ?? null
-    }))
-  ].sort((a, b) => a.entry.name.localeCompare(b.entry.name));
+  // EVERY equipped Fitting is listed — each has a view (2026-07-29
+  // fittings/views refit): an own-port UI (live link / status) or an embedded
+  // view at /fitting/<id>. One row per fitting; own-port wins the row shape
+  // when both apply, since it carries the health signal.
+  const rows: Row[] = stationed
+    .map((entry) =>
+      isOwnPortFitting(entry)
+        ? {
+            kind: "own-port" as const,
+            entry,
+            status: statusByFittingId.get(entry.id) ?? null
+          }
+        : { kind: "embedded" as const, entry }
+    )
+    .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
 
   if (rows.length === 0) return null;
 
-  // A fitted view is a normal nav item — same visual language as Garrison /
-  // Composition / Vault / Quarters. Unfitted views simply aren't in `rows`,
-  // so they never render. Own-port views carry a status hint (live/down/off)
-  // and tint their icon by health; embedded views are always reachable.
+  // A fitting is a normal nav item — same visual language as Garrison /
+  // Composition / Vault / Quarters. Own-port fittings carry a status hint
+  // (live/down/off) and tint their icon by health; embedded views are always
+  // reachable.
   return (
     <>
-      <div className="nav-section-label nav-section-views">Fittings Views</div>
+      <div className="nav-section-label nav-section-views">Fittings</div>
       {rows.map((row) => {
         const Icon = viewIcon(row.entry, row.kind === "own-port");
         if (row.kind === "embedded") {

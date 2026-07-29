@@ -12,15 +12,14 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries, type CompositionV4 } from "./compositions";
 import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
-import { readEagerBootPrefs, runEagerBoot, setEagerBoot } from "./eager-boot";
 import {
-  isOperativeBound,
   listSpawnRecordIds,
   ownPortConfigEnv,
   startOwnPortFitting,
   stopOwnPortFitting,
   vaultEnvForEntry
 } from "./own-port-lifecycle";
+import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
 import { deriveViewProvisions } from "./view-instances";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
@@ -151,7 +150,7 @@ export function getRunnerState(compositionId: string): RunnerState {
   // map is empty by definition. Any operative-bound own-port Fitting still
   // running on disk is an orphan from the previous process — reconcile it.
   // Fire-and-forget: state reads must stay synchronous, but a sweep finishing
-  // a few ticks later is fine for the sidebar Views surface.
+  // a few ticks later is fine for the sidebar Fittings surface.
   void reconcileOrphanedOwnPortFittings();
   return getRecord(compositionId).state;
 }
@@ -267,18 +266,13 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       if (teardown.removed.length > 0) {
         appendLog(compositionId, "runner", `coord teardown: removed user-scope config for ${teardown.removed.join(", ")}`);
       }
-      // agent_mail standing lifecycle: when coord-agentmail is SELECTED, mark it
-      // eager so it boots with Garrison and survives operative `down` (standing for
-      // direct `claude` runs). When DESELECTED, un-eager it and stop the server —
-      // clean stop on deactivation. Reuses the existing own-port + eager-boot
-      // supervision (no new mechanism). Best-effort; never fails the operative.
-      if (selectedIds.includes("coord-agentmail")) {
-        await setEagerBoot("coord-agentmail", true);
-      }
+      // agent_mail lifecycle: like every own-port fitting it now starts with
+      // the operative (startOperativeBoundFittings) and stops at down. When
+      // DESELECTED, stop the server here — clean stop on deactivation.
+      // Best-effort; never fails the operative.
       if (teardown.removed.includes("coord-agentmail")) {
-        await setEagerBoot("coord-agentmail", false);
         await stopOwnPortFitting("coord-agentmail");
-        appendLog(compositionId, "runner", "coord: stopped + un-eagered coord-agentmail (deselected)");
+        appendLog(compositionId, "runner", "coord: stopped coord-agentmail (deselected)");
       }
     } catch (e) {
       appendLog(compositionId, "runner", `coord teardown reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);
@@ -579,42 +573,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       await startDevWatcher(compositionId);
     }
     appendLog(compositionId, "runner", `Operative process started${child.pid ? ` with pid ${child.pid}` : ""}`);
-    const operativeEnvById = await startOperativeBoundFittings(compositionId);
-    // Eager-toggled views also boot with the operative (not just with the
-    // server): covers detached-lifecycle fittings and the case where the
-    // server-start boot was missed. runEagerBoot skips anything already
-    // running, so eager operative-bound fittings just started above are
-    // untouched (non-eager ones were not started at all — Views UI on demand).
-    // It receives the same env the runner just projected (per-fitting where
-    // known, gateway URL + composition id otherwise) so an eager respawn is
-    // never gatewayless. Best-effort - a failed eager boot must not fail the
-    // operative.
-    try {
-      const eagerGatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
-      const eager = await runEagerBoot({
-        extraEnv: {
-          GARRISON_COMPOSITION_ID: compositionId,
-          ...(eagerGatewayBaseUrl ? { GARRISON_GATEWAY_URL: eagerGatewayBaseUrl } : {})
-        },
-        extraEnvById: Object.fromEntries(operativeEnvById)
-      });
-      if (eager.booted.length > 0 || eager.warmed.length > 0) {
-        appendLog(
-          compositionId,
-          "runner",
-          `eager views: booted [${eager.booted.join(", ") || "none"}], warmed [${eager.warmed.join(", ") || "none"}]`
-        );
-      }
-      for (const failure of eager.failed) {
-        appendLog(compositionId, "stderr", `eager boot FAILED for ${failure.id}: ${failure.error}`);
-      }
-    } catch (error) {
-      appendLog(
-        compositionId,
-        "stderr",
-        `eager boot failed (operative unaffected): ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+    await startOperativeBoundFittings(compositionId);
     return getRunnerState(compositionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -660,7 +619,7 @@ export async function down(compositionId: string): Promise<RunnerState> {
   return getRunnerState(compositionId);
 }
 
-// Exported for the eager-lifecycle vitest gate (sandbox GARRISON_HOME); the
+// Exported for the fitting-lifecycle vitest gate (sandbox GARRISON_HOME); the
 // app itself only reaches this through getRunnerState/up.
 export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
   const rt = runtime();
@@ -668,14 +627,6 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
   rt.reconciliation = (async () => {
     try {
       const compositions = await listCompositions();
-      // Eager-toggled fittings are NOT orphans: eager boot (Layer 3) owns
-      // their lifecycle — they are meant to be "always there" across Garrison
-      // restarts, carrying live state (PTY sessions etc.). Reaping them here
-      // was exactly the bug that killed eager-booted terminals on the first
-      // runner-state read. Trade-off: an eager fitting keeps serving its old
-      // bundle across Garrison restarts; toggle eager off (or stop it
-      // explicitly) when developing the fitting itself.
-      const prefs = await readEagerBootPrefs();
       // Fittings of a composition whose persisted runner record says
       // "running" are NOT orphans either: the records map survives dev-server
       // hot reloads on globalThis even though this module is re-instantiated,
@@ -689,7 +640,7 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
         const entries = await selectedLibraryEntries(composition.selections);
         const running = rt.records.get(composition.id)?.state.status === "running";
         for (const entry of entries) {
-          if (!isOperativeBound(entry)) continue;
+          if (!isOwnPortFitting(entry)) continue;
           if (running) {
             protectedIds.add(entry.id);
           } else {
@@ -702,16 +653,15 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
       // current selections) reaps DESELECTED fittings and clobbered status
       // slots that would otherwise squat their ports forever. A fitting no
       // longer in the library can never be managed again, so its record is
-      // sweepable too; detached-lifecycle fittings keep their opt-out.
+      // sweepable too.
       const libraryById = new Map((await readLibrary()).map((entry) => [entry.id, entry]));
       for (const fittingId of await listSpawnRecordIds()) {
         const entry = libraryById.get(fittingId);
-        if (entry && !isOperativeBound(entry)) continue;
+        if (entry && !isOwnPortFitting(entry)) continue;
         sweepable.add(fittingId);
       }
       for (const fittingId of sweepable) {
         if (protectedIds.has(fittingId)) continue;
-        if (prefs.eager[fittingId]) continue;
         const result = await stopOwnPortFitting(fittingId);
         if (result.ok && result.wasRunning) {
           console.log(
@@ -727,12 +677,6 @@ export async function reconcileOrphanedOwnPortFittings(): Promise<void> {
   return rt.reconciliation;
 }
 
-// Exported for the eager-lifecycle vitest gate; the app reaches this through
-// up(). Builds the runner env for EVERY operative-bound own-port fitting but
-// STARTS only the eager-toggled ones — views no longer mass-boot with the
-// operative. A non-eager view starts on demand from the Views UI
-// (/api/fittings/[id]/start hands it this same env via operativeEnvForFitting)
-// and still stops with the operative at down().
 // The URL of THIS garrison app (the Next server the runner lives in). Own-port
 // fittings call back into it (automations vision, drill curation, drillJudge)
 // and their hardcoded fallbacks are per-instance wrong by construction — the
@@ -794,15 +738,12 @@ export async function startOperativeBoundFittings(
       );
     }
   }
-  // Returned so the in-up eager boot reuses the EXACT same env per fitting -
-  // a different env there would drift the fingerprint and double-drive the
-  // fitting through a needless heal-restart. The map covers every
-  // operative-bound fitting (started here or not) for the same reason.
-  const prefs = await readEagerBootPrefs();
+  // Returned for tests and callers that need the exact per-fitting env this
+  // up() projected (a different env elsewhere would drift the fingerprint and
+  // double-drive a fitting through a needless heal-restart).
   const envByFitting = new Map<string, Record<string, string>>();
-  const notAutoStarted: string[] = [];
   for (const entry of entries) {
-    if (!isOperativeBound(entry)) continue;
+    if (!isOwnPortFitting(entry)) continue;
     // Project the ACTIVE composition id into every operative-bound own-port fitting so a
     // runner-managed boot (the normal path) carries it — the Dev Env reads
     // GARRISON_COMPOSITION_ID and forwards it to /api/orchestrator/place, so placement
@@ -821,13 +762,8 @@ export async function startOperativeBoundFittings(
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
     envByFitting.set(entry.id, extraEnv);
-    // Only eager-toggled views boot with the operative: mass-booting every
-    // own-port view at up() surprised more than it helped. Non-eager views
-    // are on-demand (Views UI start), and down() still stops any running.
-    if (!prefs.eager[entry.id]) {
-      notAutoStarted.push(entry.id);
-      continue;
-    }
+    // Every own-port fitting boots with the operative and stops with it at
+    // down() — fittings share the operative's lifecycle, always.
     const result = await startOwnPortFitting(entry, extraEnv, { healOnEnvDrift: true });
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id}: ${result.error}`);
@@ -844,22 +780,14 @@ export async function startOperativeBoundFittings(
       appendLog(compositionId, "runner", `own-port ${entry.id} started${result.pid ? ` (pid ${result.pid})` : ""}`);
     }
   }
-  if (notAutoStarted.length > 0) {
-    appendLog(
-      compositionId,
-      "runner",
-      `own-port views not auto-started (eager off): ${notAutoStarted.join(", ")} — start them from Views when needed`
-    );
-  }
   return envByFitting;
 }
 
 // The runner-projected env for ONE fitting of a RUNNING composition — exactly
 // what startOperativeBoundFittings would hand it at up (vault secrets,
 // selection config, GARRISON_COMPOSITION_ID, live GARRISON_GATEWAY_URL). The
-// manual Views start/restart routes use this so an on-demand view still
-// reaches the live gateway instead of booting gatewayless — the normal path
-// now that up() only auto-starts eager views. Returns null when no running
+// manual start/restart routes use this so a recovery start still reaches the
+// live gateway instead of booting gatewayless. Returns null when no running
 // composition selects the fitting (callers fall back to plain vault env).
 export async function operativeEnvForFitting(fittingId: string): Promise<Record<string, string> | null> {
   for (const [compositionId, record] of runtime().records) {
@@ -867,14 +795,14 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
     const composition = await readCompositionWithDerivedTasks(compositionId);
     const entries = await selectedLibraryEntries(composition.selections);
     const entry = entries.find((e) => e.id === fittingId);
-    if (!entry || !isOperativeBound(entry)) continue;
+    if (!entry || !isOwnPortFitting(entry)) continue;
     let config: Record<string, unknown> = {};
     for (const items of Object.values(composition.selections)) {
       const item = (items ?? []).find((i) => i.id === fittingId);
       if (item) {
-        // Same profile shift as the up() path — an on-demand Views start must
-        // bind the same port the eager boot would have, or the fingerprint
-        // drifts and the fitting heal-restarts on every up.
+        // Same profile shift as the up() path — a manual start must bind the
+        // same port up() would have, or the fingerprint drifts and the
+        // fitting heal-restarts on every up.
         config = applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>);
       }
     }
@@ -894,22 +822,14 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
   return null;
 }
 
-// Exported for the eager-lifecycle vitest gate; the app reaches this through
-// down().
+// Exported for the fitting-lifecycle vitest gate; the app reaches this through
+// down(). Every own-port fitting stops with the operative — fittings share the
+// operative's lifecycle, always.
 export async function stopOperativeBoundFittings(compositionId: string): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
-  // Eager-toggled fittings are server-lifecycle, not operative-lifecycle:
-  // stopping the operative must not tear down an "always there" view (it
-  // would drop live terminal sessions). They stay up; eager boot keeps
-  // owning them.
-  const prefs = await readEagerBootPrefs();
   for (const entry of entries) {
-    if (!isOperativeBound(entry)) continue;
-    if (prefs.eager[entry.id]) {
-      appendLog(compositionId, "runner", `own-port ${entry.id} left running (eager: always-on)`);
-      continue;
-    }
+    if (!isOwnPortFitting(entry)) continue;
     const result = await stopOwnPortFitting(entry.id);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id} stop: ${result.error}`);

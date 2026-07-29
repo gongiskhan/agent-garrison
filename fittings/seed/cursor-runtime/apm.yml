@@ -16,6 +16,12 @@ x-garrison:
     storage_hint: "~/.config/cursor/auth.json (Cursor account OAuth; one account at a time). Set NO_OPEN_BROWSER to get a pasteable URL."
   cardinality_hint: multi
   component_shape: cli-skill
+  ui:
+    views:
+      - id: runtime
+        placement: sidebar-surface
+        entry: garrison:runtime
+        route: /
   platforms:
     - all
   summary: >-

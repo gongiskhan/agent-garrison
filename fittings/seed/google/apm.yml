@@ -8,6 +8,16 @@ x-garrison:
   faculty: connectors
   cardinality_hint: multi
   component_shape: cli
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /skill
   platforms:
     - all
   summary: Google Workspace connector — Gmail send, Drive list, and Calendar create/list as a callable action catalog over Google's REST APIs. OAuth2 is sealed in the keychain Vault; the engine injects a freshly-refreshed access token per call. No token.json on disk, nothing plaintext in the manifest or logs.

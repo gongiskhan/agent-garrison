@@ -12,7 +12,7 @@ import { currentProfile, type InstanceProfileId } from "./instance-profile";
 // step inside it collides:
 //
 //   - `apm install` + each fitting's setup hook rewrite apm_modules/_local/**,
-//     the very files a running operative and its eager fittings execute from
+//     the very files a running operative and its fittings execute from
 //   - materializeEnv writes <dir>/.env from the CALLING instance's vault — a
 //     different key and a different secret set per instance
 //   - wipeMaterializedEnv DELETES that .env on down(), so one instance's stop

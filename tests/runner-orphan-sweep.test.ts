@@ -8,13 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // squatting port 27087): the startup sweep used to enumerate ONLY the current
 // compositions' selections, so a fitting Garrison had spawned but later
 // deselected (or whose status slot was clobbered) was unreapable forever. The
-// sweep now also enumerates ~/.garrison/ui-fittings/spawn/*.json - Garrison's
-// own kill ledger - while still honouring the eager and detached-lifecycle
-// opt-outs.
+// sweep enumerates ~/.garrison/ui-fittings/spawn/*.json - Garrison's own kill
+// ledger. Since the 2026-07-29 fittings/views refit there are no eager or
+// detached opt-outs: every own-port fitting shares the operative's lifecycle,
+// so anything not protected by a RUNNING composition is reaped.
 
 const GHOST_ID = "ghost-sweep-fixture"; // no library entry: a removed/deselected fitting
-const EAGER_GHOST_ID = "ghost-sweep-eager"; // no library entry, but eager-toggled
-const DETACHED_ID = "power-default"; // real library entry with lifecycle: detached
+const LIBRARY_ID = "power-default"; // real own-port library entry
 
 let sandbox: string;
 const priorHome = process.env.GARRISON_HOME;
@@ -97,29 +97,18 @@ describe("orphan sweep enumerates the spawn-record kill ledger", () => {
     expect(existsSync(spawnRecordFile(GHOST_ID)), "its spawn record must be cleared").toBe(false);
   });
 
-  it("leaves an eager-toggled spawn-record fitting running", async () => {
-    const eagerProc = spawnSleeper();
-    writeSpawnRecordFile(EAGER_GHOST_ID, eagerProc.pid!);
-    const { setEagerBoot } = await import("@/lib/eager-boot");
-    await setEagerBoot(EAGER_GHOST_ID, true);
+  it("reaps a library own-port fitting not protected by a running composition", async () => {
+    const orphanProc = spawnSleeper();
+    writeSpawnRecordFile(LIBRARY_ID, orphanProc.pid!);
 
     const runner = await freshRunner();
     await runner.reconcileOrphanedOwnPortFittings();
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await waitGone(orphanProc.pid!);
 
-    expect(alive(eagerProc.pid!), "eager fitting must survive the spawn-record sweep").toBe(true);
-    expect(existsSync(spawnRecordFile(EAGER_GHOST_ID))).toBe(true);
-  });
-
-  it("leaves a detached-lifecycle library fitting's spawn record alone", async () => {
-    const detachedProc = spawnSleeper();
-    writeSpawnRecordFile(DETACHED_ID, detachedProc.pid!);
-
-    const runner = await freshRunner();
-    await runner.reconcileOrphanedOwnPortFittings();
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    expect(alive(detachedProc.pid!), "detached fitting must survive the sweep").toBe(true);
-    expect(existsSync(spawnRecordFile(DETACHED_ID))).toBe(true);
+    expect(
+      alive(orphanProc.pid!),
+      "own-port fitting with no running composition must be reaped (fittings share the operative's lifecycle)"
+    ).toBe(false);
+    expect(existsSync(spawnRecordFile(LIBRARY_ID)), "its spawn record must be cleared").toBe(false);
   });
 });

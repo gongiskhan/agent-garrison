@@ -1,5 +1,5 @@
-// Run-entry self-heal for the Automations engine. The engine is a non-eager
-// own-port fitting, so a redeploy's down() kills it; ensureAutomationsUp must
+// Run-entry self-heal for the Automations engine. The engine is an own-port
+// fitting, so a redeploy's down() kills it; ensureAutomationsUp must
 // then request Garrison's on-demand lifecycle start and wait for /health
 // instead of failing the run with one incident per planned check. Without
 // GARRISON_BASE_URL (fitting running outside Garrison) it fails exactly like

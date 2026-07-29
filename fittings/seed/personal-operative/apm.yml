@@ -8,6 +8,12 @@ x-garrison:
   faculty: orchestrator
   cardinality_hint: single
   component_shape: system-prompt
+  ui:
+    views:
+      - id: prompt
+        placement: sidebar-surface
+        entry: garrison:prompt
+        route: /
   platforms:
     - claude-code
   summary: Heartbeat-driven personal operative — wakes on cadence, triages inbox/scheduled/tasks, dispatches through the gateway, persists context across sessions.

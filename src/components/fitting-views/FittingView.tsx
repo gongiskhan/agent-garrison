@@ -14,7 +14,7 @@ export function FittingView({
   view: UiView;
   params?: Record<string, string>;
 }) {
-  const Component = lookupFittingView(entry.id, view.id);
+  const Component = lookupFittingView(entry.id, view.id, view.entry);
   if (!Component) {
     return (
       <div
@@ -47,5 +47,5 @@ export function FittingView({
       </div>
     );
   }
-  return <Component config={selection.config} params={params ?? {}} />;
+  return <Component entry={entry} config={selection.config} params={params ?? {}} />;
 }

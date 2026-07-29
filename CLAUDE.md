@@ -59,10 +59,10 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. **17 in total** (`facultyIds` in `src/lib/types.ts`): **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
+- **Faculty** — a **role** slot in a composition. **17 in total** (`facultyIds` in `src/lib/types.ts`): **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
-- **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
-- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). During `up` the runner auto-starts ONLY the eager-toggled own-port Fittings; non-eager ones start on demand from the Views UI (`/api/fittings/[id]/start`, which injects the running composition's env — gateway URL, composition id, selection config, vault — via `operativeEnvForFitting`). `down` still stops every running operative-bound Fitting by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
+- **Fittings (sidebar group)** — auto-populated for the current composition; lists EVERY equipped Fitting (2026-07-29 refit: every Fitting has a view). Embedded views open at `/fitting/<id>` (the view IS the page — the old per-fitting overview/config page is gone); own-port live links embed at `/embed/<id>` (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
+- **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
 - **Armory** — `/armory`, the Fitting registry browser.
 - **Fitting** — the concrete component installed into a slot.
 - **Operative** — the composed, running agent (the user's real Claude Code session post-pivot).
@@ -133,8 +133,8 @@ tests/               Vitest suite — runner, capabilities, metadata,
 ```
 
 The visible shell surfaces are **Garrison · Composition · Vault ·
-Quarters**, plus the collapsible sidebar **Quarters** and **Views** groups
-(Views auto-populated per composition) and per-Fitting routes under
+Quarters**, plus the collapsible sidebar **Quarters** and **Fittings** groups
+(Fittings auto-populated per composition) and per-Fitting routes under
 `/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
 merged into the Garrison dashboard** (the home route; `/run` redirects to
 `/`) and the **Armory folded into Composition** (Fitting discovery is the
@@ -287,12 +287,20 @@ file changes trigger `apm install` + restart.
 **Setup vs verify**: setup is side-effect-causing prep (clones, `uv sync`,
 host-config writes); verify is read-only. Don't mix.
 
-### UI contract v2 (Phase 3)
+### UI contract v2 (Phase 3) — every Fitting has a view
 
 Fittings declare N views in `x-garrison.ui.views[]`. Each view has an `id`,
 a `placement` (`faculty-tab` | `sidebar-surface`), an `entry` path, and a
 `route` fragment. The view registry at
 `src/components/fitting-views/registry.tsx` is **static** in v2.
+
+**A view is mandatory (2026-07-29 refit)**: every Fitting declares at least
+one `ui.views[]` entry or `own_port: true`; the validation pipeline rejects a
+viewless manifest. The common shapes need no code — point `entry` at a shared
+host view: `garrison:skill` (SKILL.md frontmatter+body editor),
+`garrison:prompt`, `garrison:runtime` (config + Test probe),
+`garrison:connector`, `garrison:manage` (config + capabilities + files).
+Authoring guide: `docs/UI-FITTINGS.md`.
 
 Cross-Fitting links use `garrison://<fitting-id>/<rest>` in message bodies.
 Renderers translate them to `/fitting/<fitting-id>/<rest>`.
@@ -412,7 +420,7 @@ npm run prod:redeploy        # scripts/garrison-redeploy.sh
 
 which does, in order: `prod build` → `down` (operative + fittings on the old
 code) → `systemctl --user restart garrison-prod` → wait for `:8777` → `up`
-(operative + eager fittings on the new code). A failed build stops the deploy
+(operative + all its fittings on the new code). A failed build stops the deploy
 with the last good build still serving.
 
 Prod is the systemd user unit **`garrison-prod.service`** (`Restart=always`,

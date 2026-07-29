@@ -1,12 +1,42 @@
 # UI Fittings
 
-Canonical pattern for Garrison Fittings that bring their own user interface. Locked in 2026-05-16; see [DECISIONS.md](./DECISIONS.md) §"UI-Fitting port convention" for the decision record.
+Canonical pattern for Garrison Fitting views. The own-port convention was locked in 2026-05-16 (see [DECISIONS.md](./DECISIONS.md) §"UI-Fitting port convention"); the mandatory-view rule landed 2026-07-29 (see `docs/decisions/2026-07-29-every-fitting-has-a-view.md`).
 
-## The rule
+## The rules
 
-> **Each UI-bearing Fitting serves its own UI on its own established port. Consumers reference it by URL, not by importing components or sharing state.**
+> **1. Every Fitting has a view.** A Fitting without one is invisible in the sidebar Fittings group — that is an authoring error, and the validation pipeline rejects it. The view is either one or more `x-garrison.ui.views[]` declarations (embedded, rendered inside Garrison at `/fitting/<id>`), or an own-port UI (`own_port: true`, embedded at `/embed/<id>` when live).
+>
+> **2. Own-port Fittings serve their own UI on their own established port.** Consumers reference it by URL, not by importing components or sharing state.
 
-That is the whole contract.
+## Declaring a view (embedded)
+
+Pick the lightest option that gives the Fitting a REAL function — even a simple Fitting's view should let the user do something (edit a skill's frontmatter, flip a config value), not just read metadata.
+
+**Option A — a shared `garrison:*` view (zero code).** Point the view's `entry` at one of the host-provided shared views; Garrison renders it from the Fitting's manifest and payload:
+
+```yaml
+x-garrison:
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+```
+
+| entry | what it renders | good for |
+|---|---|---|
+| `garrison:skill` | each `.apm/skills/<name>/SKILL.md` as a frontmatter form + markdown body editor, autosaved to the seed files | skill/duty Fittings |
+| `garrison:prompt` | each `.apm/prompts/*.md` and `payload/*.md` as an autosaved markdown editor | system-prompt / persona Fittings |
+| `garrison:runtime` | engine identity, composition config (autosaved), login hint, live Test probe | runtime engine Fittings |
+| `garrison:connector` | auth method + Vault secret scope, action catalog, triggers, config | connector Fittings |
+| `garrison:manage` | how-it-works, capability wiring, config form (autosaved), lifecycle hooks, jump to the file editor | everything else |
+
+A Fitting may declare several views (e.g. a connector at `route: /` plus `garrison:skill` at `route: /skill`).
+
+**Option B — a bespoke view.** Declare `entry: ./ui/X.tsx` and register the component under `<fittingId>:<viewId>` in `src/components/fitting-views/registry.tsx` (the loader is static in UI contract v2). The component receives `{ entry, config, params }` (`FittingViewProps`).
+
+**Option C — an own-port UI.** For a Fitting that is a real app (its own server, SSE, heavy state), use the own-port pattern below; the sidebar links to it live and `/fitting/<id>` becomes its status/controls strip.
 
 ## Why
 
@@ -20,7 +50,7 @@ Coupling between UI Fittings would re-introduce the problem composability solves
 
 Each UI Fitting has three pieces:
 
-1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `27077`. Optionally add `lifecycle: detached` to opt out of the operative-bound default — without it, the Fitting stops with the operative's `down` (the runner reads the PID from the status file when stopping; it never grep's `lsof`) and boots with `up` only when toggled eager; otherwise it starts on demand from the Views UI, which hands it the running composition's env (gateway URL, composition id, selection config, vault) via `operativeEnvForFitting`. Use `detached` for Fittings the user expects to manage out-of-band (long-running watchers, etc.).
+1. **Manifest declaration.** In the Fitting's `apm.yml`'s `x-garrison` block, set `own_port: true` and add a `config_schema` entry called `port` with a default (the Fitting's well-known port). For the Monitor, that's `27077`. The Fitting shares the operative's lifecycle, always: `up` starts it with the runner-projected env (gateway URL, composition id, selection config, vault), `down` stops it (the runner reads the PID from the status file when stopping; it never grep's `lsof`). There is no eager toggle and no detached opt-out.
 2. **Server.** At startup, the Fitting tries to bind the declared port. If the port is taken, it falls back via the next-free-port helper. The actual chosen port is written to a status file:
 
    ```
@@ -51,14 +81,14 @@ A Fitting (or the Garrison Next.js app) that wants to surface a link to another 
 3. Otherwise render a link that opens `<url>` in a new tab (or a full-screen overlay on small viewports — implementation choice).
 4. Re-check on a slow cadence (every 15s is fine) so the link appears/disappears with the Fitting.
 
-The Garrison Next.js layer ships one such consumer today: the sidebar **Views** group. Its hook (`src/components/fitting-views/useFittingViewStatus.ts`) polls `/api/fittings/views`, which aggregates the status files and probes `/health` server-side. A Fitting that shows up there is one that declares the `own_port` metadata flag in its `x-garrison` block (detected by `isOwnPortFitting` in `src/lib/faculties.ts` — the old `OWN_PORT_FACULTIES` set is gone with the Quarters pivot) and that has registered a status file. Other Fittings are free to add their own consumers using the same file/health contract.
+The Garrison Next.js layer ships one such consumer today: the sidebar **Fittings** group. Its hook (`src/components/fitting-views/useFittingViewStatus.ts`) polls `/api/fittings/views`, which aggregates the status files and probes `/health` server-side. A Fitting that shows up there as a live link is one that declares the `own_port` metadata flag in its `x-garrison` block (detected by `isOwnPortFitting` in `src/lib/faculties.ts` — the old `OWN_PORT_FACULTIES` set is gone with the Quarters pivot) and that has registered a status file. Other Fittings are free to add their own consumers using the same file/health contract.
 
-## Runner lifecycle: eager exception and the secrets-heal contract
+## Runner lifecycle and the secrets-heal contract
 
-The operative-bound default above has two refinements, both implemented in `src/lib/own-port-lifecycle.ts` and `src/lib/runner.ts`:
+Fittings share the operative's lifecycle, always — implemented in `src/lib/own-port-lifecycle.ts` and `src/lib/runner.ts`:
 
-- **Eager-toggled Fittings are server-lifecycle, not operative-lifecycle.** A Fitting toggled eager in the run panel (prefs in the view-state dir's `eager-boot.json`) boots with the Garrison server and is meant to be "always there", carrying live state such as PTY sessions. It therefore survives both the startup **orphan sweep** (`reconcileOrphanedOwnPortFittings`) and the operative's **`down`** — eager boot owns its lifecycle. Trade-off: an eager Fitting keeps serving its old bundle across Garrison restarts; toggle eager off (or stop it explicitly) when developing the Fitting itself. The sweep is hot-reload-safe — its run-once memo lives on `globalThis` next to the runner records map, so a Next.js dev reload cannot re-run it — and it never reaps fittings of a composition whose runner record says `running`.
-- **Spawn record + secrets heal.** Every successful spawn writes a Garrison-side record at `~/.garrison/ui-fittings/spawn/<id>.json` (`fittingId`, `pid`, `startedAt`, `secretsDelivered`). `secretsDelivered` says whether the spawn env actually contained vault secrets (always true for Fittings that do not consume `vault`). A vault-consuming Fitting started by a process that could not read the vault — locked vault, or the detached eager-boot child — runs keyless; when `startOwnPortFitting` later sees it running, has a non-empty vault env, and the record says secrets were NOT delivered (a missing record counts as not-delivered), it **heals**: stops the keyless process, waits for it to exit, and respawns with the secrets. Vault unlock (`/api/vault/unlock`), runner `up`, and eager boot all heal through this one seam. The record lives in a subdirectory so the flat `*.json` status-file enumeration can never mistake it for a Fitting status file; `stopOwnPortFitting` removes it alongside the status file. Heal failures are surfaced, not buried: `healVaultConsumingFittings` returns them in `failed[]` and logs a `console.warn` per failure.
+- **`up` starts every own-port Fitting; `down` stops every one.** The startup **orphan sweep** (`reconcileOrphanedOwnPortFittings`) reaps anything not protected by a RUNNING composition — including deselected fittings found via the spawn-record kill ledger. The sweep is hot-reload-safe — its run-once memo lives on `globalThis` next to the runner records map, so a Next.js dev reload cannot re-run it — and it never reaps fittings of a composition whose runner record says `running`. The manual `/api/fittings/[id]/start|restart|stop` routes remain for recovery and for reloading one Fitting's code without cycling the operative.
+- **Spawn record + secrets heal.** Every successful spawn writes a Garrison-side record at `~/.garrison/ui-fittings/spawn/<id>.json` (`fittingId`, `pid`, `startedAt`, `secretsDelivered`, `envFingerprint`). `secretsDelivered` says whether the spawn env actually contained vault secrets (always true for Fittings that do not consume `vault`). A vault-consuming Fitting started by a process that could not read the vault (locked vault) runs keyless; when `startOwnPortFitting` later sees it running, has a non-empty vault env, and the record says secrets were NOT delivered (a missing record counts as not-delivered), it **heals**: stops the keyless process, waits for it to exit, and respawns with the secrets. Vault unlock (`/api/vault/unlock`) and runner `up` both heal through this one seam; `up` additionally heals on tracked-env drift (a changed gateway URL / composition id / projected config). The record lives in a subdirectory so the flat `*.json` status-file enumeration can never mistake it for a Fitting status file; `stopOwnPortFitting` removes it alongside the status file. Heal failures are surfaced, not buried: `healVaultConsumingFittings` returns them in `failed[]` and logs a `console.warn` per failure.
 
 ## Build pipeline (for the React UIs)
 

@@ -23,14 +23,13 @@ import { ROOT_DIR } from "@/lib/paths";
 import type { LibraryEntry } from "@/lib/types";
 
 // Vault-heal gate — the fix for own-port Fittings spawned KEYLESS (a process
-// that could not read the vault: locked vault, or the detached eager-boot
-// child). startOwnPortFitting writes a Garrison-side spawn record at
+// that could not read the vault, e.g. a locked vault). startOwnPortFitting writes a Garrison-side spawn record at
 // <ui-fittings>/spawn/<id>.json; when a vault-consuming Fitting is found
 // running, a non-empty vault env is in hand, and the record says secrets were
 // not delivered (missing record counts as not-delivered), the start HEALS:
 // stops the keyless process and respawns with the secrets.
 //
-// Same sandbox pattern as tests/eager-boot.test.ts: real processes under a
+// Sandbox pattern: real processes under a
 // GARRISON_HOME tmp dir, fixture fittings inside the repo tree (start paths
 // must live under ROOT_DIR), fixture start scripts honour GARRISON_HOME. The
 // real deepgram-voice is never spawned (it writes to the real ~/.garrison and

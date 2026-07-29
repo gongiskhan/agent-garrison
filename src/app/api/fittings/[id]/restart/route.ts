@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { restartOwnPortFitting, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
 import { operativeEnvForFitting } from "@/lib/runner";
-import { activeCompositionEnvForFitting } from "@/lib/eager-boot";
+import { activeCompositionEnvForFitting } from "@/lib/composition-env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Stop-then-start an own-port Fitting under one lock so it reloads its code
-// without cycling the operative. The reload path for eager (always-on)
-// Fittings, which `down` deliberately leaves running.
+// without cycling the whole operative — the quick path after editing a
+// fitting's own code.
 export async function POST(_: Request, { params }: { params: { id: string } }) {
   try {
     if (!isValidFittingId(params.id)) {
@@ -22,8 +22,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     }
     // Same env parity as the start route: a running composition's env
     // (gateway URL, composition id, selection config, vault) when available,
-    // else the ACTIVE composition's projection over vault env. This is the
-    // control used to reload an eager Fitting after a code change, so it runs
+    // else the ACTIVE composition's projection over vault env. Restart runs
     // routinely while the operative is down - the exact case where a
     // vault-only fallback dropped the port and moved the Fitting onto another
     // instance's, silently breaking every link to its view.

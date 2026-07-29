@@ -102,7 +102,7 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["plugin", "script"],
     notes:
-      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Views group.",
+      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Fittings group.",
     tier: "dev"
   },
   {
@@ -243,7 +243,7 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   },
   surfaces: {
     role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
-    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Views group."
+    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Fittings group."
   },
   modes: {
     role: "Gives the operative named faces (Gary/Joe/James) over one shared memory.",

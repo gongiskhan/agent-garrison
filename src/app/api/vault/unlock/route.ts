@@ -10,8 +10,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const result = await unlockVault(String(body.passphrase ?? ""));
     if (result.unlocked) {
-      // Fire-and-forget: an own-port Fitting started keyless (locked vault or
-      // the detached eager-boot child) heals the moment the vault opens.
+      // Fire-and-forget: an own-port Fitting started keyless (locked vault)
+      // heals the moment the vault opens.
       void healVaultConsumingFittings()
         .then((summary) => {
           if (summary.failed.length > 0) {

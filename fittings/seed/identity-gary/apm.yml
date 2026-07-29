@@ -15,6 +15,12 @@ x-garrison:
   faculty: modes
   cardinality_hint: single
   component_shape: system-prompt
+  ui:
+    views:
+      - id: prompt
+        placement: sidebar-surface
+        entry: garrison:prompt
+        route: /
   platforms:
     - claude-code
   summary: >-

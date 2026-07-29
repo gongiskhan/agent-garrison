@@ -3,18 +3,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// up() must NOT mass-boot every operative-bound own-port view — only the
-// eager-toggled ones boot with the operative; the rest are on-demand from the
-// Views UI (which gets the same runner env via operativeEnvForFitting).
-// Regression gate for "restarting the operative brings up all the views".
+// up() boots EVERY own-port fitting of the composition — fittings share the
+// operative's lifecycle, always (2026-07-29 fittings/views refit; the earlier
+// eager-toggle model is gone). Regression gate for "a stationed fitting is
+// silently left down after up".
 //
 // startOwnPortFitting is mocked (partial module mock) so no real fitting
 // server ever spawns; everything else (composition read, library resolution,
-// eager prefs under a sandbox GARRISON_HOME) is real. The two fitting ids are
-// genuinely operative-bound members of the default composition.
+// sandbox GARRISON_HOME) is real. The two fitting ids are genuinely own-port
+// members of the default composition.
 
-const EAGER_ID = "dev-env";
-const PLAIN_ID = "screen-share-default";
+const FITTING_A = "dev-env";
+const FITTING_B = "screen-share-default";
 
 vi.mock("@/lib/own-port-lifecycle", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/own-port-lifecycle")>();
@@ -29,7 +29,6 @@ import {
   startOperativeBoundFittings,
   operativeEnvForFitting
 } from "@/lib/runner";
-import { setEagerBoot } from "@/lib/eager-boot";
 
 let sandbox: string;
 const priorHome = process.env.GARRISON_HOME;
@@ -52,7 +51,7 @@ function seedRunningRecord(compositionId: string, gatewayBaseUrl?: string): void
 }
 
 beforeEach(() => {
-  sandbox = mkdtempSync(path.join(tmpdir(), "garrison-up-eager-only-"));
+  sandbox = mkdtempSync(path.join(tmpdir(), "garrison-up-all-fittings-"));
   process.env.GARRISON_HOME = sandbox;
   vi.mocked(startOwnPortFitting).mockClear();
 });
@@ -67,60 +66,53 @@ afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
-describe("up boots only eager views", () => {
-  it("with no eager prefs, no own-port view is started — but every env is still built", async () => {
+describe("up boots every own-port fitting", () => {
+  it("starts all own-port fittings of the composition with the projected env", async () => {
     const envByFitting = await startOperativeBoundFittings("default");
 
-    expect(vi.mocked(startOwnPortFitting)).not.toHaveBeenCalled();
-    // The env map still covers all operative-bound fittings so the in-up
-    // eager boot (and its fingerprint) stays byte-identical.
-    expect(envByFitting.has(EAGER_ID)).toBe(true);
-    expect(envByFitting.has(PLAIN_ID)).toBe(true);
-    expect(envByFitting.get(PLAIN_ID)?.GARRISON_COMPOSITION_ID).toBe("default");
+    const startedIds = vi
+      .mocked(startOwnPortFitting)
+      .mock.calls.map(([entry]) => (entry as { id: string }).id);
+    expect(startedIds).toContain(FITTING_A);
+    expect(startedIds).toContain(FITTING_B);
+    for (const call of vi.mocked(startOwnPortFitting).mock.calls) {
+      const env = call[1] as Record<string, string>;
+      expect(env.GARRISON_COMPOSITION_ID).toBe("default");
+      // heal-on-env-drift semantics: up knows the full desired env, so a
+      // running fitting whose env drifted restarts with the fresh values.
+      expect(call[2]).toEqual({ healOnEnvDrift: true });
+    }
+
+    // The env map covers every own-port fitting, byte-identical to what the
+    // spawn received, so fingerprints can never drift between callers.
+    expect(envByFitting.has(FITTING_A)).toBe(true);
+    expect(envByFitting.has(FITTING_B)).toBe(true);
+    expect(envByFitting.get(FITTING_B)?.GARRISON_COMPOSITION_ID).toBe("default");
     // The composition dir is projected too, so own-port servers (e.g. the
     // orchestrator router) key their config off the composition, not a
     // ~/.garrison fallback (config split-brain fix).
-    expect(envByFitting.get(PLAIN_ID)?.GARRISON_COMPOSITION_DIR).toMatch(
+    expect(envByFitting.get(FITTING_B)?.GARRISON_COMPOSITION_DIR).toMatch(
       /compositions[/\\]default$/
     );
     // THIS instance's app URL is projected too: fittings that call back into
     // the garrison app (automations vision, drill curation) carry hardcoded
     // per-instance-wrong fallbacks, and a missing projection sent internal
     // calls to the OTHER instance's app, which 403s them.
-    expect(envByFitting.get(PLAIN_ID)?.GARRISON_BASE_URL).toMatch(
+    expect(envByFitting.get(FITTING_B)?.GARRISON_BASE_URL).toMatch(
       /^http:\/\/127\.0\.0\.1:\d+$/
     );
   });
-
-  it("an eager-toggled view still boots with the operative; non-eager siblings do not", async () => {
-    await setEagerBoot(EAGER_ID, true);
-
-    const envByFitting = await startOperativeBoundFittings("default");
-
-    const startedIds = vi
-      .mocked(startOwnPortFitting)
-      .mock.calls.map(([entry]) => (entry as { id: string }).id);
-    expect(startedIds).toContain(EAGER_ID);
-    expect(startedIds).not.toContain(PLAIN_ID);
-    const eagerCall = vi
-      .mocked(startOwnPortFitting)
-      .mock.calls.find(([entry]) => (entry as { id: string }).id === EAGER_ID);
-    expect((eagerCall?.[1] as Record<string, string>).GARRISON_COMPOSITION_ID).toBe("default");
-    // heal-on-env-drift semantics preserved for the views up DOES manage
-    expect(eagerCall?.[2]).toEqual({ healOnEnvDrift: true });
-    expect(envByFitting.has(PLAIN_ID)).toBe(true);
-  });
 });
 
-describe("operativeEnvForFitting (manual Views start env parity)", () => {
+describe("operativeEnvForFitting (manual start env parity)", () => {
   it("returns null when no composition is running", async () => {
     delete (globalThis as Record<string, unknown>).__agentGarrisonRunner;
-    expect(await operativeEnvForFitting(PLAIN_ID)).toBeNull();
+    expect(await operativeEnvForFitting(FITTING_B)).toBeNull();
   });
 
   it("returns the runner env — gateway URL + composition id — for a running composition's fitting", async () => {
     seedRunningRecord("default", "http://127.0.0.1:24777");
-    const env = await operativeEnvForFitting(PLAIN_ID);
+    const env = await operativeEnvForFitting(FITTING_B);
     expect(env).not.toBeNull();
     expect(env?.GARRISON_COMPOSITION_ID).toBe("default");
     expect(env?.GARRISON_COMPOSITION_DIR).toMatch(/compositions[/\\]default$/);
@@ -130,7 +122,7 @@ describe("operativeEnvForFitting (manual Views start env parity)", () => {
 
   it("omits the gateway URL when the running record has no gateway, and rejects unknown fittings", async () => {
     seedRunningRecord("default");
-    const env = await operativeEnvForFitting(PLAIN_ID);
+    const env = await operativeEnvForFitting(FITTING_B);
     expect(env).not.toBeNull();
     expect(env?.GARRISON_GATEWAY_URL).toBeUndefined();
     expect(await operativeEnvForFitting("not-a-selected-fitting")).toBeNull();

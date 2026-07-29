@@ -10,7 +10,6 @@ x-garrison:
   component_shape: plugin
   own_port: true
   default_port: 7091
-  lifecycle: operative-bound
   platforms:
     - claude-code
   summary: A mobile-first File Browser that browses, views, and edits files under a SCOPED workspace root (default ~/.garrison/files). Syntax-highlit code via Monaco, rendered Markdown via marked, inline images — the artifact surface that replaces the artifact-store. Path-traversal-confined to its root; refuses to serve credential files.

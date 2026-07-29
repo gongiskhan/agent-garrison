@@ -22,6 +22,12 @@ x-garrison:
   # consumers invoke scripts/call.mjs by name (the Dispatcher duty cell + the
   # probe-question repoint reference it as a call target, outside the capability graph).
   component_shape: script
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - all
   summary: >-

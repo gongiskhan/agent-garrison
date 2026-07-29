@@ -8,6 +8,12 @@ x-garrison:
   faculty: channels
   cardinality_hint: multi
   component_shape: script
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
   platforms:
     - claude-code
   summary: Receives Slack app_mention/im events and round-trips replies through the gateway's /chat.

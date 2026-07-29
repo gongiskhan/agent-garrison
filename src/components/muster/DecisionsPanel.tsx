@@ -56,7 +56,7 @@ function shortSession(id: string): string {
 }
 
 // Web Channel session deep-link. The channel keys threads by an opaque id, so
-// this is the same handle the sidebar Views entry opens.
+// this is the same handle the sidebar Fittings entry opens.
 function sessionHref(id: string): string {
   return `/fitting/web-channel-default/?thread=${encodeURIComponent(id)}`;
 }

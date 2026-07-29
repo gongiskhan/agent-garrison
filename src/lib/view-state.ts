@@ -56,8 +56,7 @@ export async function listInstanceIds(fittingId: string): Promise<string[]> {
 }
 
 export async function listFittingIds(): Promise<string[]> {
-  // Directories only — root-level files (e.g. eager-boot.json, the Layer 3
-  // toggle prefs) are not fittings.
+  // Directories only — root-level files are not fittings.
   // Annotated explicitly: ReturnType<typeof fs.readdir> resolves to the
   // Buffer overload under current @types/node and breaks tsc.
   let entries: Dirent[];

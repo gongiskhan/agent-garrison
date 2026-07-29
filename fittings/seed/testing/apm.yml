@@ -8,6 +8,12 @@ x-garrison:
   faculty: skills
   cardinality_hint: multi
   component_shape: script
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - claude-code
   summary: Runs the project's native test command (npm/pytest/cargo/go test).

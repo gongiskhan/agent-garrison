@@ -8,6 +8,12 @@ x-garrison:
   faculty: sessions
   cardinality_hint: single
   component_shape: cli-skill
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - claude-code
   summary: Reads local telemetry, evidence, and project docs, then writes reviewable improvement proposal artifacts. Setup registers a disabled scheduler job; runs never apply changes.

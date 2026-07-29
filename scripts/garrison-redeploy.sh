@@ -12,7 +12,7 @@
 #   1. build     — fail here and prod keeps serving the last good build
 #   2. down      — stop the operative and its fittings on the OLD code
 #   3. restart   — swap the app server onto the new build
-#   4. up        — operative + eager fittings come back on the NEW code
+#   4. up        — operative + all its fittings come back on the NEW code
 #
 # Usage: scripts/garrison-redeploy.sh [composition-id]
 #        composition-id defaults to the prod instance's active composition.
@@ -85,7 +85,7 @@ fi
 # by design. A fresh server process boots LOCKED, and up() fails loud on a
 # locked vault whenever the composition pins an account (a named pin throws,
 # account: auto HOLDs with every token unreadable) - so unlock BEFORE up. This
-# also heals any vault-consuming fitting the eager boot started keyless. A
+# also heals any vault-consuming fitting that was started keyless. A
 # vault this key cannot open (legacy passphrase seal) stays locked and up()
 # reports it exactly as before.
 say "unlocking the vault (keychain-sealed)"
@@ -93,8 +93,8 @@ curl -sf -X POST --max-time 15 -H 'content-type: application/json' -d '{}' \
   "$BASE/api/vault/unlock" >/dev/null \
   || echo "[redeploy] vault unlock failed - up may HOLD on account: auto"
 
-# --- 4. bring the operative + eager fittings back on the new code -----------
-say "starting operative + eager fittings ($composition)"
+# --- 4. bring the operative + its fittings back on the new code -------------
+say "starting operative + fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 
 # --- 5. publish any newly-started own-port view to the tailnet --------------

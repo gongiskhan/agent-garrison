@@ -91,6 +91,9 @@ export async function runImport(opts: ImportOpts): Promise<ImportReport> {
           faculty: "skills",
           cardinality_hint: "multi",
           component_shape: "skill",
+          ui: {
+            views: [{ id: "skill", placement: "sidebar-surface", entry: "garrison:skill", route: "/" }]
+          },
           platforms: ["claude-code"],
           summary: description,
           provides: [{ kind: "agent-skill", name: slug }],
@@ -151,6 +154,9 @@ export async function runImport(opts: ImportOpts): Promise<ImportReport> {
           faculty: "observability",
           cardinality_hint: "multi",
           component_shape: "hook",
+          ui: {
+            views: [{ id: "manage", placement: "sidebar-surface", entry: "garrison:manage", route: "/" }]
+          },
           platforms: ["claude-code"],
           summary,
           hook_groups: groups.map((g) => ({ event: g.event, matcher: g.matcher, hooks: g.hooks })),

@@ -8,6 +8,12 @@ x-garrison:
   faculty: skills
   cardinality_hint: multi
   component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - claude-code
   summary: Remote machine operations (run, read, write, list) over the Garrison Outpost bridge.

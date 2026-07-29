@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  isOperativeBound,
   isValidFittingId,
   logFilePath,
   ownPortConfigEnv,
@@ -34,7 +33,6 @@ vi.mock("@/lib/vault-audit", () => ({
 // sets own_port directly rather than inferring it from the Faculty.
 function makeEntry(
   ownPort: boolean,
-  lifecycle?: "operative-bound" | "detached",
   consumes: CapabilityConsumption[] = [],
   secretScope?: string[]
 ): LibraryEntry {
@@ -48,7 +46,6 @@ function makeEntry(
     consumes,
     verify: { command: "true", expect: "ok", timeout_ms: 10000 },
     own_port: ownPort,
-    lifecycle,
     ...(secretScope ? { secret_scope: secretScope } : {})
   };
   return {
@@ -63,25 +60,6 @@ function makeEntry(
     metadata
   };
 }
-
-describe("own-port lifecycle classification", () => {
-  it("defaults own-port Fittings to operative-bound", () => {
-    expect(isOperativeBound(makeEntry(true))).toBe(true);
-  });
-
-  it("honours explicit detached opt-out", () => {
-    expect(isOperativeBound(makeEntry(true, "detached"))).toBe(false);
-  });
-
-  it("honours explicit operative-bound (same as default)", () => {
-    expect(isOperativeBound(makeEntry(true, "operative-bound"))).toBe(true);
-  });
-
-  it("returns false for non-own-port Fittings even when lifecycle is set", () => {
-    expect(isOperativeBound(makeEntry(false))).toBe(false);
-    expect(isOperativeBound(makeEntry(false, "operative-bound"))).toBe(false);
-  });
-});
 
 describe("ownPortConfigEnv (config -> spawn env projection)", () => {
   it("projects scalar config as GARRISON_<ID>_<KEY> with separators dropped/normalised", () => {
@@ -186,19 +164,19 @@ describe("ownPortEnvKey / guaranteed port projection", () => {
 
 describe("vaultEnvForEntry (own-port secret injection gating)", () => {
   it("injects ONLY the scoped vault secrets when the Fitting declares secret_scope", async () => {
-    const withScope = makeEntry(true, undefined, [{ kind: "vault", cardinality: "one" }], ["DEEPGRAM_API_KEY"]);
+    const withScope = makeEntry(true, [{ kind: "vault", cardinality: "one" }], ["DEEPGRAM_API_KEY"]);
     const env = await vaultEnvForEntry(withScope);
     expect(env).toEqual({ DEEPGRAM_API_KEY: "dg-secret" });
   });
 
   it("fail-closed: a vault consumer without secret_scope gets no secrets", async () => {
-    const noScope = makeEntry(true, undefined, [{ kind: "vault", cardinality: "one" }]);
+    const noScope = makeEntry(true, [{ kind: "vault", cardinality: "one" }]);
     const env = await vaultEnvForEntry(noScope);
     expect(env).toEqual({});
   });
 
   it("returns no secrets for a Fitting that does not consume vault", async () => {
-    const noVault = makeEntry(true, undefined, [{ kind: "voice", cardinality: "optional-one" }]);
+    const noVault = makeEntry(true, [{ kind: "voice", cardinality: "optional-one" }]);
     const env = await vaultEnvForEntry(noVault);
     expect(env).toEqual({});
   });

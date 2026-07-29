@@ -14,7 +14,6 @@ x-garrison:
   # it during `up` and stops it during `down`.
   own_port: true
   default_port: 7089
-  lifecycle: operative-bound
   platforms:
     - claude-code
   summary: >-

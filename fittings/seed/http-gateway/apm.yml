@@ -8,6 +8,12 @@ x-garrison:
   faculty: gateway
   cardinality_hint: multi
   component_shape: script
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - claude-code
   summary: Local HTTP gateway. All model turns drive interactive Claude Code TUI sessions via @garrison/claude-pty (node-pty + headless xterm). Orchestrator+souls mode uses PTY-backed sessions and channels.

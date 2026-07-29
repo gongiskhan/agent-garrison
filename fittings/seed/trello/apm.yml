@@ -8,6 +8,16 @@ x-garrison:
   faculty: connectors
   cardinality_hint: multi
   component_shape: cli
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /skill
   platforms:
     - all
   summary: Trello connector — board lists and cards as a callable action catalog (list/create/move/archive/comment) over the Trello REST API. Auth (key + token) is sealed in the Vault and delivered scoped at call time; nothing plaintext in the manifest or logs.

@@ -1,13 +1,18 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { matchView } from "@/lib/fitting-views";
 import { faculties } from "@/lib/faculties";
+import { isOwnPortFitting } from "@/lib/faculties";
 import { FittingView } from "./FittingView";
-import { FittingOverview } from "./FittingOverview";
+import { OwnPortStatusPanel } from "./OwnPortStatusPanel";
 
+// /fitting/<id>[/<rest>] — the Fitting's VIEW is the page (2026-07-29
+// fittings/views refit: every Fitting has a view, and the former
+// overview/config page is gone — composition wiring lives on /compose, files
+// in the Muster editor). Own-port Fittings get their status/controls strip
+// here; their real UI embeds at /embed/<id> when live.
 export function FittingSurfacePanel() {
   const params = useParams();
   const { composition, library, error, refreshAll } = useAppShell();
@@ -76,10 +81,11 @@ export function FittingSurfacePanel() {
     ? matchView(entry.metadata.ui.views, subPath, "sidebar-surface")
     : null;
   const hasDeepLink = subPath !== "/";
+  const ownPort = isOwnPortFitting(entry);
 
   // Full-bleed views (chrome: "full-bleed" in x-garrison.ui.views) own the
-  // whole estate: no overview header, no width cap — for views that need to
-  // maximize usable area.
+  // whole estate: no header, no width cap — for views that need to maximize
+  // usable area.
   if (match?.view.chrome === "full-bleed") {
     return (
       <main className="min-w-0 bg-[var(--paper)] p-2.5 sm:p-3.5">
@@ -94,57 +100,42 @@ export function FittingSurfacePanel() {
   }
 
   return (
-    <main className="w-full max-w-[1080px] px-5 py-8 sm:px-8 lg:px-12 lg:py-12">
-      <div className="crumbs mb-6">
-        <Link href="/compose">Compose</Link>
-        {faculty ? (
-          <>
-            {" · "}
-            <Link href={`/compose/${faculty.id}`}>{faculty.name}</Link>
-          </>
-        ) : null}
-        {" · "}
-        <b>{entry.name}</b>
-      </div>
-      <header className="mb-8 grid gap-3 border-l-2 border-[var(--brass)] pl-5 sm:pl-6">
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--brass)]">
-          Stationed Fitting · {entry.metadata.component_shape}
-          {faculty ? ` · ${faculty.name} faculty` : ""}
-        </div>
-        <h1 className="font-display m-0 max-w-[18ch] text-[clamp(2rem,5vw,3.25rem)] font-semibold leading-[0.98] tracking-[-0.035em] text-[var(--ink)]">
+    <main className="w-full max-w-[1160px] px-5 py-7 sm:px-8 lg:px-10">
+      <header className="mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-l-2 border-[var(--brass)] pl-4">
+        <h1 className="font-display m-0 text-[clamp(1.4rem,3vw,1.9rem)] font-semibold leading-tight tracking-[-0.02em] text-[var(--ink)]">
           {entry.name}
         </h1>
-        <p className="m-0 max-w-[66ch] text-[15px] leading-7 text-[var(--ink-mute)]">
-          {entry.summary}
-        </p>
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--brass)]">
+          {entry.metadata.component_shape}
+          {faculty ? ` · ${faculty.name}` : ""}
+        </span>
+        <span className="font-mono text-[11px] text-[var(--mute)]">{entry.id}</span>
       </header>
 
-      <FittingOverview entry={entry} composition={composition} library={library} />
-
       {match ? (
-        <section className="mt-10 border-t border-[var(--rule-2)] pt-7">
-          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.17em] text-[var(--brass)]">
-            Live surface · {match.view.id}
-          </div>
-          <div className="mb-5 font-mono text-[11px] text-[var(--mute)]">
-            /fitting/{fittingId}{subPath === "/" ? "" : subPath}
-          </div>
-          <FittingView
-            entry={entry}
-            selection={selection}
-            view={match.view}
-            params={match.params}
-          />
-        </section>
+        <FittingView
+          entry={entry}
+          selection={selection}
+          view={match.view}
+          params={match.params}
+        />
       ) : hasDeepLink ? (
         <section
-          className="mt-10 border border-dashed border-[var(--rule-2)] border-l-[3px] border-l-[var(--alarm)] bg-[var(--surface)] px-4 py-3 text-[13px] leading-6 text-[var(--mute)]"
+          className="border border-dashed border-[var(--rule-2)] border-l-[3px] border-l-[var(--alarm)] bg-[var(--surface)] px-4 py-3 text-[13px] leading-6 text-[var(--mute)]"
           role="alert"
         >
           <b className="text-[var(--ink)]">Surface unavailable.</b>{" "}
           No view in {entry.name} matches <code>{subPath}</code>.
         </section>
-      ) : null}
+      ) : ownPort ? (
+        <OwnPortStatusPanel entry={entry} />
+      ) : (
+        <SurfaceMessage
+          eyebrow="No view at this route"
+          title={`${entry.name} declares no root view`}
+          body="Its views render elsewhere (a Compose-pane tab), or the manifest needs a ui.views entry — every Fitting has a view."
+        />
+      )}
     </main>
   );
 }
