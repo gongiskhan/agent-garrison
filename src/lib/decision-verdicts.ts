@@ -19,19 +19,12 @@
 // verdict, and (optionally) the counterfactual expressed in the SAME run-spec
 // vocabulary the dropdowns speak. No free text means nothing to redact, which is
 // what keeps this consistent with the feed's strict no-user-content posture.
-
-import path from "node:path";
-import { promises as fs } from "node:fs";
-import { garrisonDir } from "./claude-home";
-
-/** The queue the Improver's `feedback` rule reads. One JSON object per line. */
-export const FEEDBACK_QUEUE_REL = path.join("improver", "feedback-queue.jsonl");
-
-export function feedbackQueuePath(): string {
-  // garrisonDir() honors GARRISON_HOME, so a dev instance's verdicts land in the
-  // dev home and never in the queue prod's nightly Improver reads.
-  return path.join(garrisonDir(), FEEDBACK_QUEUE_REL);
-}
+//
+// PURE BY CONSTRUCTION — no `node:` imports, no filesystem. The Decisions panel is
+// a "use client" component and imports the vocabulary from here, so a single
+// `node:path` import in this file drags a Node builtin into the browser bundle and
+// the Next build fails outright. The queue writer lives in
+// `decision-verdicts-store.ts`; only the API route imports that.
 
 /** A verdict is deliberately three-valued. "unsure" is not a shrug — it is the
  *  honest answer for a route the user cannot evaluate, and recording it is what
@@ -128,23 +121,4 @@ export function buildVerdictRecord(input: DecisionVerdictInput): Record<string, 
     timestamp: input.at ?? new Date().toISOString(),
     provenance: "decision-verdict"
   };
-}
-
-/**
- * Append one verdict. Single `appendFile` call per record, which is the atomicity
- * every other writer of this queue relies on to keep concurrent appends from
- * interleaving mid-line.
- *
- * Returns false when the input was unusable, so a caller can answer 400 rather than
- * silently accepting a verdict it never wrote.
- */
-export async function recordDecisionVerdict(
-  input: DecisionVerdictInput,
-  file: string = feedbackQueuePath()
-): Promise<boolean> {
-  const record = buildVerdictRecord(input);
-  if (!record) return false;
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.appendFile(file, JSON.stringify(record) + "\n", "utf8");
-  return true;
 }

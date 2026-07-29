@@ -284,6 +284,12 @@ export function cardSummary(card) {
     workKind: card.workKind ?? null,
     phases: card.phases ?? null,
     tier: card.tier ?? null,
+    // RUN-SPEC-V1: the card's explicit run spec. It MUST cross the projection or
+    // the whole control is write-only — the engine reads the card from disk, so a
+    // spec left out here is still honored at run time but can never be shown back
+    // to the user or pre-filled for an edit. ("What did I choose for this card?"
+    // has to be answerable from the card.)
+    routing: card.routing ?? null,
     origin: card.origin ?? null,
     outpost: card.outpost ?? null,
     // Outpost Dispatch: WHERE the card runs, and the live claim ledger. Both

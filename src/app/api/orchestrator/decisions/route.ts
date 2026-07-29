@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCompositionDirectory, DEFAULT_COMPOSITION_ID } from "@/lib/compositions";
 import { readDecisionsTail, DEFAULT_DECISIONS_LIMIT } from "@/lib/decisions-feed";
-import { recordDecisionVerdict, type Verdict } from "@/lib/decision-verdicts";
+import { recordDecisionVerdict } from "@/lib/decision-verdicts-store";
+import { type Verdict } from "@/lib/decision-verdicts";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";

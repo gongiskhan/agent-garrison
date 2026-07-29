@@ -126,6 +126,9 @@ export interface CardSummary {
   workKind?: string | null;
   phases?: Record<string, boolean> | null;
   tier?: string | null;
+  /** RUN-SPEC-V1: what the user explicitly chose for this run. Absent/null on a
+   *  fully-automatic card, which is every card by default. */
+  routing?: CardRouting | null;
   origin?: string | null;
   // D19: a quick card is a trivial-plan task the gateway ran inline and
   // auto-advanced to Done. The Done column groups quick cards under a collapsed

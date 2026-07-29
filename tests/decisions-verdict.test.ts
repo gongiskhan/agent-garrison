@@ -6,9 +6,9 @@ import { pathToFileURL } from "node:url";
 import {
   buildVerdictRecord,
   sanitizeCorrection,
-  recordDecisionVerdict,
   CORRECTION_FIELDS
 } from "../src/lib/decision-verdicts";
+import { recordDecisionVerdict } from "../src/lib/decision-verdicts-store";
 import { normalizeDecision } from "../src/lib/decisions-feed";
 
 // RUN-SPEC-V1 verdicts: the correction channel for an orchestrator that now decides
