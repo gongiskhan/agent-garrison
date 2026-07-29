@@ -515,18 +515,22 @@ export function routeStamp(route, phase = null) {
   const via = route.via ?? null;
   const accountSource = route.accountSource ?? null;
   const project = route.project ?? null;
+  const overridesApplied = Array.isArray(route.overridesApplied) ? route.overridesApplied : null;
+  const overridesRejected = Array.isArray(route.overridesRejected) ? route.overridesRejected : null;
   const hasAccount = "account" in route && route.account !== undefined;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
     effort == null && effortApplied == null && tier == null &&
     duty == null && level == null && skill == null && via == null &&
-    accountSource == null && project == null && !hasAccount
+    accountSource == null && project == null && !hasAccount &&
+    overridesApplied == null && overridesRejected == null
   ) {
     return { route: null, suffix: "" };
   }
   const stamp = {
     targetId, runtime, provider, model, effort, effortApplied, tier, phase: phase ?? null,
-    duty, level, skill, via, accountSource, project
+    duty, level, skill, via, accountSource, project,
+    overridesApplied, overridesRejected
   };
   if (hasAccount) stamp.account = route.account ?? null;
   // "runtime/model" (runtime preferred, provider as fallback), then "(tier · effort)".

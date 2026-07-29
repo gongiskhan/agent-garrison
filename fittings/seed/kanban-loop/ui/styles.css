@@ -1617,3 +1617,12 @@ button:active, .btn:active { transform: translateY(1px); }
   .term-scrim { padding: 0; }
   .term-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 }
+
+/* A REFUSED project pin: the turn did not run in the card's repo. This is a
+   correctness warning, not decoration — it reads as an alarm chip. */
+.chip.exec.exec-project-refused {
+  border-color: rgba(155,54,45,0.45);
+  background: var(--alarm-soft);
+  color: var(--alarm);
+}
+.chip.exec.exec-project { border-color: rgba(61,98,73,0.4); background: var(--sage-soft); color: var(--sage); }

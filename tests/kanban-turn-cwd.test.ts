@@ -16,7 +16,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 // @ts-ignore pure mjs
-import { gatewayRunFn } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+import { gatewayRunFn, routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+// @ts-ignore pure mjs
+import { routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { execBadges } from "../fittings/seed/kanban-loop/ui/exec-badges";
 // @ts-ignore pure mjs
 import { batchGatewayRunFn } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore pure mjs
@@ -120,5 +123,49 @@ describe("the gateway accepts that shape and turns it into a real cwd", () => {
     const out = applyTurnOverride({}, route, { project: "not-a-repo" }, { resolveProject: () => null });
     expect(out.projectPath).toBeNull();
     expect(out.rejected.map((r: any) => r.field)).toContain("project");
+  });
+});
+
+// The rejection must reach the CARD, not just the gateway log. A turn that could not
+// use the card's project ran somewhere else — the one thing that must never be silent.
+describe("a refused project reaches the card and is rendered as a warning", () => {
+  it("routeFromDone passes overridesApplied/overridesRejected through", () => {
+    const r: any = routeFromDone({
+      route: "cc-sonnet", model: "sonnet",
+      overridesApplied: ["project"],
+      overridesRejected: [{ field: "project", reason: "project-not-a-git-repo-under-dev-root" }]
+    });
+    expect(r.overridesApplied).toEqual(["project"]);
+    expect(r.overridesRejected).toEqual([{ field: "project", reason: "project-not-a-git-repo-under-dev-root" }]);
+  });
+
+  it("routeStamp persists them onto the card", () => {
+    const { route } = routeStamp(
+      { model: "sonnet", project: "ekoa-code", overridesApplied: ["project"], overridesRejected: null },
+      "code"
+    );
+    expect(route.project).toBe("ekoa-code");
+    expect(route.overridesApplied).toEqual(["project"]);
+  });
+
+  it("a settled turn shows WHERE it ran", () => {
+    const { badges } = execBadges({ model: "sonnet", project: "ekoa-code" } as any, null);
+    expect(badges.find((b) => b.key === "project")?.value).toBe("ekoa-code");
+  });
+
+  it("a REFUSED project renders a loud badge saying the turn ran in the composition dir", () => {
+    const { badges } = execBadges(
+      { model: "sonnet", overridesRejected: [{ field: "project", reason: "project-not-a-git-repo-under-dev-root" }] } as any,
+      null
+    );
+    const warn = badges.find((b) => b.key === "project-refused");
+    expect(warn?.value).toBe("composition dir");
+    expect(warn?.title).toMatch(/could not be used|composition directory/i);
+  });
+
+  it("does not claim a run location on a card that has not run yet", () => {
+    const { badges, expected } = execBadges(null, { model: "sonnet", project: "ekoa-code" } as any);
+    expect(expected).toBe(true);
+    expect(badges.find((b) => b.key === "project")).toBeUndefined();
   });
 });

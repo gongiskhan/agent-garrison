@@ -56,6 +56,24 @@ export function execBadges(settled: RouteStamp | null | undefined, expected: Rou
   if (r.duty) {
     push("duty", "duty", Number.isInteger(r.level) ? `${r.duty} L${r.level}` : r.duty, `duty ${r.duty}${Number.isInteger(r.level) ? ` at level ${r.level}` : ""}`);
   }
+  // WHERE the turn ran. Only shown once a turn has settled: before that the card's
+  // own project chip already says which repo it is FOR, and repeating it as an
+  // execution badge would imply we know where it will run.
+  if (!isExpected && r.project) {
+    push("project", "in", r.project, `the turn ran in the ${r.project} repo`);
+  }
+  // A REFUSED project is the one thing that must never be silent: the turn then ran
+  // in the composition directory, not the card's repo. Surface it loudly.
+  const refusedProject = (r.overridesRejected || []).find((x) => x && x.field === "project");
+  if (refusedProject) {
+    push(
+      "project-refused",
+      "not in",
+      "composition dir",
+      `The card's project could not be used as the turn's working directory (${refusedProject.reason}), ` +
+        "so the turn ran in the composition directory instead. A project must be a git repo directly under the dev root."
+    );
+  }
   if ("account" in (r as unknown as Record<string, unknown>) && r.account !== undefined) {
     push("account", "account", r.account ?? "machine login", r.account
       ? `Anthropic account: ${r.account}${r.accountSource ? ` (${r.accountSource})` : ""}`

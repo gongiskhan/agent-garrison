@@ -102,18 +102,26 @@ export function routeFromDone(done) {
   const accountSource = done.accountSource ?? null;
   const project = done.project ?? null;
   const projectPath = done.projectPath ?? null;
+  // What the turn's pinned intent actually did. `overridesRejected` is the honesty
+  // half: a project that did not resolve to a git repo under the dev root is REFUSED,
+  // and the turn then runs in the composition dir. The card must be able to say so —
+  // otherwise a card silently runs somewhere other than its own project.
+  const overridesApplied = Array.isArray(done.overridesApplied) ? done.overridesApplied : null;
+  const overridesRejected = Array.isArray(done.overridesRejected) ? done.overridesRejected : null;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
     effort == null && effortApplied == null &&
     taskType == null && tier == null && ruleId == null && profile == null && honored == null &&
     duty == null && level == null && skill == null && via == null &&
-    account === undefined && accountSource == null && project == null && projectPath == null
+    account === undefined && accountSource == null && project == null && projectPath == null &&
+    overridesApplied == null && overridesRejected == null
   ) {
     return null;
   }
   const out = {
     targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored,
-    duty, level, skill, via, accountSource, project, projectPath
+    duty, level, skill, via, accountSource, project, projectPath,
+    overridesApplied, overridesRejected
   };
   if (account !== undefined) out.account = account;
   return out;

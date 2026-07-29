@@ -33,6 +33,10 @@ export interface RouteStamp {
   account?: string | null;
   accountSource?: string | null;
   project?: string | null;
+  /** Which pinned dimensions the turn actually honoured. */
+  overridesApplied?: string[] | null;
+  /** Which it REFUSED, and why — e.g. a project that is not a repo under the dev root. */
+  overridesRejected?: { field: string; reason: string }[] | null;
 }
 
 // One entry on a card's execution timeline (the Activity feed). `kind` drives the
