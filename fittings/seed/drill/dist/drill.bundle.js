@@ -27186,9 +27186,9 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": "true", children: "\u2192" })
           ] }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Mode", children: p.mode === "steps" ? "Step by step" : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontWeight: 600 }, children: "Whole page vision" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Areas", children: p.areas.length }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Steps", children: p.steps.length }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "States", children: p.states.length })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Areas", children: p.areas?.length ?? 0 }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Steps", children: p.steps?.length ?? 0 }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "States", children: p.states?.length ?? 0 })
         ] }, p.id))
       ] })
     ] }) }),

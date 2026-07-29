@@ -987,9 +987,12 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
                   </button>
                 </td>
                 <td data-label="Mode">{p.mode === "steps" ? "Step by step" : <span style={{ color: "var(--brass)", fontWeight: 600 }}>Whole page vision</span>}</td>
-                <td data-label="Areas">{p.areas.length}</td>
-                <td data-label="Steps">{p.steps.length}</td>
-                <td data-label="States">{p.states.length}</td>
+                {/* Defensive even though the store normalises: this table
+                    taking the whole Book page down over a missing key is a far
+                    worse failure than showing a zero. */}
+                <td data-label="Areas">{p.areas?.length ?? 0}</td>
+                <td data-label="Steps">{p.steps?.length ?? 0}</td>
+                <td data-label="States">{p.states?.length ?? 0}</td>
               </tr>
             ))}
           </tbody>

@@ -103,6 +103,24 @@ function pagePath(pageId, root = drillTargetRoot()) {
   return path.join(pagesDir(root), `${safeId(pageId)}.yml`);
 }
 
+// A page file is hand-editable AND agent-authored, so it arrives with whatever
+// its writer thought was worth writing: a page with no named states simply has
+// no `states:` key, which is exactly what the planner tells the agent to do.
+// Every reader then has to cope, and one that forgets — the Book table did
+// `p.states.length` — takes the whole surface down with it. The Drill Book page
+// crashed to a blank screen the first time a freshly planned Book was opened.
+// Normalising here, at the single read boundary, is what makes "absent means
+// empty" true for every consumer instead of a rule each one has to remember.
+function normalizePage(page) {
+  if (!page || typeof page !== "object") return page;
+  return {
+    ...page,
+    areas: Array.isArray(page.areas) ? page.areas : [],
+    steps: Array.isArray(page.steps) ? page.steps : [],
+    states: Array.isArray(page.states) ? page.states : []
+  };
+}
+
 export async function listPages(root = drillTargetRoot()) {
   let entries;
   try {
@@ -115,7 +133,7 @@ export async function listPages(root = drillTargetRoot()) {
   for (const file of entries.filter((f) => f.endsWith(".yml"))) {
     try {
       const parsed = await readYaml(path.join(pagesDir(root), file));
-      if (parsed && typeof parsed === "object") out.push(parsed);
+      if (parsed && typeof parsed === "object") out.push(normalizePage(parsed));
     } catch {
       // skip an unparseable file rather than failing the whole list
     }
@@ -124,7 +142,7 @@ export async function listPages(root = drillTargetRoot()) {
 }
 
 export async function getPage(pageId, root = drillTargetRoot()) {
-  return readYaml(pagePath(pageId, root));
+  return normalizePage(await readYaml(pagePath(pageId, root)));
 }
 
 export function defaultPage(pageId) {
@@ -141,7 +159,11 @@ export function defaultPage(pageId) {
 
 export async function savePage(pageId, patch, root = drillTargetRoot()) {
   const id = safeId(pageId);
-  const current = (await getPage(id, root)) ?? defaultPage(id);
+  // Merge onto the RAW file, not the normalised read: normalisation fills in
+  // empty areas/steps/states for readers, and merging from it would write those
+  // keys back into every page that deliberately omitted them - churning 15 page
+  // files in the user's repo to say nothing.
+  const current = (await readYaml(pagePath(id, root))) ?? defaultPage(id);
   const merged = { ...current, ...patch, id };
   const file = pagePath(id, root);
   await atomicWriteFile(file, yaml.dump(merged));

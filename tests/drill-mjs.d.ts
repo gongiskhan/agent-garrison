@@ -4,13 +4,15 @@ declare module "*/drill/lib/store.mjs" {
   export function drillTargetRoot(): string;
   export function safeId(id: string): string;
   export function defaultDrillBook(): any;
-  export function getDrillBook(): Promise<any>;
-  export function saveDrillBook(patch: any): Promise<any>;
+  // Every store function takes an optional trailing `root` so a long-lived
+  // request can pin the target repo it started against.
+  export function getDrillBook(root?: string): Promise<any>;
+  export function saveDrillBook(patch: any, root?: string): Promise<any>;
   export function defaultPage(pageId: string): any;
-  export function listPages(): Promise<any[]>;
-  export function getPage(pageId: string): Promise<any | null>;
-  export function savePage(pageId: string, patch: any): Promise<any>;
-  export function deletePage(pageId: string): Promise<boolean>;
+  export function listPages(root?: string): Promise<any[]>;
+  export function getPage(pageId: string, root?: string): Promise<any | null>;
+  export function savePage(pageId: string, patch: any, root?: string): Promise<any>;
+  export function deletePage(pageId: string, root?: string): Promise<boolean>;
   export function parseAreaRef(ref: string): { pageId: string; areaId: string } | null;
 }
 declare module "*/drill/lib/ulid.mjs" {
