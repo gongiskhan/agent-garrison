@@ -764,5 +764,75 @@
       "global": 4,
       "claude_code": 4
     }
+  },
+  {
+    "id": "discuss-automation",
+    "name": "Discuss Automation",
+    "repo": "local:fittings/seed/discuss-automation",
+    "localPath": "fittings/seed/discuss-automation",
+    "summary": "The \"Discuss an automation\" skill — opens a James conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "improver-nightly",
+    "name": "Improver Nightly",
+    "repo": "local:fittings/seed/improver-nightly",
+    "localPath": "fittings/seed/improver-nightly",
+    "summary": "Reads local telemetry, evidence, and project docs, then writes reviewable improvement proposal artifacts. Setup registers a disabled scheduler job; runs never apply changes.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "loop-heartbeat",
+    "name": "Loop Heartbeat",
+    "repo": "local:fittings/seed/loop-heartbeat",
+    "localPath": "fittings/seed/loop-heartbeat",
+    "summary": "Scheduled loop that wakes the operative and dispatches through the gateway.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "morning-briefing",
+    "name": "Morning Briefing",
+    "repo": "local:fittings/seed/morning-briefing",
+    "localPath": "fittings/seed/morning-briefing",
+    "summary": "Schedules a daily synthetic prompt that asks the Operative to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "vault-sync",
+    "name": "Vault Sync",
+    "repo": "local:fittings/seed/vault-sync",
+    "localPath": "fittings/seed/vault-sync",
+    "summary": "Mirrors a host-side directory to one or more outposts on a scheduler tick.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
   }
 ]
