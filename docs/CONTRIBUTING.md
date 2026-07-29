@@ -86,6 +86,13 @@ the same.
 
 ## How to contribute to the platform
 
+> **Maintainer note.** Everything below is the flow for **outside
+> contributors**. The repo owner (`gongiskhan`) works directly on `main` and
+> pushes there. `main` is a protected ref requiring a pull request, and the owner
+> holds a bypass on that rule — so a direct push succeeds and GitHub reports
+> `Bypassed rule violations for refs/heads/main`. That message means the push
+> landed; it is not a warning and does not mean the change should have been a PR.
+
 Standard PR flow:
 
 1. Fork, branch.

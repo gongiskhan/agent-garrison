@@ -385,6 +385,24 @@ standalone unit on the same jobs file double-fires every scheduled job.
   **existing** branch is fine. Work stays on the current/specified
   branch; to recover "lost" work, check existing branches / reflog /
   stash and `git checkout` the existing branch — don't invent one.
+- **Work lands by pushing straight to `main`. That is the intended flow here.**
+  `main` carries a GitHub branch-protection rule ("Changes must be made through
+  a pull request"), and the owner (`gongiskhan`) holds a **bypass** on it. So a
+  direct `git push origin main` succeeds and GitHub prints:
+
+  ```
+  remote: Bypassed rule violations for refs/heads/main:
+  remote: - Changes must be made through a pull request.
+  remote: - Cannot update this protected ref.
+  ```
+
+  **That output is expected and means the push landed.** Do not treat it as a
+  warning, do not flag it as a problem, and do not offer to move the work onto a
+  branch and open a PR instead. The protection exists to stop *other* accounts
+  pushing to `main`, not the owner. The PR flow described in
+  [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md) is for outside contributors.
+  (This is a solo, single-maintainer repo — see the environment notes: no team,
+  no shared infrastructure, no one else's work to break.)
 - **Don't optimise the Faculty list further before §10 DoD is
   observable.** New Faculties land only when a real Fitting needs one.
 - **Don't add a new capability kind speculatively.** Add one when a Fitting
