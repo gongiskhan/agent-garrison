@@ -148,6 +148,7 @@ declare module "*/omi-channel/lib/triage.mjs" {
     runFn: (args: { prompt: string }) => Promise<{ reply: string }>;
     board: unknown;
     memoryWriter: unknown;
+    notifier?: unknown;
     log?: unknown;
     now?: Date;
   }): Promise<{

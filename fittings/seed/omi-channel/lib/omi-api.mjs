@@ -10,7 +10,9 @@
 // found / app not installed (not retriable), 429/5xx retriable with
 // exponential backoff (docs: start at 1s, double per retry).
 
-const DEFAULT_BASE = "https://api.omi.me";
+// OMI_API_BASE_URL exists for the fixture-driven E2E demo and self-hosted Omi
+// backends; production traffic goes to the real cloud.
+const DEFAULT_BASE = process.env.OMI_API_BASE_URL || "https://api.omi.me";
 const MAX_ATTEMPTS = 3;
 
 export class OmiApi {

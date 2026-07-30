@@ -65,3 +65,7 @@ One line per deviation, with the reason. Details in
   scheduler job: its sources (the board, triaged events) share this
   fitting's lifecycle, so an independent cron would only ever fire into a
   dead board; `scripts/backfeed.mjs --run` remains the manual trigger.
+- `scripts/funnel-ensure.mjs` is human-invoked, not hooked into
+  prod:redeploy (which the recon suggested): opening public internet
+  ingress is a deliberate act, and the endpoints are inert 403s until
+  the flags and secrets exist anyway.

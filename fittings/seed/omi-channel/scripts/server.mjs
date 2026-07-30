@@ -126,9 +126,18 @@ function secretsPresence(cfg) {
   };
 }
 
-function statusPage(cfg) {
+function statusPage(cfg, counters = {}) {
   const flags = flagSummary(cfg);
   const secrets = secretsPresence(cfg);
+  // Counters per pipe (spec M7) - the always-available metrics surface next
+  // to /health. Wake counters are counts only; no transcript content exists
+  // anywhere in this fitting's observability (I5).
+  const counterKeys = Object.keys(counters)
+    .filter((k) => k !== "updatedAt")
+    .sort();
+  const counterRows = counterKeys
+    .map((k) => `<tr><td>${k}</td><td>${counters[k]}</td></tr>`)
+    .join("\n");
   const row = (k, v) =>
     `<tr><td>${k}</td><td class="${v ? "on" : "off"}">${v ? "on" : "off"}</td></tr>`;
   const srow = (k, v) =>
@@ -165,6 +174,10 @@ ${srow("OMI_APP_SECRET", secrets.appSecret)}
 ${srow("OMI_IMPORT_API_KEY", secrets.importApiKey)}
 ${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
 </table>
+<h2>Counters</h2>
+<table>
+${counterRows || "<tr><td>(none yet)</td><td></td></tr>"}
+</table>
 </body></html>`;
 }
 
@@ -195,7 +208,7 @@ export function makeRequestHandler(ctx) {
       if (pathname === "/" && method === "GET") {
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.end(statusPage(cfg));
+        return res.end(statusPage(cfg, mergedCounters(store.root)));
       }
 
       // ---- Ingress surface. Everything under /omi/ (the public Funnel mount

@@ -237,3 +237,41 @@ scheduler job (recorded in DECISIONS.md).
 Next: M7 — observability counters on /health + status page, RUNBOOK.md,
 HUMAN_SETUP.md, funnel-ensure script, full local E2E demo on fixtures
 with all flags on.
+
+## M7 — Observability, docs, human checklist (2026-07-30)
+
+Shipped:
+- Counters per pipe surfaced on GET /health (merged across the server /
+  triage / backfeed writer files) AND rendered on the status page — the
+  spec's named counters all exist (`events_in`, `dropped_by_rule`,
+  `cards_created`, `wake_hits`, `notifications_sent`, `chat_calls`) plus
+  per-reason rejections and the wake latency observation; wake-bus logs
+  and counters carry no transcript content (I5).
+- `scripts/funnel-ensure.mjs`: idempotent, PROD-guarded funnel setup
+  mounting ONLY /omi at :8443 (never :443, never dev); deliberately NOT
+  hooked into prod:redeploy — public exposure stays a human act.
+- `OMI_API_BASE_URL` testing hook on the Omi cloud client.
+- `RUNBOOK.md`: state layout, kill-switch table, fixture replay,
+  failure-mode triage, key rotation, uid re-pin, funnel on/off.
+- `HUMAN_SETUP.md`: subscription warning (~1200 free min/month), device
+  installs, vault seals, funnel click-path with off-box verification,
+  private-app creation (App ID/Secret, sk_ Import key, Chat Tools
+  Manifest URL), Developer Mode webhook URLs, flag-by-flag turn-on with
+  verification, the spoken smoke test ("Gary, create a test task called
+  hello garrison") with expected outcomes/timings, day-summary caveats,
+  and the post-go-live measurement list.
+- Acceptance: `tests/omi-channel-e2e.test.ts` — the full local demo on
+  fixtures with ALL flags on: idempotent double replay -> one-model-call
+  triage (card + memory + tip, discarded dropped by rule, empty second
+  tick = zero calls) -> spoken wake command -> card + confirmation with
+  latency metric -> ask_gary answer -> kanban lifecycle relay ->
+  idempotent backfeed -> counters for every pipe on /health.
+
+Deviations: funnel-ensure is human-invoked, not redeploy-invoked
+(recorded in DECISIONS.md).
+
+## Done
+
+All milestones M0-M7 complete, 2026-07-30. 74 omi-channel tests plus the
+kanban pinning suites green; typecheck clean; validation pipeline PASS.
+Live wiring is HUMAN_SETUP.md.
