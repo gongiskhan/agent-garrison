@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -241,20 +241,20 @@ var require_react_development = __commonJS({
         {
           Object.freeze(emptyObject);
         }
-        function Component(props, context, updater) {
+        function Component2(props, context, updater) {
           this.props = props;
           this.context = context;
           this.refs = emptyObject;
           this.updater = updater || ReactNoopUpdateQueue;
         }
-        Component.prototype.isReactComponent = {};
-        Component.prototype.setState = function(partialState, callback) {
+        Component2.prototype.isReactComponent = {};
+        Component2.prototype.setState = function(partialState, callback) {
           if (typeof partialState !== "object" && typeof partialState !== "function" && partialState != null) {
             throw new Error("setState(...): takes an object of state variables to update or a function which returns an object of state variables.");
           }
           this.updater.enqueueSetState(this, partialState, callback, "setState");
         };
-        Component.prototype.forceUpdate = function(callback) {
+        Component2.prototype.forceUpdate = function(callback) {
           this.updater.enqueueForceUpdate(this, callback, "forceUpdate");
         };
         {
@@ -263,7 +263,7 @@ var require_react_development = __commonJS({
             replaceState: ["replaceState", "Refactor your code to use setState instead (see https://github.com/facebook/react/issues/3236)."]
           };
           var defineDeprecationWarning = function(methodName, info) {
-            Object.defineProperty(Component.prototype, methodName, {
+            Object.defineProperty(Component2.prototype, methodName, {
               get: function() {
                 warn("%s(...) is deprecated in plain JavaScript React classes. %s", info[0], info[1]);
                 return void 0;
@@ -278,7 +278,7 @@ var require_react_development = __commonJS({
         }
         function ComponentDummy() {
         }
-        ComponentDummy.prototype = Component.prototype;
+        ComponentDummy.prototype = Component2.prototype;
         function PureComponent(props, context, updater) {
           this.props = props;
           this.context = context;
@@ -287,7 +287,7 @@ var require_react_development = __commonJS({
         }
         var pureComponentPrototype = PureComponent.prototype = new ComponentDummy();
         pureComponentPrototype.constructor = PureComponent;
-        assign(pureComponentPrototype, Component.prototype);
+        assign(pureComponentPrototype, Component2.prototype);
         pureComponentPrototype.isPureReactComponent = true;
         function createRef() {
           var refObject = {
@@ -1352,8 +1352,8 @@ var require_react_development = __commonJS({
             return describeNativeComponentFrame(fn, false);
           }
         }
-        function shouldConstruct(Component2) {
-          var prototype = Component2.prototype;
+        function shouldConstruct(Component3) {
+          var prototype = Component3.prototype;
           return !!(prototype && prototype.isReactComponent);
         }
         function describeUnknownElementTypeFrameInDEV(type, source, ownerFn) {
@@ -1859,7 +1859,7 @@ var require_react_development = __commonJS({
           only: onlyChild
         };
         exports.Children = Children;
-        exports.Component = Component;
+        exports.Component = Component2;
         exports.Fragment = REACT_FRAGMENT_TYPE;
         exports.Profiler = REACT_PROFILER_TYPE;
         exports.PureComponent = PureComponent;
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -3424,8 +3424,8 @@ var require_react_dom_development = __commonJS({
             return describeNativeComponentFrame(fn, false);
           }
         }
-        function shouldConstruct(Component) {
-          var prototype = Component.prototype;
+        function shouldConstruct(Component2) {
+          var prototype = Component2.prototype;
           return !!(prototype && prototype.isReactComponent);
         }
         function describeUnknownElementTypeFrameInDEV(type, source, ownerFn) {
@@ -10888,9 +10888,9 @@ var require_react_dom_development = __commonJS({
         var contextStackCursor = createCursor(emptyContextObject);
         var didPerformWorkStackCursor = createCursor(false);
         var previousContext = emptyContextObject;
-        function getUnmaskedContext(workInProgress2, Component, didPushOwnContextIfProvider) {
+        function getUnmaskedContext(workInProgress2, Component2, didPushOwnContextIfProvider) {
           {
-            if (didPushOwnContextIfProvider && isContextProvider(Component)) {
+            if (didPushOwnContextIfProvider && isContextProvider(Component2)) {
               return previousContext;
             }
             return contextStackCursor.current;
@@ -11027,8 +11027,8 @@ var require_react_dom_development = __commonJS({
                 case HostRoot:
                   return node.stateNode.context;
                 case ClassComponent: {
-                  var Component = node.type;
-                  if (isContextProvider(Component)) {
+                  var Component2 = node.type;
+                  if (isContextProvider(Component2)) {
                     return node.stateNode.__reactInternalMemoizedMergedChildContext;
                   }
                   break;
@@ -13482,7 +13482,7 @@ var require_react_dom_development = __commonJS({
           }
           return true;
         }
-        function renderWithHooks(current2, workInProgress2, Component, props, secondArg, nextRenderLanes) {
+        function renderWithHooks(current2, workInProgress2, Component2, props, secondArg, nextRenderLanes) {
           renderLanes = nextRenderLanes;
           currentlyRenderingFiber$1 = workInProgress2;
           {
@@ -13502,7 +13502,7 @@ var require_react_dom_development = __commonJS({
               ReactCurrentDispatcher$1.current = HooksDispatcherOnMountInDEV;
             }
           }
-          var children = Component(props, secondArg);
+          var children = Component2(props, secondArg);
           if (didScheduleRenderPhaseUpdateDuringThisPass) {
             var numberOfReRenders = 0;
             do {
@@ -13522,7 +13522,7 @@ var require_react_dom_development = __commonJS({
                 hookTypesUpdateIndexDev = -1;
               }
               ReactCurrentDispatcher$1.current = HooksDispatcherOnRerenderInDEV;
-              children = Component(props, secondArg);
+              children = Component2(props, secondArg);
             } while (didScheduleRenderPhaseUpdateDuringThisPass);
           }
           ReactCurrentDispatcher$1.current = ContextOnlyDispatcher;
@@ -15321,10 +15321,10 @@ var require_react_dom_development = __commonJS({
             child = child.sibling;
           }
         }
-        function resolveDefaultProps(Component, baseProps) {
-          if (Component && Component.defaultProps) {
+        function resolveDefaultProps(Component2, baseProps) {
+          if (Component2 && Component2.defaultProps) {
             var props = assign({}, baseProps);
-            var defaultProps = Component.defaultProps;
+            var defaultProps = Component2.defaultProps;
             for (var propName in defaultProps) {
               if (props[propName] === void 0) {
                 props[propName] = defaultProps[propName];
@@ -16253,22 +16253,22 @@ var require_react_dom_development = __commonJS({
           workInProgress2.child = reconcileChildFibers(workInProgress2, current2.child, null, renderLanes2);
           workInProgress2.child = reconcileChildFibers(workInProgress2, null, nextChildren, renderLanes2);
         }
-        function updateForwardRef(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateForwardRef(current2, workInProgress2, Component2, nextProps, renderLanes2) {
           {
             if (workInProgress2.type !== workInProgress2.elementType) {
-              var innerPropTypes = Component.propTypes;
+              var innerPropTypes = Component2.propTypes;
               if (innerPropTypes) {
                 checkPropTypes(
                   innerPropTypes,
                   nextProps,
                   // Resolved props
                   "prop",
-                  getComponentNameFromType(Component)
+                  getComponentNameFromType(Component2)
                 );
               }
             }
           }
-          var render2 = Component.render;
+          var render2 = Component2.render;
           var ref = workInProgress2.ref;
           var nextChildren;
           var hasId;
@@ -16306,11 +16306,11 @@ var require_react_dom_development = __commonJS({
           reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateMemoComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateMemoComponent(current2, workInProgress2, Component2, nextProps, renderLanes2) {
           if (current2 === null) {
-            var type = Component.type;
-            if (isSimpleFunctionComponent(type) && Component.compare === null && // SimpleMemoComponent codepath doesn't resolve outer props either.
-            Component.defaultProps === void 0) {
+            var type = Component2.type;
+            if (isSimpleFunctionComponent(type) && Component2.compare === null && // SimpleMemoComponent codepath doesn't resolve outer props either.
+            Component2.defaultProps === void 0) {
               var resolvedType = type;
               {
                 resolvedType = resolveFunctionForHotReloading(type);
@@ -16333,7 +16333,7 @@ var require_react_dom_development = __commonJS({
                   getComponentNameFromType(type)
                 );
               }
-              if (Component.defaultProps !== void 0) {
+              if (Component2.defaultProps !== void 0) {
                 var componentName = getComponentNameFromType(type) || "Unknown";
                 if (!didWarnAboutDefaultPropsOnFunctionComponent[componentName]) {
                   error("%s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.", componentName);
@@ -16341,14 +16341,14 @@ var require_react_dom_development = __commonJS({
                 }
               }
             }
-            var child = createFiberFromTypeAndProps(Component.type, null, nextProps, workInProgress2, workInProgress2.mode, renderLanes2);
+            var child = createFiberFromTypeAndProps(Component2.type, null, nextProps, workInProgress2, workInProgress2.mode, renderLanes2);
             child.ref = workInProgress2.ref;
             child.return = workInProgress2;
             workInProgress2.child = child;
             return child;
           }
           {
-            var _type = Component.type;
+            var _type = Component2.type;
             var _innerPropTypes = _type.propTypes;
             if (_innerPropTypes) {
               checkPropTypes(
@@ -16364,7 +16364,7 @@ var require_react_dom_development = __commonJS({
           var hasScheduledUpdateOrContext = checkScheduledUpdateOrContext(current2, renderLanes2);
           if (!hasScheduledUpdateOrContext) {
             var prevProps = currentChild.memoizedProps;
-            var compare = Component.compare;
+            var compare = Component2.compare;
             compare = compare !== null ? compare : shallowEqual;
             if (compare(prevProps, nextProps) && current2.ref === workInProgress2.ref) {
               return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
@@ -16377,7 +16377,7 @@ var require_react_dom_development = __commonJS({
           workInProgress2.child = newChild;
           return newChild;
         }
-        function updateSimpleMemoComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateSimpleMemoComponent(current2, workInProgress2, Component2, nextProps, renderLanes2) {
           {
             if (workInProgress2.type !== workInProgress2.elementType) {
               var outerMemoType = workInProgress2.elementType;
@@ -16417,7 +16417,7 @@ var require_react_dom_development = __commonJS({
               }
             }
           }
-          return updateFunctionComponent(current2, workInProgress2, Component, nextProps, renderLanes2);
+          return updateFunctionComponent(current2, workInProgress2, Component2, nextProps, renderLanes2);
         }
         function updateOffscreenComponent(current2, workInProgress2, renderLanes2) {
           var nextProps = workInProgress2.pendingProps;
@@ -16507,24 +16507,24 @@ var require_react_dom_development = __commonJS({
             }
           }
         }
-        function updateFunctionComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateFunctionComponent(current2, workInProgress2, Component2, nextProps, renderLanes2) {
           {
             if (workInProgress2.type !== workInProgress2.elementType) {
-              var innerPropTypes = Component.propTypes;
+              var innerPropTypes = Component2.propTypes;
               if (innerPropTypes) {
                 checkPropTypes(
                   innerPropTypes,
                   nextProps,
                   // Resolved props
                   "prop",
-                  getComponentNameFromType(Component)
+                  getComponentNameFromType(Component2)
                 );
               }
             }
           }
           var context;
           {
-            var unmaskedContext = getUnmaskedContext(workInProgress2, Component, true);
+            var unmaskedContext = getUnmaskedContext(workInProgress2, Component2, true);
             context = getMaskedContext(workInProgress2, unmaskedContext);
           }
           var nextChildren;
@@ -16536,12 +16536,12 @@ var require_react_dom_development = __commonJS({
           {
             ReactCurrentOwner$1.current = workInProgress2;
             setIsRendering(true);
-            nextChildren = renderWithHooks(current2, workInProgress2, Component, nextProps, context, renderLanes2);
+            nextChildren = renderWithHooks(current2, workInProgress2, Component2, nextProps, context, renderLanes2);
             hasId = checkDidRenderIdHook();
             if (workInProgress2.mode & StrictLegacyMode) {
               setIsStrictModeForDevtools(true);
               try {
-                nextChildren = renderWithHooks(current2, workInProgress2, Component, nextProps, context, renderLanes2);
+                nextChildren = renderWithHooks(current2, workInProgress2, Component2, nextProps, context, renderLanes2);
                 hasId = checkDidRenderIdHook();
               } finally {
                 setIsStrictModeForDevtools(false);
@@ -16563,7 +16563,7 @@ var require_react_dom_development = __commonJS({
           reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateClassComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateClassComponent(current2, workInProgress2, Component2, nextProps, renderLanes2) {
           {
             switch (shouldError(workInProgress2)) {
               case false: {
@@ -16586,20 +16586,20 @@ var require_react_dom_development = __commonJS({
               }
             }
             if (workInProgress2.type !== workInProgress2.elementType) {
-              var innerPropTypes = Component.propTypes;
+              var innerPropTypes = Component2.propTypes;
               if (innerPropTypes) {
                 checkPropTypes(
                   innerPropTypes,
                   nextProps,
                   // Resolved props
                   "prop",
-                  getComponentNameFromType(Component)
+                  getComponentNameFromType(Component2)
                 );
               }
             }
           }
           var hasContext;
-          if (isContextProvider(Component)) {
+          if (isContextProvider(Component2)) {
             hasContext = true;
             pushContextProvider(workInProgress2);
           } else {
@@ -16610,15 +16610,15 @@ var require_react_dom_development = __commonJS({
           var shouldUpdate;
           if (instance === null) {
             resetSuspendedCurrentOnMountInLegacyMode(current2, workInProgress2);
-            constructClassInstance(workInProgress2, Component, nextProps);
-            mountClassInstance(workInProgress2, Component, nextProps, renderLanes2);
+            constructClassInstance(workInProgress2, Component2, nextProps);
+            mountClassInstance(workInProgress2, Component2, nextProps, renderLanes2);
             shouldUpdate = true;
           } else if (current2 === null) {
-            shouldUpdate = resumeMountClassInstance(workInProgress2, Component, nextProps, renderLanes2);
+            shouldUpdate = resumeMountClassInstance(workInProgress2, Component2, nextProps, renderLanes2);
           } else {
-            shouldUpdate = updateClassInstance(current2, workInProgress2, Component, nextProps, renderLanes2);
+            shouldUpdate = updateClassInstance(current2, workInProgress2, Component2, nextProps, renderLanes2);
           }
-          var nextUnitOfWork = finishClassComponent(current2, workInProgress2, Component, shouldUpdate, hasContext, renderLanes2);
+          var nextUnitOfWork = finishClassComponent(current2, workInProgress2, Component2, shouldUpdate, hasContext, renderLanes2);
           {
             var inst = workInProgress2.stateNode;
             if (shouldUpdate && inst.props !== nextProps) {
@@ -16630,19 +16630,19 @@ var require_react_dom_development = __commonJS({
           }
           return nextUnitOfWork;
         }
-        function finishClassComponent(current2, workInProgress2, Component, shouldUpdate, hasContext, renderLanes2) {
+        function finishClassComponent(current2, workInProgress2, Component2, shouldUpdate, hasContext, renderLanes2) {
           markRef(current2, workInProgress2);
           var didCaptureError = (workInProgress2.flags & DidCapture) !== NoFlags;
           if (!shouldUpdate && !didCaptureError) {
             if (hasContext) {
-              invalidateContextProvider(workInProgress2, Component, false);
+              invalidateContextProvider(workInProgress2, Component2, false);
             }
             return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
           }
           var instance = workInProgress2.stateNode;
           ReactCurrentOwner$1.current = workInProgress2;
           var nextChildren;
-          if (didCaptureError && typeof Component.getDerivedStateFromError !== "function") {
+          if (didCaptureError && typeof Component2.getDerivedStateFromError !== "function") {
             nextChildren = null;
             {
               stopProfilerTimerIfRunning();
@@ -16676,7 +16676,7 @@ var require_react_dom_development = __commonJS({
           }
           workInProgress2.memoizedState = instance.state;
           if (hasContext) {
-            invalidateContextProvider(workInProgress2, Component, true);
+            invalidateContextProvider(workInProgress2, Component2, true);
           }
           return workInProgress2.child;
         }
@@ -16776,45 +16776,45 @@ var require_react_dom_development = __commonJS({
           var lazyComponent = elementType;
           var payload = lazyComponent._payload;
           var init = lazyComponent._init;
-          var Component = init(payload);
-          workInProgress2.type = Component;
-          var resolvedTag = workInProgress2.tag = resolveLazyComponentTag(Component);
-          var resolvedProps = resolveDefaultProps(Component, props);
+          var Component2 = init(payload);
+          workInProgress2.type = Component2;
+          var resolvedTag = workInProgress2.tag = resolveLazyComponentTag(Component2);
+          var resolvedProps = resolveDefaultProps(Component2, props);
           var child;
           switch (resolvedTag) {
             case FunctionComponent: {
               {
-                validateFunctionComponentInDev(workInProgress2, Component);
-                workInProgress2.type = Component = resolveFunctionForHotReloading(Component);
+                validateFunctionComponentInDev(workInProgress2, Component2);
+                workInProgress2.type = Component2 = resolveFunctionForHotReloading(Component2);
               }
-              child = updateFunctionComponent(null, workInProgress2, Component, resolvedProps, renderLanes2);
+              child = updateFunctionComponent(null, workInProgress2, Component2, resolvedProps, renderLanes2);
               return child;
             }
             case ClassComponent: {
               {
-                workInProgress2.type = Component = resolveClassForHotReloading(Component);
+                workInProgress2.type = Component2 = resolveClassForHotReloading(Component2);
               }
-              child = updateClassComponent(null, workInProgress2, Component, resolvedProps, renderLanes2);
+              child = updateClassComponent(null, workInProgress2, Component2, resolvedProps, renderLanes2);
               return child;
             }
             case ForwardRef: {
               {
-                workInProgress2.type = Component = resolveForwardRefForHotReloading(Component);
+                workInProgress2.type = Component2 = resolveForwardRefForHotReloading(Component2);
               }
-              child = updateForwardRef(null, workInProgress2, Component, resolvedProps, renderLanes2);
+              child = updateForwardRef(null, workInProgress2, Component2, resolvedProps, renderLanes2);
               return child;
             }
             case MemoComponent: {
               {
                 if (workInProgress2.type !== workInProgress2.elementType) {
-                  var outerPropTypes = Component.propTypes;
+                  var outerPropTypes = Component2.propTypes;
                   if (outerPropTypes) {
                     checkPropTypes(
                       outerPropTypes,
                       resolvedProps,
                       // Resolved for outer only
                       "prop",
-                      getComponentNameFromType(Component)
+                      getComponentNameFromType(Component2)
                     );
                   }
                 }
@@ -16822,8 +16822,8 @@ var require_react_dom_development = __commonJS({
               child = updateMemoComponent(
                 null,
                 workInProgress2,
-                Component,
-                resolveDefaultProps(Component.type, resolvedProps),
+                Component2,
+                resolveDefaultProps(Component2.type, resolvedProps),
                 // The inner type can have defaults too
                 renderLanes2
               );
@@ -16832,33 +16832,33 @@ var require_react_dom_development = __commonJS({
           }
           var hint = "";
           {
-            if (Component !== null && typeof Component === "object" && Component.$$typeof === REACT_LAZY_TYPE) {
+            if (Component2 !== null && typeof Component2 === "object" && Component2.$$typeof === REACT_LAZY_TYPE) {
               hint = " Did you wrap a component in React.lazy() more than once?";
             }
           }
-          throw new Error("Element type is invalid. Received a promise that resolves to: " + Component + ". " + ("Lazy element type must resolve to a class or function." + hint));
+          throw new Error("Element type is invalid. Received a promise that resolves to: " + Component2 + ". " + ("Lazy element type must resolve to a class or function." + hint));
         }
-        function mountIncompleteClassComponent(_current, workInProgress2, Component, nextProps, renderLanes2) {
+        function mountIncompleteClassComponent(_current, workInProgress2, Component2, nextProps, renderLanes2) {
           resetSuspendedCurrentOnMountInLegacyMode(_current, workInProgress2);
           workInProgress2.tag = ClassComponent;
           var hasContext;
-          if (isContextProvider(Component)) {
+          if (isContextProvider(Component2)) {
             hasContext = true;
             pushContextProvider(workInProgress2);
           } else {
             hasContext = false;
           }
           prepareToReadContext(workInProgress2, renderLanes2);
-          constructClassInstance(workInProgress2, Component, nextProps);
-          mountClassInstance(workInProgress2, Component, nextProps, renderLanes2);
-          return finishClassComponent(null, workInProgress2, Component, true, hasContext, renderLanes2);
+          constructClassInstance(workInProgress2, Component2, nextProps);
+          mountClassInstance(workInProgress2, Component2, nextProps, renderLanes2);
+          return finishClassComponent(null, workInProgress2, Component2, true, hasContext, renderLanes2);
         }
-        function mountIndeterminateComponent(_current, workInProgress2, Component, renderLanes2) {
+        function mountIndeterminateComponent(_current, workInProgress2, Component2, renderLanes2) {
           resetSuspendedCurrentOnMountInLegacyMode(_current, workInProgress2);
           var props = workInProgress2.pendingProps;
           var context;
           {
-            var unmaskedContext = getUnmaskedContext(workInProgress2, Component, false);
+            var unmaskedContext = getUnmaskedContext(workInProgress2, Component2, false);
             context = getMaskedContext(workInProgress2, unmaskedContext);
           }
           prepareToReadContext(workInProgress2, renderLanes2);
@@ -16868,8 +16868,8 @@ var require_react_dom_development = __commonJS({
             markComponentRenderStarted(workInProgress2);
           }
           {
-            if (Component.prototype && typeof Component.prototype.render === "function") {
-              var componentName = getComponentNameFromType(Component) || "Unknown";
+            if (Component2.prototype && typeof Component2.prototype.render === "function") {
+              var componentName = getComponentNameFromType(Component2) || "Unknown";
               if (!didWarnAboutBadClass[componentName]) {
                 error("The <%s /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change %s to extend React.Component instead.", componentName, componentName);
                 didWarnAboutBadClass[componentName] = true;
@@ -16880,7 +16880,7 @@ var require_react_dom_development = __commonJS({
             }
             setIsRendering(true);
             ReactCurrentOwner$1.current = workInProgress2;
-            value = renderWithHooks(null, workInProgress2, Component, props, context, renderLanes2);
+            value = renderWithHooks(null, workInProgress2, Component2, props, context, renderLanes2);
             hasId = checkDidRenderIdHook();
             setIsRendering(false);
           }
@@ -16890,7 +16890,7 @@ var require_react_dom_development = __commonJS({
           workInProgress2.flags |= PerformedWork;
           {
             if (typeof value === "object" && value !== null && typeof value.render === "function" && value.$$typeof === void 0) {
-              var _componentName = getComponentNameFromType(Component) || "Unknown";
+              var _componentName = getComponentNameFromType(Component2) || "Unknown";
               if (!didWarnAboutModulePatternComponent[_componentName]) {
                 error("The <%s /> component appears to be a function component that returns a class instance. Change %s to a class that extends React.Component instead. If you can't use a class try assigning the prototype on the function as a workaround. `%s.prototype = React.Component.prototype`. Don't use an arrow function since it cannot be called with `new` by React.", _componentName, _componentName, _componentName);
                 didWarnAboutModulePatternComponent[_componentName] = true;
@@ -16903,7 +16903,7 @@ var require_react_dom_development = __commonJS({
             typeof value === "object" && value !== null && typeof value.render === "function" && value.$$typeof === void 0
           ) {
             {
-              var _componentName2 = getComponentNameFromType(Component) || "Unknown";
+              var _componentName2 = getComponentNameFromType(Component2) || "Unknown";
               if (!didWarnAboutModulePatternComponent[_componentName2]) {
                 error("The <%s /> component appears to be a function component that returns a class instance. Change %s to a class that extends React.Component instead. If you can't use a class try assigning the prototype on the function as a workaround. `%s.prototype = React.Component.prototype`. Don't use an arrow function since it cannot be called with `new` by React.", _componentName2, _componentName2, _componentName2);
                 didWarnAboutModulePatternComponent[_componentName2] = true;
@@ -16913,7 +16913,7 @@ var require_react_dom_development = __commonJS({
             workInProgress2.memoizedState = null;
             workInProgress2.updateQueue = null;
             var hasContext = false;
-            if (isContextProvider(Component)) {
+            if (isContextProvider(Component2)) {
               hasContext = true;
               pushContextProvider(workInProgress2);
             } else {
@@ -16922,15 +16922,15 @@ var require_react_dom_development = __commonJS({
             workInProgress2.memoizedState = value.state !== null && value.state !== void 0 ? value.state : null;
             initializeUpdateQueue(workInProgress2);
             adoptClassInstance(workInProgress2, value);
-            mountClassInstance(workInProgress2, Component, props, renderLanes2);
-            return finishClassComponent(null, workInProgress2, Component, true, hasContext, renderLanes2);
+            mountClassInstance(workInProgress2, Component2, props, renderLanes2);
+            return finishClassComponent(null, workInProgress2, Component2, true, hasContext, renderLanes2);
           } else {
             workInProgress2.tag = FunctionComponent;
             {
               if (workInProgress2.mode & StrictLegacyMode) {
                 setIsStrictModeForDevtools(true);
                 try {
-                  value = renderWithHooks(null, workInProgress2, Component, props, context, renderLanes2);
+                  value = renderWithHooks(null, workInProgress2, Component2, props, context, renderLanes2);
                   hasId = checkDidRenderIdHook();
                 } finally {
                   setIsStrictModeForDevtools(false);
@@ -16942,16 +16942,16 @@ var require_react_dom_development = __commonJS({
             }
             reconcileChildren(null, workInProgress2, value, renderLanes2);
             {
-              validateFunctionComponentInDev(workInProgress2, Component);
+              validateFunctionComponentInDev(workInProgress2, Component2);
             }
             return workInProgress2.child;
           }
         }
-        function validateFunctionComponentInDev(workInProgress2, Component) {
+        function validateFunctionComponentInDev(workInProgress2, Component2) {
           {
-            if (Component) {
-              if (Component.childContextTypes) {
-                error("%s(...): childContextTypes cannot be defined on a function component.", Component.displayName || Component.name || "Component");
+            if (Component2) {
+              if (Component2.childContextTypes) {
+                error("%s(...): childContextTypes cannot be defined on a function component.", Component2.displayName || Component2.name || "Component");
               }
             }
             if (workInProgress2.ref !== null) {
@@ -16970,22 +16970,22 @@ var require_react_dom_development = __commonJS({
                 error("Function components cannot be given refs. Attempts to access this ref will fail. Did you mean to use React.forwardRef()?%s", info);
               }
             }
-            if (Component.defaultProps !== void 0) {
-              var componentName = getComponentNameFromType(Component) || "Unknown";
+            if (Component2.defaultProps !== void 0) {
+              var componentName = getComponentNameFromType(Component2) || "Unknown";
               if (!didWarnAboutDefaultPropsOnFunctionComponent[componentName]) {
                 error("%s: Support for defaultProps will be removed from function components in a future major release. Use JavaScript default parameters instead.", componentName);
                 didWarnAboutDefaultPropsOnFunctionComponent[componentName] = true;
               }
             }
-            if (typeof Component.getDerivedStateFromProps === "function") {
-              var _componentName3 = getComponentNameFromType(Component) || "Unknown";
+            if (typeof Component2.getDerivedStateFromProps === "function") {
+              var _componentName3 = getComponentNameFromType(Component2) || "Unknown";
               if (!didWarnAboutGetDerivedStateOnFunctionComponent[_componentName3]) {
                 error("%s: Function components do not support getDerivedStateFromProps.", _componentName3);
                 didWarnAboutGetDerivedStateOnFunctionComponent[_componentName3] = true;
               }
             }
-            if (typeof Component.contextType === "object" && Component.contextType !== null) {
-              var _componentName4 = getComponentNameFromType(Component) || "Unknown";
+            if (typeof Component2.contextType === "object" && Component2.contextType !== null) {
+              var _componentName4 = getComponentNameFromType(Component2) || "Unknown";
               if (!didWarnAboutContextTypeOnFunctionComponent[_componentName4]) {
                 error("%s: Function components do not support contextType.", _componentName4);
                 didWarnAboutContextTypeOnFunctionComponent[_componentName4] = true;
@@ -17747,8 +17747,8 @@ var require_react_dom_development = __commonJS({
               pushHostContext(workInProgress2);
               break;
             case ClassComponent: {
-              var Component = workInProgress2.type;
-              if (isContextProvider(Component)) {
+              var Component2 = workInProgress2.type;
+              if (isContextProvider(Component2)) {
                 pushContextProvider(workInProgress2);
               }
               break;
@@ -17875,10 +17875,10 @@ var require_react_dom_development = __commonJS({
               return mountLazyComponent(current2, workInProgress2, elementType, renderLanes2);
             }
             case FunctionComponent: {
-              var Component = workInProgress2.type;
+              var Component2 = workInProgress2.type;
               var unresolvedProps = workInProgress2.pendingProps;
-              var resolvedProps = workInProgress2.elementType === Component ? unresolvedProps : resolveDefaultProps(Component, unresolvedProps);
-              return updateFunctionComponent(current2, workInProgress2, Component, resolvedProps, renderLanes2);
+              var resolvedProps = workInProgress2.elementType === Component2 ? unresolvedProps : resolveDefaultProps(Component2, unresolvedProps);
+              return updateFunctionComponent(current2, workInProgress2, Component2, resolvedProps, renderLanes2);
             }
             case ClassComponent: {
               var _Component = workInProgress2.type;
@@ -18182,8 +18182,8 @@ var require_react_dom_development = __commonJS({
               bubbleProperties(workInProgress2);
               return null;
             case ClassComponent: {
-              var Component = workInProgress2.type;
-              if (isContextProvider(Component)) {
+              var Component2 = workInProgress2.type;
+              if (isContextProvider(Component2)) {
                 popContext(workInProgress2);
               }
               bubbleProperties(workInProgress2);
@@ -18501,8 +18501,8 @@ var require_react_dom_development = __commonJS({
           popTreeContext(workInProgress2);
           switch (workInProgress2.tag) {
             case ClassComponent: {
-              var Component = workInProgress2.type;
-              if (isContextProvider(Component)) {
+              var Component2 = workInProgress2.type;
+              if (isContextProvider(Component2)) {
                 popContext(workInProgress2);
               }
               var flags = workInProgress2.flags;
@@ -22187,18 +22187,18 @@ var require_react_dom_development = __commonJS({
         var createFiber = function(tag, pendingProps, key, mode) {
           return new FiberNode(tag, pendingProps, key, mode);
         };
-        function shouldConstruct$1(Component) {
-          var prototype = Component.prototype;
+        function shouldConstruct$1(Component2) {
+          var prototype = Component2.prototype;
           return !!(prototype && prototype.isReactComponent);
         }
         function isSimpleFunctionComponent(type) {
           return typeof type === "function" && !shouldConstruct$1(type) && type.defaultProps === void 0;
         }
-        function resolveLazyComponentTag(Component) {
-          if (typeof Component === "function") {
-            return shouldConstruct$1(Component) ? ClassComponent : FunctionComponent;
-          } else if (Component !== void 0 && Component !== null) {
-            var $$typeof = Component.$$typeof;
+        function resolveLazyComponentTag(Component2) {
+          if (typeof Component2 === "function") {
+            return shouldConstruct$1(Component2) ? ClassComponent : FunctionComponent;
+          } else if (Component2 !== void 0 && Component2 !== null) {
+            var $$typeof = Component2.$$typeof;
             if ($$typeof === REACT_FORWARD_REF_TYPE) {
               return ForwardRef;
             }
@@ -22639,9 +22639,9 @@ var require_react_dom_development = __commonJS({
           var fiber = get(parentComponent);
           var parentContext = findCurrentUnmaskedContext(fiber);
           if (fiber.tag === ClassComponent) {
-            var Component = fiber.type;
-            if (isContextProvider(Component)) {
-              return processChildContext(fiber, Component, parentContext);
+            var Component2 = fiber.type;
+            if (isContextProvider(Component2)) {
+              return processChildContext(fiber, Component2, parentContext);
             }
           }
           return parentContext;
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23948,8 +23948,8 @@ var require_react_jsx_runtime_development = __commonJS({
             return describeNativeComponentFrame(fn, false);
           }
         }
-        function shouldConstruct(Component) {
-          var prototype = Component.prototype;
+        function shouldConstruct(Component2) {
+          var prototype = Component2.prototype;
           return !!(prototype && prototype.isReactComponent);
         }
         function describeUnknownElementTypeFrameInDEV(type, source, ownerFn) {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,14 +24489,14 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// fittings/seed/drill/ui/main.tsx
+// ui/main.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_client = __toESM(require_client(), 1);
 
-// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 var import_react = __toESM(require_react(), 1);
 
-// node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
+// ../../../node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
 function isObject(subject) {
   return Object.prototype.toString.call(subject) === "[object Object]";
 }
@@ -24534,7 +24534,7 @@ function arePluginsEqual(pluginsA, pluginsB) {
   });
 }
 
-// node_modules/embla-carousel/esm/embla-carousel.esm.js
+// ../../../node_modules/embla-carousel/esm/embla-carousel.esm.js
 function isNumber(subject) {
   return typeof subject === "number";
 }
@@ -26162,7 +26162,7 @@ function EmblaCarousel(root2, userOptions, userPlugins) {
 }
 EmblaCarousel.globalOptions = void 0;
 
-// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 function useEmblaCarousel(options = {}, plugins = []) {
   const storedOptions = (0, import_react.useRef)(options);
   const storedPlugins = (0, import_react.useRef)(plugins);
@@ -26195,19 +26195,19 @@ function useEmblaCarousel(options = {}, plugins = []) {
 }
 useEmblaCarousel.globalOptions = void 0;
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react3 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/shared/src/utils.js
+// ../../../node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../node_modules/lucide-react/dist/esm/Icon.js
 var import_react2 = __toESM(require_react());
 
-// node_modules/lucide-react/dist/esm/defaultAttributes.js
+// ../../../node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -26220,7 +26220,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// node_modules/lucide-react/dist/esm/Icon.js
+// ../../../node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react2.forwardRef)(
   ({
     color = "currentColor",
@@ -26252,9 +26252,9 @@ var Icon = (0, import_react2.forwardRef)(
   }
 );
 
-// node_modules/lucide-react/dist/esm/createLucideIcon.js
+// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
-  const Component = (0, import_react3.forwardRef)(
+  const Component2 = (0, import_react3.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react3.createElement)(Icon, {
       ref,
       iconNode,
@@ -26262,26 +26262,38 @@ var createLucideIcon = (iconName, iconNode) => {
       ...props
     })
   );
-  Component.displayName = `${iconName}`;
-  return Component;
+  Component2.displayName = `${iconName}`;
+  return Component2;
 };
 
-// node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// ../../../node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// ../../../node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/check.js
+// ../../../node_modules/lucide-react/dist/esm/icons/camera.js
+var Camera = createLucideIcon("Camera", [
+  [
+    "path",
+    {
+      d: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z",
+      key: "1tc9qg"
+    }
+  ],
+  ["circle", { cx: "12", cy: "13", r: "3", key: "1vg3eu" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// node_modules/lucide-react/dist/esm/icons/crosshair.js
+// ../../../node_modules/lucide-react/dist/esm/icons/crosshair.js
 var Crosshair = createLucideIcon("Crosshair", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "22", x2: "18", y1: "12", y2: "12", key: "l9bcsi" }],
@@ -26290,14 +26302,14 @@ var Crosshair = createLucideIcon("Crosshair", [
   ["line", { x1: "12", x2: "12", y1: "22", y2: "18", key: "15g9kq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/external-link.js
+// ../../../node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/eye.js
+// ../../../node_modules/lucide-react/dist/esm/icons/eye.js
 var Eye = createLucideIcon("Eye", [
   [
     "path",
@@ -26309,7 +26321,7 @@ var Eye = createLucideIcon("Eye", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/file-code-2.js
+// ../../../node_modules/lucide-react/dist/esm/icons/file-code-2.js
 var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4", key: "1pf5j1" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
@@ -26317,7 +26329,7 @@ var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/film.js
+// ../../../node_modules/lucide-react/dist/esm/icons/film.js
 var Film = createLucideIcon("Film", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
@@ -26329,13 +26341,13 @@ var Film = createLucideIcon("Film", [
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/flag.js
+// ../../../node_modules/lucide-react/dist/esm/icons/flag.js
 var Flag = createLucideIcon("Flag", [
   ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", key: "i9b6wo" }],
   ["line", { x1: "4", x2: "4", y1: "22", y2: "15", key: "1cm3nv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/layout-grid.js
+// ../../../node_modules/lucide-react/dist/esm/icons/layout-grid.js
 var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
@@ -26343,14 +26355,23 @@ var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/list-filter.js
+// ../../../node_modules/lucide-react/dist/esm/icons/list-checks.js
+var ListChecks = createLucideIcon("ListChecks", [
+  ["path", { d: "m3 17 2 2 4-4", key: "1jhpwq" }],
+  ["path", { d: "m3 7 2 2 4-4", key: "1obspn" }],
+  ["path", { d: "M13 6h8", key: "15sg57" }],
+  ["path", { d: "M13 12h8", key: "h98zly" }],
+  ["path", { d: "M13 18h8", key: "oe0vm4" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/list-filter.js
 var ListFilter = createLucideIcon("ListFilter", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M7 12h10", key: "b7w52i" }],
   ["path", { d: "M10 18h4", key: "1ulq68" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/locate-fixed.js
+// ../../../node_modules/lucide-react/dist/esm/icons/locate-fixed.js
 var LocateFixed = createLucideIcon("LocateFixed", [
   ["line", { x1: "2", x2: "5", y1: "12", y2: "12", key: "bvdh0s" }],
   ["line", { x1: "19", x2: "22", y1: "12", y2: "12", key: "1tbv5k" }],
@@ -26360,19 +26381,19 @@ var LocateFixed = createLucideIcon("LocateFixed", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/message-square.js
+// ../../../node_modules/lucide-react/dist/esm/icons/message-square.js
 var MessageSquare = createLucideIcon("MessageSquare", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/monitor.js
+// ../../../node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/notebook-pen.js
+// ../../../node_modules/lucide-react/dist/esm/icons/notebook-pen.js
 var NotebookPen = createLucideIcon("NotebookPen", [
   ["path", { d: "M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4", key: "re6nr2" }],
   ["path", { d: "M2 6h4", key: "aawbzj" }],
@@ -26388,13 +26409,13 @@ var NotebookPen = createLucideIcon("NotebookPen", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/plus.js
+// ../../../node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
+// ../../../node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
 var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "14sxne" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
@@ -26402,19 +26423,19 @@ var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M16 16h5v5", key: "ccwih5" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// ../../../node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/smartphone.js
+// ../../../node_modules/lucide-react/dist/esm/icons/smartphone.js
 var Smartphone = createLucideIcon("Smartphone", [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/square-pen.js
+// ../../../node_modules/lucide-react/dist/esm/icons/square-pen.js
 var SquarePen = createLucideIcon("SquarePen", [
   ["path", { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" }],
   [
@@ -26426,19 +26447,19 @@ var SquarePen = createLucideIcon("SquarePen", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/tablet.js
+// ../../../node_modules/lucide-react/dist/esm/icons/tablet.js
 var Tablet = createLucideIcon("Tablet", [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", ry: "2", key: "76otgf" }],
   ["line", { x1: "12", x2: "12.01", y1: "18", y2: "18", key: "1dp563" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/terminal.js
+// ../../../node_modules/lucide-react/dist/esm/icons/terminal.js
 var Terminal = createLucideIcon("Terminal", [
   ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
   ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/video.js
+// ../../../node_modules/lucide-react/dist/esm/icons/video.js
 var Video = createLucideIcon("Video", [
   [
     "path",
@@ -26450,7 +26471,7 @@ var Video = createLucideIcon("Video", [
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/wrench.js
+// ../../../node_modules/lucide-react/dist/esm/icons/wrench.js
 var Wrench = createLucideIcon("Wrench", [
   [
     "path",
@@ -26461,13 +26482,28 @@ var Wrench = createLucideIcon("Wrench", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/x.js
+// ../../../node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// fittings/seed/drill/ui/main.tsx
+// ui/page-normalize.ts
+var asArray = (value) => Array.isArray(value) ? value : [];
+function normalizePage(page) {
+  return {
+    ...page,
+    areas: asArray(page.areas),
+    steps: asArray(page.steps),
+    states: asArray(page.states)
+  };
+}
+function normalizePages(pages) {
+  if (!Array.isArray(pages)) return [];
+  return pages.filter((page) => Boolean(page) && typeof page === "object").map((page) => normalizePage(page));
+}
+
+// ui/main.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 async function apiGet(path) {
   const r = await fetch(path);
@@ -26522,6 +26558,20 @@ function fullBrowserViewUrl(canvasUrl) {
   } catch {
     return canvasUrl;
   }
+}
+function answerLane(step) {
+  const actions = Array.isArray(step.actions) ? step.actions : [];
+  const pinned = actions.filter((a) => a && typeof a === "object" && a.resolved).length;
+  if (step.judgment) {
+    return { label: "judged", tone: "brass", title: "A model judges this on every run. That is the design for subjective criteria - it never gets cheaper." };
+  }
+  if (step.assertion) {
+    return step.assertionSource === "authored" ? { label: "deterministic \xB7 unconfirmed", tone: "sage", title: "Authored at plan time and validated against the live page, so it already runs with no model call. It joins the committed spec once a whole run confirms it." } : { label: "deterministic", tone: "sage", title: "Answered by a deterministic assertion proven by a run. No model call, ever." };
+  }
+  if (actions.length) {
+    return pinned === actions.length ? { label: `${actions.length} action${actions.length === 1 ? "" : "s"} \xB7 pinned`, tone: "sage", title: "The interactions resolved to real Playwright and are replayed deterministically. The verdict itself still needs a model until it graduates." } : { label: `${actions.length} action${actions.length === 1 ? "" : "s"} \xB7 ${pinned}/${actions.length} pinned`, tone: "", title: "Interactions not yet resolved. The first run resolves them through a model once and pins them; later runs replay them." };
+  }
+  return { label: "vision", tone: "", title: "No deterministic answer yet. A model answers this every run until a passing run graduates it." };
 }
 var VIEWPORTS = [
   { id: "desktop", label: "desktop", icon: Monitor },
@@ -26890,6 +26940,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   const [planJob, setPlanJob] = (0, import_react4.useState)(null);
   const [canceling, setCanceling] = (0, import_react4.useState)(false);
   const [canceledNotice, setCanceledNotice] = (0, import_react4.useState)(null);
+  const [planWarnings, setPlanWarnings] = (0, import_react4.useState)(null);
   const [planLog, setPlanLog] = (0, import_react4.useState)(null);
   const [planLogOpen, setPlanLogOpen] = (0, import_react4.useState)(false);
   const pinnedRootRef = (0, import_react4.useRef)(null);
@@ -26897,7 +26948,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]).then(([b, p]) => {
       pinnedRootRef.current = b.root ?? pinnedRootRef.current;
       setBook(b.book);
-      setPages(p.pages);
+      setPages(normalizePages(p.pages));
     }).catch((e) => setError(e.message));
   };
   const patchBook = (patch) => apiPatch("/api/drillbook", { ...patch, root: pinnedRootRef.current ?? void 0 });
@@ -26909,6 +26960,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     setPlanBusy(true);
     try {
       const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      setPlanWarnings(st.job?.warnings?.length ? st.job.warnings : null);
       if (st.job && st.job.status === "canceled") {
         setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
         return;
@@ -26922,9 +26974,9 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       const [b, p] = await Promise.all([apiGet("/api/drillbook"), apiGet("/api/pages")]);
       pinnedRootRef.current = b.root ?? pinnedRootRef.current;
       setBook(b.book);
-      setPages(p.pages);
+      const freshPages = normalizePages(p.pages);
+      setPages(freshPages);
       const freshBook = b.book;
-      const freshPages = p.pages;
       if (freshPages.length === 0) throw new Error("planning finished but the Book still has no pages - see the plan log");
       if (thenRun) {
         const ticked = freshBook.pages.filter((pg) => pg.selected).map((pg) => pg.id);
@@ -26968,6 +27020,18 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   const togglePageSelected = async (pageId) => {
     const nextPages = book.pages.some((p) => p.id === pageId) ? book.pages.map((p) => p.id === pageId ? { ...p, selected: !p.selected } : p) : [...book.pages, { id: pageId, title: pageId, path: "/", mode: "steps", selected: true }];
     const saved = await patchBook({ pages: nextPages });
+    setBook(saved.book);
+  };
+  const allPagesSelected = pages.length > 0 && pages.every((p) => book.fullDrill || selectedIds.has(p.id));
+  const toggleAllPages = async () => {
+    const next = !allPagesSelected;
+    const known = new Map(book.pages.map((p) => [p.id, p]));
+    const rows = pages.map((p) => ({
+      ...known.get(p.id) ?? { id: p.id, title: p.title, path: p.path, mode: "steps" },
+      selected: next
+    }));
+    const orphans = book.pages.filter((p) => !pages.some((d) => d.id === p.id));
+    const saved = await patchBook({ pages: [...rows, ...orphans], ...next ? {} : { fullDrill: false } });
     setBook(saved.book);
   };
   const toggleFullDrill = async () => {
@@ -27072,6 +27136,11 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       ] })
     ] }),
     canceledNotice && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", children: canceledNotice }),
+    planWarnings && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-notice", role: "status", style: { borderColor: "var(--brass)" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "The plan finished, but some of it will not run:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { style: { margin: "6px 0 6px 18px", padding: 0 }, children: planWarnings.map((w) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", children: w }, w)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPlanWarnings(null), children: "Dismiss" })
+    ] }),
     error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
       error,
       pages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", style: { marginLeft: 8 }, onClick: () => onGoAuthoring(), children: "Open Authoring" }),
@@ -27126,7 +27195,14 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-sec dr-tablewrap", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", { className: "dr-table", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {}),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: pages.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          Checkbox,
+          {
+            label: allPagesSelected ? "Clear every page from runs" : "Include every page in runs",
+            on: allPagesSelected,
+            onClick: toggleAllPages
+          }
+        ) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Page" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Mode" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Areas" }),
@@ -27146,9 +27222,9 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": "true", children: "\u2192" })
           ] }) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Mode", children: p.mode === "steps" ? "Step by step" : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--brass)", fontWeight: 600 }, children: "Whole page vision" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Areas", children: p.areas.length }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Steps", children: p.steps.length }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "States", children: p.states.length })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Areas", children: p.areas?.length ?? 0 }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "Steps", children: p.steps?.length ?? 0 }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { "data-label": "States", children: p.states?.length ?? 0 })
         ] }, p.id))
       ] })
     ] }) }),
@@ -27243,6 +27319,10 @@ function StepRow({ step, onToggleEnabled, onToggleMode, onToggleJudgment, onRemo
           }
         ),
         step.mode === "vision" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "chip click" + (step.judgment ? " brass active" : ""), onClick: onToggleJudgment, "aria-pressed": !!step.judgment, "aria-label": `Ongoing model judgment for ${step.description || step.id}`, title: "Needs ongoing model judgment (drillJudge), not a one-time deterministic find", children: "judgment" }),
+        (() => {
+          const lane = answerLane(step);
+          return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (lane.tone ? ` ${lane.tone}` : ""), title: lane.title, children: lane.label });
+        })(),
         step.spec && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: step.spec }),
         step.viewports.map((v) => {
           const vp = VIEWPORTS.find((x) => x.id === v);
@@ -27312,9 +27392,10 @@ function AuthoringView({ initialPageId, onPageChange }) {
   const loadPages = () => {
     return apiGet("/api/pages").then((r) => {
       pinnedRootRef.current = r.root ?? pinnedRootRef.current;
-      setPages(r.pages);
+      const loaded = normalizePages(r.pages);
+      setPages(loaded);
       const previous = pageIdRef.current;
-      const next = previous && r.pages.some((candidate) => candidate.id === previous) ? previous : r.pages.length > 0 ? r.pages[0].id : null;
+      const next = previous && loaded.some((candidate) => candidate.id === previous) ? previous : loaded.length > 0 ? loaded[0].id : null;
       pageIdRef.current = next;
       setPageId(next);
       if (next && next !== previous) onPageChange(next);
@@ -27510,15 +27591,16 @@ function AuthoringView({ initialPageId, onPageChange }) {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.page) throw new Error(body.error || `save failed (${response.status})`);
+      const saved = normalizePage(body.page);
       pagesRef.current = pagesRef.current.map(
-        (candidate) => candidate.id === targetPageId ? body.page : candidate
+        (candidate) => candidate.id === targetPageId ? saved : candidate
       );
       setPages(pagesRef.current);
       setSaveStatus("saved");
       setPickError(
         (currentError) => currentError?.startsWith("Could not save the Drill Book:") ? null : currentError
       );
-      return body.page;
+      return saved;
     }).catch((err) => {
       setSaveStatus("error");
       setPickError(`Could not save the Drill Book: ${err.message}`);
@@ -27987,6 +28069,19 @@ function AuthoringView({ initialPageId, onPageChange }) {
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 12 }, children: states.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "chip click brass dr-label-chip" + (activeStateSel === s ? " active" : ""), onClick: () => setStateSel(s), "aria-pressed": activeStateSel === s, children: s }, s)) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Page steps" }),
+          pageSteps.length === 0 && page.steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", style: { marginBottom: 8 }, children: activeStateSel === "default" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            "This page has ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: page.steps.length }),
+            " check",
+            page.steps.length === 1 ? "" : "s",
+            ", but none in the default state - so a normal Run executes nothing here. A page\u2019s default state is how it looks when you navigate straight to it; re-scope these checks to ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: "default" }),
+            ", or pick a state below."
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            "No checks are scoped to ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono", children: activeStateSel }),
+            ". Pick another state, or add one here."
+          ] }) }),
           pageSteps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             StepRow,
             {
@@ -28143,6 +28238,7 @@ function activeProductFindings(run, findings) {
 }
 function runVerdict(run) {
   if (!run.endedAt) return "Running";
+  if (run.canceled) return "Stopped";
   const { productFindings, infraErrors } = splitRunIssues(run);
   if (run.circuit || infraErrors.length > 0 || run.pages.some(
     (entry) => ["infra-failure", "blocked", "incomplete"].includes(entry.terminal?.kind ?? "") || !entry.terminal && (entry.status === "error" || entry.status === "failed" && !entry.result)
@@ -28176,7 +28272,7 @@ function fmtDuration(ms) {
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
-function RunEvidenceVideo({ runId, video, steps }) {
+function RunVideoTab({ runId, video, pruned, steps, scopeKeys, requested }) {
   const ref = (0, import_react4.useRef)(null);
   const [failed, setFailed] = (0, import_react4.useState)(false);
   const [index, setIndex] = (0, import_react4.useState)(null);
@@ -28185,6 +28281,7 @@ function RunEvidenceVideo({ runId, video, steps }) {
     let live = true;
     setIndex(null);
     setFull(false);
+    setFailed(false);
     fetch(evidenceFileUrl(runId, "video-index.json")).then((r) => r.ok ? r.json() : null).then((j) => {
       if (live && j?.tight) setIndex(j);
     }).catch(() => {
@@ -28193,38 +28290,60 @@ function RunEvidenceVideo({ runId, video, steps }) {
       live = false;
     };
   }, [runId]);
-  if (failed) return null;
-  const tightAvailable = Boolean(index);
-  const showingTight = tightAvailable && !full;
-  const src = showingTight ? evidenceFileUrl(runId, index.tight) : evidenceFileUrl(runId, video);
+  const scopedSteps = (0, import_react4.useMemo)(
+    () => steps.filter((s) => Number.isFinite(s.startMs)).filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)).sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
+    [steps, scopeKeys]
+  );
+  const cutAvailable = Boolean(index?.tight);
+  const rawAvailable = Boolean(video) && !pruned;
+  const showingCut = cutAvailable && (!full || !rawAvailable);
+  const src = showingCut ? evidenceFileUrl(runId, index.tight) : rawAvailable ? evidenceFileUrl(runId, video) : null;
+  const composed = (index?.version ?? 1) >= 2;
+  (0, import_react4.useEffect)(() => {
+    setFailed(false);
+  }, [src]);
   const offsetFor = (row) => {
-    if (!showingTight) return Number.isFinite(row.startMs) ? row.startMs ?? 0 : null;
+    if (!showingCut) return Number.isFinite(row.startMs) ? row.startMs ?? 0 : null;
     const ch = index.chapters.find(
       (c) => c.pageId === row.pageId && c.stepId === row.stepId && c.viewportId === row.viewportId
     );
     return Number.isFinite(ch?.tightMs) ? ch.tightMs : null;
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
-        showingTight ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
-          "Highlights only \u2014 ",
-          fmtDuration(index.tightDurationMs),
-          " of ",
-          fmtDuration(index.originalDurationMs),
-          ", with ",
-          fmtDuration(index.removedMs),
-          " of idle time cut. Jump to a check with its chapter button."
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
-          tightAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording.",
-          " ",
-          "Jump to a check with its chapter button."
-        ] })
+  (0, import_react4.useEffect)(() => {
+    const v = ref.current;
+    if (!v || scopeKeys === null) return;
+    const first = scopedSteps[0];
+    if (!first) return;
+    const at = offsetFor(first);
+    if (at === null) return;
+    const seek = () => {
+      v.currentTime = at / 1e3;
+    };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+  }, [scopedSteps, scopeKeys, showingCut]);
+  if (!src) {
+    if (requested === "off") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video was not requested for this run." });
+    if (pruned) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video pruned by retention." });
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "No video for this run." });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video-meta", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        showingCut ? `${composed ? "Composed cut" : "Highlights"} \u2014 ${fmtDuration(index.tightDurationMs)} of ${fmtDuration(index.originalDurationMs)} recorded${index.removedMs > 0 ? `, idle time ${composed ? "fast-forwarded" : "cut"}` : ""}.` : cutAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording.",
+        " ",
+        "Jump to a check with its chapter button."
       ] }),
-      tightAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setFull((f) => !f), children: full ? "Show highlights" : "Show full recording" })
+      cutAvailable && rawAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setFull((f) => !f), children: full ? composed ? "Show composed cut" : "Show highlights" : "Show full recording" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    failed ? (
+      // Only the PLAYER goes — the meta row above keeps the cut/full toggle
+      // reachable, so a broken source never locks out the playable one.
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-empty", children: [
+        "This video file could not be played",
+        cutAvailable && rawAvailable ? " \u2014 try the other recording." : "."
+      ] })
+    ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       "video",
       {
         ref,
@@ -28232,11 +28351,11 @@ function RunEvidenceVideo({ runId, video, steps }) {
         preload: "metadata",
         src,
         onError: () => setFailed(true),
-        style: { width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }
+        className: "dr-db-video-el"
       },
       src
     ),
-    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => {
+    scopedSteps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-db-chapters", children: scopedSteps.map((row) => {
       const at = offsetFor(row);
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "button",
@@ -28257,7 +28376,7 @@ function RunEvidenceVideo({ runId, video, steps }) {
             fmtOffset(at ?? 0)
           ]
         },
-        row.item
+        `${row.pageId}:${row.stepId}:${row.viewportId}`
       );
     }) })
   ] });
@@ -28348,7 +28467,10 @@ function ReelCarousel({
   candidateCount,
   curationPending,
   curationFailed,
-  curationDegraded
+  curationDegraded,
+  curationOff,
+  onSaveState,
+  canSaveState
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = (0, import_react4.useState)(0);
@@ -28393,7 +28515,7 @@ function ReelCarousel({
   };
   if (frames.length === 0) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No frames were captured for this scope." : curationPending ? "Curation is still selecting the reel for this scope." : curationFailed ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here." : "No reel frames for this scope." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No frames were captured for this scope." : curationOff ? "The slideshow was not requested for this run. Any raw captured frames are behind \u201CShow all frames\u201D." : curationPending ? "Curation is still selecting the reel for this scope." : curationFailed ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here." : "No reel frames for this scope." }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-reel-controls", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
         " ",
@@ -28418,20 +28540,32 @@ function ReelCarousel({
           active && !active.inReel && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-nr", children: "not in reel" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-annot-text", children: active?.inReel && active.annotation ? active.annotation : active && !active.inReel ? `Raw candidate - ${active.trigger || "captured frame"}` : "" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-          "button",
-          {
-            className: "btn small dr-db-flag" + (flaggedActive ? " primary" : ""),
-            disabled: !active,
-            "aria-pressed": flaggedActive,
-            onClick: () => active && onFlag(active.name),
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flag, { size: 12 }),
-              " ",
-              flaggedActive ? "Flagged" : "Flag"
-            ]
-          }
-        )
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot-actions", children: [
+          onSaveState && active && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            SaveStateButton,
+            {
+              defaultLabel: active.annotation?.slice(0, 40) || active.trigger || "captured state",
+              disabled: canSaveState ? !canSaveState(active) : false,
+              disabledTitle: "This frame is not tied to a check, so its page is unknown.",
+              onSave: (label) => onSaveState(active, label)
+            },
+            active.name
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              className: "btn small dr-db-flag" + (flaggedActive ? " primary" : ""),
+              disabled: !active,
+              "aria-pressed": flaggedActive,
+              onClick: () => active && onFlag(active.name),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flag, { size: 12 }),
+                " ",
+                flaggedActive ? "Flagged" : "Flag"
+              ]
+            }
+          )
+        ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-controls", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-transport", children: [
@@ -28452,61 +28586,81 @@ function ReelCarousel({
           ] })
         ] })
       ] }),
+      curationOff && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "The slideshow was not requested for this run - showing raw captured frames." }),
       curationPending && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation pending - showing raw candidates until the reel is selected." }),
       curationDegraded && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation was incomplete for this run - some frames were never judged, so parts of this reel were auto-selected rather than chosen." })
     ] })
   );
 }
-function DebriefVideo({ runId, video, pruned, steps, scopeKeys }) {
-  const ref = (0, import_react4.useRef)(null);
-  const scopedSteps = (0, import_react4.useMemo)(
-    () => steps.filter((s) => Number.isFinite(s.startMs)).filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)).sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
-    [steps, scopeKeys]
-  );
-  (0, import_react4.useEffect)(() => {
-    const v = ref.current;
-    if (!v || scopeKeys === null) return;
-    const first = scopedSteps[0];
-    if (!first || !Number.isFinite(first.startMs)) return;
-    const seek = () => {
-      v.currentTime = (first.startMs ?? 0) / 1e3;
-    };
-    if (v.readyState >= 1) seek();
-    else v.addEventListener("loadedmetadata", seek, { once: true });
-  }, [scopedSteps, scopeKeys]);
-  if (pruned) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video pruned by retention." });
-  if (!video) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "No video for this run." });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      "video",
-      {
-        ref,
-        controls: true,
-        preload: "metadata",
-        src: evidenceFileUrl(runId, video),
-        className: "dr-db-video-el"
-      }
-    ),
-    scopedSteps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-db-chapters", children: scopedSteps.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+function SaveStateButton({
+  defaultLabel,
+  disabled = false,
+  disabledTitle,
+  onSave
+}) {
+  const [open, setOpen] = (0, import_react4.useState)(false);
+  const [label, setLabel] = (0, import_react4.useState)(defaultLabel);
+  const [busy, setBusy] = (0, import_react4.useState)(false);
+  const [savedId, setSavedId] = (0, import_react4.useState)(null);
+  const [error, setError] = (0, import_react4.useState)(null);
+  const save = async () => {
+    if (!label.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const stateId = await onSave(label.trim());
+      setSavedId(stateId);
+      setOpen(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (savedId) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", title: "Saved as a named page state", children: [
+    "state: ",
+    savedId
+  ] });
+  if (!open) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
       {
         className: "btn small",
-        title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
+        disabled,
+        title: disabled ? disabledTitle ?? "Unavailable" : "Save this screenshot as a named page state",
         onClick: () => {
-          const v = ref.current;
-          if (!v || !Number.isFinite(row.startMs)) return;
-          v.currentTime = (row.startMs ?? 0) / 1e3;
-          void v.play().catch(() => {
-          });
+          setLabel(defaultLabel);
+          setOpen(true);
         },
         children: [
-          row.stepId,
-          " @",
-          fmtOffset(row.startMs ?? 0)
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Camera, { size: 11 }),
+          " Save as state"
         ]
-      },
-      `${row.pageId}:${row.stepId}:${row.viewportId}`
-    )) })
+      }
+    );
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-savestate", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "input",
+      {
+        "aria-label": "State label",
+        value: label,
+        autoFocus: true,
+        disabled: busy,
+        onChange: (e) => setLabel(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") void save();
+          if (e.key === "Escape") setOpen(false);
+        },
+        placeholder: "State label\u2026"
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small primary", disabled: busy || !label.trim(), onClick: () => void save(), children: busy ? "Saving\u2026" : "Save" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: busy, onClick: () => {
+      setOpen(false);
+      setError(null);
+    }, children: "Cancel" }),
+    error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-savestate-error", children: error })
   ] });
 }
 function liveStageStyle(canvasUrl) {
@@ -28737,6 +28891,7 @@ function DebriefView({
   steps,
   evidenceIndex,
   issues,
+  activeFindings,
   confirmedCount,
   dispatchableCount,
   dispatchedCard,
@@ -28744,10 +28899,23 @@ function DebriefView({
   setDispatchMode,
   dispatching,
   dispatch,
-  triage
+  triage,
+  evidenceRows,
+  productPageEntries,
+  incompleteCoverageCount,
+  displayedInfra,
+  obsText,
+  setObsText,
+  giveFeedback,
+  override,
+  addObs,
+  convertObsToStep,
+  convertObsToFinding,
+  onRerun,
+  rerunBusy
 }) {
   const [scope, setScope] = (0, import_react4.useState)({ kind: "all" });
-  const [tab, setTab] = (0, import_react4.useState)("screenshots");
+  const [tab, setTab] = (0, import_react4.useState)("results");
   const [showAll, setShowAll] = (0, import_react4.useState)(false);
   const [reel, setReel] = (0, import_react4.useState)(null);
   const [reelMissing, setReelMissing] = (0, import_react4.useState)(false);
@@ -28759,6 +28927,7 @@ function DebriefView({
   (0, import_react4.useEffect)(() => {
     setLiveSession(null);
     setLiveWarnings([]);
+    setScope({ kind: "all" });
   }, [run.id]);
   const enqueue = useDebriefFeedback(run.id);
   const checkRefs = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
@@ -28766,11 +28935,28 @@ function DebriefView({
   const indexItems = evidenceIndex?.items ?? [];
   const hasSpotterRow = indexItems.some((i) => i.kind === "spotter");
   const runFinished = Boolean(run.endedAt);
-  const curationPending = hasSpotterRow && !reel && !reelMissing;
-  const curationFailed = hasSpotterRow && runFinished && reelMissing;
+  const curationOff = run.evidenceRequest?.slideshow === "off";
+  const curationPending = !curationOff && hasSpotterRow && !reel && !reelMissing;
+  const curationFailed = !curationOff && hasSpotterRow && runFinished && reelMissing;
   const videoItem = indexItems.find((i) => i.kind === "video");
   const videoPruned = !!videoItem?.pruned;
   const videoName = run.evidence?.video ?? null;
+  const stepForChunk = (0, import_react4.useCallback)(
+    (chunk) => chunk ? steps.find((s) => chunkKeyFor(s.pageId, s.stepId, s.viewportId) === chunk) ?? null : null,
+    [steps]
+  );
+  const saveFrameAsState = (0, import_react4.useCallback)(async (frame, label) => {
+    const step = stepForChunk(frame.chunk);
+    if (!step) throw new Error("This frame is not tied to a check, so its page is unknown.");
+    const r = await apiPost(`/api/runs/${encodeURIComponent(run.id)}/promote-state`, {
+      file: frame.name,
+      pageId: step.pageId,
+      stepId: step.stepId,
+      viewportId: step.viewportId,
+      label
+    });
+    return r.stateId;
+  }, [run.id, stepForChunk]);
   (0, import_react4.useEffect)(() => {
     setReel(null);
     setReelMissing(false);
@@ -29067,7 +29253,11 @@ ${check.title?.trim() || ""}`,
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "dr-db-content", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-tabs", role: "tablist", "aria-label": "Debrief evidence", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-tabs", role: "tablist", "aria-label": "Run evidence views", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "results", className: "dr-db-tab" + (tab === "results" ? " on" : ""), title: "Per-check results with each check's session steps", onClick: () => setTab("results"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ListChecks, { size: 13 }),
+            " Results"
+          ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "screenshots", className: "dr-db-tab" + (tab === "screenshots" ? " on" : ""), onClick: () => setTab("screenshots"), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LayoutGrid, { size: 13 }),
             " Screenshots"
@@ -29078,15 +29268,46 @@ ${check.title?.trim() || ""}`,
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "live", className: "dr-db-tab experimental" + (tab === "live" ? " on" : ""), title: "Experimental - replays the app live at a check's state", onClick: () => setTab("live"), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
-            " Live Browser ",
+            " Browser ",
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-exp-chip", children: "experimental" })
           ] }),
-          (run.sessions?.length ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "session", className: "dr-db-tab" + (tab === "session" ? " on" : ""), title: "The Claude session(s) that resolved this run's vision checks", onClick: () => setTab("session"), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "session", className: "dr-db-tab" + (tab === "session" ? " on" : ""), title: "The full Claude session(s) that resolved this run's vision checks, screenshots included", onClick: () => setTab("session"), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13 }),
             " Session",
             (run.sessions?.length ?? 0) > 1 ? "s" : ""
           ] })
         ] }),
+        tab === "results" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          RunResultsPanel,
+          {
+            run,
+            pages,
+            evidenceRows,
+            productPageEntries,
+            activeFindings,
+            incompleteCoverageCount,
+            displayedInfra,
+            issues,
+            confirmedCount,
+            dispatchableCount,
+            dispatchedCard,
+            dispatchMode,
+            setDispatchMode,
+            dispatching,
+            obsText,
+            setObsText,
+            giveFeedback,
+            override,
+            addObs,
+            convertObsToStep,
+            convertObsToFinding,
+            triage,
+            dispatch,
+            onRerun,
+            rerunBusy,
+            scopeKeys
+          }
+        ),
         tab === "screenshots" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           ReelCarousel,
           {
@@ -29103,17 +29324,21 @@ ${check.title?.trim() || ""}`,
             candidateCount,
             curationPending,
             curationFailed,
-            curationDegraded
+            curationDegraded,
+            curationOff,
+            onSaveState: saveFrameAsState,
+            canSaveState: (frame) => !!stepForChunk(frame.chunk)
           }
         ),
         tab === "video" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          DebriefVideo,
+          RunVideoTab,
           {
             runId: run.id,
             video: videoName,
             pruned: videoPruned,
             steps,
-            scopeKeys
+            scopeKeys,
+            requested: run.evidenceRequest?.video
           }
         ),
         tab === "live" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -29134,7 +29359,17 @@ ${check.title?.trim() || ""}`,
     ] })
   ] });
 }
-function ClassicRunDetail({
+function CheckSessionSteps({ runId, sessionId, windowFrom, windowTo }) {
+  const [open, setOpen] = (0, import_react4.useState)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-res-session", onToggle: (e) => setOpen(e.target.open), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 11, "aria-hidden": "true" }),
+      " Session steps"
+    ] }),
+    open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionStream, { runId, sessionId, live: false, windowFrom, windowTo, compact: true })
+  ] });
+}
+function RunResultsPanel({
   run,
   pages,
   evidenceRows,
@@ -29159,9 +29394,12 @@ function ClassicRunDetail({
   triage,
   dispatch,
   onRerun,
-  rerunBusy
+  rerunBusy,
+  scopeKeys
 }) {
   const evidenceRowFor = (entry) => evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  const capturedAt = run.evidence?.capturedAt ?? null;
+  const visibleEntries = scopeKeys ? productPageEntries.filter((entry) => scopeKeys.has(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId))) : productPageEntries;
   const rerunScope = (entries) => {
     if (!onRerun || !entries.length) return;
     onRerun(
@@ -29174,18 +29412,12 @@ function ClassicRunDetail({
     (entry) => !effectiveStepPassed(run, entry) || effectiveStepUnproven(run, entry)
   );
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    run.evidence?.video && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RunEvidenceVideo, { runId: run.id, video: run.evidence.video, steps: evidenceRows ?? [] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-detail-heading", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Selected run" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: formatDate(run.startedAt) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-run-id", children: run.id }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
-          ] })
-        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
+        ] }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length }),
@@ -29247,7 +29479,8 @@ function ClassicRunDetail({
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused." })
       ] }) }),
       productPageEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product checks completed. Review the infrastructure section below before rerunning." }),
-      productPageEntries.map((entry) => {
+      productPageEntries.length > 0 && visibleEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No checks match the selected scope." }),
+      visibleEntries.map((entry) => {
         const originalPassed = stepPassed(entry);
         const recordKey = `${entry.pageId}:${entry.stepId}`;
         const renderKey = `${recordKey}:${entry.viewportId}`;
@@ -29321,8 +29554,30 @@ function ClassicRunDetail({
               videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
                 "video @",
                 fmtOffset(row.startMs ?? 0)
-              ] })
+              ] }),
+              row.screenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                SaveStateButton,
+                {
+                  defaultLabel: stepDefinition?.description?.slice(0, 40) || entry.stepId,
+                  onSave: async (label) => {
+                    const r = await apiPost(`/api/runs/${encodeURIComponent(run.id)}/promote-state`, {
+                      file: row.screenshot,
+                      pageId: entry.pageId,
+                      stepId: entry.stepId,
+                      viewportId: entry.viewportId,
+                      label
+                    });
+                    return r.stateId;
+                  }
+                }
+              )
             ] });
+          })(),
+          entry.terminal?.session?.id && (() => {
+            const row = evidenceRowFor(entry);
+            const from = capturedAt !== null && Number.isFinite(row?.startMs) ? capturedAt + (row.startMs ?? 0) - 1e4 : void 0;
+            const to = capturedAt !== null && Number.isFinite(row?.endMs) ? capturedAt + (row.endMs ?? 0) + 1e4 : void 0;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckSessionSteps, { runId: run.id, sessionId: entry.terminal.session.id, windowFrom: from, windowTo: to });
           })(),
           override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
             "Overridden -> ",
@@ -29350,6 +29605,19 @@ function ClassicRunDetail({
           ] })
         ] }, renderKey);
       })
+    ] }),
+    run.canceled && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card dr-canceled-summary", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Stopped at your request" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        "Executed ",
+        run.executedChecks ?? run.canceled.afterCheck,
+        " of ",
+        run.plannedChecks ?? (run.canceled.afterCheck ?? 0) + (run.canceled.skippedChecks ?? 0),
+        " planned checks;",
+        " ",
+        run.canceled.skippedChecks,
+        " were not run. The results below cover only what executed - the rest are unknown, not passing."
+      ] })
     ] }),
     displayedInfra.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-sec dr-infra", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
@@ -29558,7 +29826,7 @@ function SessionToolBlock({ block, result }) {
     ))
   ] });
 }
-function SessionStream({ runId, sessionId, live }) {
+function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }) {
   const [events, setEvents] = (0, import_react4.useState)([]);
   const [title, setTitle] = (0, import_react4.useState)(null);
   const [status, setStatus] = (0, import_react4.useState)("connecting");
@@ -29569,7 +29837,10 @@ function SessionStream({ runId, sessionId, live }) {
     setTitle(null);
     setStatus("connecting");
     stickRef.current = true;
-    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?session=${encodeURIComponent(sessionId)}`);
+    const params = new URLSearchParams({ session: sessionId });
+    if (Number.isFinite(windowFrom)) params.set("from", String(Math.floor(windowFrom)));
+    if (Number.isFinite(windowTo)) params.set("to", String(Math.ceil(windowTo)));
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`);
     source.onmessage = (message) => {
       let payload;
       try {
@@ -29594,7 +29865,7 @@ function SessionStream({ runId, sessionId, live }) {
       source.close();
     };
     return () => source.close();
-  }, [runId, sessionId]);
+  }, [runId, sessionId, windowFrom, windowTo]);
   (0, import_react4.useEffect)(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -29612,7 +29883,8 @@ function SessionStream({ runId, sessionId, live }) {
     }
     return map;
   }, [events]);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session", children: [
+  const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session" + (compact ? " compact" : ""), children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-head", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13, "aria-hidden": "true" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? "Verify session" }),
@@ -29622,7 +29894,7 @@ function SessionStream({ runId, sessionId, live }) {
       status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "transcript unavailable" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-scroll", ref: scrollRef, onScroll, children: [
-      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : "No session activity fell inside this run's window." }),
+      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : windowed ? "No session activity fell inside this check's window." : "No session activity fell inside this run's window." }),
       events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-role", children: event.role === "user" ? "Prompt" : "Assistant" }),
         event.blocks.map((block, blockIndex) => {
@@ -29711,6 +29983,9 @@ function LiveRunPanel({ runId, startedAt, onFinished }) {
   const [current, setCurrent] = (0, import_react4.useState)(null);
   const [checks, setChecks] = (0, import_react4.useState)([]);
   const [circuit, setCircuit] = (0, import_react4.useState)(null);
+  const [canceling, setCanceling] = (0, import_react4.useState)(false);
+  const [canceled, setCanceled] = (0, import_react4.useState)(null);
+  const [cancelError, setCancelError] = (0, import_react4.useState)(null);
   const [runStartedAt, setRunStartedAt] = (0, import_react4.useState)(startedAt);
   const [streamLost, setStreamLost] = (0, import_react4.useState)(false);
   const [, setTick] = (0, import_react4.useState)(0);
@@ -29730,6 +30005,9 @@ function LiveRunPanel({ runId, startedAt, onFinished }) {
     setChecks([]);
     setCurrent(null);
     setCircuit(null);
+    setCanceling(false);
+    setCanceled(null);
+    setCancelError(null);
     setStreamLost(false);
     setPlanned(null);
     setRunStartedAt(startedAt);
@@ -29760,6 +30038,11 @@ function LiveRunPanel({ runId, startedAt, onFinished }) {
         setChecks((rows) => rows.some((row) => row.index === event.index) ? rows.map((row) => row.index === event.index ? event : row) : [event, ...rows]);
       } else if (event.type === "circuit_opened") {
         setCircuit(event);
+      } else if (event.type === "run_canceling") {
+        setCanceling(true);
+      } else if (event.type === "run_canceled") {
+        setCanceling(false);
+        setCanceled(event);
       } else if (event.type === "run_finished" || event.type === "run_unknown") {
         source.close();
         finish();
@@ -29802,8 +30085,36 @@ function LiveRunPanel({ runId, startedAt, onFinished }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run in progress" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Checks stream in as they execute; the verify session is live below. Closing this page does not stop the run." })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-run-id", children: runId })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-live-run-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-run-id", children: runId }),
+        !canceled && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            type: "button",
+            className: "btn",
+            disabled: canceling,
+            onClick: () => {
+              setCancelError(null);
+              setCanceling(true);
+              apiPost(`/api/runs/${encodeURIComponent(runId)}/cancel`, {}).catch((err) => {
+                setCanceling(false);
+                setCancelError(err?.message ?? "Could not cancel the run.");
+              });
+            },
+            children: canceling ? "Stopping\u2026" : "Stop run"
+          }
+        )
+      ] })
     ] }),
+    canceling && !canceled && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-inline-note", role: "status", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Stopping after the current check finishes - a vision check can take up to a minute. Checks already executed are kept." }) }),
+    canceled && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-inline-note", role: "status", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+      "Run stopped at your request",
+      Number.isFinite(canceled.afterCheck) ? ` after ${canceled.afterCheck} check(s)` : "",
+      Number.isFinite(canceled.skippedChecks) ? `; ${canceled.skippedChecks} were not run.` : ".",
+      " ",
+      "This is not a failure - the executed checks and their evidence are saved."
+    ] }) }),
+    cancelError && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-inline-error", role: "alert", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: cancelError }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-live-progress", role: "status", "aria-live": "polite", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-spinner", "aria-hidden": "true" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -29858,10 +30169,6 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [evidenceRows, setEvidenceRows] = (0, import_react4.useState)(null);
   const [evidenceIndex, setEvidenceIndex] = (0, import_react4.useState)(null);
   const [evidenceStepsJson, setEvidenceStepsJson] = (0, import_react4.useState)(null);
-  const [classicView, setClassicView] = (0, import_react4.useState)(false);
-  (0, import_react4.useEffect)(() => {
-    setClassicView(false);
-  }, [run?.id]);
   (0, import_react4.useEffect)(() => {
     setEvidenceRows(null);
     setEvidenceIndex(null);
@@ -29886,6 +30193,9 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     initialSelection ? [initialSelection.viewportId] : initialRun?.viewports ?? ["desktop"]
   ));
   const [selectedState, setSelectedState] = (0, import_react4.useState)(initialSelection?.state ?? "default");
+  const [videoOpt, setVideoOpt] = (0, import_react4.useState)("auto");
+  const [slideshowOn, setSlideshowOn] = (0, import_react4.useState)(true);
+  const [browserStatesOn, setBrowserStatesOn] = (0, import_react4.useState)(true);
   const [running, setRunning] = (0, import_react4.useState)(false);
   const [phase, setPhase] = (0, import_react4.useState)(null);
   const [error, setError] = (0, import_react4.useState)(null);
@@ -29898,9 +30208,13 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [pendingGate, setPendingGate] = (0, import_react4.useState)(null);
   const [watchRunId, setWatchRunId] = (0, import_react4.useState)(null);
   const [watchStartedAt, setWatchStartedAt] = (0, import_react4.useState)(null);
+  const gateRef = (0, import_react4.useRef)(null);
+  (0, import_react4.useEffect)(() => {
+    if (pendingGate) gateRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [pendingGate]);
   const load = () => {
     Promise.all([apiGet("/api/pages"), apiGet("/api/drillbook"), apiGet("/api/runs")]).then(([p, b, r]) => {
-      setPages(p.pages);
+      setPages(normalizePages(p.pages));
       setPagesLoaded(true);
       setBook(b.book);
       setRuns(r.runs);
@@ -29957,12 +30271,18 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     try {
       await ensureAppUp(setPhase);
       setPhase(null);
+      const evidenceBody = {
+        ...videoOpt !== "auto" ? { video: videoOpt === "on" } : {},
+        ...slideshowOn ? {} : { curation: false },
+        ...browserStatesOn ? {} : { stateReferences: false }
+      };
       const r = await apiPost("/api/runs", {
         pageIds,
         viewports,
         ...stepIdsArg?.length ? { stepIds: stepIdsArg } : {},
         state: requestedState,
         contextTag: "drill",
+        ...Object.keys(evidenceBody).length ? { evidence: evidenceBody } : {},
         background: true
       });
       if (r.held) {
@@ -30132,19 +30452,31 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const activeFindings = run ? activeProductFindings(run, issues.productFindings) : [];
   const confirmedCount = activeFindings.filter((f) => f.status === "confirmed").length;
   const dispatchableCount = activeFindings.filter((finding) => finding.status === "confirmed" && !finding.card).length;
-  const debriefSteps = (0, import_react4.useMemo)(
-    () => evidenceStepsJson && evidenceStepsJson.length > 0 ? evidenceStepsJson : (evidenceRows ?? []).map((row) => ({
-      pageId: row.pageId ?? "",
-      stepId: row.stepId ?? "",
-      viewportId: row.viewportId ?? "",
-      startMs: row.startMs,
-      endMs: row.endMs,
-      status: row.status,
-      automationRunId: row.automationRunId ?? null
-    })),
-    [evidenceStepsJson, evidenceRows]
-  );
-  const debriefAvailable = !!evidenceIndex && debriefSteps.length > 0;
+  const debriefSteps = (0, import_react4.useMemo)(() => {
+    if (evidenceStepsJson && evidenceStepsJson.length > 0) return evidenceStepsJson;
+    if (evidenceRows && evidenceRows.length > 0) {
+      return evidenceRows.map((row) => ({
+        pageId: row.pageId ?? "",
+        stepId: row.stepId ?? "",
+        viewportId: row.viewportId ?? "",
+        startMs: row.startMs,
+        endMs: row.endMs,
+        status: row.status,
+        automationRunId: row.automationRunId ?? null
+      }));
+    }
+    return (run?.pages ?? []).map((entry) => {
+      const definition = pages.find((p) => p.id === entry.pageId)?.steps.find((s) => s.id === entry.stepId);
+      return {
+        pageId: entry.pageId,
+        stepId: entry.stepId,
+        viewportId: entry.viewportId,
+        title: definition?.description,
+        status: entry.status,
+        automationRunId: entry.automationRunId ?? null
+      };
+    });
+  }, [evidenceStepsJson, evidenceRows, run, pages]);
   const historyPageSize = 6;
   const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
   const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
@@ -30226,9 +30558,84 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         },
         v.id
       )) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-artifacts", role: "group", "aria-label": "Artifacts to produce", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-run-artifacts-label", children: "Artifacts" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-artifact-group", role: "group", "aria-label": "Run video", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-artifact-name", children: "Video" }),
+          ["auto", "on", "off"].map((option) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: "chip click" + (videoOpt === option ? " ink active" : ""),
+              "aria-pressed": videoOpt === option,
+              title: option === "auto" ? "Record for multi-check runs (the default)" : option === "on" ? "Always record" : "Never record",
+              onClick: () => setVideoOpt(option),
+              children: option === "auto" ? "Auto" : option === "on" ? "On" : "Off"
+            },
+            option
+          ))
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: "chip click" + (slideshowOn ? " sage active" : ""),
+            "aria-pressed": slideshowOn,
+            title: "Curate the captured frames into the Screenshots slideshow",
+            onClick: () => setSlideshowOn((v) => !v),
+            children: "Slideshow"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: "chip click" + (browserStatesOn ? " sage active" : ""),
+            "aria-pressed": browserStatesOn,
+            title: "Let a named-state run seed the state's reference screenshot into the Book",
+            onClick: () => setBrowserStatesOn((v) => !v),
+            children: "Browser states"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "What this run should produce beyond the results themselves. Screenshots and traces are always captured." })
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions dr-run-launch-actions", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running || watchRunId !== null, onClick: () => startRun(), children: running ? phase ?? "Starting\u2026" : watchRunId ? "Run in progress\u2026" : "Run selected" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
+      ] })
+    ] }),
+    pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { ref: gateRef, className: "dr-sec card", role: "region", "aria-label": "Gated run plan", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { className: "t12", children: "Plan ready - gated, awaiting approval" }) }),
+      pendingGate.plan.map((p) => (
+        // A whole-book run previews hundreds of steps; per-group <details>
+        // keeps the gate scannable (a page's step list is one click away),
+        // while a small scoped run stays fully expanded.
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "t11", style: { marginBottom: 6 }, open: pendingGate.plan.length <= 4, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.pageId }),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: p.viewportId }),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
+              p.steps.length,
+              " step",
+              p.steps.length === 1 ? "" : "s"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: "4px 0 0 18px", padding: 0 }, children: [
+            p.steps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "t11", children: [
+              s.description,
+              " ",
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
+                "(",
+                s.mode,
+                ")"
+              ] })
+            ] }, s.id)),
+            p.steps.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", style: { color: "var(--mute)" }, children: "(no enabled steps)" })
+          ] })
+        ] }, `${p.pageId}:${p.viewportId}`)
+      )),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: approveGate, children: running ? "Running\u2026" : "Approve and run" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPendingGate(null), children: "Cancel" })
       ] })
     ] }),
     watchRunId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveRunPanel, { runId: watchRunId, startedAt: watchStartedAt, onFinished: onWatchedRunFinished }),
@@ -30333,121 +30740,39 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: notice }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setNotice(null), children: "Dismiss" })
     ] }),
-    pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", role: "region", "aria-label": "Gated run plan", style: { borderColor: "var(--brass)", borderWidth: 1.5 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginBottom: 8 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { className: "t12", children: "Plan ready - gated, awaiting approval" }) }),
-      pendingGate.plan.map((p) => (
-        // A whole-book run previews hundreds of steps; per-group <details>
-        // keeps the gate scannable (a page's step list is one click away),
-        // while a small scoped run stays fully expanded.
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "t11", style: { marginBottom: 6 }, open: pendingGate.plan.length <= 4, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { style: { cursor: "pointer" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: p.pageId }),
-            " ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: p.viewportId }),
-            " ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
-              p.steps.length,
-              " step",
-              p.steps.length === 1 ? "" : "s"
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: "4px 0 0 18px", padding: 0 }, children: [
-            p.steps.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "t11", children: [
-              s.description,
-              " ",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "mono", style: { fontSize: 10, color: "var(--mute)" }, children: [
-                "(",
-                s.mode,
-                ")"
-              ] })
-            ] }, s.id)),
-            p.steps.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: "t11", style: { color: "var(--mute)" }, children: "(no enabled steps)" })
-          ] })
-        ] }, `${p.pageId}:${p.viewportId}`)
-      )),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running, onClick: approveGate, children: running ? "Running\u2026" : "Approve and run" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setPendingGate(null), children: "Cancel" })
-      ] })
-    ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
-    run && run.id !== watchRunId && (() => {
-      const showDebrief = debriefAvailable && !classicView;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        debriefAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-modeswitch", role: "group", "aria-label": "Run detail view", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-modeswitch-label", children: "View" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-            "button",
-            {
-              className: "btn small" + (showDebrief ? " primary" : ""),
-              "aria-pressed": showDebrief,
-              onClick: () => setClassicView(false),
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LayoutGrid, { size: 12 }),
-                " Debrief"
-              ]
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "button",
-            {
-              className: "btn small" + (!showDebrief ? " primary" : ""),
-              "aria-pressed": !showDebrief,
-              onClick: () => setClassicView(true),
-              children: "Classic view"
-            }
-          )
-        ] }),
-        showDebrief ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          DebriefView,
-          {
-            run,
-            pages,
-            steps: debriefSteps,
-            evidenceIndex,
-            issues,
-            activeFindings,
-            confirmedCount,
-            dispatchableCount,
-            dispatchedCard,
-            dispatchMode,
-            setDispatchMode,
-            dispatching,
-            dispatch,
-            triage
-          }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          ClassicRunDetail,
-          {
-            run,
-            pages,
-            evidenceRows,
-            productPageEntries,
-            activeFindings,
-            incompleteCoverageCount,
-            displayedInfra,
-            issues,
-            confirmedCount,
-            dispatchableCount,
-            dispatchedCard,
-            dispatchMode,
-            setDispatchMode,
-            dispatching,
-            obsText,
-            setObsText,
-            giveFeedback,
-            override,
-            addObs,
-            convertObsToStep,
-            convertObsToFinding,
-            triage,
-            dispatch,
-            onRerun: (pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds),
-            rerunBusy: running || watchRunId !== null
-          }
-        )
-      ] });
-    })()
+    run && run.id !== watchRunId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      DebriefView,
+      {
+        run,
+        pages,
+        steps: debriefSteps,
+        evidenceIndex,
+        issues,
+        activeFindings,
+        confirmedCount,
+        dispatchableCount,
+        dispatchedCard,
+        dispatchMode,
+        setDispatchMode,
+        dispatching,
+        dispatch,
+        triage,
+        evidenceRows,
+        productPageEntries,
+        incompleteCoverageCount,
+        displayedInfra,
+        obsText,
+        setObsText,
+        giveFeedback,
+        override,
+        addObs,
+        convertObsToStep,
+        convertObsToFinding,
+        onRerun: (pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds),
+        rerunBusy: running || watchRunId !== null
+      }
+    )
   ] });
 }
 function describeStateMatcher(state) {
@@ -30515,8 +30840,9 @@ function StatesView({
   const [error, setError] = (0, import_react4.useState)(null);
   const load = () => {
     apiGet("/api/pages").then((r) => {
-      setPages(r.pages);
-      if (!pageId && r.pages.length > 0) setPageId(r.pages[0].id);
+      const loaded = normalizePages(r.pages);
+      setPages(loaded);
+      if (!pageId && loaded.length > 0) setPageId(loaded[0].id);
     }).catch((e) => setError(e.message));
   };
   (0, import_react4.useEffect)(load, []);
@@ -30598,6 +30924,23 @@ var VIEWS = [
   { id: "states", label: "States" },
   { id: "results", label: "Run & results" }
 ];
+var ViewErrorBoundary = class extends import_react4.Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error) {
+    console.error("[drill] view crashed", error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-placeholder", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "This view hit an error and stopped rendering." }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono t11", style: { margin: "8px 0", color: "var(--mute)" }, children: this.state.error.message }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => this.setState({ error: null }), children: "try again" })
+    ] });
+  }
+};
 function App() {
   const initialLocation = () => {
     const params = new URLSearchParams(location.search);
@@ -30689,7 +31032,7 @@ function App() {
         v.id
       )) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-body", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-body", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ViewErrorBoundary, { children: [
       view === "book" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BookView, { onRunSelected: runSelected, projInfo, onOpenPicker: () => setPickerOpen(true), onGoAuthoring: (pageId) => navigate("authoring", { pageId: pageId ?? null }) }),
       view === "authoring" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         AuthoringView,
@@ -30732,7 +31075,7 @@ function App() {
           }
         }
       )
-    ] }),
+    ] }, view) }),
     pickerOpen && projInfo && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectPickerDialog, { info: projInfo, onClose: () => setPickerOpen(false) })
   ] });
 }
@@ -30803,6 +31146,7 @@ lucide-react/dist/esm/Icon.js:
 lucide-react/dist/esm/createLucideIcon.js:
 lucide-react/dist/esm/icons/arrow-left.js:
 lucide-react/dist/esm/icons/arrow-right.js:
+lucide-react/dist/esm/icons/camera.js:
 lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/crosshair.js:
 lucide-react/dist/esm/icons/external-link.js:
@@ -30811,6 +31155,7 @@ lucide-react/dist/esm/icons/file-code-2.js:
 lucide-react/dist/esm/icons/film.js:
 lucide-react/dist/esm/icons/flag.js:
 lucide-react/dist/esm/icons/layout-grid.js:
+lucide-react/dist/esm/icons/list-checks.js:
 lucide-react/dist/esm/icons/list-filter.js:
 lucide-react/dist/esm/icons/locate-fixed.js:
 lucide-react/dist/esm/icons/message-square.js:

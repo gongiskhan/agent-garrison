@@ -16,6 +16,7 @@
 // write time); every other kind gets a reason composed here from safe scalars.
 
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { readFileTolerant } from "./atomic-write";
 
 export const DECISIONS_REL = ".garrison/decisions.jsonl";
@@ -24,12 +25,33 @@ export const DEFAULT_DECISIONS_LIMIT = 20;
 export const MAX_DECISIONS_LIMIT = 100;
 
 export interface DecisionView {
+  /**
+   * Stable handle for this decision (RUN-SPEC-V1). Written by the gateway for new
+   * records; DERIVED here by the identical formula for the ~3800 older ones, which
+   * carry none — so a verdict can name any row in the feed, not just recent ones.
+   * Never null: a row with no id is a row the user cannot judge.
+   */
+  id: string;
   at: string | null;
   kind: string;
   duty: string | null;
   level: number | null;
   target: string | null;
   reason: string | null;
+  // The RUN dimensions, surfaced as fields rather than smuggled inside `reason`.
+  // These are the axes the user is being asked "was this right?" about, so each
+  // needs to be readable on its own and pre-fillable into the correction menus.
+  // Each is a scalar whitelist entry like every other field here - the module's
+  // security posture is unchanged, the selection is just less lossy.
+  runtime: string | null;
+  model: string | null;
+  effort: string | null;
+  tier: string | null;
+  taskType: string | null;
+  /** duty-cell | turn-override | classifier - WHO chose this route. */
+  via: string | null;
+  /** True when no classifier call was needed (the choice was already explicit). */
+  classifierSkipped: boolean | null;
   // The message digest (never the raw message) — the safe correlation handle
   // (codex S5b/S5c finding). The feed carries this, not user content.
   messageDigest: string | null;
@@ -73,6 +95,29 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+/**
+ * The id for a record written before ids existed (~3800 of them on a live box).
+ *
+ * Byte-identical to the gateway's `decisionId`
+ * (fittings/seed/orchestrator/lib/routing-telemetry.mjs) so a record keeps the same
+ * handle whichever side computes it - duplicated only because that module lives
+ * inside a fitting the app cannot import. Pinned equal by
+ * tests/decisions-verdict.test.ts.
+ *
+ * `seq` is the record's position in the file, and it is what stops a verdict from
+ * landing on two rows: a misroute appends a SECOND full copy of a decision carrying
+ * the same timestamp, digest and target (462 of 3789 live rows are these follow-ups).
+ */
+function deriveDecisionId(r: Record<string, unknown>, seq?: number): string {
+  const parts = [
+    str(r.at) ?? "",
+    str(r.promptDigest) ?? str(r.messageDigest) ?? "",
+    str(r.targetId) ?? str(r.target) ?? "",
+    seq == null ? "" : String(seq)
+  ];
+  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
+}
+
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -109,7 +154,7 @@ function composeReason(r: Record<string, unknown>): string | null {
 
 // Normalize one parsed record into the panel's view, or null if it is not an
 // object. Pure + exported so the shaping is unit-tested without any fs.
-export function normalizeDecision(raw: unknown): DecisionView | null {
+export function normalizeDecision(raw: unknown, seq?: number): DecisionView | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   const kind = classifyKind(r);
@@ -117,10 +162,18 @@ export function normalizeDecision(raw: unknown): DecisionView | null {
   // text). Anything else is composed here from safe scalar fields.
   const rawReason = kind === "dispatch" ? str(r.reason) ?? composeReason(r) : composeReason(r);
   return {
+    id: str(r.id) ?? deriveDecisionId(r, seq),
     at: str(r.at),
     kind,
     duty: str(r.duty),
     level: num(r.level),
+    runtime: str(r.runtime),
+    model: str(r.model),
+    effort: str(r.effort),
+    tier: str(r.tier),
+    taskType: str(r.taskType),
+    via: str(r.via),
+    classifierSkipped: typeof r.classifierSkipped === "boolean" ? r.classifierSkipped : null,
     // The gateway/placement records name the engine as `targetId`; the dispatcher
     // leaves it implicit (target lives on the duty cell), so fall back cleanly.
     target: str(r.target) ?? str(r.targetId),
@@ -161,7 +214,10 @@ export async function readDecisionsTail(
     } catch {
       continue;
     }
-    const view = normalizeDecision(parsed);
+    // `i` is the record's line index in the file - the disambiguator a derived id
+    // needs so a misroute's duplicate copy is a DIFFERENT decision. Stable as long
+    // as the log is append-only, which it is.
+    const view = normalizeDecision(parsed, i);
     if (view) views.push(view);
   }
   return views;

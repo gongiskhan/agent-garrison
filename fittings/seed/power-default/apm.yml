@@ -10,11 +10,6 @@ x-garrison:
   own_port: true
   default_port: 7092
   component_shape: plugin
-  # DETACHED on purpose: the idle watcher must outlive any single operative. If it
-  # were operative-bound it would stop on `down`, and then the box could never
-  # suspend itself while idle (which is exactly when there is no operative). It
-  # boots with Garrison and survives the orphan sweep + `down`.
-  lifecycle: detached
   platforms:
     - claude-code
   summary: >-

@@ -10,7 +10,6 @@ x-garrison:
   component_shape: plugin
   own_port: true
   default_port: 7095
-  lifecycle: operative-bound
   platforms:
     - all
   summary: >-
@@ -54,7 +53,11 @@ x-garrison:
   verify:
     command: node apm_modules/_local/garrison-assistant/scripts/server.mjs --probe
     expect: ok
-    timeout_ms: 10000
+    # Unlike the other fittings' sub-second probes, this one builds the docs
+    # index before answering, so it costs seconds, not milliseconds. Measured
+    # 7.1-12.3s on a 9p-mounted checkout, which straddles the usual 10s
+    # convention and made `up` fail the verify gate at random.
+    timeout_ms: 30000
   for_consumers: |
     The Garrison Assistant answers questions about Garrison grounded in the
     installed docs + Fittings (with sources), guides usage and launches tours by

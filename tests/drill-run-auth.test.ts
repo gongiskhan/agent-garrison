@@ -32,7 +32,13 @@ let inlineCalls = 0;
 let seenIds: string[] = [];
 // flow-pass: probe fails, flow passes | cached: probe passes | auth-fail: probe
 // fails, flow rejects (product) | auth-infra: probe fails, flow hits an engine outage
-let mode: "flow-pass" | "cached" | "auth-fail" | "auth-infra" = "flow-pass";
+// already-in: the browser profile is ALREADY authenticated, so the login form
+// never renders and the flow cannot run - but the app is perfectly reachable.
+let mode: "flow-pass" | "cached" | "auth-fail" | "auth-infra" | "already-in" = "flow-pass";
+// Probe verdicts in already-in mode: the first (before the flow) misses because
+// Drill has no record yet, the second - the "are we already in?" re-ask after
+// the flow could not find its form - passes.
+let probeCalls = 0;
 
 const AUTH_LOGIN_ID = "drill-__auth";
 const AUTH_PROBE_ID = "drill-__auth-probe";
@@ -84,8 +90,17 @@ function startAutomationsStub() {
         }
 
         let passed = true;
-        if (auto.id === AUTH_PROBE_ID) passed = mode === "cached";          // cached session still valid?
-        else if (auto.id === AUTH_LOGIN_ID) passed = mode !== "auth-fail";  // did the login flow work?
+        if (auto.id === AUTH_PROBE_ID) {
+          probeCalls += 1;
+          // already-in: the FIRST probe misses (no record yet, and the stub
+          // models a profile Drill has not seen), the re-ask after the failed
+          // flow passes - which is exactly the signal "we were already in".
+          passed = mode === "cached" || (mode === "already-in" && probeCalls > 1);
+        } else if (auto.id === AUTH_LOGIN_ID) {
+          // already-in: the flow fails as a PAGE-level miss - the username
+          // field it wanted never rendered, because /login redirected away.
+          passed = mode !== "auth-fail" && mode !== "already-in";
+        }
         // else: a product check — always passes here (we only exercise the auth gate)
 
         res.writeHead(200, { "content-type": "application/json" });
@@ -182,13 +197,19 @@ afterAll(async () => {
 });
 
 describe("Drill authenticated runs", () => {
-  it("first run (no cached session) runs the full login BEFORE any check, then the checks", async () => {
+  it("first run (no cached session) probes, then runs the full login BEFORE any check", async () => {
     mode = "flow-pass";
     const run = await runBook();
-    // No prior record -> the probe is skipped (nothing to reuse); the login flow
-    // runs, THEN the two checks. Auth strictly precedes the checks.
-    expect(seenIds).toEqual([AUTH_LOGIN_ID, "drill-home-hero", "drill-home-composer"]);
-    expect(inlineCalls).toBe(3);
+    // The probe runs even with no prior record. What a probe reuses is the
+    // BROWSER's persistent profile, not Drill's own bookkeeping about it, and
+    // anything can have logged that profile in already - the planning agent,
+    // another project, a person. When something has, the login flow cannot
+    // execute at all (/login redirects away, the username field never renders),
+    // and one auth failure deliberately collapses into a circuit that skips
+    // EVERY check. Measured on a real app: a 12-check run executed 0. One extra
+    // navigate is the cheapest insurance in the system.
+    expect(seenIds).toEqual([AUTH_PROBE_ID, AUTH_LOGIN_ID, "drill-home-hero", "drill-home-composer"]);
+    expect(inlineCalls).toBe(4);
     expect(run.circuit).toBeUndefined();
     expect(run.pages).toHaveLength(2);
     expect(run.pages.every((p: any) => p.terminal.kind === "passed")).toBe(true);
@@ -226,13 +247,34 @@ describe("Drill authenticated runs", () => {
     expect(run.pages).toHaveLength(2);
   });
 
+  it("an ALREADY-authenticated session is not an auth failure - the checks still run", async () => {
+    // The bug this pins cost a real 12-check run every single check. The
+    // planning agent had logged the shared browser profile in; the run's login
+    // flow then navigated to /login, was redirected to the app, never found the
+    // username field, and reported failure. One auth failure deliberately
+    // collapses into a circuit that skips everything, so the run executed 0 of
+    // 12 checks and reported them "unproven" - on an app that was working.
+    mode = "already-in";
+    probeCalls = 0;
+    const run = await runBook();
+    expect(seenIds).toEqual([AUTH_PROBE_ID, AUTH_LOGIN_ID, AUTH_PROBE_ID, "drill-home-hero", "drill-home-composer"]);
+    expect(run.circuit).toBeUndefined();
+    expect(run.pages).toHaveLength(2);
+    expect(run.infraErrors ?? []).toHaveLength(0);
+    const authDir = path.join(ghome, "drill", "auth");
+    const recorded = JSON.parse(readFileSync(path.join(authDir, readdirSync(authDir)[0]), "utf8"));
+    expect(recorded).toMatchObject({ via: "already-authenticated" });
+  });
+
   it("collapses a login rejection into ONE incident and skips every check (no N red failures)", async () => {
     mode = "auth-fail";
     const run = await runBook();
-    // No prior record -> flow only (no probe); the login is rejected -> NOTHING
-    // else runs: the checks never execute.
-    expect(seenIds).toEqual([AUTH_LOGIN_ID]);
-    expect(inlineCalls).toBe(1);
+    // Probe (miss) -> flow (rejected) -> one more probe asking the question the
+    // flow's own failure cannot answer: "did it fail because we are ALREADY in?"
+    // Here the answer is no, so this is a genuine auth failure and NOTHING else
+    // runs - the checks never execute.
+    expect(seenIds).toEqual([AUTH_PROBE_ID, AUTH_LOGIN_ID, AUTH_PROBE_ID]);
+    expect(inlineCalls).toBe(3);
     expect(run.pages).toHaveLength(0);
     expect(run.findings ?? []).toHaveLength(0); // a login problem is NOT a product finding
     expect(run).toMatchObject({
@@ -252,7 +294,11 @@ describe("Drill authenticated runs", () => {
   it("an engine/app outage DURING login keeps its real component — never blamed on the auth block", async () => {
     mode = "auth-infra";
     const run = await runBook();
-    expect(seenIds).toEqual([AUTH_LOGIN_ID]);
+    // Note the absence of a SECOND probe: the "are we already logged in?"
+    // re-ask is for a page-level miss only. An engine outage has nothing to
+    // re-ask, and probing again would cost a call and risk re-attributing an
+    // incident whose real component must survive to the report.
+    expect(seenIds).toEqual([AUTH_PROBE_ID, AUTH_LOGIN_ID]);
     expect(run.pages).toHaveLength(0);
     // The circuit is attributed to the down component (vision), NOT to "auth",
     // so the user is not misdirected to fix drillbook.yml for an engine outage.

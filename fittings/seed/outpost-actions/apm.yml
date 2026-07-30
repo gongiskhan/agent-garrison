@@ -8,6 +8,12 @@ x-garrison:
   faculty: skills
   cardinality_hint: multi
   component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - claude-code
   summary: Remote machine operations (run, read, write, list) over the Garrison Outpost bridge.
@@ -85,6 +91,8 @@ x-garrison:
     idempotent: true
     timeout_ms: 5000
   verify:
-    command: bash scripts/verify.sh
+    # Composition-dir-relative: verify hooks run with cwd = the composition dir
+    # (only setup hooks get the fitting's installed dir).
+    command: bash apm_modules/_local/outpost-actions/scripts/verify.sh
     expect: ok
     timeout_ms: 10000

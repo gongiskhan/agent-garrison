@@ -8,6 +8,12 @@ x-garrison:
   faculty: design
   cardinality_hint: single
   component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - all
   summary: >-

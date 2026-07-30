@@ -384,6 +384,58 @@ nav.tabs {
   padding-top: 14px;
   border-top: 1px solid var(--shell-rule);
 }
+/* Fittings menu: faculty groups (collapsed by default) + the Pinned group. */
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 10px 5px 12px;
+  border: 1px solid transparent;
+  background: none;
+  color: #96a096;
+  font: 600 10px/1 var(--font-mono), monospace;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+}
+button.nav-group-head:hover { color: var(--shell-ink); background: var(--shell-2); }
+.nav-group-head .chev { display: inline-flex; transition: transform .12s ease; }
+.nav-group-head .chev svg { width: 12px; height: 12px; stroke-width: 2; }
+.nav-group-head .chev.open { transform: rotate(90deg); }
+.nav-group-head .pin-ic svg { width: 11px; height: 11px; }
+.nav-group-head .gct {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  letter-spacing: .08em;
+  color: #79837a;
+}
+.nav-group-dot { width: 6px; height: 6px; border-radius: 50%; }
+.nav-group-dot.live { background: #82a98b; }
+.nav-group-dot.down { background: #d17a6f; }
+.pin-zone { margin: 0 1px 4px; border: 1px dashed transparent; }
+.pin-zone .pin-head { cursor: default; }
+.pin-zone.drag-active { border-color: rgba(199, 169, 90, .35); background: rgba(199, 169, 90, .05); }
+.pin-zone.drag-hover { border-color: var(--brass-2); background: rgba(199, 169, 90, .13); }
+.pin-hint {
+  padding: 2px 12px 9px;
+  font: 500 10.5px/1.5 var(--font-mono), monospace;
+  color: #79837a;
+}
+nav.tabs .item .pin-mark {
+  display: inline-flex;
+  margin-left: 6px;
+  color: #a9915c;
+  opacity: .8;
+  flex: 0 0 auto;
+}
+nav.tabs .item .pin-mark svg { width: 10px; height: 10px; stroke-width: 2; }
+nav.tabs .item.drag-source { opacity: .45; }
 nav.tabs .item {
   position: relative;
   display: flex;
@@ -1502,3 +1554,18 @@ html[data-instance="prod"] .brand-text .sub::after {
   color: #dff0e2;
   background: #2e5c3a;
 }
+nav.tabs .item .pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  border: 1px solid var(--shell-rule);
+  background: none;
+  color: #96a096;
+  cursor: pointer;
+}
+nav.tabs .item .pin-toggle svg { width: 12px; height: 12px; stroke-width: 2; }
+nav.tabs .item .pin-toggle:active { transform: translateY(1px); }

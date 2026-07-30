@@ -5,7 +5,7 @@ import type { QuartersCategory } from "./quartersTypes";
 // Logs / Sessions are read-only records. Collection is Garrison-side; the
 // surfaces are provided by the Observability / Dev Env own-port fittings
 // (Monitor pattern) when stationed. This panel states that contract; live
-// tailing rides with those fittings' embedded views in the sidebar's Views group.
+// tailing rides with those fittings' embedded views in the sidebar's Fittings group.
 export function ReadOnlyNotePanel({ cat }: { cat: QuartersCategory }) {
   const faculty = cat.slug === "logs" ? "Observability" : "Session Viewer";
   return (
@@ -23,7 +23,7 @@ export function ReadOnlyNotePanel({ cat }: { cat: QuartersCategory }) {
         >
           <p style={{ margin: 0, color: "var(--mute)", fontSize: 13 }}>
             {cat.label} are surfaced read-only by the <b>{faculty}</b> faculty. Station an{" "}
-            {faculty} fitting to see its live view under the sidebar&apos;s Views group — Garrison
+            {faculty} fitting to see its live view under the sidebar&apos;s Fittings group — Garrison
             never writes these records.
           </p>
         </section>

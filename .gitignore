@@ -22,11 +22,17 @@ data/vault.json.bak-*
 compositions/*/.env
 compositions/*/local.yml
 compositions/*/.garrison/assembled-system-prompt.md
+# Per-primary context-file projections of that assembled prompt (RUNTIMES-V1
+# P8): codex/cursor read AGENTS.md, gemini reads GEMINI.md. Generated at every
+# `up`, marked GARRISON-PROJECTED — derived output, never source.
+compositions/*/AGENTS.md
+compositions/*/GEMINI.md
 compositions/*/.garrison/uploads/
 compositions/*/.garrison/decisions.jsonl
 compositions/*/.garrison/operative-session-id
 compositions/*/.garrison/orchestrator-session-id
 compositions/*/.garrison/routing.json
+compositions/*/.garrison/orchestrator-authored.json
 compositions/*/.garrison/owner.json
 compositions/*/.garrison/routing.json.*.bak
 compositions/*/.garrison/souls/

@@ -13,12 +13,34 @@ export function promptDigest(prompt) {
   return createHash("sha256").update(String(prompt)).digest("hex").slice(0, 16);
 }
 
+/**
+ * A stable per-decision id (RUN-SPEC-V1).
+ *
+ * The feed was append-only and ANONYMOUS: 3789 live records with no id and no
+ * schema version, keyed in the UI by array index. That is fine for a read-only
+ * list and impossible for a verdict, which has to name the decision it judges and
+ * still name the same one after ten more decisions land.
+ *
+ * Derived, not random, so the SAME record always yields the same id — a verdict
+ * survives a re-read of the log, and older records (which carry no id) can be
+ * keyed by the identical derivation in the reader. `seq` disambiguates the one
+ * genuine collision: a misroute appends a SECOND full copy of a decision with the
+ * same `at` and digest, and a verdict must not land on both.
+ */
+export function decisionId({ at, prompt, promptDigest: digest, targetId, seq }) {
+  const parts = [at ?? "", digest ?? promptDigest(prompt ?? ""), targetId ?? "", seq == null ? "" : String(seq)];
+  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
+}
+
 // Build the decision record written at resolution time. `at` (ISO string) is
 // passed in so the record builder stays pure/testable.
 export function decisionRecord({ prompt, classification, route, at }) {
+  const digest = promptDigest(prompt ?? "");
   return {
+    // First field on the line so a verdict's target is greppable in the raw log.
+    id: decisionId({ at, promptDigest: digest, targetId: route?.targetId ?? null }),
     at: at ?? null,
-    promptDigest: promptDigest(prompt ?? ""),
+    promptDigest: digest,
     taskType: classification?.taskType ?? null,
     tier: classification?.tier ?? null,
     matchedException: classification?.matchedException ?? null,

@@ -36,6 +36,26 @@ x-garrison:
         Projected as GARRISON_DRILL_TARGET_REPO. The UI's project picker
         selection persists in ~/.garrison/drill/active-project.json and
         wins over this default.
+    # Notification fan-out for an unattended card-driven drill (the Kanban
+    # "Send to Drill" button). Both are OPTIONAL additions to the always-on
+    # means (the web channel + the originating card) - see lib/broadcast.mjs.
+    - key: notify_webhook
+      type: string
+      default: ""
+      description: >-
+        Optional URL that receives a JSON POST when a card-driven drill
+        finishes (ntfy, Discord, a Slack incoming webhook, a phone push
+        bridge - anything that accepts a POST). Projected as
+        GARRISON_DRILL_NOTIFY_WEBHOOK. Empty = that means is skipped, and the
+        job record says so rather than silently dropping it.
+    - key: notify_slack_channel
+      type: string
+      default: ""
+      description: >-
+        Optional Slack channel id for the same notification, delivered with
+        the `slack` connector's Vault-sealed bot token. Projected as
+        GARRISON_DRILL_NOTIFY_SLACK_CHANNEL. Needs the Slack connector
+        connected in the Vault; unsealed or unset = skipped with a reason.
   provides:
     - kind: duty
       name: drill
@@ -53,14 +73,35 @@ x-garrison:
         (vision or graduated e2e) per selected viewport, and triage the
         resulting findings into a batch fix. One duty, two internal stages —
         plan, then a configurable gate, then run.
+      # Three levels, monotonically more capable. Drill's model work is
+      # authoring judgment (what is worth checking on this page, and what
+      # assertion proves it) plus per-step vision resolution - both degrade
+      # into vague checks and unstable selectors on a weaker cell, and a vague
+      # check never graduates, so it pays the vision cost again on every future
+      # run. Escalation is the lever when a page keeps producing ambiguous
+      # verdicts, not a bigger retry count.
       levels:
         - description: >-
-            Standard drill pass — plan/update the plan for changed pages, gate
+            Standard drill pass - plan/update the plan for changed pages, gate
             for approval (configurable), then run and report findings.
           cell:
             skill: garrison-drill
-            target: cc-sonnet
-            effort: medium
+            target: cc-opus
+            effort: high
+        - description: >-
+            Deep pass - same stages at maximum reasoning, for an unfamiliar or
+            large surface, or a page whose checks keep coming back ambiguous.
+          cell:
+            skill: garrison-drill
+            target: cc-opus
+            effort: max
+        - description: >-
+            Frontier pass - the hardest surfaces, where even a maximum-effort
+            pass cannot settle what the page is supposed to prove.
+          cell:
+            skill: garrison-drill
+            target: fable
+            effort: max
   setup:
     command: bash scripts/setup.sh
     idempotent: true
@@ -78,9 +119,26 @@ x-garrison:
     engine's inline ephemeral runs (engine delta 1), tagged `contextTag: drill`
     (or `drill-adversarial` for the blind second pass, R12) so those runs are
     identifiable without any drill-specific naming inside the automations
-    engine itself. A vision step graduates to a committed Playwright spec
-    under tests/drills/<page>.spec.ts on first pass (B8); judgment assertions
-    emit as a drillJudge() Router helper so they graduate too (Q3). Findings
+    engine itself.
+
+    Planning DRIVES the app rather than reading it: the plan agent navigates,
+    clicks and observes through POST /api/explore/{open,act,assert,close} (a
+    screenshot path it reads with its own vision, plus the page's a11y
+    roles+names), and routes each check into one of three lanes. A criterion
+    that is a static fact about the loaded page becomes a deterministic
+    `assertion` the agent authors itself, validated live through the automations
+    engine's own evaluator before it is written and marked
+    `assertionSource: authored` - it costs no model call from the first run. A
+    behavioural criterion gets plain-English `actions`; the first run resolves
+    them through a model once and pins the resolved Playwright onto the step, so
+    every later run replays them deterministically. Only genuinely subjective
+    criteria (`judgment: true`) keep paying a model call per run, by design.
+
+    A check reaches its committed Playwright spec under
+    tests/drills/<page>.spec.ts only once a whole run has proven it - a vision
+    step on the pass that graduates it (B8), an authored assertion on the pass
+    that confirms it (which clears assertionSource); judgment assertions emit as
+    a drillJudge() Router helper so they graduate too (Q3). Findings
     (failures, flipped verdicts, accepted UX findings, observations) pool into
     a run report; confirmed findings dispatch as one batch fix card via the
     kanban-loop fitting (R10). Drill Book plans live in the target app repo
@@ -143,7 +201,12 @@ x-garrison:
     drills/pages/*.yml on its own judgment (pages, steps, states - the duty's
     stage 1, card-free), then the run continues over what it authored. An
     optional {brief} scopes the plan to a described change (new feature ->
-    updated pages/steps). Poll GET /api/plan/status until the job is done or
-    failed; a DRILL_PLAN_OK sentinel is verified against the page files on
-    disk before the job reports done. The Authoring UI is the manual override
-    surface, never the required entry path.
+    updated pages/steps). The app must be SERVING to plan - planning explores
+    it, so a code-only plan is no longer accepted; when it is down the agent
+    starts it through the project's own run-<project> skill. Poll GET
+    /api/plan/status until the job is done or failed; a DRILL_PLAN_OK sentinel
+    is verified against the page files on disk before the job reports done.
+    Budget hours, not minutes, for a full plan of a real app (default timeout
+    2h, DRILL_PLAN_TIMEOUT_MS overrides). An ABSENT drills/ tree means author
+    fresh - a retired Book is never restored from git. The Authoring UI is the
+    manual override surface, never the required entry path.

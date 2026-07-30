@@ -7,6 +7,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFileSync } from "node:fs";
+import { needsRemoteProbe, evaluateTextContains, evaluateUrlMatches } from "./assertions.mjs";
 
 export function browserBaseUrl() {
   if (process.env.GARRISON_BROWSER_URL) return process.env.GARRISON_BROWSER_URL;
@@ -49,7 +50,12 @@ function recoverablePageError(message) {
 // `captureSession` (engine delta 8) is an OPAQUE caller-minted id forwarded on
 // tab creation so the Browser fitting can group this run's tab into a recorded
 // capture context (Drill evidence); the engine never interprets it.
-export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = null, captureSession = null } = {}) {
+// `adoptTabId` binds the client to a tab someone ELSE opened instead of
+// creating one. Drill's plan-time exploration drives its own tab and then needs
+// a candidate assertion evaluated against it by exactly the code that will
+// evaluate it at run time — an author-time "this assertion holds" that is
+// computed differently from the run-time check is worth nothing.
+export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = null, captureSession = null, adoptTabId = null } = {}) {
   const base = browserBaseUrl();
   if (!base) {
     throw infrastructureError(
@@ -57,7 +63,7 @@ export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = nul
       "browser-unavailable"
     );
   }
-  let tabId = null;
+  let tabId = adoptTabId;
   let currentUrl = null;
 
   const json = async (res, { recoverableExecute = false } = {}) => {
@@ -190,5 +196,20 @@ export function makeBrowserClient({ fetchImpl = globalThis.fetch, viewport = nul
       if (!r.ok) throw new Error(r.error || "eval failed");
       return r;
     }
+  };
+}
+
+// "Is this deterministic assertion true of the page right now?" — the ONE
+// implementation. text-contains/url-matches are answered locally from observe();
+// count/visible/attribute-equals need a live Playwright locator and go to the
+// Browser fitting. The run loop uses this, and so does the plan-time validation
+// endpoint: an assertion authored against a live page is only trustworthy if
+// the thing that blessed it is the thing that will later judge it.
+export function makeAssertionEvaluator(client) {
+  return async (assertion) => {
+    const kind = assertion?.kind || "text-contains";
+    if (kind === "url-matches") return evaluateUrlMatches(assertion, await client.observe());
+    if (needsRemoteProbe(kind)) return !!(await client.assert(assertion)).passed;
+    return evaluateTextContains(assertion, await client.observe());
   };
 }

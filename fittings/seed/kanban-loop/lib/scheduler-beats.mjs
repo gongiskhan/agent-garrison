@@ -4,6 +4,7 @@
 // takes effect immediately, not only at the next setup. A scheduler-beat list fires
 // `kanban.mjs --tick-list <id>` on its own cron (e.g. Test every 5h).
 import { existsSync } from "node:fs";
+import { instanceEnvPrefix, wouldDowngradeJob } from "./instance-env.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +52,13 @@ export async function syncListBeat(list, { log = console.log } = {}) {
     log(`kanban-loop: scheduler CLI not found at ${cli} (skipping beat for ${list.id}).`);
     return { action: "skipped-no-cli" };
   }
+  // Never downgrade: `--setup` has no gateway URL in scope, the board server does, and
+  // both re-register. Without this the setup hook silently replaces a working beat with
+  // a dead one (exactly what happened to kanban-tick).
+  if (list.trigger === "scheduler-beat" && wouldDowngradeJob(beatId)) {
+    log(`kanban-loop: no gateway URL in scope — KEEPING the existing ${beatId} registration (refusing to downgrade it).`);
+    return { action: "kept" };
+  }
   const { spawnSync } = await import("node:child_process");
   // Always remove first so a trigger flip (scheduler-beat → manual) un-registers it.
   spawnSync("node", [cli, "remove", beatId], { stdio: "ignore" });
@@ -60,9 +68,11 @@ export async function syncListBeat(list, { log = console.log } = {}) {
     log(`kanban-loop: list '${list.id}' is scheduler-beat but has no beatCron — not registered.`);
     return { action: "no-cron" };
   }
-  // Quote the CLI path — an install dir containing a space would otherwise split
-  // the command and the beat would silently fail to run.
-  const cmd = `node '${kanbanCli()}' --tick-list ${list.id}`;
+  // Same instance env the tick job carries: a beat runs from the scheduler daemon's
+  // env, which has no gateway URL and no kanban home, so a bare command would address
+  // whichever instance the literal defaults happened to name (that is exactly how the
+  // prod tick spent weeks pinging the dev gateway).
+  const cmd = [...instanceEnvPrefix(), "node", kanbanCli(), "--tick-list", list.id].join(" ");
   const add = spawnSync("node", [cli, "add", beatId, cron, cmd], { encoding: "utf8" });
   if (add.status === 0) {
     log(`kanban-loop: registered ${beatId} @ '${cron}' -> ${cmd}`);

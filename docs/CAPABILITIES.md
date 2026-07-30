@@ -413,7 +413,7 @@ seeds on boot:
 - `runs/` - run outputs, logs, evidence from automated work
 - `uploads/` - files the user supplied
 
-The user reads everything through the Files view (sidebar Views), on
+The user reads everything through the Files view (sidebar Fittings), on
 phone or desktop.
 
 - **Cardinality:** singleton per composition.

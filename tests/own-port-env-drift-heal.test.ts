@@ -7,7 +7,7 @@ import { envFingerprintForExtraEnv, ownPortConfigEnv } from "@/lib/own-port-life
 // missing key is distinct from an empty value, and the function is stable across
 // calls so the heal can never spuriously fire on a repeat `up`. The integration
 // half of the heal (kill + respawn under the per-fitting lock) is covered by the
-// runner-eager-lifecycle test the broader suite already exercises.
+// runner-fitting-lifecycle test the broader suite already exercises.
 
 describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
   it("returns a stable 64-char hex digest for any input", () => {

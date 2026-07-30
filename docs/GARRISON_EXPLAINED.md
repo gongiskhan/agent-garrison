@@ -248,7 +248,7 @@ A **Faculty** is a slot in a composition. It has a name, a cardinality (`single`
 │   base, observability,             │    │                                   │
 │   artifact-store, sync             │    │   Fittings here own their own     │
 │                                    │    │   HTTP port and React UI.         │
-│   Fittings here ship skills,       │    │   Garrison's sidebar Views        │
+│   Fittings here ship skills,       │    │   Garrison's sidebar Fittings        │
 │   prompts, hooks, MCP servers,     │    │   group links to them.            │
 │   or scripts the Operative uses.   │    │   They are user-facing tools.     │
 └────────────────────────────────────┘    └───────────────────────────────────┘
@@ -446,7 +446,7 @@ embedded UI (contract v2)    vs    own-port UI (Monitor pattern)
 renders inside Garrison shell      renders on its own port
 static React registry              independent HTTP server
 build-time bundled                 ships its own dist/
-faculty-tab or sidebar-surface     sidebar Views link (external open)
+faculty-tab or sidebar-surface     sidebar Fittings link (external open)
 Documents, Artifact Store          Monitor, Dev Env, Browser, ...
 ```
 

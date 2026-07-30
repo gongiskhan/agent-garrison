@@ -14,6 +14,12 @@ x-garrison:
   faculty: memory
   cardinality_hint: single
   component_shape: cli
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - claude-code
   summary: >-

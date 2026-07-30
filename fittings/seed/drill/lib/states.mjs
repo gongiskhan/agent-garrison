@@ -34,6 +34,45 @@ export function assessAutomaticStateReference(outcome) {
   return { eligible: true, reason: null, warnings: [] };
 }
 
+// Promote a run screenshot to a named state — the operator pressed "Save as
+// state" on evidence the run already captured. A human decision, so it does
+// not pass the automatic honesty gate above (same precedent as verdict
+// overrides: the operator saw the image and vouched for it). Root-aware:
+// a run pinned to another project must write into THAT repo's page YAML,
+// never the actively selected one.
+//
+// No fingerprint: run evidence carries no observe() parts (run-seeded states
+// ship fingerprint-less too; matchByFingerprint guards on `s.fingerprint`).
+export async function createStateFromRunEvidence(
+  pageId,
+  { label, screenshotPath, assertion = null, reachPath = [], referenceSource = null } = {},
+  root = undefined
+) {
+  const page = await getPage(pageId, root);
+  if (!page) throw new Error(`page not found: ${pageId}`);
+  if (!screenshotPath) throw new Error("screenshotPath required");
+  const id = slugifyStateId(label);
+  // A slug collision is "retake this state's reference", not "author a new
+  // state": merge over the existing entry so a planner-authored reachPath,
+  // matcher assertion, or fingerprint is never silently wiped by a label the
+  // operator happened to type (same never-silently-rewrite principle as the
+  // automatic seeding path).
+  const existing = (page.states ?? []).find((s) => s.id === id) ?? null;
+  const state = {
+    ...(existing ?? {}),
+    id,
+    label: label || existing?.label || id,
+    matcher: existing?.matcher ?? { assertion },
+    reachPath: existing?.reachPath ?? reachPath,
+    screenshotPath,
+    ...(referenceSource ? { referenceSource } : {})
+  };
+  const states = (page.states ?? []).filter((s) => s.id !== id);
+  states.push(state);
+  const saved = await savePage(pageId, { states }, root);
+  return saved.states.find((s) => s.id === id);
+}
+
 export async function promoteSnapshotToState(pageId, snapshotId, { label, reachPath = [] } = {}) {
   const page = await getPage(pageId);
   if (!page) throw new Error(`page not found: ${pageId}`);

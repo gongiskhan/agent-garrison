@@ -16,11 +16,10 @@ import { interpolate, interpolateDeep } from "./template-vars.mjs";
 import { saveRun, getAutomation, writeStepEvidence, saveMatrixRun } from "./store.mjs";
 import { ulid } from "./ulid.mjs";
 import { redactDeep } from "./redact.mjs";
-import { makeBrowserClient } from "./browser-client.mjs";
+import { makeBrowserClient, makeAssertionEvaluator, browserBaseUrl } from "./browser-client.mjs";
 import { runBrowserStep } from "./browser-orchestrator.mjs";
 import { REHEARSAL_BUDGET, detectHumanActionable, applyPatch, proposePatch, validatePatch } from "./fixer.mjs";
 import { shapeForStep, isShapeApproved, approveShape } from "./command-shape.mjs";
-import { needsRemoteProbe, evaluateTextContains, evaluateUrlMatches } from "./assertions.mjs";
 
 const BROWSER_STEP_TYPES = new Set(["browser", "verify", "navigate"]);
 
@@ -231,15 +230,10 @@ function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, 
             visionResolve(observation, s, "action", contextTag, undefined, noteVisionMeta),
           verifyViaVision: ({ observation, step: s }) =>
             visionResolve(observation, s, "verify", contextTag, undefined, noteVisionMeta),
-          // Richer deterministic assertions (delta 5): text-contains/url-matches
-          // resolve locally from observe(); count/visible/attribute-equals need a
-          // live Playwright locator, resolved by the Browser fitting.
-          executeAssertion: async (assertion) => {
-            const kind = assertion?.kind || "text-contains";
-            if (kind === "url-matches") return evaluateUrlMatches(assertion, await client.observe());
-            if (needsRemoteProbe(kind)) return !!(await client.assert(assertion)).passed;
-            return evaluateTextContains(assertion, await client.observe());
-          }
+          // Richer deterministic assertions (delta 5), shared with the
+          // plan-time validation endpoint so an authored assertion is blessed
+          // by exactly the code that will later judge it.
+          executeAssertion: makeAssertionEvaluator(client)
         }
       });
       return visionMeta && result && typeof result === "object"
@@ -261,8 +255,14 @@ function makeLiveRunBrowser(automation, { viewport = null, bypassCache = false, 
   return runBrowser;
 }
 
+// The live-viewport WS base, derived from the SAME browser base URL the client
+// uses. The former hardcoded fallback was 27084 — the codex-profile port — so a
+// dev or prod run advertised a stream belonging to another instance; and the
+// env branch returned the bare base with no /viewport segment, so neither half
+// produced a working URL. Never hardcode a port (see CLAUDE.md).
 function browserViewportUrl() {
-  return process.env.GARRISON_BROWSER_URL || "http://127.0.0.1:7084/viewport";
+  const base = browserBaseUrl();
+  return base ? `${base.replace(/\/+$/, "")}/viewport` : "";
 }
 
 // ── the run loop ────────────────────────────────────────────────────────────

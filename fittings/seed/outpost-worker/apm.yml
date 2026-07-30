@@ -13,6 +13,12 @@ x-garrison:
     reports back. Never dialled by the host - a machine that is asleep simply
     stops asking, so work is never pushed into the void.
   component_shape: cli
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   cardinality_hint: single
   platforms:
     - claude-code
@@ -46,7 +52,9 @@ x-garrison:
     - kind: vault
       cardinality: optional-one
   verify:
-    command: node scripts/verify.mjs
+    # Composition-dir-relative: verify hooks run with cwd = the composition dir
+    # (only setup hooks get the fitting's installed dir).
+    command: node apm_modules/_local/outpost-worker/scripts/verify.mjs
     expect: OUTPOST-WORKER-OK
     timeout_ms: 10000
   for_consumers: |

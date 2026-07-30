@@ -37,7 +37,7 @@ On 2026-06-24 seven optional capability faculties landed (`knowledge`,
   root on the current branch. The artifact store backs it.
 - **surfaces** — the auxiliary own-port live viewers split out of `sessions` on
   2026-06-18: screen-share, the standalone browser, and remote Outpost bridges.
-  Each is detected via the `own_port` flag and linked from the sidebar Views
+  Each is detected via the `own_port` flag and linked from the sidebar Fittings
   group. `screen-share`, `browser`, and `outposts` are deprecation aliases for
   this role.
 - **modes** — the operative's identity/persona layer (added 2026-06-22): the

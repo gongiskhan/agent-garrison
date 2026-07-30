@@ -23,6 +23,20 @@ export interface RouteStamp {
   effortApplied?: boolean | null;
   tier: string | null;
   phase?: string | null;
+  // Pass-through of the gateway's turnAttribution block: WHO served the turn and
+  // where. `account` is tri-state — absent means the gateway reported nothing (no
+  // badge), null means the machine login (a real answer worth rendering).
+  duty?: string | null;
+  level?: number | null;
+  skill?: string | null;
+  via?: string | null;
+  account?: string | null;
+  accountSource?: string | null;
+  project?: string | null;
+  /** Which pinned dimensions the turn actually honoured. */
+  overridesApplied?: string[] | null;
+  /** Which it REFUSED, and why — e.g. a project that is not a repo under the dev root. */
+  overridesRejected?: { field: string; reason: string }[] | null;
 }
 
 // One entry on a card's execution timeline (the Activity feed). `kind` drives the
@@ -50,6 +64,25 @@ export interface WaitingOn {
   thenTo?: string;
   rerun?: boolean;
   since?: string;
+}
+
+// The Drill handoff stamped on a card by "Send to Drill". `state` walks
+// planning → running → passed | failed | error; the rest fills in as Drill learns it.
+export interface DrillStamp {
+  // `partial` = nothing failed, but some checks came back unproven — the change
+  // is NOT fully verified, and must never render as a clean pass.
+  state: "planning" | "running" | "passed" | "partial" | "failed" | "error";
+  at: string;
+  jobId?: string | null;
+  runId?: string | null;
+  runUrl?: string | null;
+  jobUrl?: string | null;
+  drillUrl?: string | null;
+  findings?: number | null;
+  checks?: number | null;
+  failed?: number | null;
+  unproven?: number | null;
+  error?: string | null;
 }
 
 // The card's LATEST commit fence (S2, Q5) — the board shows the most recent one as a
@@ -93,6 +126,9 @@ export interface CardSummary {
   workKind?: string | null;
   phases?: Record<string, boolean> | null;
   tier?: string | null;
+  /** RUN-SPEC-V1: what the user explicitly chose for this run. Absent/null on a
+   *  fully-automatic card, which is every card by default. */
+  routing?: CardRouting | null;
   origin?: string | null;
   // D19: a quick card is a trivial-plan task the gateway ran inline and
   // auto-advanced to Done. The Done column groups quick cards under a collapsed
@@ -119,6 +155,10 @@ export interface CardSummary {
   // fences / no abandonment.
   fences?: FenceSummary | null;
   preparedRevert?: PreparedRevertSummary | null;
+  // The card's Drill handoff (Send to Drill on a done card): its live state and,
+  // once the run finishes, the verdict + a link into the Drill run. Null on a card
+  // that was never sent.
+  drill?: DrillStamp | null;
   // ── execution visibility ──────────────────────────────────────────────────
   // A short task description (card front tooltip + operative context); the operative's
   // last reply snippet (what it actually said); the most-recent timeline event + count
@@ -132,6 +172,11 @@ export interface CardSummary {
   // event's route stamp, or null when no turn has routed yet / souls mode. The board
   // renders a small "<phase> @ <model>" chip from it.
   lastRoute?: RouteStamp | null;
+  // What the card WILL run on, resolved from its (duty, level) + current phase
+  // against the runner-projected model. Present before and during a run, when
+  // lastRoute is still null. Rendered dashed — expected, never a claim about
+  // what actually served a turn.
+  expectedRoute?: RouteStamp | null;
   eventCount?: number;
   runningSince?: string | null;
   liveTail?: string | null;
@@ -235,6 +280,45 @@ export interface PolicyView {
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
 }
 
+/**
+ * The card's explicit run spec (RUN-SPEC-V1). Structurally the same `TurnRouting`
+ * pin the Web Channel sends, so both surfaces decide a run in one vocabulary.
+ *
+ * Every field is OPTIONAL and absent means AUTOMATIC — the orchestrator decides.
+ * That is the default for every card; the controls exist to opt OUT of it.
+ */
+export interface CardRouting {
+  /** A composition target id — picks runtime + provider + model coherently. */
+  target?: string;
+  /** Free-text model id, overlaid on the resolved target. */
+  model?: string;
+  effort?: string;
+  duty?: string;
+  level?: number;
+  /** Dev-root child NAME (not a path) — the turn's cwd. */
+  project?: string;
+  account?: string;
+  tier?: string;
+  workKind?: string;
+  /** Comma-separated phase ids turned OFF for this run. */
+  phasesOff?: string;
+}
+
+/** The gateway's routing vocabulary, proxied by the board. `sources.gateway: false`
+ *  means the operative is down: the menus are empty for a REASON, and the UI says
+ *  which rather than drawing dropdowns that would refuse everything. */
+export interface RouteOptionsView {
+  targets: { id: string; runtime?: string | null; provider?: string | null; model?: string | null; effort?: string | null }[];
+  duties: { id: string; title?: string | null; levels?: { n: number; description?: string | null }[] | null }[];
+  efforts: string[];
+  accounts: { name: string; platform?: string | null }[];
+  tiers: string[];
+  workKinds: { id: string; description?: string | null; phases?: string[] | null }[];
+  defaultWorkKind: string | null;
+  projects: string[];
+  sources: { gateway: boolean };
+}
+
 export interface ListsView {
   version: number;
   rev: number;
@@ -316,11 +400,18 @@ export const api = {
   // Title is optional — the server infers it from the description when blank.
   // workKind + phases (D17): the policy phase plan this run follows and the
   // per-card toggle map (false = OFF, recorded off, never silent).
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; continues?: string }) =>
+  // `routing` is the card's explicit run spec (RUN-SPEC-V1) — the SAME TurnRouting
+  // pin the Web Channel's rail produces. Every field is optional and an absent one
+  // means automatic, which is the default for every card.
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
   policy: () => jfetch<PolicyView>("/policy"),
+  // GET /route-options — the board's same-origin proxy of the gateway's routing
+  // vocabulary. The ONE source for every run-spec dropdown, so the form can never
+  // offer a value the gateway would refuse.
+  routeOptions: () => jfetch<RouteOptionsView>("/route-options"),
   patch: (id: string, body: Record<string, unknown>) =>
     jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -348,6 +439,14 @@ export const api = {
     jfetch<{ card: CardSummary; preparedRevert: PreparedRevertSummary | null; reverted?: string[] }>(
       `/cards/${encodeURIComponent(id)}/revert`,
       { method: "POST", body: JSON.stringify({ confirm: true }) }
+    ),
+  // Send a done card's change to Drill: it plans the checks for that change, runs
+  // them, and notifies every way it can when the verdict is in. A second press
+  // while a job is in flight joins it (started:false) rather than starting a rival.
+  sendToDrill: (id: string) =>
+    jfetch<{ card: CardSummary; job: { id: string; state: string } | null; started: boolean }>(
+      `/cards/${encodeURIComponent(id)}/drill`,
+      { method: "POST" }
     ),
   inferProject: (id: string) =>
     jfetch<{ card: CardSummary; inferring?: boolean; note?: string }>(

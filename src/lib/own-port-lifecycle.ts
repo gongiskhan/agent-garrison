@@ -47,8 +47,8 @@ export function ownPortEnvKey(fittingId: string): string {
 // the fitting with vault-only env. The server then fell through to its own
 // baked-in default, which silently belongs to whichever instance family that
 // literal was written for — so a dev-profile fitting bound another instance's
-// port, answered for it, and read the wrong GARRISON_HOME. eager-boot.ts
-// already documents this failure ("with prod and dev running side by side it is
+// port, answered for it, and read the wrong GARRISON_HOME. composition-env.ts
+// documents this failure ("with prod and dev running side by side it is
 // fatal"); fixing it per-caller left the two routes behind, so the guarantee
 // lives here instead, at the single point every caller funnels through.
 //
@@ -119,8 +119,8 @@ export function envFingerprintForExtraEnv(extraEnv: Record<string, string> | und
 }
 
 // Lifecycle helpers for own-port Fittings (detected per-Fitting via the
-// `own_port` metadata flag — Monitor pattern). Garrison reads:
-//   - x-garrison.lifecycle: "operative-bound" (default) | "detached"
+// `own_port` metadata flag — Monitor pattern). Every own-port Fitting shares
+// the operative's lifecycle: started at up, stopped at down. Garrison reads:
 //   - ~/.garrison/ui-fittings/<id>.json — the status file the Fitting writes
 //     on start and removes on SIGTERM. Garrison kills by the PID it finds
 //     there; it never grep's `lsof` because the file is the only source that
@@ -130,7 +130,7 @@ export function envFingerprintForExtraEnv(extraEnv: Record<string, string> | und
 //     whether the spawn env actually contained vault secrets (always true for
 //     Fittings that do not consume vault). A vault-consuming Fitting started
 //     by a process that could not read the vault (locked vault, or the
-//     detached eager-boot child) runs keyless; when startOwnPortFitting later
+//     a boot path that could not read it) runs keyless; when startOwnPortFitting later
 //     sees it running, has a non-empty vault env, and the record says secrets
 //     were NOT delivered (a missing record counts as not-delivered, as does a
 //     record whose pid is not the live status-file pid — a process restarted
@@ -184,13 +184,12 @@ export function isValidFittingId(fittingId: string): boolean {
 
 // Per-fitting promise-chain lock: start/stop for the SAME fitting id must
 // serialize, or concurrent callers (vault-unlock fire-and-forget heal, runner
-// up, in-up eager boot, manual /start) can double-spawn one fitting or
-// SIGTERM a freshly-healed child. Kept on globalThis so Next.js dev
-// hot-reload cannot fork the chain (same pattern as the runner's record map).
-// Scope: IN-PROCESS only. The server-start eager boot runs in a detached tsx
-// child with its own lock map; cross-process dedup is best-effort via the
-// spawn record (boot window below), and the runner's up-time heal repairs any
-// keyless outcome the child leaves behind.
+// up, manual /start) can double-spawn one fitting or SIGTERM a freshly-healed
+// child. Kept on globalThis so Next.js dev hot-reload cannot fork the chain
+// (same pattern as the runner's record map). Scope: IN-PROCESS only;
+// cross-process dedup is best-effort via the spawn record (boot window
+// below), and the runner's up-time heal repairs any keyless outcome another
+// process leaves behind.
 const fittingLocks: Map<string, Promise<void>> = ((
   globalThis as { __garrisonOwnPortLocks?: Map<string, Promise<void>> }
 ).__garrisonOwnPortLocks ??= new Map());
@@ -208,13 +207,6 @@ function withFittingLock<T>(fittingId: string, task: () => Promise<T>): Promise<
     )
   );
   return run;
-}
-
-export function isOperativeBound(entry: LibraryEntry): boolean {
-  if (!isOwnPortFitting(entry)) return false;
-  // Default for own-port Fittings is operative-bound; explicit "detached"
-  // opts out.
-  return entry.metadata.lifecycle !== "detached";
 }
 
 // Own-port Fittings are spawned detached with a copy of process.env — they do
@@ -721,8 +713,7 @@ async function stopOwnPortFittingLocked(fittingId: string): Promise<StopResult> 
 // one off the port. The wait-for-exit (with SIGKILL escalation) mirrors the
 // vault-heal path: respawning before the old process releases its port is the
 // EADDRINUSE footgun this exists to avoid. Used by the manual Restart control
-// to reload an own-port Fitting's code without cycling the whole operative —
-// the only reload path for eager (always-on) Fittings, which survive `down`.
+// to reload an own-port Fitting's code without cycling the whole operative.
 export async function restartOwnPortFitting(
   entry: LibraryEntry,
   extraEnv?: Record<string, string>

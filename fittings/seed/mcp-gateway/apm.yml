@@ -8,6 +8,12 @@ x-garrison:
   faculty: gateway
   cardinality_hint: multi
   component_shape: script
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - claude-code
   summary: Exposes installed Faculties as MCP tools to interactive (UI-tab-launched) Claude Code sessions. Hosts the garrison-control tool set (talk_to, wait_for, …) when GARRISON_HTTP_GATEWAY_BASE_URL is set.

@@ -994,6 +994,12 @@ const EMPTY_ROUTE_OPTIONS = {
   efforts: [],
   accounts: [],
   account: null,
+  // RUN-SPEC-V1 vocabularies. The proxy spreads the gateway's answer over these
+  // defaults, so they exist as empty lists when the gateway is down - an empty menu
+  // with an "unavailable" reason, never an undefined the rail would crash on.
+  tiers: [],
+  workKinds: [],
+  defaultWorkKind: null,
   primaryRuntime: null,
   activeProfile: null
 };

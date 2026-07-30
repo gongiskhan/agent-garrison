@@ -394,7 +394,6 @@ export const garrisonMetadataSchema = z.object({
   spawn: spawnConfigSchema.optional(),
   own_port: z.boolean().optional(),
   default_port: z.number().int().positive().optional(),
-  lifecycle: z.enum(["operative-bound", "detached"]).optional(),
   connector: connectorSpecSchema.optional(),
   duties: z.array(dutySchema).optional(),
   secret_scope: z.array(z.string().min(1)).optional(),
@@ -504,6 +503,18 @@ function normalizeDeprecations(input: unknown): unknown {
       `[garrison] faculty "${record.faculty}" is deprecated; folded into role "${target}"`
     );
     record = { ...record, faculty: target };
+  }
+
+  // 2026-07-29: the eager/detached lifecycle split is gone — every own-port
+  // Fitting starts with the operative at up and stops at down. The field is
+  // dropped (not an error) so third-party manifests keep parsing.
+  if ("lifecycle" in record) {
+    const { lifecycle, ...rest } = record;
+    void lifecycle;
+    console.warn(
+      "[garrison] x-garrison.lifecycle is deprecated and ignored; all own-port Fittings share the operative's lifecycle"
+    );
+    record = rest;
   }
 
   // UI contract v1 → v2: rewrite { ui: { extension } } into a single

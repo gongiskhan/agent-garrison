@@ -56,6 +56,10 @@ export async function POST(request: NextRequest) {
     const result = await patchCard(cardId, {
       rev: card.rev,
       list: state === "done" ? "done" : "needs-attention",
+      // Terminal: stop counting as running, and drop the owner stamp so no
+      // sweep can later treat this card as a lost run.
+      status: state === "done" ? "ok" : "needs-attention",
+      runningSince: null,
       dispatch: {
         ...card.dispatch,
         heartbeatAt: nowIso,

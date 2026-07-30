@@ -80,6 +80,21 @@ export function spotterRequest(book, evidenceBody) {
   };
 }
 
+// Normalize the caller's pre-run artifact selection (body.evidence) into the
+// display form the run record persists. Persisting the REQUEST is what lets
+// the results UI tell "not requested" apart from "failed to produce" — the
+// artifacts themselves are discovered on disk, and absence alone is
+// ambiguous. `video` is tri-state because its default depends on run size
+// (multi-check runs record, single-check runs don't).
+export function normalizeEvidenceRequest(evidenceBody) {
+  const body = evidenceBody && typeof evidenceBody === "object" ? evidenceBody : {};
+  return {
+    video: body.video === true ? "on" : body.video === false ? "off" : "auto",
+    slideshow: body.curation === false ? "off" : "on",
+    browserStates: body.stateReferences === false ? "off" : "on"
+  };
+}
+
 // Begin a capture session for a run. Returns
 // { sessionId, dir, startedAt, video, spotter, warnings } or null (degraded —
 // the run proceeds exactly as before evidence capture existed).

@@ -327,8 +327,23 @@ describe("primary runtime warm seam (S4)", () => {
 
   it("an unknown engine FAILS LOUD naming the known set and the fix", async () => {
     await expect(resolvePrimaryAdapter("mistral-cli", baseCtx())).rejects.toThrow(
-      /unknown primary engine "mistral-cli".*claude-code, agent-sdk, codex, gemini, opencode.*composer/
+      /unknown primary engine "mistral-cli".*claude-code, agent-sdk, codex, gemini, opencode, cursor.*composer/
     );
+  });
+
+  // cursor is an exec-style PRIMARY on the same terms as codex/gemini/opencode.
+  // Its model is a BARE Cursor catalog id (unlike opencode's provider/model), and
+  // effort is NEVER threaded: Cursor encodes effort in the model id, so forwarding
+  // one would be a silently ignored knob.
+  it("cursor primary resolves via the injected-adapter seam, threads a bare model, and drops effort", async () => {
+    const fake = { spawn: async () => ({}), id: "cursor" };
+    const ctx = baseCtx({ secondaryAdapters: new Map([["cursor", fake]]) });
+    ctx.operativeSpawnConfig = { compositionDir: "/tmp/x", model: "gpt-5.3-codex-high", effort: "high" } as any;
+    const p = await resolvePrimaryAdapter("cursor", ctx);
+    expect(p.adapter).toBe(fake);
+    expect(p.claude).toBe(false);
+    expect(p.spawnConfig.model).toBe("gpt-5.3-codex-high");
+    expect(p.spawnConfig.effort).toBeUndefined();
   });
 
   it("a JS prototype key as the engine still FAILS LOUD (no prototype-pollution bypass) (S2c codex finding)", async () => {

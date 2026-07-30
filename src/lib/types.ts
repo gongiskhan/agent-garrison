@@ -243,8 +243,6 @@ export interface ProjectConfig {
   defaultBaseBranch: string;
 }
 
-export type FittingLifecycle = "operative-bound" | "detached";
-
 // A connector Fitting's action-catalog entry — one callable action on the
 // connected service. `mutates` flags write actions (rendered distinctly and
 // weighed by the planner); `args` names the templated arguments the action takes.
@@ -391,13 +389,6 @@ export interface GarrisonMetadata {
   // Default port the own-port Fitting binds (informational; the runtime status
   // file is authoritative).
   default_port?: number;
-  // For own-port Fittings:
-  //   - "operative-bound" (default): Garrison starts/stops the Fitting alongside
-  //     the operative's up/down lifecycle.
-  //   - "detached": Garrison never auto-starts or auto-stops this Fitting; the
-  //     user manages it manually (via /api/fittings/<id>/start|stop or shell).
-  // The field is ignored for non-own-port Fittings.
-  lifecycle?: FittingLifecycle;
   // Connector Fittings (kind:connector) declare their auth method, action
   // catalog, and optional triggers here. Absent on non-connector Fittings.
   connector?: ConnectorSpec;

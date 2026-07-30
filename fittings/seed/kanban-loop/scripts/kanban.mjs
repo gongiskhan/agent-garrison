@@ -9,14 +9,15 @@
 //   --review           weekly board review: bucket cards into moving / stalled /
 //                      needs-attention, write a dated report, notify. Never moves cards.
 // The board UI is owned by other V1b slices; this is the engine spine.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList } from "../lib/engine.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
+import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
@@ -284,14 +285,37 @@ async function registerSchedulerBeats() {
 // config block (tick_cron / review_cron / review_stall_hours in config_schema),
 // so a composition value takes effect without the user exporting anything;
 // the bare KANBAN_* name stays the explicit operator override on top.
-async function registerTick() {
+export async function registerTick() {
   const cron = process.env.KANBAN_TICK_CRON || process.env.KANBAN_LOOP_TICK_CRON || "*/2 * * * *"; // every 2 minutes
   const cli = schedulerCli();
   const self = path.resolve(__dirname, "kanban.mjs");
-  const cmd = `node ${self} --tick`;
+  // Bake the instance's gateway URL + home into the command: the tick runs from the
+  // scheduler daemon's env, which has neither, and guessing them is what silently
+  // killed the prod tick (see resolveGatewayUrl).
+  const prefix = instanceEnvPrefix();
+  const cmd = [...prefix, "node", self, "--tick"].join(" ");
   if (!existsSync(cli)) {
     console.log(`kanban-loop: scheduler CLI not found at ${cli} (skipping tick job; register manually).`);
     return;
+  }
+  // NEVER DOWNGRADE. `--setup` runs from the apm.yml hook during `up`, which has no
+  // gateway URL in scope; the board server re-registers later with one. Both call this
+  // function, so without this guard the setup hook silently replaces a WORKING
+  // registration with an env-less one, and the tick goes dead again — observed
+  // immediately after the first deploy of this fix.
+  if (!resolveGatewayUrl()) {
+    if (registeredJobHasGateway("kanban-tick")) {
+      console.log(
+        "kanban-loop: no gateway URL in scope — KEEPING the existing kanban-tick " +
+        "registration, which already carries one (refusing to downgrade it)."
+      );
+      return;
+    }
+    console.log(
+      "kanban-loop: WARNING — registering kanban-tick with NO gateway URL " +
+      "(neither GARRISON_GATEWAY_URL nor GARRISON_GATEWAY_PORT is set). The tick will " +
+      "not dispatch anything until this fitting is started by the runner."
+    );
   }
   const { spawnSync } = await import("node:child_process");
   spawnSync("node", [cli, "remove", "kanban-tick"], { stdio: "ignore" });
@@ -445,6 +469,10 @@ export function batchGatewayRunFn(gatewayUrl) {
     if (nudge) {
       return streamRunFn({
         prompt: nudge,
+        // A batch runs one session per PROJECT, so the whole group shares a cwd —
+        // the same routing.project the per-card path sends. Without it the batch
+        // (the Test list) ran in the composition dir too.
+        card: project ? { project } : null,
         classification,
         skill,
         suppressContinuations: suppressContinuations ?? true,
@@ -478,6 +506,8 @@ export function batchGatewayRunFn(gatewayUrl) {
     ].join("\n");
     return streamRunFn({
       prompt,
+      // The batch is grouped BY project, so every card in it shares this cwd.
+      card: project ? { project } : null,
       classification,
       skill,
       suppressContinuations: suppressContinuations ?? true,
@@ -486,11 +516,6 @@ export function batchGatewayRunFn(gatewayUrl) {
   };
 }
 
-// The gateway URL the tick dispatches through: explicit env, else the conventional
-// :4777 (matching the board server + web channel). The runner injects the live URL.
-function resolveGatewayUrl() {
-  return process.env.GARRISON_GATEWAY_URL || `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`;
-}
 
 // The scheduler tick runs out-of-band (launchd) with no operative, so PING the gateway
 // first and skip the whole tick when it is down — immediate cards WAIT for an operative
@@ -511,6 +536,25 @@ async function gatewayReachable(url) {
 // beat), manual, and interactive lists.
 async function tick() {
   const gatewayUrl = resolveGatewayUrl();
+  // Release lost runs FIRST, and do it whether or not a gateway is reachable: an
+  // orphaned card is wedged regardless, and the sweep needs no operative.
+  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
+  for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
+  // Same beat, the cross-machine case: a dispatched card whose worker stopped
+  // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
+  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
+  for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
+  if (!gatewayUrl) {
+    // Distinct from "the gateway is down": this instance never told the tick WHICH
+    // gateway is its own, so dispatching would be a guess. Silently logging
+    // "not reachable" here is what hid the dead prod tick for weeks.
+    console.log(
+      "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +
+      "GARRISON_GATEWAY_PORT is set) — the tick cannot dispatch. Re-run `kanban.mjs --setup` " +
+      "from the running fitting so the job command carries this instance's gateway."
+    );
+    return;
+  }
   if (!(await gatewayReachable(gatewayUrl))) {
     console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (immediate cards wait for an operative).`);
     return;
@@ -563,6 +607,24 @@ async function tick() {
 // per-card path (manual single-list kick).
 async function tickList(listId) {
   const gatewayUrl = resolveGatewayUrl();
+  // Parity with tick(): release lost runs first (no operative needed), and say
+  // "no gateway configured" distinctly from "the gateway is down". Without the
+  // first branch this would print `gateway not reachable at null` — the same
+  // indistinguishable message that hid the dead prod tick for weeks.
+  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
+  for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
+  // Same beat, the cross-machine case: a dispatched card whose worker stopped
+  // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
+  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
+  for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
+  if (!gatewayUrl) {
+    console.log(
+      "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +
+      "GARRISON_GATEWAY_PORT is set) — the beat cannot dispatch. Re-run `kanban.mjs --setup` " +
+      "from the running fitting so the job command carries this instance's gateway."
+    );
+    return;
+  }
   if (!(await gatewayReachable(gatewayUrl))) {
     console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (cards wait for an operative).`);
     return;

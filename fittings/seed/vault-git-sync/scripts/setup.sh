@@ -11,6 +11,15 @@ FITTING_DIR="$(cd "$SELF_DIR/.." && pwd)"            # .../vault-git-sync
 # config→env injection (runner.ts) provides these at setup time.
 CRON="${VAULT_GIT_SYNC_CRON:-0 4 * * *}"
 VAULT_DIR="${VAULT_GIT_SYNC_VAULT_DIR:-$HOME/ObsidianVault}"
+# Expand a leading ~ NOW. setupConfigEnv (runner.ts) projects a `type: path`
+# config value with a bare String(), so a configured "~/ObsidianVault" arrives
+# literal. Baked into the job command it is then single-quoted and run through
+# `/bin/sh -c`, where the tilde never expands - `cd "$VAULT"` fails and the job
+# dies silently every night. That is exactly what happened here for weeks.
+case "$VAULT_DIR" in
+  "~") VAULT_DIR="$HOME" ;;
+  "~/"*) VAULT_DIR="$HOME/${VAULT_DIR#\~/}" ;;
+esac
 SCHEDULER="${GARRISON_SCHEDULER_CLI:-$FITTING_DIR/../scheduler/scripts/scheduler.mjs}"
 
 if [ ! -f "$SCHEDULER" ]; then

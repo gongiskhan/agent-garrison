@@ -24,7 +24,7 @@ import { kanbanProjectionPlan } from "../src/lib/runner";
 // @ts-ignore — pure .mjs
 import { buildBoard, loadResolvedModel, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
@@ -645,7 +645,9 @@ const GUARDED_ENGINE_EXPORTS: Record<string, unknown> = {
   isInteractive,
   isGatedDiscuss,
   withEvent,
-  phaseForList
+  phaseForList,
+  sweepOrphanedRuns,
+  sweepExpiredDispatchClaims
 };
 function symbolsImportedFromEngine(src: string): string[] {
   const m = src.match(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*lib\/engine\.mjs["']/);

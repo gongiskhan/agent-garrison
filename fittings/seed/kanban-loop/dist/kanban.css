@@ -360,6 +360,14 @@ body {
 .backlog-add .ba-btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .backlog-add .ba-btn.primary:hover:not(:disabled) { background: var(--ink-2); }
 .backlog-add .ba-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* The quick-add path has no Run spec controls on purpose (RUN-SPEC-V1). Say it,
+   so their absence reads as a decision rather than a missing feature. */
+.backlog-add .ba-note {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--mute);
+}
 .backlog-add .ba-err {
   font-family: var(--sans);
   font-size: 12px;
@@ -386,6 +394,12 @@ body {
 }
 .card .ct .title {
   flex: 1 1 auto;
+  /* A flex item's min-width defaults to auto, so a long unbroken token (a ULID
+     in a "Drill batch fix (report 01KX…)" title) forces the item wider than the
+     card and the text spills past its right edge. Pin the floor to 0 and let
+     the token break. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 600;
   font-size: 13px;
   color: var(--ink);
@@ -442,6 +456,49 @@ body {
 .chip.ok { border-color: rgba(61,98,73,0.4); color: var(--sage); background: var(--sage-soft); }
 /* per-phase runtime/model attribution ("plan @ opus") — brass, subtle, mono */
 .chip.route { border-color: rgba(180,134,42,0.4); color: var(--brass); background: var(--warn-soft); }
+
+/* ── execution badges: runtime · model · effort · duty · account ──────────────
+   One badge per dimension, each a dim key + a readable value, so the card says
+   WHAT it is running on at a glance. The row sits tight under the meta chips and
+   wraps freely (the board column is ~250px, so 2-3 badges per line is normal). */
+.cmeta.exec-badges { margin-top: 5px; gap: 4px; }
+.chip.exec {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 6px;
+  border-color: rgba(180,134,42,0.34);
+  background: var(--warn-soft);
+  color: var(--brass);
+  max-width: 100%;
+  min-width: 0;
+}
+.chip.exec .exec-k {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.62;
+  flex: none;
+}
+.chip.exec .exec-v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* the runtime badge reads as the "where", so it is the quiet one */
+.chip.exec.exec-runtime { border-color: var(--rule); background: var(--paper-2); color: var(--ink-2); }
+.chip.exec.exec-duty { border-color: var(--rule); background: var(--paper-2); color: var(--ink-2); }
+.chip.exec.exec-account { border-color: rgba(90,74,140,0.4); background: rgba(90,74,140,0.07); color: #5a4a8c; }
+/* EXPECTED (this phase has not run yet): dashed + desaturated, so it can never be
+   misread as a claim about what actually served the turn. */
+.chip.exec.expected {
+  border-style: dashed;
+  background: transparent;
+  color: var(--mute);
+  border-color: var(--rule);
+}
+.chip.exec.expected .exec-k { opacity: 0.55; }
 
 .card .dispatch-err {
   margin-top: 7px;
@@ -1263,10 +1320,86 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   margin: 0;
   width: 12px;
   height: 12px;
+  /* Match the sheet's other checkbox (.field .row input). Left unset, these render
+     in the browser's default blue, which reads as a foreign control against the
+     cream/sage palette - and the run spec puts a dozen of them on screen at once. */
+  accent-color: var(--sage);
 }
 .chip.toggle.off {
   opacity: 0.5;
   text-decoration: line-through;
+}
+
+/* RUN-SPEC-V1 — the collapsed "Run spec" block on the New Card sheet.
+   Collapsed BY DEFAULT and summarised as "everything automatic": the whole premise
+   is that auto is the default and the controls exist to opt out of it, so an
+   always-expanded grid of nine dropdowns would misrepresent the common case as a
+   decision the user owes. The summary line carries the count so opting out is
+   still visible without expanding. */
+.spec-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  text-align: left;
+}
+.spec-toggle .muted {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+/* Two columns on a laptop, one on a phone: the sheet is used from both, and a
+   two-column grid at 390px produces unreadable half-width select labels. */
+.spec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+  padding: 4px 0 2px;
+}
+@media (max-width: 560px) {
+  .spec-grid { grid-template-columns: 1fr; }
+}
+.spec-field-wide { grid-column: 1 / -1; }
+.spec-field label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--mute);
+  margin-bottom: 6px;
+}
+.spec-field select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--ink);
+}
+.spec-field select:focus { outline: none; border-color: var(--ink); }
+/* A disabled control must say WHY, not just grey out - an inert dropdown with no
+   explanation reads as a bug rather than an honest limit. */
+.spec-field select:disabled { background: var(--paper-2, #f4f2ec); color: var(--mute); cursor: not-allowed; }
+.spec-note {
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--mute);
 }
 
 /* D19 — the Done column groups quick cards (trivial-plan inline tasks the gateway
@@ -1611,3 +1744,55 @@ button:active, .btn:active { transform: translateY(1px); }
   .term-scrim { padding: 0; }
   .term-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
 }
+
+/* A REFUSED project pin: the turn did not run in the card's repo. This is a
+   correctness warning, not decoration — it reads as an alarm chip. */
+.chip.exec.exec-project-refused {
+  border-color: rgba(155,54,45,0.45);
+  background: var(--alarm-soft);
+  color: var(--alarm);
+}
+.chip.exec.exec-project { border-color: rgba(61,98,73,0.4); background: var(--sage-soft); color: var(--sage); }
+
+/* ── drill handoff (Send to Drill) ────────────────────────────────────────────
+   The card-front + detail block showing where a card's drill has got to. Neutral
+   (paper-2 / rule) while it is in flight, and it inherits the chip's own sage/alarm
+   tint for the verdict, so a passing drill never shouts and a failing one does.
+   Sits under the card body with the same rhythm as .revert-block. */
+.drill-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.drill-block.passed { border-color: rgba(61,98,73,0.4); background: var(--sage-soft); }
+/* partial — amber, NOT green: nothing failed, but some checks were never
+   answered, so the change is not fully verified. */
+.drill-block.partial { border-color: rgba(176,114,21,0.4); background: var(--warn-soft); }
+.drill-block.partial .chip { border-color: rgba(176,114,21,0.4); color: var(--warn-ink); background: transparent; }
+.drill-block.partial .db-detail { color: var(--warn-ink); }
+.drill-block.failed,
+.drill-block.error { border-color: rgba(155,54,45,0.3); background: var(--alarm-soft); }
+.drill-block .db-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.drill-block .db-link {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--sage-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.drill-block .db-link:hover { color: var(--sage); }
+/* In the detail sheet the block is a section of its own, not a card footnote. */
+.drill-detail { margin-bottom: 16px; }

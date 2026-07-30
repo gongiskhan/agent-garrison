@@ -17,15 +17,19 @@ import {
   navigateTab, tabAction, closeTab, tabInfo, readConsole
 } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
+import { openExplore, actExplore, assertExplore, closeExplore, closeAllExplore } from "../lib/explore.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import {
   selectSteps, compileStepAutomation,
   hasAuth, resolveAuthUrl, authSuccess, compileAuthProbe, compileAuthLogin, AUTH_VERIFY_STEP
 } from "../lib/compile.mjs";
 import { readAuthState, writeAuthState, authFingerprint } from "../lib/auth-state.mjs";
-import { graduationPlanFor, graduateStep } from "../lib/graduate.mjs";
+import {
+  graduationPlanFor, graduateStep, actionPinFor, pinStepActions,
+  confirmsAuthoredAssertion, promoteAuthoredAssertion
+} from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
-import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
+import { assessAutomaticStateReference, promoteSnapshotToState, createStateFromRunEvidence } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
 import { runInline, getRun as getAutomationRun, getStepEvidence, ensureAutomationsUp } from "../lib/automations-client.mjs";
 import {
@@ -42,15 +46,21 @@ import {
 import {
   captureStart, captureStop, captureChunkStart, captureChunkStop, captureScreenshot,
   writeStepsManifest, manifestRow, checkKey, writeEvidenceIndex, spotterRequest,
+  normalizeEvidenceRequest,
   evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall,
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
 import { buildTightVideo } from "../lib/video-tighten.mjs";
+import { buildRunVideo } from "../lib/video-compose.mjs";
 import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
 import {
   readJsonlLines, parseTranscriptLines, linesInWindow, noteRunSession, sessionSliceName
 } from "../lib/session-transcript.mjs";
+import {
+  startCardDrill, getCardDrillJob, listCardDrillJobs, publicCardDrillJob, reapOrphanCardDrills
+} from "../lib/card-drill.mjs";
+import { ulid } from "../lib/ulid.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
@@ -74,7 +84,7 @@ let liveReplay = null; // { sessionId, tabId, runId, pageId, stepId, viewportId,
 // incrementally after every check - this registry only adds the push channel
 // and the current-check pointer; a poller reading the record sees the same
 // state one save behind.
-const activeRuns = new Map(); // runId -> { record, events, listeners, done, current, lastActivityAt }
+const activeRuns = new Map(); // runId -> { record, events, listeners, done, current, lastActivityAt, canceled }
 const RUN_EVENT_CAP = 4000;
 const FINISHED_RUN_LINGER_MS = 60_000;
 
@@ -94,7 +104,10 @@ function registerActiveRun(record) {
     listeners: new Set(),
     done: false,
     current: null,
-    lastActivityAt: new Date().toISOString()
+    lastActivityAt: new Date().toISOString(),
+    // Set by POST /api/runs/:id/cancel; the check loop reads it between
+    // checks. Never an error state - see the loop's cancel arm.
+    canceled: null
   };
   activeRuns.set(record.id, entry);
   return entry;
@@ -148,11 +161,22 @@ async function ensureAuthenticated(book, { contextTag, viewport, root }) {
   // measures real session age, not time-since-last-probe.
   const priorFresh = prior && prior.fingerprint === fingerprint && prior.loggedInAt;
   const stale = ttlMs && priorFresh ? Date.now() - Date.parse(prior.loggedInAt) > ttlMs : false;
-  // Force the full login flow when there is no fresh same-config record (first
-  // run, or the login config changed) OR the cached session is past its TTL —
-  // only then is the cheap probe trustworthy. This also skips the wasteful
-  // probe on the very first run (nothing to reuse yet).
-  const mustFlow = stale || !priorFresh;
+  // Force the full login flow when the login CONFIG changed (a different user
+  // must never be satisfied by the previous one's session) or the cached session
+  // is past its TTL.
+  //
+  // It used to also force the flow whenever Drill held no record at all — "first
+  // run, nothing to reuse yet". That reasoning had the wrong subject: what gets
+  // reused is the BROWSER's persistent profile, and Drill's state file is only
+  // its own bookkeeping about it. Anything can have logged that profile in - the
+  // planning agent, a previous project, a person. When something has, the login
+  // flow cannot execute at all: /login redirects to the app, the username field
+  // never appears, the flow reports failure, and because one auth failure
+  // deliberately collapses into one incident rather than N, the circuit opens
+  // and EVERY check in the run is skipped unproven. Measured: a 12-check run
+  // executed 0. Probing first costs one navigate and one cached assertion.
+  const configChanged = !!prior && prior.fingerprint !== fingerprint;
+  const mustFlow = stale || configChanged;
 
   const runAuth = async (automation, expectStep) => {
     try {
@@ -187,6 +211,24 @@ async function ensureAuthenticated(book, { contextTag, viewport, root }) {
   if (flow.kind === "passed") {
     await writeAuthState(root, { loggedInAt: new Date().toISOString(), via: "flow", fingerprint }).catch(() => {});
     return { ok: true, via: "flow" };
+  }
+  // A login flow can fail for the happy reason: we are already logged in, so
+  // the form it wanted to fill was never rendered. That is indistinguishable
+  // from a broken login by the flow's own result, and calling it broken costs
+  // the entire run. Ask the question directly instead - one probe - before
+  // reporting an auth failure.
+  //
+  // Only for a PAGE-level failure. An engine or app outage during login has
+  // nothing to re-ask: the probe would fail the same way, cost another call,
+  // and muddy an incident whose real component (vision down, app down) must
+  // survive to the report rather than being re-attributed to auth.
+  const flowMissedTheForm = flow.kind === "product-failure" || flow.kind === "unproven";
+  if (success && !configChanged && flowMissedTheForm) {
+    const already = await runAuth(compileAuthProbe(book), AUTH_VERIFY_STEP);
+    if (already.kind === "passed") {
+      await writeAuthState(root, { loggedInAt: new Date().toISOString(), via: "already-authenticated", fingerprint }).catch(() => {});
+      return { ok: true, via: "already-authenticated" };
+    }
   }
   // Only a product-level negative — the flow ran but the app did not grant a
   // session / the success signal was not met — is a genuine auth-config problem.
@@ -684,7 +726,10 @@ async function handle(req, res) {
         if (brief) return send(res, 409, { error: "a plan is already running for this project - wait for it to finish before planning an update", job: publicPlanJob(existing) });
         return send(res, 200, { started: false, job: publicPlanJob(existing) });
       }
-      const job = await startPlan({ root, brief });
+      // The agent explores through THIS server, so it needs this instance's
+      // own base URL - never a baked default, which would point a dev plan at
+      // prod's Drill (or a codex-profile port that nothing is serving).
+      const job = await startPlan({ root, brief, drillBaseUrl: selfBaseUrl() });
       if (job.status === "failed") {
         return send(res, 502, { error: job.error, job: publicPlanJob(job) });
       }
@@ -741,6 +786,71 @@ async function handle(req, res) {
     }
 
     // Authoring: open/reuse a tab for a page at a given viewport (B1/S19).
+    // ── Plan-time exploration (the planning agent's eyes) ──────────────────
+    // Navigate, act, and validate a candidate assertion against the LIVE app.
+    // The agent supplies its own vision: every response names a screenshot file
+    // it reads directly. See lib/explore.mjs for why validation is delegated to
+    // the automations engine rather than answered here.
+    if (pathname === "/api/explore/open" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      const { root } = resolved;
+      let viewport = null;
+      if (body.viewport) {
+        try { viewport = resolveViewport(String(body.viewport)); } catch (err) { return send(res, 400, { error: err.message }); }
+      }
+      const book = await getDrillBook(root);
+      const appUrl = book.app.url || "http://localhost:3000";
+      let target = appUrl;
+      if (body.url) target = String(body.url);
+      else if (body.path) {
+        try { target = new URL(String(body.path), appUrl).toString(); } catch { return send(res, 400, { error: `cannot resolve path against ${appUrl}` }); }
+      }
+      try {
+        return send(res, 200, await openExplore({ root, url: target, viewport }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/explore/act" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      if (!body.action || typeof body.action !== "object") {
+        return send(res, 400, { error: "action object required, e.g. {kind:'click',role:'button',name:'Save'}" });
+      }
+      try {
+        return send(res, 200, await actExplore({ root: resolved.root, action: body.action }));
+      } catch (err) {
+        // A locator that does not resolve is the agent's problem to correct,
+        // not an outage - say so with a 400 so it retries rather than aborts.
+        return send(res, /browser 400|execute failed/.test(err.message) ? 400 : 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/explore/assert" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      if (!body.assertion || typeof body.assertion !== "object") {
+        return send(res, 400, { error: "assertion object required" });
+      }
+      try {
+        return send(res, 200, await assertExplore({ root: resolved.root, assertion: body.assertion }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/explore/close" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      try {
+        return send(res, 200, await closeExplore({ root: resolved.root }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
     if (pathname === "/api/authoring/tab" && req.method === "POST") {
       const body = await readJsonBody(req);
       const pageId = String(body.pageId ?? "");
@@ -1166,7 +1276,15 @@ async function handle(req, res) {
           held: true,
           reason: "gated",
           plan,
-          resume: { pageIds, viewports: viewportIds, ...(stepIdFilter ? { stepIds: [...stepIdFilter] } : {}), state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root }
+          // The approval must execute the run the user was shown, artifact
+          // selection included — a resume object that drops body.evidence (or
+          // dispatch) silently reverts those choices at approval time.
+          resume: {
+            pageIds, viewports: viewportIds, ...(stepIdFilter ? { stepIds: [...stepIdFilter] } : {}),
+            state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root,
+            ...(body.evidence !== undefined ? { evidence: body.evidence } : {}),
+            ...(body.dispatch !== undefined ? { dispatch: body.dispatch } : {})
+          }
         });
       }
 
@@ -1202,6 +1320,10 @@ async function handle(req, res) {
       };
       record.plannedChecks = jobs.length;
       record.executedChecks = 0;
+      // Persist the artifact REQUEST (normalized), not just what got produced:
+      // post-run surfaces infer availability from disk, and without the request
+      // a deliberately-disabled artifact is indistinguishable from a failed one.
+      record.evidenceRequest = normalizeEvidenceRequest(body.evidence);
 
       const addSystemicIncident = (job, terminal) => addInfraError(record, {
         pageId: job?.pageId ?? null,
@@ -1363,6 +1485,26 @@ async function handle(req, res) {
       const checkArtifacts = [];
 
       for (const job of jobs) {
+        // User-requested stop (POST /api/runs/:id/cancel). Deliberately NOT a
+        // circuit: a circuit means the run was BLOCKED by a fault and drives
+        // the incident/finding surfaces, whereas a cancel is an intended stop
+        // and must never be reported as an app or infra failure. Same
+        // reasoning as /api/plan/cancel's distinct "canceled" status.
+        //
+        // Granularity is BETWEEN checks, not mid-check: a check owns an engine
+        // run, a browser context and a capture session, and tearing those down
+        // mid-flight would leave the shared browser in an unknown state for the
+        // next run. So a cancel lands after the current check completes - up to
+        // ~60s for a vision check.
+        if (live.canceled) {
+          record.canceled = {
+            at: live.canceled.at,
+            afterCheck: record.executedChecks,
+            skippedChecks: Math.max(0, jobs.length - record.executedChecks)
+          };
+          publishRunEvent(record.id, { type: "run_canceled", runId: record.id, ...record.canceled });
+          break;
+        }
         record.executedChecks += 1;
         const jobStartedAt = Date.now();
         live.current = {
@@ -1514,7 +1656,10 @@ async function handle(req, res) {
         // for that state. Seed the first reference only; later runs retain
         // evidence in their own records but never silently rewrite the Book's
         // accepted state image.
-        if (state !== "default" && outcome.evidencePath) {
+        // Skippable per-run ("Browser states" in the pre-run artifact
+        // selection): a reference-seeding run someone did not ask for must
+        // not write into the Book.
+        if (state !== "default" && outcome.evidencePath && body.evidence?.stateReferences !== false) {
           const statePage = await getPage(pr.pageId, root);
           const stateIndex = statePage?.states?.findIndex((candidate) => candidate.id === state) ?? -1;
           if (statePage && stateIndex >= 0 && !statePage.states[stateIndex].screenshotPath) {
@@ -1566,13 +1711,34 @@ async function handle(req, res) {
           const step = page?.steps.find((candidate) => candidate.id === pr.stepId);
           if (step) {
             const plan = graduationPlanFor(step, outcome, automationRun);
-            if (plan) {
-              try {
+            try {
+              if (plan) {
                 const { specFile } = await graduateStep(book, pr.pageId, pr.stepId, plan, root);
                 pr.graduated = { specFile, judgment: !!plan.judgment };
-              } catch (err) {
-                pr.graduationError = err.message;
+              } else {
+                // No graduation this time (already graduated, or the verify
+                // still has no deterministic answer) - but two things this run
+                // learned are still worth keeping.
+                //
+                // First: a plan-authored assertion that just held on the
+                // deterministic path has now been proven by a whole check, so
+                // it earns its place in the committed spec.
+                if (confirmsAuthoredAssertion(step, outcome)) {
+                  const { specFile } = await promoteAuthoredAssertion(book, pr.pageId, pr.stepId, root);
+                  pr.assertionProven = specFile;
+                }
+                // Second: the interactions this run resolved. Without this a
+                // check that graduated before it had interactions pays a
+                // model call per interaction on every run for the rest of
+                // its life, since it never re-enters graduation.
+                const pins = actionPinFor(step, automationRun);
+                if (pins) {
+                  await pinStepActions(book, pr.pageId, pr.stepId, pins, root);
+                  pr.actionsPinned = pins.length;
+                }
               }
+            } catch (err) {
+              pr.graduationError = err.message;
             }
           }
         }
@@ -1596,6 +1762,10 @@ async function handle(req, res) {
           video: stopped?.video ?? null,
           steps: stepsFile ?? null,
           index: indexFile ?? null,
+          // The capture epoch (ms). steps.json offsets are relative to it, and
+          // transcript events carry wall-clock ts — this is the one number that
+          // lets a client align a check window onto the session timeline.
+          capturedAt: capture.startedAt ?? null,
           spotter: stopped?.spotter?.manifest
             ? { manifest: stopped.spotter.manifest, frames: stopped.spotter.frames ?? stopped.spotter.counts?.kept ?? 0 }
             : null
@@ -1638,33 +1808,50 @@ async function handle(req, res) {
         const pruned = await pruneEvidence({ root, classified: classifyForRetention(scoped) });
         for (const p of pruned) console.log(`[drill] evidence retention: pruned ${p.removed.join(", ")} from run ${p.runId}`);
       })().catch((err) => console.warn(`[drill] evidence: retention sweep failed: ${err.message}`));
-      // Video tightening (S1): the recorder rolls continuously while each check
-      // sits in an untimed vision call, so the raw recording is mostly a frozen
-      // page (measured: 24.6 of 27.3 min on a real 36-check run). Cut it down to
-      // the moments the Spotter saw something change. Fire-and-forget and
-      // evidence-file-only (video-tight.webm + video-index.json), so a slow
-      // encode can neither delay the run response nor touch the run record —
-      // the UI picks the tight cut up when video-index.json appears.
+      // Composed run video (walkthrough merge): the recorder rolls continuously
+      // while each check sits in an untimed vision call, so the raw recording
+      // is mostly a frozen page (measured: 24.6 of 27.3 min on a real 36-check
+      // run). Re-assemble it walkthrough-style — scrubbable h264 mp4, idle
+      // stretches timelapsed instead of cut, burned-in check captions, title
+      // card — with chapter markers in video-index.json exactly as before.
+      // Fire-and-forget and evidence-file-only, so a slow encode can neither
+      // delay the run response nor touch the run record; the UI picks the cut
+      // up when video-index.json appears. When compose fails the tighten cut
+      // is the fallback, so a box without libx264 still gets a watchable video.
       if (record.evidence?.video && record.evidence?.spotter?.manifest && capture) {
         void (async () => {
           const dir = evidenceRunDir(record.id, root);
           const manifestPath = path.join(dir, record.evidence.spotter.manifest);
           const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          // steps.json from disk, not the in-memory rows: the same input a
+          // post-restart regeneration would have, and byte-identical anyway.
+          let steps = manifestRows;
+          try { steps = JSON.parse(await readFile(path.join(dir, "steps.json"), "utf8")); } catch { /* keep in-memory rows */ }
+          const summary = record.summary ?? {};
+          const composed = await buildRunVideo({
+            dir,
+            source: record.evidence.video,
+            frames: manifest.frames ?? [],
+            steps,
+            title: `Drill run · ${new Date(record.startedAt).toLocaleString()}\n${record.pages.length} checks · ${record.pages.length - (summary.failed ?? 0) - (summary.unproven ?? 0)} passed`
+          });
+          if (composed?.ok) return composed;
+          console.log(`[drill] video compose: falling back to tighten for run ${record.id} (${composed?.reason ?? "unknown"})`);
           return buildTightVideo({
             dir,
             source: record.evidence.video,
             frames: manifest.frames ?? [],
-            steps: manifestRows
+            steps
           });
         })()
           .then((res) => {
             if (res?.ok) {
-              console.log(`[drill] video tighten: ${(res.originalDurationMs / 1000).toFixed(0)}s -> ${(res.tightDurationMs / 1000).toFixed(0)}s in ${res.segments.length} segments (${(res.encodeMs / 1000).toFixed(0)}s encode) for run ${record.id}`);
+              console.log(`[drill] run video: ${(res.originalDurationMs / 1000).toFixed(0)}s -> ${(res.tightDurationMs / 1000).toFixed(0)}s (${res.mode ?? "tight"}, ${res.segments.length} segments, ${(res.encodeMs / 1000).toFixed(0)}s encode) for run ${record.id}`);
             } else {
-              console.log(`[drill] video tighten: skipped for run ${record.id} (${res?.reason ?? "unknown"})`);
+              console.log(`[drill] run video: skipped for run ${record.id} (${res?.reason ?? "unknown"})`);
             }
           })
-          .catch((err) => console.warn(`[drill] video tighten: ${err.message}`));
+          .catch((err) => console.warn(`[drill] run video: ${err.message}`));
       }
       // Curation (Evidence V2, S2/D4): batch vision judging of the Spotter
       // frames into the Debrief reel — fire-and-forget, and it writes ONLY
@@ -1743,6 +1930,53 @@ async function handle(req, res) {
         : entries.filter((entry) => !entry.record.project || entry.record.project === activeRoot);
       return send(res, 200, { runs: scoped.map(activeRunSnapshot) });
     }
+    // Cancel a running run - the safe stop that a multi-hour run had no way to
+    // ask for (the only way to stop one was restarting the fitting, which
+    // circuit-breaks the record as `drill-restarted-mid-run` and reads as an
+    // infra fault). Mirrors /api/plan/cancel: a user-requested stop gets its
+    // own terminal shape (`record.canceled`), never `record.circuit`, so it is
+    // never counted as an incident or a finding.
+    //
+    // Idempotent: cancelling an already-cancelling run is a 200, not a
+    // conflict, so a double-click cannot error. 409 only when there is nothing
+    // executing to cancel - matching /api/plan/cancel's shape.
+    const runCancelPost = pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
+    if (runCancelPost && req.method === "POST") {
+      const runId = decodeURIComponent(runCancelPost[1]);
+      const entry = activeRuns.get(runId);
+      if (!entry || entry.done) {
+        let record = null;
+        try { record = await getDrillRun(runId); } catch { record = null; }
+        return send(res, 409, {
+          canceled: false,
+          error: record
+            ? "run is not executing - it already finished"
+            : "no run is executing for this id",
+          endedAt: record?.endedAt ?? null
+        });
+      }
+      const at = entry.canceled?.at ?? new Date().toISOString();
+      const already = !!entry.canceled;
+      entry.canceled = { at };
+      if (!already) {
+        // The stop lands after the in-flight check returns, so tell the client
+        // that rather than letting it believe the run is already stopped.
+        publishRunEvent(runId, {
+          type: "run_canceling",
+          runId,
+          at,
+          afterCheck: entry.record?.executedChecks ?? 0
+        });
+      }
+      return send(res, 200, {
+        canceled: true,
+        runId,
+        at,
+        already,
+        afterCheck: entry.record?.executedChecks ?? 0,
+        pending: entry.current ?? null
+      });
+    }
     // S31: per-run progress stream. Replays the buffered events, then stays
     // live until run_finished. For a run not active in this process the
     // stream reports the terminal state and closes - the client falls back
@@ -1785,6 +2019,23 @@ async function handle(req, res) {
     if (runSessionStreamGet && req.method === "GET") {
       const runId = decodeURIComponent(runSessionStreamGet[1]);
       const sessionId = String(url.searchParams.get("session") ?? "");
+      // Optional wall-clock window (epoch ms): the merged results view uses
+      // this to show just the session steps of ONE check. Events without a
+      // timestamp are dropped inside a window — they would otherwise appear
+      // under every check. Absent params must stay absent (Number(null) is 0,
+      // which would read as a zero-width window and filter everything out).
+      const fromParam = url.searchParams.get("from");
+      const toParam = url.searchParams.get("to");
+      const windowFrom = fromParam === null ? Number.NaN : Number(fromParam);
+      const windowTo = toParam === null ? Number.NaN : Number(toParam);
+      const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
+      const inWindow = (event) => {
+        if (!windowed) return true;
+        if (!Number.isFinite(event?.ts)) return false;
+        if (Number.isFinite(windowFrom) && event.ts < windowFrom) return false;
+        if (Number.isFinite(windowTo) && event.ts > windowTo) return false;
+        return true;
+      };
       const entry = activeRuns.get(runId);
       let record = entry?.record ?? null;
       if (!record) {
@@ -1830,7 +2081,7 @@ async function handle(req, res) {
           type: "init",
           sessionId,
           title: parsed.title,
-          events: parsed.events,
+          events: parsed.events.filter(inWindow),
           live: !!liveEntry,
           available: initLines.length > 0 || !!tailPath
         });
@@ -1842,8 +2093,9 @@ async function handle(req, res) {
             if (read.lines.length) {
               offset = read.offset;
               const chunk = parseTranscriptLines(read.lines);
-              if (chunk.events.length || chunk.title) {
-                emit({ type: "events", sessionId, title: chunk.title, events: chunk.events });
+              const events = chunk.events.filter(inWindow);
+              if (events.length || chunk.title) {
+                emit({ type: "events", sessionId, title: chunk.title, events });
               }
             }
           } catch { /* transient read failure - keep polling */ }
@@ -1909,6 +2161,7 @@ async function handle(req, res) {
       }
       const types = {
         ".webm": "video/webm",
+        ".mp4": "video/mp4",
         ".png": "image/png",
         ".jpg": "image/jpeg",
         ".zip": "application/zip",
@@ -1922,10 +2175,10 @@ async function handle(req, res) {
         "x-content-type-options": "nosniff",
         ...(ext === ".zip" ? { "content-disposition": `attachment; filename="${name}"` } : {})
       };
-      // Range support: webm scrubbing and #t= media-fragment deep links need
+      // Range support: video scrubbing and #t= media-fragment deep links need
       // 206 responses; everything else streams whole.
       const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
-      if (range && (range[1] || range[2]) && ext === ".webm") {
+      if (range && (range[1] || range[2]) && (ext === ".webm" || ext === ".mp4")) {
         const size = fileInfo.size;
         let start = range[1] ? Number(range[1]) : size - Number(range[2]);
         let end = range[1] && range[2] ? Number(range[2]) : size - 1;
@@ -1944,6 +2197,60 @@ async function handle(req, res) {
       res.writeHead(200, { ...headers, "accept-ranges": "bytes", "content-length": String(fileInfo.size) });
       createReadStream(file).pipe(res);
       return;
+    }
+    // Promote a run screenshot to a named page state ("Save as state"): the
+    // operator saw the image and vouched for it — a human decision, like a
+    // verdict override, so it does not pass the automatic honesty gate.
+    // Root-aware via record.project: a run pinned to another repo writes the
+    // state into THAT repo's page YAML.
+    const runPromoteStatePost = pathname.match(/^\/api\/runs\/([^/]+)\/promote-state$/);
+    if (runPromoteStatePost && req.method === "POST") {
+      const record = await getDrillRun(decodeURIComponent(runPromoteStatePost[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      const body = await readJsonBody(req);
+      const name = String(body.file ?? "");
+      const pageId = String(body.pageId ?? "");
+      const label = String(body.label ?? "").trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,160}$/.test(name)) return send(res, 400, { error: "invalid evidence name" });
+      if (!pageId) return send(res, 400, { error: "pageId required" });
+      if (!label) return send(res, 400, { error: "label required" });
+      const root = record.project || drillTargetRoot();
+      const dir = evidenceRunDir(record.id, root);
+      try {
+        const real = await realpath(path.join(dir, name));
+        if (real !== path.join(await realpath(dir), name)) return send(res, 404, { error: "not found" });
+        if (!(await stat(real)).isFile()) return send(res, 404, { error: "not found" });
+      } catch {
+        return send(res, 404, { error: "evidence file not found" });
+      }
+      // Spotter frames (frame-*.jpg) die under retention once the run ages
+      // out of the keep-3 pool — copy the bytes to a name the pruner never
+      // touches so the state's reference outlives the sweep. Step screenshots
+      // already survive as-is.
+      let refName = name;
+      if (/^frame-.*\.jpg$/i.test(name)) {
+        refName = `state-src-${ulid()}.jpg`;
+        try {
+          await writeFile(path.join(dir, refName), await readFile(path.join(dir, name)));
+        } catch (err) {
+          return send(res, 500, { error: `could not copy the frame: ${err.message}` });
+        }
+      }
+      try {
+        const state = await createStateFromRunEvidence(pageId, {
+          label,
+          screenshotPath: evidenceRootRef(record.id, root, refName),
+          referenceSource: {
+            runId: record.id,
+            stepId: body.stepId ? String(body.stepId) : null,
+            viewportId: body.viewportId ? String(body.viewportId) : null,
+            at: new Date().toISOString()
+          }
+        }, root);
+        return send(res, 200, { state, pageId, stateId: state.id });
+      } catch (err) {
+        return send(res, 400, { error: err.message });
+      }
     }
     if (pathname === "/api/live-replay" && req.method === "GET") {
       return send(res, 200, { live: await liveReplayPublic() });
@@ -2268,6 +2575,49 @@ async function handle(req, res) {
       }
     }
 
+    // Card-driven drill (the Kanban "Send to Drill" button). A card that
+    // reached `done` hands over its change brief; Drill plans the checks for
+    // THAT change, runs them unattended, and notifies every way it can when
+    // the verdict is in. The whole chain lives in lib/card-drill.mjs — this
+    // route only validates and registers.
+    if (pathname === "/api/card-drill" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const card = body.card && typeof body.card === "object" ? body.card : null;
+      if (!card || typeof card.id !== "string" || !card.id) {
+        return send(res, 400, { error: "card.id required" });
+      }
+      const brief = typeof body.brief === "string" && body.brief.trim() ? body.brief.trim() : null;
+      if (!brief) return send(res, 400, { error: "brief required - Drill plans the change, so it needs to be told what changed" });
+      // The CARD's project, not the live picker selection: the button was
+      // pressed on a card that names its own repo, and Drill may be pointed
+      // somewhere else entirely by the time this lands.
+      const rootResolved = resolveMutationRoot(body.project || card.project);
+      if (rootResolved.error) return send(res, 400, { error: rootResolved.error });
+      try {
+        const { job, started } = await startCardDrill({
+          card,
+          brief,
+          project: rootResolved.root,
+          boardUrl: typeof body.boardUrl === "string" ? body.boardUrl : await kanbanBaseUrl(),
+          drillBaseUrl: selfBaseUrl()
+        });
+        return send(res, 200, { job: publicCardDrillJob(job), started });
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
+    if (pathname === "/api/card-drill" && req.method === "GET") {
+      const cardId = url.searchParams.get("cardId");
+      const list = await listCardDrillJobs({ cardId: cardId || null });
+      return send(res, 200, { jobs: list.map(publicCardDrillJob) });
+    }
+    const cardDrillGet = pathname.match(/^\/api\/card-drill\/([^/]+)$/);
+    if (cardDrillGet && req.method === "GET") {
+      const job = await getCardDrillJob(decodeURIComponent(cardDrillGet[1])).catch(() => null);
+      if (!job) return send(res, 404, { error: "not found" });
+      return send(res, 200, { job: publicCardDrillJob(job) });
+    }
+
     // R10: dispatch the confirmed findings as ONE batch fix card. Manual
     // (the button) and Immediate dispatch now; Heartbeat records intent -
     // the actual periodic pickup is a self-contained sweep (heartbeat.mjs)
@@ -2433,6 +2783,16 @@ export async function startServer() {
   } catch (err) {
     console.error(`[drill] orphan plan-agent sweep failed: ${err.message}`);
   }
+  // A card-driven drill's chain is an in-memory driver: a restart kills it and
+  // nothing would ever finish the job — leaving the CARD stuck at "planning"
+  // with its button disabled. Close every open job honestly, and notify, so an
+  // interrupted drill is visibly interrupted rather than silently pending.
+  try {
+    const closed = await reapOrphanCardDrills();
+    for (const id of closed) console.log(`[drill] closed orphaned card-drill job ${id} (server restarted mid-flight)`);
+  } catch (err) {
+    console.error(`[drill] orphan card-drill sweep failed: ${err.message}`);
+  }
   // S31: run records persist incrementally while executing (endedAt null =
   // running). A record still open at boot belonged to a previous server
   // process - close it honestly so the history table never shows a phantom
@@ -2477,6 +2837,11 @@ export async function startServer() {
   heartbeatTimer.unref?.();
   const shutdown = async () => {
     clearInterval(heartbeatTimer);
+    // Exploration tabs are held open across requests for the life of a plan
+    // session. A restart mid-plan would otherwise abandon them in the Browser
+    // fitting, which outlives this process - and every restart during a day of
+    // planning would leak another one.
+    await closeAllExplore().catch(() => {});
     try { await unlink(STATUS_FILE); } catch {}
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000);

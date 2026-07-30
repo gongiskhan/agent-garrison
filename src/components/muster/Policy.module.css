@@ -315,6 +315,7 @@
 /* darkened one step per hue - the 7.5px engine marks sat at 3.9-4.7:1 on paper */
 .gCodex { color: #35608f; }
 .gGemini { color: #6b4b8e; }
+.gCursor { color: #8a4a2b; }
 .gOllama { color: #3f6549; }
 .gWorkflow { color: var(--ink-mute); }
 .gOther { color: var(--mute); }

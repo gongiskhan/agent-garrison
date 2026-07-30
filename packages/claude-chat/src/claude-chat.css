@@ -837,6 +837,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-root .cc-rail .cc-rbadge-open { border-color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 9%, transparent); }
 
+/* Chosen by the orchestrator, not by the user. Deliberately QUIETER than a pin
+   rather than louder: auto is the default state, so most badges on a normal turn
+   carry it, and a loud treatment would make the ordinary case look like a warning.
+   The "auto" marker text does the identifying; the dotted underside just groups
+   them visually. Both are decoration - the fact itself is in the badge title, which
+   is what a screen reader gets (the marker is aria-hidden). */
+.cc-root .cc-rail .cc-rbadge-auto { border-bottom-style: dotted; }
+.cc-root .cc-rail .cc-rbadge-automark {
+  flex: 0 0 auto; color: var(--cc-rail-fg-dim); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+}
+
 /* The flight rail is a live control surface, so its targets are bigger than the
    settled rail's record-of-what-ran. */
 .cc-root .cc-rail-flight .cc-rbadge { min-height: 32px; padding: 4px 9px; }

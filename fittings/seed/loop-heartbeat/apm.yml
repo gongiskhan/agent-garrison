@@ -8,6 +8,12 @@ x-garrison:
   faculty: observability
   cardinality_hint: single
   component_shape: script
+  ui:
+    views:
+      - id: manage
+        placement: sidebar-surface
+        entry: garrison:manage
+        route: /
   platforms:
     - claude-code
   summary: Scheduled loop that wakes the operative and dispatches through the gateway.
@@ -19,13 +25,27 @@ x-garrison:
     - key: gateway_url
       type: string
       default: http://127.0.0.1:4777/jobs
-      description: Gateway endpoint that receives heartbeat jobs.
+      description: >-
+        Gateway endpoint that receives heartbeat jobs. Base-family port (4777);
+        applyPortOffsetToConfig shifts it per profile (prod +1000, codex
+        +20000). The old 24777 default named the CODEX gateway, so it shifted to
+        25777 on prod and 44777 on codex - wrong on all three.
   provides:
     - kind: automation-runner
       name: loop-heartbeat
   consumes:
     - kind: orchestrator
       cardinality: one
+    # The heartbeat is dispatched by the scheduler, which supervises it as a
+    # listener. Without one the Fitting cannot tick at all, so this is a hard
+    # dependency, not an optional one.
+    - kind: automation-runner
+      name: scheduler
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
   verify:
     command: node apm_modules/_local/loop-heartbeat/scripts/heartbeat.mjs --probe
     expect: ok

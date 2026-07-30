@@ -1,4 +1,4 @@
-name: dogfood-operative
+name: dogfood-dev
 version: 0.1.0
 target: claude
 dependencies:
@@ -389,8 +389,20 @@ x-garrison:
               standard drill pass: plan/update the plan for changed pages, gate for approval, then
               run and report findings.
             cell:
-              target: cc-sonnet
-              effort: medium
+              target: cc-opus
+              effort: high
+          - description: >-
+              deep: the same stages at maximum reasoning, for an unfamiliar or large surface, or a
+              page whose checks keep coming back ambiguous.
+            cell:
+              target: cc-opus
+              effort: max
+          - description: >-
+              frontier: the hardest surfaces, where even a maximum-effort pass cannot settle what
+              the page is supposed to prove.
+            cell:
+              target: fable
+              effort: max
       - id: adversarial-review
         title: Adversarial Review
         description: Independent cross-model review that tries to refute the change.

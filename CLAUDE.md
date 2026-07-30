@@ -63,10 +63,10 @@ validators land in the runtime SDK milestone.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. **17 in total** (`facultyIds` in `src/lib/types.ts`): **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Views section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
+- **Faculty** — a **role** slot in a composition. **17 in total** (`facultyIds` in `src/lib/types.ts`): **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
-- **Views** — sidebar group, auto-populated for the current composition. Surfaces embedded views (Fittings declaring `placement: sidebar-surface`) and own-port live links (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
-- **Lifecycle for own-port Fittings** — declared via `x-garrison.lifecycle` (`operative-bound` is the default; `detached` opts out). During `up` the runner auto-starts ONLY the eager-toggled own-port Fittings; non-eager ones start on demand from the Views UI (`/api/fittings/[id]/start`, which injects the running composition's env — gateway URL, composition id, selection config, vault — via `operativeEnvForFitting`). `down` still stops every running operative-bound Fitting by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. Eager-toggled Fittings are server-lifecycle — they survive both the startup orphan sweep and `down` — and every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock, `up`, or eager boot.
+- **Fittings (sidebar group)** — auto-populated for the current composition; lists EVERY equipped Fitting (2026-07-29 refit: every Fitting has a view). Embedded views open at `/fitting/<id>` (the view IS the page — the old per-fitting overview/config page is gone); own-port live links embed at `/embed/<id>` (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
+- **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
 - **Armory** — `/armory`, the Fitting registry browser.
 - **Fitting** — the concrete component installed into a slot.
 - **Operative** — the composed, running agent (the user's real Claude Code session post-pivot).
@@ -137,8 +137,8 @@ tests/               Vitest suite — runner, capabilities, metadata,
 ```
 
 The visible shell surfaces are **Garrison · Composition · Vault ·
-Quarters**, plus the collapsible sidebar **Quarters** and **Views** groups
-(Views auto-populated per composition) and per-Fitting routes under
+Quarters**, plus the collapsible sidebar **Quarters** and **Fittings** groups
+(Fittings auto-populated per composition) and per-Fitting routes under
 `/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
 merged into the Garrison dashboard** (the home route; `/run` redirects to
 `/`) and the **Armory folded into Composition** (Fitting discovery is the
@@ -153,7 +153,8 @@ Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
 `orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
 `sessions`, `surfaces`, `modes`. The 2026-06-18 split carved the overloaded `sessions`
 role into three: `sessions` keeps the Dev Env surface + artifact store,
-`runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini),
+`runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini /
+OpenCode / Cursor),
 and `surfaces` holds the auxiliary own-port viewers (screen-share / browser /
 outpost). Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings,
 Context, Plans — is now a **Quarters platform primitive** surfaced over the real
@@ -212,6 +213,54 @@ derived by the resolver from `ui.views[]` / `own_port`, never declared in
 `data-source` (2026-06-26, superseded by `connector`) and `artifact-store`
 (the file-browser Fitting is the artifact surface).
 
+### Runtime engines (adding one)
+
+Engine names live in the runtime Fitting's `provides: [{kind: runtime, name}]`;
+nothing else derives them. A new exec-style engine (a stateless
+`run`/`exec` subprocess per turn, prompt on stdin) is one Fitting +
+a short list of registrations:
+
+- `fittings/seed/<engine>-runtime/` — `apm.yml`, `lib/<engine>-adapter.mjs`
+  (the RuntimeAdapter), `scripts/bridge.mjs` (`--probe` + `delegate`).
+  The adapter file/class names are load-bearing: `resolveSecondaryDir` imports
+  `lib/<engine>-adapter.mjs`.
+- `data/library.json` — the registry entry that makes it selectable.
+- `gateway-routing.mjs` — `EXEC_ADAPTER_CLASS` (the ONE registry; the secondary
+  lane and the primary warm seam both read it), `EXEC_ENGINE_DEFAULTS`,
+  `KNOWN_PRIMARY_ENGINES`, and `effortControllable` / `accountPlatformForTarget`
+  when the engine lacks an effort control or an account vehicle.
+- `AGENTIC_RUNTIMES` in `src/lib/router-migrate.ts` **and**
+  `src/components/muster/cell-validation.ts`; the runtime marks in
+  `MusterView.tsx` / `PolicyPanel.tsx`.
+- `PRIMARY_CONTEXT_FILES` in `src/lib/orchestrator-projection.ts` when the engine
+  reads a native context file — that map is also the list `up()` projects for.
+
+**Cursor (2026-07-29).** `cursor-runtime` drives `cursor-agent -p
+--output-format json` (prompt on stdin, one JSON result object, `--resume`
+continuity), as a secondary target or as the PRIMARY. Two traps worth
+remembering: (1) Cursor encodes reasoning **effort in the model id**
+(`gpt-5.3-codex-low` vs `-high`) — there is no effort flag, so escalation means
+routing to another model; (2) every instance profile redirects
+`XDG_CONFIG_HOME`, and that is exactly where Cursor keeps its login, so the
+fitting's setup hook symlinks the real `~/.config/cursor` into the instance's XDG
+home — without it a logged-in box reads as unauthenticated. Cursor has no
+Garrison AccountPlatform, so the Fitting declares no `account` key and its
+targets declare no `provider` (the routing validator only knows providers from
+the policy's `providers` section). `compositions/csg/` is the all-Cursor
+composition: `primaryRuntime: cursor-runtime` plus a cursor-only target set.
+
+**`routing_on_primary` (http-gateway config, added with Cursor, default off).**
+Pins the whole routing brain — Stage-A classification AND the Dispatcher's
+single-shot call — to the primary runtime's own adapter. One key, because
+splitting them invites a composition that routes half on the primary and half on
+a second engine. Both halves otherwise reach elsewhere: the classifier defaults
+to a cheap Claude Code haiku PTY *whatever the primary is* (and
+`claudeCodeResolvable` is only a PATH probe — on an instance whose
+`CLAUDE_CONFIG_DIR` is not logged in the pool half-starts and every turn logs
+`classify-failed` and falls through, silently), while the Dispatcher calls
+through `garrison-call`, which speaks HTTP wire shapes only and cannot reach a
+CLI engine at all. Default-off keeps every existing composition byte-identical.
+
 ### The runner (`src/lib/runner.ts`)
 
 `up` order:
@@ -242,12 +291,20 @@ file changes trigger `apm install` + restart.
 **Setup vs verify**: setup is side-effect-causing prep (clones, `uv sync`,
 host-config writes); verify is read-only. Don't mix.
 
-### UI contract v2 (Phase 3)
+### UI contract v2 (Phase 3) — every Fitting has a view
 
 Fittings declare N views in `x-garrison.ui.views[]`. Each view has an `id`,
 a `placement` (`faculty-tab` | `sidebar-surface`), an `entry` path, and a
 `route` fragment. The view registry at
 `src/components/fitting-views/registry.tsx` is **static** in v2.
+
+**A view is mandatory (2026-07-29 refit)**: every Fitting declares at least
+one `ui.views[]` entry or `own_port: true`; the validation pipeline rejects a
+viewless manifest. The common shapes need no code — point `entry` at a shared
+host view: `garrison:skill` (SKILL.md frontmatter+body editor),
+`garrison:prompt`, `garrison:runtime` (config + Test probe),
+`garrison:connector`, `garrison:manage` (config + capabilities + files).
+Authoring guide: `docs/UI-FITTINGS.md`.
 
 Cross-Fitting links use `garrison://<fitting-id>/<rest>` in message bodies.
 Renderers translate them to `/fitting/<fitting-id>/<rest>`.
@@ -450,6 +507,24 @@ file double-fires every scheduled job.
   **existing** branch is fine. Work stays on the current/specified
   branch; to recover "lost" work, check existing branches / reflog /
   stash and `git checkout` the existing branch — don't invent one.
+- **Work lands by pushing straight to `main`. That is the intended flow here.**
+  `main` carries a GitHub branch-protection rule ("Changes must be made through
+  a pull request"), and the owner (`gongiskhan`) holds a **bypass** on it. So a
+  direct `git push origin main` succeeds and GitHub prints:
+
+  ```
+  remote: Bypassed rule violations for refs/heads/main:
+  remote: - Changes must be made through a pull request.
+  remote: - Cannot update this protected ref.
+  ```
+
+  **That output is expected and means the push landed.** Do not treat it as a
+  warning, do not flag it as a problem, and do not offer to move the work onto a
+  branch and open a PR instead. The protection exists to stop *other* accounts
+  pushing to `main`, not the owner. The PR flow described in
+  [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md) is for outside contributors.
+  (This is a solo, single-maintainer repo — see the environment notes: no team,
+  no shared infrastructure, no one else's work to break.)
 - **Don't optimise the Faculty list further before §10 DoD is
   observable.** New Faculties land only when a real Fitting needs one.
 - **Don't add a new capability kind speculatively.** Add one when a Fitting

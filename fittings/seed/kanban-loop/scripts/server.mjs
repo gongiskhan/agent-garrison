@@ -39,10 +39,13 @@ import {
   cardBriefFile,
   cardBriefRel,
   normalisePlacement,
+  sanitiseCardRouting,
   atomicWriteJSON
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
+// Kanban → Drill handoff: a done card's change brief, posted to the Drill fitting.
+import { sendCardToDrill, drillEligibility, resolveDrillProject, drillStamp } from "../lib/drill-handoff.mjs";
 import { readOriginRecord, readOriginEventsSince } from "../lib/origins.mjs";
 // S3c: steering sidecars (steering.md guidance + steering.json revisit directive).
 import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringApplied, readSteeringDirective, isEarlierPhase } from "../lib/steering.mjs";
@@ -62,11 +65,18 @@ import {
   parkFields,
   ATTENTION_LIST
 } from "../lib/engine.mjs";
+import {
+  kanbanModelFile,
+  loadResolvedModel,
+  hasExecutionModel,
+  resolveCardSequence,
+  executionRouteFor
+} from "../lib/resolved-model.mjs";
 import { batchGatewayRunFn } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
-import { loadPolicy, railForCard, railIsManualOnly } from "../lib/policy.mjs";
+import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
   readTouchSet,
   coordinationConfig,
@@ -201,6 +211,54 @@ export function buildBoardView(board, cards) {
 // The card fields the board front renders: title, project chip, list, iter/cap,
 // goalMode, status — plus the pointer set (so the UI can show Open without a
 // second fetch). It is a projection, not a copy of any artifact body.
+// ── expected execution identity (the badges a card carries BEFORE it runs) ───
+//
+// card.lastRoute only exists once a turn has SETTLED, so a queued card — and a
+// card for the entire duration of its run, which is exactly when you want to know
+// what is burning — showed no runtime/model/effort at all. The resolved model the
+// runner projects to ~/.garrison/kanban-loop/model.json already knows the answer
+// for any (duty, level, phase), so compute and serialize it. It is labelled
+// EXPECTED and rendered dashed in the UI: it is what the card WILL run on, never
+// a claim about what did run.
+let _modelCache = { key: null, model: null };
+function resolvedModelCached(root) {
+  try {
+    const file = kanbanModelFile(root);
+    const key = `${file}:${statSync(file).mtimeMs}`;
+    if (_modelCache.key !== key) _modelCache = { key, model: loadResolvedModel(root) };
+    return _modelCache.model;
+  } catch {
+    return null;
+  }
+}
+
+export function expectedRouteFor(card, model) {
+  if (!card || !model || !hasExecutionModel(model)) return null;
+  const duty = typeof card.duty === "string" && card.duty ? card.duty : null;
+  if (!duty) return null;
+  const level = Number.isInteger(card.level) ? card.level : 1;
+  const sequence = resolveCardSequence(card, model) || [];
+  // On a phase list, the phase IS that list. Off one (backlog / todo / done), show
+  // the FIRST phase of the card's sequence — the step it would run next.
+  const idx = sequence.indexOf(card.list);
+  const phase = idx >= 0 ? card.list : (sequence[0] ?? null);
+  const stepIndex = idx >= 0 ? idx : (sequence.length ? 0 : null);
+  const r = executionRouteFor({ duty, level, phase, stepIndex }, model);
+  if (!r) return null;
+  const t = r.target && typeof r.target === "object" ? r.target : {};
+  return {
+    targetId: r.targetId ?? null,
+    runtime: t.runtime ?? null,
+    provider: t.provider ?? null,
+    model: t.model ?? null,
+    effort: t.effort ?? null,
+    phase: r.phase ?? phase ?? null,
+    duty,
+    level,
+    skill: r.skill ?? null
+  };
+}
+
 export function cardSummary(card) {
   // The card's LATEST commit fence (S2, Q5) — the board shows only the most recent
   // one as a subtle chip; the full chain lives on the card, not in this projection.
@@ -227,6 +285,12 @@ export function cardSummary(card) {
     workKind: card.workKind ?? null,
     phases: card.phases ?? null,
     tier: card.tier ?? null,
+    // RUN-SPEC-V1: the card's explicit run spec. It MUST cross the projection or
+    // the whole control is write-only — the engine reads the card from disk, so a
+    // spec left out here is still honored at run time but can never be shown back
+    // to the user or pre-filled for an edit. ("What did I choose for this card?"
+    // has to be answerable from the card.)
+    routing: card.routing ?? null,
     origin: card.origin ?? null,
     outpost: card.outpost ?? null,
     // Outpost Dispatch: WHERE the card runs, and the live claim ledger. Both
@@ -286,6 +350,10 @@ export function cardSummary(card) {
           preparedAt: card.preparedRevert.preparedAt ?? null
         }
       : null,
+    // The card's Drill handoff, if it was ever sent: { state (planning | running |
+    // passed | failed | error), jobId, runUrl, findings, … }. The board renders it
+    // as a chip on a done card + the Send-to-Drill button's live state.
+    drill: card.drill ?? null,
     // Why a card is parked + where it came from (set by the engine when it moves a
     // card to the needs-attention column). The UI shows the reason on the card.
     attentionReason: card.attentionReason ?? null,
@@ -306,6 +374,13 @@ export function cardSummary(card) {
     // null when no turn has routed yet / souls mode. The board renders a small
     // "<phase> @ <model>" chip from it.
     lastRoute: lastRouteOf(card),
+    // What this card WILL run on (resolved from its duty/level + the current phase),
+    // so a queued or in-flight card carries runtime/model/effort badges too — not
+    // just a card whose turn already settled.
+    // kanbanRoot() explicitly, not an implicit default: it is the SAME source
+    // parseArgs uses for opts.root, so the badge can never resolve its model from a
+    // different instance's kanban home than the rest of the server reads.
+    expectedRoute: expectedRouteFor(card, resolvedModelCached(kanbanRoot())),
     eventCount: Array.isArray(card.events) ? card.events.length : 0,
     runningSince: card.runningSince ?? null,
     // Project-inference state for a no-project card: running | done | none | skipped |
@@ -1087,9 +1162,25 @@ async function handleCreateCard(req, res, opts) {
     // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
     // phase toggles merged over it, the tier (direct field or the D8 payload's
     // classification), and the origin of the registration.
-    workKind: typeof body.workKind === "string" ? body.workKind : null,
-    phases: body.phases && typeof body.phases === "object" ? body.phases : null,
-    tier: typeof body.tier === "string" ? body.tier : (typeof body.classification?.tier === "string" ? body.classification.tier : null),
+    // RUN-SPEC-V1: the work kind, the tier and the phase toggles all have a home
+    // inside the card's `routing` pin now, so accept EITHER spelling and let the
+    // pin win. The legacy top-level fields stay for the gateway's card payload
+    // builder and every existing API client; the UI sends only the pin.
+    workKind:
+      typeof body.workKind === "string" ? body.workKind : (typeof body.routing?.workKind === "string" ? body.routing.workKind : null),
+    // The CSV pin is the ONE wire form for "phases off" (the same converter the
+    // gateway uses); the toggle map remains what the card stores, because that is
+    // what railForCard reads.
+    phases: body.phases && typeof body.phases === "object" ? body.phases : phaseTogglesFromCsv(body.routing?.phasesOff),
+    tier:
+      typeof body.tier === "string"
+        ? body.tier
+        : typeof body.routing?.tier === "string"
+          ? body.routing.tier
+          : typeof body.classification?.tier === "string"
+            ? body.classification.tier
+            : null,
+    routing: body.routing ?? null,
     origin: typeof body.origin === "string" ? body.origin : null,
     // Where the task came from ({channel, threadId}) — createCard validates the
     // shape; the engine posts the card's outcome back to that thread.
@@ -1367,6 +1458,23 @@ async function handlePatchCard(req, res, opts, id) {
     next.sliceId = s || null;
   }
   if (typeof body.acceptance === "string") next.acceptance = body.acceptance;
+  // RUN-SPEC-V1: the card's explicit run spec is EDITABLE, unlike the create-only
+  // workKind/tier/duty it partly supersedes. A control you can set once and never
+  // correct is not a control - and the common case is exactly "this parked card
+  // should have run on opus". Engine-owned cards are already refused above
+  // (isEngineOwned), so this can only reach a card the human still holds.
+  //
+  // Whole-object replace, not a merge: `null` on a field means "back to automatic",
+  // and a merge could never express that. Sending `routing: null` clears the lot.
+  if (body.routing !== undefined) {
+    next.routing = sanitiseCardRouting(body.routing);
+    // The three fields the card ALSO stores flat (they are read by railForCard and
+    // the classification hint) are re-derived, or the two copies disagree the
+    // moment a spec is edited.
+    next.workKind = next.routing?.workKind ?? null;
+    next.tier = next.routing?.tier ?? null;
+    next.phases = phaseTogglesFromCsv(next.routing?.phasesOff);
+  }
   // Outpost Dispatch: WHERE the card runs. `host` (the default) means the local
   // operative; any other value names a paired machine that must pull the card
   // via the dispatch API. Editable by a human ONLY before a worker has claimed
@@ -1390,6 +1498,18 @@ async function handlePatchCard(req, res, opts, id) {
   if (isEngineRequest(req) && body.dispatch !== undefined) {
     next.dispatch = body.dispatch === null ? null : body.dispatch;
   }
+  // A claimed card must READ as running on the board, or a card being worked on
+  // by a Mac looks idle here. Safe to set only because isOrphanedRun now skips a
+  // card held by a live dispatch claim — otherwise the local orphan sweep would
+  // reclaim a perfectly healthy remote run once it passed the single-turn age
+  // ceiling (the runOwner pid belongs to another host, so its liveness check is
+  // meaningless there).
+  if (isEngineRequest(req) && typeof body.status === "string") {
+    next.status = body.status;
+  }
+  if (isEngineRequest(req) && body.runningSince !== undefined) {
+    next.runningSince = typeof body.runningSince === "string" ? body.runningSince : null;
+  }
   if (isEngineRequest(req) && typeof body.attentionReason === "string") {
     next.attentionReason = body.attentionReason;
   }
@@ -1405,6 +1525,7 @@ async function handlePatchCard(req, res, opts, id) {
   }
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
   const result = await saveCardCAS(root, next, expectedRev);
+  if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
 
   // "Moving to Plan starts planning": when the card is MOVED onto an immediate agent
@@ -1638,6 +1759,113 @@ async function handleAbandonCard(req, res, opts, id) {
   return jsonRes(res, 200, { card: cardSummary(updated), preparedRevert: cardSummary(updated).preparedRevert });
 }
 
+// POST /cards/:id/drill — hand this card's change to Drill: plan the checks for it,
+// run them, and notify when the verdict is in. Human-only and `done`-only: the point
+// is "the change landed, now prove it works", and a card that has not landed has no
+// change to test. Idempotent-ish by way of Drill's own per-card in-flight guard — a
+// second press while a job runs joins that job (started:false) instead of starting a
+// competing plan against the same repo.
+async function handleSendToDrill(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin drill dispatch rejected" });
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id;
+
+  const eligible = drillEligibility(card);
+  if (!eligible.ok) return jsonRes(res, 400, { error: eligible.reason });
+
+  // A card's `project` is a LABEL ("garrison"), not necessarily a path. Drill
+  // pins its plan + run to an absolute root and rejects anything else, so
+  // resolve the label here through the board's own project resolution.
+  const board = await loadBoard(root);
+  const resolved = resolveDrillProject(card, board, repoPathForProject);
+  if (resolved.error) return jsonRes(res, 400, { error: resolved.error });
+
+  let handoff;
+  try {
+    handoff = await sendCardToDrill(root, card, { repoPath: resolved.repoPath });
+  } catch (err) {
+    // A failed handoff is stamped on the card, not just returned: the user
+    // pressed a button and walked away, and "it never went" has to be visible
+    // on the board too, not only in the toast they may not have seen.
+    const message = err?.message || String(err);
+    await updateCard(root, id, (c) => ({
+      ...c,
+      drill: drillStamp({ state: "error", error: message }),
+      events: withEvent(c, { at: new Date().toISOString(), kind: "dispatch", message: `Send to Drill failed — ${message}` })
+    }));
+    return jsonRes(res, 502, { error: message });
+  }
+
+  const job = handoff.job ?? null;
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    drill: drillStamp({
+      state: job?.state ?? "planning",
+      jobId: job?.id ?? null,
+      // No per-job route exists in Drill's UI (it routes ?view=…&run=…), so
+      // while the job is still planning the link is Drill's Run & results view.
+      // Once the run exists, drill-result replaces this with the run's own URL.
+      drillUrl: handoff.drillUrl,
+      jobUrl: `${handoff.drillUrl}/?view=results`
+    }),
+    events: withEvent(c, {
+      at: new Date().toISOString(),
+      kind: "dispatch",
+      message: handoff.started
+        ? "Sent to Drill — planning the test for this change, then running it"
+        : "Already being drilled — joined the in-flight job"
+    })
+  }));
+  return jsonRes(res, 200, { card: cardSummary(updated ?? card), job, started: handoff.started });
+}
+
+// POST /cards/:id/drill-result — Drill's completion callback, and one of the four
+// notification means (broadcast.mjs): the verdict lands back ON the card, so the
+// board shows it without opening Drill. Engine-context (Drill posts it), never a
+// human action.
+async function handleDrillResult(req, res, opts, id) {
+  const root = opts.root;
+  const body = (await readBody(req)) ?? {};
+  const state = ["passed", "partial", "failed", "error"].includes(body.state) ? body.state : null;
+  if (!state) return jsonRes(res, 400, { error: "state must be passed | partial | failed | error" });
+
+  const text = (v, max = 400) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  const findings = num(body.findings) ?? 0;
+  const headline = text(body.headline, 1200);
+  const unproven = num(body.unproven) ?? 0;
+  const message =
+    state === "passed"
+      ? "Drill passed — every check on this change's pages passed"
+      : state === "partial"
+        ? `Drill passed what it could prove — ${unproven} check${unproven === 1 ? "" : "s"} unproven, so this change is not fully verified`
+        : state === "failed"
+          ? `Drill found ${findings} issue${findings === 1 ? "" : "s"} on this change`
+          : "Drill could not finish this change's test run";
+
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    drill: drillStamp({
+      state,
+      jobId: text(body.jobId, 64),
+      runId: text(body.runId, 64),
+      runUrl: text(body.runUrl, 500),
+      findings,
+      checks: num(body.checks),
+      failed: num(body.failed),
+      unproven,
+      // Keep the dispatch link so the card can still reach Drill after the job ends.
+      drillUrl: typeof c.drill?.drillUrl === "string" ? c.drill.drillUrl : null
+    }),
+    events: withEvent(c, { at: new Date().toISOString(), kind: state === "passed" ? "dispatch" : "failed", message, detail: headline })
+  }));
+  if (!updated) return jsonRes(res, 404, { error: `card not found: ${id}` });
+  return jsonRes(res, 200, { card: cardSummary(updated) });
+}
+
 // POST /cards/:id/revert — apply a card's prepared revert (S2, Q7, D8). Requires an
 // EXPLICIT { confirm: true } body — anything else is a 400 (the revert is NEVER
 // auto-applied). Runs only when a descriptor in state "prepared" exists; a
@@ -1834,6 +2062,7 @@ async function handleStartCard(req, res, opts, id) {
     }
     const next = { ...card, list: target, status: "ok", events, ...recover };
     const result = await saveCardCAS(root, next, card.rev ?? 0);
+    if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
     // If we advanced onto an immediate agent list, kick the automated flow.
     if (shouldAutoDispatch(board, target) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
@@ -2371,6 +2600,56 @@ function handleProjects(req, res) {
   jsonRes(res, 200, { devRoot, projects });
 }
 
+// Same-origin proxy of the gateway's route-options vocabulary (RUN-SPEC-V1).
+//
+// Short-TTL cached: the New Card sheet fetches it on every open, and the menu
+// vocabulary changes only when the composition is recomposed. A DEGRADED answer
+// (gateway down) is cached far more briefly - the usual cause is a fitting still
+// coming up, and pinning "nothing available" for a full TTL reads as a broken UI.
+//
+// `sources.gateway: false` is the honest signal the UI renders as "start the
+// operative to choose a runtime" instead of drawing empty dropdowns.
+const ROUTE_OPTIONS_TTL_MS = 10_000;
+const ROUTE_OPTIONS_DEGRADED_TTL_MS = 2_000;
+let routeOptionsCache = null; // { expiresAt, body }
+
+async function handleRouteOptions(req, res, opts) {
+  const refresh = /[?&]refresh=(1|true)\b/.test(req.url || "");
+  if (!refresh && routeOptionsCache && routeOptionsCache.expiresAt > Date.now()) {
+    return jsonRes(res, 200, routeOptionsCache.body);
+  }
+  let gateway = null;
+  if (opts?.gatewayUrl) {
+    try {
+      const target = new URL("/route/options", opts.gatewayUrl);
+      const r = await fetch(target, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(2500) });
+      if (r.ok) {
+        const j = await r.json();
+        if (j && typeof j === "object" && !Array.isArray(j)) gateway = j;
+      }
+    } catch {
+      gateway = null; // gateway down → a degraded, honest answer, never a 500
+    }
+  }
+  const body = {
+    targets: [],
+    duties: [],
+    efforts: [],
+    accounts: [],
+    tiers: [],
+    workKinds: [],
+    defaultWorkKind: null,
+    projects: [],
+    ...(gateway ?? {}),
+    sources: { gateway: gateway !== null }
+  };
+  routeOptionsCache = {
+    expiresAt: Date.now() + (gateway ? ROUTE_OPTIONS_TTL_MS : ROUTE_OPTIONS_DEGRADED_TTL_MS),
+    body
+  };
+  jsonRes(res, 200, body);
+}
+
 // GET /skills — the skills installed under ~/.claude/skills, for the list-config skill
 // field. Returns { skills:[{name,description}] }. Best-effort (empty when none found).
 function handleSkills(req, res) {
@@ -2515,12 +2794,16 @@ function parseArgs(argv) {
     host: process.env.GARRISON_KANBANLOOP_BIND_HOST || process.env.KANBAN_UI_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     root: kanbanRoot(),
     cwd: projectRoot(),
-    // Default to the gateway's conventional URL (like the web channel) so the board can
-    // dispatch agent-list runs even when GARRISON_GATEWAY_URL isn't explicitly injected.
-    // The runner injects the live URL; this default covers the common :4777 gateway.
+    // The gateway this instance dispatches through. NO literal port fallback (HARD
+    // RULE: never hardcode a port) — the old default was :4777, the DEV gateway, so a
+    // prod/codex board that lost its env would have silently dispatched into another
+    // instance's operative rather than failing visibly. A null here disables Start on
+    // agent lists (handled downstream) and is logged at boot.
     gatewayUrl:
-      process.env.GARRISON_GATEWAY_URL ||
-      `http://127.0.0.1:${process.env.GARRISON_GATEWAY_PORT || "4777"}`,
+      (process.env.GARRISON_GATEWAY_URL || "").trim() ||
+      (/^[0-9]+$/.test(String(process.env.GARRISON_GATEWAY_PORT || "").trim())
+        ? `http://127.0.0.1:${String(process.env.GARRISON_GATEWAY_PORT).trim()}`
+        : null),
     cap: Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10)
   };
   for (let i = 0; i < argv.length; i++) {
@@ -2571,6 +2854,13 @@ export function makeRequestHandler(opts, distDir) {
           phaseSkills: policy.phaseSkills || { bindings: {}, overrides: {} }
         });
       }
+      // GET /route-options — same-origin PROXY of the gateway's GET /route/options,
+      // exactly as the web channel does it. The run-spec dropdowns on the New Card
+      // sheet are populated from the SAME vocabulary the gateway validates a pin
+      // against, so the form can never offer a target/tier/work kind that would then
+      // be refused. Deliberately a proxy and not a second reader of policy.json:
+      // two shapes over one file is how the two surfaces drift apart.
+      if (pathname === "/route-options" && method === "GET") return await handleRouteOptions(req, res, opts);
       if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
       if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
       // Same-origin SSE proxy of the gateway's live operative terminal screen
@@ -2606,7 +2896,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachment|\/session-stream|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachment|\/session-stream|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -2623,6 +2913,8 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/watch" && method === "GET") return await handleWatchCard(req, res, opts, id);
         if (sub === "/handoff" && method === "GET") return await handleGetHandoff(req, res, opts, id);
         if (sub === "/steer" && method === "POST") return await handleSteerCard(req, res, opts, id);
+        if (sub === "/drill" && method === "POST") return await handleSendToDrill(req, res, opts, id);
+        if (sub === "/drill-result" && method === "POST") return await handleDrillResult(req, res, opts, id);
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);
@@ -2663,6 +2955,31 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   } catch (err) {
     console.error("[kanban-loop] interrupted-run recovery failed:", err?.message || err);
+  }
+
+  // Re-register the scheduler tick from HERE, where this instance's gateway URL is
+  // actually in scope. The job command is PERSISTED in the scheduler's jobs file, so
+  // a job registered once — by the apm.yml setup hook, which never sees a gateway URL
+  // — stays wrong forever. That is how prod ended up ticking against the DEV gateway
+  // (:4777) indefinitely: every 2 minutes it logged "gateway not reachable" and did
+  // nothing, so no card was ever dispatched, advanced or swept by the tick.
+  // Registration is idempotent (remove + add), so doing it on every boot makes a
+  // stale job self-healing on restart instead of needing a manual repair.
+  if (liveOpts.gatewayUrl) {
+    try {
+      const { registerTick } = await import("./kanban.mjs");
+      const { syncAllBeats } = await import("../lib/scheduler-beats.mjs");
+      process.env.GARRISON_GATEWAY_URL = process.env.GARRISON_GATEWAY_URL || liveOpts.gatewayUrl;
+      await registerTick();
+      // The per-list BEATS (the Test list) have the identical problem and the identical
+      // fix: only the setup hook ever registered them, and it has no gateway URL, so
+      // kanban-test-beat was as dead as the tick was.
+      await syncAllBeats(await loadBoard(liveOpts.root), { log: () => {} }).catch(() => {});
+    } catch (err) {
+      console.error("[kanban-loop] tick re-registration failed:", err?.message || err);
+    }
+  } else {
+    console.warn("[kanban-loop] no gateway URL — the scheduler tick was NOT re-registered and cannot dispatch");
   }
 
   const server = http.createServer(makeRequestHandler(liveOpts, distDir));

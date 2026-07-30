@@ -70,7 +70,13 @@ def gateway_url() -> str:
     if explicit:
         return explicit.rstrip("/")
     host = os.environ.get("GARRISON_GATEWAY_HOST", "127.0.0.1")
-    port = os.environ.get("GARRISON_GATEWAY_PORT", "24777")
+    port = os.environ.get("GARRISON_GATEWAY_PORT")
+    if not port:
+        # HARD RULE: never a port literal for one instance. The gateway is the
+        # base-family 4777 shifted by the instance profile's offset (prod
+        # +1000, codex +20000), exactly like scripts/garrison-instance.sh.
+        offset = int(os.environ.get("GARRISON_PORT_OFFSET", "0") or "0")
+        port = str(4777 + offset)
     return f"http://{host}:{port}"
 
 

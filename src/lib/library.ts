@@ -30,13 +30,12 @@ export async function readRawLibrary(): Promise<RawLibraryEntry[]> {
 }
 
 export async function writeRawLibrary(entries: RawLibraryEntry[]): Promise<void> {
-  // Match the existing on-disk style byte-for-byte: 1-space indent, non-ASCII
-  // escaped to \uXXXX, no trailing newline. Keeps an append (e.g. a clone) to a
-  // one-line diff instead of reformatting the whole registry.
-  const json = JSON.stringify(entries, null, 1).replace(
-    /[^\x00-\x7f]/g,
-    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
-  );
+  // Match the on-disk style so an append (a clone, a newly registered seed
+  // fitting) is a few added lines and not a whole-file reformat. The registry
+  // is now 2-space indented with a trailing newline and literal UTF-8 - the
+  // earlier 1-space/\uXXXX-escaped style this function used had drifted from
+  // the file, so every write through the UI rewrote all 768 lines.
+  const json = `${JSON.stringify(entries, null, 2)}\n`;
   // Atomic (temp + rename) so a concurrent reader never catches a torn file.
   await writeFileAtomic(LIBRARY_PATH, json);
 }

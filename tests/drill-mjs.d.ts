@@ -4,13 +4,15 @@ declare module "*/drill/lib/store.mjs" {
   export function drillTargetRoot(): string;
   export function safeId(id: string): string;
   export function defaultDrillBook(): any;
-  export function getDrillBook(): Promise<any>;
-  export function saveDrillBook(patch: any): Promise<any>;
+  // Every store function takes an optional trailing `root` so a long-lived
+  // request can pin the target repo it started against.
+  export function getDrillBook(root?: string): Promise<any>;
+  export function saveDrillBook(patch: any, root?: string): Promise<any>;
   export function defaultPage(pageId: string): any;
-  export function listPages(): Promise<any[]>;
-  export function getPage(pageId: string): Promise<any | null>;
-  export function savePage(pageId: string, patch: any): Promise<any>;
-  export function deletePage(pageId: string): Promise<boolean>;
+  export function listPages(root?: string): Promise<any[]>;
+  export function getPage(pageId: string, root?: string): Promise<any | null>;
+  export function savePage(pageId: string, patch: any, root?: string): Promise<any>;
+  export function deletePage(pageId: string, root?: string): Promise<boolean>;
   export function parseAreaRef(ref: string): { pageId: string; areaId: string } | null;
 }
 declare module "*/drill/lib/ulid.mjs" {
@@ -94,12 +96,17 @@ declare module "*/drill/lib/spec-emit.mjs" {
   export function emitAssertionCode(assertion: any): string;
   export function emittableSteps(page: any): any[];
   export function emitPageSpec(page: any, targetUrl: string): string;
+  export function isProvenAssertion(step: any): boolean;
 }
 declare module "*/drill/lib/graduate.mjs" {
   export function harvestResolvedActions(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
   export function specRelPath(pageId: string): string;
   export function graduationPlanFor(step: any, outcome: any, automationRun?: any): any;
   export function graduateStep(book: any, pageId: string, stepId: string, plan: any): Promise<any>;
+  export function actionPinFor(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
+  export function pinStepActions(book: any, pageId: string, stepId: string, actions: any[], root?: string): Promise<any>;
+  export function confirmsAuthoredAssertion(step: any, outcome: any): boolean;
+  export function promoteAuthoredAssertion(book: any, pageId: string, stepId: string, root?: string): Promise<any>;
 }
 declare module "*/drill/lib/snapshots.mjs" {
   export function drillHomeDir(): string;
@@ -166,5 +173,26 @@ declare module "*/drill/lib/video-tighten.mjs" {
   export function probeDurationSec(file: string): Promise<number | null>;
   export function buildTightVideo(args: {
     dir: string; source?: string; frames?: any[]; steps?: any[]; options?: any; timeoutMs?: number;
+  }): Promise<any>;
+}
+declare module "*/drill/lib/video-compose.mjs" {
+  export const COMPOSE_DEFAULTS: {
+    maxSegments: number; minGapSec: number; gapPlaySec: number;
+    minSpeed: number; maxSpeed: number; titleSec: number; fps: number;
+    crf: number; gopFrames: number; captionSec: number; minCaptionSec: number;
+  };
+  export interface ComposeSegment { start: number; end: number; speed: number }
+  export function buildComposePlan(args: {
+    windows: Array<[number, number]>; durationSec: number; options?: any;
+  }): ComposeSegment[];
+  export function composedDurationSec(plan: ComposeSegment[]): number;
+  export function remapComposedOffset(plan: ComposeSegment[], originalSec: number): number | null;
+  export function buildCaptions(args: {
+    plan: ComposeSegment[]; steps?: any[]; titleSec?: number; options?: any;
+  }): Array<{ start: number; end: number; text: string }>;
+  export function captionsToSrt(entries: Array<{ start: number; end: number; text: string }>): string;
+  export function srtTimestamp(sec: number): string;
+  export function buildRunVideo(args: {
+    dir: string; source?: string; frames?: any[]; steps?: any[]; title?: string | null; options?: any; timeoutMs?: number;
   }): Promise<any>;
 }

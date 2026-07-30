@@ -419,7 +419,7 @@ function OwnPortRow({
   );
 }
 
-function OwnPortControls({
+export function OwnPortControls({
   entry,
   view,
   refresh,
@@ -524,7 +524,7 @@ function OwnPortControls({
 // Polls /api/fittings/<id>/logs every 1.5s while mounted. Auto-scrolls to
 // the bottom only when the user is already pinned there, so they can scroll
 // up to read without being yanked back.
-function LogPanel({ fittingId }: { fittingId: string }) {
+export function LogPanel({ fittingId }: { fittingId: string }) {
   const [content, setContent] = useState<string>("");
   const [exists, setExists] = useState<boolean>(true);
   const [truncated, setTruncated] = useState<boolean>(false);

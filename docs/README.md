@@ -90,7 +90,7 @@ Source layout:
 - `compositions/<id>/apm.yml` — source of truth for each composition.
 - `fittings/seed/` — local APM seed Fittings.
 - `src/` — Next.js 14 app (Garrison dashboard / Compose / Quarters / Vault /
-  sidebar Views / per-Fitting routes under `/fitting/<id>/`) plus `src/lib/`
+  sidebar Fittings / per-Fitting routes under `/fitting/<id>/`) plus `src/lib/`
   runtime modules (`runner.ts`, `capabilities.ts`, `vault.ts`, `metadata.ts`,
   `instance-profile.ts`, `quarters.ts`, `fitting-views.ts`, …).
 

@@ -52,6 +52,20 @@ export async function runArchitectureCheck(fittingPath: string): Promise<Archite
     if (metadata.consumes.length > 0) {
       notes.push(`consumes ${metadata.consumes.length} capability/ies`);
     }
+    // Every Fitting has a view (2026-07-29 fittings/views refit): either an
+    // own-port UI or at least one declared ui.views[] entry (a shared
+    // garrison:* view counts). A fitting without one is invisible in the
+    // sidebar Fittings group — that is an authoring error, not a style choice.
+    const viewCount = metadata.ui?.views.length ?? 0;
+    if (metadata.own_port === true) {
+      notes.push("view: own-port UI");
+    } else if (viewCount > 0) {
+      notes.push(`view: ${viewCount} declared view(s)`);
+    } else {
+      errors.push(
+        "no view: every Fitting must declare x-garrison.ui.views (a shared garrison:* entry is fine) or own_port: true — see docs/UI-FITTINGS.md"
+      );
+    }
   } catch (error) {
     errors.push(`x-garrison metadata invalid: ${describe(error)}`);
   }

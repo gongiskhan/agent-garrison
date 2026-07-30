@@ -64,7 +64,14 @@ function rejectBlockedSegments(root: string, target: string): void {
   const relative = path.relative(root, target);
   if (relative === "") return;
   const segments = relative.split(path.sep);
-  for (const segment of segments) {
+  // `.apm/skills/**` and `.apm/prompts/**` are the fitting's PAYLOAD (what a
+  // skill/prompt view edits), not packaging internals — writable. Everything
+  // else under `.apm` stays blocked, as do the other packaging dirs.
+  const payload =
+    segments[0] === ".apm" &&
+    (segments[1] === "skills" || segments[1] === "prompts") &&
+    segments.length > 2;
+  for (const segment of payload ? segments.slice(2) : segments) {
     if (BLOCKED_SEGMENTS.has(segment)) {
       throw new FittingFileError(400, `Path includes a blocked segment: ${segment}`);
     }

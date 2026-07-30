@@ -179,14 +179,20 @@ describe("createFile", () => {
     await expect(fs.access(path.join(LOCAL_DIR, "escape.md"))).rejects.toBeTruthy();
   });
 
-  it("rejects a blocked path segment", async () => {
+  it("rejects a blocked path segment but allows the .apm payload carve-out", async () => {
     await cloneTemp(SOURCE_ID, "s3ct-blocked");
     await expect(createFile("s3ct-blocked", ".git/config", "x")).rejects.toMatchObject({
       status: 400
     });
-    await expect(createFile("s3ct-blocked", ".apm/skills/evil/SKILL.md", "x")).rejects.toBeInstanceOf(
+    // Non-payload .apm internals stay blocked…
+    await expect(createFile("s3ct-blocked", ".apm/internal/x.md", "x")).rejects.toBeInstanceOf(
       FittingFileError
     );
+    // …but .apm/skills/** and .apm/prompts/** are the fitting's editable
+    // payload (what the shared skill/prompt views write).
+    await expect(
+      createFile("s3ct-blocked", ".apm/skills/new-skill/SKILL.md", "---\nname: new-skill\n---\nbody")
+    ).resolves.toMatchObject({ path: ".apm/skills/new-skill/SKILL.md" });
   });
 });
 

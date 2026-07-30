@@ -23,7 +23,17 @@ import { railBadges, type RailBadge } from "./run-context";
 /** The dimensions a user can pin. Mirrors {@link TurnRouting} exactly - `runtime`
  *  and `model` are not independently settable, so `runtime`'s badge pins a TARGET
  *  (a target picks runtime+provider+model coherently). */
-export type PinField = "target" | "model" | "effort" | "duty" | "level" | "project" | "account";
+export type PinField =
+  | "target"
+  | "model"
+  | "effort"
+  | "duty"
+  | "level"
+  | "project"
+  | "account"
+  | "tier"
+  | "workKind"
+  | "phasesOff";
 
 /** A sparse change to the pins. A `null` value CLEARS that pin (back to the
  *  composition's routing) - it never means "pin the value null". */
@@ -39,11 +49,23 @@ const BADGE_FIELDS: Record<string, PinField[]> = {
   account: ["account"],
   project: ["project"],
   target: ["target"],
+  tier: ["tier"],
+  workKind: ["workKind", "phasesOff"],
 };
 
 /** The dimension order used for pins that have no resolved badge yet, and for the
  *  flight rail's placeholders. Mirrors railBadges' meaning-first order. */
-const PIN_ORDER: PinField[] = ["duty", "target", "model", "effort", "account", "project"];
+const PIN_ORDER: PinField[] = [
+  "duty",
+  "tier",
+  "target",
+  "model",
+  "effort",
+  "account",
+  "project",
+  "workKind",
+  "phasesOff",
+];
 
 /** Human dimension names, used for a placeholder badge's label and for every
  *  menu heading. Deliberately lowercase - the rail is a mono line, not prose. */
@@ -55,6 +77,9 @@ const FIELD_LABEL: Record<PinField, string> = {
   level: "level",
   project: "project",
   account: "account",
+  tier: "tier",
+  workKind: "work kind",
+  phasesOff: "phases",
 };
 
 /** The "stop pinning this" row per dimension. Says what happens INSTEAD, because
@@ -67,10 +92,34 @@ const AUTO_LABEL: Record<PinField, string> = {
   level: "Automatic",
   project: "Automatic - the operative's own directory",
   account: "Automatic - the composition's account",
+  tier: "Automatic - the classifier decides",
+  workKind: "Automatic - the plan inferred from the tier",
+  phasesOff: "Automatic - every phase in the plan runs",
 };
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
+}
+
+/** Parse `phasesOff` ("a,b") into ids. Tolerant of spaces and empty segments, so a
+ *  hand-edited pin or a trailing comma does not silently disable nothing. */
+export function splitPhasesOff(raw: unknown): string[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Serialize an OFF set back to the wire form, ordered by the plan (not by tap
+ *  order) so the same selection always produces the same string - the pin is
+ *  persisted and compared, and a set that reorders itself reads as a change. */
+export function joinPhasesOff(off: string[], planOrder: string[]): string | null {
+  const set = new Set(off);
+  const ordered = planOrder.filter((p) => set.has(p));
+  // Anything not in the plan is kept at the end rather than dropped: silently
+  // discarding a phase id would turn a stale-but-explicit pin into a fake "all on".
+  for (const p of off) if (!planOrder.includes(p)) ordered.push(p);
+  return ordered.length ? ordered.join(",") : null;
 }
 
 /** A pin is "in force" when it holds a real value. `null`/`undefined`/blank all
@@ -102,6 +151,12 @@ function ranValue(route: RouteAttribution | null | undefined, field: PinField): 
       return str(route.project) || null;
     case "account":
       return str(route.account) || null;
+    case "tier":
+      return str(route.tier) || null;
+    case "workKind":
+      return str(route.workKind) || null;
+    case "phasesOff":
+      return str(route.phasesOff) || null;
   }
 }
 
@@ -118,6 +173,15 @@ export interface RailDisplayBadge extends RailBadge {
   /** Nothing ran and nothing is pinned: the label is the DIMENSION NAME and the
    *  badge exists only so the dimension is reachable. Never a fake value. */
   placeholder?: boolean;
+  /**
+   * The orchestrator chose this value, not the user. Set only when the turn
+   * REPORTED a value for a dimension that carries no pin - so it is a fact about
+   * the turn, never an assumption about an unreported dimension (which gets no
+   * badge at all). This is what makes "everything defaults to auto" legible: an
+   * unmarked badge is yours, a marked one is the orchestrator's, and the marked
+   * ones are exactly the set worth confirming or correcting afterwards.
+   */
+  auto?: boolean;
 }
 
 /**
@@ -156,7 +220,18 @@ export function railDisplayBadges(opts: {
     });
     const pinned = fields.some((f) => pinnedValue(pins, f) !== null);
     const pending = fields.some((f) => pendingSet.has(f)) || drifted;
-    return { ...b, field, ...(pinned ? { pinned: true } : {}), ...(pending ? { pending: true } : {}) };
+    // Auto = the turn reported a value here and the user pinned nothing. Derived
+    // from the two facts already in hand rather than from `via`: `via` describes
+    // how the ROUTE as a whole resolved, so a turn-override on one dimension would
+    // otherwise mark every other dimension as user-chosen when they were not.
+    const auto = !pinned && fields.some((f) => ranValue(route, f) !== null);
+    return {
+      ...b,
+      field,
+      ...(pinned ? { pinned: true } : {}),
+      ...(pending ? { pending: true } : {}),
+      ...(auto ? { auto: true } : {}),
+    };
   });
 
   const extra: RailDisplayBadge[] = [];
@@ -214,12 +289,26 @@ export interface RailAccountOption {
   name: string;
   platform?: string | null;
 }
+/** One work kind from the compiled policy, with the phases its plan runs (in plan
+ *  order). `phases` is what the phases menu offers - a phase outside the selected
+ *  kind's plan is not toggleable, because turning it ON is not a thing the rail can
+ *  do (`railForCard` only ever reads `toggles[id] === false`). */
+export interface RailWorkKindOption {
+  id: string;
+  description?: string | null;
+  phases?: string[] | null;
+}
 export interface RailOptions {
   targets?: RailTargetOption[] | null;
   duties?: RailDutyOption[] | null;
   efforts?: string[] | null;
   accounts?: RailAccountOption[] | null;
   projects?: string[] | null;
+  tiers?: string[] | null;
+  workKinds?: RailWorkKindOption[] | null;
+  /** The work kind used when none is pinned - labelled "(default)" in the menu so
+   *  "Automatic" is not mistaken for "no plan". */
+  defaultWorkKind?: string | null;
   /**
    * Why a dimension cannot be pinned right now, keyed by field (e.g. effort on a
    * provider with no effort control, project while the board is down). The menu
@@ -362,6 +451,64 @@ export function menuForField(
       if (!name) continue;
       rows.push({ key: name, label: name, patch: { project: name }, selected: current === name });
     }
+  } else if (field === "tier") {
+    rows.push(auto);
+    for (const t of options?.tiers ?? []) {
+      const id = str(t);
+      if (!id) continue;
+      rows.push({
+        key: id,
+        label: id,
+        // Pinning a tier is half of the {taskType, tier} pair. On its own it still
+        // needs the classifier for the task type, so the detail says so rather than
+        // implying it bought a skipped classification it did not.
+        detail: pinnedValue(pins, "duty") ? "with the pinned duty: no classifier runs" : "the classifier still picks the task type",
+        patch: { tier: id },
+        selected: current === id,
+      });
+    }
+  } else if (field === "workKind") {
+    rows.push(auto);
+    for (const k of options?.workKinds ?? []) {
+      const id = str(k.id);
+      if (!id) continue;
+      const phases = (k.phases ?? []).filter((p) => str(p));
+      const isDefault = str(options?.defaultWorkKind) === id;
+      rows.push({
+        key: id,
+        label: isDefault ? `${id} (default)` : id,
+        detail: str(k.description) || (phases.length ? phases.join(" → ") : undefined),
+        // Switching plans invalidates the OFF set: those phase ids belong to the
+        // OLD plan, and carrying them over would silently disable phases the user
+        // never looked at.
+        patch: { workKind: id, phasesOff: null },
+        selected: current === id,
+      });
+    }
+  } else if (field === "phasesOff") {
+    // Not a radio: each row TOGGLES one phase of the selected plan. The rows are
+    // the plan's phases in plan order, so the menu doubles as a preview of what
+    // the run will walk.
+    const kindId = str(pinnedValue(pins, "workKind")) || str(options?.defaultWorkKind);
+    const kind = (options?.workKinds ?? []).find((k) => str(k.id) === kindId);
+    const planPhases = (kind?.phases ?? []).map((p) => str(p)).filter(Boolean);
+    const off = new Set(splitPhasesOff(current));
+    rows.push({ ...auto, selected: off.size === 0 });
+    for (const phase of planPhases) {
+      const isOff = off.has(phase);
+      const next = new Set(off);
+      if (isOff) next.delete(phase);
+      else next.add(phase);
+      rows.push({
+        key: phase,
+        // The label carries the state because these rows are toggles, not a
+        // single-choice list - a tick alone would not say which way it goes.
+        label: isOff ? `${phase} - off` : phase,
+        detail: isOff ? "tap to run it again" : "tap to turn it off for this run",
+        patch: { phasesOff: joinPhasesOff([...next], planPhases) },
+        selected: !isOff,
+      });
+    }
   } else {
     return null;
   }
@@ -392,7 +539,10 @@ export function menuForField(
 
   return {
     field,
-    label: `Pin ${FIELD_LABEL[field]} for the next message`,
+    label:
+      field === "phasesOff"
+        ? "Phases this run walks"
+        : `Pin ${FIELD_LABEL[field]} for the next message`,
     rows,
     ...(field === "model"
       ? { freeText: { field: "model" as PinField, label: "Any model id", placeholder: "model id" } }
@@ -588,12 +738,23 @@ export function AttributionRail({
       b.pinned ? "cc-rbadge-pinned" : "",
       b.pending ? "cc-rbadge-pending" : "",
       b.placeholder ? "cc-rbadge-empty" : "",
+      b.auto ? "cc-rbadge-auto" : "",
       openKey === b.key ? "cc-rbadge-open" : "",
     ]
       .filter(Boolean)
       .join(" ");
 
-  const title = (b: RailDisplayBadge) => (b.pending ? `${b.title} - applies next turn` : b.title);
+  const title = (b: RailDisplayBadge) =>
+    [
+      b.title,
+      // Spelled out on every auto badge, not just as a colour: "who chose this"
+      // is the question the whole rail exists to answer, and colour alone cannot
+      // answer it for a screen reader or a colour-blind user.
+      b.auto ? "chosen automatically - you pinned nothing here" : null,
+      b.pending ? "applies next turn" : null,
+    ]
+      .filter(Boolean)
+      .join(" - ");
 
   return (
     <div className={`cc-rail cc-rail-${variant}`} ref={railRef}>
@@ -609,7 +770,16 @@ export function AttributionRail({
           const ref = (el: HTMLElement | null) => {
             itemsRef.current[i] = el;
           };
-          const mark = b.pending ? <span className="cc-rbadge-next">next</span> : null;
+          // "next" wins over "auto" when both apply: a pending pin is about to
+          // REPLACE the auto choice, so saying "auto" there would describe a state
+          // the user has already left.
+          const mark = b.pending ? (
+            <span className="cc-rbadge-next">next</span>
+          ) : b.auto ? (
+            <span className="cc-rbadge-automark" aria-hidden="true">
+              auto
+            </span>
+          ) : null;
           if (b.href) {
             return (
               <a

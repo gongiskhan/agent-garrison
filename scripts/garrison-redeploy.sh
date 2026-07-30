@@ -12,7 +12,7 @@
 #   1. build     — fail here and prod keeps serving the last good build
 #   2. down      — stop the operative and its fittings on the OLD code
 #   3. restart   — swap the app server onto the new build
-#   4. up        — operative + eager fittings come back on the NEW code
+#   4. up        — operative + all its fittings come back on the NEW code
 #
 # Supervisor: this host runs prod under **launchd**, not systemd. The unit is
 # the LaunchAgent `com.garrison.jarvis` (RunAtLoad + KeepAlive), whose wrapper

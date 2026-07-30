@@ -137,6 +137,10 @@ function accountPlatformForTarget(target) {
   if (runtime === "agent-sdk") return isAnthropicProviderId(target?.provider) ? "anthropic" : null;
   if (runtime === "codex") return "openai";
   if (runtime === "gemini") return "google";
+  // cursor authenticates with its OWN login (~/.config/cursor/auth.json) or a
+  // CURSOR_API_KEY. There is no Cursor AccountPlatform, so a pin here would be a
+  // badge with nothing behind it — refuse it explicitly rather than by fallthrough.
+  if (runtime === "cursor") return null;
   return null; // ollama-native, workflow, unknown → no account vehicle
 }
 
@@ -144,9 +148,12 @@ function accountPlatformForTarget(target) {
 // for every non-Anthropic provider (providers.mjs SDK_PROVIDERS) and the gemini
 // CLI has no effort control at all, so an effort pin there would be a badge with
 // nothing behind it. claude-code applies `/effort`; codex applies it at exec.
+// cursor is the same shape as gemini for a different reason: effort is baked into
+// its MODEL IDS (gpt-5.3-codex-low vs -high), so the control is the model, not an
+// effort flag — route to another Cursor model id instead of pinning effort.
 export function effortControllable(target) {
   const runtime = target?.runtime ?? null;
-  if (runtime === "gemini" || runtime === "ollama-native") return false;
+  if (runtime === "gemini" || runtime === "cursor" || runtime === "ollama-native") return false;
   if (runtime === "agent-sdk") return isAnthropicProviderId(target?.provider);
   return true;
 }
@@ -506,6 +513,48 @@ export async function buildOllamaVisionSpec(target, message, imagePaths, { fsImp
 
 // Auth and provider configuration remain inside garrison-call: this wrapper only
 // carries the structured spec over stdin and parses its secret-free result.
+// A dispatch invoker backed by a RUNTIME ADAPTER instead of garrison-call's HTTP
+// wire shapes. garrison-call speaks Anthropic/OpenAI/Ollama over HTTP behind a
+// base-URL fence, so it cannot reach a CLI engine at all: a composition whose only
+// engine is a CLI (Cursor, Codex, …) would ALWAYS take the deterministic keyword
+// fallback, with a low-confidence "call unavailable" reason on every dispatch.
+//
+// The dispatch prompt already demands a bare single-line JSON object (and carries
+// its own example), so one adapter turn returning text is enough — parseDispatch
+// extracts the object from it. `spec.shape`/`spec.provider` are HTTP concepts and
+// are ignored here; `spec.maxTokens`/`spec.timeoutMs` cannot be honored by a CLI
+// engine, so they are not silently claimed either. Each call is a fresh one-shot
+// session: dispatch must never inherit or pollute conversational context.
+export function makeAdapterCallInvoker(adapter, spawnConfig = {}) {
+  if (!adapter) {
+    return async () => ({ ok: false, error: "routing_on_primary is set but no primary adapter is available for dispatch" });
+  }
+  return async (spec) => {
+    let session = null;
+    try {
+      session = await adapter.spawn({
+        ...spawnConfig,
+        ...(spec?.model ? { model: spec.model } : {})
+      });
+      await adapter.awaitReady?.(session);
+      await adapter.sendTurn(session, spec?.prompt ?? "");
+      const out = await adapter.awaitResponse(session);
+      return { ok: true, text: out?.text ?? "" };
+    } catch (err) {
+      // Never throw: dispatch() treats a failed call as the documented fallback.
+      return { ok: false, error: `dispatch on the primary adapter failed: ${err?.message || String(err)}` };
+    } finally {
+      if (session) {
+        try {
+          await adapter.teardown?.(session);
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  };
+}
+
 export function makeGarrisonCallInvoker(callScript, opts = {}) {
   if (!callScript) {
     return async () => ({ ok: false, error: "garrison-call fitting is not installed in this composition" });
@@ -562,13 +611,42 @@ function dispatcherCallOpts(executionModel, resolvedLib) {
   };
 }
 
-export async function buildProductionDispatcher({ compositionDir, compositionId, executionModel, resolvedLib, decisionsFile, spawnImpl } = {}) {
+export async function buildProductionDispatcher({
+  compositionDir,
+  compositionId,
+  executionModel,
+  resolvedLib,
+  decisionsFile,
+  spawnImpl,
+  // routing_on_primary: run the Dispatcher's single-shot call on the primary
+  // runtime's adapter instead of garrison-call. Required for a CLI-only
+  // composition, which garrison-call cannot reach over HTTP at all.
+  routingOnPrimary = false,
+  primaryAdapter = null,
+  primarySpawnConfig = {}
+} = {}) {
   const model = resolvedLib?.dispatcherModelFrom?.(executionModel);
   if (!model || !model.duties?.dispatch) return null;
   const dispatcherDir = resolveDispatcherDir(compositionDir, "dispatch-core.mjs");
   if (!dispatcherDir) return null;
   const core = await import(pathToFileURL(path.join(dispatcherDir, "lib", "dispatch-core.mjs")).href);
-  const callScript = resolveGarrisonCallScript(compositionDir);
+  const callScript = routingOnPrimary ? null : resolveGarrisonCallScript(compositionDir);
+  if (routingOnPrimary) {
+    return {
+      core,
+      model: () =>
+        resolvedLib?.dispatcherModelFrom?.(
+          resolvedLib.loadResolvedModel?.(undefined, compositionId ?? null)
+        ) ?? model,
+      call: makeAdapterCallInvoker(primaryAdapter, primarySpawnConfig),
+      evidenceFile: decisionsFile,
+      callOpts: {
+        ...dispatcherCallOpts(executionModel, resolvedLib),
+        fallback: core.deterministicFallbackDispatch
+      },
+      configuredCall: primaryAdapter ? "primary-adapter" : "deterministic-fallback"
+    };
+  }
   return {
     core,
     // Re-read at call time when possible so a runner projection refresh is seen
@@ -1086,13 +1164,20 @@ export class RoutedGateway {
     return Object.keys(s).length ? s : null;
   }
 
-  // True when the resolved route runs on a SECONDARY runtime (codex/gpt or
-  // gemini) the gateway executes directly via its adapter (one-shot CLI exec).
+  // True when the resolved route runs on an EXEC runtime (codex/gpt, gemini,
+  // opencode, cursor) the gateway executes directly via its adapter (one-shot
+  // CLI exec). Reads EXEC_ADAPTER_CLASS — the same registry the primary warm seam
+  // uses — so the two lanes cannot disagree about which engines exist. NOTE: that
+  // unification also admits `opencode`, which the previous hand-written
+  // `codex || gemini` test excluded even though opencode is a first-class exec
+  // runtime with a full adapter; an opencode secondary target used to miss this
+  // lane and fall through to the Claude path. Same agnosticism gap the primary
+  // seam already documents, closed on the same terms.
   isSecondaryTarget(route) {
     const t = route?.target;
     // `type: secondary` is legacy metadata, not sufficient runtime identity: a
     // Claude-bound target under a Codex primary must take the real Claude lane.
-    return !!t && (t.runtime === "codex" || t.runtime === "gemini");
+    return !!t && EXEC_RUNTIMES.has(t.runtime);
   }
 
   isClaudeDelegateTarget(route) {
@@ -1226,7 +1311,11 @@ export class RoutedGateway {
     if (this._secondaryAdapters.has(runtime)) return this._secondaryAdapters.get(runtime);
     const dir = resolveSecondaryDir(this.compositionDir, runtime);
     if (!dir) throw new Error(`gateway-routing: ${runtime}-runtime fitting not found on disk`);
-    const cls = runtime === "codex" ? "CodexAdapter" : "GeminiAdapter";
+    // One source of truth for engine → adapter class: the same map the PRIMARY
+    // warm seam uses, so a runtime can never be executable as primary but not as
+    // secondary (or vice versa) because two lists drifted apart.
+    const cls = EXEC_ADAPTER_CLASS[runtime];
+    if (!cls) throw new Error(`gateway-routing: no exec adapter class registered for runtime "${runtime}"`);
     const mod = await import(pathToFileURL(path.join(dir, "lib", `${runtime}-adapter.mjs`)).href);
     const adapter = new mod[cls]();
     this._secondaryAdapters.set(runtime, adapter);
@@ -1238,8 +1327,9 @@ export class RoutedGateway {
   // injected into the rich channel stream.
   async runSecondaryTurn(route, message, opts = {}) {
     const rt = route.target.runtime;
-    const provider = route.target.provider ?? (rt === "codex" ? "openai" : "google");
-    const model = route.target.model ?? (rt === "codex" ? "gpt-5-codex" : "gemini-2.5-flash");
+    const defaults = EXEC_ENGINE_DEFAULTS[rt] ?? {};
+    const provider = route.target.provider ?? defaults.provider ?? null;
+    const model = route.target.model ?? defaults.model ?? null;
     const effort = route.target.effort ?? null;
     const adapter = await this.getSecondaryAdapter(rt);
     // cwd, most specific first: a PINNED PROJECT for this turn (§8), else the
@@ -1287,9 +1377,12 @@ export class RoutedGateway {
       // done frame turns that into stoppedByUser for the badge row. Dropping it
       // here (as this return used to) made a stopped turn look like a normal one.
       stoppedReason: resp?.stoppedReason ?? null,
-      // Codex applies the reasoning-effort config at exec. Gemini currently has
-      // no CLI effort control, so report the requested-but-unapplied state.
-      effortApplied: effort == null ? null : rt === "codex" ? session.effortApplied === true : false
+      // Codex applies the reasoning-effort config at exec and says so on the
+      // session. Gemini has no CLI effort control and Cursor bakes effort into
+      // the model id, so both report the requested-but-unapplied state. Read the
+      // ADAPTER's own claim rather than an engine allowlist here — an adapter
+      // that cannot apply effort simply never sets the flag.
+      effortApplied: effort == null ? null : session.effortApplied === true
     };
   }
 
@@ -1847,7 +1940,11 @@ export class RoutedGateway {
       overridesApplied: overridesApplied.length ? overridesApplied : null,
       overridesRejected: overridesRejected.length ? overridesRejected : null,
       project: override.project,
-      projectPath: override.projectPath
+      projectPath: override.projectPath,
+      // The v4 duty lane resolves an assigned cell directly and never calls
+      // classify() at all - so this is unconditionally true here, where the
+      // classifier-path preRoute has to earn it.
+      classifierSkipped: true
     };
   }
 
@@ -1931,14 +2028,28 @@ export class RoutedGateway {
     const explicit = opts.classification;
     const validTask = Array.isArray(this.config.taskTypes) ? this.config.taskTypes : [];
     const validTier = Array.isArray(this.config.tiers) ? this.config.tiers : [];
-    const honored = !!(
-      explicit &&
-      typeof explicit.taskType === "string" &&
-      typeof explicit.tier === "string" &&
-      validTask.includes(explicit.taskType) &&
-      validTier.includes(explicit.tier)
-    );
-    const raw = honored ? explicit : await this.classify(message);
+    // RUN-SPEC-V1: the user's per-turn pin is a classification the user already
+    // made. `duty` is the settable spelling of `taskType` and `tier` is pinnable
+    // directly, so a turn that carries both is ALREADY classified and must not pay
+    // for a classifier call. (A duty+level pin never reaches here - it took the v4
+    // lane at :1825 - so this is the duty-WITHOUT-level case, which until now fell
+    // silently through to the classifier.)
+    const inList = (list, v) => typeof v === "string" && list.includes(v);
+    const pinnedTask = inList(validTask, ov?.duty) ? ov.duty : null;
+    const pinnedTier = inList(validTier, ov?.tier) ? ov.tier : null;
+    const taskType = pinnedTask ?? (inList(validTask, explicit?.taskType) ? explicit.taskType : null);
+    const tier = pinnedTier ?? (inList(validTier, explicit?.tier) ? explicit.tier : null);
+    const honored = !!(taskType && tier);
+    let raw = honored
+      ? { taskType, tier, ...(explicit?.matchedException ? { matchedException: explicit.matchedException } : {}) }
+      : await this.classify(message);
+    // A pin that could not skip classification on its own still OVERRULES the
+    // classifier's answer on the axis it names. Otherwise pinning a tier would
+    // change nothing whenever the task type was left automatic - a control that
+    // silently does nothing is worse than no control.
+    if (!honored && (pinnedTask || pinnedTier)) {
+      raw = { ...raw, ...(pinnedTask ? { taskType: pinnedTask } : {}), ...(pinnedTier ? { tier: pinnedTier } : {}) };
+    }
     // D18: `execution` is no longer a classification axis. Where work runs is
     // derived from the resolved phase plan — a multi-phase or cross-model plan is
     // engine-dispatched, a trivial plan runs inline (see the D19 carding in
@@ -1947,7 +2058,15 @@ export class RoutedGateway {
     // routed decision, the decisions.jsonl record, or the preRoute output.
     const { execution: _legacyExecution, ...classification } = raw;
     if (honored) {
-      this.logFn({ kind: "classification-honored", taskType: classification.taskType, tier: classification.tier, skill: opts.skill ?? null });
+      this.logFn({
+        kind: "classification-honored",
+        taskType: classification.taskType,
+        tier: classification.tier,
+        skill: opts.skill ?? null,
+        // Which side supplied it, so "no classifier ran" is attributable rather
+        // than just asserted.
+        source: pinnedTask || pinnedTier ? "turn-override" : "caller"
+      });
     }
     const route = this.core.resolveRoute(this.config, this.config.activeProfile, classification);
     // §7: the pin lands HERE - after the route resolves, before the decision record
@@ -1965,6 +2084,10 @@ export class RoutedGateway {
     // target) — persist it so "which effort served this turn" is provable
     // from the decision log alone.
     decision.effort = route.target?.effort ?? route.effort ?? null;
+    // Whether this decision cost a classifier turn. Persisted because it is the
+    // evidence for "explicit choices are cheaper" - and because the Decisions feed
+    // needs to distinguish a route the orchestrator picked from one the user did.
+    decision.classifierSkipped = honored;
     // Which conversation caused this decision. Without it the Muster Decisions
     // feed is a list of routing outcomes with no way back to the turn that
     // produced them. An OPAQUE handle only - never the message, which stays a
@@ -2013,7 +2136,11 @@ export class RoutedGateway {
       overridesApplied: override.applied.length ? override.applied : null,
       overridesRejected: rejected.length ? rejected : null,
       project: override.project,
-      projectPath: override.projectPath
+      projectPath: override.projectPath,
+      // Reported, not inferred: the rail badges "no classifier ran" only when the
+      // router can say so. `honored` is exactly that fact at the one place it is
+      // known.
+      classifierSkipped: honored
     };
   }
 
@@ -2236,7 +2363,7 @@ export class RoutedGateway {
 // GARRISON_PRIMARY_ENGINE; tests may pass opts.primaryEngine directly. A
 // missing fitting or a failed CLI probe at warm time is a LOUD startup error
 // naming the fix — never a silent fall back to claude-code.
-const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode"];
+const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode", "cursor"];
 
 // Exec-style runtimes (a stateless `run`/`exec` subprocess per turn) that can ALSO
 // host the PRIMARY: same resolveSecondaryDir + bridge-probe warm shape, only the
@@ -2244,8 +2371,29 @@ const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini", "o
 // runtime-agnosticism matrix) — the uniform RuntimeAdapter contract is exactly what
 // lets a non-Claude primary boot identically regardless of which exec engine it is,
 // so leaving opencode out of this map (while it is a first-class runtime fitting)
-// was an agnosticism gap, not a design choice.
-const EXEC_PRIMARY_ADAPTER_CLASS = { codex: "CodexAdapter", gemini: "GeminiAdapter", opencode: "OpenCodeAdapter" };
+// was an agnosticism gap, not a design choice. cursor joined on the same terms.
+//
+// This is the ONE registry: the secondary lane (getSecondaryAdapter /
+// isSecondaryTarget) reads it too, so an engine is never executable on one lane
+// and invisible on the other.
+const EXEC_ADAPTER_CLASS = {
+  codex: "CodexAdapter",
+  gemini: "GeminiAdapter",
+  opencode: "OpenCodeAdapter",
+  cursor: "CursorAdapter"
+};
+const EXEC_RUNTIMES = new Set(Object.keys(EXEC_ADAPTER_CLASS));
+
+// The provider identity + fallback model each exec engine runs under when the
+// routing target names none. Kept beside the adapter registry so adding an engine
+// is one edit, not a chain of ternaries scattered through the turn path.
+const EXEC_ENGINE_DEFAULTS = {
+  codex: { provider: "openai", model: "gpt-5-codex" },
+  gemini: { provider: "google", model: "gemini-2.5-flash" },
+  opencode: { provider: "opencode", model: null },
+  // `auto` lets Cursor pick from the signed-in account's catalog.
+  cursor: { provider: "cursor", model: "auto" }
+};
 
 // Probe an exec-engine's CLI via the fitting's own bridge (`--probe` prints
 // "ok") — the same contract the fitting's verify hook uses.
@@ -2361,8 +2509,8 @@ export async function resolvePrimaryAdapter(engine, ctx) {
   }
   // Object.hasOwn guards against prototype keys (e.g. engine === "toString")
   // slipping past the explicit unknown-engine throw below into exec resolution.
-  const execCls = Object.hasOwn(EXEC_PRIMARY_ADAPTER_CLASS, engine)
-    ? EXEC_PRIMARY_ADAPTER_CLASS[engine]
+  const execCls = Object.hasOwn(EXEC_ADAPTER_CLASS, engine)
+    ? EXEC_ADAPTER_CLASS[engine]
     : undefined;
   if (execCls) {
     let adapter = opts.secondaryAdapters?.get?.(engine) ?? null;
@@ -2379,13 +2527,16 @@ export async function resolvePrimaryAdapter(engine, ctx) {
       // Warm-time CLI probe — fail the startup loudly, not the first turn.
       if (opts.probeExecPrimaries !== false) await probeRuntimeBridge(dir, engine);
     }
-    // The composition's primary configuration is authoritative for Codex/Gemini.
-    // OpenCode keeps its provider/model validation: only its required
+    // The composition's primary configuration is authoritative for
+    // Codex/Gemini/Cursor (Cursor's model is a bare catalog id passed as
+    // --model). OpenCode keeps its provider/model validation: only its required
     // `provider/model` shape may override native config. Reasoning effort is a
-    // Codex control; do not claim or forward it to unsupported exec engines.
+    // Codex control; do not claim or forward it to unsupported exec engines —
+    // Cursor in particular carries effort inside the model id, so forwarding one
+    // here would be a silently ignored knob.
     const spawnConfig = { compositionDir, env: process.env };
     if (
-      (engine === "codex" || engine === "gemini") &&
+      (engine === "codex" || engine === "gemini" || engine === "cursor") &&
       typeof operativeSpawnConfig?.model === "string" &&
       operativeSpawnConfig.model
     ) {
@@ -2480,6 +2631,20 @@ export function resolveClassifierAdapter(ctx) {
         promptMode: "lean",
       },
     };
+  }
+  // Explicit opt-in (gateway config `routing_on_primary` →
+  // GARRISON_ROUTING_ON_PRIMARY): classify on the primary's own adapter and
+  // never reach for a second engine. A single-engine composition wants this, and
+  // so does any box where the claude CLI is on PATH but cannot actually spawn —
+  // claudeCodeResolvable below is only a PATH probe, and a classifier that fails
+  // to warm leaves the pool half-started and every turn silently unclassified.
+  if (opts.routingOnPrimary) {
+    (logFn ?? (() => {}))({
+      kind: "classifier-on-primary",
+      engine: primaryEngine,
+      reason: "routing_on_primary is set — Stage-A classification runs on the primary adapter, not a claude-code session",
+    });
+    return { adapter: primary.adapter, spawnConfig: classifierFallbackConfig(primary.spawnConfig, opts) };
   }
   if (claudeCodeResolvable({ spawnFn, primaryEngine, opts })) {
     // non-claude primary but claude-code IS resolvable → keep the cheap haiku
@@ -2583,7 +2748,12 @@ export async function createRoutedGateway(opts = {}) {
       executionModel,
       resolvedLib: resolvedModelLib,
       decisionsFile,
-      spawnImpl: opts.garrisonCallSpawnImpl
+      spawnImpl: opts.garrisonCallSpawnImpl,
+      // Same flag as the classifier: one switch means the routing brain can never
+      // end up half on the primary and half on a second engine.
+      routingOnPrimary: !!opts.routingOnPrimary,
+      primaryAdapter: primary.adapter,
+      primarySpawnConfig: primary.spawnConfig
     });
     if (dispatcher) {
       opts.logFn?.({ kind: "dispatcher-wired", source: "composition-v4", call: dispatcher.configuredCall });

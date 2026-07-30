@@ -183,11 +183,54 @@ export function railBadges(route: RouteAttribution): RailBadge[] {
     });
   }
 
+  // Tier IS settable now (it is half the {taskType, tier} key the matrix resolves
+  // on), so it earns a badge of its own rather than living only in the target
+  // tooltip. The task type stays tooltip-only: `duty` is the settable spelling of it.
+  const tier = str(route.tier);
+  if (tier) {
+    badges.push({
+      key: "tier",
+      label: tier,
+      title: title(
+        `tier ${tier}`,
+        str(route.taskType) ? `task type ${str(route.taskType)}` : null,
+        route.classifierSkipped === true ? "no classifier ran - it was chosen explicitly" : null
+      ),
+    });
+  }
+
+  // The phase plan. Reported only for a run that HAS one (a carded run); a plain
+  // conversational turn walks no pipeline, so the badge is absent rather than
+  // claiming an empty plan.
+  //
+  // Either half is enough to badge. When the orchestrator infers the plan from the
+  // tier there IS no work kind - the plan is not one of the named kinds - so the
+  // label falls back to the OFF count. Requiring `workKind` would blank the badge on
+  // exactly the auto turns it exists to explain.
+  const workKind = str(route.workKind);
+  const off = str(route.phasesOff)
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (workKind || off.length) {
+    badges.push({
+      key: "workKind",
+      // The OFF count rides the label because it is the part that changes what
+      // actually runs - a plan silently missing two gates is the failure this
+      // badge exists to prevent.
+      label: workKind ? (off.length ? `${workKind} -${off.length}` : workKind) : `plan -${off.length}`,
+      title: title(
+        workKind ? `work kind ${workKind}` : "plan inferred from the tier",
+        off.length ? `phases off: ${off.join(", ")}` : "every phase in the plan runs"
+      ),
+      ...(off.length ? { tone: "warn" as const } : {}),
+    });
+  }
+
   const target = str(route.route);
   if (target) {
-    // The rail has no tier / task-type / honored badges (none of them is settable),
-    // but they were visible on the old routing chip - keep them in the target
-    // tooltip so the classification stays inspectable instead of silently vanishing.
+    // Tier/task-type/honored were visible on the old routing chip - keep them in the
+    // target tooltip too so the classification stays inspectable from either badge.
     badges.push({
       key: "target",
       label: target,

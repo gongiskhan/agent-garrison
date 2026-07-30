@@ -8,6 +8,12 @@ x-garrison:
   faculty: memory
   cardinality_hint: single
   component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - claude-code
   summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in — the index rebuilds from the markdown files.
@@ -49,4 +55,9 @@ x-garrison:
     # blew past 15s every time and the whole `up` aborted on a false negative.
     command: bash apm_modules/_local/basic-memory/scripts/verify.sh
     expect: ok
+    # 60s, not 15s: this verify shells out to TWO CLIs (`basic-memory project
+    # info` and `claude mcp get`) and measures ~8s on an idle box — so a 15s
+    # budget lost the race whenever `up` ran it alongside the other setup hooks,
+    # failing the whole composition with an EMPTY stderr (a timeout has no output
+    # to report), which reads like a broken fitting rather than a slow one.
     timeout_ms: 60000

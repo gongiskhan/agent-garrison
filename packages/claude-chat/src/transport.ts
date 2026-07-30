@@ -70,6 +70,16 @@ export interface RouteAttribution {
   /** How the route was chosen: a duty-ladder cell, a per-turn override, or the
    *  classifier. */
   via?: "duty-cell" | "turn-override" | "classifier" | string | null;
+  /** The work kind whose phase plan the run follows, as RESOLVED (a pin when the
+   *  user chose one, otherwise whatever the gateway inferred). Reported so the
+   *  rail can badge an auto-chosen plan instead of leaving it invisible. */
+  workKind?: string | null;
+  /** Phases turned OFF for the run, comma-separated - see TurnRouting.phasesOff. */
+  phasesOff?: string | null;
+  /** True when the router reached a route WITHOUT an LLM classification, because
+   *  the pin already carried it. The honest counterpart to `via` - it is what makes
+   *  "explicit, so no classifier ran" a reported fact rather than an assumption. */
+  classifierSkipped?: boolean | null;
   /** Named runtime account the turn authenticated as. Distinguish absent from
    *  null: undefined = the lane could not report it (badge omitted); null = there
    *  IS no named account, i.e. the machine's own Claude login (a real fact, so it
@@ -130,6 +140,33 @@ export interface TurnRouting {
   /** Dev-root child NAME only - absolute paths and any "/" are rejected. */
   project?: string | null;
   account?: string | null;
+  /**
+   * The compute tier the matrix is keyed on (`T0-trivial` | `T1-standard` |
+   * `T2-deep`, from the compiled policy's `tiers`). Pinning it with a `duty`
+   * completes the `{taskType, tier}` pair the router needs, which is what lets an
+   * explicit choice skip the classifier entirely rather than classifying and then
+   * overriding the answer.
+   */
+  tier?: string | null;
+  /**
+   * The work kind whose phase plan this run follows (`full-feature`, `ui-change`,
+   * … from the policy's `workKinds`). Decides WHICH phases exist for the run; the
+   * duty sequence decides their ORDER. Only meaningful for a run that becomes a
+   * card - a conversational turn has no pipeline to plan.
+   */
+  workKind?: string | null;
+  /**
+   * Phases turned OFF for this run, as a comma-separated list of phase ids
+   * ("adversarial-review,walkthrough").
+   *
+   * A CSV of the OFF set rather than an on/off map for two reasons: every pin
+   * crosses four separate scalar whitelists (this type, the channel's thread
+   * persistence, the gateway's edge validator, and the client compactor), and the
+   * toggles are one-directional anyway - `railForCard` only ever tests
+   * `toggles[id] === false`, so a phase can be turned off below its plan but never
+   * on above it. An OFF phase stays IN the rail rendered off; it is never hidden.
+   */
+  phasesOff?: string | null;
 }
 
 export type ChatEvent =

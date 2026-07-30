@@ -85,14 +85,46 @@ export function routeFromDone(done) {
   const ruleId = done.ruleId ?? null;
   const profile = done.profile ?? null;
   const honored = done.honored ?? null;
+  // The gateway ALSO folds a turnAttribution block into the same `done` frame
+  // (http-gateway/scripts/gateway-pty.mjs turnAttribution): who actually served the
+  // turn, under which account, in which project. Its own docstring says it lives
+  // there so this function "cannot break" — but the fixed field list above dropped
+  // every one of those keys, which is why a kanban card could never show an account,
+  // duty/level, or the project the turn really ran in. Pass them through.
+  const duty = done.duty ?? null;
+  const level = Number.isInteger(done.level) ? done.level : null;
+  const skill = done.skill ?? null;
+  const via = done.via ?? null;
+  // `account` is TRI-STATE: undefined = the gateway reported nothing (omit the
+  // badge), null = the machine login (a real, renderable answer), string = a named
+  // account. Collapsing undefined into null would invent attribution.
+  const account = "account" in done ? (done.account ?? null) : undefined;
+  const accountSource = done.accountSource ?? null;
+  const project = done.project ?? null;
+  const projectPath = done.projectPath ?? null;
+  // What the turn's pinned intent actually did. `overridesRejected` is the honesty
+  // half: a project that did not resolve to a git repo under the dev root is REFUSED,
+  // and the turn then runs in the composition dir. The card must be able to say so —
+  // otherwise a card silently runs somewhere other than its own project.
+  const overridesApplied = Array.isArray(done.overridesApplied) ? done.overridesApplied : null;
+  const overridesRejected = Array.isArray(done.overridesRejected) ? done.overridesRejected : null;
   if (
     targetId == null && runtime == null && provider == null && model == null &&
     effort == null && effortApplied == null &&
-    taskType == null && tier == null && ruleId == null && profile == null && honored == null
+    taskType == null && tier == null && ruleId == null && profile == null && honored == null &&
+    duty == null && level == null && skill == null && via == null &&
+    account === undefined && accountSource == null && project == null && projectPath == null &&
+    overridesApplied == null && overridesRejected == null
   ) {
     return null;
   }
-  return { targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored };
+  const out = {
+    targetId, runtime, provider, model, effort, effortApplied, taskType, tier, ruleId, profile, honored,
+    duty, level, skill, via, accountSource, project, projectPath,
+    overridesApplied, overridesRejected
+  };
+  if (account !== undefined) out.account = account;
+  return out;
 }
 
 // The gateway's `done` SSE event also carries an additive `context` object (S1a /
@@ -144,9 +176,62 @@ export function compactBoundaryFn(gatewayUrl) {
   };
 }
 
+// A card's `project` is stored in TWO shapes in the wild: a bare slug
+// ("ekoa-code") and an absolute path ("/home/ggomes/dev/ekoa-code") — on a real
+// board, both, roughly half and half. The gateway's resolver takes NAMES only
+// (resolveProjectName rejects anything containing a slash, since a path could
+// escape the dev root), so sending the raw value made every path-shaped card's
+// project refused and its turn run in the composition dir.
+//
+// Normalise to the dev-root child name. Deliberately no filesystem check here:
+// the gateway owns the dev root and does the real resolution, and a name it
+// cannot resolve is REJECTED and surfaced on the card — never silently accepted.
+export function projectNameForRouting(project) {
+  const raw = typeof project === "string" ? project.trim() : "";
+  if (!raw) return null;
+  const name = raw.includes("/") || raw.includes("\\")
+    ? raw.replace(/[\\/]+$/, "").split(/[\\/]/).pop()
+    : raw;
+  if (!name || name === "." || name === ".." || name.startsWith(".")) return null;
+  return name;
+}
+
+/**
+ * The `routing` pin for one card turn (RUN-SPEC-V1) — the card's explicit run spec
+ * plus the cwd derived from its project, as ONE object.
+ *
+ * This is the single place a card's run spec becomes a request body. The batched
+ * Test runner goes through gatewayRunFn too, so teaching this function a dimension
+ * teaches every card turn at once — the alternative (each caller assembling its own
+ * routing) is how `autonomous` ended up wired at both ends and dropped in the
+ * middle.
+ *
+ * The card's own `project` pin WINS over the project label: if the user explicitly
+ * chose where this runs, that is the answer, and `card.project` is only a label
+ * (on a real board, half slugs and half absolute paths).
+ *
+ * Returns null when nothing is pinned at all, so an unpinned card's body stays
+ * byte-identical to the pre-run-spec shape.
+ */
+export function cardTurnRouting(card) {
+  const spec = card?.routing && typeof card.routing === "object" && !Array.isArray(card.routing) ? card.routing : {};
+  const routing = {};
+  for (const [field, value] of Object.entries(spec)) {
+    if (value === null || value === undefined || value === "") continue;
+    routing[field] = value;
+  }
+  // Normalise whichever project we end up sending: the gateway's resolveProjectName
+  // refuses anything containing a slash.
+  const project = projectNameForRouting(routing.project ?? card?.project);
+  if (project) routing.project = project;
+  else delete routing.project;
+  return Object.keys(routing).length ? routing : null;
+}
+
 export function gatewayRunFn(gatewayUrl) {
   return async ({
     prompt,
+    card,
     classification,
     list,
     skill,
@@ -167,10 +252,45 @@ export function gatewayRunFn(gatewayUrl) {
     // `open` event immediately (headers fast → no headersTimeout) and a 15s keepalive
     // heartbeat (data keeps flowing → no bodyTimeout), then a `done` event with the full
     // result — so the connection survives an arbitrarily long turn.
+    // TWO client-side deadlines. `timeoutMs` below is only a REQUEST to the gateway,
+    // and the gateway does not honour it on every lane (the agent-sdk lane — the one
+    // kanban cards actually run on — drops the hint entirely). With no client-side
+    // bound, a turn whose `done` frame never arrives left the caller awaiting this
+    // stream forever, and the card "running" forever with it.
+    //   • hard: the per-turn ceiling plus slack, so the gateway's own timeout still
+    //     wins whenever it works and this only catches the case where it doesn't.
+    //   • idle: no CONTENT frame for a while. It must be armed on content, NOT on
+    //     bytes: the gateway emits a `: keepalive` comment every 15s, so a
+    //     byte-triggered timer would never fire on a wedged-but-connected stream.
+    // Both are TRANSPORT failures (retriable): the card reverts and runs again, it
+    // does not park as if the operative had refused.
+    const hardMs = KANBAN_TURN_TIMEOUT_MS + (Number(process.env.KANBAN_TURN_SLACK_MS) || 2 * 60 * 1000);
+    const idleMs = Number(process.env.KANBAN_TURN_IDLE_MS) || 10 * 60 * 1000;
+    const ctrl = new AbortController();
+    let aborted = null;
+    const hardTimer = setTimeout(() => {
+      aborted = `no result after ${Math.round(hardMs / 60000)} min (per-turn ceiling)`;
+      ctrl.abort();
+    }, hardMs);
+    let idleTimer = null;
+    const armIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        aborted = `the gateway sent no output for ${Math.round(idleMs / 60000)} min`;
+        ctrl.abort();
+      }, idleMs);
+    };
+    const clearDeadlines = () => {
+      clearTimeout(hardTimer);
+      if (idleTimer) clearTimeout(idleTimer);
+    };
+    armIdle();
+
     let res;
     try {
       res = await fetch(`${gatewayUrl}/chat/stream`, {
         method: "POST",
+        signal: ctrl.signal,
         headers: {
           "content-type": "application/json",
           "x-garrison-origin": "channel",
@@ -192,6 +312,20 @@ export function gatewayRunFn(gatewayUrl) {
           stepIndex: Number.isInteger(stepIndex) ? stepIndex : null,
           sequence: Array.isArray(sequence) ? sequence : null,
           suppressContinuations: suppressContinuations ?? true,
+          // THE TURN'S CWD. A card names a project; its run must happen IN that
+          // project's repo. Without this the gateway had no projectPath, fell back to
+          // GARRISON_COMPOSITION_DIR, and every card's turn ran in the composition
+          // directory — work landed in the right repo only because the prompt named
+          // the project and the agent navigated there itself.
+          //
+          // It goes under `routing`, NOT as a bare top-level `project`: `body.project`
+          // already means the D19 card-creation label on other channels, and giving it
+          // cwd meaning here would silently change their behaviour. `routing.project`
+          // is the pinned-intent channel the gateway validates at the edge
+          // (sanitizeRouting) and resolves to a git repo under the dev root. An
+          // unresolvable name is REJECTED and reported in overridesRejected — never
+          // silently run in the composition dir while claiming the project.
+          ...(cardTurnRouting(card) ? { routing: cardTurnRouting(card) } : {}),
           timeoutMs: KANBAN_TURN_TIMEOUT_MS,
           // S1b: whether this duty holds off compaction + the card+phase key, so the
           // gateway's turn-boundary check honors the hold and stamps the compact log.
@@ -200,16 +334,19 @@ export function gatewayRunFn(gatewayUrl) {
         })
       });
     } catch (err) {
-      const e = new Error(`gateway unreachable: ${err?.message || err}`);
+      clearDeadlines();
+      const e = new Error(aborted ? `gateway turn abandoned: ${aborted}` : `gateway unreachable: ${err?.message || err}`);
       e.transport = true;
       throw e;
     }
     if (!res.ok) {
+      clearDeadlines();
       const e = new Error(`kanban dispatch failed: HTTP ${res.status}`);
       if (res.status === 502 || res.status === 503 || res.status === 504) e.transport = true;
       throw e;
     }
     if (!res.body) {
+      clearDeadlines();
       const e = new Error("gateway dispatch: no stream body");
       e.transport = true;
       throw e;
@@ -243,6 +380,11 @@ export function gatewayRunFn(gatewayUrl) {
             if (line.startsWith("event:")) event = line.slice(6).trim();
             else if (line.startsWith("data:")) data += line.slice(5).trim();
           }
+          // Re-arm the idle deadline on a CONTENT frame only. A `: keepalive`
+          // comment carries no `event:` line, so it lands here as "message" and
+          // deliberately does NOT count as progress — otherwise a wedged turn on a
+          // healthy socket would be kept alive forever by its own heartbeat.
+          if (event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
           if (event === "chunk") {
             try { const c = JSON.parse(data); if (typeof c.text === "string") { live += c.text; emit(false); } } catch { /* ignore */ }
           } else if (event === "tool") {
@@ -259,11 +401,14 @@ export function gatewayRunFn(gatewayUrl) {
         }
       }
     } catch (err) {
-      // The stream dropped mid-turn (gateway restart, network) — retriable, not the card's fault.
-      const e = new Error(`gateway stream interrupted: ${err?.message || err}`);
+      // The stream dropped mid-turn (gateway restart, network, or one of OUR deadlines
+      // firing) — retriable, never the card's fault.
+      clearDeadlines();
+      const e = new Error(aborted ? `gateway turn abandoned: ${aborted}` : `gateway stream interrupted: ${err?.message || err}`);
       e.transport = true;
       throw e;
     }
+    clearDeadlines();
 
     if (streamErr) {
       // A turn-level error reported by the gateway (e.g. the per-turn timeout fired).

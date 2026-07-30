@@ -128,6 +128,13 @@ Only the files needed by each Fitting are present. Verify hooks must
 prove installed output exists after `apm install`, not merely that the
 source package exists.
 
+**Every Fitting has a view** (2026-07-29): the manifest declares at
+least one `x-garrison.ui.views[]` entry or `own_port: true`, or the
+validation pipeline rejects it. The shared `garrison:*` views cover
+skills, prompts, runtimes, connectors, and a generic manage surface
+with zero fitting-side code — see
+[UI-FITTINGS.md](./UI-FITTINGS.md) for the authoring guide.
+
 ## Later additions
 
 Inventoried, not yet specced at the same depth as the original six.
@@ -188,7 +195,7 @@ own-port UI on `27086`, providing the singleton `dev-env` capability).
 Each Claude Code session is a tab pairing a Claude PTY and a shell PTY
 with the live browser pane, which consumes the separate `browser`
 Fitting. The Workbench shell area was dissolved 2026-05-17; the
-own-port UIs that survive it are surfaced by the sidebar Views
+own-port UIs that survive it are surfaced by the sidebar Fittings
 section.
 
 The Monitor Faculty (2026-05-16) adds `monitor-default`, which is the

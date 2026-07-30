@@ -27,25 +27,9 @@ interface ViewRow {
 export function RunConsole() {
   const { composition, library, runnerState, runAction, busy } = useAppShell();
   const [logs, setLogs] = useState<LogEvent[]>([]);
-  const [eagerByFitting, setEagerByFitting] = useState<Record<string, boolean>>({});
   const logBodyRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/eager-boot")
-      .then((res) => res.json())
-      .then((data: { prefs?: { eager?: Record<string, boolean> } }) => {
-        if (!cancelled) setEagerByFitting(data.prefs?.eager ?? {});
-      })
-      .catch(() => {
-        /* toggles render off until the next successful read */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // The same enumeration the sidebar Views group uses: stationed fittings
+  // The same enumeration the sidebar Fittings group uses: stationed fittings
   // (composition.selections ids -> library entries) that produce views.
   const viewRows = useMemo<ViewRow[]>(() => {
     if (!composition) return [];
@@ -72,23 +56,6 @@ export function RunConsole() {
       }))
       .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
   }, [composition, library]);
-
-  async function toggleEagerBoot(fittingId: string, eager: boolean) {
-    // Optimistic; the PUT response (or the revert below) reconciles.
-    setEagerByFitting((prev) => ({ ...prev, [fittingId]: eager }));
-    try {
-      const res = await fetch("/api/eager-boot", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fitting: fittingId, eager })
-      });
-      if (!res.ok) throw new Error(`PUT /api/eager-boot ${res.status}`);
-      const data = (await res.json()) as { prefs?: { eager?: Record<string, boolean> } };
-      setEagerByFitting(data.prefs?.eager ?? {});
-    } catch {
-      setEagerByFitting((prev) => ({ ...prev, [fittingId]: !eager }));
-    }
-  }
 
   useEffect(() => {
     if (!composition?.id) return;
@@ -372,84 +339,60 @@ export function RunConsole() {
             }}
           >
             <h3 className="font-display" style={{ fontWeight: 600, fontSize: 16, margin: 0, letterSpacing: "-0.005em" }}>
-              Views
+              Fittings
             </h3>
             <p style={{ color: "var(--mute)", fontSize: 12.5, margin: "4px 0 0" }}>
-              Persistence is always on. Eager boot only makes a view start with the server and
-              restore its instances immediately — untoggled views still restore when opened.
+              Every stationed Fitting starts with the Operative and stops with it.
+              View state persists across restarts.
             </p>
           </div>
           <div style={{ maxHeight: 320, overflowY: "auto" }}>
             {viewRows.length === 0 ? (
               <div style={{ padding: 28, color: "var(--mute)", fontSize: 13, textAlign: "center" }}>
-                No view-producing Fittings in this composition.
+                No Fittings stationed in this composition.
               </div>
             ) : (
-              viewRows.map(({ entry, surface }) => {
-                const eager = eagerByFitting[entry.id] === true;
-                return (
-                  <div
-                    key={entry.id}
+              viewRows.map(({ entry, surface }) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    borderBottom: "1px solid var(--rule)",
+                    padding: "9px 18px",
+                    fontSize: 12.5,
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 12,
+                    alignItems: "center"
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 500 }}>{entry.name}</div>
+                    <div
+                      className="font-mono"
+                      style={{
+                        fontSize: 11,
+                        color: "var(--mute)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      {entry.id}
+                    </div>
+                  </div>
+                  <span
+                    className="font-mono"
                     style={{
-                      borderBottom: "1px solid var(--rule)",
-                      padding: "9px 18px",
-                      fontSize: 12.5,
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto auto",
-                      gap: 12,
-                      alignItems: "center"
+                      fontSize: 10.5,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "var(--mute)"
                     }}
                   >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 500 }}>{entry.name}</div>
-                      <div
-                        className="font-mono"
-                        style={{
-                          fontSize: 11,
-                          color: "var(--mute)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap"
-                        }}
-                      >
-                        {entry.id}
-                      </div>
-                    </div>
-                    <span
-                      className="font-mono"
-                      style={{
-                        fontSize: 10.5,
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        color: "var(--mute)"
-                      }}
-                    >
-                      {surface}
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={eager}
-                      aria-label={`Eager boot for ${entry.name}`}
-                      className="font-mono"
-                      onClick={() => void toggleEagerBoot(entry.id, !eager)}
-                      style={{
-                        fontSize: 10.5,
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        fontWeight: 600,
-                        padding: "3px 10px",
-                        cursor: "pointer",
-                        background: "white",
-                        border: `1px solid ${eager ? "var(--sage)" : "var(--rule)"}`,
-                        color: eager ? "var(--sage)" : "var(--mute)"
-                      }}
-                    >
-                      {eager ? "eager: on" : "eager: off"}
-                    </button>
-                  </div>
-                );
-              })
+                    {surface}
+                  </span>
+                </div>
+              ))
             )}
           </div>
         </section>

@@ -63,9 +63,44 @@ describe("claude-chat run context: railBadges omission discipline", () => {
       "effort",
       "account",
       "project",
+      // `tier` earned its own badge once it became settable (RUN-SPEC-V1): it is
+      // half the {taskType, tier} key the matrix resolves on. It sits just before
+      // `target` because it is an input to the routing decision, not an outcome.
+      "tier",
       "target",
       "transcript",
     ]);
+  });
+
+  it("badges the phase plan from either half, and never invents one", () => {
+    // A plain conversational turn walks no pipeline: no plan, no badge.
+    expect(keys(railBadges({ runtime: "codex" }))).toEqual(["runtime"]);
+    // A named work kind with nothing turned off.
+    const named = railBadges({ workKind: "full-feature" }).find((b) => b.key === "workKind");
+    expect(named?.label).toBe("full-feature");
+    expect(named?.title).toContain("every phase in the plan runs");
+    // The OFF count rides the label, because it is the part that changes what runs.
+    const trimmed = railBadges({ workKind: "full-feature", phasesOff: "review,walkthrough" }).find(
+      (b) => b.key === "workKind"
+    );
+    expect(trimmed?.label).toBe("full-feature -2");
+    expect(trimmed?.title).toContain("phases off: review, walkthrough");
+    expect(trimmed?.tone).toBe("warn");
+    // An orchestrator-inferred plan has NO work kind - it is not one of the named
+    // kinds. Requiring one would blank the badge on exactly the auto turns it
+    // exists to explain, so the OFF count stands alone.
+    const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "workKind");
+    expect(inferred?.label).toBe("plan -1");
+    expect(inferred?.title).toContain("inferred from the tier");
+  });
+
+  it("says so on the tier badge when no classifier ran", () => {
+    const skipped = railBadges({ tier: "T2-deep", taskType: "implement", classifierSkipped: true }).find(
+      (b) => b.key === "tier"
+    );
+    expect(skipped?.title).toContain("no classifier ran");
+    const classified = railBadges({ tier: "T2-deep", taskType: "implement" }).find((b) => b.key === "tier");
+    expect(classified?.title).not.toContain("no classifier ran");
   });
 });
 

@@ -8,6 +8,12 @@ x-garrison:
   faculty: sessions
   cardinality_hint: multi
   component_shape: cli-skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - claude-code
   summary: Schedules a daily synthetic prompt that asks the Operative to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.
@@ -31,8 +37,13 @@ x-garrison:
     - kind: connector
       name: trello
       cardinality: optional-one
-    - kind: automation-runner
-      name: google-calendar
+    # Calendar reaches the Operative through the `google` connector Fitting
+    # (kind: connector, name: google). There has never been an
+    # automation-runner named google-calendar in the repo, so the old
+    # declaration could not resolve to anything and just misreported the
+    # dependency.
+    - kind: connector
+      name: google
       cardinality: optional-one
   setup:
     command: bash scripts/setup.sh

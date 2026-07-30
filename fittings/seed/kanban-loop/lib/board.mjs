@@ -93,7 +93,41 @@ export function normalisePlacement(raw) {
   };
 }
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+/**
+ * The card's explicit run spec (RUN-SPEC-V1) — the `TurnRouting` pin, stored whole.
+ *
+ * STRUCTURAL sanitising only: the exact field list, and scalars-or-nothing. The
+ * SEMANTIC check (is this tier/work kind/phase in the compiled policy's
+ * vocabulary?) belongs to the gateway's sanitizeRouting and is deliberately not
+ * mirrored here — the board is a different process with no policy of its own, and a
+ * second copy of that vocabulary is exactly the drift this whole change is removing.
+ * A value the gateway refuses comes back as a rejection on the badge, which is the
+ * designed way for a bad pin to surface.
+ *
+ * Returns null for "nothing pinned" so a fully-automatic card stores `routing: null`
+ * rather than an empty object — the two read identically, and null is what every
+ * pre-existing card already has.
+ */
+export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "workKind", "phasesOff"];
+export function sanitiseCardRouting(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out = {};
+  for (const field of CARD_ROUTING_FIELDS) {
+    const value = raw[field];
+    if (value === null || value === undefined) continue;
+    if (field === "level") {
+      const n = typeof value === "number" ? value : /^[0-9]+$/.test(String(value)) ? Number(value) : NaN;
+      if (Number.isInteger(n) && n >= 1 && n <= 9) out.level = n;
+      continue;
+    }
+    if (typeof value !== "string") continue;
+    const s = value.trim();
+    if (s) out[field] = s;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
@@ -132,6 +166,17 @@ export async function createCard(root, { title, description = "", project = null
     workKind: typeof workKind === "string" && workKind ? workKind : null,
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
+    // ── the card's explicit run spec (RUN-SPEC-V1) ────────────────────────
+    // ONE object, not six fields: it is the same `TurnRouting` pin the Web
+    // Channel's rail produces, and gatewayRunFn forwards it verbatim as the
+    // request's `routing`. Storing it whole means the gateway stays the single
+    // validator (it re-validates every turn against the live policy) and adding a
+    // dimension later touches the vocabulary, not the card schema.
+    //
+    // Absent/empty = every dimension is automatic, which is the default for every
+    // card. Sanitised to a plain object of scalars here; semantic validation is
+    // deliberately NOT duplicated on the board.
+    routing: sanitiseCardRouting(routing),
     origin: typeof origin === "string" && origin ? origin : validContinues ? "continuation" : null,
     // WS2 (D7): predecessor card id for a continuation (null for a fresh card). The
     // engine reads the predecessor's handoff.json into the successor's prompt.
@@ -242,7 +287,7 @@ const LOCK_STALE_MS = Number(process.env.GARRISON_KANBAN_LOCK_STALE_MS || 30000)
 // Is a pid alive on THIS host? kill(pid,0) probes without signalling: ESRCH = gone,
 // EPERM = alive-but-not-ours. (Single-machine, solo-dev deployment, so a pid is a
 // reliable liveness token; a cross-host lock falls back to the age heuristic.)
-function isPidAlive(pid) {
+export function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; }
   catch (e) { return e.code === "EPERM"; }
@@ -347,14 +392,21 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     try {
       disk = await loadCard(root, card.id);
     } catch {
-      disk = null; // no card on disk
+      disk = null;
     }
+    // The card file is GONE — it was deleted while this writer held its in-memory
+    // copy. Writing would RESURRECT it, and the old code did exactly that: the
+    // missing-disk case skipped the rev check ("first write of a brand-new card")
+    // and wrote anyway. Observed live — a deleted card reappeared, parked, a minute
+    // later when the run that was still in flight committed its result.
+    //
+    // saveCardCAS never legitimately CREATES: createCard writes the first version
+    // with atomicWriteJSON directly, and every other caller is updating a card it
+    // just read. So a missing file is always a delete, and always a refusal.
     if (!disk) {
-      // A genuine first write carries expectedRev 0. A POSITIVE expectedRev with
-      // no card on disk means the card we read was deleted under us — resurrecting
-      // it would undo the delete, so report a conflict instead.
-      if (expectedRev !== 0) return { ok: false, conflict: true, card: null };
-    } else if ((disk.rev ?? 0) !== expectedRev) {
+      return { ok: false, deleted: true, card: null };
+    }
+    if ((disk.rev ?? 0) !== expectedRev) {
       return { ok: false, conflict: true, card: disk };
     }
     const next = { ...card, rev: expectedRev + 1, updated: at };

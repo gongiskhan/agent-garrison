@@ -1,0 +1,132 @@
+lockfile_version: '1'
+generated_at: '2026-07-29T17:01:09.529039+00:00'
+apm_version: 0.26.0
+dependencies:
+- repo_url: _local/automations
+  name: automations
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/automations
+- repo_url: _local/basic-memory
+  name: basic-memory
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-memory
+  - .claude/skills/garrison-memory/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-memory/SKILL.md: sha256:045d5b30c4d6abca8163ee1a25c2d7bfd6f051a2dbd146f18443110819d707fc
+  source: local
+  local_path: ../../fittings/seed/basic-memory
+- repo_url: _local/coord-agentmail
+  name: coord-agentmail
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/coord-agentmail
+- repo_url: _local/cursor-runtime
+  name: cursor-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/cursor-runtime
+- repo_url: _local/dev-env
+  name: dev-env
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/dev-env
+- repo_url: _local/dispatcher
+  name: dispatcher
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/dispatcher
+- repo_url: _local/file-browser
+  name: file-browser
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/file-browser
+- repo_url: _local/http-gateway
+  name: http-gateway
+  version: 0.2.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/http-gateway.md
+  deployed_file_hashes:
+    .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+  source: local
+  local_path: ../../fittings/seed/http-gateway
+- repo_url: _local/identity-gary
+  name: identity-gary
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/identity-gary
+- repo_url: _local/improver
+  name: improver
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/improver
+- repo_url: _local/kanban-loop
+  name: kanban-loop
+  version: 0.2.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/kanban-loop
+- repo_url: _local/orchestrator
+  name: orchestrator
+  version: 0.2.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/orchestrator.md: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+  source: local
+  local_path: ../../fittings/seed/orchestrator
+- repo_url: _local/web-channel-default
+  name: web-channel-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/web-channel-default
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/commands/orchestrator.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/orchestrator
+  active_owner: ../../fittings/seed/orchestrator
+  content_hash: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+- kind: project-relative
+  target: claude
+  value: .claude/rules/http-gateway.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/http-gateway
+  active_owner: ../../fittings/seed/http-gateway
+  content_hash: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-memory
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/basic-memory
+  active_owner: ../../fittings/seed/basic-memory
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-memory/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/basic-memory
+  active_owner: ../../fittings/seed/basic-memory
+  content_hash: sha256:045d5b30c4d6abca8163ee1a25c2d7bfd6f051a2dbd146f18443110819d707fc

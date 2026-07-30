@@ -22,9 +22,13 @@ dependencies:
     - path: ../../fittings/seed/huggingface-runtime
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/morning-briefing
+    - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
@@ -72,6 +76,10 @@ x-garrison:
             port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
+        - id: omi-channel
+          config:
+            port: 7094
+            bind_host: 127.0.0.1
       gateway:
         - id: http-gateway
           config:
@@ -157,6 +165,10 @@ x-garrison:
             review_cron: 0 8 * * 1
             review_stall_hours: 2
             outpost_host_url: http://127.0.0.1:3702
+        - id: loop-heartbeat
+          config:
+            cadence_minutes: 40
+            gateway_url: http://127.0.0.1:4777/jobs
       sessions:
         - id: garrison-assistant
           config:
@@ -178,6 +190,17 @@ x-garrison:
         - id: snapshots-default
           config:
             projects_root: ~/dev
+        - id: improver-nightly
+          config:
+            autonomy_mode: manual
+            schedule_cron: 17 3 * * *
+            state_dir: data/improver
+            proposal_namespace: improver
+            require_unlocked_vault: true
+        - id: morning-briefing
+          config:
+            briefing_time: '08:00'
+            weekdays_only: true
       surfaces:
         - id: screen-share-default
           config:
@@ -241,46 +264,46 @@ x-garrison:
         levels:
           - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
             cell:
-              target: sdk-haiku
-              effort: low
+              target: cc-sonnet
+              effort: high
           - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
             cell:
-              target: cc-sonnet
-              effort: medium
+              target: cc-opus
+              effort: high
           - description: >-
               deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
               security-sensitive or multi-subsystem work
             cell:
               target: cc-opus
-              effort: high
+              effort: max
       - id: other
         title: Other
         description: Anything that fits no other duty.
         levels:
           - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
             cell:
-              target: sdk-haiku
-              effort: low
-          - description: 'involved: unclassified work that still needs real thought or multiple steps'
-            cell:
               target: cc-sonnet
               effort: medium
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+            cell:
+              target: cc-opus
+              effort: high
       - id: research
         title: Research
         description: 'Find things out: look up, survey, investigate.'
         levels:
           - description: 'lookup: a fact check or a single-source answer'
             cell:
-              target: sdk-haiku
-              effort: low
-          - description: 'focused: survey a topic or compare a few options, with sources'
-            cell:
               target: cc-sonnet
-              effort: medium
-          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+              effort: high
+          - description: 'focused: survey a topic or compare a few options, with sources'
             cell:
               target: cc-opus
               effort: high
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+            cell:
+              target: cc-opus
+              effort: max
       - id: discuss
         title: Discuss
         description: Talk a problem through and write a brief when the thinking settles.
@@ -289,8 +312,16 @@ x-garrison:
               level 1: quick discussion - talk a focused question or tradeoff through in prose, then
               write the brief when the thinking settles.
             cell:
-              target: cc-sonnet
+              target: fable
               effort: medium
+          - description: 'level 2: deeper than level 1 - describe when the Dispatcher should pick this level'
+            cell:
+              target: fable
+              effort: high
+          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+            cell:
+              target: fable
+              effort: xhigh
       - id: plan
         title: Plan
         description: Design an implementation plan before building.
@@ -299,6 +330,14 @@ x-garrison:
             cell:
               target: fable
               effort: high
+          - description: 'level 2: deeper than level 1 - describe when the Dispatcher should pick this level'
+            cell:
+              target: fable
+              effort: xhigh
+          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+            cell:
+              target: fable
+              effort: max
       - id: implement
         title: Implement
         description: Execute a planned change end to end.
@@ -307,7 +346,7 @@ x-garrison:
           - description: 'carry a planned change end to end: code, verify, evidence'
             cell:
               target: opus
-              effort: high
+              effort: xhigh
       - id: review
         title: Review
         description: Review a change for correctness and quality.
@@ -334,12 +373,12 @@ x-garrison:
               effort: low
           - description: 'standard: run and extend the tests that cover the change'
             cell:
-              target: cc-sonnet
-              effort: medium
+              target: cc-opus
+              effort: high
           - description: 'thorough: build out missing coverage, e2e included'
             cell:
-              target: cc-sonnet
-              effort: high
+              target: cc-opus
+              effort: xhigh
       - id: image
         title: Image
         description: Create or edit images.
@@ -361,11 +400,11 @@ x-garrison:
           - description: 'short-form: a note, a summary, an announcement, a doc tweak'
             cell:
               target: cc-sonnet
-              effort: low
+              effort: medium
           - description: 'long-form: a document, a spec, a post with structure and polish'
             cell:
               target: cc-sonnet
-              effort: medium
+              effort: high
       - id: ops
         title: Ops
         description: 'Operate the system: run, restart, configure, deploy.'
@@ -373,11 +412,15 @@ x-garrison:
           - description: 'routine: restart a service, check a status, run a known command'
             cell:
               target: cc-sonnet
-              effort: low
+              effort: high
           - description: 'careful: config changes, migrations, anything with blast radius'
             cell:
-              target: cc-sonnet
+              target: cc-opus
               effort: high
+          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+            cell:
+              target: cc-opus
+              effort: xhigh
       - id: drill
         title: Drill
         description: >-
@@ -392,8 +435,20 @@ x-garrison:
               standard drill pass: plan/update the plan for changed pages, gate for approval, then
               run and report findings.
             cell:
-              target: cc-sonnet
-              effort: medium
+              target: cc-opus
+              effort: high
+          - description: >-
+              deep: the same stages at maximum reasoning, for an unfamiliar or large surface, or a
+              page whose checks keep coming back ambiguous.
+            cell:
+              target: cc-opus
+              effort: max
+          - description: >-
+              frontier: the hardest surfaces, where even a maximum-effort pass cannot settle what
+              the page is supposed to prove.
+            cell:
+              target: fable
+              effort: max
       - id: adversarial-review
         title: Adversarial Review
         description: Independent cross-model review that tries to refute the change.
@@ -405,7 +460,11 @@ x-garrison:
           - description: 'deep: decorrelated scrutiny of a risky or security-adjacent change'
             cell:
               target: sol
-              effort: high
+              effort: xhigh
+          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+            cell:
+              target: sol
+              effort: max
       - id: adversarial-test
         title: Adversarial Test
         description: Independent cross-model attempt to break the change.
@@ -425,11 +484,15 @@ x-garrison:
           - description: 'spot-check: a quick pass over the changed surface'
             cell:
               target: fable
-              effort: low
+              effort: medium
           - description: 'full pass: a pixel-level UX audit of the whole flow'
             cell:
               target: fable
               effort: high
+          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+            cell:
+              target: fable
+              effort: xhigh
       - id: walkthrough
         title: Walkthrough
         description: Record a self-verified evidence walkthrough (video) of a working flow.
@@ -468,8 +531,18 @@ x-garrison:
         levels:
           - description: answer a routing probe with a single short reply
             cell:
-              target: sdk-ollama-probe
+              target: cc-sonnet
               effort: low
+      - id: dispatch
+        title: Dispatch
+        description: Read an inbound task and route it to the right duty and level.
+        levels:
+          - description: >-
+              Single-shot structured classification of the task into (duty, level) on a small fast
+              model — the default dispatch cell.
+            cell:
+              target: dispatch-fast
+              effort: medium
     selected_duties:
       - code
       - other

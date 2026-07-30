@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateMachine } from "@/lib/dispatch-machines";
+import { readLoadout, renderLoadoutEnv } from "@/lib/loadout";
+import type { DispatchJob } from "@/lib/dispatch";
 import {
   BoardUnavailableError,
   buildJob,
@@ -39,7 +41,43 @@ export async function POST(request: NextRequest) {
     const card = selectClaimable(cards, machine, now);
     if (!card) return NextResponse.json({ job: null });
 
-    const job = buildJob(card);
+    // Attach the project's Loadout and its vault-rendered .env (D2/D3). The
+    // HOST resolves the secrets — with the vault unlocked here — and only the
+    // rendered result travels. The vault file and its master key never leave
+    // this machine.
+    //
+    // A missing Loadout is NOT fatal: a stub command needs no project
+    // environment. A Loadout that exists but cannot be rendered IS fatal for
+    // this claim, because handing a worker a half-environment means it fails
+    // deep inside a run instead of before one starts.
+    let extra: Partial<DispatchJob> = {};
+    if (card.project) {
+      const loadout = await readLoadout(card.project).catch(() => null);
+      if (loadout) {
+        const rendered = await renderLoadoutEnv(loadout);
+        if (rendered.missing.length) {
+          return NextResponse.json(
+            {
+              job: null,
+              error: "loadout-incomplete",
+              cardId: card.id,
+              missing: rendered.missing,
+              detail: `vault is missing ${rendered.missing.join(", ")} for loadout ${loadout.id}`
+            },
+            { status: 409 }
+          );
+        }
+        extra = {
+          loadout,
+          envContent: rendered.content,
+          envSources: Object.fromEntries(
+            rendered.resolved.filter((r) => r.source).map((r) => [r.name, r.source as string])
+          )
+        };
+      }
+    }
+
+    const job = buildJob(card, extra);
     if (!job) {
       // Targeted at this machine but not runnable remotely (no command in v1).
       // Report idle rather than handing over a job the worker cannot execute.
@@ -54,6 +92,11 @@ export async function POST(request: NextRequest) {
     // both PATCH, and the second is rejected as a conflict.
     const result = await patchCard(card.id, {
       rev: card.rev,
+      // Mark the card running so the board shows it as in flight on that
+      // machine. The local orphan sweep skips a card with a live dispatch
+      // claim, so this cannot be mistaken for a lost local run.
+      status: "running",
+      runningSince: nowIso,
       dispatch: {
         machine,
         workerId,

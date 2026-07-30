@@ -1,10 +1,10 @@
 // Regression guard (added after kanban-loop V1b shipped an own-port board with no
 // scripts/start.mjs → the runner's startOwnPortFitting errors "no start script" and
 // the board never boots). The runner (src/lib/own-port-lifecycle.ts) starts an
-// operative-bound own-port Fitting by spawning `<fittingDir>/scripts/start.mjs`. So
-// EVERY seed Fitting that declares x-garrison.own_port: true and is operative-bound
-// (lifecycle !== "detached") MUST ship scripts/start.mjs, or it silently fails to
-// start under Garrison even though `node scripts/server.mjs` works standalone.
+// own-port Fitting by spawning `<fittingDir>/scripts/start.mjs`. So EVERY seed
+// Fitting that declares x-garrison.own_port: true MUST ship scripts/start.mjs,
+// or it silently fails to start under Garrison even though
+// `node scripts/server.mjs` works standalone.
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +21,6 @@ function ownPortOperativeBoundFittings(): { id: string; dir: string }[] {
     let meta: any;
     try { meta = (parseYaml(readFileSync(apm, "utf8")) as any)?.["x-garrison"]; } catch { continue; }
     if (!meta || meta.own_port !== true) continue;
-    if (meta.lifecycle === "detached") continue; // detached fittings aren't runner-started
     out.push({ id, dir });
   }
   return out;

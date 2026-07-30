@@ -28,7 +28,8 @@ const seedIds = [
   "file-browser",
   "garrison-orchestrator",
   "taste",
-  "opencode-runtime"
+  "opencode-runtime",
+  "cursor-runtime"
 ] as const;
 
 interface RawManifest {
@@ -163,5 +164,58 @@ describe("seed Fittings", () => {
     const selectedIds = Object.values(selections).flat().map((s) => s.id);
     const missing = selectedIds.filter((id) => !registered.has(id));
     expect(missing).toEqual([]);
+  });
+});
+
+// 2026-07-29 fittings/views refit: every Fitting has a view — an own-port UI
+// or at least one declared ui.views[] entry. A viewless fitting is invisible
+// in the sidebar Fittings group, so this is an authoring error the validator
+// (runArchitectureCheck) also rejects. Shared views must point at a KNOWN
+// garrison:* entry, or the host renders "Loader pending" forever.
+describe("every seed Fitting has a view", () => {
+  const SHARED_ENTRIES = new Set([
+    "garrison:skill",
+    "garrison:prompt",
+    "garrison:runtime",
+    "garrison:connector",
+    "garrison:manage"
+  ]);
+
+  it("all seeds declare ui.views or own_port, and shared entries are known", async () => {
+    const fs = await import("node:fs");
+    const registered = new Set(
+      (
+        JSON.parse(
+          fs.readFileSync(path.resolve(__dirname, "..", "data", "library.json"), "utf8")
+        ) as Array<{ id: string }>
+      ).map((e) => e.id)
+    );
+    const viewless: string[] = [];
+    const unknownShared: string[] = [];
+    for (const id of fs.readdirSync(SEED_DIR)) {
+      const manifestPath = path.join(SEED_DIR, id, "apm.yml");
+      if (!fs.existsSync(manifestPath)) continue; // README.md etc.
+      let metadata: GarrisonMetadata;
+      try {
+        metadata = await loadSeed(id);
+      } catch (error) {
+        // Parked pre-pivot seeds (faculty: skills/classifier/knowledge-base)
+        // no longer parse — tolerated ONLY while they stay de-listed from the
+        // library. A registered fitting must parse.
+        if (registered.has(id)) throw error;
+        continue;
+      }
+      const views = metadata.ui?.views ?? [];
+      if (views.length === 0 && metadata.own_port !== true) {
+        viewless.push(id);
+      }
+      for (const view of views) {
+        if (view.entry.startsWith("garrison:") && !SHARED_ENTRIES.has(view.entry)) {
+          unknownShared.push(`${id}:${view.id} -> ${view.entry}`);
+        }
+      }
+    }
+    expect(viewless, "fittings without any view").toEqual([]);
+    expect(unknownShared, "views naming an unknown garrison:* shared entry").toEqual([]);
   });
 });

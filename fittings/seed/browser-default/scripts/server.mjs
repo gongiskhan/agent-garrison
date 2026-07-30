@@ -1521,39 +1521,94 @@ async function handleObserve(_req, res, tabId, query) {
   const tab = tabs.get(tabId);
   if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
   try {
-    const page = tab.page;
-    const pageUrl = page.url();
-    const title = await page.title();
-    const parts = await page.evaluate(() => {
-      const h = document.querySelector("h1,h2");
-      const headingText = h ? (h.textContent || "").trim().slice(0, 300) : "";
-      const counts = {};
-      for (const el of document.querySelectorAll("*")) {
-        const t = el.tagName.toLowerCase();
-        counts[t] = (counts[t] || 0) + 1;
-        const r = el.getAttribute && el.getAttribute("role");
-        if (r) counts["role:" + r] = (counts["role:" + r] || 0) + 1;
-      }
-      counts["__landmarks"] = document.querySelectorAll("main,nav,header,footer,aside,form").length;
-      return { headingText, counts };
-    });
-    const shapeSketch = Object.entries(parts.counts)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${k}:${v}`)
-      .join(",");
-    const vp = tab.emulatedViewport || page.viewportSize() || { width: 0, height: 0 };
-    const observation = { url: pageUrl, title, headingText: parts.headingText, shapeSketch, viewport: { w: vp.width, h: vp.height } };
-    if (query && query.a11y === "1") {
-      observation.a11y = await accessibilityTree(tab);
+    // An observation is only evidence if its parts describe the SAME page. They
+    // are gathered sequentially (url, title, DOM sketch, a11y tree, screenshot),
+    // and a client-side redirect landing anywhere in that window hands the
+    // caller a screenshot of page B carrying page A's accessibility tree. That
+    // reads, to a model, as "the page is blank / still loading" while the tree
+    // plainly lists a form - and it then invents a wait step, or repairs a check
+    // that was never broken. Cheap fix: notice the URL moved and observe once
+    // more. One retry only; a page redirecting on a timer is a real finding, not
+    // something to loop on.
+    const observed = await observeOnce(tab, query);
+    if (observed.url !== tab.page.url()) {
+      return jsonRes(res, 200, { ...(await observeOnce(tab, query)), reobservedAfterNavigation: true });
     }
-    if (query && query.screenshot === "1") {
-      const buf = await page.screenshot({ type: "jpeg", quality: 50 });
-      observation.screenshotB64 = buf.toString("base64");
-    }
-    jsonRes(res, 200, observation);
+    return jsonRes(res, 200, observed);
   } catch (err) {
     jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+async function observeOnce(tab, query) {
+  const page = tab.page;
+  const pageUrl = page.url();
+  const title = await page.title();
+  const parts = await page.evaluate(() => {
+    const h = document.querySelector("h1,h2");
+    const headingText = h ? (h.textContent || "").trim().slice(0, 300) : "";
+    const counts = {};
+    for (const el of document.querySelectorAll("*")) {
+      const t = el.tagName.toLowerCase();
+      counts[t] = (counts[t] || 0) + 1;
+      const r = el.getAttribute && el.getAttribute("role");
+      if (r) counts["role:" + r] = (counts["role:" + r] || 0) + 1;
+    }
+    counts["__landmarks"] = document.querySelectorAll("main,nav,header,footer,aside,form").length;
+    return { headingText, counts };
+  });
+  const shapeSketch = Object.entries(parts.counts)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}:${v}`)
+    .join(",");
+  const vp = tab.emulatedViewport || page.viewportSize() || { width: 0, height: 0 };
+  const observation = { url: pageUrl, title, headingText: parts.headingText, shapeSketch, viewport: { w: vp.width, h: vp.height } };
+  if (query && query.a11y === "1") {
+    observation.a11y = await accessibilityTree(tab);
+  }
+  if (query && query.screenshot === "1") {
+    observation.screenshotB64 = (await settledScreenshot(page)).toString("base64");
+  }
+  return observation;
+}
+
+// A screenshot is only worth taking once the page has stopped moving.
+//
+// Playwright's `animations: "disabled"` finishes CSS animations and
+// transitions, and that alone is worth having — but it cannot touch an
+// animation driven from JavaScript (framer-motion and friends interpolate
+// inline styles from requestAnimationFrame; document.getAnimations() reports
+// nothing at all for them). Measured on a real app: 400ms after load the login
+// card sits at opacity 0.34 while its accessibility tree is fully populated, so
+// the capture is a near-empty frame attached to a tree listing every field.
+//
+// Every model downstream then reads that pair as "the page is still loading",
+// and answers accordingly: a verify returns false on a page that was fine, the
+// fixer inserts a wait step to repair a check that was never broken, and the
+// run pays for both. Compared to that, a few hundred milliseconds here is free.
+//
+// Visual stability is the only detector that covers all of it — CSS, JS, lazy
+// images, spinners: shoot, pause, shoot again, and stop as soon as two frames
+// come out identical. A page that genuinely never settles (a caret, a live
+// clock) simply spends the budget and returns its last frame, which is still
+// later and more settled than capturing immediately.
+// The load gate first: "two identical frames" is defeated by a page that has
+// not started rendering, where both frames are identically EMPTY and the loop
+// exits immediately on the emptiest possible capture. Waiting for the network
+// to go quiet gets past an SPA's hydrate-then-mount window; it is bounded and
+// best-effort, because a page holding a socket open never reaches networkidle
+// and that must not cost the caller its screenshot.
+async function settledScreenshot(page, { tries = 4, gapMs = 120, loadTimeoutMs = 2500 } = {}) {
+  await page.waitForLoadState("networkidle", { timeout: loadTimeoutMs }).catch(() => {});
+  const shoot = () => page.screenshot({ type: "jpeg", quality: 50, animations: "disabled" });
+  let previous = await shoot();
+  for (let i = 1; i < tries; i++) {
+    await page.waitForTimeout(gapMs);
+    const next = await shoot();
+    if (next.equals(previous)) return next;
+    previous = next;
+  }
+  return previous;
 }
 
 // Accessibility tree via CDP (page.accessibility was removed in modern

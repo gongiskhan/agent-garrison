@@ -14,7 +14,7 @@ import path from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-export const ORIGIN_TRANSPORTS = ["web", "board", "skill", "terminal"];
+export const ORIGIN_TRANSPORTS = ["web", "board", "skill", "terminal", "omi"];
 
 // Sanitize an origin_id into a safe filename (mirrors web-channel threads.mjs
 // safeThreadId): filename-safe chars only, capped, with a short hash suffix when

@@ -211,8 +211,10 @@
 }
 .decisionRow {
   display: grid;
-  /* kind | duty | reason | target | time | session */
-  grid-template-columns: auto auto 1fr auto auto auto;
+  /* kind | duty | reason | target | who | time | session — and the verdict controls
+     on their own full-width row beneath, so a correction form can expand without
+     reflowing the columns above it. */
+  grid-template-columns: auto auto 1fr auto auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
@@ -288,6 +290,118 @@
 .decisionSession:hover {
   color: var(--ink);
   border-bottom-color: currentColor;
+}
+
+/* ── who chose it, and the verdict on that choice (RUN-SPEC-V1) ────────────── */
+
+/* Deliberately quiet. On a normal day MOST decisions are automatic, so a loud
+   treatment would make the ordinary case look like a warning. It is a fact, not
+   an alert. */
+.decisionVia {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.decisionViaAuto {
+  color: var(--mute);
+  border-bottom: 1px dotted var(--rule-2);
+}
+
+/* Full-width second row of the decision grid. */
+.decisionVerdict {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.verdictBtn {
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.verdictBtn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.verdictBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.verdictBtnWrong[aria-expanded="true"] {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.decisionVerdictDone {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--mute);
+  margin-top: 2px;
+}
+.decisionVerdictErr {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--alarm, #a33);
+}
+
+.correctionBox {
+  flex-basis: 100%;
+  border-top: 1px dashed var(--rule-2);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.correctionLead {
+  display: block;
+  font-size: 11px;
+  color: var(--mute);
+  margin-bottom: 6px;
+}
+/* auto-fit rather than a fixed column count: this panel is read on a laptop and a
+   phone, and nine fixed columns is unusable on the latter. */
+.correctionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+.correctionField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.correctionField > span {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.correctionField input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper, #fff);
+  color: var(--ink);
+  font-size: 12px;
+}
+.correctionField input:focus {
+  outline: none;
+  border-color: var(--ink);
 }
 
 .panelState {

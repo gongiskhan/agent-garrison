@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { startOwnPortFitting, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
 import { operativeEnvForFitting } from "@/lib/runner";
-import { activeCompositionEnvForFitting } from "@/lib/eager-boot";
+import { activeCompositionEnvForFitting } from "@/lib/composition-env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,11 +18,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: `fitting ${params.id} not in library` }, { status: 404 });
     }
     const body = await req.json().catch(() => ({}));
-    // On-demand start is the NORMAL path for non-eager views (up only boots
-    // eager ones): when a composition is running, hand the view the same env
-    // the runner would at up — gateway URL, composition id, selection config,
-    // vault. Otherwise fall back to vault-only (may be locked; then {} — the
-    // Fitting starts without its secrets rather than failing).
+    // Fittings normally start with the operative at up(); this manual start
+    // exists for recovery (a crashed fitting, a fitting started while the
+    // operative is down). When a composition is running, hand the fitting the
+    // same env the runner would at up — gateway URL, composition id, selection
+    // config, vault. Otherwise fall back to vault-only (may be locked; then {}
+    // — the Fitting starts without its secrets rather than failing).
     const compositionEnv = await operativeEnvForFitting(params.id);
     // A consumer-driven heal (drill's run preflight) must NEVER spawn an
     // env-less fitting: without the projected env the automations engine

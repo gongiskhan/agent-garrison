@@ -3,9 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setEagerBoot, isEagerBoot } from "../src/lib/eager-boot";
 
-// C2-3 (agent_mail standing/eager lifecycle) + C2-4 (durable backups).
+// C2-4 (durable backups). The former C2-3 eager/standing lifecycle is gone:
+// coord-agentmail now starts and stops with the operative like every other
+// own-port fitting (2026-07-29 fittings/views refit).
 
 const SEED = path.resolve(__dirname, "..", "fittings", "seed");
 let gh: string;
@@ -17,16 +18,6 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(gh, { recursive: true, force: true });
   delete process.env.GARRISON_HOME;
-});
-
-describe("C2-3 agent_mail standing/eager lifecycle", () => {
-  it("eager-boot toggles for coord-agentmail (standing on select, off on deselect)", async () => {
-    expect(await isEagerBoot("coord-agentmail")).toBe(false);
-    await setEagerBoot("coord-agentmail", true); // what runner does when coord-agentmail is SELECTED
-    expect(await isEagerBoot("coord-agentmail")).toBe(true);
-    await setEagerBoot("coord-agentmail", false); // what runner does when DESELECTED
-    expect(await isEagerBoot("coord-agentmail")).toBe(false);
-  });
 });
 
 describe("C2-4 durable backups (~/.garrison/snapshots, not /tmp)", () => {

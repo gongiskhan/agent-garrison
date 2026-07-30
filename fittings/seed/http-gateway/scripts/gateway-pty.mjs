@@ -32,6 +32,7 @@ import {
   OperativePtySession,
   captureLines,
   extractReply,
+  parseActivity,
   openRichStream,
   richStatus,
   keySequence,
@@ -671,6 +672,11 @@ async function initRouting() {
       claudeBinary: CLAUDE_BINARY,
     },
     initialTarget: { provider: PRIMARY_PROVIDER, model: MODEL, effort: null },
+    // Pin the ROUTING BRAIN (Stage-A classification + the Dispatcher's
+    // single-shot call) to the PRIMARY engine (gateway fitting config
+    // `routing_on_primary`). Unset = the historical cheap claude-code haiku
+    // classifier + garrison-call dispatch, byte-for-byte.
+    ...(process.env.GARRISON_ROUTING_ON_PRIMARY === "1" ? { routingOnPrimary: true } : {}),
     logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
   });
   await router.start();
@@ -827,6 +833,27 @@ function pinnedString(raw, field, rejected) {
 }
 
 /**
+ * The vocabularies the run-plan pins are validated against, read from the LIVE
+ * routing config. Kept as an explicit parameter of sanitizeRouting (defaulted here)
+ * rather than reached for inside it: the validator is pure and unit-tested, and a
+ * hidden module-global would make a test pass while production rejected everything.
+ *
+ * An ABSENT config yields empty lists, which sanitizeRouting reports as
+ * `policy-unavailable` rather than accepting the pin blindly. A pin the resolver
+ * could not honor must die at the edge, with a reason - that is the whole contract.
+ */
+export function routingVocabulary(config = router?.config ?? null) {
+  return {
+    tiers: Array.isArray(config?.tiers) ? config.tiers.filter((t) => typeof t === "string") : [],
+    workKinds:
+      config?.workKinds && typeof config.workKinds === "object" && !Array.isArray(config.workKinds)
+        ? Object.keys(config.workKinds)
+        : [],
+    phases: Array.isArray(config?.phases) ? config.phases.filter((p) => typeof p === "string") : []
+  };
+}
+
+/**
  * Validate a channel-supplied `TurnRouting` (§2). STRICT and closed: an invalid
  * value is DROPPED and recorded as a rejection, never coerced and never passed
  * through to the resolver. The rejection is what makes the badge read "override
@@ -835,10 +862,22 @@ function pinnedString(raw, field, rejected) {
  *
  * @returns {{routing: object|null, rejected: {field: string, reason: string}[]}}
  */
-export function sanitizeRouting(raw) {
+export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
   const rejected = [];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { routing: null, rejected };
   const out = {};
+  // A closed vocabulary that is EMPTY means the policy could not be read, not that
+  // every value is invalid. Distinguish the two so the badge says "policy
+  // unavailable" instead of blaming the user's choice.
+  const inVocab = (list, value, field) => {
+    if (!list.length) {
+      rejected.push({ field, reason: "policy-unavailable" });
+      return false;
+    }
+    if (list.includes(value)) return true;
+    rejected.push({ field, reason: `${field}-not-in-vocabulary` });
+    return false;
+  };
   for (const field of ["target", "model", "duty", "project", "account"]) {
     if (raw[field] === undefined || raw[field] === null) continue;
     const value = pinnedString(raw[field], field, rejected);
@@ -855,6 +894,34 @@ export function sanitizeRouting(raw) {
     const level = typeof raw.level === "number" ? raw.level : /^[0-9]+$/.test(String(raw.level)) ? Number(raw.level) : NaN;
     if (Number.isInteger(level) && level >= 1 && level <= 9) out.level = level;
     else rejected.push({ field: "level", reason: "level-not-an-integer-1-9" });
+  }
+  // The run-plan pins (RUN-SPEC-V1). `tier` and `workKind` are validated against the
+  // COMPILED POLICY's own vocabulary rather than a hardcoded list here - the policy
+  // is the thing that will actually be resolved against, so a value this edge
+  // accepted but the matrix cannot key on would be a pin that dies silently later.
+  if (raw.tier !== undefined && raw.tier !== null) {
+    const tier = pinnedString(raw.tier, "tier", rejected);
+    if (tier !== null && inVocab(vocabulary.tiers, tier, "tier")) out.tier = tier;
+  }
+  if (raw.workKind !== undefined && raw.workKind !== null) {
+    const kind = pinnedString(raw.workKind, "workKind", rejected);
+    if (kind !== null && inVocab(vocabulary.workKinds, kind, "workKind")) out.workKind = kind;
+  }
+  if (raw.phasesOff !== undefined && raw.phasesOff !== null) {
+    const csv = pinnedString(raw.phasesOff, "phasesOff", rejected);
+    if (csv !== null) {
+      const ids = csv.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!vocabulary.phases.length) {
+        rejected.push({ field: "phasesOff", reason: "policy-unavailable" });
+      } else {
+        const unknown = ids.filter((id) => !vocabulary.phases.includes(id));
+        // ALL-or-nothing. Silently keeping the recognised half would turn "skip
+        // these three gates" into "skip two of them" with nothing on the badge to
+        // say so - and a phase the user believes is off would run.
+        if (unknown.length) rejected.push({ field: "phasesOff", reason: `unknown-phase:${unknown[0]}` });
+        else if (ids.length) out.phasesOff = ids.join(",");
+      }
+    }
   }
   return { routing: Object.keys(out).length ? out : null, rejected };
 }
@@ -896,6 +963,15 @@ export function turnAttribution(pre, hints, extra = {}) {
     // resolves with no skill. Reported as null ("skill: none") rather than hidden.
     skill: pre?.skill ?? route?.skill ?? hints?.skill ?? null,
     via: route?.via ?? null,
+    // RUN-SPEC-V1 run plan. `workKind`/`phasesOff` are reported from the RESOLVED
+    // hints (the pin when the user set one, the gateway's inference otherwise) so
+    // the badge shows an auto-chosen plan instead of leaving it invisible - which is
+    // the whole point of "if it was auto, say what it chose".
+    workKind: hints?.workKind ?? null,
+    phasesOff: phaseTogglesToCsv(hints?.phases),
+    // Undefined (not false) when the router did not say: an older lane that never
+    // reports it must not be badged "a classifier ran" on no evidence.
+    classifierSkipped: typeof pre?.classifierSkipped === "boolean" ? pre.classifierSkipped : null,
     account,
     accountSource,
     project: pre?.project ?? hints?.project ?? null,
@@ -1056,6 +1132,26 @@ export function buildRouteOptions() {
   } catch {
     projects = [];
   }
+  // The run-plan vocabularies (RUN-SPEC-V1), from the same live config the
+  // validator checks pins against - so the menu and the edge can never drift into
+  // offering something that would then be refused.
+  const vocab = routingVocabulary(config);
+  const phasePlans = config?.phasePlans && typeof config.phasePlans === "object" ? config.phasePlans : {};
+  const workKinds = vocab.workKinds
+    .map((id) => {
+      const kind = config.workKinds[id] ?? {};
+      const plan = phasePlans[kind.phasePlan] ?? null;
+      return {
+        id,
+        description: typeof kind.description === "string" ? kind.description : null,
+        // The plan's phases IN PLAN ORDER: this doubles as the preview of what the
+        // run will walk, so the order is load-bearing, not cosmetic.
+        phases: Array.isArray(plan?.phases)
+          ? plan.phases.map((p) => (typeof p === "string" ? p : p?.id)).filter((p) => typeof p === "string")
+          : []
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
   return {
     targets,
     duties,
@@ -1065,6 +1161,9 @@ export function buildRouteOptions() {
     // Null name = the box's own Claude login (the honest "machine login" badge).
     account: { name: processAccount, source: processAccount ? "process" : null },
     projects,
+    tiers: vocab.tiers,
+    workKinds,
+    defaultWorkKind: typeof config?.defaultWorkKind === "string" ? config.defaultWorkKind : null,
     primaryRuntime: primaryRuntime(),
     activeProfile: config?.activeProfile ?? null,
     // Routing may be off entirely (no orchestrator fitting) - the rail then shows
@@ -1077,6 +1176,41 @@ export function buildRouteOptions() {
  *  turn → honored check. The operative session is served by the routing pool.
  *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
  *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity. */
+// Liveness for the INTERACTIVE lane, which has no structured event stream: the
+// TUI draws thinking and tool use instead of emitting them, so a channel sees
+// nothing between "sent" and the final reply. Scrape the screen for the current
+// activity and forward it as the same `activity` frame the routed SDK lanes emit.
+//
+// Deduped (a tool line stays on screen for the rest of the turn, so an undeduped
+// emitter would repeat it forever) and throttled (onScreen fires on every
+// repaint, which is many times a second while a spinner animates).
+export function screenActivityEmitter(handle, onActivity, nowFn = Date.now) {
+  if (typeof onActivity !== "function" || !handle) return () => {};
+  let last = "";
+  let lastAt = 0;
+  return () => {
+    const now = nowFn();
+    if (now - lastAt < 400) return;
+    lastAt = now;
+    const activity = parseActivity(handle);
+    if (!activity?.text) return;
+    const key = `${activity.kind}:${activity.text}`;
+    if (key === last) return;
+    last = key;
+    // Match the wire shape the SDK lanes already emit, or the client drops it:
+    // a tool frame is keyed on `name`, a thinking frame on `text`.
+    const payload =
+      activity.kind === "tool"
+        ? { kind: "tool", name: activity.text }
+        : { kind: "thinking", text: activity.text };
+    try {
+      onActivity(payload);
+    } catch {
+      /* a streaming consumer must never break the turn */
+    }
+  };
+}
+
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   await router.ensureOperative();
   // NOTE (S3d review R1): the Discuss reply-as-answer / explicit-go interception is NOT
@@ -1203,6 +1337,12 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
             pipelineSequence = null;
           }
         }
+        // Report the plan that was actually chosen, whoever chose it. Without this
+        // the phases badge is blank on exactly the turns where the ORCHESTRATOR
+        // picked the plan - which is the case the badge exists for. `hints` is the
+        // per-turn object turnAttribution already reads, so this keeps one reporting
+        // path instead of threading a second one through three lane returns.
+        if (hints && inferredPhases && !hints.phases) hints.phases = inferredPhases;
         const cardOpts = {
           workKind: hints?.workKind ?? null,
           phases: inferredPhases,
@@ -1641,10 +1781,16 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       materialized: { oneShot: true, assembledChars: ctxBlock.length, internal: isInternal },
     };
   }
+
   let lastEmitted = "";
+  // Runs even when onChunk is absent: the activity hint is the ONLY feedback a
+  // caller gets on this lane, so it must not be gated on text streaming.
+  const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
   const onScreen =
-    onChunk && session.handle
+    session.handle
       ? () => {
+          emitScreenActivity();
+          if (!onChunk) return;
           const current = extractReply(session.handle, annotated);
           if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
             onChunk(current.slice(lastEmitted.length));
@@ -1762,19 +1908,20 @@ async function runTurn(message, onChunk, hints, opts = {}) {
       await spawnOperative({ resume: true });
     }
     let lastEmitted = "";
-    const onScreen = onChunk
-      ? () => {
-          const current = extractReply(session.handle, message);
-          if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
-            onChunk(current.slice(lastEmitted.length));
-            lastEmitted = current;
-          } else if (current && current !== lastEmitted) {
-            // Reflow / divergence - re-emit the whole thing as a correction.
-            onChunk(current, true);
-            lastEmitted = current;
-          }
-        }
-      : undefined;
+    const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
+    const onScreen = () => {
+      emitScreenActivity();
+      if (!onChunk) return;
+      const current = extractReply(session.handle, message);
+      if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
+        onChunk(current.slice(lastEmitted.length));
+        lastEmitted = current;
+      } else if (current && current !== lastEmitted) {
+        // Reflow / divergence - re-emit the whole thing as a correction.
+        onChunk(current, true);
+        lastEmitted = current;
+      }
+    };
     // The legacy single-session path is a Claude PTY too, so ESC stops it.
     registerTurnStop("standing-pty", () => {
       if (typeof session?.writeKeys !== "function") return false;
@@ -1806,6 +1953,27 @@ async function runTurn(message, onChunk, hints, opts = {}) {
 // an EXPLICIT {taskType,tier} classification preRoute can honor instead of
 // re-classifying, the per-list skill, and a suppress-continuations flag. Validated so a
 // malformed classification simply falls back to normal classification (never trusted blindly).
+/**
+ * `phasesOff` (a CSV of the OFF set, the wire form every rail surface pins) → the
+ * `{phase: false}` toggle map the card and `railForCard` already speak. Returns null
+ * for an empty pin so an unpinned turn stays byte-identical to before - the
+ * back-compat shape is test-pinned in two places.
+ */
+export function phaseTogglesFromCsv(csv) {
+  const ids = String(csv ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) return null;
+  return Object.fromEntries(ids.map((id) => [id, false]));
+}
+
+/** The inverse, for reporting a resolved plan back on the badge row. Only `false`
+ *  entries count: `railForCard` reads nothing else, so a stray `true` in a toggle
+ *  map means "on", not "off", and must not appear in the OFF list. */
+export function phaseTogglesToCsv(toggles) {
+  if (!toggles || typeof toggles !== "object" || Array.isArray(toggles)) return null;
+  const off = Object.entries(toggles).filter(([, on]) => on === false).map(([id]) => id);
+  return off.length ? off.join(",") : null;
+}
+
 export function routeHintsFromBody(body) {
   const c = body?.classification;
   const classification =
@@ -1859,8 +2027,22 @@ export function routeHintsFromBody(body) {
     // S3b: the web-channel's assembled materialized-turn context — prefixed onto a
     // web one-shot so the standing operative session holds no web context.
     context: typeof body?.context === "string" ? body.context : null,
-    workKind: typeof body?.workKind === "string" ? body.workKind : null,
-    phases: body?.phases && typeof body.phases === "object" ? body.phases : null,
+    // The phase plan for a turn that becomes a card. TWO wire spellings reach the
+    // same field: the board's long-standing top-level `workKind`/`phases`, and the
+    // RUN-SPEC-V1 pin (`routing.workKind` / `routing.phasesOff`) that every rail
+    // surface sends. The top-level form WINS - the board computes it from the card
+    // it already owns, so it is a statement of fact, while the pin is an intent that
+    // has to survive validation. The pin is only read after sanitizeRouting, so an
+    // out-of-vocabulary work kind never arrives here at all.
+    workKind:
+      typeof body?.workKind === "string" ? body.workKind : (routing?.workKind ?? null),
+    phases:
+      body?.phases && typeof body.phases === "object"
+        ? body.phases
+        : phaseTogglesFromCsv(routing?.phasesOff),
+    // NOT the same thing as `routing.project`, and deliberately not folded into it:
+    // this is the card's project LABEL, `routing.project` is the turn's cwd pin.
+    // Collapsing them would silently change the cwd of every existing board caller.
     project: typeof body?.project === "string" ? body.project : null,
     // V4 card execution identity. The Kanban engine supplies these fields for an
     // existing Dispatcher-created card; preRoute resolves the exact assigned leaf

@@ -8,6 +8,12 @@ x-garrison:
   faculty: skills
   cardinality_hint: multi
   component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - claude-code
   summary: Plan-then-execute coding sub-agent. The Operative produces a plan against a project, captures it as a Document, and on user approval spawns an execution sub-agent in the project folder.

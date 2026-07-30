@@ -258,6 +258,36 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [composition?.id]);
 
+  // Keep the composition itself fresh too: the Muster standing panel (and any
+  // other tab) writes selections through /api/muster/standing/* without going
+  // through this provider, so without a refetch the sidebar Fittings menu kept
+  // showing unfitted fittings until a full reload. Cheap local GET; only
+  // re-renders when the on-disk content actually differs. Skipped while a
+  // save/run action from THIS tab is in flight so a poll response can never
+  // clobber an optimistic update mid-save.
+  const busyRef = useRef<AppShellState["busy"]>(null);
+  busyRef.current = busy;
+  const refreshComposition = useCallback(async () => {
+    if (!composition?.id || busyRef.current) return;
+    try {
+      const res = await fetch(`/api/compositions/${composition.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const fresh = data.composition as Composition | undefined;
+      if (!fresh || busyRef.current) return;
+      setComposition((prev) => {
+        // A late poll response for a DIFFERENT composition (the tab switched
+        // while the GET was in flight) must be discarded, not installed —
+        // installing it would revert the switch and wedge subsequent polls on
+        // the old id.
+        if (prev && prev.id !== fresh.id) return prev;
+        return prev && JSON.stringify(prev) === JSON.stringify(fresh) ? prev : fresh;
+      });
+    } catch {
+      // Poll refresh is best-effort; the next tick retries.
+    }
+  }, [composition?.id]);
+
   // Poll the runner state so status pills track transitions live. Without this
   // the pill only updates when a runAction POST resolves — an in-tab Restart
   // holds that POST open for the whole up() (~2 min), so STARTING/VERIFYING
@@ -268,9 +298,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void refreshRunnerState();
+      void refreshComposition();
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [refreshRunnerState]);
+  }, [refreshRunnerState, refreshComposition]);
 
   const saveComposition = useCallback<AppShellState["saveComposition"]>(
     async (next) => {

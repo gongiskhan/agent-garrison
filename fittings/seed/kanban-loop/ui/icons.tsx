@@ -70,6 +70,10 @@ export function TerminalIcon(): JSX.Element {
 export function WrenchIcon(): JSX.Element {
   return <svg {...base}><path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 1 5.4-5.4l-2.7 2.7-2-2 2.7-2.7z" /></svg>;
 }
+// A target/crosshair for "Send to Drill" — the QA pass aimed at one change.
+export function DrillIcon(): JSX.Element {
+  return <svg {...base}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><line x1="12" y1="1" x2="12" y2="4" /><line x1="12" y1="20" x2="12" y2="23" /><line x1="1" y1="12" x2="4" y2="12" /><line x1="20" y1="12" x2="23" y2="12" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

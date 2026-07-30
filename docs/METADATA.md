@@ -61,11 +61,10 @@ Top-level `x-garrison` fields:
 | `consumes` | array | no | Capabilities this Fitting requires from the composition. Defaults to `[]`. See `CAPABILITIES.md`. |
 | `setup` | object | no | Optional one-shot install/repair command run by the runner before `verify` on every `up`. See setup schema below. |
 | `verify` | object | yes | Runtime verification command and expected output. |
-| `ui` | object | no | Optional trusted React extension metadata. |
+| `ui` | object | see note | Embedded view declarations. **Every Fitting must have a view**: at least one `ui.views[]` entry, or `own_port: true`. The validation pipeline's architecture check rejects a viewless Fitting. See [UI-FITTINGS.md](./UI-FITTINGS.md) for the authoring guide (shared `garrison:*` views cover the common shapes with zero code). |
 | `tasks` | object | no | Optional declaration that this Fitting backs the derived Tasks surface. |
-| `own_port` | boolean | no | The Fitting serves its own UI/backend on its own HTTP port and registers at runtime via `~/.garrison/ui-fittings/<id>.json`. |
+| `own_port` | boolean | no | The Fitting serves its own UI/backend on its own HTTP port and registers at runtime via `~/.garrison/ui-fittings/<id>.json`. Own-port Fittings start with the operative at `up` and stop at `down` — fittings share the operative's lifecycle, always. |
 | `default_port` | integer | no | Informational default port for an own-port Fitting; the runtime status file is authoritative. |
-| `lifecycle` | enum | no | Own-port Fittings only: `operative-bound` (default; stopped with the operative at `down`, auto-started at `up` only when eager-toggled — otherwise on demand from Views) or `detached` (user-managed). |
 | `connector` | object | no | Connector Fittings only (`kind: connector`): auth method, action catalog, optional triggers. See the connector schema below. |
 | `secret_scope` | string array | no | The named Vault secrets this Fitting may read; the Vault delivers only these to the Fitting's process. |
 | `provider_mechanism` | object | no | Runtime Fittings only (GARRISON-RUNTIMES-V1 D3): HOW a provider override (base URL / auth credential / model) applies to this engine. Discriminated on `type`: `env` (any of `base_url_env`, `auth_env`, `model_arg`, `model_env` — at least one) or `config-file` (`config_file` + `config_format` [`json`\|`toml`] required; optional `config_key`, `model_key`). Strict: unknown keys fail the parse. A runtime without one is still a routing target, just without provider overrides. |
@@ -78,6 +77,9 @@ emit a `console.warn`:
 
 - `primitive:` (rewritten to `faculty:`).
 - The aliased legacy faculty names below (each rewritten to its role).
+- `lifecycle:` (dropped and ignored — the 2026-07-29 fittings/views refit
+  removed the eager/detached split; every own-port Fitting shares the
+  operative's lifecycle).
 
 Faculty ids (9 core roles + 7 optional capability faculties + `connectors`,
 enforced by `facultyIds` in `src/lib/types.ts`):
@@ -149,6 +151,36 @@ Verify schema:
 | `expect` | string | yes | Trimmed stdout must include this value. |
 | `timeout_ms` | integer | no | Defaults to 10000. |
 
+#### The two hooks run from DIFFERENT directories
+
+This asymmetry is the single most common authoring mistake, so it is spelled out
+once here and gated by `tests/hook-cwd-contract.test.ts`:
+
+| Hook | cwd | Path shape in the command |
+|---|---|---|
+| `setup` | `<composition>/apm_modules/_local/<id>/` | fitting-relative — `bash scripts/setup.sh` |
+| `verify` | `<composition>/` | composition-relative — `bash apm_modules/_local/<id>/scripts/verify.sh` |
+
+Consequences worth internalising:
+
+- A verify command written in the setup shape (`bash scripts/verify.sh`) exits
+  127 on every `up`, which aborts the whole composition.
+- **Inside a setup script, `$(pwd)` is the fitting's own installed dir, not the
+  composition.** To reach a sibling Fitting, resolve relative to the script
+  (`"$(cd "$(dirname "$0")/.." && pwd)"/../<other>`), never
+  `"$(pwd)/apm_modules/_local/<other>"` — that resolves to
+  `.../_local/<self>/apm_modules/_local/<other>` and always misses, which
+  surfaces as a well-fitted dependency reporting as absent.
+- A verify hook must not require a live gateway: `up` runs verify *before* it
+  spawns the gateway, so a hard health check there can never pass on a cold
+  start. Probe the Fitting's own wiring and treat gateway liveness as advisory.
+
+Both hooks receive, in addition to the Fitting's own config projected as
+`<FITTING_ID>_<KEY>`, the instance's gateway address as `GARRISON_GATEWAY_HOST`
+/ `GARRISON_GATEWAY_PORT` / `GARRISON_GATEWAY_URL`. Never bake a port literal as
+a fallback: every such literal in this repo named the codex instance's gateway
+and silently crossed instances.
+
 UI schema (contract v2):
 
 | Field | Type | Required | Notes |
@@ -161,9 +193,9 @@ View schema:
 |---|---:|---:|---|
 | `id` | string | yes | Stable view id, slug-shaped (`^[a-zA-Z][a-zA-Z0-9_-]*$`). Combined with the Fitting id to form the registry key the host app loads. |
 | `placement` | enum | yes | `faculty-tab` (renders inline on the Compose pane next to the Fitting's config form) or `sidebar-surface` (gets its own page under `/fitting/<fitting-id>/...` and a left-nav entry). |
-| `entry` | string | yes | Path relative to the Fitting root. Authoritative declaration; the host app does NOT load from disk in v2 (see [SPEC.md](./SPEC.md) §9). |
+| `entry` | string | yes | Path relative to the Fitting root for a bespoke view (registered in the host's static registry), or a `garrison:<kind>` name to use a host-provided shared view (`garrison:skill`, `garrison:prompt`, `garrison:runtime`, `garrison:connector`, `garrison:manage` — see [UI-FITTINGS.md](./UI-FITTINGS.md)). The host app does NOT load from disk in v2 (see [SPEC.md](./SPEC.md) §9). |
 | `route` | string | yes | Path fragment under the Fitting's prefix (`/<fitting-id>`). Supports react-router-style params (`/:id`, `/:id/edit`). The view resolver matches sub-paths against this template; first-match wins. |
-| `chrome` | enum | no | `default` (overview header above the view) or `full-bleed` (the surface page suppresses the fitting-overview header and width cap; the view owns the whole estate). |
+| `chrome` | enum | no | `default` (slim fitting header above the view) or `full-bleed` (the surface page suppresses the header and width cap; the view owns the whole estate). |
 
 ### v1 → v2 normalization
 

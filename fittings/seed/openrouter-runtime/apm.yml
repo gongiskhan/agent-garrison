@@ -8,6 +8,12 @@ x-garrison:
   faculty: runtimes
   cardinality_hint: multi
   component_shape: cli-skill
+  ui:
+    views:
+      - id: runtime
+        placement: sidebar-surface
+        entry: garrison:runtime
+        route: /
   platforms:
     - all
   summary: >-
