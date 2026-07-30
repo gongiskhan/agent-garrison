@@ -420,7 +420,7 @@ simply ahead of prod.
 | **DEV** | `~/dev/agent-garrison-dev` | 7777 | `~/.garrison-dev` | `~/.claude-garrison-dev` | `next dev` (edit = live on save) |
 | **PROD** | `~/dev/agent-garrison` | 8777 | `~/.garrison` | the real `~/.claude` | `next start` on `.next-prod` |
 
-Fittings follow the same offset: local-voice dev 7094 / prod 8094, jarvis-os
+Fittings follow the same offset: local-voice dev 7081 / prod 8081, jarvis-os
 7097 / 8097, dev-env 7086 / 8086, kanban-loop 7089 / 8089.
 
 - **HARD RULE — all editing happens in the DEV tree.** `~/dev/agent-garrison`

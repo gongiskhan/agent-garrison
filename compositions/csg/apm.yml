@@ -74,6 +74,7 @@ x-garrison:
       observability:
         - id: kanban-loop
           config:
+            port: 7089
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
@@ -97,6 +98,7 @@ x-garrison:
             dream_model: haiku
         - id: automations
           config:
+            port: 7090
             automations_dir: ~/.garrison/automations
       sessions:
         - id: dev-env

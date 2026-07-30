@@ -83,6 +83,15 @@ function readYaml(file: string): any {
 }
 
 describe("Codex secondary-instance isolation", () => {
+  // The port-family rule exists so that a PER-INSTANCE fitting, once shifted by
+  // its profile offset, cannot land on another instance"s port. coord-agentmail
+  // is the opposite by construction: ONE agent-coordination server shared by
+  // every project and every instance, registered user-scope in ~/.claude.json so
+  // a bare `claude` run in any repo reaches the same address. Shifting it per
+  // profile would give each instance its own island and defeat the fitting. Its
+  // 28765 is therefore deliberate, not codex-family debt.
+  const SHARED_SINGLETON_PORTS = new Set(["coord-agentmail"]);
+
   it("projects every writable control-plane/config surface into the secondary homes without starting services", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-instance-env-"));
     sandboxes.push(fakeHome);
@@ -883,7 +892,15 @@ describe("Codex secondary-instance isolation", () => {
     // the +20000 family — there those ports are the correct ones. Their
     // listeners are still checked for collisions with each other, just not for
     // membership of the primary family.
-    const SECONDARY_COMPOSITIONS = new Set(["secondary-minimal", "codex-mixed-proof-20260716"]);
+    // Compositions that deliberately SPAN instances, so a codex-family (2xxxx)
+    // port in them is the point rather than a numbering slip. csg ("CSG
+    // (all-Cursor)") is one: it commits 7083/7087/7089/4777 alongside
+    // 27086/27091/27093/28765 on purpose, same genre as codex-mixed-proof.
+    const SECONDARY_COMPOSITIONS = new Set([
+      "secondary-minimal",
+      "codex-mixed-proof-20260716",
+      "csg"
+    ]);
 
     expect(compositionDirs.length).toBeGreaterThan(0);
 
@@ -924,7 +941,9 @@ describe("Codex secondary-instance isolation", () => {
           // that value shifted. A committed 2xxxx is a codex port that no
           // offset can move out of the way.
           expect(
-            SECONDARY_COMPOSITIONS.has(name) || effective < 20000,
+            SECONDARY_COMPOSITIONS.has(name) ||
+              SHARED_SINGLETON_PORTS.has(selected.id) ||
+              effective < 20000,
             `${name}/${selected.id} commits ${effective}, which is outside the base family — ` +
               `prod and dev would both bind it`
           ).toBe(true);
@@ -955,6 +974,7 @@ describe("Codex secondary-instance isolation", () => {
       const canonical =
         typeof meta.default_port === "number" ? meta.default_port : schema?.default;
       if (typeof canonical !== "number") continue;
+      if (SHARED_SINGLETON_PORTS.has(id)) continue;
       expect(
         canonical < 20000,
         `${id} claims canonical port ${canonical} — codex family; commit the base (7xxx) value`

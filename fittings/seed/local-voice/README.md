@@ -23,13 +23,13 @@ Kokoro, so the voice changes with the language — an accepted consequence.
 ## How it works
 
 ```
-  channel ──HTTP──▶  local-voice (Node, :7094)  ──HTTP──▶  voice-server (Python)
+  channel ──HTTP──▶  local-voice (Node, :7081)  ──HTTP──▶  voice-server (Python)
    /stt /tts          own-port wrapper + status file        faster-whisper STT
                                                             + Kokoro/Piper TTS
 ```
 
 - **`scripts/server.mjs`** is a thin Node own-port wrapper. It owns the public
-  port (default `7094`) and the status file
+  port (default `7081`) and the status file
   (`~/.garrison/ui-fittings/local-voice.json`), and supervises the Python
   voice-server on an internal localhost port. On `down` the Garrison runner
   kills this Node process, which in turn kills the Python child.

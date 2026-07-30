@@ -8,6 +8,12 @@ x-garrison:
   faculty: memory
   cardinality_hint: multi
   component_shape: cli
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
   platforms:
     - all
   summary: >-

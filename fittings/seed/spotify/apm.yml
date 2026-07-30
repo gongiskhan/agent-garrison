@@ -8,6 +8,12 @@ x-garrison:
   faculty: connectors
   cardinality_hint: multi
   component_shape: cli
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
   platforms:
     - all
   summary: Spotify connector — control playback on the user's active Spotify Connect device (pause / resume / next / previous, play by search, volume, transfer) over the Spotify Web API. Playback control REQUIRES Spotify Premium; audio plays on whichever device runs the Spotify app (open it on the phone to make the phone the target). OAuth2 is sealed in the Vault; a freshly-refreshed access token is delivered scoped per call — nothing plaintext in the manifest or logs.

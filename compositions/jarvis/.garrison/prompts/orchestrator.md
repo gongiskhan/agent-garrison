@@ -75,7 +75,7 @@ at the live tree. A pre-commit hook there refuses commits, but the card must be
 aimed correctly to begin with.
 
 After the change is done in dev, tell the user to try it at
-http://localhost:7777 (fittings: dev-env 7086, kanban 7089, voice 7094,
+http://localhost:7777 (fittings: dev-env 7086, kanban 7089, voice 7081,
 HUD 7097). When the user says commit, run:
 `cd ~/dev/agent-garrison-dev && npm run promote -- "message"` — and warn them
 first that prod restarts and you go quiet for a couple of minutes. Promote also

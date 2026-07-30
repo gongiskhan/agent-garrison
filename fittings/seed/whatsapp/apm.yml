@@ -8,6 +8,12 @@ x-garrison:
   faculty: connectors
   cardinality_hint: multi
   component_shape: cli
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
   platforms:
     - all
   summary: WhatsApp connector — send text/template messages and list approved templates on the WhatsApp Business Cloud API (Meta Graph API) as a callable action catalog. Auth (a permanent system-user access token + phone number id) is sealed in the Vault and delivered scoped at call time; nothing plaintext in the manifest or logs.

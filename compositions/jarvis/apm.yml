@@ -80,7 +80,7 @@ x-garrison:
             wake_idle_timeout_s: 90
         - id: local-voice
           config:
-            port: 7094
+            port: 7081
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             # Spoken cadence: seconds of silence inserted after each punctuation

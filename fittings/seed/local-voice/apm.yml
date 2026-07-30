@@ -1,6 +1,6 @@
 name: local-voice
 version: 0.1.0
-description: Local Voice Fitting (channels role, own-port). Fully local, multilingual speech I/O — no cloud, no API key. A Node own-port wrapper supervises the voice-server (faster-whisper STT + Kokoro/Piper TTS, MIT/Apache) and exposes the Garrison voice contract on port 7094, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice). STT auto-detects the spoken language (PT/FR/EN/ES/IT/…) and TTS speaks the response back in its own language — Portuguese uses Piper's native European pt_PT voice, the rest use Kokoro.
+description: Local Voice Fitting (channels role, own-port). Fully local, multilingual speech I/O — no cloud, no API key. A Node own-port wrapper supervises the voice-server (faster-whisper STT + Kokoro/Piper TTS, MIT/Apache) and exposes the Garrison voice contract on port 7081, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice). STT auto-detects the spoken language (PT/FR/EN/ES/IT/…) and TTS speaks the response back in its own language — Portuguese uses Piper's native European pt_PT voice, the rest use Kokoro.
 target: claude
 type: hybrid
 includes: auto
@@ -8,7 +8,7 @@ x-garrison:
   faculty: channels
   cardinality_hint: single
   own_port: true
-  default_port: 7094
+  default_port: 7081
   component_shape: plugin
   platforms:
     - claude-code
@@ -16,7 +16,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7094
+      default: 7081
       description: HTTP port the Node voice wrapper binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

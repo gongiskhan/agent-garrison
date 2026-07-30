@@ -69,7 +69,13 @@ function internalToken() {
 async function fetchInjectedEnv(fetchImpl) {
   const tok = internalToken();
   if (!tok) return {};
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+  // No port literal (HARD RULE: a fitting must be TOLD a peer address, never
+  // guess it). The runner projects GARRISON_BASE_URL; without it there is no way
+  // to know WHICH instance to ask, and a baked 7777 asked DEV on prod"s behalf.
+  // Absent env falls through exactly like an absent token: {} -> the caller
+  // reports awaiting_connector instead of crossing instances.
+  const base = process.env.GARRISON_BASE_URL;
+  if (!base) return {};
   try {
     const res = await fetchImpl(`${base}/api/connectors/spotify/auth-env`, {
       method: "POST",

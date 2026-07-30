@@ -22,7 +22,7 @@ tank the score). Focus order in `corpus.json`: pt-PT (voice Joana) > pt-BR
 
 The harness auto-discovers whichever voice Fitting is running:
 
-- **`local-voice`** (port 7094) — fully **local, no account, no API key**
+- **`local-voice`** (port 7081) — fully **local, no account, no API key**
   (faster-whisper STT, multilingual with language detection). The default. Batch
   `/stt` only, so **level B (streaming) is skipped** — it has no WS `/stream`.
 - **`deepgram-voice`** (port 7085) — cloud, needs a **Deepgram account +
