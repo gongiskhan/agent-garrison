@@ -43,6 +43,7 @@ import {
   TerminalIcon,
   WrenchIcon,
   DrillIcon,
+  MailIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
@@ -383,6 +384,7 @@ function Card({
   onRevert,
   onContinue,
   onDrill,
+  onFeedback,
   busy
 }: {
   card: CardSummary;
@@ -397,6 +399,7 @@ function Card({
   onRevert: (c: CardSummary) => void;
   onContinue: (c: CardSummary) => void;
   onDrill: (c: CardSummary) => void;
+  onFeedback: (c: CardSummary) => void;
   busy: boolean;
 }) {
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
@@ -598,6 +601,15 @@ function Card({
               </button>
             )}
           </>
+        )}
+        {/* Feedback: write a note and send THIS card back through the pipeline with the
+            same context (runDir + prior logs preserved). The "it reached the end but
+            forgot part of the feature — send it back to fix it" path. Shown once a card
+            has stopped: on Done (terminal) or parked in needs-attention. */}
+        {(list.terminal || parked) && (
+          <button className="btn small" disabled={busy} title="write feedback and send this card back through the pipeline with the same context" onClick={() => onFeedback(card)}>
+            <MailIcon /> Feedback
+          </button>
         )}
         {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
             seeded from this card's handoff packet. */}
@@ -1154,6 +1166,98 @@ function MoveSheet({
         </div>
       )}
       {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
+    </Sheet>
+  );
+}
+
+// ── feedback sheet ("click a letter" to send a card back through the pipeline) ─
+// A card reached the end (Done) or stopped (needs-attention) but missed part of the
+// work, or the user wants to build on it. Write the feedback, pick where it re-enters
+// the pipeline (default: the start of the queue), and the SAME card is re-staged there
+// carrying the same context — its run directory + prior iteration logs are preserved,
+// and the note is folded into every phase from that point on (steering.md). This is the
+// board-side surface of the existing steering mechanism (POST /cards/:id/steer), which
+// until now was reachable only from the web-channel chat thread.
+function FeedbackSheet({
+  card,
+  board,
+  onClose,
+  onSent
+}: {
+  card: CardSummary;
+  board: BoardView;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  // Where the card can be sent back to: its resolved sequence (the leaf phase lists it
+  // actually visits) when it carries one, else every agent phase list on the board in
+  // order. The FIRST entry is "the start of the queue".
+  const agentLists = board.lists.filter((l) => l.kind === "agent" && !l.interactive).sort((a, b) => a.order - b.order);
+  const phaseIds = ((card.sequence && card.sequence.length ? card.sequence : agentLists.map((l) => l.id)) as string[]).filter(
+    (id) => board.lists.some((l) => l.id === id)
+  );
+  const titleFor = (id: string) => board.lists.find((l) => l.id === id)?.title ?? id;
+  const [message, setMessage] = useState("");
+  const [target, setTarget] = useState(phaseIds[0] ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function send() {
+    const text = message.trim();
+    if (!text) { setErr("Write the feedback first."); return; }
+    if (!target) { setErr("This card has no pipeline phase to send it back to."); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const reason = text.length > 80 ? text.slice(0, 77) + "…" : text;
+      await api.steer(card.id, { message: text, action: "revisit", revisitDuty: target, reason });
+      onSent();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet title={`Feedback: ${card.title}`} onClose={onClose}>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        Tell this card what to fix or add. It goes back through the pipeline from the phase
+        you pick, keeping the same context (its run directory and prior work), and folds your
+        note into every phase from there on.
+      </p>
+      <div className="field">
+        <label htmlFor="fb-message">Feedback</label>
+        <textarea
+          id="fb-message"
+          value={message}
+          autoFocus
+          rows={5}
+          placeholder="e.g. You forgot the CSV export button on the report page — add it and wire it to /api/export."
+          onChange={(e) => setMessage(e.target.value)}
+        />
+      </div>
+      {phaseIds.length > 0 ? (
+        <div className="field">
+          <label htmlFor="fb-target">Send back to</label>
+          <select id="fb-target" value={target} onChange={(e) => setTarget(e.target.value)}>
+            {phaseIds.map((id, i) => (
+              <option key={id} value={id}>
+                {titleFor(id)}{i === 0 ? " (start of the queue)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="banner info">This card has no pipeline phases to send it back through.</div>
+      )}
+      {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={busy || !message.trim() || !target} onClick={() => void send()}>
+          <MailIcon /> {busy ? "Sending…" : "Send back"}
+        </button>
+      </div>
     </Sheet>
   );
 }
@@ -2359,6 +2463,7 @@ type Overlay =
   | { kind: "watch"; card: CardSummary }
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
+  | { kind: "feedback"; card: CardSummary }
   | null;
 
 function App() {
@@ -2612,6 +2717,7 @@ function App() {
                       onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
                       onContinue={onContinue}
                       onDrill={onDrill}
+                      onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
                     />
                   );
                   // D19: the Done column groups quick cards (trivial-plan inline tasks)
@@ -2666,6 +2772,9 @@ function App() {
       )}
       {overlay?.kind === "config" && board && (
         <ListConfigSheet listId={overlay.listId} board={board} onClose={() => setOverlay(null)} onSaved={() => void load()} />
+      )}
+      {overlay?.kind === "feedback" && board && (
+        <FeedbackSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onSent={() => void load()} />
       )}
     </>
   );

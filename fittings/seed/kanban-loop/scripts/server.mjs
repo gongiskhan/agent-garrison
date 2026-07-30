@@ -957,6 +957,13 @@ async function handleSteerCard(req, res, opts, id) {
     if (getList(board, revisitDuty)) {
       const moved = await updateCard(opts.root, id, (c) => ({
         ...c,
+        // A human sending a card back through the pipeline is a fresh, approved pass:
+        // clear the park reason and RESET the iteration counter (the convergence guard),
+        // exactly like un-parking. Without this a card re-staged from needs-attention
+        // (parked AT the cap) would trip the cap on its first tick and re-park, and a
+        // done card would burn straight into it. The runDir + steering.md carry the
+        // prior context forward, so "same card, same context" holds.
+        ...unparkRecoveryFields(c),
         list: revisitDuty,
         status: "ok",
         runningSince: null,

@@ -183,6 +183,10 @@ export interface CardSummary {
   inferState?: string | null;
   // S3c: a mid-run revisit steering directive is pending (unapplied) on this card.
   steeringPending?: boolean;
+  // D15 (S4a): the card's resolved leaf phase lists, in visit order (null on a legacy
+  // / non-duty card). The Feedback sheet offers these as the phases to send a card
+  // back to; without one it falls back to the board's agent lists.
+  sequence?: string[] | null;
   updated: string | null;
 }
 
@@ -447,6 +451,16 @@ export const api = {
     jfetch<{ card: CardSummary; job: { id: string; state: string } | null; started: boolean }>(
       `/cards/${encodeURIComponent(id)}/drill`,
       { method: "POST" }
+    ),
+  // Send feedback to a card (steering). `absorb` folds the message into the card's
+  // context without moving it; `revisit` also re-stages the SAME card back to an
+  // earlier phase (`revisitDuty`) so it runs through the pipeline again carrying the
+  // feedback — the "it forgot part of the feature, send it back" path. `acknowledge`
+  // just records a note. Same wire contract the web-channel steering uses.
+  steer: (id: string, body: { message: string; action: "absorb" | "revisit" | "acknowledge"; revisitDuty?: string; reason?: string }) =>
+    jfetch<{ ok: boolean; action: string; revisitDuty: string | null; applied: boolean }>(
+      `/cards/${encodeURIComponent(id)}/steer`,
+      { method: "POST", body: JSON.stringify(body) }
     ),
   inferProject: (id: string) =>
     jfetch<{ card: CardSummary; inferring?: boolean; note?: string }>(

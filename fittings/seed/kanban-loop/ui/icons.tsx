@@ -74,6 +74,11 @@ export function WrenchIcon(): JSX.Element {
 export function DrillIcon(): JSX.Element {
   return <svg {...base}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><line x1="12" y1="1" x2="12" y2="4" /><line x1="12" y1="20" x2="12" y2="23" /><line x1="1" y1="12" x2="4" y2="12" /><line x1="20" y1="12" x2="23" y2="12" /></svg>;
 }
+// An envelope — "click a letter" to write feedback that sends the card back
+// through the pipeline (the Feedback button on a done / needs-attention card).
+export function MailIcon(): JSX.Element {
+  return <svg {...base}><rect x="3" y="5" width="18" height="14" rx="2" /><polyline points="3 7 12 13 21 7" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>
