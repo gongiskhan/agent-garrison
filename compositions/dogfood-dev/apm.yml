@@ -1,4 +1,4 @@
-name: dogfood-operative
+name: dogfood-dev
 version: 0.1.0
 target: claude
 dependencies:

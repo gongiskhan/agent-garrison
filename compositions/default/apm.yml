@@ -22,9 +22,12 @@ dependencies:
     - path: ../../fittings/seed/huggingface-runtime
     - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/morning-briefing
     - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
@@ -162,6 +165,10 @@ x-garrison:
             review_cron: 0 8 * * 1
             review_stall_hours: 2
             outpost_host_url: http://127.0.0.1:3702
+        - id: loop-heartbeat
+          config:
+            cadence_minutes: 40
+            gateway_url: http://127.0.0.1:4777/jobs
       sessions:
         - id: garrison-assistant
           config:
@@ -183,6 +190,17 @@ x-garrison:
         - id: snapshots-default
           config:
             projects_root: ~/dev
+        - id: improver-nightly
+          config:
+            autonomy_mode: manual
+            schedule_cron: 17 3 * * *
+            state_dir: data/improver
+            proposal_namespace: improver
+            require_unlocked_vault: true
+        - id: morning-briefing
+          config:
+            briefing_time: '08:00'
+            weekdays_only: true
       surfaces:
         - id: screen-share-default
           config:
