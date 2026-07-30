@@ -1,4 +1,25 @@
 <!--
+  ⚠️ THIS FILE IS NOT READ while the selected orchestrator Fitting ships a
+  prompt of its own — which it always does.
+
+  assembleSystemPrompt (src/lib/runner.ts) resolves the orchestrator body with
+  `readPromptForFaculty(entries, "orchestrator") ?? <this file>`. That helper
+  reads `fittings/seed/<selected-orchestrator>/.apm/prompts/*.prompt.md`, and
+  both garrison-orchestrator (10681 bytes) and the merged orchestrator ship one.
+  So this file has only ever been dead weight: the "Development requests are
+  CARDS" rule below sat here for weeks while every chat turn ran dev work inline
+  and died on the ~5 minute cap.
+
+  The composition ALSO declares `prompt_sources.orchestrator:` pointing at this
+  path — but nothing in the codebase reads that field either (it exists only as
+  a type and a writer in src/lib/compositions.ts).
+
+  Rules that must actually reach Jarvis go in soul.md, which assembleSystemPrompt
+  concatenates unconditionally. The carding mandate now lives there.
+  Kept here for reference only. 2026-07-30.
+-->
+
+<!--
 Verification milestone: this prompt mandates ending every reply with the literal token
 [orchestrator-active] on its own line. The token is load-bearing for scripts/integration-check.mjs
 and tests/orchestrator-integration.test.ts. It is VISIBLE TO USERS in every chat reply until the
