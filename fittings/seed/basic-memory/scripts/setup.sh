@@ -20,6 +20,17 @@ HOOK_HOME="$CLAUDE_HOME/basic-memory"
 HOOK_PATH="$HOOK_HOME/capture-session.py"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Spool → cortex drain (opt-in; composition config arrives as BASIC_MEMORY_*
+# via setupConfigEnv). With the defaults everything below is a no-op and the
+# stock local behavior stays byte-identical.
+SPOOL_ENABLED="${BASIC_MEMORY_SPOOL_ENABLED:-false}"
+SPOOL_DIR="${BASIC_MEMORY_SPOOL_DIR:-}"
+FLUSH_CRON="${BASIC_MEMORY_FLUSH_INTERVAL_CRON:-*/15 * * * *}"
+CORTEX_BIN="${BASIC_MEMORY_CORTEX_CLI_BIN:-cortex}"
+FLUSH_PATH="$HOOK_HOME/flush-spool.mjs"
+FLUSH_JOB_ID="basic-memory-spool-flush"
+spool_on() { [ "$SPOOL_ENABLED" = "true" ] || [ "$SPOOL_ENABLED" = "1" ]; }
+
 export PATH="$HOME/.local/bin:$PATH"
 log() { printf '[basic-memory-setup] %s\n' "$*"; }
 
@@ -93,7 +104,16 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
   mkdir -p "$(dirname "$SETTINGS_FILE")"
   [ -f "$SETTINGS_FILE" ] || echo '{}' > "$SETTINGS_FILE"
 
-  CAP_CMD="BASIC_MEMORY_VAULT_DIR=\"$VAULT_DIR\" BASIC_MEMORY_MEMORY_DIR=\"$MEMORY_DIR\" python3 \"$HOOK_PATH\""
+  # When the spool is on, bake its env into the hook command so both the
+  # spool copy and the hook's detached fire-and-forget flush see it. When it
+  # is off (the default) SPOOL_ENV is empty and CAP_CMD is byte-identical to
+  # the historical command.
+  SPOOL_ENV=""
+  if spool_on; then
+    SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 CORTEX_CLI_BIN=\"$CORTEX_BIN\" "
+    [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=\"$SPOOL_DIR\" "
+  fi
+  CAP_CMD="${SPOOL_ENV}BASIC_MEMORY_VAULT_DIR=\"$VAULT_DIR\" BASIC_MEMORY_MEMORY_DIR=\"$MEMORY_DIR\" python3 \"$HOOK_PATH\""
   python3 - "$SETTINGS_FILE" "$CAP_CMD" <<'PY'
 import json, sys
 from pathlib import Path
@@ -103,8 +123,17 @@ hooks = data.setdefault("hooks", {})
 added = []
 for event in ("SessionEnd", "PreCompact"):
     bucket = hooks.setdefault(event, [])
-    if any("basic-memory/capture-session.py" in h.get("command","")
-           for e in bucket for h in e.get("hooks", [])):
+    found = False
+    for e in bucket:
+        for h in e.get("hooks", []):
+            if "basic-memory/capture-session.py" in h.get("command",""):
+                found = True
+                # Config changed (e.g. spool toggled): refresh the command
+                # in place instead of stacking a duplicate registration.
+                if h.get("command") != cmd:
+                    h["command"] = cmd
+                    added.append(event + " (updated)")
+    if found:
         continue
     bucket.append({"matcher": "", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
     added.append(event)
@@ -113,6 +142,46 @@ print("[basic-memory-setup] capture hook wired: " + (", ".join(added) if added e
 PY
 else
   log "capture hook disabled (capture_enabled=false)"
+fi
+
+# 7. Spool drain job (opt-in). Mirrors the improver-nightly scheduler idiom:
+# state is machine-global (~/.garrison per instance) — scheduler.mjs derives
+# its own GARRISON_HOME defaults, so we only pass overrides that are set.
+# Installed layout puts this script at
+# <composition>/apm_modules/_local/basic-memory/scripts, hence the ../../..;
+# outside a composition the scheduler is simply absent and we skip.
+composition_dir="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+scheduler_script="$composition_dir/apm_modules/_local/scheduler/scripts/scheduler.mjs"
+jobs_file="${GARRISON_SCHEDULER_JOBS:-}"
+log_file="${GARRISON_SCHEDULER_LOG:-}"
+sched_env=()
+[ -n "$jobs_file" ] && sched_env+=("GARRISON_SCHEDULER_JOBS=$jobs_file")
+[ -n "$log_file" ] && sched_env+=("GARRISON_SCHEDULER_LOG=$log_file")
+sched() { env ${sched_env[@]+"${sched_env[@]}"} node "$scheduler_script" "$@"; }
+quote() { printf "%q" "$1"; }
+
+if spool_on; then
+  # The drain must survive composition churn like the hook does, so it runs
+  # from the same stable install dir ($CLAUDE_HOME/basic-memory).
+  mkdir -p "$HOOK_HOME"
+  cp "$SCRIPT_DIR/flush-spool.mjs" "$FLUSH_PATH"
+
+  if [ ! -f "$scheduler_script" ]; then
+    log "scheduler not installed; spool flush job not registered"
+  else
+    job_env="CORTEX_CLI_BIN=$(quote "$CORTEX_BIN")"
+    [ -n "$SPOOL_DIR" ] && job_env="$job_env BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR")"
+    sched register "$FLUSH_JOB_ID" "$FLUSH_CRON" \
+      --description "Drain the basic-memory capture spool via the cortex CLI" \
+      -- "$job_env node $(quote "$FLUSH_PATH")"
+    log "spool flush job registered ($FLUSH_JOB_ID: $FLUSH_CRON)"
+  fi
+else
+  # Spool off (the default): retire our drain job if a previous enable left
+  # one behind. The id is namespaced to this fitting, so removal is safe.
+  if [ -f "$scheduler_script" ]; then
+    sched remove "$FLUSH_JOB_ID" >/dev/null 2>&1 || true
+  fi
 fi
 
 log "basic-memory setup ok"
