@@ -25,6 +25,7 @@ dependencies:
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/duty-discuss
 x-garrison:
   composition:
     id: jarvis
@@ -261,6 +262,10 @@ x-garrison:
           config:
             port: 7096
             bind_host: 127.0.0.1
+        # Equipped on PROD through the Muster UI, which rewrote that manifest.
+        # Carried into dev so the promote fast-forward does not unequip it.
+        - id: duty-discuss
+          config: {}
       # External services the Operative can act on. The Orchestrator discovers
       # them via `consumes: connector any`, so each connector's action catalog +
       # bash recipe folds into its prompt automatically. Credentials are NOT set
