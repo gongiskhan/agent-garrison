@@ -458,7 +458,12 @@ function FittingViewsLinks({
       entry,
       status: statusByFittingId.get(entry.id) ?? null
     }))
-  ].sort((a, b) => a.entry.name.localeCompare(b.entry.name));
+  ].sort((a, b) => {
+    const aLive = a.kind === "own-port" && a.status?.healthy === true;
+    const bLive = b.kind === "own-port" && b.status?.healthy === true;
+    if (aLive !== bLive) return aLive ? -1 : 1;
+    return a.entry.name.localeCompare(b.entry.name);
+  });
 
   if (rows.length === 0) return null;
 
