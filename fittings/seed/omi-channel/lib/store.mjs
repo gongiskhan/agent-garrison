@@ -175,6 +175,39 @@ export class OmiStore {
     this.writeEvent(next);
     return next;
   }
+
+  // ---- threads: the thread-append contract other Garrison surfaces use to
+  // hand this channel a system notification (kanban notify-origin's
+  // CHANNEL_FITTINGS door). Messages are stored ring-capped for inspection;
+  // delivery to the wearer is the Notifier's job.
+  threadFile(id) {
+    const safe = String(id).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || "thread";
+    return path.join(this.root, "threads", `${safe}.json`);
+  }
+
+  ensureThread({ id, title = null, source = null }) {
+    const file = this.threadFile(id);
+    const existing = readJSON(file, null);
+    if (existing) return existing;
+    const thread = { id, title, source, created: new Date().toISOString(), messages: [] };
+    atomicWriteJSON(file, thread);
+    return thread;
+  }
+
+  appendThreadMessages(id, messages, { cap = 200 } = {}) {
+    const file = this.threadFile(id);
+    const thread = readJSON(file, null) ?? this.ensureThread({ id });
+    const clean = (Array.isArray(messages) ? messages : [])
+      .map((m) => ({
+        role: typeof m?.role === "string" ? m.role : "assistant",
+        text: typeof m?.text === "string" ? m.text : "",
+        at: new Date().toISOString()
+      }))
+      .filter((m) => m.text.length > 0);
+    thread.messages = [...(thread.messages ?? []), ...clean].slice(-cap);
+    atomicWriteJSON(file, thread);
+    return clean;
+  }
 }
 
 // ---- counters. Per-writer file so the server and the triage CLI never race.

@@ -213,6 +213,63 @@ declare module "*/omi-channel/lib/scheduler-jobs.mjs" {
   export function syncTriageJob(cfg: unknown, opts?: { env?: Record<string, string | undefined>; log?: unknown }): boolean;
 }
 
+interface OmiNotifyReceipt {
+  means: string;
+  ok: boolean;
+  target?: string;
+  skipped?: string;
+  error?: string;
+}
+
+declare module "*/omi-channel/lib/omi-api.mjs" {
+  export class OmiApi {
+    constructor(opts?: {
+      appId?: string;
+      appSecret?: string;
+      baseUrl?: string;
+      fetchImpl?: typeof fetch;
+      sleep?: (ms: number) => Promise<void>;
+      log?: unknown;
+    });
+    configured(): boolean;
+    sendNotification(args: { uid: string; message: string }): Promise<{
+      ok: boolean;
+      status?: number;
+      error?: string;
+      retriable?: boolean;
+      attempts: number;
+    }>;
+  }
+}
+
+declare module "*/omi-channel/lib/notify.mjs" {
+  export function renderTemplate(template: string, params?: Record<string, unknown>): string;
+  export function boardCardUrl(cardId: string | null, env?: Record<string, string | undefined>): Promise<string | null>;
+  export class Notifier {
+    constructor(opts: {
+      cfg: unknown;
+      store: unknown;
+      counters: unknown;
+      omiApi: unknown;
+      fetchImpl?: typeof fetch;
+      env?: Record<string, string | undefined>;
+      log?: unknown;
+      now?: () => Date;
+    });
+    cardUrl(cardId: string | null): Promise<string | null>;
+    sentToday(): number;
+    send(args: { template: string; params?: Record<string, unknown> }): Promise<OmiNotifyReceipt[]>;
+    drainTips(): Promise<Array<{ tip: string; receipts: OmiNotifyReceipt[] }>>;
+  }
+}
+
+declare module "*/omi-channel/lib/tailnet-serve.mjs" {
+  export function serveMapFromStatus(status: unknown): Map<number, string>;
+  export function getTailnetServeMap(): Promise<Map<number, string>>;
+  export function rehostToTailnet(absoluteUrl: string, map: Map<number, string>): string | null;
+  export function toTailnetUrl(absoluteUrl: string): Promise<string | null>;
+}
+
 declare module "*/omi-channel/scripts/replay.mjs" {
   export function endpointForFixture(name: string): string;
   export function replayFixtures(opts: {

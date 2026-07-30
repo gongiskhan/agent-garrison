@@ -98,3 +98,43 @@ Next: M3 — outbound notifications: Omi direct-notification client
 with web-channel-thread fallback, CHANNEL_FITTINGS registration, thread
 contract on the omi server, templates card_created / wake_confirmation /
 tip, tips-queue drain.
+
+## M3 — Outbound notifications (2026-07-30)
+
+Shipped:
+- `lib/omi-api.mjs`: direct-notification client per the verified shape
+  (uid+message QUERY params, Bearer app secret, no body); 401 = loud
+  no-retry credential failure, 404 = no-retry, 429/5xx = up to 3 attempts
+  with 1s/2s exponential backoff (injectable sleep).
+- `lib/notify.mjs` (Notifier): templates `card_created`,
+  `wake_confirmation`, `tip`, `relay` — each renders to ONE plain-text
+  message + at most one bare deep link, no action buttons. Primary means
+  omi-push to the pinned uid under a per-day ledger cap; degrade path (I9)
+  = web-channel PWA thread `omi-reports`. Honest per-means receipts with
+  skip REASONS; deep links tailnet-paired via a fitting-local copy of the
+  web-channel tailnet-serve helper.
+- Thread-append contract on the omi server (`POST /api/threads`,
+  `POST /api/threads/:id/messages`, NOT under the public /omi/ mount):
+  messages stored ring-capped and relayed to the wearer through the
+  degrade chain.
+- Kanban registration (minimal, inert without omi cards): `omi` added to
+  ORIGIN_TRANSPORTS + `omi: "omi-channel"` in CHANNEL_FITTINGS;
+  deliverWebMessage generalized to deliverChannelMessage keyed by the
+  card's transport (web behavior byte-identical — pinning tests green).
+- Triage cards now stamp `originChannel {channel: omi, threadId:
+  omi-reports}` so lifecycle events flow back to the wearer, and send a
+  `card_created` confirmation; the triage CLI drains the tips queue
+  attempt-once with receipts recorded to `tips-sent/`.
+- Tests: `tests/omi-channel-notify.test.ts` (13) — mocked-API retry
+  matrix, toggle-off fallback routing, cap enforcement, drain, and a live
+  round-trip proving kanban's omi transport hits this fitting's
+  thread-append route.
+
+Deviations: none new (notifications-fitting absence + web-channel-as-PWA
+fallback were recorded in M0).
+
+Next: M4 — wake bus: word-boundary variant gate over realtime segments
+(in-memory only), wake_session capture windows, intent parse + dispatch
+(create_task via board, note via memory, query via bounded turn),
+wake_confirmation via M3, kill switch mid-session,
+wake_hit_to_notification_ms metric.

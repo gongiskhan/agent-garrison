@@ -21,6 +21,8 @@ import { FITTING_ID, garrisonDir, loadConfig, omiDir, statusFilePath } from "../
 import { Counters, OmiStore, mergedCounters } from "../lib/store.mjs";
 import { Ingress } from "../lib/ingress.mjs";
 import { syncTriageJob } from "../lib/scheduler-jobs.mjs";
+import { Notifier } from "../lib/notify.mjs";
+import { OmiApi } from "../lib/omi-api.mjs";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -161,7 +163,7 @@ ${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
 }
 
 export function makeRequestHandler(ctx) {
-  const { cfg, store, counters, ingress } = ctx;
+  const { cfg, store, counters, ingress, notifier = null } = ctx;
   return async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
@@ -222,6 +224,52 @@ export function makeRequestHandler(ctx) {
         return jsonRes(res, 200, { ok: true });
       }
 
+      // ---- Thread-append contract (NOT under /omi/ - never on the public
+      // funnel mount; reachable loopback/tailnet like every fitting API).
+      // This is how other Garrison surfaces (kanban notify-origin) hand this
+      // channel a system notification: stored for inspection, relayed to the
+      // wearer via the Notifier's omi-push -> web-channel degrade chain.
+      if (pathname === "/api/threads" && method === "POST") {
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        let body = null;
+        try {
+          body = JSON.parse(bodyText);
+        } catch {
+          return jsonRes(res, 400, { error: "invalid JSON" });
+        }
+        if (!body?.id) return jsonRes(res, 400, { error: "missing thread id" });
+        const thread = store.ensureThread({ id: body.id, title: body.title ?? null, source: body.source ?? null });
+        return jsonRes(res, 200, { ok: true, thread: { id: thread.id, title: thread.title } });
+      }
+
+      {
+        const m = pathname.match(/^\/api\/threads\/([^/]+)\/messages$/);
+        if (m && method === "POST") {
+          const bodyText = await readBody(req);
+          if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+          let body = null;
+          try {
+            body = JSON.parse(bodyText);
+          } catch {
+            return jsonRes(res, 400, { error: "invalid JSON" });
+          }
+          const threadId = decodeURIComponent(m[1]);
+          const appended = store.appendThreadMessages(threadId, body?.messages);
+          counters.bump("thread_messages_in", appended.length || 0);
+          // Ack first, relay after - the caller (kanban) is fire-and-forget.
+          jsonRes(res, 200, { ok: true, appended: appended.length });
+          if (notifier) {
+            for (const msg of appended) {
+              void notifier
+                .send({ template: "relay", params: { text: msg.text } })
+                .catch((err) => console.error(`[omi-channel] relay failed: ${err?.message ?? err}`));
+            }
+          }
+          return;
+        }
+      }
+
       if (pathname === "/omi/chat" && method === "POST") {
         const auth = ingress.authorize(query);
         if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
@@ -261,9 +309,15 @@ export async function startServer(cfg = loadConfig()) {
   const store = new OmiStore(omiDir());
   const counters = new Counters(store.root, "server");
   const ingress = new Ingress({ cfg: live, store, counters });
+  const notifier = new Notifier({
+    cfg: live,
+    store,
+    counters,
+    omiApi: new OmiApi({ appId: live.secrets.appId, appSecret: live.secrets.appSecret })
+  });
   // Crash recovery: drain any raw payloads a previous process left queued.
   ingress.scheduleDrain();
-  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress }));
+  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, notifier }));
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {

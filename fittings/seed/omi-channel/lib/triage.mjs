@@ -141,7 +141,7 @@ function bumpTipsLedger(storeRoot, today) {
 
 // Dependencies are injected so tests drive everything without a network:
 // runFn ({prompt} -> {reply}), board (BoardClient shape), memoryWriter.
-export async function runTriageTick({ cfg, store, counters, runFn, board, memoryWriter, log = console, now = new Date() }) {
+export async function runTriageTick({ cfg, store, counters, runFn, board, memoryWriter, notifier = null, log = console, now = new Date() }) {
   const summary = {
     modelCalls: 0,
     dropped: 0,
@@ -276,11 +276,21 @@ export async function runTriageTick({ cfg, store, counters, runFn, board, memory
         description,
         ...(project ? { project } : {}),
         origin: "omi",
-        origin_id: originId
+        origin_id: originId,
+        // Card lifecycle events (finished / needs-attention) route back to
+        // this channel through kanban notify-origin's CHANNEL_FITTINGS map +
+        // this fitting's thread-append contract.
+        originChannel: { channel: "omi", threadId: "omi-reports" }
       });
       summary.cardsCreated++;
       counters.bump("cards_created");
       result.cards.push({ originId, cardId: card?.id ?? null, title, project });
+      if (notifier) {
+        // Tailnet-paired when possible (the tapping phone is never on this
+        // box); the notifier owns URL resolution.
+        const cardUrl = typeof notifier.cardUrl === "function" ? await notifier.cardUrl(card?.id) : null;
+        await notifier.send({ template: "card_created", params: { title, cardUrl } });
+      }
     } catch (err) {
       log.error(`[omi-channel] card create failed (${originId}): ${err?.message ?? err}`);
       counters.bump("cards_create_failed");

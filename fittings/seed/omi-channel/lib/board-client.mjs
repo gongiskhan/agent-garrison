@@ -73,6 +73,13 @@ export class BoardClient {
     return data.card ?? data;
   }
 
+  // Deep link for a card, tailnet-paired by the caller (lib/notify.mjs
+  // boardCardUrl does the rehost); this raw form is loopback.
+  async cardUrl(cardId) {
+    const base = this.base();
+    return base && cardId ? `${base}/#/cards/${cardId}` : null;
+  }
+
   // Candidate project labels for the triage prompt. Defensive about shape;
   // failure = empty list (triage then leaves project null and the board's own
   // visible project inference runs).

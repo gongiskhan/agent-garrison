@@ -13,6 +13,8 @@ import { runTriageTick } from "../lib/triage.mjs";
 import { inferenceRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
+import { Notifier } from "../lib/notify.mjs";
+import { OmiApi } from "../lib/omi-api.mjs";
 
 const arg = process.argv[2] ?? "--tick";
 if (arg !== "--tick") {
@@ -23,6 +25,12 @@ if (arg !== "--tick") {
 const cfg = loadConfig();
 const store = new OmiStore(omiDir());
 const counters = new Counters(store.root, "triage");
+const notifier = new Notifier({
+  cfg,
+  store,
+  counters,
+  omiApi: new OmiApi({ appId: cfg.secrets.appId, appSecret: cfg.secrets.appSecret })
+});
 
 const summary = await runTriageTick({
   cfg,
@@ -30,8 +38,13 @@ const summary = await runTriageTick({
   counters,
   runFn: cfg.gatewayUrl ? inferenceRunFn(cfg.gatewayUrl) : async () => ({ reply: "" }),
   board: new BoardClient(),
-  memoryWriter: new MemoryWriter()
+  memoryWriter: new MemoryWriter(),
+  notifier
 });
 
-console.log(`[omi-channel] triage tick: ${JSON.stringify(summary)}`);
+// Deliver tips queued by this (and any previous) tick - attempt-once with the
+// omi-push -> web-channel degrade chain inside.
+const tipReceipts = await notifier.drainTips();
+
+console.log(`[omi-channel] triage tick: ${JSON.stringify({ ...summary, tipsDelivered: tipReceipts.length })}`);
 process.exit(0);

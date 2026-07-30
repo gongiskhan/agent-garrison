@@ -37,10 +37,12 @@ function statusFileUrl(fittingId) {
 }
 
 // Channel id -> the fitting whose server accepts the thread-append route
-// (POST /api/threads/:id/messages). The web channel is the only wired consumer
-// today; adding a channel means adding its fitting id here (or a channel
-// fitting exposing the same route).
-const CHANNEL_FITTINGS = { web: "web-channel-default" };
+// (POST /api/threads/:id/messages). Adding a channel means adding its fitting
+// id here (the fitting must expose the same route). omi relays the message to
+// the wearer as an Omi direct notification (falling back to the web-channel
+// thread); a card only carries the omi transport when the omi-channel fitting
+// created it, so with that fitting absent or off this entry is inert.
+const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel" };
 
 function boardCardUrl(cardId) {
   const base = statusFileUrl("kanban-loop");
@@ -184,10 +186,11 @@ export function routeBrief(root, card, { brief, gate } = {}) {
   });
 }
 
-// Fire-and-forget POST of an assistant message to the web channel thread. Extracted
-// so every transport-web delivery uses one path.
-function deliverWebMessage(threadId, text) {
-  const fittingId = CHANNEL_FITTINGS.web;
+// Fire-and-forget POST of an assistant message to a channel fitting's thread
+// (the shared thread-append contract). Extracted so every channel-transport
+// delivery uses one path; the channel id picks the fitting via CHANNEL_FITTINGS.
+function deliverChannelMessage(channel, threadId, text) {
+  const fittingId = CHANNEL_FITTINGS[channel];
   if (!fittingId || !threadId || !text) return;
   const base = statusFileUrl(fittingId);
   if (!base) return;
@@ -197,7 +200,7 @@ function deliverWebMessage(threadId, text) {
     body: JSON.stringify({ messages: [{ role: "assistant", text }] })
   })
     .then((res) => {
-      if (!res.ok) console.error(`[kanban] origin event → HTTP ${res.status} (thread ${threadId})`);
+      if (!res.ok) console.error(`[kanban] origin event → HTTP ${res.status} (${channel} thread ${threadId})`);
     })
     .catch((err) => {
       console.error(`[kanban] origin event delivery failed: ${err?.message || err}`);
@@ -276,8 +279,8 @@ export function routeOriginEvent(root, disk, card, event) {
     const skipWeb =
       (event.kind === "steering" && event.detail?.viaTurn === true) ||
       event.kind === "created";
-    if (transport === "web" && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
-      deliverWebMessage(card.originChannel.threadId, event.message);
+    if (CHANNEL_FITTINGS[transport] && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
+      deliverChannelMessage(transport, card.originChannel.threadId, event.message);
     }
   } catch {
     /* never let event routing break a card write */
