@@ -13,6 +13,11 @@ declare module "*/omi-channel/lib/config.mjs" {
     port: number;
     bindHost: string;
     gatewayUrl: string | null;
+    // Resolved instance paths carried ON the config, so a consumer never
+    // re-reads process.env behind its caller's back (see config.mjs).
+    home: string;
+    stateDir: string;
+    statusFile: string;
     enabled: boolean;
     triageEnabled: boolean;
     wakeEnabled: boolean;

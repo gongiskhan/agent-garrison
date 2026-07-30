@@ -123,3 +123,41 @@ describe("omi-channel server (sandboxed boot)", () => {
     expect(page.headers.get("content-type")).toContain("text/html");
   });
 });
+
+// Regression (2026-07-30): server.mjs resolved the status file and the state
+// dir from process.env instead of the config it was handed, so a test holding a
+// sandboxed cfg wrote to — and on shutdown DELETED — the real
+// ~/.garrison/ui-fittings/omi-channel.json of a live prod instance. That file is
+// load-bearing: `down` kills by the pid in it and funnel-ensure reads the live
+// port from it. The decoy home below is what the old code would have written to.
+describe("omi-channel server (config paths beat process.env)", () => {
+  const sandbox = mkdtempSync(path.join(os.tmpdir(), "omi-cfgpath-"));
+  const decoy = mkdtempSync(path.join(os.tmpdir(), "omi-decoy-home-"));
+  const prevHome = process.env.GARRISON_HOME;
+  let server: Awaited<ReturnType<typeof startServer>> | null = null;
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    if (prevHome === undefined) delete process.env.GARRISON_HOME;
+    else process.env.GARRISON_HOME = prevHome;
+    rmSync(sandbox, { recursive: true, force: true });
+    rmSync(decoy, { recursive: true, force: true });
+  });
+
+  it("writes state and status under the cfg home, never the ambient one", async () => {
+    // The two disagree on purpose: cfg says sandbox, the ambient env says decoy.
+    process.env.GARRISON_HOME = decoy;
+    const cfg = loadConfig({ GARRISON_HOME: sandbox });
+    expect(cfg.home).toBe(sandbox);
+    expect(cfg.statusFile).toBe(statusFilePath({ GARRISON_HOME: sandbox }));
+    expect(cfg.stateDir).toBe(omiDir({ GARRISON_HOME: sandbox }));
+
+    server = await startServer({ ...cfg, port: 0, syncJobs: false });
+
+    expect(existsSync(path.join(sandbox, "ui-fittings", "omi-channel.json"))).toBe(true);
+    expect(existsSync(path.join(sandbox, "omi"))).toBe(true);
+    // The ambient home must be untouched — this is the actual defect.
+    expect(existsSync(path.join(decoy, "ui-fittings", "omi-channel.json"))).toBe(false);
+    expect(existsSync(path.join(decoy, "omi"))).toBe(false);
+  });
+});

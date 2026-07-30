@@ -17,7 +17,7 @@ import { createServer } from "node:http";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import url from "node:url";
-import { FITTING_ID, garrisonDir, loadConfig, omiDir, statusFilePath } from "../lib/config.mjs";
+import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { Counters, OmiStore, mergedCounters } from "../lib/store.mjs";
 import { Ingress } from "../lib/ingress.mjs";
 import { syncTriageJob } from "../lib/scheduler-jobs.mjs";
@@ -72,16 +72,16 @@ function pidAlive(pid) {
   }
 }
 
-async function readStatusFile(env) {
+async function readStatusFile(file) {
   try {
-    return JSON.parse(await readFile(statusFilePath(env), "utf8"));
+    return JSON.parse(await readFile(file, "utf8"));
   } catch {
     return null;
   }
 }
 
 async function writeStatusFile(cfg) {
-  const file = statusFilePath();
+  const file = cfg.statusFile;
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(
     file,
@@ -99,9 +99,9 @@ async function writeStatusFile(cfg) {
   );
 }
 
-async function clearStatusFile() {
+async function clearStatusFile(file) {
   try {
-    await unlink(statusFilePath());
+    await unlink(file);
   } catch {}
 }
 
@@ -321,10 +321,10 @@ export async function startServer(cfg = loadConfig()) {
   // Port discipline: never overwrite a status file whose pid is a LIVE other
   // process — a second spawn must fail loudly instead of silently stealing the
   // tracking slot and orphaning the first instance.
-  const existing = await readStatusFile();
+  const existing = await readStatusFile(cfg.statusFile);
   if (existing && Number.isInteger(existing.pid) && existing.pid !== process.pid && pidAlive(existing.pid)) {
     console.error(
-      `[omi-channel] refusing to start: ${statusFilePath()} tracks a live instance ` +
+      `[omi-channel] refusing to start: ${cfg.statusFile} tracks a live instance ` +
         `(pid ${existing.pid}, ${existing.url ?? `port ${existing.port}`}) - stop it first`
     );
     process.exit(1);
@@ -333,7 +333,7 @@ export async function startServer(cfg = loadConfig()) {
   // `live` is what handlers read; port is corrected to the actually-bound one
   // after listen (tests pass port 0 for an ephemeral bind).
   const live = { ...cfg };
-  const store = new OmiStore(omiDir());
+  const store = new OmiStore(live.stateDir);
   const counters = new Counters(store.root, "server");
   const notifier = new Notifier({
     cfg: live,
@@ -379,7 +379,7 @@ export async function startServer(cfg = loadConfig()) {
   await writeStatusFile(live);
   console.log(
     `[omi-channel] listening on http://${live.bindHost}:${live.port} ` +
-      `(home ${garrisonDir()}; flags ${JSON.stringify(flagSummary(live))})`
+      `(home ${live.home}; flags ${JSON.stringify(flagSummary(live))})`
   );
   if (!cfg.gatewayUrl) {
     console.log("[omi-channel] no gateway URL in env; gateway-dependent pipes will skip with a reason");
@@ -429,7 +429,7 @@ export async function startServer(cfg = loadConfig()) {
   const shutdown = async (signal) => {
     console.log(`[omi-channel] ${signal} received; shutting down`);
     for (const t of backfeedTimers) clearTimeout(t);
-    await clearStatusFile();
+    await clearStatusFile(live.statusFile);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
   };

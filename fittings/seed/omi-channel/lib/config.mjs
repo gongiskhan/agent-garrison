@@ -75,6 +75,16 @@ export function loadConfig(env = process.env) {
       "127.0.0.1",
     gatewayUrl: resolveGatewayUrl(env),
 
+    // Resolved instance paths, carried ON the config. Every consumer derives
+    // state from the config it was handed; nothing re-reads process.env behind
+    // the caller's back. A caller holding a sandboxed cfg must never resolve to
+    // the real ~/.garrison — server.mjs doing so let a test delete a LIVE
+    // instance's status file (2026-07-30), which in turn breaks `down` (it kills
+    // by pid from that file) and funnel-ensure (it reads the live port from it).
+    home: garrisonDir(env),
+    stateDir: omiDir(env),
+    statusFile: statusFilePath(env),
+
     // Independent kill switches (invariant I9) — every pipe defaults OFF.
     enabled: parseBool(env.GARRISON_OMICHANNEL_ENABLED, false), // master: webhook ingress
     triageEnabled: parseBool(env.GARRISON_OMICHANNEL_TRIAGE_ENABLED, false),

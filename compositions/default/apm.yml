@@ -80,6 +80,8 @@ x-garrison:
           config:
             port: 7094
             bind_host: 127.0.0.1
+            public_base_url: https://dev-madrid.tail31efa.ts.net:8443
+            enabled: true
       gateway:
         - id: http-gateway
           config:
