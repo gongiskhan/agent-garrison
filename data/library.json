@@ -839,16 +839,6 @@
     }
   },
   {
-    "id": "garrison-orchestrator",
-    "name": "Garrison Orchestrator",
-    "repo": "local:fittings/seed/garrison-orchestrator",
-    "localPath": "fittings/seed/garrison-orchestrator",
-    "summary": "Thin routing Orchestrator that delegates to specialist Soul sub-sessions via garrison-control MCP. Does not do work itself.",
-    "platforms": [
-      "claude-code"
-    ]
-  },
-  {
     "id": "knowledge",
     "name": "Knowledge",
     "repo": "local:fittings/seed/knowledge",

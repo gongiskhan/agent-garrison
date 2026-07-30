@@ -4,7 +4,7 @@ target: claude
 dependencies:
   apm:
     - path: ../../fittings/seed/local-voice
-    - path: ../../fittings/seed/garrison-orchestrator
+    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/web-channel-default
@@ -43,7 +43,7 @@ x-garrison:
         log_sink: runner
     selections:
       orchestrator:
-        - id: garrison-orchestrator
+        - id: orchestrator
           config: {}
       channels:
         # Web channel (own-port 7083 dev / 8083 prod) — the TEXT surface: a

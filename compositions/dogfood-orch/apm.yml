@@ -6,7 +6,7 @@ dependencies:
     - path: ../../fittings/seed/coding-subagent
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/documents
-    - path: ../../fittings/seed/garrison-orchestrator
+    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
@@ -94,7 +94,7 @@ x-garrison:
             bind_host: 127.0.0.1
       soul: []
       orchestrator:
-        - id: garrison-orchestrator
+        - id: orchestrator
           config: {}
       sessions:
         - id: dev-env
