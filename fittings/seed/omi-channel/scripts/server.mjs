@@ -24,6 +24,7 @@ import { syncTriageJob } from "../lib/scheduler-jobs.mjs";
 import { Notifier } from "../lib/notify.mjs";
 import { OmiApi } from "../lib/omi-api.mjs";
 import { WakeBus } from "../lib/wake.mjs";
+import { ChatTool } from "../lib/chat.mjs";
 import { inferenceRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
@@ -53,10 +54,6 @@ function readBody(req, cap = MAX_BODY_BYTES) {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
-}
-
-function notImplemented(res, pipe) {
-  jsonRes(res, 501, { error: `omi-channel ${pipe} is not implemented yet` });
 }
 
 // True when `pid` names a live process (EPERM still means alive, just not ours).
@@ -167,7 +164,7 @@ ${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
 }
 
 export function makeRequestHandler(ctx) {
-  const { cfg, store, counters, ingress, notifier = null } = ctx;
+  const { cfg, store, counters, ingress, notifier = null, chatTool = null } = ctx;
   return async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
@@ -274,15 +271,23 @@ export function makeRequestHandler(ctx) {
         }
       }
 
-      if (pathname === "/omi/chat" && method === "POST") {
-        const auth = ingress.authorize(query);
-        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
-        return notImplemented(res, "chat tool");
+      // ---- ask_gary chat tool (M5). Own auth (chat_enabled + key + app_id +
+      // pinned uid from the BODY - Omi tool calls carry uid in the payload).
+      if (pathname === "/omi/chat" && method === "POST" && chatTool) {
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        let body = null;
+        try {
+          body = JSON.parse(bodyText);
+        } catch {
+          return jsonRes(res, 400, { error: "Invalid request." });
+        }
+        const outcome = await chatTool.handle(query, body);
+        return jsonRes(res, outcome.status, outcome.body);
       }
-      if (pathname === "/omi/tools-manifest" && method === "GET") {
-        const auth = ingress.authorize(query);
-        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
-        return notImplemented(res, "chat tools manifest");
+      if (pathname === "/omi/tools-manifest" && method === "GET" && chatTool) {
+        const outcome = chatTool.manifest(query);
+        return jsonRes(res, outcome.status, outcome.body);
       }
 
       return jsonRes(res, 404, { error: "not found" });
@@ -328,9 +333,17 @@ export async function startServer(cfg = loadConfig()) {
     notifier
   });
   const ingress = new Ingress({ cfg: live, store, counters, wakeBus });
+  const chatTool = new ChatTool({
+    cfg: live,
+    store,
+    counters,
+    // Bounded fast path: the fetch aborts just past the answer deadline so a
+    // hung gateway can never hold the Omi chat UI hostage.
+    runFn: live.gatewayUrl ? inferenceRunFn(live.gatewayUrl, { timeoutMs: 9500 }) : null
+  });
   // Crash recovery: drain any raw payloads a previous process left queued.
   ingress.scheduleDrain();
-  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, notifier }));
+  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, notifier, chatTool }));
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {

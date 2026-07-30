@@ -178,3 +178,32 @@ connectors when the card runs) — added to DECISIONS.md.
 Next: M5 — ask_gary chat tool: manifest endpoint (absolute URLs from
 public_base_url + ?key=), handler auth (app id + uid), bounded fast path
 (<10s wall, AbortController, friendly partial answer on overrun).
+
+## M5 — Chat tool ask_gary (2026-07-30)
+
+Shipped:
+- `lib/chat.mjs`: manifest per the verified ChatTools format (one tool,
+  `{query}` param, POST, `auth_required: false` since the wearer IS the
+  single pinned user; description written to capture any question about
+  the user's tasks/projects/schedule/memories/reasoning). Endpoint is
+  absolute from `public_base_url` with the URL shared secret baked in
+  (Omi sends no credential on tool calls - I8), relative fallback for
+  App-Home-URL resolution; the manifest route itself requires the key.
+- Handler auth: chat flag + key + app_id vs sealed OMI_APP_ID + uid
+  pinned/validated from the BODY (tool calls carry uid in the payload).
+  Rejections counted per reason, error text user-facing.
+- Bounded fast path: cheap-lane blocking turn (the operative answers from
+  its memories/board context), Promise.race deadline at 8.5s with the
+  fetch itself aborting at 9.5s; overruns and gateway failures return a
+  friendly partial answer as HTTP 200 (never an Omi-side timeout);
+  offline gateway says so; `chat_answer_ms` observed.
+- Server routes wired: `POST /omi/chat`, `GET /omi/tools-manifest`; the
+  501 scaffolding is gone (every /omi route is now real).
+- Tests: `tests/omi-channel-chat.test.ts` (10) - manifest validation,
+  budget adherence, overrun partial answer, throw degrade, full auth
+  matrix, disabled-by-default, live server round-trip.
+
+Deviations: none new.
+
+Next: M6 — backfeed: Import API client (memories into Omi), fingerprint
+ledger dedupe, sources completed_cards/decisions/daily_digest, flag off.

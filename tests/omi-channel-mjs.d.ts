@@ -292,6 +292,41 @@ declare module "*/omi-channel/lib/wake.mjs" {
   }
 }
 
+declare module "*/omi-channel/lib/chat.mjs" {
+  export const ASK_DEADLINE_MS: number;
+  export function buildManifest(cfg: unknown): {
+    tools: Array<{
+      name: string;
+      description: string;
+      endpoint: string;
+      method: string;
+      parameters: { properties: Record<string, { type: string; description: string }>; required: string[] };
+      auth_required: boolean;
+      status_message: string;
+    }>;
+  };
+  export function buildAskPrompt(query: string): string;
+  export function manifestFingerprint(cfg: unknown): string;
+  export class ChatTool {
+    constructor(opts: {
+      cfg: unknown;
+      store: unknown;
+      counters: unknown;
+      runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
+      deadlineMs?: number;
+      log?: unknown;
+    });
+    authorize(query: Record<string, unknown>, body: Record<string, unknown>):
+      | { ok: true; uid: string }
+      | { ok: false; status: number; error: string };
+    handle(
+      query: Record<string, unknown>,
+      body: Record<string, unknown>
+    ): Promise<{ status: number; body: { result?: string; error?: string } }>;
+    manifest(query: Record<string, unknown>): { status: number; body: Record<string, unknown> };
+  }
+}
+
 declare module "*/omi-channel/lib/tailnet-serve.mjs" {
   export function serveMapFromStatus(status: unknown): Map<number, string>;
   export function getTailnetServeMap(): Promise<Map<number, string>>;
