@@ -80,6 +80,36 @@ export class BoardClient {
     return base && cardId ? `${base}/#/cards/${cardId}` : null;
   }
 
+  // Flat card summaries ({cards:[...]}; lastReply is NOT in the projection -
+  // fetch the detail per card when the outcome text is needed).
+  async listCards() {
+    const base = this.base();
+    if (!base) return [];
+    try {
+      const res = await this.fetchImpl(`${base}/cards`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return [];
+      const data = await res.json().catch(() => ({}));
+      return Array.isArray(data?.cards) ? data.cards : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getCard(cardId) {
+    const base = this.base();
+    if (!base || !cardId) return null;
+    try {
+      const res = await this.fetchImpl(`${base}/cards/${encodeURIComponent(cardId)}`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => ({}));
+      return data?.card ?? data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // Candidate project labels for the triage prompt. Defensive about shape;
   // failure = empty list (triage then leaves project null and the board's own
   // visible project inference runs).

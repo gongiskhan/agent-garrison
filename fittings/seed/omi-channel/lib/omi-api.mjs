@@ -14,9 +14,10 @@ const DEFAULT_BASE = "https://api.omi.me";
 const MAX_ATTEMPTS = 3;
 
 export class OmiApi {
-  constructor({ appId, appSecret, baseUrl = DEFAULT_BASE, fetchImpl = fetch, sleep = defaultSleep, log = console } = {}) {
+  constructor({ appId, appSecret, importApiKey = "", baseUrl = DEFAULT_BASE, fetchImpl = fetch, sleep = defaultSleep, log = console } = {}) {
     this.appId = appId;
     this.appSecret = appSecret;
+    this.importApiKey = importApiKey;
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.fetchImpl = fetchImpl;
     this.sleep = sleep;
@@ -25,6 +26,70 @@ export class OmiApi {
 
   configured() {
     return Boolean(this.appId && this.appSecret);
+  }
+
+  importConfigured() {
+    return Boolean(this.appId && this.importApiKey);
+  }
+
+  // Import API (backfeed, M6): writes structured memories INTO the user's Omi.
+  // Verified shape: POST /v2/integrations/{app_id}/user/memories?uid= with the
+  // per-app sk_ Import key (a DIFFERENT credential from the App Secret); 200
+  // with an empty body, no created ids, NO server-side dedupe - idempotency is
+  // entirely the caller's fingerprint ledger (I6).
+  // -> { ok, status?, error?, retriable?, attempts }
+  async createMemories({ uid, memories, textSourceSpec = "garrison" }) {
+    if (!this.importConfigured()) {
+      return { ok: false, error: "OMI_APP_ID/OMI_IMPORT_API_KEY not sealed", retriable: false, attempts: 0 };
+    }
+    if (!uid) return { ok: false, error: "no uid", retriable: false, attempts: 0 };
+    const clean = (Array.isArray(memories) ? memories : [])
+      .map((m) => ({
+        content: String(m?.content ?? "").trim(),
+        ...(Array.isArray(m?.tags) && m.tags.length > 0 ? { tags: m.tags } : {})
+      }))
+      .filter((m) => m.content.length > 0);
+    if (clean.length === 0) return { ok: false, error: "no memories", retriable: false, attempts: 0 };
+
+    const target = new URL(`${this.baseUrl}/v2/integrations/${encodeURIComponent(this.appId)}/user/memories`);
+    target.searchParams.set("uid", uid);
+
+    let backoffMs = 1000;
+    let lastError = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let res = null;
+      try {
+        res = await this.fetchImpl(target.toString(), {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.importApiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ memories: clean, text_source: "other", text_source_spec: textSourceSpec }),
+          signal: AbortSignal.timeout(15000)
+        });
+      } catch (err) {
+        lastError = { error: `network: ${err?.message ?? err}`, retriable: true };
+      }
+      if (res) {
+        if (res.ok) return { ok: true, attempts: attempt };
+        if (res.status === 429 || res.status >= 500) {
+          lastError = { status: res.status, error: `HTTP ${res.status}`, retriable: true };
+        } else {
+          // 401/403 (key/app/user-enablement), 404 (app), 422 (content) - a
+          // retry cannot fix any of these.
+          if (res.status === 401 || res.status === 403) {
+            this.log.error(`[omi-channel] Omi Import API ${res.status} - check OMI_IMPORT_API_KEY and that the app is enabled for the user`);
+          }
+          return { ok: false, status: res.status, error: `HTTP ${res.status}`, retriable: false, attempts: attempt };
+        }
+      }
+      if (attempt < MAX_ATTEMPTS) {
+        await this.sleep(backoffMs);
+        backoffMs *= 2;
+      }
+    }
+    return { ok: false, ...lastError, attempts: MAX_ATTEMPTS };
   }
 
   // -> { ok: true, attempts } | { ok: false, status?, error, retriable, attempts }

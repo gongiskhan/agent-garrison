@@ -61,3 +61,7 @@ One line per deviation, with the reason. Details in
   its own memory/board context), not a classify-then-dispatch pair — one
   wake hit costs one model call (I3), and every failure path degrades to
   a saved note with an honest confirmation.
+- Backfeed runs on an in-process 30-minute interval instead of a
+  scheduler job: its sources (the board, triaged events) share this
+  fitting's lifecycle, so an independent cron would only ever fire into a
+  dead board; `scripts/backfeed.mjs --run` remains the manual trigger.

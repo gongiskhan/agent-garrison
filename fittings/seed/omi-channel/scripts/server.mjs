@@ -25,9 +25,14 @@ import { Notifier } from "../lib/notify.mjs";
 import { OmiApi } from "../lib/omi-api.mjs";
 import { WakeBus } from "../lib/wake.mjs";
 import { ChatTool } from "../lib/chat.mjs";
+import { Backfeed } from "../lib/backfeed.mjs";
+import { boardCardUrl } from "../lib/notify.mjs";
 import { inferenceRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
+
+const BACKFEED_INTERVAL_MS = 30 * 60 * 1000;
+const BACKFEED_BOOT_DELAY_MS = 2 * 60 * 1000;
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -379,8 +384,38 @@ export async function startServer(cfg = loadConfig()) {
     }
   }
 
+  // Backfeed (M6): in-process interval - the sources (board, triaged events)
+  // share this fitting's lifecycle, so a scheduler job would only ever fire
+  // into a dead board. Flag off (the default) = nothing scheduled.
+  let backfeedTimers = [];
+  if (live.backfeedEnabled) {
+    const backfeed = new Backfeed({
+      cfg: live,
+      store,
+      counters,
+      omiApi: new OmiApi({
+        appId: live.secrets.appId,
+        appSecret: live.secrets.appSecret,
+        importApiKey: live.secrets.importApiKey
+      }),
+      board: new BoardClient(),
+      cardUrlFn: (id) => boardCardUrl(id)
+    });
+    const run = () =>
+      void backfeed
+        .runOnce()
+        .then((s) => console.log(`[omi-channel] backfeed: ${JSON.stringify(s)}`))
+        .catch((err) => console.error(`[omi-channel] backfeed error: ${err?.message ?? err}`));
+    const boot = setTimeout(run, BACKFEED_BOOT_DELAY_MS);
+    const interval = setInterval(run, BACKFEED_INTERVAL_MS);
+    boot.unref?.();
+    interval.unref?.();
+    backfeedTimers = [boot, interval];
+  }
+
   const shutdown = async (signal) => {
     console.log(`[omi-channel] ${signal} received; shutting down`);
+    for (const t of backfeedTimers) clearTimeout(t);
     await clearStatusFile();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();

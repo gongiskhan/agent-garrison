@@ -207,3 +207,33 @@ Deviations: none new.
 
 Next: M6 — backfeed: Import API client (memories into Omi), fingerprint
 ledger dedupe, sources completed_cards/decisions/daily_digest, flag off.
+
+## M6 — Backfeed (2026-07-30)
+
+Shipped:
+- `OmiApi.createMemories`: Import API per the verified shape
+  (`/v2/integrations/{app_id}/user/memories?uid=`, Bearer `sk_` Import key
+  — a DIFFERENT credential from the App Secret; structured memories with
+  tags, `text_source: other`); 429/5xx retried with backoff, 401/403/404/
+  422 fail loudly without retry.
+- `lib/backfeed.mjs`: sources per `backfeed_kinds` — completed cards
+  ("Garrison completed: <title>. <outcome snippet>" + tailnet deep link;
+  cheap id-key pre-check so unchanged done cards never cost a detail
+  fetch), explicit decisions from triaged capture events, and an optional
+  once-per-day digest. Client-side fingerprint ledger (the real API has
+  NO dedupe and returns no ids); a non-retriable failure stops the run
+  instead of hammering the API and ledgers nothing, so a fixed key
+  resends everything.
+- Template hygiene: redactSecrets pass on all content; no internal ids
+  beyond the card deep link (asserted).
+- Runs in-process on a 30-min interval when `backfeed_enabled` (the
+  sources share this fitting's lifecycle, so a scheduler job would only
+  fire into a dead board); `scripts/backfeed.mjs --run` for the runbook.
+- Tests: `tests/omi-channel-backfeed.test.ts` (8).
+
+Deviations: backfeed cadence is an in-process interval rather than a
+scheduler job (recorded in DECISIONS.md).
+
+Next: M7 — observability counters on /health + status page, RUNBOOK.md,
+HUMAN_SETUP.md, funnel-ensure script, full local E2E demo on fixtures
+with all flags on.

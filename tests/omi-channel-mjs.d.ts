@@ -226,12 +226,14 @@ declare module "*/omi-channel/lib/omi-api.mjs" {
     constructor(opts?: {
       appId?: string;
       appSecret?: string;
+      importApiKey?: string;
       baseUrl?: string;
       fetchImpl?: typeof fetch;
       sleep?: (ms: number) => Promise<void>;
       log?: unknown;
     });
     configured(): boolean;
+    importConfigured(): boolean;
     sendNotification(args: { uid: string; message: string }): Promise<{
       ok: boolean;
       status?: number;
@@ -239,6 +241,30 @@ declare module "*/omi-channel/lib/omi-api.mjs" {
       retriable?: boolean;
       attempts: number;
     }>;
+    createMemories(args: {
+      uid: string;
+      memories: Array<{ content: string; tags?: string[] }>;
+      textSourceSpec?: string;
+    }): Promise<{ ok: boolean; status?: number; error?: string; retriable?: boolean; attempts: number }>;
+  }
+}
+
+declare module "*/omi-channel/lib/backfeed.mjs" {
+  export function fingerprint(kind: string, content: string): string;
+  export class Backfeed {
+    constructor(opts: {
+      cfg: unknown;
+      store: unknown;
+      counters: unknown;
+      omiApi: unknown;
+      board: unknown;
+      cardUrlFn?: ((id: string) => Promise<string | null>) | null;
+      log?: unknown;
+      now?: () => Date;
+    });
+    runOnce(): Promise<{ candidates: number; sent: number; deduped: number; failed: number; skipped: string | null }>;
+    collectDecisions(): Array<{ kind: string; idKey: string | null; content: string; tags: string[] }>;
+    buildDailyDigest(): Promise<{ kind: string; idKey: string; content: string; tags: string[] } | null>;
   }
 }
 
