@@ -1,9 +1,9 @@
-// Slice G2 — basic-memory capture spool + CLI flush (backend-agnostic).
+// Slice G2 - basic-memory capture spool + CLI flush (backend-agnostic).
 //
 // Drives the real scripts as subprocesses, exactly as Claude Code / the
 // scheduler would: capture-session.py gets a fake hook payload on stdin with
-// env pointed at tmp dirs; flush-spool.mjs gets a STUB cortex binary (a shell
-// script recording its argv, with a failing mode). No cortex CLI exists yet —
+// env pointed at tmp dirs; flush-spool.mjs gets a STUB CLI binary (a shell
+// script recording its argv, with a failing mode). No such CLI exists in this repo -
 // the contract under test is the one the later CLI slice must honor:
 //
 //   <bin> memory write --file <spoolfile> --permalink <key> --json
@@ -98,7 +98,7 @@ describe("basic-memory capture spool + flush", () => {
     }
   }
 
-  /** The recording stub the flush tests use in place of the (future) cortex CLI. */
+  /** The recording stub the flush tests use in place of the remote memory CLI. */
   async function writeStub(dir: string): Promise<{ bin: string; log: string }> {
     const bin = path.join(dir, "cortex-stub");
     const log = path.join(dir, "stub-args.log");
@@ -134,7 +134,7 @@ describe("basic-memory capture spool + flush", () => {
   });
 
   describe("capture-session.py", () => {
-    it("default run (spool absent) writes the vault note only — no spool anywhere, exit 0", async () => {
+    it("default run (spool absent) writes the vault note only - no spool anywhere, exit 0", async () => {
       const result = await run(
         "python3",
         [CAPTURE],
@@ -163,7 +163,7 @@ describe("basic-memory capture spool + flush", () => {
           // Autoflush stays ON to prove the guarded detached spawn never
           // breaks the hook; the missing binary makes the flush a safe no-op.
           BASIC_MEMORY_SPOOL_AUTOFLUSH: undefined,
-          CORTEX_CLI_BIN: path.join(tmp, "no-such-cortex")
+          REMOTE_MEMORY_CLI_BIN: path.join(tmp, "no-such-cortex")
         }),
         hookPayload()
       );
@@ -317,7 +317,7 @@ describe("basic-memory capture spool + flush", () => {
 
       const result = await run("node", [FLUSH], {
         BASIC_MEMORY_SPOOL_DIR: spool,
-        CORTEX_CLI_BIN: bin,
+        REMOTE_MEMORY_CLI_BIN: bin,
         STUB_LOG: log
       });
       expect(result.exitCode).toBe(0);
@@ -338,7 +338,7 @@ describe("basic-memory capture spool + flush", () => {
 
       const result = await run("node", [FLUSH], {
         BASIC_MEMORY_SPOOL_DIR: spool,
-        CORTEX_CLI_BIN: bin,
+        REMOTE_MEMORY_CLI_BIN: bin,
         STUB_LOG: log,
         STUB_FAIL: "1"
       });
@@ -353,10 +353,10 @@ describe("basic-memory capture spool + flush", () => {
       await seedSpoolFile(`capture-${SESSION_ID}-20260101-000000.md`, "one", 100);
       const result = await run("node", [FLUSH], {
         BASIC_MEMORY_SPOOL_DIR: spool,
-        CORTEX_CLI_BIN: path.join(tmp, "no-such-cortex")
+        REMOTE_MEMORY_CLI_BIN: path.join(tmp, "no-such-cortex")
       });
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("cortex CLI not found");
+      expect(result.stdout).toContain("remote memory CLI not found");
       expect(await spoolFiles()).toHaveLength(1);
     });
 
@@ -366,7 +366,7 @@ describe("basic-memory capture spool + flush", () => {
       const { bin, log } = await writeStub(tmp);
       const env = {
         BASIC_MEMORY_SPOOL_DIR: spool,
-        CORTEX_CLI_BIN: bin,
+        REMOTE_MEMORY_CLI_BIN: bin,
         STUB_LOG: log,
         STUB_FAIL: "1"
       };
@@ -393,7 +393,7 @@ describe("basic-memory capture spool + flush", () => {
 
       const result = await run("node", [FLUSH, "--dry-run"], {
         BASIC_MEMORY_SPOOL_DIR: spool,
-        CORTEX_CLI_BIN: bin,
+        REMOTE_MEMORY_CLI_BIN: bin,
         STUB_LOG: log
       });
       expect(result.exitCode).toBe(0);
@@ -412,7 +412,7 @@ describe("basic-memory capture spool + flush", () => {
 
       const result = await run("node", [FLUSH], {
         BASIC_MEMORY_SPOOL_DIR: spool,
-        CORTEX_CLI_BIN: bin,
+        REMOTE_MEMORY_CLI_BIN: bin,
         BASIC_MEMORY_FLUSH_TIMEOUT_MS: "1000"
       });
       expect(result.exitCode).toBe(1);

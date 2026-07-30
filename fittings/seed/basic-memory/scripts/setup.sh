@@ -20,13 +20,13 @@ HOOK_HOME="$CLAUDE_HOME/basic-memory"
 HOOK_PATH="$HOOK_HOME/capture-session.py"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Spool → cortex drain (opt-in; composition config arrives as BASIC_MEMORY_*
+# Spool drain (opt-in; composition config arrives as BASIC_MEMORY_*
 # via setupConfigEnv). With the defaults everything below is a no-op and the
 # stock local behavior stays byte-identical.
 SPOOL_ENABLED="${BASIC_MEMORY_SPOOL_ENABLED:-false}"
 SPOOL_DIR="${BASIC_MEMORY_SPOOL_DIR:-}"
 FLUSH_CRON="${BASIC_MEMORY_FLUSH_INTERVAL_CRON:-*/15 * * * *}"
-CORTEX_BIN="${BASIC_MEMORY_CORTEX_CLI_BIN:-cortex}"
+REMOTE_BIN="${BASIC_MEMORY_REMOTE_CLI_BIN:-cortex}"
 FLUSH_PATH="$HOOK_HOME/flush-spool.mjs"
 FLUSH_JOB_ID="basic-memory-spool-flush"
 # Truthiness matches the hook's _truthy() (true|1|yes|on, case-insensitive) so
@@ -46,7 +46,7 @@ log() { printf '[basic-memory-setup] %s\n' "$*"; }
 command -v uv >/dev/null 2>&1 || { echo "uv not on PATH; install uv (https://docs.astral.sh/uv/) and re-run" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 not on PATH; install Python 3.10+ and re-run" >&2; exit 1; }
 
-# 2. Install Basic Memory (idempotent — uv tool install is a no-op if current).
+# 2. Install Basic Memory (idempotent - uv tool install is a no-op if current).
 if command -v basic-memory >/dev/null 2>&1; then
   log "basic-memory present: $(basic-memory --version 2>/dev/null || echo '?')"
 else
@@ -58,11 +58,11 @@ BM="$(command -v basic-memory)"
 # 3. Register the vault as the Basic Memory project (idempotent).
 mkdir -p "$VAULT_DIR/$MEMORY_DIR"
 # Existence check robust against Rich's TTY-width table collapse (grepping
-# `project list` gives a false negative when piped) — `project info` exits 0 iff
+# `project list` gives a false negative when piped) - `project info` exits 0 iff
 # the project resolves. Matches verify.sh so setup + verify agree.
 if "$BM" project info "$PROJECT_NAME" >/dev/null 2>&1; then
-  # project exists — ensure it points at the vault (move is a no-op if already there)
-  log "project '$PROJECT_NAME' exists — ensuring -> $VAULT_DIR"
+  # project exists - ensure it points at the vault (move is a no-op if already there)
+  log "project '$PROJECT_NAME' exists - ensuring -> $VAULT_DIR"
   "$BM" project move "$PROJECT_NAME" "$VAULT_DIR" >/dev/null 2>&1 || true
 else
   log "adding project '$PROJECT_NAME' -> $VAULT_DIR"
@@ -120,7 +120,7 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
   if spool_on; then
     # %q-quoted (like the scheduler path below): a config value carrying
     # quotes/$() must land as data in the hook command, never as shell.
-    SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 CORTEX_CLI_BIN=$(quote "$CORTEX_BIN") "
+    SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN") "
     [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR") "
   fi
   CAP_CMD="${SPOOL_ENV}BASIC_MEMORY_VAULT_DIR=\"$VAULT_DIR\" BASIC_MEMORY_MEMORY_DIR=\"$MEMORY_DIR\" python3 \"$HOOK_PATH\""
@@ -155,7 +155,7 @@ else
 fi
 
 # 7. Spool drain job (opt-in). Mirrors the improver-nightly scheduler idiom:
-# state is machine-global (~/.garrison per instance) — scheduler.mjs derives
+# state is machine-global (~/.garrison per instance) - scheduler.mjs derives
 # its own GARRISON_HOME defaults, so we only pass overrides that are set.
 # Installed layout puts this script at
 # <composition>/apm_modules/_local/basic-memory/scripts, hence the ../../..;
@@ -178,17 +178,17 @@ if spool_on; then
   if [ ! -f "$scheduler_script" ]; then
     log "scheduler not installed; spool flush job not registered"
   else
-    job_env="CORTEX_CLI_BIN=$(quote "$CORTEX_BIN")"
+    job_env="REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN")"
     [ -n "$SPOOL_DIR" ] && job_env="$job_env BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR")"
     sched register "$FLUSH_JOB_ID" "$FLUSH_CRON" \
-      --description "Drain the basic-memory capture spool via the cortex CLI" \
+      --description "Drain the basic-memory capture spool via the remote memory CLI" \
       -- "$job_env node $(quote "$FLUSH_PATH")"
     log "spool flush job registered ($FLUSH_JOB_ID: $FLUSH_CRON)"
   fi
 else
   # Spool off (the default): retire our drain job if a previous enable left
   # one behind. Gated on the job actually existing (improver-nightly's
-  # conditional idiom) — scheduler.mjs `remove` rewrites the machine-global
+  # conditional idiom) - scheduler.mjs `remove` rewrites the machine-global
   # jobs file even for a no-op, and the default-off path must touch nothing.
   if [ -f "$scheduler_script" ] && sched list 2>/dev/null | node -e '
     let raw = "";

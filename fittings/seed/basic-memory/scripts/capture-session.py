@@ -2,21 +2,21 @@
 """Basic Memory session-capture hook (SessionEnd / PreCompact).
 
 Writes a lightweight checkpoint note into the vault's memory_dir so the
-session's context survives into future sessions. NO LLM call — just metadata
+session's context survives into future sessions. NO LLM call - just metadata
 plus a short, secret-redacted tail of the transcript. Basic Memory's file
 watcher indexes the note on its next sync.
 
 Contract: reads the hook payload as JSON on stdin (Claude Code passes
-session_id / transcript_path / cwd / hook_event_name). ALWAYS exits 0 — a
+session_id / transcript_path / cwd / hook_event_name). ALWAYS exits 0 - a
 capture failure must never break the session.
 
 Optional spool (opt-in, backend-agnostic): when BASIC_MEMORY_SPOOL_ENABLED is
 truthy, the same markdown is ALSO written as one spool file under
-BASIC_MEMORY_SPOOL_DIR (default ~/.garrison/cortex-memory/spool), named after
+BASIC_MEMORY_SPOOL_DIR (default ~/.garrison/memory-spool), named after
 a stable idempotency key `capture-<session_id>-<ts>-<pid>` (the pid keeps a
 SessionEnd and a PreCompact landing in the same second from overwriting each
-other — each hook invocation is its own process). A scheduled drain
-(flush-spool.mjs) later pushes spool files to the cortex CLI — the hook itself
+other - each hook invocation is its own process). A scheduled drain
+(flush-spool.mjs) later pushes spool files to a remote memory CLI - the hook itself
 NEVER touches the network. The spool dir is capped (default 50MB,
 BASIC_MEMORY_SPOOL_CAP_BYTES override): oldest captures are evicted first with
 one loud stderr line. Every spool failure is swallowed; local vault behavior
@@ -26,7 +26,7 @@ import sys, os, json, re, datetime
 
 SPOOL_CAP_DEFAULT = 50 * 1024 * 1024  # 50MB
 # Only files THIS hook produces (finished captures + its own write-then-rename
-# leftovers). spool_dir is user config — a mispointed dir must never have
+# leftovers). spool_dir is user config - a mispointed dir must never have
 # foreign files deleted by a session-end hook, so eviction candidates and the
 # cap accounting are both restricted to this shape (mirrors flush-spool.mjs's
 # /^capture-.+\.md$/ drain filter).
@@ -69,7 +69,7 @@ def _spool_evict_over_cap(spool_dir, cap, incoming):
 def _spool_write(session_id, now, payload_text):
     """Write the capture into the spool. Any failure is swallowed upstream."""
     spool_dir = os.path.expanduser(
-        os.environ.get("BASIC_MEMORY_SPOOL_DIR") or "~/.garrison/cortex-memory/spool")
+        os.environ.get("BASIC_MEMORY_SPOOL_DIR") or "~/.garrison/memory-spool")
     try:
         cap = int(os.environ.get("BASIC_MEMORY_SPOOL_CAP_BYTES") or SPOOL_CAP_DEFAULT)
     except ValueError:
@@ -77,7 +77,7 @@ def _spool_write(session_id, now, payload_text):
     data = payload_text.encode("utf-8", errors="replace")
     if len(data) > cap:
         # A capture that alone exceeds the cap would evict everything and
-        # still land over cap — refuse it instead, loudly.
+        # still land over cap - refuse it instead, loudly.
         print("[basic-memory] spool cap: capture exceeds the cap; skipped spool write",
               file=sys.stderr)
         return
@@ -166,11 +166,11 @@ def main():
 
     body = [
         "---",
-        f"title: Session checkpoint — {now.strftime('%Y-%m-%d %H:%M')} {proj}",
+        f"title: Session checkpoint - {now.strftime('%Y-%m-%d %H:%M')} {proj}",
         "type: note",
         f"tags: [session, checkpoint, {slug}]",
         "---",
-        f"# Session checkpoint — {iso}",
+        f"# Session checkpoint - {iso}",
         "",
         f"- **when**: {iso}",
         f"- **project**: `{cwd}`",
@@ -193,7 +193,7 @@ def main():
         pass  # never fail the session
 
     # Optional spool copy (opt-in; same markdown, idempotency-keyed filename).
-    # No network here, ever — a scheduled drain ships it later. Any failure is
+    # No network here, ever - a scheduled drain ships it later. Any failure is
     # swallowed so the hook stays sub-second and always exits 0.
     if _truthy(os.environ.get("BASIC_MEMORY_SPOOL_ENABLED")):
         try:

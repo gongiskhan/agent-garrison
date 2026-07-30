@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// Basic Memory spool drain. Ships each spooled capture to the cortex CLI:
+// Basic Memory spool drain. Ships each spooled capture to a remote memory CLI (any provider implementing the capability contract; the reference implementation is the `cortex` binary, which is the default):
 //
-//   <CORTEX_CLI_BIN or 'cortex'> memory write --file <spoolfile> --permalink <key> --json
+//   <REMOTE_MEMORY_CLI_BIN or 'cortex'> memory write --file <spoolfile> --permalink <key> --json
 //
-// where <key> is the spool filename minus `.md` — the stable idempotency key
+// where <key> is the spool filename minus `.md` - the stable idempotency key
 // the capture hook embedded (`capture-<session_id>-<ts>`), so retrying the
 // same file always presents the same permalink and the backend can dedupe.
 //
-// Contract (deliberately boring — the next scheduled run is the retry loop):
+// Contract (deliberately boring - the next scheduled run is the retry loop):
 //   - empty/missing spool ........ log one line, exit 0
-//   - cortex binary missing ...... log one line, leave the spool intact, exit 0
+//   - CLI binary missing ...... log one line, leave the spool intact, exit 0
 //     (the OSS-default safe path: no CLI, no drain, no error)
 //   - per-file success ........... delete that spool file, continue
 //   - per-file failure ........... nonzero exit / 30s timeout: leave the file,
@@ -18,7 +18,7 @@
 // Never throws unhandled. Never logs file contents (captures are redacted at
 // write time, but they still never belong in a scheduler log).
 //
-// Stdlib only — no new deps.
+// Stdlib only - no new deps.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,7 +28,7 @@ const PREFIX = "[basic-memory] flush:";
 const log = (msg) => console.log(`${PREFIX} ${msg}`);
 
 // 30s per file; env override exists for tests only. Timeout kills with
-// SIGKILL — a CLI that traps/ignores SIGTERM (spawnSync's default) would
+// SIGKILL - a CLI that traps/ignores SIGTERM (spawnSync's default) would
 // otherwise block the drain until it felt like exiting.
 const FLUSH_TIMEOUT_MS =
   Number(process.env.BASIC_MEMORY_FLUSH_TIMEOUT_MS || "") || 30_000;
@@ -36,9 +36,9 @@ const FLUSH_TIMEOUT_MS =
 function main() {
   const dryRun = process.argv.slice(2).includes("--dry-run");
   const spoolDir = (process.env.BASIC_MEMORY_SPOOL_DIR || "").trim() ||
-    path.join(os.homedir(), ".garrison", "cortex-memory", "spool");
-  const bin = (process.env.CORTEX_CLI_BIN || "").trim() ||
-    (process.env.BASIC_MEMORY_CORTEX_CLI_BIN || "").trim() || "cortex";
+    path.join(os.homedir(), ".garrison", "memory-spool");
+  const bin = (process.env.REMOTE_MEMORY_CLI_BIN || "").trim() ||
+    (process.env.BASIC_MEMORY_REMOTE_CLI_BIN || "").trim() || "cortex";
 
   let names;
   try {
@@ -48,7 +48,7 @@ function main() {
     return 0;
   }
 
-  // Only the hook's finished captures — write-then-rename means a `.tmp` (or
+  // Only the hook's finished captures - write-then-rename means a `.tmp` (or
   // any foreign file) is never a drain candidate. Oldest first (mtime, then
   // name) so the backlog drains in capture order.
   const files = [];
@@ -59,7 +59,7 @@ function main() {
       const st = fs.statSync(full);
       if (st.isFile()) files.push({ name, full, mtime: st.mtimeMs });
     } catch {
-      // raced away — someone else's problem
+      // raced away - someone else's problem
     }
   }
   files.sort((a, b) => a.mtime - b.mtime || (a.name < b.name ? -1 : 1));
@@ -91,9 +91,9 @@ function main() {
       }
     );
     if (res.error && res.error.code === "ENOENT") {
-      // No cortex CLI on this machine: not an error, just nothing to drain
+      // No remote memory CLI on this machine: not an error, just nothing to drain
       // into yet. Leave everything for a future run.
-      log(`cortex CLI not found ('${bin}'); leaving ${files.length - flushed} capture(s) spooled`);
+      log(`remote memory CLI not found ('${bin}'); leaving ${files.length - flushed} capture(s) spooled`);
       return 0;
     }
     if (res.error || res.status !== 0) {
@@ -102,7 +102,7 @@ function main() {
         : res.error
           ? `spawn error ${res.error.code || res.error.message}`
           : `exit ${res.status}`;
-      log(`write failed for ${f.name} (${why}); stopping — next scheduled run retries`);
+      log(`write failed for ${f.name} (${why}); stopping - next scheduled run retries`);
       return 1;
     }
     try {

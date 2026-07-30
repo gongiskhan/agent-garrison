@@ -16,7 +16,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in — the index rebuilds from the markdown files.
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in - the index rebuilds from the markdown files.
   config_schema:
     - key: vault_dir
       type: path
@@ -41,19 +41,19 @@ x-garrison:
     - key: spool_enabled
       type: boolean
       default: false
-      description: Also spool each session capture (same markdown, idempotency-keyed filename) for a scheduled drain into the cortex CLI. Off by default; when off, behavior is byte-identical to the stock local-only capture and no drain job is registered.
+      description: Also spool each session capture (same markdown, idempotency-keyed filename) for a scheduled drain into a remote memory CLI (any provider implementing the capability contract). Off by default; when off, behavior is byte-identical to the stock local-only capture and no drain job is registered.
     - key: spool_dir
       type: string
       default: ""
-      description: Spool directory for pending captures. Empty means the built-in default (~/.garrison/cortex-memory/spool). Capped at 50MB, oldest captures evicted first.
+      description: Spool directory for pending captures. Empty means the built-in default (~/.garrison/memory-spool). Capped at 50MB, oldest captures evicted first.
     - key: flush_interval_cron
       type: string
       default: "*/15 * * * *"
-      description: Local cron schedule for the scheduler job that drains the spool via the cortex CLI. Only registered when spool_enabled is true.
-    - key: cortex_cli_bin
+      description: Local cron schedule for the scheduler job that drains the spool via the remote memory CLI. Only registered when spool_enabled is true.
+    - key: remote_cli_bin
       type: string
       default: cortex
-      description: Binary the spool drain invokes as `<bin> memory write --file <spoolfile> --permalink <key> --json`. A missing binary is the safe no-op path — captures stay spooled until it appears.
+      description: Binary the spool drain invokes as `<bin> memory write --file <spoolfile> --permalink <key> --json`. A missing binary is the safe no-op path - captures stay spooled until it appears.
   provides:
     - kind: memory-store
       name: basic-memory
@@ -68,7 +68,7 @@ x-garrison:
     command: bash apm_modules/_local/basic-memory/scripts/verify.sh
     expect: ok
     # 60s, not 15s: this verify shells out to TWO CLIs (`basic-memory project
-    # info` and `claude mcp get`) and measures ~8s on an idle box — so a 15s
+    # info` and `claude mcp get`) and measures ~8s on an idle box - so a 15s
     # budget lost the race whenever `up` ran it alongside the other setup hooks,
     # failing the whole composition with an EMPTY stderr (a timeout has no output
     # to report), which reads like a broken fitting rather than a slow one.
