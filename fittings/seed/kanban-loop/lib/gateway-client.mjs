@@ -265,7 +265,12 @@ export function gatewayRunFn(gatewayUrl) {
     // Both are TRANSPORT failures (retriable): the card reverts and runs again, it
     // does not park as if the operative had refused.
     const hardMs = KANBAN_TURN_TIMEOUT_MS + (Number(process.env.KANBAN_TURN_SLACK_MS) || 2 * 60 * 1000);
-    const idleMs = Number(process.env.KANBAN_TURN_IDLE_MS) || 10 * 60 * 1000;
+    // 20 min, not 10: a real phase turn (planning a multi-KB card spec) legitimately
+    // works for longer than ten minutes without emitting a single token, and abandoning
+    // it threw away work that WAS in progress - the operative said so on the next chat
+    // turn. Stays under the 25+2 min hard deadline so that one still wins. Override
+    // with KANBAN_TURN_IDLE_MS.
+    const idleMs = Number(process.env.KANBAN_TURN_IDLE_MS) || 20 * 60 * 1000;
     const ctrl = new AbortController();
     let aborted = null;
     const hardTimer = setTimeout(() => {

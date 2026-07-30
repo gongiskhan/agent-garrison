@@ -1549,6 +1549,22 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     // gateway is back — never strand the card in needs-attention. Any other failure (a
     // real error from a booted gateway) is a genuine run failure and parks.
     if (err?.transport) {
+      // Retriable BY DESIGN — gateway-client tags every abandoned/dropped turn
+      // transport and its own gate asserts the card reverts and never parks, so that
+      // classification is left alone. But UNBOUNDED retry is a starvation bug when the
+      // gateway is up and merely SILENT: each redispatch re-occupies the single
+      // orchestrator PTY for another idle window and no iteration is ever consumed, so
+      // nothing ends it. Observed live 2026-07-30 — one card looped every 10 min for
+      // over an hour and the web channel was dead the whole time. Cap CONSECUTIVE
+      // deferrals on the same list; a successful run clears lastDispatchError, so the
+      // count resets itself.
+      const priorDeferrals =
+        card.lastDispatchError?.reason === "gateway-unavailable" && card.lastDispatchError?.listId === card.list
+          ? Number(card.lastDispatchError.deferrals || 1)
+          : 0;
+      const deferrals = priorDeferrals + 1;
+      const deferCap = Number(process.env.KANBAN_TRANSPORT_DEFER_CAP) || 3;
+      if (deferrals <= deferCap) {
       await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
       // Persist a one-line reason on the card so the UI can render "gateway
       // unavailable — retry" instead of looking ok. lastDispatchError is a
@@ -1563,6 +1579,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
           at: now(),
           reason: "gateway-unavailable",
           listId: card.list,
+          deferrals,
           message: String(err?.message || err)
         },
         events: withEvent(runningCard, {
@@ -1576,6 +1593,11 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       // not turn "the gateway was down, retry later" into a card stranded running.
       const res = await commitRunResult(root, { base: runningCard, target: reverted, runRev, dispatchedFrom: card.list, now });
       return { card: res.card ?? runningCard, outcome: { status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err) } };
+      }
+      // Cap reached: stop re-occupying the gateway and PARK so a human sees it.
+      await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}
+gateway unavailable ${deferrals}x in a row on this list — parking instead of retrying again
+`);
     }
     await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
     const failReason = `The ${listTitle} run errored: ${String(err?.message || err)}. Parked so you can see the failure — open the log for details, then move it back to retry.`;
