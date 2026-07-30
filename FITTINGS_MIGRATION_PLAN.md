@@ -1,7 +1,7 @@
 # Fittings Migration Plan — promote Claude Code primitives to first-class Fittings
 
 **Run:** `docs/autothing/runs/20260624-214443-357bf40f`
-**Status:** Phase 0 (inventory + grouping) complete · Faculty design + scope **pending Gonçalo confirmation** (the brief mandates this checkpoint).
+**Status:** **DONE** · Faculty design + scope confirmed at the 2026-06-24 checkpoint (section 6); all slices s1-s6 shipped + verified (section 8). Kept as the durable record of the plan.
 **Branch:** `main` (no new branch — hard rule).
 
 > Goal: reverse the Compose page's separate "Claude Code components" group. Every skill/hook/MCP/plugin

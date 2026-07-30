@@ -684,6 +684,13 @@ The runner (`src/lib/runner.ts`) is the most important new piece in Garrison. It
 
 ## 11. The Vault
 
+> **CORRECTION (key storage is load-bearing - read this before trusting the bullet below).** The live
+> vault is **OS-keychain sealed**, not passphrase-derived: `src/lib/vault.ts` unlocks with a master key
+> from the OS keychain (`src/lib/keychain.ts`) and derives the per-file AES-256-GCM key with
+> **HKDF-SHA256** over that master key plus a random per-file salt (`kdf: "hkdf-sha256"`). The scrypt
+> passphrase format described below is **legacy, read-only**: it exists solely to migrate an existing
+> dev vault, which is then re-sealed under the keychain key. There is no passphrase prompt.
+
 Garrison's local secrets store. Single file: `data/vault.json`, file mode `0600`.
 
 - **Encryption:** AES-256-GCM, key derived from the user's passphrase via scrypt.

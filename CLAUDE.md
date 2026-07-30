@@ -352,6 +352,33 @@ provider's `for_consumers` markdown under its line in the Orchestrator's
 "tools available" block at assembly time. 8 KB byte cap per block. When
 absent, the runner falls back to the provider's `summary`.
 
+## Capability contract - hard rules for Fittings that call a remote provider
+
+A Fitting may wrap a **remote capability provider** - any service implementing the contract in
+[`docs/CAPABILITY_CONTRACT.md`](./docs/CAPABILITY_CONTRACT.md). Garrison ships no such service and
+depends on none; these rules keep such a Fitting swappable, honest, and safe on a personal machine.
+
+- **Rule 2 - public contract only.** Call through the generated client or CLI, against documented public
+  endpoints. No private endpoints, no provider internals, no second hand-written HTTP path per capability.
+- **Rule 3 - never ask a provider to special-case Garrison.** Missing behaviour changes the contract for every
+  client. An origin/client header is diagnostics, never behaviour.
+- **Rule 4 - every call carries a user-scoped key.** The user mints it; it lives in the Vault and reaches the
+  Fitting only through `x-garrison.secret_scope` (fail-closed: no scope, no secrets). No shared or ambient
+  credential, no anonymous capability endpoint.
+- **Rule 5 - no tenancy machinery here.** Scoping and isolation are the provider's job, proven by the provider's
+  tests. A Fitting stores no tenant ids, builds no per-tenant paths, implements no isolation logic. The trust
+  boundary here is one machine, one user.
+- **Rule 6 - local default, remote opt-in.** Every capability Fitting ships a local or null backend as the
+  DEFAULT; the remote backend is configuration (base URL via `config_schema`, key via `secret_scope`). No
+  provider key, URL, or dependency in the shipped defaults - a fresh clone with an empty vault must compose and
+  run, and `verify` must pass unconfigured.
+- **Rule 9 - no bridge code here.** A provider that needs to reach back into this machine does so through its own
+  bridge. This repo ships no counterpart daemon, no inbound listener, no delegation endpoint.
+
+The "talks only to `localhost`" positioning above describes Garrison's own shell. User-equipped Fittings have
+always egressed with vault-held keys (`deepgram-voice`, the model runtimes). An opt-in, key-scoped capability
+client is that same shape, not a new category.
+
 ## Roadmap status
 
 5 Stages (restructured 2026-05-26; prior Phase 1–9 numbering is preserved in
