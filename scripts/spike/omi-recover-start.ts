@@ -97,7 +97,12 @@ async function main() {
   const fd = openSync(logFile, "a");
   const child = spawn("node", ["scripts/start.mjs"], {
     cwd: path.join(REPO, "fittings", "seed", FITTING_ID),
-    env,
+    // `env` is a complete string map (it starts as a copy of process.env), but
+    // Record<string, string> no longer satisfies ProcessEnv, which declares
+    // NODE_ENV as required. Casting here rather than typing `env` as
+    // ProcessEnv keeps the `v.length` read in the printable summary above
+    // valid — ProcessEnv's index signature is string | undefined.
+    env: env as NodeJS.ProcessEnv,
     detached: true,
     stdio: ["ignore", fd, fd]
   });
