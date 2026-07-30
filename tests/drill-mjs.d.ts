@@ -175,3 +175,24 @@ declare module "*/drill/lib/video-tighten.mjs" {
     dir: string; source?: string; frames?: any[]; steps?: any[]; options?: any; timeoutMs?: number;
   }): Promise<any>;
 }
+declare module "*/drill/lib/video-compose.mjs" {
+  export const COMPOSE_DEFAULTS: {
+    maxSegments: number; minGapSec: number; gapPlaySec: number;
+    minSpeed: number; maxSpeed: number; titleSec: number; fps: number;
+    crf: number; gopFrames: number; captionSec: number; minCaptionSec: number;
+  };
+  export interface ComposeSegment { start: number; end: number; speed: number }
+  export function buildComposePlan(args: {
+    windows: Array<[number, number]>; durationSec: number; options?: any;
+  }): ComposeSegment[];
+  export function composedDurationSec(plan: ComposeSegment[]): number;
+  export function remapComposedOffset(plan: ComposeSegment[], originalSec: number): number | null;
+  export function buildCaptions(args: {
+    plan: ComposeSegment[]; steps?: any[]; titleSec?: number; options?: any;
+  }): Array<{ start: number; end: number; text: string }>;
+  export function captionsToSrt(entries: Array<{ start: number; end: number; text: string }>): string;
+  export function srtTimestamp(sec: number): string;
+  export function buildRunVideo(args: {
+    dir: string; source?: string; frames?: any[]; steps?: any[]; title?: string | null; options?: any; timeoutMs?: number;
+  }): Promise<any>;
+}

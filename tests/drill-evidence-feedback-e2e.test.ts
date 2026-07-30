@@ -89,15 +89,11 @@ function resultCard(p: Page, viewport: string): Locator {
   return p.locator(".dr-res").filter({ has: p.locator(".chip", { hasText: viewport }) });
 }
 
-// Debrief (Evidence V2) is the default run-detail surface now; these tests pin
-// the CLASSIC per-check rows, parked behind the view toggle. Runs without an
-// evidence index still render classic directly (no toggle appears).
-async function openClassicView(p: Page, timeout = 8000): Promise<void> {
-  const toggle = p.getByRole("button", { name: "Classic view" });
-  try {
-    await toggle.waitFor({ state: "visible", timeout });
-    await toggle.click();
-  } catch { /* no debrief for this run — classic already showing */ }
+// The per-check rows these tests pin render on the merged run detail's
+// default Results tab now — the Classic/Debrief split (and its view toggle)
+// was removed, so there is nothing to open.
+async function openClassicView(_p: Page, _timeout = 0): Promise<void> {
+  /* kept as a seam: the call sites read as "make the check rows visible" */
 }
 
 beforeAll(async () => {

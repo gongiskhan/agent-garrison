@@ -29,7 +29,7 @@ import {
   confirmsAuthoredAssertion, promoteAuthoredAssertion
 } from "../lib/graduate.mjs";
 import { saveSnapshot, listSnapshots, getSnapshot, drillHomeDir } from "../lib/snapshots.mjs";
-import { assessAutomaticStateReference, promoteSnapshotToState } from "../lib/states.mjs";
+import { assessAutomaticStateReference, promoteSnapshotToState, createStateFromRunEvidence } from "../lib/states.mjs";
 import { runHeartbeatSweep } from "../lib/heartbeat.mjs";
 import { runInline, getRun as getAutomationRun, getStepEvidence, ensureAutomationsUp } from "../lib/automations-client.mjs";
 import {
@@ -46,11 +46,13 @@ import {
 import {
   captureStart, captureStop, captureChunkStart, captureChunkStop, captureScreenshot,
   writeStepsManifest, manifestRow, checkKey, writeEvidenceIndex, spotterRequest,
+  normalizeEvidenceRequest,
   evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall,
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
 import { buildTightVideo } from "../lib/video-tighten.mjs";
+import { buildRunVideo } from "../lib/video-compose.mjs";
 import { toTailnetUrl } from "../lib/tailnet-serve.mjs";
 import {
   readJsonlLines, parseTranscriptLines, linesInWindow, noteRunSession, sessionSliceName
@@ -58,6 +60,7 @@ import {
 import {
   startCardDrill, getCardDrillJob, listCardDrillJobs, publicCardDrillJob, reapOrphanCardDrills
 } from "../lib/card-drill.mjs";
+import { ulid } from "../lib/ulid.mjs";
 
 // Authoring tabs (B1): one live tab per (project root, pageId, viewportId) for
 // the duration of the server process - reused across pick/resolve/snapshot
@@ -1273,7 +1276,15 @@ async function handle(req, res) {
           held: true,
           reason: "gated",
           plan,
-          resume: { pageIds, viewports: viewportIds, ...(stepIdFilter ? { stepIds: [...stepIdFilter] } : {}), state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root }
+          // The approval must execute the run the user was shown, artifact
+          // selection included — a resume object that drops body.evidence (or
+          // dispatch) silently reverts those choices at approval time.
+          resume: {
+            pageIds, viewports: viewportIds, ...(stepIdFilter ? { stepIds: [...stepIdFilter] } : {}),
+            state, contextTag: body.contextTag, bypassCache: body.bypassCache === true, confirmed: true, project: root,
+            ...(body.evidence !== undefined ? { evidence: body.evidence } : {}),
+            ...(body.dispatch !== undefined ? { dispatch: body.dispatch } : {})
+          }
         });
       }
 
@@ -1309,6 +1320,10 @@ async function handle(req, res) {
       };
       record.plannedChecks = jobs.length;
       record.executedChecks = 0;
+      // Persist the artifact REQUEST (normalized), not just what got produced:
+      // post-run surfaces infer availability from disk, and without the request
+      // a deliberately-disabled artifact is indistinguishable from a failed one.
+      record.evidenceRequest = normalizeEvidenceRequest(body.evidence);
 
       const addSystemicIncident = (job, terminal) => addInfraError(record, {
         pageId: job?.pageId ?? null,
@@ -1641,7 +1656,10 @@ async function handle(req, res) {
         // for that state. Seed the first reference only; later runs retain
         // evidence in their own records but never silently rewrite the Book's
         // accepted state image.
-        if (state !== "default" && outcome.evidencePath) {
+        // Skippable per-run ("Browser states" in the pre-run artifact
+        // selection): a reference-seeding run someone did not ask for must
+        // not write into the Book.
+        if (state !== "default" && outcome.evidencePath && body.evidence?.stateReferences !== false) {
           const statePage = await getPage(pr.pageId, root);
           const stateIndex = statePage?.states?.findIndex((candidate) => candidate.id === state) ?? -1;
           if (statePage && stateIndex >= 0 && !statePage.states[stateIndex].screenshotPath) {
@@ -1744,6 +1762,10 @@ async function handle(req, res) {
           video: stopped?.video ?? null,
           steps: stepsFile ?? null,
           index: indexFile ?? null,
+          // The capture epoch (ms). steps.json offsets are relative to it, and
+          // transcript events carry wall-clock ts — this is the one number that
+          // lets a client align a check window onto the session timeline.
+          capturedAt: capture.startedAt ?? null,
           spotter: stopped?.spotter?.manifest
             ? { manifest: stopped.spotter.manifest, frames: stopped.spotter.frames ?? stopped.spotter.counts?.kept ?? 0 }
             : null
@@ -1786,33 +1808,50 @@ async function handle(req, res) {
         const pruned = await pruneEvidence({ root, classified: classifyForRetention(scoped) });
         for (const p of pruned) console.log(`[drill] evidence retention: pruned ${p.removed.join(", ")} from run ${p.runId}`);
       })().catch((err) => console.warn(`[drill] evidence: retention sweep failed: ${err.message}`));
-      // Video tightening (S1): the recorder rolls continuously while each check
-      // sits in an untimed vision call, so the raw recording is mostly a frozen
-      // page (measured: 24.6 of 27.3 min on a real 36-check run). Cut it down to
-      // the moments the Spotter saw something change. Fire-and-forget and
-      // evidence-file-only (video-tight.webm + video-index.json), so a slow
-      // encode can neither delay the run response nor touch the run record —
-      // the UI picks the tight cut up when video-index.json appears.
+      // Composed run video (walkthrough merge): the recorder rolls continuously
+      // while each check sits in an untimed vision call, so the raw recording
+      // is mostly a frozen page (measured: 24.6 of 27.3 min on a real 36-check
+      // run). Re-assemble it walkthrough-style — scrubbable h264 mp4, idle
+      // stretches timelapsed instead of cut, burned-in check captions, title
+      // card — with chapter markers in video-index.json exactly as before.
+      // Fire-and-forget and evidence-file-only, so a slow encode can neither
+      // delay the run response nor touch the run record; the UI picks the cut
+      // up when video-index.json appears. When compose fails the tighten cut
+      // is the fallback, so a box without libx264 still gets a watchable video.
       if (record.evidence?.video && record.evidence?.spotter?.manifest && capture) {
         void (async () => {
           const dir = evidenceRunDir(record.id, root);
           const manifestPath = path.join(dir, record.evidence.spotter.manifest);
           const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          // steps.json from disk, not the in-memory rows: the same input a
+          // post-restart regeneration would have, and byte-identical anyway.
+          let steps = manifestRows;
+          try { steps = JSON.parse(await readFile(path.join(dir, "steps.json"), "utf8")); } catch { /* keep in-memory rows */ }
+          const summary = record.summary ?? {};
+          const composed = await buildRunVideo({
+            dir,
+            source: record.evidence.video,
+            frames: manifest.frames ?? [],
+            steps,
+            title: `Drill run · ${new Date(record.startedAt).toLocaleString()}\n${record.pages.length} checks · ${record.pages.length - (summary.failed ?? 0) - (summary.unproven ?? 0)} passed`
+          });
+          if (composed?.ok) return composed;
+          console.log(`[drill] video compose: falling back to tighten for run ${record.id} (${composed?.reason ?? "unknown"})`);
           return buildTightVideo({
             dir,
             source: record.evidence.video,
             frames: manifest.frames ?? [],
-            steps: manifestRows
+            steps
           });
         })()
           .then((res) => {
             if (res?.ok) {
-              console.log(`[drill] video tighten: ${(res.originalDurationMs / 1000).toFixed(0)}s -> ${(res.tightDurationMs / 1000).toFixed(0)}s in ${res.segments.length} segments (${(res.encodeMs / 1000).toFixed(0)}s encode) for run ${record.id}`);
+              console.log(`[drill] run video: ${(res.originalDurationMs / 1000).toFixed(0)}s -> ${(res.tightDurationMs / 1000).toFixed(0)}s (${res.mode ?? "tight"}, ${res.segments.length} segments, ${(res.encodeMs / 1000).toFixed(0)}s encode) for run ${record.id}`);
             } else {
-              console.log(`[drill] video tighten: skipped for run ${record.id} (${res?.reason ?? "unknown"})`);
+              console.log(`[drill] run video: skipped for run ${record.id} (${res?.reason ?? "unknown"})`);
             }
           })
-          .catch((err) => console.warn(`[drill] video tighten: ${err.message}`));
+          .catch((err) => console.warn(`[drill] run video: ${err.message}`));
       }
       // Curation (Evidence V2, S2/D4): batch vision judging of the Spotter
       // frames into the Debrief reel — fire-and-forget, and it writes ONLY
@@ -1980,6 +2019,23 @@ async function handle(req, res) {
     if (runSessionStreamGet && req.method === "GET") {
       const runId = decodeURIComponent(runSessionStreamGet[1]);
       const sessionId = String(url.searchParams.get("session") ?? "");
+      // Optional wall-clock window (epoch ms): the merged results view uses
+      // this to show just the session steps of ONE check. Events without a
+      // timestamp are dropped inside a window — they would otherwise appear
+      // under every check. Absent params must stay absent (Number(null) is 0,
+      // which would read as a zero-width window and filter everything out).
+      const fromParam = url.searchParams.get("from");
+      const toParam = url.searchParams.get("to");
+      const windowFrom = fromParam === null ? Number.NaN : Number(fromParam);
+      const windowTo = toParam === null ? Number.NaN : Number(toParam);
+      const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
+      const inWindow = (event) => {
+        if (!windowed) return true;
+        if (!Number.isFinite(event?.ts)) return false;
+        if (Number.isFinite(windowFrom) && event.ts < windowFrom) return false;
+        if (Number.isFinite(windowTo) && event.ts > windowTo) return false;
+        return true;
+      };
       const entry = activeRuns.get(runId);
       let record = entry?.record ?? null;
       if (!record) {
@@ -2025,7 +2081,7 @@ async function handle(req, res) {
           type: "init",
           sessionId,
           title: parsed.title,
-          events: parsed.events,
+          events: parsed.events.filter(inWindow),
           live: !!liveEntry,
           available: initLines.length > 0 || !!tailPath
         });
@@ -2037,8 +2093,9 @@ async function handle(req, res) {
             if (read.lines.length) {
               offset = read.offset;
               const chunk = parseTranscriptLines(read.lines);
-              if (chunk.events.length || chunk.title) {
-                emit({ type: "events", sessionId, title: chunk.title, events: chunk.events });
+              const events = chunk.events.filter(inWindow);
+              if (events.length || chunk.title) {
+                emit({ type: "events", sessionId, title: chunk.title, events });
               }
             }
           } catch { /* transient read failure - keep polling */ }
@@ -2104,6 +2161,7 @@ async function handle(req, res) {
       }
       const types = {
         ".webm": "video/webm",
+        ".mp4": "video/mp4",
         ".png": "image/png",
         ".jpg": "image/jpeg",
         ".zip": "application/zip",
@@ -2117,10 +2175,10 @@ async function handle(req, res) {
         "x-content-type-options": "nosniff",
         ...(ext === ".zip" ? { "content-disposition": `attachment; filename="${name}"` } : {})
       };
-      // Range support: webm scrubbing and #t= media-fragment deep links need
+      // Range support: video scrubbing and #t= media-fragment deep links need
       // 206 responses; everything else streams whole.
       const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
-      if (range && (range[1] || range[2]) && ext === ".webm") {
+      if (range && (range[1] || range[2]) && (ext === ".webm" || ext === ".mp4")) {
         const size = fileInfo.size;
         let start = range[1] ? Number(range[1]) : size - Number(range[2]);
         let end = range[1] && range[2] ? Number(range[2]) : size - 1;
@@ -2139,6 +2197,60 @@ async function handle(req, res) {
       res.writeHead(200, { ...headers, "accept-ranges": "bytes", "content-length": String(fileInfo.size) });
       createReadStream(file).pipe(res);
       return;
+    }
+    // Promote a run screenshot to a named page state ("Save as state"): the
+    // operator saw the image and vouched for it — a human decision, like a
+    // verdict override, so it does not pass the automatic honesty gate.
+    // Root-aware via record.project: a run pinned to another repo writes the
+    // state into THAT repo's page YAML.
+    const runPromoteStatePost = pathname.match(/^\/api\/runs\/([^/]+)\/promote-state$/);
+    if (runPromoteStatePost && req.method === "POST") {
+      const record = await getDrillRun(decodeURIComponent(runPromoteStatePost[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      const body = await readJsonBody(req);
+      const name = String(body.file ?? "");
+      const pageId = String(body.pageId ?? "");
+      const label = String(body.label ?? "").trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,160}$/.test(name)) return send(res, 400, { error: "invalid evidence name" });
+      if (!pageId) return send(res, 400, { error: "pageId required" });
+      if (!label) return send(res, 400, { error: "label required" });
+      const root = record.project || drillTargetRoot();
+      const dir = evidenceRunDir(record.id, root);
+      try {
+        const real = await realpath(path.join(dir, name));
+        if (real !== path.join(await realpath(dir), name)) return send(res, 404, { error: "not found" });
+        if (!(await stat(real)).isFile()) return send(res, 404, { error: "not found" });
+      } catch {
+        return send(res, 404, { error: "evidence file not found" });
+      }
+      // Spotter frames (frame-*.jpg) die under retention once the run ages
+      // out of the keep-3 pool — copy the bytes to a name the pruner never
+      // touches so the state's reference outlives the sweep. Step screenshots
+      // already survive as-is.
+      let refName = name;
+      if (/^frame-.*\.jpg$/i.test(name)) {
+        refName = `state-src-${ulid()}.jpg`;
+        try {
+          await writeFile(path.join(dir, refName), await readFile(path.join(dir, name)));
+        } catch (err) {
+          return send(res, 500, { error: `could not copy the frame: ${err.message}` });
+        }
+      }
+      try {
+        const state = await createStateFromRunEvidence(pageId, {
+          label,
+          screenshotPath: evidenceRootRef(record.id, root, refName),
+          referenceSource: {
+            runId: record.id,
+            stepId: body.stepId ? String(body.stepId) : null,
+            viewportId: body.viewportId ? String(body.viewportId) : null,
+            at: new Date().toISOString()
+          }
+        }, root);
+        return send(res, 200, { state, pageId, stateId: state.id });
+      } catch (err) {
+        return send(res, 400, { error: err.message });
+      }
     }
     if (pathname === "/api/live-replay" && req.method === "GET") {
       return send(res, 200, { live: await liveReplayPublic() });

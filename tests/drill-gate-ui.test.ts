@@ -94,11 +94,9 @@ describe("gated autonomy — real UI", () => {
     expect(await p.locator(".dr-res").count()).toBe(0); // nothing ran yet
 
     await p.getByRole("button", { name: "Approve and run" }).click();
-    // Debrief (Evidence V2) is the default run-detail surface; the classic
-    // per-check rows this test pins live behind the view toggle now.
-    const classicToggle = p.getByRole("button", { name: "Classic view" });
-    await classicToggle.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
-    if (await classicToggle.count()) await classicToggle.click();
+    // The per-check rows render on the merged run detail's default Results
+    // tab now — no view toggle to click since the Classic/Debrief split
+    // was removed.
     // This wait is for an ACTUAL QA run to finish (drive a browser, assert,
     // render results) — the one genuinely slow step here, and the one that
     // stretches when the full suite runs 350+ files in parallel. At 15s it

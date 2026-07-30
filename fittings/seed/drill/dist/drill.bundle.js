@@ -26278,6 +26278,18 @@ var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
+// ../../../node_modules/lucide-react/dist/esm/icons/camera.js
+var Camera = createLucideIcon("Camera", [
+  [
+    "path",
+    {
+      d: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z",
+      key: "1tc9qg"
+    }
+  ],
+  ["circle", { cx: "12", cy: "13", r: "3", key: "1vg3eu" }]
+]);
+
 // ../../../node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
@@ -26341,6 +26353,15 @@ var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
   ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1", key: "nxv5o0" }],
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
+]);
+
+// ../../../node_modules/lucide-react/dist/esm/icons/list-checks.js
+var ListChecks = createLucideIcon("ListChecks", [
+  ["path", { d: "m3 17 2 2 4-4", key: "1jhpwq" }],
+  ["path", { d: "m3 7 2 2 4-4", key: "1obspn" }],
+  ["path", { d: "M13 6h8", key: "15sg57" }],
+  ["path", { d: "M13 12h8", key: "h98zly" }],
+  ["path", { d: "M13 18h8", key: "oe0vm4" }]
 ]);
 
 // ../../../node_modules/lucide-react/dist/esm/icons/list-filter.js
@@ -28251,7 +28272,7 @@ function fmtDuration(ms) {
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
-function RunEvidenceVideo({ runId, video, steps }) {
+function RunVideoTab({ runId, video, pruned, steps, scopeKeys, requested }) {
   const ref = (0, import_react4.useRef)(null);
   const [failed, setFailed] = (0, import_react4.useState)(false);
   const [index, setIndex] = (0, import_react4.useState)(null);
@@ -28260,6 +28281,7 @@ function RunEvidenceVideo({ runId, video, steps }) {
     let live = true;
     setIndex(null);
     setFull(false);
+    setFailed(false);
     fetch(evidenceFileUrl(runId, "video-index.json")).then((r) => r.ok ? r.json() : null).then((j) => {
       if (live && j?.tight) setIndex(j);
     }).catch(() => {
@@ -28268,38 +28290,60 @@ function RunEvidenceVideo({ runId, video, steps }) {
       live = false;
     };
   }, [runId]);
-  if (failed) return null;
-  const tightAvailable = Boolean(index);
-  const showingTight = tightAvailable && !full;
-  const src = showingTight ? evidenceFileUrl(runId, index.tight) : evidenceFileUrl(runId, video);
+  const scopedSteps = (0, import_react4.useMemo)(
+    () => steps.filter((s) => Number.isFinite(s.startMs)).filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)).sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
+    [steps, scopeKeys]
+  );
+  const cutAvailable = Boolean(index?.tight);
+  const rawAvailable = Boolean(video) && !pruned;
+  const showingCut = cutAvailable && (!full || !rawAvailable);
+  const src = showingCut ? evidenceFileUrl(runId, index.tight) : rawAvailable ? evidenceFileUrl(runId, video) : null;
+  const composed = (index?.version ?? 1) >= 2;
+  (0, import_react4.useEffect)(() => {
+    setFailed(false);
+  }, [src]);
   const offsetFor = (row) => {
-    if (!showingTight) return Number.isFinite(row.startMs) ? row.startMs ?? 0 : null;
+    if (!showingCut) return Number.isFinite(row.startMs) ? row.startMs ?? 0 : null;
     const ch = index.chapters.find(
       (c) => c.pageId === row.pageId && c.stepId === row.stepId && c.viewportId === row.viewportId
     );
     return Number.isFinite(ch?.tightMs) ? ch.tightMs : null;
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec card", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-card-heading", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Run video" }),
-        showingTight ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
-          "Highlights only \u2014 ",
-          fmtDuration(index.tightDurationMs),
-          " of ",
-          fmtDuration(index.originalDurationMs),
-          ", with ",
-          fmtDuration(index.removedMs),
-          " of idle time cut. Jump to a check with its chapter button."
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
-          tightAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording.",
-          " ",
-          "Jump to a check with its chapter button."
-        ] })
+  (0, import_react4.useEffect)(() => {
+    const v = ref.current;
+    if (!v || scopeKeys === null) return;
+    const first = scopedSteps[0];
+    if (!first) return;
+    const at = offsetFor(first);
+    if (at === null) return;
+    const seek = () => {
+      v.currentTime = at / 1e3;
+    };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+  }, [scopedSteps, scopeKeys, showingCut]);
+  if (!src) {
+    if (requested === "off") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video was not requested for this run." });
+    if (pruned) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video pruned by retention." });
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "No video for this run." });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video-meta", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        showingCut ? `${composed ? "Composed cut" : "Highlights"} \u2014 ${fmtDuration(index.tightDurationMs)} of ${fmtDuration(index.originalDurationMs)} recorded${index.removedMs > 0 ? `, idle time ${composed ? "fast-forwarded" : "cut"}` : ""}.` : cutAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording.",
+        " ",
+        "Jump to a check with its chapter button."
       ] }),
-      tightAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setFull((f) => !f), children: full ? "Show highlights" : "Show full recording" })
+      cutAvailable && rawAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setFull((f) => !f), children: full ? composed ? "Show composed cut" : "Show highlights" : "Show full recording" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    failed ? (
+      // Only the PLAYER goes — the meta row above keeps the cut/full toggle
+      // reachable, so a broken source never locks out the playable one.
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-empty", children: [
+        "This video file could not be played",
+        cutAvailable && rawAvailable ? " \u2014 try the other recording." : "."
+      ] })
+    ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
       "video",
       {
         ref,
@@ -28307,11 +28351,11 @@ function RunEvidenceVideo({ runId, video, steps }) {
         preload: "metadata",
         src,
         onError: () => setFailed(true),
-        style: { width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }
+        className: "dr-db-video-el"
       },
       src
     ),
-    steps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap", style: { marginTop: 8 }, children: steps.map((row) => {
+    scopedSteps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-db-chapters", children: scopedSteps.map((row) => {
       const at = offsetFor(row);
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "button",
@@ -28332,7 +28376,7 @@ function RunEvidenceVideo({ runId, video, steps }) {
             fmtOffset(at ?? 0)
           ]
         },
-        row.item
+        `${row.pageId}:${row.stepId}:${row.viewportId}`
       );
     }) })
   ] });
@@ -28423,7 +28467,10 @@ function ReelCarousel({
   candidateCount,
   curationPending,
   curationFailed,
-  curationDegraded
+  curationDegraded,
+  curationOff,
+  onSaveState,
+  canSaveState
 }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = (0, import_react4.useState)(0);
@@ -28468,7 +28515,7 @@ function ReelCarousel({
   };
   if (frames.length === 0) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No frames were captured for this scope." : curationPending ? "Curation is still selecting the reel for this scope." : curationFailed ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here." : "No reel frames for this scope." }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: showAll ? "No frames were captured for this scope." : curationOff ? "The slideshow was not requested for this run. Any raw captured frames are behind \u201CShow all frames\u201D." : curationPending ? "Curation is still selecting the reel for this scope." : curationFailed ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here." : "No reel frames for this scope." }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-reel-controls", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "btn small" + (showAll ? " primary" : ""), onClick: onToggleShowAll, "aria-pressed": showAll, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Film, { size: 12 }),
         " ",
@@ -28493,20 +28540,32 @@ function ReelCarousel({
           active && !active.inReel && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-annot-nr", children: "not in reel" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-annot-text", children: active?.inReel && active.annotation ? active.annotation : active && !active.inReel ? `Raw candidate - ${active.trigger || "captured frame"}` : "" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-          "button",
-          {
-            className: "btn small dr-db-flag" + (flaggedActive ? " primary" : ""),
-            disabled: !active,
-            "aria-pressed": flaggedActive,
-            onClick: () => active && onFlag(active.name),
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flag, { size: 12 }),
-              " ",
-              flaggedActive ? "Flagged" : "Flag"
-            ]
-          }
-        )
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-annot-actions", children: [
+          onSaveState && active && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            SaveStateButton,
+            {
+              defaultLabel: active.annotation?.slice(0, 40) || active.trigger || "captured state",
+              disabled: canSaveState ? !canSaveState(active) : false,
+              disabledTitle: "This frame is not tied to a check, so its page is unknown.",
+              onSave: (label) => onSaveState(active, label)
+            },
+            active.name
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              className: "btn small dr-db-flag" + (flaggedActive ? " primary" : ""),
+              disabled: !active,
+              "aria-pressed": flaggedActive,
+              onClick: () => active && onFlag(active.name),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flag, { size: 12 }),
+                " ",
+                flaggedActive ? "Flagged" : "Flag"
+              ]
+            }
+          )
+        ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-reel-controls", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-transport", children: [
@@ -28527,61 +28586,81 @@ function ReelCarousel({
           ] })
         ] })
       ] }),
+      curationOff && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "The slideshow was not requested for this run - showing raw captured frames." }),
       curationPending && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation pending - showing raw candidates until the reel is selected." }),
       curationDegraded && !showAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-pending", children: "Curation was incomplete for this run - some frames were never judged, so parts of this reel were auto-selected rather than chosen." })
     ] })
   );
 }
-function DebriefVideo({ runId, video, pruned, steps, scopeKeys }) {
-  const ref = (0, import_react4.useRef)(null);
-  const scopedSteps = (0, import_react4.useMemo)(
-    () => steps.filter((s) => Number.isFinite(s.startMs)).filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys)).sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
-    [steps, scopeKeys]
-  );
-  (0, import_react4.useEffect)(() => {
-    const v = ref.current;
-    if (!v || scopeKeys === null) return;
-    const first = scopedSteps[0];
-    if (!first || !Number.isFinite(first.startMs)) return;
-    const seek = () => {
-      v.currentTime = (first.startMs ?? 0) / 1e3;
-    };
-    if (v.readyState >= 1) seek();
-    else v.addEventListener("loadedmetadata", seek, { once: true });
-  }, [scopedSteps, scopeKeys]);
-  if (pruned) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "Video pruned by retention." });
-  if (!video) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-db-empty", children: "No video for this run." });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-video", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      "video",
-      {
-        ref,
-        controls: true,
-        preload: "metadata",
-        src: evidenceFileUrl(runId, video),
-        className: "dr-db-video-el"
-      }
-    ),
-    scopedSteps.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-rowwrap dr-db-chapters", children: scopedSteps.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+function SaveStateButton({
+  defaultLabel,
+  disabled = false,
+  disabledTitle,
+  onSave
+}) {
+  const [open, setOpen] = (0, import_react4.useState)(false);
+  const [label, setLabel] = (0, import_react4.useState)(defaultLabel);
+  const [busy, setBusy] = (0, import_react4.useState)(false);
+  const [savedId, setSavedId] = (0, import_react4.useState)(null);
+  const [error, setError] = (0, import_react4.useState)(null);
+  const save = async () => {
+    if (!label.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const stateId = await onSave(label.trim());
+      setSavedId(stateId);
+      setOpen(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (savedId) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip sage active", title: "Saved as a named page state", children: [
+    "state: ",
+    savedId
+  ] });
+  if (!open) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
       {
         className: "btn small",
-        title: `${row.pageId}#${row.stepId} at ${row.viewportId}`,
+        disabled,
+        title: disabled ? disabledTitle ?? "Unavailable" : "Save this screenshot as a named page state",
         onClick: () => {
-          const v = ref.current;
-          if (!v || !Number.isFinite(row.startMs)) return;
-          v.currentTime = (row.startMs ?? 0) / 1e3;
-          void v.play().catch(() => {
-          });
+          setLabel(defaultLabel);
+          setOpen(true);
         },
         children: [
-          row.stepId,
-          " @",
-          fmtOffset(row.startMs ?? 0)
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Camera, { size: 11 }),
+          " Save as state"
         ]
-      },
-      `${row.pageId}:${row.stepId}:${row.viewportId}`
-    )) })
+      }
+    );
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-savestate", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "input",
+      {
+        "aria-label": "State label",
+        value: label,
+        autoFocus: true,
+        disabled: busy,
+        onChange: (e) => setLabel(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") void save();
+          if (e.key === "Escape") setOpen(false);
+        },
+        placeholder: "State label\u2026"
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small primary", disabled: busy || !label.trim(), onClick: () => void save(), children: busy ? "Saving\u2026" : "Save" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", disabled: busy, onClick: () => {
+      setOpen(false);
+      setError(null);
+    }, children: "Cancel" }),
+    error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-savestate-error", children: error })
   ] });
 }
 function liveStageStyle(canvasUrl) {
@@ -28812,6 +28891,7 @@ function DebriefView({
   steps,
   evidenceIndex,
   issues,
+  activeFindings,
   confirmedCount,
   dispatchableCount,
   dispatchedCard,
@@ -28819,10 +28899,23 @@ function DebriefView({
   setDispatchMode,
   dispatching,
   dispatch,
-  triage
+  triage,
+  evidenceRows,
+  productPageEntries,
+  incompleteCoverageCount,
+  displayedInfra,
+  obsText,
+  setObsText,
+  giveFeedback,
+  override,
+  addObs,
+  convertObsToStep,
+  convertObsToFinding,
+  onRerun,
+  rerunBusy
 }) {
   const [scope, setScope] = (0, import_react4.useState)({ kind: "all" });
-  const [tab, setTab] = (0, import_react4.useState)("screenshots");
+  const [tab, setTab] = (0, import_react4.useState)("results");
   const [showAll, setShowAll] = (0, import_react4.useState)(false);
   const [reel, setReel] = (0, import_react4.useState)(null);
   const [reelMissing, setReelMissing] = (0, import_react4.useState)(false);
@@ -28834,6 +28927,7 @@ function DebriefView({
   (0, import_react4.useEffect)(() => {
     setLiveSession(null);
     setLiveWarnings([]);
+    setScope({ kind: "all" });
   }, [run.id]);
   const enqueue = useDebriefFeedback(run.id);
   const checkRefs = (0, import_react4.useRef)(/* @__PURE__ */ new Map());
@@ -28841,11 +28935,28 @@ function DebriefView({
   const indexItems = evidenceIndex?.items ?? [];
   const hasSpotterRow = indexItems.some((i) => i.kind === "spotter");
   const runFinished = Boolean(run.endedAt);
-  const curationPending = hasSpotterRow && !reel && !reelMissing;
-  const curationFailed = hasSpotterRow && runFinished && reelMissing;
+  const curationOff = run.evidenceRequest?.slideshow === "off";
+  const curationPending = !curationOff && hasSpotterRow && !reel && !reelMissing;
+  const curationFailed = !curationOff && hasSpotterRow && runFinished && reelMissing;
   const videoItem = indexItems.find((i) => i.kind === "video");
   const videoPruned = !!videoItem?.pruned;
   const videoName = run.evidence?.video ?? null;
+  const stepForChunk = (0, import_react4.useCallback)(
+    (chunk) => chunk ? steps.find((s) => chunkKeyFor(s.pageId, s.stepId, s.viewportId) === chunk) ?? null : null,
+    [steps]
+  );
+  const saveFrameAsState = (0, import_react4.useCallback)(async (frame, label) => {
+    const step = stepForChunk(frame.chunk);
+    if (!step) throw new Error("This frame is not tied to a check, so its page is unknown.");
+    const r = await apiPost(`/api/runs/${encodeURIComponent(run.id)}/promote-state`, {
+      file: frame.name,
+      pageId: step.pageId,
+      stepId: step.stepId,
+      viewportId: step.viewportId,
+      label
+    });
+    return r.stateId;
+  }, [run.id, stepForChunk]);
   (0, import_react4.useEffect)(() => {
     setReel(null);
     setReelMissing(false);
@@ -29142,7 +29253,11 @@ ${check.title?.trim() || ""}`,
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "dr-db-content", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-tabs", role: "tablist", "aria-label": "Debrief evidence", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-tabs", role: "tablist", "aria-label": "Run evidence views", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "results", className: "dr-db-tab" + (tab === "results" ? " on" : ""), title: "Per-check results with each check's session steps", onClick: () => setTab("results"), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ListChecks, { size: 13 }),
+            " Results"
+          ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "screenshots", className: "dr-db-tab" + (tab === "screenshots" ? " on" : ""), onClick: () => setTab("screenshots"), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LayoutGrid, { size: 13 }),
             " Screenshots"
@@ -29153,15 +29268,46 @@ ${check.title?.trim() || ""}`,
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "live", className: "dr-db-tab experimental" + (tab === "live" ? " on" : ""), title: "Experimental - replays the app live at a check's state", onClick: () => setTab("live"), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 13 }),
-            " Live Browser ",
+            " Browser ",
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-exp-chip", children: "experimental" })
           ] }),
-          (run.sessions?.length ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "session", className: "dr-db-tab" + (tab === "session" ? " on" : ""), title: "The Claude session(s) that resolved this run's vision checks", onClick: () => setTab("session"), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { role: "tab", "aria-selected": tab === "session", className: "dr-db-tab" + (tab === "session" ? " on" : ""), title: "The full Claude session(s) that resolved this run's vision checks, screenshots included", onClick: () => setTab("session"), children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13 }),
             " Session",
             (run.sessions?.length ?? 0) > 1 ? "s" : ""
           ] })
         ] }),
+        tab === "results" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          RunResultsPanel,
+          {
+            run,
+            pages,
+            evidenceRows,
+            productPageEntries,
+            activeFindings,
+            incompleteCoverageCount,
+            displayedInfra,
+            issues,
+            confirmedCount,
+            dispatchableCount,
+            dispatchedCard,
+            dispatchMode,
+            setDispatchMode,
+            dispatching,
+            obsText,
+            setObsText,
+            giveFeedback,
+            override,
+            addObs,
+            convertObsToStep,
+            convertObsToFinding,
+            triage,
+            dispatch,
+            onRerun,
+            rerunBusy,
+            scopeKeys
+          }
+        ),
         tab === "screenshots" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           ReelCarousel,
           {
@@ -29178,17 +29324,21 @@ ${check.title?.trim() || ""}`,
             candidateCount,
             curationPending,
             curationFailed,
-            curationDegraded
+            curationDegraded,
+            curationOff,
+            onSaveState: saveFrameAsState,
+            canSaveState: (frame) => !!stepForChunk(frame.chunk)
           }
         ),
         tab === "video" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          DebriefVideo,
+          RunVideoTab,
           {
             runId: run.id,
             video: videoName,
             pruned: videoPruned,
             steps,
-            scopeKeys
+            scopeKeys,
+            requested: run.evidenceRequest?.video
           }
         ),
         tab === "live" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -29209,7 +29359,17 @@ ${check.title?.trim() || ""}`,
     ] })
   ] });
 }
-function ClassicRunDetail({
+function CheckSessionSteps({ runId, sessionId, windowFrom, windowTo }) {
+  const [open, setOpen] = (0, import_react4.useState)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dr-res-session", onToggle: (e) => setOpen(e.target.open), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 11, "aria-hidden": "true" }),
+      " Session steps"
+    ] }),
+    open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionStream, { runId, sessionId, live: false, windowFrom, windowTo, compact: true })
+  ] });
+}
+function RunResultsPanel({
   run,
   pages,
   evidenceRows,
@@ -29234,9 +29394,12 @@ function ClassicRunDetail({
   triage,
   dispatch,
   onRerun,
-  rerunBusy
+  rerunBusy,
+  scopeKeys
 }) {
   const evidenceRowFor = (entry) => evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  const capturedAt = run.evidence?.capturedAt ?? null;
+  const visibleEntries = scopeKeys ? productPageEntries.filter((entry) => scopeKeys.has(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId))) : productPageEntries;
   const rerunScope = (entries) => {
     if (!onRerun || !entries.length) return;
     onRerun(
@@ -29249,18 +29412,12 @@ function ClassicRunDetail({
     (entry) => !effectiveStepPassed(run, entry) || effectiveStepUnproven(run, entry)
   );
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    run.evidence?.video && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RunEvidenceVideo, { runId: run.id, video: run.evidence.video, steps: evidenceRows ?? [] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-sec", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-detail-heading", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-lbl", children: "Selected run" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: formatDate(run.startedAt) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mono dr-run-id", children: run.id }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
-          ] })
-        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap dr-selected-run-meta", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: run.state === "default" ? "Default state" : `State: ${run.state}` })
+        ] }) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-summary", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: productPageEntries.filter((entry) => effectiveStepPassed(run, entry) && !effectiveStepUnproven(run, entry)).length }),
@@ -29322,7 +29479,8 @@ function ClassicRunDetail({
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Each row is one Book check at one viewport. Cached means a previously graduated deterministic assertion was reused." })
       ] }) }),
       productPageEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No product checks completed. Review the infrastructure section below before rerunning." }),
-      productPageEntries.map((entry) => {
+      productPageEntries.length > 0 && visibleEntries.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: "No checks match the selected scope." }),
+      visibleEntries.map((entry) => {
         const originalPassed = stepPassed(entry);
         const recordKey = `${entry.pageId}:${entry.stepId}`;
         const renderKey = `${recordKey}:${entry.viewportId}`;
@@ -29396,8 +29554,30 @@ function ClassicRunDetail({
               videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
                 "video @",
                 fmtOffset(row.startMs ?? 0)
-              ] })
+              ] }),
+              row.screenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                SaveStateButton,
+                {
+                  defaultLabel: stepDefinition?.description?.slice(0, 40) || entry.stepId,
+                  onSave: async (label) => {
+                    const r = await apiPost(`/api/runs/${encodeURIComponent(run.id)}/promote-state`, {
+                      file: row.screenshot,
+                      pageId: entry.pageId,
+                      stepId: entry.stepId,
+                      viewportId: entry.viewportId,
+                      label
+                    });
+                    return r.stateId;
+                  }
+                }
+              )
             ] });
+          })(),
+          entry.terminal?.session?.id && (() => {
+            const row = evidenceRowFor(entry);
+            const from = capturedAt !== null && Number.isFinite(row?.startMs) ? capturedAt + (row.startMs ?? 0) - 1e4 : void 0;
+            const to = capturedAt !== null && Number.isFinite(row?.endMs) ? capturedAt + (row.endMs ?? 0) + 1e4 : void 0;
+            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckSessionSteps, { runId: run.id, sessionId: entry.terminal.session.id, windowFrom: from, windowTo: to });
           })(),
           override_ && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { color: "var(--brass)", fontSize: 11, marginTop: 4 }, children: [
             "Overridden -> ",
@@ -29646,7 +29826,7 @@ function SessionToolBlock({ block, result }) {
     ))
   ] });
 }
-function SessionStream({ runId, sessionId, live }) {
+function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }) {
   const [events, setEvents] = (0, import_react4.useState)([]);
   const [title, setTitle] = (0, import_react4.useState)(null);
   const [status, setStatus] = (0, import_react4.useState)("connecting");
@@ -29657,7 +29837,10 @@ function SessionStream({ runId, sessionId, live }) {
     setTitle(null);
     setStatus("connecting");
     stickRef.current = true;
-    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?session=${encodeURIComponent(sessionId)}`);
+    const params = new URLSearchParams({ session: sessionId });
+    if (Number.isFinite(windowFrom)) params.set("from", String(Math.floor(windowFrom)));
+    if (Number.isFinite(windowTo)) params.set("to", String(Math.ceil(windowTo)));
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`);
     source.onmessage = (message) => {
       let payload;
       try {
@@ -29682,7 +29865,7 @@ function SessionStream({ runId, sessionId, live }) {
       source.close();
     };
     return () => source.close();
-  }, [runId, sessionId]);
+  }, [runId, sessionId, windowFrom, windowTo]);
   (0, import_react4.useEffect)(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -29700,7 +29883,8 @@ function SessionStream({ runId, sessionId, live }) {
     }
     return map;
   }, [events]);
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session", children: [
+  const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session" + (compact ? " compact" : ""), children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-head", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13, "aria-hidden": "true" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? "Verify session" }),
@@ -29710,7 +29894,7 @@ function SessionStream({ runId, sessionId, live }) {
       status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "transcript unavailable" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-scroll", ref: scrollRef, onScroll, children: [
-      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : "No session activity fell inside this run's window." }),
+      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : windowed ? "No session activity fell inside this check's window." : "No session activity fell inside this run's window." }),
       events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-role", children: event.role === "user" ? "Prompt" : "Assistant" }),
         event.blocks.map((block, blockIndex) => {
@@ -29985,10 +30169,6 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [evidenceRows, setEvidenceRows] = (0, import_react4.useState)(null);
   const [evidenceIndex, setEvidenceIndex] = (0, import_react4.useState)(null);
   const [evidenceStepsJson, setEvidenceStepsJson] = (0, import_react4.useState)(null);
-  const [classicView, setClassicView] = (0, import_react4.useState)(false);
-  (0, import_react4.useEffect)(() => {
-    setClassicView(false);
-  }, [run?.id]);
   (0, import_react4.useEffect)(() => {
     setEvidenceRows(null);
     setEvidenceIndex(null);
@@ -30013,6 +30193,9 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     initialSelection ? [initialSelection.viewportId] : initialRun?.viewports ?? ["desktop"]
   ));
   const [selectedState, setSelectedState] = (0, import_react4.useState)(initialSelection?.state ?? "default");
+  const [videoOpt, setVideoOpt] = (0, import_react4.useState)("auto");
+  const [slideshowOn, setSlideshowOn] = (0, import_react4.useState)(true);
+  const [browserStatesOn, setBrowserStatesOn] = (0, import_react4.useState)(true);
   const [running, setRunning] = (0, import_react4.useState)(false);
   const [phase, setPhase] = (0, import_react4.useState)(null);
   const [error, setError] = (0, import_react4.useState)(null);
@@ -30088,12 +30271,18 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     try {
       await ensureAppUp(setPhase);
       setPhase(null);
+      const evidenceBody = {
+        ...videoOpt !== "auto" ? { video: videoOpt === "on" } : {},
+        ...slideshowOn ? {} : { curation: false },
+        ...browserStatesOn ? {} : { stateReferences: false }
+      };
       const r = await apiPost("/api/runs", {
         pageIds,
         viewports,
         ...stepIdsArg?.length ? { stepIds: stepIdsArg } : {},
         state: requestedState,
         contextTag: "drill",
+        ...Object.keys(evidenceBody).length ? { evidence: evidenceBody } : {},
         background: true
       });
       if (r.held) {
@@ -30263,19 +30452,31 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const activeFindings = run ? activeProductFindings(run, issues.productFindings) : [];
   const confirmedCount = activeFindings.filter((f) => f.status === "confirmed").length;
   const dispatchableCount = activeFindings.filter((finding) => finding.status === "confirmed" && !finding.card).length;
-  const debriefSteps = (0, import_react4.useMemo)(
-    () => evidenceStepsJson && evidenceStepsJson.length > 0 ? evidenceStepsJson : (evidenceRows ?? []).map((row) => ({
-      pageId: row.pageId ?? "",
-      stepId: row.stepId ?? "",
-      viewportId: row.viewportId ?? "",
-      startMs: row.startMs,
-      endMs: row.endMs,
-      status: row.status,
-      automationRunId: row.automationRunId ?? null
-    })),
-    [evidenceStepsJson, evidenceRows]
-  );
-  const debriefAvailable = !!evidenceIndex && debriefSteps.length > 0;
+  const debriefSteps = (0, import_react4.useMemo)(() => {
+    if (evidenceStepsJson && evidenceStepsJson.length > 0) return evidenceStepsJson;
+    if (evidenceRows && evidenceRows.length > 0) {
+      return evidenceRows.map((row) => ({
+        pageId: row.pageId ?? "",
+        stepId: row.stepId ?? "",
+        viewportId: row.viewportId ?? "",
+        startMs: row.startMs,
+        endMs: row.endMs,
+        status: row.status,
+        automationRunId: row.automationRunId ?? null
+      }));
+    }
+    return (run?.pages ?? []).map((entry) => {
+      const definition = pages.find((p) => p.id === entry.pageId)?.steps.find((s) => s.id === entry.stepId);
+      return {
+        pageId: entry.pageId,
+        stepId: entry.stepId,
+        viewportId: entry.viewportId,
+        title: definition?.description,
+        status: entry.status,
+        automationRunId: entry.automationRunId ?? null
+      };
+    });
+  }, [evidenceStepsJson, evidenceRows, run, pages]);
   const historyPageSize = 6;
   const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
   const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
@@ -30357,6 +30558,44 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         },
         v.id
       )) }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-run-artifacts", role: "group", "aria-label": "Artifacts to produce", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-run-artifacts-label", children: "Artifacts" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "dr-artifact-group", role: "group", "aria-label": "Run video", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-artifact-name", children: "Video" }),
+          ["auto", "on", "off"].map((option) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: "chip click" + (videoOpt === option ? " ink active" : ""),
+              "aria-pressed": videoOpt === option,
+              title: option === "auto" ? "Record for multi-check runs (the default)" : option === "on" ? "Always record" : "Never record",
+              onClick: () => setVideoOpt(option),
+              children: option === "auto" ? "Auto" : option === "on" ? "On" : "Off"
+            },
+            option
+          ))
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: "chip click" + (slideshowOn ? " sage active" : ""),
+            "aria-pressed": slideshowOn,
+            title: "Curate the captured frames into the Screenshots slideshow",
+            onClick: () => setSlideshowOn((v) => !v),
+            children: "Slideshow"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: "chip click" + (browserStatesOn ? " sage active" : ""),
+            "aria-pressed": browserStatesOn,
+            title: "Let a named-state run seed the state's reference screenshot into the Book",
+            onClick: () => setBrowserStatesOn((v) => !v),
+            children: "Browser states"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "What this run should produce beyond the results themselves. Screenshots and traces are always captured." })
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-actions dr-run-launch-actions", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn primary", disabled: running || watchRunId !== null, onClick: () => startRun(), children: running ? phase ?? "Starting\u2026" : watchRunId ? "Run in progress\u2026" : "Run selected" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppStatusChip, {})
@@ -30502,83 +30741,38 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn small", onClick: () => setNotice(null), children: "Dismiss" })
     ] }),
     !run && !error && !pendingGate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-placeholder", children: "No runs yet for this project. Select pages above and Run, or start from the Drill Book tab." }),
-    run && run.id !== watchRunId && (() => {
-      const showDebrief = debriefAvailable && !classicView;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        debriefAvailable && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-db-modeswitch", role: "group", "aria-label": "Run detail view", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-db-modeswitch-label", children: "View" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-            "button",
-            {
-              className: "btn small" + (showDebrief ? " primary" : ""),
-              "aria-pressed": showDebrief,
-              onClick: () => setClassicView(false),
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LayoutGrid, { size: 12 }),
-                " Debrief"
-              ]
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "button",
-            {
-              className: "btn small" + (!showDebrief ? " primary" : ""),
-              "aria-pressed": !showDebrief,
-              onClick: () => setClassicView(true),
-              children: "Classic view"
-            }
-          )
-        ] }),
-        showDebrief ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          DebriefView,
-          {
-            run,
-            pages,
-            steps: debriefSteps,
-            evidenceIndex,
-            issues,
-            activeFindings,
-            confirmedCount,
-            dispatchableCount,
-            dispatchedCard,
-            dispatchMode,
-            setDispatchMode,
-            dispatching,
-            dispatch,
-            triage
-          }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          ClassicRunDetail,
-          {
-            run,
-            pages,
-            evidenceRows,
-            productPageEntries,
-            activeFindings,
-            incompleteCoverageCount,
-            displayedInfra,
-            issues,
-            confirmedCount,
-            dispatchableCount,
-            dispatchedCard,
-            dispatchMode,
-            setDispatchMode,
-            dispatching,
-            obsText,
-            setObsText,
-            giveFeedback,
-            override,
-            addObs,
-            convertObsToStep,
-            convertObsToFinding,
-            triage,
-            dispatch,
-            onRerun: (pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds),
-            rerunBusy: running || watchRunId !== null
-          }
-        )
-      ] });
-    })()
+    run && run.id !== watchRunId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      DebriefView,
+      {
+        run,
+        pages,
+        steps: debriefSteps,
+        evidenceIndex,
+        issues,
+        activeFindings,
+        confirmedCount,
+        dispatchableCount,
+        dispatchedCard,
+        dispatchMode,
+        setDispatchMode,
+        dispatching,
+        dispatch,
+        triage,
+        evidenceRows,
+        productPageEntries,
+        incompleteCoverageCount,
+        displayedInfra,
+        obsText,
+        setObsText,
+        giveFeedback,
+        override,
+        addObs,
+        convertObsToStep,
+        convertObsToFinding,
+        onRerun: (pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds),
+        rerunBusy: running || watchRunId !== null
+      }
+    )
   ] });
 }
 function describeStateMatcher(state) {
@@ -30952,6 +31146,7 @@ lucide-react/dist/esm/Icon.js:
 lucide-react/dist/esm/createLucideIcon.js:
 lucide-react/dist/esm/icons/arrow-left.js:
 lucide-react/dist/esm/icons/arrow-right.js:
+lucide-react/dist/esm/icons/camera.js:
 lucide-react/dist/esm/icons/check.js:
 lucide-react/dist/esm/icons/crosshair.js:
 lucide-react/dist/esm/icons/external-link.js:
@@ -30960,6 +31155,7 @@ lucide-react/dist/esm/icons/file-code-2.js:
 lucide-react/dist/esm/icons/film.js:
 lucide-react/dist/esm/icons/flag.js:
 lucide-react/dist/esm/icons/layout-grid.js:
+lucide-react/dist/esm/icons/list-checks.js:
 lucide-react/dist/esm/icons/list-filter.js:
 lucide-react/dist/esm/icons/locate-fixed.js:
 lucide-react/dist/esm/icons/message-square.js:

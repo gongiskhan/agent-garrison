@@ -734,12 +734,42 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
     transition-duration: 0.01ms !important;
   }
 }
-/* ── Debrief (Evidence V2 D7-D10) ──
-   The default run-detail surface: scope rail + findings on the left, an
-   autoplaying reel (or the scoped video) on the right. Same paper/sage/brass
-   idiom as the rest of Drill; sharp corners, mono metadata. */
-.dr-db-modeswitch { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-.dr-db-modeswitch-label { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+/* ── Run detail (merged Debrief, Evidence V2 D7-D10) ──
+   The single run-detail surface: scope rail + findings on the left; Results /
+   Screenshots / Video / Browser / Session tabs on the right. Same
+   paper/sage/brass idiom as the rest of Drill; sharp corners, mono metadata. */
+
+/* Pre-run artifact selection (Start-a-run card) */
+.dr-run-artifacts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.dr-run-artifacts-label { color: var(--mute); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.dr-artifact-group { display: inline-flex; align-items: center; gap: 4px; }
+.dr-artifact-name { font-size: 11px; color: var(--ink-2); margin-right: 2px; }
+
+/* "Save as state" inline label form (reel frames + check rows) */
+.dr-savestate { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dr-savestate input {
+  border: 1px solid var(--rule-2); background: var(--paper); color: var(--ink);
+  padding: 4px 8px; font-size: 11px; min-width: 150px;
+}
+.dr-savestate-error { font-size: 10.5px; color: var(--alarm); }
+
+/* Per-check session steps expander in the Results tab */
+.dr-res-session { margin-top: 6px; }
+.dr-res-session > summary {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 10.5px; color: var(--mute); user-select: none;
+}
+.dr-res-session[open] > summary { margin-bottom: 6px; }
+.dr-session.compact .dr-session-scroll { max-height: 280px; }
+
+/* Video tab meta line (composed cut vs full recording) */
+.dr-db-video-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 8px; font-size: 11.5px; color: var(--ink-2);
+}
+
+/* Reel annotation actions (save-as-state + flag) */
+.dr-db-annot-actions { display: flex; align-items: center; gap: 6px; flex: none; flex-wrap: wrap; }
 
 .dr-db { margin-bottom: 22px; }
 .dr-db-topline {

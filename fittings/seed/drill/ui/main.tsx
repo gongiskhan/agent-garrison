@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
-import { Check, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Flag, Film, Video as VideoIcon, LayoutGrid, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
+import { Check, Camera, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Flag, Film, Video as VideoIcon, LayoutGrid, ListChecks, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
 // Every page crossing into this UI goes through these - a page file may omit
 // `areas`/`steps`/`states` entirely, and an unguarded `.map` on one white-
 // screens the whole surface. See the module header.
@@ -2049,6 +2049,9 @@ interface RunPageEntry {
     durationMs?: number;
     reasoning?: string;
     missingInteraction?: string;
+    // Verify-session linkage (S31): the transcript path is stripped
+    // server-side; only the id reaches the wire.
+    session?: { id: string } | null;
   };
   result: { stepId: string; status: string; tier?: string | null; error?: string; evidencePath?: string; durationMs?: number; result?: { passed?: boolean; reasoning?: string; requiresInteraction?: boolean; missingInteraction?: string } } | null;
 }
@@ -2067,7 +2070,14 @@ interface Finding {
 
 // Drill Evidence v0.1 — run-level pointer (relative names inside the run's
 // evidence dir) + the per-check index rows served by /evidence-index.
-interface RunEvidence { video: string | null; steps: string | null; index?: string | null }
+// `capturedAt` is the capture epoch (ms): steps.json offsets are relative to
+// it, which is what aligns a check window onto the session transcript's
+// wall-clock timestamps.
+interface RunEvidence { video: string | null; steps: string | null; index?: string | null; capturedAt?: number | null }
+
+// The persisted pre-run artifact selection — what was ASKED for, so the tabs
+// can say "not requested" instead of implying an artifact failed to produce.
+interface EvidenceRequest { video: "auto" | "on" | "off"; slideshow: "on" | "off"; browserStates: "on" | "off" }
 interface EvidenceStepRow {
   item: string; kind: string; pageId?: string; stepId?: string; viewportId?: string;
   status?: string; startMs?: number; endMs?: number; automationRunId?: string | null;
@@ -2170,6 +2180,7 @@ interface DrillRun {
   findings: Finding[];
   infraErrors?: InfraError[];
   evidence?: RunEvidence | null;
+  evidenceRequest?: EvidenceRequest | null;
 }
 
 // Verify-session linkage (S31): the Claude sessions that resolved this run's
@@ -2378,16 +2389,23 @@ function fmtOffset(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// video-index.json (S1): the dead-air cut's segment map + per-check offsets in
-// BOTH timelines, so the player can default to the highlight and still deep-link
-// into the full recording.
+// video-index.json: the composed/tightened cut's segment map + per-check
+// offsets in BOTH timelines, so the player can default to the cut and still
+// deep-link into the full recording. Version 1 = tighten (dead air cut,
+// webm); version 2 = composed (walkthrough merge: mp4, idle timelapsed,
+// captions, optional title card).
 type VideoIndex = {
+  version?: number;
+  mode?: "composed" | string;
   source: string;
   tight: string;
+  final?: string;
   originalDurationMs: number;
   tightDurationMs: number;
   removedMs: number;
-  segments: Array<{ startMs: number; endMs: number }>;
+  titleMs?: number;
+  captions?: boolean;
+  segments: Array<{ startMs: number; endMs: number; speed?: number }>;
   chapters: Array<{ pageId: string; stepId: string; viewportId: string; originalMs: number | null; tightMs: number | null }>;
 };
 
@@ -2397,14 +2415,21 @@ function fmtDuration(ms: number): string {
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
 
-// The whole run in one recording (Drill Evidence v0.1, D1) — chapter buttons
-// seek the player to each check's offset.
-//
-// The raw recording rolls while each check sits in an untimed model call, so it
-// is mostly a frozen page. When the tightened cut exists we play THAT by default
-// and keep the full recording one click away; chapter offsets switch timelines
-// with it.
-function RunEvidenceVideo({ runId, video, steps }: { runId: string; video: string; steps: EvidenceStepRow[] }) {
+// One player for the whole run (walkthrough merge): defaults to the composed
+// cut when video-index.json advertises one (mp4, idle timelapsed, captions —
+// or the older tighten webm), keeps the full recording one click away, and
+// remaps chapter buttons between the two timelines. Renders honestly when an
+// artifact is absent: "not requested" beats implying a failure, and a
+// retention-pruned raw recording still plays the kept cut.
+interface RunVideoTabProps {
+  runId: string;
+  video: string | null;
+  pruned: boolean;
+  steps: DebriefStep[];
+  scopeKeys: Set<string> | null;
+  requested?: "auto" | "on" | "off";
+}
+function RunVideoTab({ runId, video, pruned, steps, scopeKeys, requested }: RunVideoTabProps) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState(false);
   const [index, setIndex] = useState<VideoIndex | null>(null);
@@ -2414,66 +2439,105 @@ function RunEvidenceVideo({ runId, video, steps }: { runId: string; video: strin
     let live = true;
     setIndex(null);
     setFull(false);
+    setFailed(false);
     fetch(evidenceFileUrl(runId, "video-index.json"))
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (live && j?.tight) setIndex(j); })
-      .catch(() => { /* no tight cut for this run — full recording is the only option */ });
+      .catch(() => { /* no cut for this run — the raw recording is the only option */ });
     return () => { live = false; };
   }, [runId]);
 
-  if (failed) return null;
-  const tightAvailable = Boolean(index);
-  const showingTight = tightAvailable && !full;
-  const src = showingTight ? evidenceFileUrl(runId, index!.tight) : evidenceFileUrl(runId, video);
+  const scopedSteps = useMemo(() =>
+    steps
+      .filter((s) => Number.isFinite(s.startMs))
+      .filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys))
+      .sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
+    [steps, scopeKeys]
+  );
+
+  const cutAvailable = Boolean(index?.tight);
+  const rawAvailable = Boolean(video) && !pruned;
+  const showingCut = cutAvailable && (!full || !rawAvailable);
+  const src = showingCut
+    ? evidenceFileUrl(runId, index!.tight)
+    : rawAvailable
+      ? evidenceFileUrl(runId, video!)
+      : null;
+  const composed = (index?.version ?? 1) >= 2;
+
+  // A playback failure belongs to ONE source, not the tab: reset the flag
+  // whenever the source switches so a broken cut never locks out a playable
+  // full recording (or vice versa).
+  useEffect(() => { setFailed(false); }, [src]);
 
   // Chapter offset in whichever timeline is on screen.
-  const offsetFor = (row: EvidenceStepRow): number | null => {
-    if (!showingTight) return Number.isFinite(row.startMs) ? (row.startMs ?? 0) : null;
+  const offsetFor = (row: DebriefStep): number | null => {
+    if (!showingCut) return Number.isFinite(row.startMs) ? (row.startMs ?? 0) : null;
     const ch = index!.chapters.find(
       (c) => c.pageId === row.pageId && c.stepId === row.stepId && c.viewportId === row.viewportId
     );
     return Number.isFinite(ch?.tightMs as number) ? (ch!.tightMs as number) : null;
   };
 
+  // When scope is narrowed, land the player on the scope's first chapter.
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || scopeKeys === null) return;
+    const first = scopedSteps[0];
+    if (!first) return;
+    const at = offsetFor(first);
+    if (at === null) return;
+    const seek = () => { v.currentTime = at / 1000; };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- offsetFor derives from index/showingCut
+  }, [scopedSteps, scopeKeys, showingCut]);
+
+  if (!src) {
+    if (requested === "off") return <div className="dr-db-empty">Video was not requested for this run.</div>;
+    if (pruned) return <div className="dr-db-empty">Video pruned by retention.</div>;
+    return <div className="dr-db-empty">No video for this run.</div>;
+  }
+
   return (
-    <div className="dr-sec card">
-      <div className="dr-card-heading">
-        <div>
-          <b>Run video</b>
-          {showingTight ? (
-            <p>
-              Highlights only — {fmtDuration(index!.tightDurationMs)} of {fmtDuration(index!.originalDurationMs)},
-              with {fmtDuration(index!.removedMs)} of idle time cut. Jump to a check with its chapter button.
-            </p>
-          ) : (
-            <p>
-              {tightAvailable ? "Full recording, including idle time between checks." : "The whole run in one recording."}{" "}
-              Jump to a check with its chapter button.
-            </p>
-          )}
-        </div>
-        {tightAvailable && (
+    <div className="dr-db-video">
+      <div className="dr-db-video-meta">
+        <span>
+          {showingCut
+            ? `${composed ? "Composed cut" : "Highlights"} — ${fmtDuration(index!.tightDurationMs)} of ${fmtDuration(index!.originalDurationMs)} recorded${index!.removedMs > 0 ? `, idle time ${composed ? "fast-forwarded" : "cut"}` : ""}.`
+            : cutAvailable
+              ? "Full recording, including idle time between checks."
+              : "The whole run in one recording."}
+          {" "}Jump to a check with its chapter button.
+        </span>
+        {cutAvailable && rawAvailable && (
           <button className="btn small" onClick={() => setFull((f) => !f)}>
-            {full ? "Show highlights" : "Show full recording"}
+            {full ? (composed ? "Show composed cut" : "Show highlights") : "Show full recording"}
           </button>
         )}
       </div>
-      <video
-        key={src}
-        ref={ref}
-        controls
-        preload="metadata"
-        src={src}
-        onError={() => setFailed(true)}
-        style={{ width: "100%", maxHeight: 380, background: "#000", borderRadius: 6 }}
-      />
-      {steps.length > 0 && (
-        <div className="dr-rowwrap" style={{ marginTop: 8 }}>
-          {steps.map((row) => {
+      {failed ? (
+        // Only the PLAYER goes — the meta row above keeps the cut/full toggle
+        // reachable, so a broken source never locks out the playable one.
+        <div className="dr-db-empty">This video file could not be played{cutAvailable && rawAvailable ? " — try the other recording." : "."}</div>
+      ) : (
+        <video
+          key={src}
+          ref={ref}
+          controls
+          preload="metadata"
+          src={src}
+          onError={() => setFailed(true)}
+          className="dr-db-video-el"
+        />
+      )}
+      {scopedSteps.length > 0 && (
+        <div className="dr-rowwrap dr-db-chapters">
+          {scopedSteps.map((row) => {
             const at = offsetFor(row);
             return (
               <button
-                key={row.item}
+                key={`${row.pageId}:${row.stepId}:${row.viewportId}`}
                 className="btn small"
                 disabled={at === null}
                 title={`${row.pageId}#${row.stepId} at ${row.viewportId}`}
@@ -2617,11 +2681,19 @@ interface ReelCarouselProps {
   curationPending: boolean;
   curationFailed: boolean;
   curationDegraded: boolean;
+  // Slideshow deliberately not requested for this run — the raw captured
+  // frames still show, but "curation pending/failed" would be dishonest.
+  curationOff?: boolean;
+  // Save the frame as a named page state; resolves to the state id. Absent
+  // when the frame cannot be tied to a check (its page would be unknown).
+  onSaveState?: (frame: DebriefFrame, label: string) => Promise<string>;
+  canSaveState?: (frame: DebriefFrame) => boolean;
 }
 function ReelCarousel({
   runId, frames, showAll, onToggleShowAll, onActiveFrameChange,
   enqueue, scopeLabel, flagged, onFlag, reelCount, candidateCount,
-  curationPending, curationFailed, curationDegraded
+  curationPending, curationFailed, curationDegraded, curationOff,
+  onSaveState, canSaveState
 }: ReelCarouselProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center", containScroll: false });
   const [selected, setSelected] = useState(0);
@@ -2675,11 +2747,13 @@ function ReelCarousel({
         <div className="dr-db-empty">
           {showAll
             ? "No frames were captured for this scope."
-            : curationPending
-              ? "Curation is still selecting the reel for this scope."
-              : curationFailed
-                ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here."
-                : "No reel frames for this scope."}
+            : curationOff
+              ? "The slideshow was not requested for this run. Any raw captured frames are behind “Show all frames”."
+              : curationPending
+                ? "Curation is still selecting the reel for this scope."
+                : curationFailed
+                  ? "Curation did not complete for this run, so no reel was selected. The captured frames are still here."
+                  : "No reel frames for this scope."}
         </div>
         <div className="dr-db-reel-controls">
           <button className={"btn small" + (showAll ? " primary" : "")} onClick={onToggleShowAll} aria-pressed={showAll}>
@@ -2727,14 +2801,25 @@ function ReelCarousel({
               ? `Raw candidate - ${active.trigger || "captured frame"}`
               : ""}
         </div>
-        <button
-          className={"btn small dr-db-flag" + (flaggedActive ? " primary" : "")}
-          disabled={!active}
-          aria-pressed={flaggedActive}
-          onClick={() => active && onFlag(active.name)}
-        >
-          <Flag size={12} /> {flaggedActive ? "Flagged" : "Flag"}
-        </button>
+        <div className="dr-db-annot-actions">
+          {onSaveState && active && (
+            <SaveStateButton
+              key={active.name}
+              defaultLabel={active.annotation?.slice(0, 40) || active.trigger || "captured state"}
+              disabled={canSaveState ? !canSaveState(active) : false}
+              disabledTitle="This frame is not tied to a check, so its page is unknown."
+              onSave={(label) => onSaveState(active, label)}
+            />
+          )}
+          <button
+            className={"btn small dr-db-flag" + (flaggedActive ? " primary" : "")}
+            disabled={!active}
+            aria-pressed={flaggedActive}
+            onClick={() => active && onFlag(active.name)}
+          >
+            <Flag size={12} /> {flaggedActive ? "Flagged" : "Flag"}
+          </button>
+        </div>
       </div>
 
       <div className="dr-db-reel-controls">
@@ -2750,6 +2835,9 @@ function ReelCarousel({
           <span className="dr-db-reel-counts mono" title="reel / candidate frames">{reelCount} / {candidateCount}</span>
         </div>
       </div>
+      {curationOff && !showAll && (
+        <div className="dr-db-pending">The slideshow was not requested for this run - showing raw captured frames.</div>
+      )}
       {curationPending && !showAll && (
         <div className="dr-db-pending">Curation pending - showing raw candidates until the reel is selected.</div>
       )}
@@ -2763,65 +2851,75 @@ function ReelCarousel({
   );
 }
 
-interface DebriefVideoProps {
-  runId: string;
-  video: string | null;
-  pruned: boolean;
-  steps: DebriefStep[];
-  scopeKeys: Set<string> | null;
-}
-function DebriefVideo({ runId, video, pruned, steps, scopeKeys }: DebriefVideoProps) {
-  const ref = useRef<HTMLVideoElement | null>(null);
-  const scopedSteps = useMemo(() =>
-    steps
-      .filter((s) => Number.isFinite(s.startMs))
-      .filter((s) => frameInScope(chunkKeyFor(s.pageId, s.stepId, s.viewportId), scopeKeys))
-      .sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0)),
-    [steps, scopeKeys]
-  );
+// "Save as state" (C4, run-evidence path): any run screenshot can become a
+// named page state. Self-contained button → inline label input → saved chip;
+// the POST is the caller's, so the same control works on reel frames and on
+// check-row screenshots.
+function SaveStateButton({
+  defaultLabel,
+  disabled = false,
+  disabledTitle,
+  onSave
+}: {
+  defaultLabel: string;
+  disabled?: boolean;
+  disabledTitle?: string;
+  onSave: (label: string) => Promise<string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState(defaultLabel);
+  const [busy, setBusy] = useState(false);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // When scope is narrowed, land the player on the scope's first chapter.
-  useEffect(() => {
-    const v = ref.current;
-    if (!v || scopeKeys === null) return;
-    const first = scopedSteps[0];
-    if (!first || !Number.isFinite(first.startMs)) return;
-    const seek = () => { v.currentTime = (first.startMs ?? 0) / 1000; };
-    if (v.readyState >= 1) seek();
-    else v.addEventListener("loadedmetadata", seek, { once: true });
-  }, [scopedSteps, scopeKeys]);
+  const save = async () => {
+    if (!label.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const stateId = await onSave(label.trim());
+      setSavedId(stateId);
+      setOpen(false);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  if (pruned) return <div className="dr-db-empty">Video pruned by retention.</div>;
-  if (!video) return <div className="dr-db-empty">No video for this run.</div>;
+  if (savedId) return <span className="chip sage active" title="Saved as a named page state">state: {savedId}</span>;
+  if (!open) {
+    return (
+      <button
+        className="btn small"
+        disabled={disabled}
+        title={disabled ? (disabledTitle ?? "Unavailable") : "Save this screenshot as a named page state"}
+        onClick={() => { setLabel(defaultLabel); setOpen(true); }}
+      >
+        <Camera size={11} /> Save as state
+      </button>
+    );
+  }
   return (
-    <div className="dr-db-video">
-      <video
-        ref={ref}
-        controls
-        preload="metadata"
-        src={evidenceFileUrl(runId, video)}
-        className="dr-db-video-el"
+    <span className="dr-savestate">
+      <input
+        aria-label="State label"
+        value={label}
+        autoFocus
+        disabled={busy}
+        onChange={(e) => setLabel(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void save();
+          if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="State label…"
       />
-      {scopedSteps.length > 0 && (
-        <div className="dr-rowwrap dr-db-chapters">
-          {scopedSteps.map((row) => (
-            <button
-              key={`${row.pageId}:${row.stepId}:${row.viewportId}`}
-              className="btn small"
-              title={`${row.pageId}#${row.stepId} at ${row.viewportId}`}
-              onClick={() => {
-                const v = ref.current;
-                if (!v || !Number.isFinite(row.startMs)) return;
-                v.currentTime = (row.startMs ?? 0) / 1000;
-                void v.play().catch(() => {});
-              }}
-            >
-              {row.stepId} @{fmtOffset(row.startMs ?? 0)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      <button className="btn small primary" disabled={busy || !label.trim()} onClick={() => void save()}>
+        {busy ? "Saving…" : "Save"}
+      </button>
+      <button className="btn small" disabled={busy} onClick={() => { setOpen(false); setError(null); }}>Cancel</button>
+      {error && <span className="dr-savestate-error">{error}</span>}
+    </span>
   );
 }
 
@@ -3108,14 +3206,31 @@ interface DebriefViewProps {
   dispatching: boolean;
   dispatch: () => void;
   triage: (findingId: string, status: "confirmed" | "dismissed") => void;
+  // The merged Results tab (the review surface that used to be the Classic view).
+  evidenceRows: EvidenceStepRow[] | null;
+  productPageEntries: RunPageEntry[];
+  incompleteCoverageCount: number;
+  displayedInfra: InfraError[];
+  obsText: string;
+  setObsText: (value: string) => void;
+  giveFeedback: (pageId: string, stepId: string, viewportId: string, note: string) => Promise<boolean>;
+  override: (pageId: string, stepId: string, viewportId: string, verdict: "passed" | "failed", note?: string) => void;
+  addObs: () => void;
+  convertObsToStep: (obsId: string, pageId: string) => void;
+  convertObsToFinding: (obsId: string, pageId: string) => void;
+  onRerun?: (pageIds: string[], viewports: string[], stepIds: string[]) => void;
+  rerunBusy?: boolean;
 }
-type DebriefTab = "screenshots" | "video" | "live" | "session";
+type DebriefTab = "results" | "screenshots" | "video" | "live" | "session";
 function DebriefView({
-  run, pages, steps, evidenceIndex, issues, confirmedCount, dispatchableCount,
-  dispatchedCard, dispatchMode, setDispatchMode, dispatching, dispatch, triage
+  run, pages, steps, evidenceIndex, issues, activeFindings, confirmedCount, dispatchableCount,
+  dispatchedCard, dispatchMode, setDispatchMode, dispatching, dispatch, triage,
+  evidenceRows, productPageEntries, incompleteCoverageCount, displayedInfra,
+  obsText, setObsText, giveFeedback, override, addObs, convertObsToStep, convertObsToFinding,
+  onRerun, rerunBusy
 }: DebriefViewProps) {
   const [scope, setScope] = useState<DebriefScope>({ kind: "all" });
-  const [tab, setTab] = useState<DebriefTab>("screenshots");
+  const [tab, setTab] = useState<DebriefTab>("results");
   const [showAll, setShowAll] = useState(false);
   const [reel, setReel] = useState<ReelManifest | null>(null);
   const [reelMissing, setReelMissing] = useState(false);
@@ -3123,10 +3238,17 @@ function DebriefView({
   const [activeFrame, setActiveFrame] = useState<DebriefFrame | null>(null);
   const [flagged, setFlagged] = useState<Set<string>>(() => new Set());
   // The live session lives here (not in LiveBrowser) so it survives tab
-  // switches; cleared when the selected run changes.
+  // switches; cleared when the selected run changes. The scope resets with it:
+  // a check/page scope from run A filters run B's Results rows down to nothing
+  // when B has a different check set (routine — per-check re-runs are a
+  // first-class flow), which reads as "this run has no results".
   const [liveSession, setLiveSession] = useState<LiveSession | null>(null);
   const [liveWarnings, setLiveWarnings] = useState<string[]>([]);
-  useEffect(() => { setLiveSession(null); setLiveWarnings([]); }, [run.id]);
+  useEffect(() => {
+    setLiveSession(null);
+    setLiveWarnings([]);
+    setScope({ kind: "all" });
+  }, [run.id]);
   const enqueue = useDebriefFeedback(run.id);
   const checkRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
   const findingRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
@@ -3137,11 +3259,33 @@ function DebriefView({
   // disk yet. A finished run whose reel never arrived is a FAILURE, not a
   // pending state, and must say so rather than spin forever.
   const runFinished = Boolean(run.endedAt);
-  const curationPending = hasSpotterRow && !reel && !reelMissing;
-  const curationFailed = hasSpotterRow && runFinished && reelMissing;
+  // A deliberately-unselected slideshow must not read as a curation failure.
+  const curationOff = run.evidenceRequest?.slideshow === "off";
+  const curationPending = !curationOff && hasSpotterRow && !reel && !reelMissing;
+  const curationFailed = !curationOff && hasSpotterRow && runFinished && reelMissing;
   const videoItem = indexItems.find((i) => i.kind === "video");
   const videoPruned = !!videoItem?.pruned;
   const videoName = run.evidence?.video ?? null;
+
+  // "Save as state": a reel frame joins its check through the sanitized
+  // chunk key; without that join the frame's page is unknown and the button
+  // stays disabled rather than guessing.
+  const stepForChunk = useCallback(
+    (chunk: string | null) => (chunk ? steps.find((s) => chunkKeyFor(s.pageId, s.stepId, s.viewportId) === chunk) ?? null : null),
+    [steps]
+  );
+  const saveFrameAsState = useCallback(async (frame: DebriefFrame, label: string) => {
+    const step = stepForChunk(frame.chunk);
+    if (!step) throw new Error("This frame is not tied to a check, so its page is unknown.");
+    const r = await apiPost(`/api/runs/${encodeURIComponent(run.id)}/promote-state`, {
+      file: frame.name,
+      pageId: step.pageId,
+      stepId: step.stepId,
+      viewportId: step.viewportId,
+      label
+    });
+    return r.stateId as string;
+  }, [run.id, stepForChunk]);
 
   // Load the sidecars the index advertises. Both are confined artifact routes.
   // Fetch reel.json regardless of whether evidence.json advertises a reel row.
@@ -3480,7 +3624,10 @@ function DebriefView({
         </aside>
 
         <section className="dr-db-content">
-          <div className="dr-db-tabs" role="tablist" aria-label="Debrief evidence">
+          <div className="dr-db-tabs" role="tablist" aria-label="Run evidence views">
+            <button role="tab" aria-selected={tab === "results"} className={"dr-db-tab" + (tab === "results" ? " on" : "")} title="Per-check results with each check's session steps" onClick={() => setTab("results")}>
+              <ListChecks size={13} /> Results
+            </button>
             <button role="tab" aria-selected={tab === "screenshots"} className={"dr-db-tab" + (tab === "screenshots" ? " on" : "")} onClick={() => setTab("screenshots")}>
               <LayoutGrid size={13} /> Screenshots
             </button>
@@ -3488,15 +3635,43 @@ function DebriefView({
               <VideoIcon size={13} /> Video
             </button>
             <button role="tab" aria-selected={tab === "live"} className={"dr-db-tab experimental" + (tab === "live" ? " on" : "")} title="Experimental - replays the app live at a check's state" onClick={() => setTab("live")}>
-              <Eye size={13} /> Live Browser <span className="dr-db-exp-chip">experimental</span>
+              <Eye size={13} /> Browser <span className="dr-db-exp-chip">experimental</span>
             </button>
-            {(run.sessions?.length ?? 0) > 0 && (
-              <button role="tab" aria-selected={tab === "session"} className={"dr-db-tab" + (tab === "session" ? " on" : "")} title="The Claude session(s) that resolved this run's vision checks" onClick={() => setTab("session")}>
-                <MessageSquare size={13} /> Session{(run.sessions?.length ?? 0) > 1 ? "s" : ""}
-              </button>
-            )}
+            <button role="tab" aria-selected={tab === "session"} className={"dr-db-tab" + (tab === "session" ? " on" : "")} title="The full Claude session(s) that resolved this run's vision checks, screenshots included" onClick={() => setTab("session")}>
+              <MessageSquare size={13} /> Session{(run.sessions?.length ?? 0) > 1 ? "s" : ""}
+            </button>
           </div>
 
+          {tab === "results" && (
+            <RunResultsPanel
+              run={run}
+              pages={pages}
+              evidenceRows={evidenceRows}
+              productPageEntries={productPageEntries}
+              activeFindings={activeFindings}
+              incompleteCoverageCount={incompleteCoverageCount}
+              displayedInfra={displayedInfra}
+              issues={issues}
+              confirmedCount={confirmedCount}
+              dispatchableCount={dispatchableCount}
+              dispatchedCard={dispatchedCard}
+              dispatchMode={dispatchMode}
+              setDispatchMode={setDispatchMode}
+              dispatching={dispatching}
+              obsText={obsText}
+              setObsText={setObsText}
+              giveFeedback={giveFeedback}
+              override={override}
+              addObs={addObs}
+              convertObsToStep={convertObsToStep}
+              convertObsToFinding={convertObsToFinding}
+              triage={triage}
+              dispatch={dispatch}
+              onRerun={onRerun}
+              rerunBusy={rerunBusy}
+              scopeKeys={scopeKeys}
+            />
+          )}
           {tab === "screenshots" && (
             <ReelCarousel
               runId={run.id}
@@ -3513,15 +3688,19 @@ function DebriefView({
               curationPending={curationPending}
               curationFailed={curationFailed}
               curationDegraded={curationDegraded}
+              curationOff={curationOff}
+              onSaveState={saveFrameAsState}
+              canSaveState={(frame) => !!stepForChunk(frame.chunk)}
             />
           )}
           {tab === "video" && (
-            <DebriefVideo
+            <RunVideoTab
               runId={run.id}
               video={videoName}
               pruned={videoPruned}
               steps={steps}
               scopeKeys={scopeKeys}
+              requested={run.evidenceRequest?.video}
             />
           )}
           {tab === "live" && (
@@ -3545,11 +3724,31 @@ function DebriefView({
   );
 }
 
-// Parked pre-Debrief run detail (Evidence V2 D7): the original results
-// rendering, kept behaviourally byte-equivalent and reachable via the run
-// detail's "Classic view" toggle. Runs with no evidence index render this
-// directly.
-interface ClassicRunDetailProps {
+// One check's agent session steps: the slice of the verify session that
+// resolved this check, windowed by the check's capture offsets. Rendered
+// lazily — the stream only opens when the details element does.
+function CheckSessionSteps({ runId, sessionId, windowFrom, windowTo }: {
+  runId: string;
+  sessionId: string;
+  windowFrom?: number | null;
+  windowTo?: number | null;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="dr-res-session" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary><MessageSquare size={11} aria-hidden="true" /> Session steps</summary>
+      {open && (
+        <SessionStream runId={runId} sessionId={sessionId} live={false} windowFrom={windowFrom} windowTo={windowTo} compact />
+      )}
+    </details>
+  );
+}
+
+// The merged run review (was the "Classic view", now the Results tab of the
+// single run detail): summary header, re-run bar, per-check rows carrying the
+// test steps AND that check's agent session steps, then canceled/infra/
+// observations/findings. The scope rail narrows the rows like every other tab.
+interface RunResultsPanelProps {
   run: DrillRun;
   pages: DrillPage[];
   evidenceRows: EvidenceStepRow[] | null;
@@ -3576,15 +3775,21 @@ interface ClassicRunDetailProps {
   // Re-run this run's checks, or a subset, straight from the results view.
   onRerun?: (pageIds: string[], viewports: string[], stepIds: string[]) => void;
   rerunBusy?: boolean;
+  scopeKeys: Set<string> | null;
 }
-function ClassicRunDetail({
+function RunResultsPanel({
   run, pages, evidenceRows, productPageEntries, activeFindings, incompleteCoverageCount,
   displayedInfra, issues, confirmedCount, dispatchableCount, dispatchedCard, dispatchMode,
   setDispatchMode, dispatching, obsText, setObsText, giveFeedback, override, addObs,
-  convertObsToStep, convertObsToFinding, triage, dispatch, onRerun, rerunBusy
-}: ClassicRunDetailProps) {
+  convertObsToStep, convertObsToFinding, triage, dispatch, onRerun, rerunBusy, scopeKeys
+}: RunResultsPanelProps) {
   const evidenceRowFor = (entry: { pageId: string; stepId: string; viewportId: string }) =>
     evidenceRows?.find((row) => row.pageId === entry.pageId && row.stepId === entry.stepId && row.viewportId === entry.viewportId) ?? null;
+  const capturedAt = run.evidence?.capturedAt ?? null;
+  // The scope rail narrows the ROWS; the summary keeps describing the whole run.
+  const visibleEntries = scopeKeys
+    ? productPageEntries.filter((entry) => scopeKeys.has(chunkKeyFor(entry.pageId, entry.stepId, entry.viewportId)))
+    : productPageEntries;
   // Re-running from the results page (S7). Looking at a result and wanting to
   // run it again is the single most common thing to do next - after a fix, or
   // when a check looks wrong - and it previously meant going back to the Book
@@ -3602,15 +3807,9 @@ function ClassicRunDetail({
   );
   return (
         <>
-          {run.evidence?.video && (
-            <RunEvidenceVideo runId={run.id} video={run.evidence.video} steps={evidenceRows ?? []} />
-          )}
           <div className="dr-sec">
             <div className="dr-detail-heading">
               <div>
-                <div className="dr-lbl">Selected run</div>
-                <h2>{formatDate(run.startedAt)}</h2>
-                <div className="mono dr-run-id">{run.id}</div>
                 <div className="dr-rowwrap dr-selected-run-meta">
                   <span className="chip">{run.contextTag === "drill-adversarial" ? "Adversarial" : "Standard"}</span>
                   <span className="chip">{run.state === "default" ? "Default state" : `State: ${run.state}`}</span>
@@ -3658,7 +3857,10 @@ function ClassicRunDetail({
             {productPageEntries.length === 0 && (
               <div className="dr-empty">No product checks completed. Review the infrastructure section below before rerunning.</div>
             )}
-            {productPageEntries.map((entry) => {
+            {productPageEntries.length > 0 && visibleEntries.length === 0 && (
+              <div className="dr-empty">No checks match the selected scope.</div>
+            )}
+            {visibleEntries.map((entry) => {
               const originalPassed = stepPassed(entry);
               const recordKey = `${entry.pageId}:${entry.stepId}`;
               const renderKey = `${recordKey}:${entry.viewportId}`;
@@ -3756,8 +3958,36 @@ function ClassicRunDetail({
                             video @{fmtOffset(row.startMs ?? 0)}
                           </a>
                         )}
+                        {row.screenshot && (
+                          <SaveStateButton
+                            defaultLabel={stepDefinition?.description?.slice(0, 40) || entry.stepId}
+                            onSave={async (label) => {
+                              const r = await apiPost(`/api/runs/${encodeURIComponent(run.id)}/promote-state`, {
+                                file: row.screenshot,
+                                pageId: entry.pageId,
+                                stepId: entry.stepId,
+                                viewportId: entry.viewportId,
+                                label
+                              });
+                              return r.stateId as string;
+                            }}
+                          />
+                        )}
                       </div>
                     );
+                  })()}
+                  {entry.terminal?.session?.id && (() => {
+                    // The check's slice of the verify session: window by the
+                    // capture offsets when the epoch is known, else fall back
+                    // to the whole session.
+                    const row = evidenceRowFor(entry);
+                    const from = capturedAt !== null && Number.isFinite(row?.startMs)
+                      ? capturedAt + (row!.startMs ?? 0) - 10_000
+                      : undefined;
+                    const to = capturedAt !== null && Number.isFinite(row?.endMs)
+                      ? capturedAt + (row!.endMs ?? 0) + 10_000
+                      : undefined;
+                    return <CheckSessionSteps runId={run.id} sessionId={entry.terminal!.session!.id} windowFrom={from} windowTo={to} />;
                   })()}
                   {override_ && <div style={{ color: "var(--brass)", fontSize: 11, marginTop: 4 }}>Overridden -&gt; {override_.verdict} ({override_.note})</div>}
                   {notes.map((n) => <div key={n.id} className="mono" style={{ fontSize: 10.5, color: "var(--sage)", marginTop: 3 }}>{n.note}</div>)}
@@ -4025,7 +4255,16 @@ function SessionToolBlock({ block, result }: { block: SessionBlock; result: Sess
   );
 }
 
-function SessionStream({ runId, sessionId, live }: { runId: string; sessionId: string; live: boolean }) {
+function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }: {
+  runId: string;
+  sessionId: string;
+  live: boolean;
+  // Optional wall-clock window (epoch ms): narrows the stream to one check's
+  // session steps in the merged results view.
+  windowFrom?: number | null;
+  windowTo?: number | null;
+  compact?: boolean;
+}) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(null);
   const [status, setStatus] = useState<"connecting" | "streaming" | "ended" | "unavailable">("connecting");
@@ -4037,7 +4276,10 @@ function SessionStream({ runId, sessionId, live }: { runId: string; sessionId: s
     setTitle(null);
     setStatus("connecting");
     stickRef.current = true;
-    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?session=${encodeURIComponent(sessionId)}`);
+    const params = new URLSearchParams({ session: sessionId });
+    if (Number.isFinite(windowFrom as number)) params.set("from", String(Math.floor(windowFrom as number)));
+    if (Number.isFinite(windowTo as number)) params.set("to", String(Math.ceil(windowTo as number)));
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`);
     source.onmessage = (message) => {
       let payload: any;
       try { payload = JSON.parse(message.data); } catch { return; }
@@ -4060,7 +4302,8 @@ function SessionStream({ runId, sessionId, live }: { runId: string; sessionId: s
       source.close();
     };
     return () => source.close();
-  }, [runId, sessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- window bounds are stable per mount
+  }, [runId, sessionId, windowFrom, windowTo]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -4081,8 +4324,9 @@ function SessionStream({ runId, sessionId, live }: { runId: string; sessionId: s
     return map;
   }, [events]);
 
+  const windowed = Number.isFinite(windowFrom as number) || Number.isFinite(windowTo as number);
   return (
-    <div className="dr-session">
+    <div className={"dr-session" + (compact ? " compact" : "")}>
       <div className="dr-session-head">
         <MessageSquare size={13} aria-hidden="true" />
         <b>{title ?? "Verify session"}</b>
@@ -4100,7 +4344,9 @@ function SessionStream({ runId, sessionId, live }: { runId: string; sessionId: s
                 ? "No transcript was captured for this session (the gateway did not report one)."
                 : live
                   ? "Waiting for the first session activity…"
-                  : "No session activity fell inside this run's window."}
+                  : windowed
+                    ? "No session activity fell inside this check's window."
+                    : "No session activity fell inside this run's window."}
           </div>
         )}
         {events.filter((event) => !event.toolResultsOnly).map((event, index) => (
@@ -4453,12 +4699,6 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   const [evidenceRows, setEvidenceRows] = useState<EvidenceStepRow[] | null>(null);
   const [evidenceIndex, setEvidenceIndex] = useState<{ items: EvidenceStepRow[] } | null>(null);
   const [evidenceStepsJson, setEvidenceStepsJson] = useState<DebriefStep[] | null>(null);
-  const [classicView, setClassicView] = useState(false);
-  // Reset the view choice only when the SELECTED RUN changes. The evidence
-  // effect below re-runs on every data refresh (run?.evidence is a fresh
-  // object per refetch after an override/triage/feedback), and resetting
-  // there yanked the operator out of the classic view they toggled.
-  useEffect(() => { setClassicView(false); }, [run?.id]);
   useEffect(() => {
     setEvidenceRows(null);
     setEvidenceIndex(null);
@@ -4486,6 +4726,12 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
     initialSelection ? [initialSelection.viewportId] : (initialRun?.viewports ?? ["desktop"])
   ));
   const [selectedState, setSelectedState] = useState(initialSelection?.state ?? "default");
+  // Pre-run artifact selection: which evidence the run should produce. Video
+  // is tri-state because its default depends on run size (multi-check runs
+  // record, single-check runs don't).
+  const [videoOpt, setVideoOpt] = useState<"auto" | "on" | "off">("auto");
+  const [slideshowOn, setSlideshowOn] = useState(true);
+  const [browserStatesOn, setBrowserStatesOn] = useState(true);
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -4585,12 +4831,20 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
       // background:true (S31): the server returns the in-flight record
       // immediately and the live panel streams progress - no minutes-long
       // blocking POST between the click and the first feedback.
+      // Artifact selection travels as the existing body.evidence contract:
+      // absent keys mean "default", so an all-default selection sends nothing.
+      const evidenceBody = {
+        ...(videoOpt !== "auto" ? { video: videoOpt === "on" } : {}),
+        ...(slideshowOn ? {} : { curation: false }),
+        ...(browserStatesOn ? {} : { stateReferences: false })
+      };
       const r = await apiPost("/api/runs", {
         pageIds,
         viewports,
         ...(stepIdsArg?.length ? { stepIds: stepIdsArg } : {}),
         state: requestedState,
         contextTag: "drill",
+        ...(Object.keys(evidenceBody).length ? { evidence: evidenceBody } : {}),
         background: true
       });
       if (r.held) {
@@ -4787,23 +5041,34 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
   // the scope rail still lists every executed check. Memoised so its reference
   // stays stable across unrelated re-renders - otherwise the reel's scope memo
   // would churn and snap the carousel back to the first frame.
-  const debriefSteps: DebriefStep[] = useMemo(() =>
-    evidenceStepsJson && evidenceStepsJson.length > 0
-      ? evidenceStepsJson
-      : (evidenceRows ?? []).map((row) => ({
-          pageId: row.pageId ?? "",
-          stepId: row.stepId ?? "",
-          viewportId: row.viewportId ?? "",
-          startMs: row.startMs,
-          endMs: row.endMs,
-          status: row.status,
-          automationRunId: row.automationRunId ?? null
-        })),
-    [evidenceStepsJson, evidenceRows]
-  );
-  // The Debrief is the default surface once a run has an evidence index with
-  // executable checks; older, index-less runs fall through to Classic.
-  const debriefAvailable = !!evidenceIndex && debriefSteps.length > 0;
+  const debriefSteps: DebriefStep[] = useMemo(() => {
+    if (evidenceStepsJson && evidenceStepsJson.length > 0) return evidenceStepsJson;
+    if (evidenceRows && evidenceRows.length > 0) {
+      return evidenceRows.map((row) => ({
+        pageId: row.pageId ?? "",
+        stepId: row.stepId ?? "",
+        viewportId: row.viewportId ?? "",
+        startMs: row.startMs,
+        endMs: row.endMs,
+        status: row.status,
+        automationRunId: row.automationRunId ?? null
+      }));
+    }
+    // Index-less runs (recorded before capture existed, or whose index write
+    // failed) still get the full merged detail: the scope rail and Results tab
+    // work from the run record alone; evidence tabs render their empty states.
+    return (run?.pages ?? []).map((entry) => {
+      const definition = pages.find((p) => p.id === entry.pageId)?.steps.find((s) => s.id === entry.stepId);
+      return {
+        pageId: entry.pageId,
+        stepId: entry.stepId,
+        viewportId: entry.viewportId,
+        title: definition?.description,
+        status: entry.status,
+        automationRunId: entry.automationRunId ?? null
+      };
+    });
+  }, [evidenceStepsJson, evidenceRows, run, pages]);
   const historyPageSize = 6;
   const historyPages = Math.max(1, Math.ceil(runs.length / historyPageSize));
   const visibleRuns = runs.slice(historyPage * historyPageSize, (historyPage + 1) * historyPageSize);
@@ -4913,6 +5178,42 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
               {v.label}
             </button>
           ))}
+        </div>
+        <div className="dr-run-artifacts" role="group" aria-label="Artifacts to produce">
+          <span className="dr-run-artifacts-label">Artifacts</span>
+          <span className="dr-artifact-group" role="group" aria-label="Run video">
+            <span className="dr-artifact-name">Video</span>
+            {(["auto", "on", "off"] as const).map((option) => (
+              <button
+                key={option}
+                className={"chip click" + (videoOpt === option ? " ink active" : "")}
+                aria-pressed={videoOpt === option}
+                title={option === "auto" ? "Record for multi-check runs (the default)" : option === "on" ? "Always record" : "Never record"}
+                onClick={() => setVideoOpt(option)}
+              >
+                {option === "auto" ? "Auto" : option === "on" ? "On" : "Off"}
+              </button>
+            ))}
+          </span>
+          <button
+            className={"chip click" + (slideshowOn ? " sage active" : "")}
+            aria-pressed={slideshowOn}
+            title="Curate the captured frames into the Screenshots slideshow"
+            onClick={() => setSlideshowOn((v) => !v)}
+          >
+            Slideshow
+          </button>
+          <button
+            className={"chip click" + (browserStatesOn ? " sage active" : "")}
+            aria-pressed={browserStatesOn}
+            title="Let a named-state run seed the state's reference screenshot into the Book"
+            onClick={() => setBrowserStatesOn((v) => !v)}
+          >
+            Browser states
+          </button>
+          <span className="dr-help-inline">
+            What this run should produce beyond the results themselves. Screenshots and traces are always captured.
+          </span>
         </div>
         <div className="dr-actions dr-run-launch-actions">
           <button className="btn primary" disabled={running || watchRunId !== null} onClick={() => startRun()}>
@@ -5061,81 +5362,40 @@ function ResultsView({ initialRun, onConsumeInitialRun, initialSelection, onCons
         <div className="dr-placeholder">No runs yet for this project. Select pages above and Run, or start from the Drill Book tab.</div>
       )}
 
-      {run && run.id !== watchRunId && (() => {
-        // While the watched run executes, the live panel IS its detail -
-        // rendering the (still-empty) record below it reads as "0 passed,
-        // review the infrastructure section" mid-run, which is misleading.
-        const showDebrief = debriefAvailable && !classicView;
-        return (
-          <>
-            {debriefAvailable && (
-              <div className="dr-db-modeswitch" role="group" aria-label="Run detail view">
-                <span className="dr-db-modeswitch-label">View</span>
-                <button
-                  className={"btn small" + (showDebrief ? " primary" : "")}
-                  aria-pressed={showDebrief}
-                  onClick={() => setClassicView(false)}
-                >
-                  <LayoutGrid size={12} /> Debrief
-                </button>
-                <button
-                  className={"btn small" + (!showDebrief ? " primary" : "")}
-                  aria-pressed={!showDebrief}
-                  onClick={() => setClassicView(true)}
-                >
-                  Classic view
-                </button>
-              </div>
-            )}
-            {showDebrief ? (
-              <DebriefView
-                run={run}
-                pages={pages}
-                steps={debriefSteps}
-                evidenceIndex={evidenceIndex}
-                issues={issues}
-                activeFindings={activeFindings}
-                confirmedCount={confirmedCount}
-                dispatchableCount={dispatchableCount}
-                dispatchedCard={dispatchedCard}
-                dispatchMode={dispatchMode}
-                setDispatchMode={setDispatchMode}
-                dispatching={dispatching}
-                dispatch={dispatch}
-                triage={triage}
-              />
-            ) : (
-              <ClassicRunDetail
-                run={run}
-                pages={pages}
-                evidenceRows={evidenceRows}
-                productPageEntries={productPageEntries}
-                activeFindings={activeFindings}
-                incompleteCoverageCount={incompleteCoverageCount}
-                displayedInfra={displayedInfra}
-                issues={issues}
-                confirmedCount={confirmedCount}
-                dispatchableCount={dispatchableCount}
-                dispatchedCard={dispatchedCard}
-                dispatchMode={dispatchMode}
-                setDispatchMode={setDispatchMode}
-                dispatching={dispatching}
-                obsText={obsText}
-                setObsText={setObsText}
-                giveFeedback={giveFeedback}
-                override={override}
-                addObs={addObs}
-                convertObsToStep={convertObsToStep}
-                convertObsToFinding={convertObsToFinding}
-                triage={triage}
-                dispatch={dispatch}
-                onRerun={(pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds)}
-                rerunBusy={running || watchRunId !== null}
-              />
-            )}
-          </>
-        );
-      })()}
+      {/* While the watched run executes, the live panel IS its detail -
+          rendering the (still-empty) record below it reads as "0 passed,
+          review the infrastructure section" mid-run, which is misleading. */}
+      {run && run.id !== watchRunId && (
+        <DebriefView
+          run={run}
+          pages={pages}
+          steps={debriefSteps}
+          evidenceIndex={evidenceIndex}
+          issues={issues}
+          activeFindings={activeFindings}
+          confirmedCount={confirmedCount}
+          dispatchableCount={dispatchableCount}
+          dispatchedCard={dispatchedCard}
+          dispatchMode={dispatchMode}
+          setDispatchMode={setDispatchMode}
+          dispatching={dispatching}
+          dispatch={dispatch}
+          triage={triage}
+          evidenceRows={evidenceRows}
+          productPageEntries={productPageEntries}
+          incompleteCoverageCount={incompleteCoverageCount}
+          displayedInfra={displayedInfra}
+          obsText={obsText}
+          setObsText={setObsText}
+          giveFeedback={giveFeedback}
+          override={override}
+          addObs={addObs}
+          convertObsToStep={convertObsToStep}
+          convertObsToFinding={convertObsToFinding}
+          onRerun={(pageIds, viewports, stepIds) => startRun(pageIds, viewports, run.state || "default", stepIds)}
+          rerunBusy={running || watchRunId !== null}
+        />
+      )}
     </div>
   );
 }
