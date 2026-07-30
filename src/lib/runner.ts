@@ -870,17 +870,44 @@ export function setupConfigEnv(
   return env;
 }
 
+// The instance identity every setup/verify hook needs and none of them can
+// derive. The launcher exports GARRISON_HOME and friends but NOT the gateway
+// address, so a hook reaching for GARRISON_GATEWAY_PORT found nothing and fell
+// back to a baked literal — and every baked literal in this repo named the
+// CODEX gateway (24777), so on dev and prod alike the hook silently talked to
+// (or waited on) the wrong instance. Same failure class as the kanban tick's
+// old `http://127.0.0.1:4777` fallback. Resolved from the composition's own
+// gateway config with the profile shift applied, i.e. exactly the address
+// spawnGateway will bind, and available before the gateway is up because it is
+// only a config read.
+async function gatewayHookEnv(compositionId: string): Promise<Record<string, string>> {
+  try {
+    const gateway = await resolveGatewayFitting(compositionId);
+    if (!gateway) return {};
+    return {
+      GARRISON_GATEWAY_HOST: gateway.host,
+      GARRISON_GATEWAY_PORT: String(gateway.port),
+      GARRISON_GATEWAY_URL: gateway.baseUrl
+    };
+  } catch {
+    return {};
+  }
+}
+
 export async function runFittingSetup(
   entry: { id: string; metadata: GarrisonMetadata },
   compositionDir: string,
-  config: Record<string, unknown> = {}
+  config: Record<string, unknown> = {},
+  hookEnv: Record<string, string> = {}
 ): Promise<SetupResult> {
   const steps = entry.metadata.setup;
   if (!steps || steps.length === 0) {
     return { ok: true, stdout: "", stderr: "", exitCode: 0 };
   }
   const fittingDir = path.join(compositionDir, "apm_modules", "_local", entry.id);
-  const env = setupConfigEnv(entry.id, config);
+  // The fitting's own config wins over the shared hook env, so a composition
+  // that explicitly pins a value stays authoritative.
+  const env = { ...hookEnv, ...setupConfigEnv(entry.id, config) };
   // Run each step in order; abort on the first non-zero exit (aggregating
   // output so the caller logs the full trail up to the failure).
   let aggStdout = "";
@@ -906,6 +933,7 @@ async function runSetupHooks(compositionId: string): Promise<void> {
   const entries = await selectedLibraryEntries(composition.selections);
   // Flatten the selection map → id-keyed config so each setup hook receives its
   // own composition config projected as env vars (see setupConfigEnv).
+  const hookEnv = await gatewayHookEnv(compositionId);
   const configById = new Map<string, Record<string, unknown>>();
   for (const items of Object.values(composition.selections)) {
     for (const item of items ?? []) {
@@ -928,7 +956,12 @@ async function runSetupHooks(compositionId: string): Promise<void> {
       "runner",
       `setup ${entry.id}: ${steps.map((s) => s.label ?? s.command).join(" && ")}`
     );
-    const result = await runFittingSetup(entry, composition.directory, configById.get(entry.id) ?? {});
+    const result = await runFittingSetup(
+      entry,
+      composition.directory,
+      configById.get(entry.id) ?? {},
+      hookEnv
+    );
     if (result.stdout) {
       appendLog(compositionId, "stdout", result.stdout);
     }
@@ -1007,6 +1040,10 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
   }
 
   const results: VerifyResult[] = [];
+  // Verify hooks that probe the gateway need its address for THIS instance; see
+  // gatewayHookEnv. Without it a hook's own literal fallback picks an instance
+  // at random and the probe passes or fails for the wrong reason.
+  const verifyHookEnv = await gatewayHookEnv(compositionId);
 
   for (const entry of entries) {
     const started = Date.now();
@@ -1015,7 +1052,8 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
     const result = await runShellCommand(
       composition.directory,
       verifyInfo.command,
-      verifyInfo.timeout_ms
+      verifyInfo.timeout_ms,
+      verifyHookEnv
     );
     const stdout = result.stdout.trim();
     const ok = result.exitCode === 0 && stdout.includes(verifyInfo.expect);

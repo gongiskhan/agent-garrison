@@ -16,7 +16,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 OUTPOST_HOST = (
     os.environ.get("GARRISON_OUTPOST_HOST_URL")
     or os.environ.get("OUTPOST_HOST_URL")
-    or f"http://127.0.0.1:{os.environ.get('GARRISON_OUTPOST_PORT', '23702')}"
+    # Base-family outpost port (3702) shifted by the instance profile offset
+    # (prod +1000, codex +20000), the same derivation the launcher uses. The old
+    # 23702 literal named the CODEX outpost, so on dev and prod this synced to
+    # another instance's host.
+    or "http://127.0.0.1:{}".format(
+        os.environ.get("GARRISON_OUTPOST_PORT")
+        or 3702 + int(os.environ.get("GARRISON_PORT_OFFSET", "0") or "0")
+    )
 ).rstrip("/")
 MAX_WARN_BYTES = 5 * 1024 * 1024  # warn on files > 5 MB
 DEFAULT_INTERVAL_S = 60

@@ -460,6 +460,71 @@ describe("Codex secondary-instance isolation", () => {
     expect(checked, "expected own-port fittings to be discovered").toBeGreaterThan(10);
   });
 
+  // The THIRD copy of every port, and the last one to be re-baselined: a
+  // Fitting's `config_schema` default. `defaultConfigForEntry` (src/lib/compositions.ts)
+  // copies these verbatim into a composition when a Fitting is stationed, and the
+  // offset is applied to the STORED value later — so a codex-family schema default
+  // is written into the new composition and then shifted AGAIN (24777 -> 25777 on
+  // prod, 44777 on codex), landing in no instance's range at all. 17 values across
+  // 15 manifests had drifted while `default_port` was already correct, i.e. the two
+  // halves of the same manifest disagreed. Nothing read the schema defaults in the
+  // committed compositions (every selection pins its port), so this was invisible
+  // until someone composed a fresh Operative.
+  it("keeps every config_schema port/URL default on the base family and agreeing with default_port", () => {
+    const seedDir = path.join(ROOT, "fittings", "seed");
+    // See the coord-agentmail exemption note above — same Fitting, same reason.
+    const EXEMPT = new Set(["coord-agentmail"]);
+    const PORT_KEY = /^(port|.*_port)$/;
+    const offenders: string[] = [];
+    let checked = 0;
+
+    for (const id of readdirSync(seedDir)) {
+      const manifestPath = path.join(seedDir, id, "apm.yml");
+      if (!existsSync(manifestPath) || EXEMPT.has(id)) continue;
+      const metadata = readYaml(manifestPath)["x-garrison"] ?? {};
+      const schema = (metadata.config_schema ?? []) as Array<{ key?: string; default?: unknown }>;
+
+      for (const field of schema) {
+        const key = String(field.key ?? "");
+        const value = field.default;
+
+        if (PORT_KEY.test(key) && typeof value === "number") {
+          checked++;
+          if (value >= 20000) {
+            offenders.push(
+              `${id}: config_schema ${key} default ${value} is in another instance's family — ` +
+                `declare the base port and let the profile offset shift it`
+            );
+          }
+          const declared = metadata.default_port;
+          if (typeof declared === "number" && key === "port" && value !== declared) {
+            offenders.push(
+              `${id}: config_schema port default ${value} disagrees with default_port ${declared} ` +
+                `in the same manifest`
+            );
+          }
+        }
+
+        // A URL default naming a loopback peer carries a port too, and gets the
+        // same double-shift treatment.
+        if (typeof value === "string") {
+          const match = /^https?:\/\/(?:127\.0\.0\.1|localhost):(\d{4,5})/.exec(value);
+          if (match) {
+            checked++;
+            if (Number(match[1]) >= 20000) {
+              offenders.push(
+                `${id}: config_schema ${key} default ${value} names another instance's port`
+              );
+            }
+          }
+        }
+      }
+    }
+
+    expect(offenders, offenders.join("\n")).toEqual([]);
+    expect(checked, "expected port/URL schema defaults to be discovered").toBeGreaterThan(10);
+  });
+
   // Companion to the above: the manifest is only half the fallback. Each server
   // script carries its own literal, and the two drifting apart reintroduces the
   // same bug from the other side.
@@ -516,7 +581,10 @@ describe("Codex secondary-instance isolation", () => {
       "automations/lib/planner.mjs",
       "automations/lib/fixer.mjs",
       "automations/lib/engine.mjs",
-      "loop-heartbeat/scripts/heartbeat.mjs",
+      // loop-heartbeat/scripts/heartbeat.mjs retired from this ratchet: its
+      // literal is gone. It now fails loudly when GARRISON_GATEWAY_URL is
+      // absent, and its setup hook bakes this instance's address into the
+      // registered job command.
       "dev-env/scripts/server.mjs",
       "drill/lib/curation.mjs",
       "drill/assets/drill-judge.ts"

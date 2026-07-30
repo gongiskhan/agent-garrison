@@ -91,6 +91,8 @@ x-garrison:
     idempotent: true
     timeout_ms: 5000
   verify:
-    command: bash scripts/verify.sh
+    # Composition-dir-relative: verify hooks run with cwd = the composition dir
+    # (only setup hooks get the fitting's installed dir).
+    command: bash apm_modules/_local/outpost-actions/scripts/verify.sh
     expect: ok
     timeout_ms: 10000

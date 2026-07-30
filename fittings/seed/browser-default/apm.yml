@@ -16,7 +16,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 27084
+      default: 7084
       description: HTTP port the Browser Fitting binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: persistent_profile
       type: boolean

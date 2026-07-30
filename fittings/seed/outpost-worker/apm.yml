@@ -52,7 +52,9 @@ x-garrison:
     - kind: vault
       cardinality: optional-one
   verify:
-    command: node scripts/verify.mjs
+    # Composition-dir-relative: verify hooks run with cwd = the composition dir
+    # (only setup hooks get the fitting's installed dir).
+    command: node apm_modules/_local/outpost-worker/scripts/verify.mjs
     expect: OUTPOST-WORKER-OK
     timeout_ms: 10000
   for_consumers: |

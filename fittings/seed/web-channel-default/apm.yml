@@ -16,7 +16,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 27083
+      default: 7083
       description: HTTP port the web-channel server binds to. The server refuses to start (exit 1) when the port is taken - no auto-shift.
     - key: bind_host
       type: string

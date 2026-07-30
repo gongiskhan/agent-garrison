@@ -16,7 +16,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 27079
+      default: 7079
       description: HTTP port the screen-share server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

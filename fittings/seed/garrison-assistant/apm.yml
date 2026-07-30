@@ -26,7 +26,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 27095
+      default: 7095
       description: HTTP port for the Assistant's own-port server.
     - key: bind_host
       type: string

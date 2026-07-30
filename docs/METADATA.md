@@ -151,6 +151,36 @@ Verify schema:
 | `expect` | string | yes | Trimmed stdout must include this value. |
 | `timeout_ms` | integer | no | Defaults to 10000. |
 
+#### The two hooks run from DIFFERENT directories
+
+This asymmetry is the single most common authoring mistake, so it is spelled out
+once here and gated by `tests/hook-cwd-contract.test.ts`:
+
+| Hook | cwd | Path shape in the command |
+|---|---|---|
+| `setup` | `<composition>/apm_modules/_local/<id>/` | fitting-relative — `bash scripts/setup.sh` |
+| `verify` | `<composition>/` | composition-relative — `bash apm_modules/_local/<id>/scripts/verify.sh` |
+
+Consequences worth internalising:
+
+- A verify command written in the setup shape (`bash scripts/verify.sh`) exits
+  127 on every `up`, which aborts the whole composition.
+- **Inside a setup script, `$(pwd)` is the fitting's own installed dir, not the
+  composition.** To reach a sibling Fitting, resolve relative to the script
+  (`"$(cd "$(dirname "$0")/.." && pwd)"/../<other>`), never
+  `"$(pwd)/apm_modules/_local/<other>"` — that resolves to
+  `.../_local/<self>/apm_modules/_local/<other>` and always misses, which
+  surfaces as a well-fitted dependency reporting as absent.
+- A verify hook must not require a live gateway: `up` runs verify *before* it
+  spawns the gateway, so a hard health check there can never pass on a cold
+  start. Probe the Fitting's own wiring and treat gateway liveness as advisory.
+
+Both hooks receive, in addition to the Fitting's own config projected as
+`<FITTING_ID>_<KEY>`, the instance's gateway address as `GARRISON_GATEWAY_HOST`
+/ `GARRISON_GATEWAY_PORT` / `GARRISON_GATEWAY_URL`. Never bake a port literal as
+a fallback: every such literal in this repo named the codex instance's gateway
+and silently crossed instances.
+
 UI schema (contract v2):
 
 | Field | Type | Required | Notes |
