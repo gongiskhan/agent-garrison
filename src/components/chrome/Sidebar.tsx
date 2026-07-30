@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -28,6 +28,8 @@ import {
   Cpu,
   Network,
   Plug,
+  Pin,
+  PinOff,
   type LucideIcon
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
@@ -398,6 +400,19 @@ function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {
   return ownPort ? ExternalLink : Component;
 }
 
+// The Fittings menu: every equipped fitting, grouped by faculty area with the
+// groups collapsed by default (expansion is per-device UI state), plus an
+// always-visible Pinned group on top. Pins are dragged in (drop on the group
+// to append, on a pinned row to insert before it) and dragged out anywhere to
+// unpin; they persist server-side in ~/.garrison/sidebar-pins.json so every
+// browser sees the same list. A pinned fitting renders in BOTH the Pinned
+// group and its own faculty group (with a pin marker there).
+const EXPANDED_GROUPS_KEY = "garrison.sidebar.fittingGroups.v1";
+
+type MenuRow =
+  | { kind: "embedded"; entry: LibraryEntry }
+  | { kind: "own-port"; entry: LibraryEntry; status: FittingViewStatus | null };
+
 function FittingViewsLinks({
   composition,
   library,
@@ -410,6 +425,98 @@ function FittingViewsLinks({
   viewStatuses: FittingViewStatus[];
 }) {
   const isMobile = useIsMobileViewport();
+  const [pinned, setPinned] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [dragging, setDragging] = useState<{ id: string; origin: "pinned" | "group" } | null>(
+    null
+  );
+  const [pinHover, setPinHover] = useState(false);
+  // Set by the Pinned group's drop handlers before dragend fires; a pinned-row
+  // drag that ends anywhere else is the unpin gesture — EXCEPT an
+  // Escape-cancelled drag, which must abort, not unpin (dragend cannot tell
+  // the two apart from dropEffect alone, so the cancel is flagged here).
+  const droppedOnPinned = useRef(false);
+  const dragCancelled = useRef(false);
+  const draggingRef = useRef<{ id: string; origin: "pinned" | "group" } | null>(null);
+  draggingRef.current = dragging;
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dragCancelled.current = true;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dragging]);
+
+  // Group expansion is per-device UI state (localStorage); the PINS are the
+  // durable cross-device preference and live server-side.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(EXPANDED_GROUPS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        setExpanded(new Set(parsed.filter((x): x is string => typeof x === "string")));
+      }
+    } catch {
+      // default: all collapsed
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch("/api/sidebar-pins")
+        .then((res) => res.json())
+        .then((data: { pins?: { pinned?: unknown } }) => {
+          if (cancelled || draggingRef.current) return;
+          const list = data.pins?.pinned;
+          if (Array.isArray(list)) {
+            setPinned(list.filter((x): x is string => typeof x === "string"));
+          }
+        })
+        .catch(() => {
+          // pins render as-is until the next successful load
+        });
+    };
+    load();
+    // Slow re-sync so a pin made in another tab/browser shows up here without
+    // a reload (pins are a cross-device preference). Skipped mid-drag so a
+    // refresh can never clobber an in-flight gesture.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      load();
+    }, 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // Auto-expand the group holding the fitting whose route is active, as a
+  // TRANSIENT default (not written to localStorage): navigation context is
+  // never hidden, and the user can still collapse the group — the toggle acts
+  // on real membership, so it is never inert.
+  const activeMatch = /^\/(?:fitting|embed)\/([^/]+)/.exec(pathname);
+  const activeFittingId = activeMatch ? activeMatch[1] : null;
+  const activeEntry = activeFittingId
+    ? library.find((entry) => entry.id === activeFittingId)
+    : undefined;
+  const activeGroupId = activeEntry
+    ? faculties.some((f) => f.id === activeEntry.faculty)
+      ? activeEntry.faculty
+      : "other"
+    : null;
+  useEffect(() => {
+    if (!activeGroupId) return;
+    setExpanded((prev) => {
+      if (prev.has(activeGroupId)) return prev;
+      const next = new Set(prev);
+      next.add(activeGroupId);
+      return next;
+    });
+  }, [activeGroupId]);
 
   if (!composition) return null;
 
@@ -419,128 +526,357 @@ function FittingViewsLinks({
       selectedIds.add(selection.id);
     }
   }
-  const stationed = library.filter((entry) => selectedIds.has(entry.id));
-
   const statusByFittingId = new Map<string, FittingViewStatus>(
     viewStatuses.map((s) => [s.fittingId, s])
   );
-
-  type Row =
-    | { kind: "embedded"; entry: LibraryEntry }
-    | { kind: "own-port"; entry: LibraryEntry; status: FittingViewStatus | null };
-
-  // EVERY equipped Fitting is listed — each has a view (2026-07-29
-  // fittings/views refit): an own-port UI (live link / status) or an embedded
-  // view at /fitting/<id>. One row per fitting; own-port wins the row shape
-  // when both apply, since it carries the health signal.
-  const rows: Row[] = stationed
-    .map((entry) =>
+  // ONLY equipped fittings — one row per fitting; own-port wins the row shape
+  // when both apply, since it carries the health signal. The composition
+  // object itself is poll-refreshed by AppShell, so fit/unfit lands here
+  // within seconds without a reload.
+  const rowById = new Map<string, MenuRow>();
+  for (const entry of library) {
+    if (!selectedIds.has(entry.id) || rowById.has(entry.id)) continue;
+    rowById.set(
+      entry.id,
       isOwnPortFitting(entry)
-        ? {
-            kind: "own-port" as const,
-            entry,
-            status: statusByFittingId.get(entry.id) ?? null
-          }
-        : { kind: "embedded" as const, entry }
-    )
+        ? { kind: "own-port", entry, status: statusByFittingId.get(entry.id) ?? null }
+        : { kind: "embedded", entry }
+    );
+  }
+  if (rowById.size === 0) return null;
+
+  const groups: Array<{ id: string; name: string; rows: MenuRow[] }> = [];
+  const grouped = new Set<string>();
+  for (const faculty of faculties) {
+    const rows = [...rowById.values()]
+      .filter((row) => row.entry.faculty === faculty.id)
+      .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
+    if (rows.length === 0) continue;
+    for (const row of rows) grouped.add(row.entry.id);
+    groups.push({ id: faculty.id, name: faculty.name, rows });
+  }
+  const leftover = [...rowById.values()]
+    .filter((row) => !grouped.has(row.entry.id))
     .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
+  if (leftover.length > 0) {
+    groups.push({ id: "other", name: "Other", rows: leftover });
+  }
 
-  if (rows.length === 0) return null;
+  // Pins render in stored order; a pinned id not equipped right now simply
+  // does not render (the pin survives — refit the fitting and it reappears).
+  const pinnedRows = pinned
+    .map((id) => rowById.get(id))
+    .filter((row): row is MenuRow => Boolean(row));
 
-  // A fitting is a normal nav item — same visual language as Garrison /
-  // Composition / Vault / Quarters. Own-port fittings carry a status hint
-  // (live/down/off) and tint their icon by health; embedded views are always
-  // reachable.
-  return (
-    <>
-      <div className="nav-section-label nav-section-views">Fittings</div>
-      {rows.map((row) => {
-        const Icon = viewIcon(row.entry, row.kind === "own-port");
-        if (row.kind === "embedded") {
-          const href = `/fitting/${row.entry.id}`;
-          const isActive = pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <Link
-              key={`embedded:${row.entry.id}`}
-              href={href}
-              className={clsx("item", isActive && "active")}
-              aria-current={isActive ? "page" : undefined}
-            >
-              <span>
-                <span className="ic"><Icon aria-hidden /></span>
-                {row.entry.name}
-              </span>
-            </Link>
-          );
+  const savePins = (next: string[]) => {
+    setPinned(next);
+    void fetch("/api/sidebar-pins", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned: next })
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`PUT /api/sidebar-pins ${res.status}`);
+        // Reconcile from the server's canonical list so this tab converges
+        // with writes made elsewhere instead of drifting from a mount-time
+        // baseline.
+        const data = (await res.json()) as { pins?: { pinned?: unknown } };
+        const list = data.pins?.pinned;
+        if (Array.isArray(list) && !draggingRef.current) {
+          setPinned(list.filter((x): x is string => typeof x === "string"));
         }
-        const status = row.status;
-        const healthy = status?.healthy === true;
-        const icon = (
-          <span
-            className={clsx(
-              "ic",
-              healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off"
-            )}
-          >
-            <Icon aria-hidden />
-          </span>
-        );
-        if (healthy && status) {
-          // Pick the URL reachable from where the browser is: loopback locally,
-          // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
-          const openUrl = resolveViewUrl(status);
-          if (isMobile) {
-            return (
-              <a
-                key={`own-port:${row.entry.id}`}
-                href={openUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="item"
-                title={`Open ${row.entry.name} in new tab (${openUrl})`}
-              >
-                <span>
-                  {icon}
-                  {row.entry.name}
-                </span>
-                <span className="ct tone-live">live</span>
-              </a>
-            );
+      })
+      .catch(() => {
+        // Roll back to server truth so the UI never keeps a pin the server
+        // refused (or lost); best-effort.
+        void fetch("/api/sidebar-pins")
+          .then((res) => res.json())
+          .then((data: { pins?: { pinned?: unknown } }) => {
+            const list = data.pins?.pinned;
+            if (Array.isArray(list) && !draggingRef.current) {
+              setPinned(list.filter((x): x is string => typeof x === "string"));
+            }
+          })
+          .catch(() => {});
+      });
+  };
+  const pinBefore = (id: string, beforeId: string | null) => {
+    const without = pinned.filter((p) => p !== id);
+    const idx = beforeId === null ? without.length : without.indexOf(beforeId);
+    const at = idx < 0 ? without.length : idx;
+    savePins([...without.slice(0, at), id, ...without.slice(at)]);
+  };
+  const unpin = (id: string) => savePins(pinned.filter((p) => p !== id));
+
+  const toggleGroup = (groupId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      try {
+        window.localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify([...next]));
+      } catch {
+        // per-device nicety only
+      }
+      return next;
+    });
+  };
+
+  const renderRow = (row: MenuRow, origin: "pinned" | "group") => {
+    const id = row.entry.id;
+    const isPinned = pinned.includes(id);
+    const isDragSource = dragging?.id === id && dragging.origin === origin;
+    const dragProps = {
+      draggable: !isMobile,
+      onDragStart: (event: React.DragEvent) => {
+        event.dataTransfer.setData("text/plain", id);
+        event.dataTransfer.effectAllowed = "copyMove";
+        droppedOnPinned.current = false;
+        dragCancelled.current = false;
+        setDragging({ id, origin });
+      },
+      onDragEnd: () => {
+        // Dropping a pinned row anywhere outside the Pinned group unpins it —
+        // but an Escape-cancelled drag aborts without touching the pin.
+        if (origin === "pinned" && !droppedOnPinned.current && !dragCancelled.current) {
+          unpin(id);
+        }
+        setDragging(null);
+        setPinHover(false);
+      },
+      ...(origin === "pinned"
+        ? {
+            // Pinned rows are drop targets too: insert before this row. A
+            // drop back ON ITSELF is the change-your-mind gesture — a no-op
+            // that must swallow the event, or it bubbles to the pin-zone
+            // container and silently appends the row to the END of the list.
+            onDragOver: (event: React.DragEvent) => {
+              if (!dragging) return;
+              event.preventDefault();
+              event.stopPropagation();
+            },
+            onDrop: (event: React.DragEvent) => {
+              if (!dragging) return;
+              event.preventDefault();
+              event.stopPropagation();
+              droppedOnPinned.current = true;
+              if (dragging.id !== id) pinBefore(dragging.id, id);
+              setPinHover(false);
+            }
           }
-          const embedHref = `/embed/${row.entry.id}`;
-          const isActive = pathname === embedHref;
-          return (
-            <Link
-              key={`own-port:${row.entry.id}`}
-              href={embedHref}
-              className={clsx("item", isActive && "active")}
-              aria-current={isActive ? "page" : undefined}
-              title={`Open ${row.entry.name} embedded (${openUrl})`}
-            >
-              <span>
-                {icon}
-                {row.entry.name}
-              </span>
-              <span className="ct tone-live">live</span>
-            </Link>
-          );
-        }
-        const fallbackHref = `/fitting/${row.entry.id}`;
-        const isActive = pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
+        : {})
+    };
+    const Icon = viewIcon(row.entry, row.kind === "own-port");
+    const pinMark =
+      origin === "group" && isPinned ? (
+        <span className="pin-mark" title="Pinned">
+          <Pin aria-hidden />
+        </span>
+      ) : null;
+    // Drag is desktop-only, but pins are a cross-device preference — on
+    // narrow viewports each row gets a tap toggle instead.
+    const mobilePinToggle = isMobile ? (
+      <button
+        type="button"
+        className="pin-toggle"
+        aria-label={isPinned ? `Unpin ${row.entry.name}` : `Pin ${row.entry.name}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (isPinned) {
+            unpin(id);
+          } else {
+            pinBefore(id, null);
+          }
+        }}
+      >
+        {isPinned ? <PinOff aria-hidden /> : <Pin aria-hidden />}
+      </button>
+    ) : null;
+
+    if (row.kind === "embedded") {
+      const href = `/fitting/${id}`;
+      const isActive = pathname === href || pathname.startsWith(`${href}/`);
+      return (
+        <Link
+          href={href}
+          className={clsx("item", isActive && "active", isDragSource && "drag-source")}
+          aria-current={isActive ? "page" : undefined}
+          {...dragProps}
+        >
+          <span>
+            <span className="ic">
+              <Icon aria-hidden />
+            </span>
+            {row.entry.name}
+            {pinMark}
+          </span>
+          {mobilePinToggle}
+        </Link>
+      );
+    }
+    const status = row.status;
+    const healthy = status?.healthy === true;
+    const icon = (
+      <span
+        className={clsx(
+          "ic",
+          healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off"
+        )}
+      >
+        <Icon aria-hidden />
+      </span>
+    );
+    if (healthy && status) {
+      // Pick the URL reachable from where the browser is: loopback locally,
+      // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
+      const openUrl = resolveViewUrl(status);
+      if (isMobile) {
         return (
-          <Link
-            key={`own-port:${row.entry.id}`}
-            href={fallbackHref}
-            className={clsx("item", isActive && "active")}
-            aria-current={isActive ? "page" : undefined}
-            title={status?.healthy === false ? "View is unreachable" : "View is not running"}
+          <a
+            href={openUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={clsx("item", isDragSource && "drag-source")}
+            title={`Open ${row.entry.name} in new tab (${openUrl})`}
+            {...dragProps}
           >
             <span>
               {icon}
               {row.entry.name}
+              {pinMark}
             </span>
-            <span className={clsx("ct", status?.healthy === false ? "tone-down" : "tone-off")}>{status?.healthy === false ? "down" : "off"}</span>
-          </Link>
+            <span className="ct tone-live">live</span>
+            {mobilePinToggle}
+          </a>
+        );
+      }
+      const embedHref = `/embed/${id}`;
+      const isActive = pathname === embedHref;
+      return (
+        <Link
+          href={embedHref}
+          className={clsx("item", isActive && "active", isDragSource && "drag-source")}
+          aria-current={isActive ? "page" : undefined}
+          title={`Open ${row.entry.name} embedded (${openUrl})`}
+          {...dragProps}
+        >
+          <span>
+            {icon}
+            {row.entry.name}
+            {pinMark}
+          </span>
+          <span className="ct tone-live">live</span>
+          {mobilePinToggle}
+        </Link>
+      );
+    }
+    const fallbackHref = `/fitting/${id}`;
+    const isActive = pathname === fallbackHref || pathname.startsWith(`${fallbackHref}/`);
+    return (
+      <Link
+        href={fallbackHref}
+        className={clsx("item", isActive && "active", isDragSource && "drag-source")}
+        aria-current={isActive ? "page" : undefined}
+        title={status?.healthy === false ? "View is unreachable" : "View is not running"}
+        {...dragProps}
+      >
+        <span>
+          {icon}
+          {row.entry.name}
+          {pinMark}
+        </span>
+        <span className={clsx("ct", status?.healthy === false ? "tone-down" : "tone-off")}>
+          {status?.healthy === false ? "down" : "off"}
+        </span>
+        {mobilePinToggle}
+      </Link>
+    );
+  };
+
+  return (
+    <>
+      <div className="nav-section-label nav-section-views">Fittings</div>
+
+      <div
+        className={clsx("pin-zone", dragging && "drag-active", dragging && pinHover && "drag-hover")}
+        onDragOver={(event) => {
+          if (!dragging) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setPinHover(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+          setPinHover(false);
+        }}
+        onDrop={(event) => {
+          if (!dragging) return;
+          event.preventDefault();
+          droppedOnPinned.current = true;
+          // Re-dropping an already-pinned fitting from its faculty group is a
+          // no-op (it is already there); anything else appends.
+          if (dragging.origin === "pinned" || !pinned.includes(dragging.id)) {
+            pinBefore(dragging.id, null);
+          }
+          setPinHover(false);
+        }}
+      >
+        <div className="nav-group-head pin-head">
+          <span className="chev pin-ic">
+            <Pin aria-hidden />
+          </span>
+          Pinned
+          {pinnedRows.length > 0 ? <span className="gct">{pinnedRows.length}</span> : null}
+        </div>
+        {pinnedRows.length === 0 ? (
+          <div className="pin-hint">
+            {dragging ? "Drop to pin" : "Drag a fitting here to pin it"}
+          </div>
+        ) : (
+          pinnedRows.map((row) => (
+            <Fragment key={`pin:${row.entry.id}`}>{renderRow(row, "pinned")}</Fragment>
+          ))
+        )}
+      </div>
+
+      {groups.map((group) => {
+        const open = expanded.has(group.id);
+        const ownPortRows = group.rows.filter(
+          (row): row is Extract<MenuRow, { kind: "own-port" }> => row.kind === "own-port"
+        );
+        const anyDown = ownPortRows.some((row) => row.status?.healthy === false);
+        const anyLive = ownPortRows.some((row) => row.status?.healthy === true);
+        return (
+          <div key={group.id}>
+            <button
+              type="button"
+              className="nav-group-head"
+              onClick={() => toggleGroup(group.id)}
+              aria-expanded={open}
+            >
+              <span className={clsx("chev", open && "open")}>
+                <ChevronRight aria-hidden />
+              </span>
+              {group.name}
+              <span className="gct">
+                {anyDown ? (
+                  <span className="nav-group-dot down" aria-label="a fitting is unreachable" />
+                ) : anyLive ? (
+                  <span className="nav-group-dot live" aria-label="fittings live" />
+                ) : null}
+                {group.rows.length}
+              </span>
+            </button>
+            {open
+              ? group.rows.map((row) => (
+                  <Fragment key={`grp:${row.entry.id}`}>{renderRow(row, "group")}</Fragment>
+                ))
+              : null}
+          </div>
         );
       })}
     </>
