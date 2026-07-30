@@ -14,6 +14,17 @@ dependencies:
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/spotify
+    - path: ../../fittings/seed/automations
+    - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/drill
+    - path: ../../fittings/seed/file-browser
+    - path: ../../fittings/seed/garrison-assistant
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/outpost-tailscale-host
+    - path: ../../fittings/seed/ports-default
+    - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/screen-share-default
 x-garrison:
   composition:
     id: jarvis
@@ -156,6 +167,15 @@ x-garrison:
             port: 7086
             bind_host: 127.0.0.1
             use_tmux: "off"
+        - id: file-browser
+          config:
+            port: 7091
+            bind_host: 127.0.0.1
+            root: ~/.garrison/files
+        - id: garrison-assistant
+          config:
+            port: 7095
+            bind_host: 127.0.0.1
       memory:
         - id: knowledge
           config:
@@ -182,6 +202,65 @@ x-garrison:
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
             test_beat_cron: 0 */5 * * *
+        - id: automations
+          config:
+            port: 7090
+            bind_host: 127.0.0.1
+        - id: improver
+          config:
+            port: 7093
+            bind_host: 127.0.0.1
+            cron: 30 3 * * *
+            vault_dir: ~/ObsidianVault
+            memory_primary: true
+            checkpoint_retention_days: 14
+            dream_model: haiku
+        - id: monitor-default
+          config:
+            port: 7077
+            bind_host: 127.0.0.1
+            poll_interval_ms: 1000
+            log_retention_hours: 24
+      # Every remaining view-producing Fitting, so the HUD's panel list is the
+      # whole library rather than the five surfaces the voice loop needs. Ports
+      # are the committed base family; the runner shifts them per profile
+      # (dev 70xx / prod 80xx), which is why each one is written out rather than
+      # left to the fitting default — see the kanban-loop note above.
+      surfaces:
+        - id: browser-default
+          config:
+            port: 7084
+            bind_host: 127.0.0.1
+            viewport_width: 1600
+            viewport_height: 1200
+            jpeg_quality: 70
+            every_nth_frame: 1
+        - id: outpost-tailscale-host
+          config:
+            port: 7082
+            bind_host: 127.0.0.1
+            outpost_host_url: http://127.0.0.1:3702
+        - id: ports-default
+          config:
+            port: 7088
+            bind_host: 127.0.0.1
+            scan_interval_ms: 5000
+        - id: power-default
+          config:
+            port: 7092
+            bind_host: 127.0.0.1
+            idle_minutes: 30
+            load_threshold: 1
+        - id: screen-share-default
+          config:
+            port: 7079
+            bind_host: 127.0.0.1
+      # Drill consumes automation-runner, satisfied by kanban-loop above.
+      building:
+        - id: drill
+          config:
+            port: 7096
+            bind_host: 127.0.0.1
       # External services the Operative can act on. The Orchestrator discovers
       # them via `consumes: connector any`, so each connector's action catalog +
       # bash recipe folds into its prompt automatically. Credentials are NOT set

@@ -1,13 +1,53 @@
 lockfile_version: '1'
-generated_at: '2026-07-23T08:49:33.683928+00:00'
+generated_at: '2026-07-30T07:30:36.607418+00:00'
 apm_version: 0.25.0
 dependencies:
+- repo_url: _local/automations
+  name: automations
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/automations
+- repo_url: _local/browser-default
+  name: browser-default
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-browser
+  - .claude/skills/garrison-browser/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-browser/SKILL.md: sha256:2d28b50c7465425029ad4bf4076e985f6ce55c649cb1213b3379a3f97ea45e5a
+  source: local
+  local_path: ../../fittings/seed/browser-default
 - repo_url: _local/dev-env
   name: dev-env
   version: 0.1.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
+- repo_url: _local/drill
+  name: drill
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-drill
+  - .claude/skills/garrison-drill/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-drill/SKILL.md: sha256:d08cbd8011b1e01f23abcc35701f9c57a2da194470fb4455761ba516ac5e7ab7
+  source: local
+  local_path: ../../fittings/seed/drill
+- repo_url: _local/file-browser
+  name: file-browser
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/file-browser
+- repo_url: _local/garrison-assistant
+  name: garrison-assistant
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/garrison-assistant
 - repo_url: _local/garrison-orchestrator
   name: garrison-orchestrator
   version: 0.1.0
@@ -39,6 +79,12 @@ dependencies:
     .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
   source: local
   local_path: ../../fittings/seed/http-gateway
+- repo_url: _local/improver
+  name: improver
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/improver
 - repo_url: _local/jarvis-os
   name: jarvis-os
   version: 0.1.0
@@ -63,6 +109,36 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/local-voice
+- repo_url: _local/monitor-default
+  name: monitor-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/outpost-tailscale-host
+  name: outpost-tailscale-host
+  version: 0.3.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/outpost-tailscale-host
+- repo_url: _local/ports-default
+  name: ports-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/ports-default
+- repo_url: _local/power-default
+  name: power-default
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/power-default
+- repo_url: _local/screen-share-default
+  name: screen-share-default
+  version: 0.2.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/screen-share-default
 - repo_url: _local/spotify
   name: spotify
   version: 0.1.0
@@ -116,6 +192,42 @@ deployments:
   - ../../fittings/seed/trello
   active_owner: ../../fittings/seed/trello
   content_hash: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-browser
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/browser-default
+  active_owner: ../../fittings/seed/browser-default
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-browser/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/browser-default
+  active_owner: ../../fittings/seed/browser-default
+  content_hash: sha256:2d28b50c7465425029ad4bf4076e985f6ce55c649cb1213b3379a3f97ea45e5a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-drill
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/drill
+  active_owner: ../../fittings/seed/drill
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-drill/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/drill
+  active_owner: ../../fittings/seed/drill
+  content_hash: sha256:d08cbd8011b1e01f23abcc35701f9c57a2da194470fb4455761ba516ac5e7ab7
 - kind: project-relative
   target: claude
   value: .claude/skills/google-calendar
