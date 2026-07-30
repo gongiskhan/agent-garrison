@@ -21,10 +21,11 @@ export function secretMatches(presented, expected) {
 }
 
 export class Ingress {
-  constructor({ cfg, store, counters, log = console }) {
+  constructor({ cfg, store, counters, wakeBus = null, log = console }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
+    this.wakeBus = wakeBus;
     this.log = log;
     this.chain = Promise.resolve();
   }
@@ -169,14 +170,22 @@ export class Ingress {
     this.counters.bump(`events_in_${event.kind}`);
   }
 
-  // Realtime pipe (M1: count only; the wake gate lands in M4). Content is
-  // parsed in memory and discarded - never persisted, never logged (I5).
-  acceptRealtime({ bodyText }) {
+  // Realtime pipe: content is parsed in memory and discarded - never
+  // persisted, never logged (I5). When the wake flag is on, segments pass
+  // through the in-memory wake gate (lib/wake.mjs); non-hits still only touch
+  // counters.
+  acceptRealtime({ bodyText, sessionId = null }) {
     this.counters.bump("realtime_calls");
     try {
       const segments = JSON.parse(bodyText);
-      if (Array.isArray(segments)) this.counters.bump("realtime_segments", segments.length);
-      else this.counters.bump("realtime_malformed");
+      if (Array.isArray(segments)) {
+        this.counters.bump("realtime_segments", segments.length);
+        if (this.cfg.wakeEnabled && this.wakeBus && sessionId) {
+          this.wakeBus.handleSegments({ sessionId, segments });
+        }
+      } else {
+        this.counters.bump("realtime_malformed");
+      }
     } catch {
       this.counters.bump("realtime_malformed");
     }

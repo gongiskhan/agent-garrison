@@ -52,3 +52,12 @@ One line per deviation, with the reason. Details in
 - Ingress endpoints answer 403 (not 501) when the `enabled` flag is off
   once M1 lands, so a funneled-but-disabled endpoint leaks nothing about
   which routes exist; 501 remains only for not-yet-implemented milestones.
+- Wake `create_event` lands as a Kanban card titled "Event: ..." rather
+  than a calendar write — the fitting owns no calendar; the orchestrator
+  reaches calendars through its connectors when the card runs (I4 keeps
+  one task home; the single brain keeps one calendar owner).
+- Wake intent handling is ONE combined classify-and-handle model call on
+  the gateway's cheap blocking lane (the operative answers queries from
+  its own memory/board context), not a classify-then-dispatch pair — one
+  wake hit costs one model call (I3), and every failure path degrades to
+  a saved note with an honest confirmation.

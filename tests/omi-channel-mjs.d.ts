@@ -263,6 +263,35 @@ declare module "*/omi-channel/lib/notify.mjs" {
   }
 }
 
+declare module "*/omi-channel/lib/wake.mjs" {
+  export function wakeRegex(variants: string[]): RegExp | null;
+  export function buildWakePrompt(command: string, projects: string[]): string;
+  export function parseWakeReply(reply: string): {
+    intent: "create_task" | "create_event" | "query" | "note" | "unknown";
+    title: string;
+    description: string;
+    project: string | null;
+    answer: string;
+    note_content: string;
+  } | null;
+  export class WakeBus {
+    constructor(opts: {
+      cfg: unknown;
+      store: unknown;
+      counters: unknown;
+      runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
+      board: unknown;
+      memoryWriter: unknown;
+      notifier: unknown;
+      log?: unknown;
+      now?: () => number;
+    });
+    sessions: Map<string, unknown>;
+    handleSegments(args: { sessionId: string; segments: unknown[] }): void;
+    close(sessionId: string, reason: string): Promise<unknown>;
+  }
+}
+
 declare module "*/omi-channel/lib/tailnet-serve.mjs" {
   export function serveMapFromStatus(status: unknown): Map<number, string>;
   export function getTailnetServeMap(): Promise<Map<number, string>>;

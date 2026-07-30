@@ -227,6 +227,26 @@ export class Counters {
     atomicWriteJSON(this.file, counters);
     return counters[key];
   }
+
+  // Gauge-style set (e.g. last observed latency). Merged like any counter.
+  set(key, value) {
+    const counters = this.read();
+    counters[key] = value;
+    counters.updatedAt = new Date().toISOString();
+    atomicWriteJSON(this.file, counters);
+    return value;
+  }
+
+  // Observation helper: records <key>_last / _sum / _count so /health can
+  // show both the latest value and a computable average.
+  observe(key, value) {
+    const counters = this.read();
+    counters[`${key}_last`] = value;
+    counters[`${key}_sum`] = (counters[`${key}_sum`] ?? 0) + value;
+    counters[`${key}_count`] = (counters[`${key}_count`] ?? 0) + 1;
+    counters.updatedAt = new Date().toISOString();
+    atomicWriteJSON(this.file, counters);
+  }
 }
 
 export function mergedCounters(root) {

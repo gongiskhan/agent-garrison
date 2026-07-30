@@ -23,6 +23,10 @@ import { Ingress } from "../lib/ingress.mjs";
 import { syncTriageJob } from "../lib/scheduler-jobs.mjs";
 import { Notifier } from "../lib/notify.mjs";
 import { OmiApi } from "../lib/omi-api.mjs";
+import { WakeBus } from "../lib/wake.mjs";
+import { inferenceRunFn } from "../lib/gateway-client.mjs";
+import { BoardClient } from "../lib/board-client.mjs";
+import { MemoryWriter } from "../lib/memory-writer.mjs";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -308,13 +312,22 @@ export async function startServer(cfg = loadConfig()) {
   const live = { ...cfg };
   const store = new OmiStore(omiDir());
   const counters = new Counters(store.root, "server");
-  const ingress = new Ingress({ cfg: live, store, counters });
   const notifier = new Notifier({
     cfg: live,
     store,
     counters,
     omiApi: new OmiApi({ appId: live.secrets.appId, appSecret: live.secrets.appSecret })
   });
+  const wakeBus = new WakeBus({
+    cfg: live,
+    store,
+    counters,
+    runFn: live.gatewayUrl ? inferenceRunFn(live.gatewayUrl) : null,
+    board: new BoardClient(),
+    memoryWriter: new MemoryWriter(),
+    notifier
+  });
+  const ingress = new Ingress({ cfg: live, store, counters, wakeBus });
   // Crash recovery: drain any raw payloads a previous process left queued.
   ingress.scheduleDrain();
   const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, notifier }));

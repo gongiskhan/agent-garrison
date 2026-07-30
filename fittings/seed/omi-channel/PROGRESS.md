@@ -138,3 +138,43 @@ Next: M4 — wake bus: word-boundary variant gate over realtime segments
 (create_task via board, note via memory, query via bounded turn),
 wake_confirmation via M3, kill switch mid-session,
 wake_hit_to_notification_ms metric.
+
+## M4 — Wake bus (2026-07-30)
+
+Shipped:
+- `lib/wake.mjs` (WakeBus): unicode-aware word-boundary regex over the
+  configured variants (letter/number lookarounds, since \b fails on
+  accented variants like "géri") — matches "Gary,"/"GARY?"/"géri", never
+  "garrison"/"hungary"/"sugary", asserted.
+- In-memory wake_session per session_id: capture opens on a hit with the
+  post-token remainder, extends per segment, closes on
+  `wake_silence_close_ms` of silence or the `wake_max_capture_ms` hard
+  cap; segment-identity dedupe (start|end|text) means Omi redelivery can
+  never double-dispatch; idle sessions GC'd. Non-hits: counters only,
+  never persisted, never logged with content (I5). The ONLY persistence
+  is the assembled command text as a `wake_command` capture_event with a
+  wake-results ref.
+- Dispatch: ONE combined classify-and-handle model call on the cheap
+  gateway lane (the operative answers queries from its own memory/board
+  context), then deterministic fitting-side actions: create_task /
+  create_event -> board card (origin_id omi:wake:<event>, originChannel
+  omi, marked source line); note -> vault memory with provenance; query ->
+  answer in the confirmation; unknown or any failure (gateway down,
+  unparseable reply, board down) -> note saved + an HONEST confirmation
+  saying so.
+- Kill switch honored mid-session: flag off between hit and close =
+  nothing dispatches, nothing persists (counter only).
+- `wake_hit_to_notification_ms` observed per dispatch
+  (last/sum/count in the counters file, on /health).
+- Wired: realtime ingress hands segments to the bus only when
+  `wake_enabled`; server constructs the bus with real deps.
+- Tests: `tests/omi-channel-wake.test.ts` (11) covering every M4
+  acceptance criterion.
+
+Deviations: create_event lands as a Kanban card titled "Event: ..." (no
+calendar write from the fitting; the orchestrator owns calendars via its
+connectors when the card runs) — added to DECISIONS.md.
+
+Next: M5 — ask_gary chat tool: manifest endpoint (absolute URLs from
+public_base_url + ?key=), handler auth (app id + uid), bounded fast path
+(<10s wall, AbortController, friendly partial answer on overrun).
