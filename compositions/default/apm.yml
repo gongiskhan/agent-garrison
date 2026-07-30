@@ -25,6 +25,7 @@ dependencies:
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
@@ -72,6 +73,10 @@ x-garrison:
             port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
+        - id: omi-channel
+          config:
+            port: 7094
+            bind_host: 127.0.0.1
       gateway:
         - id: http-gateway
           config:

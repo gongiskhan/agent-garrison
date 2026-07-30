@@ -1,0 +1,131 @@
+name: omi-channel
+version: 0.1.0
+description: Bidirectional Omi wearable channel — webhook ingress, heartbeat triage into Kanban cards and memories, wake-word command pipe, outbound Omi notifications, ask_gary chat tool, and a backfeed into Omi memories.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: multi
+  component_shape: script
+  own_port: true
+  default_port: 7094
+  platforms:
+    - claude-code
+  summary: Makes Omi (always-on wearable capture) Garrison's ears and one of its mouths while Garrison remains the only brain. Four pipes plus a backfeed, each behind its own default-off flag.
+  for_consumers: |
+    Channel id "omi" — the Omi wearable ecosystem (Mac desktop app, iPhone,
+    Watch, pendant). Inbound conversations and day summaries are triaged into
+    Kanban cards and memories by the fitting's heartbeat, NOT by you; treat Omi
+    structured data as input evidence only and never surface Omi-generated
+    prose as your own output. Wake-word commands ("Gary, ...") arrive as
+    regular turns on channel "omi". Short confirmations and tips are delivered
+    to the user's devices via Omi direct notifications; message text is always
+    generated on our side. Do not write tasks into Omi or any Omi-connected
+    task tool — the Kanban Loop is the single home for tasks.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7094
+      description: Local port the Omi channel server binds to (base family; per-instance offset applied by the runner).
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind host for the server. Keep loopback; public ingress arrives via the Tailscale Funnel mapping, never a wide bind.
+    - key: enabled
+      type: boolean
+      default: false
+      description: Master switch for webhook ingress (memory, realtime, day-summary endpoints). Off = every ingress endpoint answers 403 and nothing is stored.
+    - key: triage_enabled
+      type: boolean
+      default: false
+      description: Heartbeat triage of the pending inbox into Kanban card candidates, Garrison memories, and tips. One batched model call per non-empty tick.
+    - key: wake_enabled
+      type: boolean
+      default: false
+      description: Wake-word bus over the realtime transcript webhook. Non-matching segments are dropped in memory and never persisted or logged with content.
+    - key: notify_enabled
+      type: boolean
+      default: false
+      description: Outbound Omi direct notifications (confirmations, card-created notices, tips). Off or failing degrades to the web-channel PWA thread.
+    - key: chat_enabled
+      type: boolean
+      default: false
+      description: The ask_gary chat tool endpoint plus its manifest, so Omi's chat UI can answer with Garrison's orchestrator on a bounded fast path.
+    - key: backfeed_enabled
+      type: boolean
+      default: false
+      description: Write selected Garrison facts (completed cards, decisions, optional daily digest) into Omi as memories via the Import API, fingerprint-deduped.
+    - key: tips_enabled
+      type: boolean
+      default: false
+      description: Allow triage to emit tip notifications (subject to tips_max_per_day).
+    - key: public_base_url
+      type: string
+      default: ''
+      description: Public HTTPS base handed to Omi (the Funnel address, e.g. https://host.ts.net:8443). Used to build absolute URLs in the chat-tools manifest.
+    - key: triage_cron
+      type: string
+      default: '*/5 * * * *'
+      description: Cron cadence for the omi-triage scheduler job (the heartbeat tick that drains the inbox).
+    - key: triage_batch_cap
+      type: integer
+      default: 20
+      description: Maximum pending events consumed per triage tick; overflow carries to the next tick.
+    - key: allowed_categories
+      type: string
+      default: ''
+      description: Comma-separated Omi conversation categories to accept (empty = all). Rule-layer scope filter, applied before any model call.
+    - key: blocked_folders
+      type: string
+      default: ''
+      description: Comma-separated Omi folder names to drop at the rule layer.
+    - key: drop_discarded
+      type: boolean
+      default: true
+      description: Drop conversations Omi marked discarded at the rule layer.
+    - key: wake_variants
+      type: string
+      default: 'gary,garry,gerry,géri'
+      description: Comma-separated wake-word spellings matched case-insensitively on word boundaries (Portuguese and English transcripts both occur).
+    - key: wake_silence_close_ms
+      type: integer
+      default: 4000
+      description: Close a wake capture after this much silence (no new segment) and dispatch the assembled command.
+    - key: wake_max_capture_ms
+      type: integer
+      default: 20000
+      description: Hard cap on a single wake capture window.
+    - key: notify_max_per_day
+      type: integer
+      default: 50
+      description: Per-day cap on outbound Omi direct notifications; beyond it delivery degrades to the web-channel thread.
+    - key: tips_max_per_day
+      type: integer
+      default: 3
+      description: Per-day cap on tip notifications emitted by triage.
+    - key: backfeed_kinds
+      type: string
+      default: 'completed_cards,decisions'
+      description: Comma-separated backfeed sources (completed_cards, decisions, daily_digest).
+  secret_scope:
+    - OMI_APP_ID
+    - OMI_APP_SECRET
+    - OMI_IMPORT_API_KEY
+    - OMI_WEBHOOK_SECRET
+  provides:
+    - kind: channel
+      name: omi
+  consumes:
+    - kind: vault
+      cardinality: one
+    - kind: memory-store
+      cardinality: optional-one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/omi-channel/scripts/omi.mjs --probe
+    expect: OMI-OK
+    timeout_ms: 10000

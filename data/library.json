@@ -105,6 +105,21 @@
     }
   },
   {
+    "id": "omi-channel",
+    "name": "Omi channel",
+    "repo": "local:fittings/seed/omi-channel",
+    "localPath": "fittings/seed/omi-channel",
+    "summary": "Bidirectional Omi wearable channel: webhook ingress, heartbeat triage into cards and memories, wake-word commands, Omi direct notifications, ask_gary chat tool, backfeed.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-omi-channel",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "browser-default",
     "name": "Browser",
     "repo": "local:fittings/seed/browser-default",
