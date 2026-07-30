@@ -22,7 +22,11 @@ provider side. The two sides stay decoupled; the only coupling is the contract.
 ## About "talks only to `localhost`"
 
 [CLAUDE.md](../CLAUDE.md) positions Garrison as open-source, local-first, single-user, no auth, talks only to
-`localhost`. That line describes **Garrison's own shell**: the app server, its APIs, and its UI are local. It has
+`localhost`. That line describes **Garrison's own shell**: the app server, its APIs, and its UI are local. Local here
+means *runs on one machine*, not *reachable only from it*: prod publishes its views to the tailnet via
+`tailscale serve` and is normally driven from another device (the HARD RULE in [CLAUDE.md](../CLAUDE.md),
+"the user's browser is almost never on the Garrison machine"), so the line is about who owns and runs the
+server, not about which sockets it listens on. It has
 always coexisted with outbound network calls made by Fittings the user explicitly equips and keys:
 `fittings/seed/deepgram-voice/` reaches `https://api.deepgram.com` with a vault-held `DEEPGRAM_API_KEY`, and the
 model runtimes reach whichever provider the composition selects (`fittings/seed/agent-sdk-runtime/lib/providers.mjs`
