@@ -20,6 +20,7 @@ import url from "node:url";
 import { FITTING_ID, garrisonDir, loadConfig, omiDir, statusFilePath } from "../lib/config.mjs";
 import { Counters, OmiStore, mergedCounters } from "../lib/store.mjs";
 import { Ingress } from "../lib/ingress.mjs";
+import { syncTriageJob } from "../lib/scheduler-jobs.mjs";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -284,6 +285,18 @@ export async function startServer(cfg = loadConfig()) {
   );
   if (!cfg.gatewayUrl) {
     console.log("[omi-channel] no gateway URL in env; gateway-dependent pipes will skip with a reason");
+  }
+
+  // Boot-time scheduler-job sync (kanban server precedent: the server has the
+  // gateway URL in scope, the setup hook does not). triage_enabled=true
+  // registers the idempotent omi-triage job; false removes it. Tests pass
+  // syncJobs: false via cfg to keep sandboxed boots from spawning the CLI.
+  if (cfg.syncJobs !== false) {
+    try {
+      syncTriageJob(live);
+    } catch (err) {
+      console.error(`[omi-channel] scheduler job sync failed (non-fatal): ${err?.message ?? err}`);
+    }
   }
 
   const shutdown = async (signal) => {

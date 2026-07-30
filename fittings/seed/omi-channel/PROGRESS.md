@@ -61,3 +61,40 @@ DECISIONS.md).
 Next: M2 — heartbeat triage: omi-triage scheduler job, rule filters, ONE
 batched gateway model call per non-empty tick, card/memory/tip candidates,
 board dedupe by origin_id, zero-model-call empty tick asserted.
+
+## M2 — Heartbeat triage (2026-07-30)
+
+Shipped:
+- `lib/triage.mjs`: per tick — rule filters first with zero model cost
+  (discarded, blocked folders, category scope; no-open-action conversations
+  keep the memory path but are barred from the card path), then ONE batched
+  model call over the capped batch (overflow carries), then candidates fan
+  out. Empty inbox = zero model calls AND zero board contact, asserted.
+- Card creation through the board API (I4): `origin: omi`,
+  `origin_id: omi:<conversation>:<action-index>` as the dedupe key
+  (pre-checked via GET /cards?origin_id= because the board has no dedupe),
+  backlog placement, project label validated against GET /projects (never
+  fabricated), body = our text + ONE marked `Source (Omi): "..."` line +
+  provenance line (I1).
+- Memories via the basic-memory vault-file pattern (`lib/memory-writer.mjs`):
+  frontmatter + provenance bullets + secret redaction + `omi-` filename
+  prefix (never `session-*`); vault absence = skipped-with-reason.
+- Tips: queued to `tips-queue/` under a per-day ledger cap (delivery is M3).
+- Failure discipline: transport errors leave events pending with no attempt
+  burned; unparseable replies consume attempts and park the batch as failed
+  after 5.
+- `scripts/triage.mjs --tick` CLI + `lib/scheduler-jobs.mjs`: idempotent
+  `register` of the `omi-triage` job on server boot (kanban registerTick
+  pattern: instance env baked into the command, no gateway = no
+  registration), removal when the flag turns off.
+- Tests: `tests/omi-channel-triage.test.ts` (11) — golden batch, zero-dupe
+  re-run, I3 empty-tick assertion, batch cap/overflow, transport vs parse
+  failure, tips cap, rule filter units, prompt caps.
+
+Deviations: none new (own scheduler job already recorded).
+
+Next: M3 — outbound notifications: Omi direct-notification client
+(uid+message query params, 401/429 handling, per-day cap), notify module
+with web-channel-thread fallback, CHANNEL_FITTINGS registration, thread
+contract on the omi server, templates card_created / wake_confirmation /
+tip, tips-queue drain.

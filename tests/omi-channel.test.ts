@@ -85,7 +85,7 @@ describe("omi-channel server (sandboxed boot)", () => {
   it("boots, writes the status file, serves /health, and refuses ingress when disabled", async () => {
     const cfg = loadConfig({ GARRISON_HOME: home, GARRISON_OMICHANNEL_PORT: "0" });
     // loadConfig rejects 0 as a port (falls back to default); force ephemeral.
-    server = await startServer({ ...cfg, port: 0 });
+    server = await startServer({ ...cfg, port: 0, syncJobs: false });
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
     expect(port).toBeGreaterThan(0);

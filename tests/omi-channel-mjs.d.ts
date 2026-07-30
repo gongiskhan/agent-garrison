@@ -69,6 +69,8 @@ interface OmiCaptureEvent {
   provenance: Record<string, string | null>;
   status: "pending" | "triaged" | "dropped" | "failed";
   failure_reason?: string;
+  drop_reason?: string;
+  triage_attempts?: number;
   triage_result_ref: string | null;
 }
 
@@ -125,6 +127,90 @@ declare module "*/omi-channel/lib/normalize.mjs" {
   export function normalizeConversation(args: { id: string; uid: string; receivedAt: string; raw: unknown }): OmiCaptureEvent;
   export function normalizeDaySummary(args: { id: string; uid: string; receivedAt: string; raw: unknown }): OmiCaptureEvent;
   export function failedEvent(args: { id: string; uid?: string | null; receivedAt: string; kind?: string; reason: string }): OmiCaptureEvent;
+}
+
+declare module "*/omi-channel/lib/triage.mjs" {
+  export function ruleFilter(
+    event: unknown,
+    cfg: unknown
+  ): { action: "drop"; reason: string } | { action: "keep"; taskPath: boolean };
+  export function buildTriagePrompt(args: { batch: unknown[]; projects: string[] }): string;
+  export function parseTriageReply(reply: string): {
+    cards: Array<Record<string, unknown> & { event_id?: string }>;
+    memories: Array<Record<string, unknown>>;
+    tips: Array<Record<string, unknown>>;
+  } | null;
+  export function tipsQueueDir(storeRoot: string): string;
+  export function runTriageTick(deps: {
+    cfg: unknown;
+    store: unknown;
+    counters: unknown;
+    runFn: (args: { prompt: string }) => Promise<{ reply: string }>;
+    board: unknown;
+    memoryWriter: unknown;
+    log?: unknown;
+    now?: Date;
+  }): Promise<{
+    modelCalls: number;
+    dropped: number;
+    cardsCreated: number;
+    cardsDeduped: number;
+    cardsSuppressed: number;
+    memoriesWritten: number;
+    memoriesSkipped: number;
+    tipsQueued: number;
+    tipsCapped: number;
+    triaged: number;
+    overflow: number;
+    skipped: string | null;
+    error: string | null;
+  }>;
+}
+
+declare module "*/omi-channel/lib/gateway-client.mjs" {
+  export function inferenceRunFn(
+    gatewayUrl: string,
+    opts?: { timeoutMs?: number; fetchImpl?: typeof fetch }
+  ): (args: { prompt: string }) => Promise<{ reply: string }>;
+}
+
+declare module "*/omi-channel/lib/board-client.mjs" {
+  export function boardBase(env?: Record<string, string | undefined>): string | null;
+  export class BoardClient {
+    constructor(opts?: { baseUrl?: string | null; fetchImpl?: typeof fetch; env?: Record<string, string | undefined> });
+    base(): string | null;
+    reachable(): Promise<boolean>;
+    findByOriginId(originId: string): Promise<Array<Record<string, unknown>>>;
+    createCard(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+    listProjects(): Promise<string[]>;
+  }
+}
+
+declare module "*/omi-channel/lib/memory-writer.mjs" {
+  export function vaultMemoryDir(env?: Record<string, string | undefined>): { vault: string; dir: string };
+  export function redactSecrets(text: string): string;
+  export class MemoryWriter {
+    constructor(opts?: { dir?: string | null; env?: Record<string, string | undefined> });
+    vault: string;
+    dir: string;
+    available(): boolean;
+    write(args: {
+      title: string;
+      content: string;
+      tags?: string[];
+      provenance?: Record<string, string | null | undefined>;
+      now?: Date;
+    }): { ok: true; file: string } | { ok: false; skipped: string };
+  }
+}
+
+declare module "*/omi-channel/lib/scheduler-jobs.mjs" {
+  export const TRIAGE_JOB_ID: string;
+  export function schedulerCli(env?: Record<string, string | undefined>): string;
+  export function triageEnvPrefix(cfg: unknown, env?: Record<string, string | undefined>): string[];
+  export function registerTriageJob(cfg: unknown, opts?: { env?: Record<string, string | undefined>; log?: unknown }): boolean;
+  export function removeTriageJob(opts?: { env?: Record<string, string | undefined>; log?: unknown }): boolean;
+  export function syncTriageJob(cfg: unknown, opts?: { env?: Record<string, string | undefined>; log?: unknown }): boolean;
 }
 
 declare module "*/omi-channel/scripts/replay.mjs" {

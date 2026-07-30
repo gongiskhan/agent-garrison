@@ -53,6 +53,7 @@ function testCfg(overrides: Record<string, unknown> = {}) {
     ...cfg,
     port: 0,
     enabled: true,
+    syncJobs: false,
     secrets: { ...cfg.secrets, webhookSecret: SECRET },
     ...overrides
   };
