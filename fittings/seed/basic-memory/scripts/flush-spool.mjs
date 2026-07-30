@@ -27,7 +27,11 @@ import { spawnSync } from "node:child_process";
 const PREFIX = "[basic-memory] flush:";
 const log = (msg) => console.log(`${PREFIX} ${msg}`);
 
-const FLUSH_TIMEOUT_MS = 30_000;
+// 30s per file; env override exists for tests only. Timeout kills with
+// SIGKILL — a CLI that traps/ignores SIGTERM (spawnSync's default) would
+// otherwise block the drain until it felt like exiting.
+const FLUSH_TIMEOUT_MS =
+  Number(process.env.BASIC_MEMORY_FLUSH_TIMEOUT_MS || "") || 30_000;
 
 function main() {
   const dryRun = process.argv.slice(2).includes("--dry-run");
@@ -79,7 +83,12 @@ function main() {
     const res = spawnSync(
       bin,
       ["memory", "write", "--file", f.full, "--permalink", key, "--json"],
-      { timeout: FLUSH_TIMEOUT_MS, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+      {
+        timeout: FLUSH_TIMEOUT_MS,
+        killSignal: "SIGKILL",
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"]
+      }
     );
     if (res.error && res.error.code === "ENOENT") {
       // No cortex CLI on this machine: not an error, just nothing to drain

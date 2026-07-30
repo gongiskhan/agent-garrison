@@ -29,7 +29,15 @@ FLUSH_CRON="${BASIC_MEMORY_FLUSH_INTERVAL_CRON:-*/15 * * * *}"
 CORTEX_BIN="${BASIC_MEMORY_CORTEX_CLI_BIN:-cortex}"
 FLUSH_PATH="$HOOK_HOME/flush-spool.mjs"
 FLUSH_JOB_ID="basic-memory-spool-flush"
-spool_on() { [ "$SPOOL_ENABLED" = "true" ] || [ "$SPOOL_ENABLED" = "1" ]; }
+# Truthiness matches the hook's _truthy() (true|1|yes|on, case-insensitive) so
+# an env-set "yes" cannot spool captures without also getting a drain job.
+spool_on() {
+  case "$(printf '%s' "$SPOOL_ENABLED" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+quote() { printf "%q" "$1"; }
 
 export PATH="$HOME/.local/bin:$PATH"
 log() { printf '[basic-memory-setup] %s\n' "$*"; }
@@ -110,8 +118,10 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
   # the historical command.
   SPOOL_ENV=""
   if spool_on; then
-    SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 CORTEX_CLI_BIN=\"$CORTEX_BIN\" "
-    [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=\"$SPOOL_DIR\" "
+    # %q-quoted (like the scheduler path below): a config value carrying
+    # quotes/$() must land as data in the hook command, never as shell.
+    SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 CORTEX_CLI_BIN=$(quote "$CORTEX_BIN") "
+    [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR") "
   fi
   CAP_CMD="${SPOOL_ENV}BASIC_MEMORY_VAULT_DIR=\"$VAULT_DIR\" BASIC_MEMORY_MEMORY_DIR=\"$MEMORY_DIR\" python3 \"$HOOK_PATH\""
   python3 - "$SETTINGS_FILE" "$CAP_CMD" <<'PY'
@@ -158,7 +168,6 @@ sched_env=()
 [ -n "$jobs_file" ] && sched_env+=("GARRISON_SCHEDULER_JOBS=$jobs_file")
 [ -n "$log_file" ] && sched_env+=("GARRISON_SCHEDULER_LOG=$log_file")
 sched() { env ${sched_env[@]+"${sched_env[@]}"} node "$scheduler_script" "$@"; }
-quote() { printf "%q" "$1"; }
 
 if spool_on; then
   # The drain must survive composition churn like the hook does, so it runs
@@ -178,8 +187,18 @@ if spool_on; then
   fi
 else
   # Spool off (the default): retire our drain job if a previous enable left
-  # one behind. The id is namespaced to this fitting, so removal is safe.
-  if [ -f "$scheduler_script" ]; then
+  # one behind. Gated on the job actually existing (improver-nightly's
+  # conditional idiom) — scheduler.mjs `remove` rewrites the machine-global
+  # jobs file even for a no-op, and the default-off path must touch nothing.
+  if [ -f "$scheduler_script" ] && sched list 2>/dev/null | node -e '
+    let raw = "";
+    process.stdin.on("data", (c) => { raw += c; });
+    process.stdin.on("end", () => {
+      let jobs = [];
+      try { jobs = JSON.parse(raw).jobs ?? []; } catch { process.exit(1); }
+      process.exit(jobs.some((j) => j?.id === "basic-memory-spool-flush") ? 0 : 1);
+    });
+  '; then
     sched remove "$FLUSH_JOB_ID" >/dev/null 2>&1 || true
   fi
 fi

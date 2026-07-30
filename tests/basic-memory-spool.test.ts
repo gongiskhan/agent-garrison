@@ -173,7 +173,9 @@ describe("basic-memory capture spool + flush", () => {
       expect(notes).toHaveLength(1);
       const spooled = await spoolFiles();
       expect(spooled).toHaveLength(1);
-      expect(spooled[0]).toMatch(new RegExp(`^capture-${SESSION_ID}-\\d{8}-\\d{6}\\.md$`));
+      // key = capture-<sid>-<ts>-<pid>; the pid keeps same-second SessionEnd
+      // + PreCompact (distinct hook processes) from overwriting each other.
+      expect(spooled[0]).toMatch(new RegExp(`^capture-${SESSION_ID}-\\d{8}-\\d{6}-\\d+\\.md$`));
       // No partial files left behind (write-then-rename).
       expect((await fs.readdir(spool)).filter((n) => n.endsWith(".tmp"))).toHaveLength(0);
 
@@ -232,6 +234,78 @@ describe("basic-memory capture spool + flush", () => {
       const remaining = await spoolFiles();
       expect(remaining).toHaveLength(1); // the 3 old ones evicted, the new capture written
       expect(remaining[0]).toMatch(new RegExp(`^capture-${SESSION_ID}-`));
+    });
+
+    it("eviction never touches foreign files: spool_dir is user config", async () => {
+      // Review finding: a mispointed spool_dir must not have its files
+      // silently deleted by a session-end hook. Only capture-*.md (and this
+      // script's own .tmp leftovers) are eviction candidates or counted.
+      const filler = "x".repeat(500);
+      const foreign = path.join(spool, "IMPORTANT-notes.txt");
+      await fs.mkdir(spool, { recursive: true });
+      await fs.writeFile(foreign, filler, "utf8");
+      const old = Math.floor(Date.now() / 1000) - 400; // oldest file in the dir
+      await fs.utimes(foreign, old, old);
+      await seedSpoolFile("capture-old1-20260101-000001.md", filler, 300);
+      await seedSpoolFile("capture-old2-20260101-000002.md", filler, 200);
+
+      const result = await run(
+        "python3",
+        [CAPTURE],
+        captureEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_CAP_BYTES: "600"
+        }),
+        hookPayload()
+      );
+      expect(result.exitCode).toBe(0);
+      // Both captures evicted (counted against the cap), the foreign file
+      // never counted and never deleted.
+      expect(result.stderr).toContain("spool cap: evicted 2 oldest captures");
+      expect(await fs.readFile(foreign, "utf8")).toBe(filler);
+      const remaining = await spoolFiles();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]).toMatch(new RegExp(`^capture-${SESSION_ID}-`));
+    });
+
+    it("a capture larger than the cap is refused loudly instead of evicting everything", async () => {
+      await seedSpoolFile("capture-old1-20260101-000001.md", "keep-me", 100);
+
+      const result = await run(
+        "python3",
+        [CAPTURE],
+        captureEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_CAP_BYTES: "100" // any real capture exceeds this
+        }),
+        hookPayload()
+      );
+      expect(result.exitCode).toBe(0);
+      expect(await vaultNotes()).toHaveLength(1); // local write unaffected
+
+      const loud = result.stderr
+        .split("\n")
+        .filter((l) => l.includes("[basic-memory] spool cap:"));
+      expect(loud).toHaveLength(1);
+      expect(loud[0]).toMatch(/capture exceeds the cap; skipped spool write$/);
+      // Nothing written, nothing evicted for a doomed write.
+      expect(await spoolFiles()).toEqual(["capture-old1-20260101-000001.md"]);
+    });
+
+    it("two captures in the same second land as two spool files (pid disambiguator)", async () => {
+      const env = captureEnv({
+        BASIC_MEMORY_SPOOL_ENABLED: "1",
+        BASIC_MEMORY_SPOOL_DIR: spool
+      });
+      const [first, second] = await Promise.all([
+        run("python3", [CAPTURE], env, hookPayload()),
+        run("python3", [CAPTURE], env, hookPayload({ hook_event_name: "PreCompact" }))
+      ]);
+      expect(first.exitCode).toBe(0);
+      expect(second.exitCode).toBe(0);
+      expect(await spoolFiles()).toHaveLength(2); // same sid + second, distinct pids
     });
   });
 
@@ -326,6 +400,25 @@ describe("basic-memory capture spool + flush", () => {
       expect(result.stdout).toContain(`would flush ${name}`);
       expect(await spoolFiles()).toEqual([name]);
       await expect(fs.stat(log)).rejects.toMatchObject({ code: "ENOENT" }); // stub never ran
+    });
+
+    it("timeout SIGKILLs a CLI that ignores SIGTERM: drain never blocks past the budget", async () => {
+      const name = `capture-${SESSION_ID}-20260101-000000.md`;
+      await seedSpoolFile(name, "one", 100);
+      // A hostile/hung CLI: ignores SIGTERM (spawnSync's default kill signal)
+      // and sleeps well past the timeout budget.
+      const bin = path.join(tmp, "cortex-hang");
+      await fs.writeFile(bin, `#!/bin/sh\ntrap '' TERM\nsleep 8\n`, { mode: 0o755 });
+
+      const result = await run("node", [FLUSH], {
+        BASIC_MEMORY_SPOOL_DIR: spool,
+        CORTEX_CLI_BIN: bin,
+        BASIC_MEMORY_FLUSH_TIMEOUT_MS: "1000"
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain("timeout after 1000ms");
+      expect(result.elapsedMs).toBeLessThan(5000); // SIGKILL, not the 8s sleep
+      expect(await spoolFiles()).toEqual([name]); // failure leaves the file
     });
 
     it("empty or missing spool exits 0 quietly", async () => {

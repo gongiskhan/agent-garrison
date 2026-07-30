@@ -13,7 +13,9 @@ capture failure must never break the session.
 Optional spool (opt-in, backend-agnostic): when BASIC_MEMORY_SPOOL_ENABLED is
 truthy, the same markdown is ALSO written as one spool file under
 BASIC_MEMORY_SPOOL_DIR (default ~/.garrison/cortex-memory/spool), named after
-a stable idempotency key `capture-<session_id>-<ts>`. A scheduled drain
+a stable idempotency key `capture-<session_id>-<ts>-<pid>` (the pid keeps a
+SessionEnd and a PreCompact landing in the same second from overwriting each
+other — each hook invocation is its own process). A scheduled drain
 (flush-spool.mjs) later pushes spool files to the cortex CLI — the hook itself
 NEVER touches the network. The spool dir is capped (default 50MB,
 BASIC_MEMORY_SPOOL_CAP_BYTES override): oldest captures are evicted first with
@@ -23,14 +25,22 @@ is byte-identical whether the spool is on, off, or broken.
 import sys, os, json, re, datetime
 
 SPOOL_CAP_DEFAULT = 50 * 1024 * 1024  # 50MB
+# Only files THIS hook produces (finished captures + its own write-then-rename
+# leftovers). spool_dir is user config — a mispointed dir must never have
+# foreign files deleted by a session-end hook, so eviction candidates and the
+# cap accounting are both restricted to this shape (mirrors flush-spool.mjs's
+# /^capture-.+\.md$/ drain filter).
+SPOOL_FILE_RE = re.compile(r"^capture-.+\.md(\.tmp)?$")
 
 def _truthy(v):
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 def _spool_evict_over_cap(spool_dir, cap, incoming):
-    """Evict oldest spool files until existing + incoming fits under cap."""
+    """Evict oldest CAPTURES until existing + incoming fits under cap."""
     entries, total = [], 0
     for name in os.listdir(spool_dir):
+        if not SPOOL_FILE_RE.match(name):
+            continue  # foreign file: never counted, never evicted
         p = os.path.join(spool_dir, name)
         try:
             if not os.path.isfile(p):
@@ -64,11 +74,19 @@ def _spool_write(session_id, now, payload_text):
         cap = int(os.environ.get("BASIC_MEMORY_SPOOL_CAP_BYTES") or SPOOL_CAP_DEFAULT)
     except ValueError:
         cap = SPOOL_CAP_DEFAULT
-    os.makedirs(spool_dir, exist_ok=True)
     data = payload_text.encode("utf-8", errors="replace")
+    if len(data) > cap:
+        # A capture that alone exceeds the cap would evict everything and
+        # still land over cap — refuse it instead, loudly.
+        print("[basic-memory] spool cap: capture exceeds the cap; skipped spool write",
+              file=sys.stderr)
+        return
+    os.makedirs(spool_dir, exist_ok=True)
     _spool_evict_over_cap(spool_dir, cap, len(data))
     sid = re.sub(r"[^A-Za-z0-9]+", "-", session_id).strip("-") or "unknown"
-    key = f"capture-{sid}-{now.strftime('%Y%m%d-%H%M%S')}"  # stable idempotency key
+    # Stable idempotency key; the pid disambiguates same-second events
+    # (SessionEnd + PreCompact are distinct hook processes).
+    key = f"capture-{sid}-{now.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
     final = os.path.join(spool_dir, key + ".md")
     tmp = final + ".tmp"  # write-then-rename so the flusher never sees a partial file
     with open(tmp, "wb") as f:
