@@ -639,6 +639,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 // into each create dialog would need a query contract per fitting; landing on the
 // right surface is honest and never dead-ends.
 const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> = [
+  // Deep-links Muster's Import/Export tab. Unlike the others this one is not
+  // merely "the surface that owns creation" — importing a bundle IS how a
+  // composition arrives from another machine, and burying it two clicks deep
+  // would hide the only way in.
+  {
+    label: "Composition from a file",
+    href: "/muster?section=transfer",
+    hint: "import a .garrison.json bundle"
+  },
   { label: "Session", href: "/fitting/web-channel-default", hint: "a new Web Channel conversation" },
   { label: "Card", href: "/fitting/kanban-loop", hint: "a new Kanban card" },
   { label: "Duty", href: "/muster", hint: "add a duty to the composition" },
@@ -727,7 +736,13 @@ function CompositionCreator({
 
   return (
     <div className="composition-creator">
-      <div className="composition-creator-trigger-wrap">
+      {/* menuRef must wrap BOTH the trigger and the menu. It was declared but
+          never attached, so `menuRef.current?.contains(...)` was always
+          undefined and the outside-click handler below treated EVERY mousedown
+          as outside — including one landing on a menu item. The menu unmounted
+          between mousedown and mouseup, the click never completed on the item,
+          and no entry in the New menu did anything. */}
+      <div className="composition-creator-trigger-wrap" ref={menuRef}>
         <button
           ref={triggerRef}
           type="button"

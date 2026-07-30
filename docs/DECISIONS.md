@@ -615,3 +615,40 @@ orchestrator no longer calls `create_worktree` / `list_worktrees` /
 flow described in [`docs/worktrees-and-surface-aware-brief.md`](./worktrees-and-surface-aware-brief.md)
 (kept as a historical design record with a SUPERSEDED banner).
 **Source:** GARRISON-FLOW-V2 S3 sweep; RUN_SPEC / FLOW_PLAN D10. **Status:** Settled.
+
+## 2026-07-30 · A composition is a document: one JSON bundle, allow-listed, secret-free
+
+Compositions could only be created by cloning one already on the machine, so the
+whole shape of an operative — stationed Fittings and their config, duties,
+targets, prompts, routing policy — could not leave the box it was authored on.
+Import/Export ships as a **Transfer** tab on Muster (`/muster?section=transfer`),
+built on three decisions:
+
+- **A single JSON document, not an archive.** A composition is entirely text, and
+  `<id>.garrison.json` can be downloaded, pasted into a box, committed, diffed in
+  review, and validated with a schema. A tarball can do none of those. The file
+  carries the `apm.yml` manifest verbatim plus each authored side-file inline, a
+  `requirements` block (the Fittings it needs, the vault keys it names), and an
+  `excluded` list stating in prose what deliberately did not travel.
+
+- **An ALLOW-list of authored paths**, where `composition-clone.ts` uses a
+  deny-list. A clone stays on this machine, so "copy everything except known
+  runtime junk" is safe there. A bundle is a SHARE artifact, and the failure mode
+  of a deny-list is leaking a credential someone dropped beside their manifest.
+  Adding a new authored file type therefore requires a rule in
+  `EXPORT_FILE_RULES`, and the export UI lists every included file so nothing
+  travels invisibly. The same predicate validates an untrusted bundle on import,
+  so a hostile `files[].path` can only ever name a path the exporter could have
+  produced.
+
+- **Secrets are named, never carried.** `.env`, the vault, `local.yml` (the
+  machine-local overlay of home paths and machine ports) and `apm.lock.yaml` are
+  all outside the allow-list. The bundle instead names the vault keys its
+  Fittings are scoped to read, and the importing machine reports which of those
+  are unset here — the recipient supplies the values.
+
+Import previews against the receiving machine before writing anything (missing
+Fittings, unset vault keys, the id it will land on), stages into a hidden sibling
+and renames only when complete, and refuses to overwrite an existing composition.
+**Source:** composition-transfer.ts, `tests/composition-transfer.test.ts`,
+`tests/e2e/muster-transfer.spec.ts`. **Status:** Settled.

@@ -98,6 +98,8 @@ src/lib/             Backend runtime (flat, no sub-packages):
                        runner.ts           lifecycle (up/down/dev)
                        capabilities.ts     provides/consumes resolver
                        metadata.ts         x-garrison parser + validator
+                       composition-clone.ts  clean copy of a composition
+                       composition-transfer.ts  portable .garrison.json bundle
                        vault.ts            AES-256-GCM secret store
                        artifact-store.ts   namespaced filesystem store
                        fitting-views.ts    UI contract v2 router
@@ -126,6 +128,8 @@ packages/claude-pty/ PTY substrate — drives the interactive Claude Code TUI
 packages/claude-chat/ Chat client built on claude-pty.
 compositions/<id>/   apm.yml = source of truth per composition.
                      Filesystem is authoritative; no JSON shadow.
+                     Portable form: a single `<id>.garrison.json` bundle
+                     (Muster → Import / Export). See below.
 fittings/seed/       Local APM seed Fittings. Each is a self-contained APM
                      package; new ones ship as their own git repos.
 data/library.json    Curated Fittings Registry.
@@ -212,6 +216,38 @@ derived by the resolver from `ui.views[]` / `own_port`, never declared in
 `identity-gary`, and `duty` carries the per-duty behaviour. Dropped:
 `data-source` (2026-06-26, superseded by `connector`) and `artifact-store`
 (the file-browser Fitting is the artifact surface).
+
+### Composition transfer — import / export (`src/lib/composition-transfer.ts`)
+
+A composition leaves the machine as **one JSON document**, `<id>.garrison.json`,
+and comes back the same way. Surfaced as the **Import / Export** tab on Muster
+(`/muster?section=transfer`, deep-linked from the shell's `+ New` menu);
+`GET /api/compositions/<id>/export` (`?download=1` for the attachment) and
+`POST /api/compositions/import` (`{bundle, id?, name?, preview?}`) are the API.
+
+The bundle carries the `apm.yml` manifest verbatim (selections + per-fitting
+config, duties, targets, global config), each authored side-file inline, a
+`requirements` block naming the Fittings and vault keys it depends on, and an
+`excluded` list stating what deliberately did not travel.
+
+- **What travels is an ALLOW-list** (`EXPORT_FILE_RULES`), unlike
+  `composition-clone.ts`'s deny-list — a clone stays local, a bundle is shared, so
+  an unrecognised file beside a manifest must never ride along. Today: root
+  `*.md` and `routing.*.json`, `.garrison/routing.json`,
+  `.garrison/orchestrator-authored.json`, `.garrison/prompts/*.md`. **A new
+  authored file type needs a rule here or it silently will not travel.**
+- **What never travels**: `.env`, vault values, `local.yml` (the machine-local
+  overlay — home paths and machine ports), `apm.lock.yaml`, `apm_modules/`,
+  `.claude/`, `.garrison/souls/`, the assembled prompt, session ids, decisions,
+  run evidence, `owner.json`. Secrets are **named, never carried**; the importing
+  machine reports which of those keys are unset there.
+- **The same predicate validates an untrusted bundle on import**, so a hostile
+  `files[].path` can only name a path the exporter could have produced. Import
+  previews first (missing Fittings, unset keys, the id it will land on), stages
+  into a hidden sibling and renames only when complete, and **never overwrites**
+  an existing composition.
+- `dependencies.apm` travels verbatim: its `path:` entries are relative to the
+  composition directory and an import lands as a sibling, so they still resolve.
 
 ### Runtime engines (adding one)
 
