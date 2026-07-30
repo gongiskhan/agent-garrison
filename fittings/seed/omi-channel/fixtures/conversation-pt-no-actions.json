@@ -1,0 +1,36 @@
+{
+  "id": "conv_omi_0003",
+  "created_at": "2026-07-29T13:40:00.000000+00:00",
+  "started_at": "2026-07-29T13:20:00.000000+00:00",
+  "finished_at": "2026-07-29T13:39:00.000000+00:00",
+  "transcript_segments": [
+    {
+      "text": "Hoje o treino correu bem, consegui manter o ritmo os quarenta minutos todos.",
+      "speaker": "SPEAKER_00",
+      "speakerId": 0,
+      "is_user": true,
+      "start": 2.0,
+      "end": 9.0
+    },
+    {
+      "text": "O joelho ja nao doeu, o que e otimo sinal.",
+      "speaker": "SPEAKER_00",
+      "speakerId": 0,
+      "is_user": true,
+      "start": 10.0,
+      "end": 15.0
+    }
+  ],
+  "structured": {
+    "title": "Registo do treino",
+    "overview": "Nota pessoal sobre o treino de corrida: quarenta minutos a ritmo constante, sem dor no joelho.",
+    "emoji": "🏃",
+    "category": "personal",
+    "action_items": [],
+    "events": []
+  },
+  "apps_response": [],
+  "discarded": false,
+  "folder_id": "folder_pessoal",
+  "folder_name": "Pessoal"
+}

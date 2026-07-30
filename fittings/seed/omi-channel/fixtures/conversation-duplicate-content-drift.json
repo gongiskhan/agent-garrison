@@ -1,0 +1,31 @@
+{
+  "id": "conv_omi_0001",
+  "created_at": "2026-07-29T10:16:45.910559+00:00",
+  "started_at": "2026-07-29T10:01:43.384323+00:00",
+  "finished_at": "2026-07-29T10:14:43.384323+00:00",
+  "transcript_segments": [
+    {
+      "text": "Let's lock the launch checklist today.",
+      "speaker": "SPEAKER_00",
+      "speakerId": 0,
+      "speaker_name": "Goncalo",
+      "is_user": true,
+      "start": 10.0,
+      "end": 14.5
+    }
+  ],
+  "structured": {
+    "title": "Launch checklist sync (regenerated)",
+    "overview": "Regenerated overview for the same conversation id; a replay or re-process must be a no-op.",
+    "emoji": "📋",
+    "category": "work",
+    "action_items": [
+      { "description": "Send the pricing page draft to Rita", "completed": false }
+    ],
+    "events": []
+  },
+  "apps_response": [],
+  "discarded": false,
+  "folder_id": "folder_work_1",
+  "folder_name": "Work"
+}

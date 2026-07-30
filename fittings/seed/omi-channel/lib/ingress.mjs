@@ -1,0 +1,184 @@
+// Webhook ingress: auth (shared secret + pinned uid, invariant I8), fast-ack
+// enqueue (I7), and the serialized normalization worker with dedupe (I6).
+//
+// Privacy (I5): realtime transcript payloads are NEVER enqueued, persisted, or
+// logged with content - they are handled in memory only (the wake gate lands
+// in M4); this module only counts them in M1.
+
+import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
+import { failedEvent, normalizeConversation, normalizeDaySummary } from "./normalize.mjs";
+import { ulid } from "./store.mjs";
+
+function digest(value) {
+  return crypto.createHash("sha256").update(String(value), "utf8").digest();
+}
+
+// Constant-time compare via fixed-length digests (no length leak).
+export function secretMatches(presented, expected) {
+  if (!presented || !expected) return false;
+  return crypto.timingSafeEqual(digest(presented), digest(expected));
+}
+
+export class Ingress {
+  constructor({ cfg, store, counters, log = console }) {
+    this.cfg = cfg;
+    this.store = store;
+    this.counters = counters;
+    this.log = log;
+    this.chain = Promise.resolve();
+  }
+
+  // -> { ok: true, uid } | { ok: false, status, reason }
+  authorize(query) {
+    if (!this.cfg.enabled) {
+      this.counters.bump("rejected_disabled");
+      return { ok: false, status: 403, reason: "ingress disabled" };
+    }
+    const expected = this.cfg.secrets.webhookSecret;
+    if (!expected) {
+      this.counters.bump("rejected_no_secret");
+      return { ok: false, status: 403, reason: "ingress not configured" };
+    }
+    if (!secretMatches(query.key, expected)) {
+      this.counters.bump("rejected_auth");
+      return { ok: false, status: 401, reason: "bad key" };
+    }
+    const uid = typeof query.uid === "string" ? query.uid.trim() : "";
+    if (!uid) {
+      this.counters.bump("rejected_no_uid");
+      return { ok: false, status: 400, reason: "missing uid" };
+    }
+    const pinned = this.store.pinnedUid() ?? this.store.pinUid(uid);
+    if (uid !== pinned) {
+      this.counters.bump("rejected_uid");
+      return { ok: false, status: 403, reason: "uid not allowed" };
+    }
+    return { ok: true, uid };
+  }
+
+  // Batch pipe: enqueue raw + schedule the drain. Returns fast (I7).
+  accept({ kind, uid, bodyText, sessionId = null }) {
+    this.store.enqueueRaw({
+      kind,
+      uid,
+      sessionId,
+      receivedAt: new Date().toISOString(),
+      bodyText
+    });
+    this.counters.bump("webhooks_in");
+    this.scheduleDrain();
+  }
+
+  scheduleDrain() {
+    this.chain = this.chain.then(() => this.drain()).catch((err) => {
+      this.log.error(`[omi-channel] drain error: ${err?.stack || err}`);
+    });
+    return this.chain;
+  }
+
+  // Serialized: one drain at a time; dedupe index read-modify-write is safe.
+  async drain() {
+    for (const file of this.store.listQueue()) {
+      let entry = null;
+      try {
+        entry = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        this.store.removeQueued(file);
+        continue;
+      }
+      try {
+        this.processEntry(entry);
+      } catch (err) {
+        // Never lose an entry to a processing bug: mark failed with raw kept.
+        this.log.error(`[omi-channel] normalize error: ${err?.stack || err}`);
+        const id = ulid();
+        const ev = failedEvent({
+          id,
+          uid: entry.uid,
+          receivedAt: entry.receivedAt,
+          kind: entry.kind,
+          reason: `normalize error: ${err?.message ?? err}`
+        });
+        ev.raw_ref = this.store.writeRaw(id, { bodyText: entry.bodyText });
+        this.store.writeEvent(ev);
+        this.counters.bump("events_failed");
+      }
+      this.store.removeQueued(file);
+    }
+  }
+
+  processEntry(entry) {
+    const receivedAt = entry.receivedAt ?? new Date().toISOString();
+    const index = this.store.readIndex();
+
+    // Layer 1 dedupe (I6): raw-body fingerprint. Covers EVERY replayed
+    // payload, including ones that never parse.
+    const fingerprint = crypto.createHash("sha256").update(entry.bodyText ?? "", "utf8").digest("hex").slice(0, 32);
+    if (index.byFingerprint[fingerprint]) {
+      this.counters.bump("events_deduped");
+      return;
+    }
+
+    let raw = null;
+    try {
+      raw = JSON.parse(entry.bodyText);
+    } catch {
+      const id = ulid();
+      const ev = failedEvent({
+        id,
+        uid: entry.uid,
+        receivedAt,
+        kind: entry.kind,
+        reason: "malformed JSON"
+      });
+      ev.raw_ref = this.store.writeRaw(id, { malformed: true, bodyText: entry.bodyText });
+      this.store.writeEvent(ev);
+      index.byFingerprint[fingerprint] = id;
+      this.store.writeIndex(index);
+      this.counters.bump("events_failed");
+      return;
+    }
+
+    const id = ulid();
+    const event =
+      entry.kind === "day_summary"
+        ? normalizeDaySummary({ id, uid: entry.uid, receivedAt, raw })
+        : normalizeConversation({ id, uid: entry.uid, receivedAt, raw });
+
+    // Layer 2 dedupe (I6): semantic identity - Omi conversation id for the
+    // batch pipe, (source, "day", date) for summaries. Catches regenerated
+    // payloads whose body text drifted but which name the same conversation.
+    const semanticBucket = event.kind === "conversation" ? index.byConversation : index.byDay;
+    const semanticKey =
+      event.kind === "conversation" ? event.provenance.omi_conversation_id : event.day_key;
+    if (semanticKey && semanticBucket[semanticKey]) {
+      // Record the fingerprint too so future replays short-circuit at layer 1.
+      index.byFingerprint[fingerprint] = semanticBucket[semanticKey];
+      this.store.writeIndex(index);
+      this.counters.bump("events_deduped");
+      return;
+    }
+
+    event.raw_ref = this.store.writeRaw(id, raw);
+    this.store.writeEvent(event);
+    if (semanticKey) semanticBucket[semanticKey] = id;
+    index.byFingerprint[fingerprint] = id;
+    this.store.writeIndex(index);
+    this.counters.bump("events_in");
+    this.counters.bump(`events_in_${event.kind}`);
+  }
+
+  // Realtime pipe (M1: count only; the wake gate lands in M4). Content is
+  // parsed in memory and discarded - never persisted, never logged (I5).
+  acceptRealtime({ bodyText }) {
+    this.counters.bump("realtime_calls");
+    try {
+      const segments = JSON.parse(bodyText);
+      if (Array.isArray(segments)) this.counters.bump("realtime_segments", segments.length);
+      else this.counters.bump("realtime_malformed");
+    } catch {
+      this.counters.bump("realtime_malformed");
+    }
+  }
+}

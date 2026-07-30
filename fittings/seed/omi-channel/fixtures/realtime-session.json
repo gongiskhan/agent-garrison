@@ -1,0 +1,18 @@
+[
+  {
+    "text": "So the deploy finished without errors.",
+    "speaker": "SPEAKER_00",
+    "speakerId": 0,
+    "is_user": true,
+    "start": 42.0,
+    "end": 45.0
+  },
+  {
+    "text": "Nice, the dashboard looks healthy.",
+    "speaker": "SPEAKER_01",
+    "speakerId": 1,
+    "is_user": false,
+    "start": 45.5,
+    "end": 48.0
+  }
+]

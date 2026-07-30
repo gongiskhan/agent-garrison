@@ -82,7 +82,7 @@ describe("omi-channel server (sandboxed boot)", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("boots, writes the status file, serves /health, and 501s ingress", async () => {
+  it("boots, writes the status file, serves /health, and refuses ingress when disabled", async () => {
     const cfg = loadConfig({ GARRISON_HOME: home, GARRISON_OMICHANNEL_PORT: "0" });
     // loadConfig rejects 0 as a port (falls back to default); force ephemeral.
     server = await startServer({ ...cfg, port: 0 });
@@ -109,12 +109,14 @@ describe("omi-channel server (sandboxed boot)", () => {
       backfeed: false
     });
 
+    // Every pipe flag is off (I9): a funneled-but-disabled endpoint answers
+    // 403 and leaks nothing, regardless of route or key.
     for (const route of ["/omi/memory", "/omi/realtime", "/omi/day-summary", "/omi/chat"]) {
-      const res = await fetch(`${base}${route}`, { method: "POST", body: "{}" });
-      expect(res.status).toBe(501);
+      const res = await fetch(`${base}${route}?key=whatever&uid=u`, { method: "POST", body: "{}" });
+      expect(res.status).toBe(403);
     }
     const manifest = await fetch(`${base}/omi/tools-manifest`);
-    expect(manifest.status).toBe(501);
+    expect(manifest.status).toBe(403);
 
     const page = await fetch(`${base}/`);
     expect(page.status).toBe(200);

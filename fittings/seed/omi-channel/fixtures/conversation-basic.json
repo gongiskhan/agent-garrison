@@ -1,0 +1,50 @@
+{
+  "id": "conv_omi_0001",
+  "created_at": "2026-07-29T10:15:45.910559+00:00",
+  "started_at": "2026-07-29T10:01:43.384323+00:00",
+  "finished_at": "2026-07-29T10:14:43.384323+00:00",
+  "transcript_segments": [
+    {
+      "text": "Let's lock the launch checklist today.",
+      "speaker": "SPEAKER_00",
+      "speakerId": 0,
+      "speaker_name": "Goncalo",
+      "is_user": true,
+      "start": 10.0,
+      "end": 14.5
+    },
+    {
+      "text": "I can own the pricing page copy if you send the draft.",
+      "speaker": "SPEAKER_01",
+      "speakerId": 1,
+      "speaker_name": "Rita",
+      "is_user": false,
+      "start": 15.0,
+      "end": 19.0
+    },
+    {
+      "text": "Deal. I also need to email the beta list before Friday.",
+      "speaker": "SPEAKER_00",
+      "speakerId": 0,
+      "speaker_name": "Goncalo",
+      "is_user": true,
+      "start": 19.5,
+      "end": 24.0
+    }
+  ],
+  "structured": {
+    "title": "Launch checklist sync",
+    "overview": "Reviewed the launch checklist, split ownership of the pricing page copy, and set a Friday deadline for the beta-list email.",
+    "emoji": "📋",
+    "category": "work",
+    "action_items": [
+      { "description": "Send the pricing page draft to Rita", "completed": false },
+      { "description": "Email the beta list before Friday", "completed": false }
+    ],
+    "events": []
+  },
+  "apps_response": [],
+  "discarded": false,
+  "folder_id": "folder_work_1",
+  "folder_name": "Work"
+}

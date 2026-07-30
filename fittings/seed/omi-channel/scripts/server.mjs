@@ -17,12 +17,35 @@ import { createServer } from "node:http";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import url from "node:url";
-import { FITTING_ID, garrisonDir, loadConfig, statusFilePath } from "../lib/config.mjs";
+import { FITTING_ID, garrisonDir, loadConfig, omiDir, statusFilePath } from "../lib/config.mjs";
+import { Counters, OmiStore, mergedCounters } from "../lib/store.mjs";
+import { Ingress } from "../lib/ingress.mjs";
+
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 function jsonRes(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
+}
+
+// Read a request body with a hard cap; resolves null when over the cap.
+function readBody(req, cap = MAX_BODY_BYTES) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > cap) {
+        req.destroy();
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
 }
 
 function notImplemented(res, pipe) {
@@ -136,14 +159,17 @@ ${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
 </body></html>`;
 }
 
-export function makeRequestHandler(cfg) {
+export function makeRequestHandler(ctx) {
+  const { cfg, store, counters, ingress } = ctx;
   return async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
+      const query = parsed.query || {};
 
       if (pathname === "/health" || pathname === "/api/health") {
+        const pinned = store.pinnedUid();
         return jsonRes(res, 200, {
           ok: true,
           fittingId: FITTING_ID,
@@ -151,7 +177,9 @@ export function makeRequestHandler(cfg) {
           pid: process.pid,
           flags: flagSummary(cfg),
           secrets: secretsPresence(cfg),
-          gatewayConfigured: Boolean(cfg.gatewayUrl)
+          gatewayConfigured: Boolean(cfg.gatewayUrl),
+          pinnedUid: pinned ? `${pinned.slice(0, 4)}...` : null,
+          counters: mergedCounters(store.root)
         });
       }
 
@@ -161,13 +189,48 @@ export function makeRequestHandler(cfg) {
         return res.end(statusPage(cfg));
       }
 
-      // Ingress surface (M1+): memory / realtime / day-summary webhooks, chat
-      // tool call + manifest. 501 until each milestone lands.
-      if (pathname === "/omi/memory" && method === "POST") return notImplemented(res, "memory webhook");
-      if (pathname === "/omi/realtime" && method === "POST") return notImplemented(res, "realtime webhook");
-      if (pathname === "/omi/day-summary" && method === "POST") return notImplemented(res, "day-summary webhook");
-      if (pathname === "/omi/chat" && method === "POST") return notImplemented(res, "chat tool");
-      if (pathname === "/omi/tools-manifest" && method === "GET") return notImplemented(res, "chat tools manifest");
+      // ---- Ingress surface. Everything under /omi/ (the public Funnel mount
+      // path); ?key= shared secret + pinned uid on every route (I8). ----
+      if (pathname === "/omi/memory" && method === "POST") {
+        const auth = ingress.authorize(query);
+        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        // Ack fast (I7): enqueue is one small file write; normalization runs
+        // on the serialized drain chain after the response.
+        ingress.accept({ kind: "conversation", uid: auth.uid, bodyText });
+        return jsonRes(res, 200, { ok: true });
+      }
+
+      if (pathname === "/omi/day-summary" && method === "POST") {
+        const auth = ingress.authorize(query);
+        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        ingress.accept({ kind: "day_summary", uid: auth.uid, bodyText });
+        return jsonRes(res, 200, { ok: true });
+      }
+
+      if (pathname === "/omi/realtime" && method === "POST") {
+        const auth = ingress.authorize(query);
+        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        // In-memory only (I5) - counted, never persisted, never logged.
+        ingress.acceptRealtime({ bodyText, sessionId: query.session_id });
+        return jsonRes(res, 200, { ok: true });
+      }
+
+      if (pathname === "/omi/chat" && method === "POST") {
+        const auth = ingress.authorize(query);
+        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
+        return notImplemented(res, "chat tool");
+      }
+      if (pathname === "/omi/tools-manifest" && method === "GET") {
+        const auth = ingress.authorize(query);
+        if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
+        return notImplemented(res, "chat tools manifest");
+      }
 
       return jsonRes(res, 404, { error: "not found" });
     } catch (err) {
@@ -194,7 +257,12 @@ export async function startServer(cfg = loadConfig()) {
   // `live` is what handlers read; port is corrected to the actually-bound one
   // after listen (tests pass port 0 for an ephemeral bind).
   const live = { ...cfg };
-  const server = createServer(makeRequestHandler(live));
+  const store = new OmiStore(omiDir());
+  const counters = new Counters(store.root, "server");
+  const ingress = new Ingress({ cfg: live, store, counters });
+  // Crash recovery: drain any raw payloads a previous process left queued.
+  ingress.scheduleDrain();
+  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress }));
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
