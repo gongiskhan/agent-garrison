@@ -25,23 +25,33 @@ import { StandingFittings, RuntimesPanel } from "./StandingFittings";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { PolicyPanel } from "./PolicyPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
+import { TransferPanel } from "./TransferPanel";
 import type { DutyEffort, MusterActions, MusterModel, MusterTargetUpdate } from "./types";
 import styles from "./Muster.module.css";
 
 type Status = "loading" | "ready" | "error";
 
-// The four working areas of the composition. Only the active one mounts, so the
+// The working areas of the composition. Only the active one mounts, so the
 // page is a focused single panel instead of one 13k-px scroll of everything at
 // once - and the heavy panels (orchestrator prompt, fittings, decisions feed)
 // only fetch when their tab is opened.
-type SectionId = "duties" | "runtimes" | "fittings" | "orchestrator" | "decisions";
+type SectionId = "duties" | "runtimes" | "fittings" | "orchestrator" | "decisions" | "transfer";
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: "duties", label: "Duties" },
   { id: "runtimes", label: "Runtimes" },
   { id: "fittings", label: "Fittings" },
   { id: "orchestrator", label: "Orchestrator" },
-  { id: "decisions", label: "Decisions" }
+  { id: "decisions", label: "Decisions" },
+  // Import/Export. Last because it acts on the whole composition the other five
+  // tabs edit, and it is deep-linkable (?section=transfer) so other surfaces can
+  // point straight at it.
+  { id: "transfer", label: "Import / Export" }
 ];
+
+function sectionFromQuery(raw: string | null): SectionId | null {
+  const value = (raw ?? "").trim();
+  return SECTIONS.some((section) => section.id === value) ? (value as SectionId) : null;
+}
 
 // ── optimistic patch helpers (pure) ─────────────────────────────────────────
 function patchCell(
@@ -157,8 +167,14 @@ export function MusterPage() {
   }, []);
 
   useEffect(() => {
-    const param = new URLSearchParams(window.location.search).get("composition")?.trim() || undefined;
+    const query = new URLSearchParams(window.location.search);
+    const param = query.get("composition")?.trim() || undefined;
     compositionRef.current = param;
+    // ?section=<id> deep-links a tab (the shell's New menu points at
+    // ?section=transfer). Applied post-hydration, like the composition param,
+    // so the server render is not query-dependent.
+    const section = sectionFromQuery(query.get("section"));
+    if (section) setSection(section);
     void load(param);
   }, [load]);
 
@@ -499,6 +515,12 @@ export function MusterPage() {
               </div>
             ) : null}
             {section === "decisions" ? <DecisionsPanel compositionId={model.compositionId} /> : null}
+            {section === "transfer" ? (
+              <TransferPanel
+                compositionId={model.compositionId}
+                compositionName={model.compositionName}
+              />
+            ) : null}
           </div>
         </div>
 

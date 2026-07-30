@@ -16,6 +16,21 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"], ["html", { open: "never", outputFolder: "test-results/playwright-report" }]],
   outputDir: "test-results/playwright-artifacts",
+  // Playwright's 5s default is too tight for THIS suite and was a standing
+  // source of flakes: one worker shares a `next dev` server that compiles each
+  // route on first hit, and the first paint of a page like /muster waits on the
+  // AppShell fetch fan-out (library + compositions + vault + active pointer)
+  // plus /api/muster. The tests that flaked were exactly the ones that ASSERT
+  // first paint — `expect(...).toBeVisible()` got 5s while `.click()` got the
+  // 30s actionability timeout, so which tests failed shifted run to run with
+  // machine load. This is a wait ceiling, not a grace period: a genuinely
+  // broken page still fails, 15s later.
+  expect: { timeout: 20_000 },
+  // Raised together with the expect ceiling above: a single 20s assertion no
+  // longer fits inside Playwright's 30s per-test default once the navigation
+  // and the steps before it are counted, so a slow first paint was being cut
+  // off by the TEST budget instead of the assertion's own.
+  timeout: 60_000,
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "retain-on-failure",
