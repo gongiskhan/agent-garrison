@@ -327,7 +327,13 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
     SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER") "
     [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR") "
   fi
-  CAP_CMD="${SPOOL_ENV}BASIC_MEMORY_VAULT_DIR=\"$VAULT_DIR\" BASIC_MEMORY_MEMORY_DIR=\"$MEMORY_DIR\" python3 \"$HOOK_PATH\""
+  # %q-quoted for the same reason the SPOOL_ENV values above are, and this line
+  # is the one that matters most: CAP_CMD is written into ~/.claude/settings.json
+  # and run as a shell command on EVERY SessionEnd and PreCompact. vault_dir and
+  # memory_dir are operator config, so a value carrying $() or a quote used to
+  # execute on a recurring trigger. The rule was stated three lines up and then
+  # not applied here.
+  CAP_CMD="${SPOOL_ENV}BASIC_MEMORY_VAULT_DIR=$(quote "$VAULT_DIR") BASIC_MEMORY_MEMORY_DIR=$(quote "$MEMORY_DIR") python3 $(quote "$HOOK_PATH")"
   python3 - "$SETTINGS_FILE" "$CAP_CMD" <<'PY'
 import json, sys
 from pathlib import Path

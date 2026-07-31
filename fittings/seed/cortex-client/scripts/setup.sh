@@ -33,8 +33,12 @@ unset SHELLOPTS 2>/dev/null || true
 FIT="cortex-client"
 say() { echo "[$FIT] $*"; }
 
-# Armed only once we are past the guard and know we are configured, so a refused
-# path or a bad pin still writes NOTHING.
+# Armed once we know repo_url was configured (line ~128), which is BEFORE the
+# credential and pin checks and AFTER the byte-containment guard. So a credential
+# URL or a bad pin DOES leave a marker - verify calls those configured-and-broken -
+# while a guarded path does not, because the guard must refuse before every write
+# and the marker's own write would otherwise need guarding too. That exemption is
+# deliberate and pinned by a test; it is not an oversight.
 MARK_FAILURES=0
 die() {
   echo "[$FIT] ERROR: $*" >&2
@@ -121,10 +125,13 @@ guard_outside_tree "bin_dir" "$BIN_DIR"
 # 2) Unconfigured, in BOTH directions: never configured, or configured and then
 #    cleared. Clearing repo_url withdraws exactly what this Fitting published.
 # ---------------------------------------------------------------------------
-# A configured repo_url means every later refusal - a guarded path, a credential
-# URL, a bad pin - is a CONFIGURED-AND-BROKEN outcome, not "never configured".
-# Arming the marker here rather than at the first write is what stops verify
-# reporting a deliberate configuration error as the shipped default and exiting 0.
+# A configured repo_url means every refusal FROM HERE ON - a credential URL, a bad
+# pin - is a CONFIGURED-AND-BROKEN outcome rather than "never configured". Arming
+# here rather than at the first write is what stops verify reporting a deliberate
+# configuration error as the shipped default and exiting 0. The byte-containment
+# guard is NOT covered: it runs above this line by necessity, so a guarded path
+# still reads as unconfigured to verify - the one accepted residual, stated here
+# and pinned by a test rather than left for a reader to discover.
 if [ -n "$REPO_URL" ]; then
   MARK_FAILURES=1
 fi
@@ -206,8 +213,8 @@ for tool in git node npm; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required to install the CLI but is not on PATH"
 done
 
-# Already armed above, the moment we knew repo_url was configured. Left here as a
-# no-op so the reason stays where the writes begin.
+# No-op: already armed above, the moment repo_url was known to be configured. Kept
+# so the marker's purpose is visible where the writes actually begin.
 MARK_FAILURES=1
 
 # ---------------------------------------------------------------------------

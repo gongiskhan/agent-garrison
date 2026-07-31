@@ -213,10 +213,20 @@ describe("basic-memory backend switch", () => {
     return fs.readFileSync(installedSkillPath, "utf8");
   }
 
-  /** The capture-hook command the pre-switch fitting wrote - pinned literally. */
+  /**
+   * The capture-hook command, pinned literally.
+   *
+   * STATED EXCEPTION to hard rule 6, and the only one: the values are now %q-quoted rather than
+   * wrapped in literal double quotes. `vault_dir` and `memory_dir` are operator config and this
+   * string is written into ~/.claude/settings.json and RUN AS A SHELL COMMAND on every SessionEnd
+   * and PreCompact, so an unquoted `$()` in either one executed on a recurring trigger - proven by
+   * the run-level security review. %q leaves a safe path untouched, so the command is behaviourally
+   * identical for every value that was ever safe; only the literal differs. A cosmetic byte change
+   * was the right price for closing a shell injection, and it is recorded rather than hidden.
+   */
   const stockHookCommand = () =>
-    `BASIC_MEMORY_VAULT_DIR="${vault}" BASIC_MEMORY_MEMORY_DIR="Memory" ` +
-    `python3 "${path.join(claudeHome, "basic-memory", "capture-session.py")}"`;
+    `BASIC_MEMORY_VAULT_DIR=${vault} BASIC_MEMORY_MEMORY_DIR=Memory ` +
+    `python3 ${path.join(claudeHome, "basic-memory", "capture-session.py")}`;
 
   /** The exact CLI conversation the pre-switch fitting had on a first run. */
   const stockCalls = () => [
