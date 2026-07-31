@@ -69,3 +69,22 @@ One line per deviation, with the reason. Details in
   prod:redeploy (which the recon suggested): opening public internet
   ingress is a deliberate act, and the endpoints are inert 403s until
   the flags and secrets exist anyway.
+- **I5 widened, deliberately and on the user's instruction (2026-07-31).**
+  The wake bus now hands the classifier a bounded window of segments from
+  BEFORE the wake word, not just the speech after it. Omi fragments a
+  single utterance across segments and mis-attributes speakers, so the
+  subject of a command routinely lands in a segment the gate had already
+  dropped — "Gary, create a task saying" classified as unknown because
+  the thing to be said arrived separately. I5's persistence guarantee is
+  intact: the pre-wake ring is in memory only, is never logged, and dies
+  with a session that never wakes. What changed is that on a hit, speech
+  the user did not address to Gary can now reach the orchestrator and be
+  quoted in a card. Bounded by count (`wake_context_segments`, 6) and by
+  age (`wake_context_max_age_ms`, 120s) so a hit can never pull in
+  unrelated conversation; set the count to 0 to restore the old behaviour.
+- Capture is held open for `wake_min_capture_ms` (15s in the default
+  composition) after a wake hit, through silence, with
+  `wake_max_capture_ms` (20s) as the hard ceiling — closing on the first
+  quiet moment truncated commands mid-sentence, because Omi's transcript
+  arrives in bursts with real gaps inside one utterance. Costs ~15s of
+  latency per spoken command on top of the orchestrator turn.

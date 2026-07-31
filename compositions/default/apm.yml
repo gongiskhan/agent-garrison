@@ -89,9 +89,17 @@ x-garrison:
             # Omi streams realtime segments in batches, and the gap between the
             # segment carrying "Gary, create a task saying" and the one carrying
             # the title exceeded the 4s default - the window shut mid-sentence
-            # and the truncated command classified as unknown. Costs ~2s of
-            # extra latency on every command; a truncated command costs the card.
+            # and the truncated command classified as unknown.
             wake_silence_close_ms: 7000
+            # Always collect for 15s after the wake word, through silence, and
+            # never past 20s. Trades latency (~15s + the orchestrator turn) for
+            # commands that survive Omi's bursty, speaker-switching transcript.
+            wake_min_capture_ms: 15000
+            wake_max_capture_ms: 20000
+            # Segments from BEFORE the wake word handed to the classifier as
+            # context - that is where the subject of a fragmented command lands.
+            wake_context_segments: 6
+            wake_context_max_age_ms: 120000
       gateway:
         - id: http-gateway
           config:

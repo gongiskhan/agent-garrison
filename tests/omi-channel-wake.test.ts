@@ -293,7 +293,7 @@ describe("wake bus sessions", () => {
 describe("wake units", () => {
   it("buildWakePrompt carries the command and project vocabulary", () => {
     const prompt = buildWakePrompt("marca a revisao do carro", ["garrison", "ekoa-code"]);
-    expect(prompt).toContain('Command: "marca a revisao do carro"');
+    expect(prompt).toContain('marca a revisao do carro');
     expect(prompt).toContain("[garrison, ekoa-code]");
   });
 
@@ -359,6 +359,202 @@ describe("realtime payload envelopes and session id recovery", () => {
     h.ingress.acceptRealtime({ bodyText: JSON.stringify({ nope: 1 }), sessionId: "s1" });
     expect(mergedCounters(h.store.root).realtime_malformed).toBe(1);
     expect(h.seen).toHaveLength(0);
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+// Feature (2026-07-31, user-requested): Omi fragments speech across segments and
+// mis-attributes speakers, so the detail a command refers to often sits in a
+// segment BEFORE the wake word - which the gate dropped. The classifier now gets
+// a bounded pre-wake context window. Real case: "Gary, create a task saying"
+// arrived with the subject ("tomorrow it could rain") in an earlier segment, and
+// classified as unknown because the command alone was meaningless.
+describe("wake pre-wake context window", () => {
+  const cfgFor = (home: string, extra: Record<string, unknown> = {}) => ({
+    ...loadConfig({ GARRISON_HOME: home }),
+    wakeEnabled: true,
+    // Without a gatewayUrl handleCommand short-circuits to the note fallback
+    // and the classifier prompt is never built.
+    gatewayUrl: "http://127.0.0.1:1",
+    wakeSilenceCloseMs: 20,
+    wakeMaxCaptureMs: 200,
+    ...extra
+  });
+
+  function bus(home: string, extra: Record<string, unknown> = {}) {
+    const cfg = cfgFor(home, extra);
+    const store = new OmiStore(path.join(home, "omi"));
+    const counters = new Counters(store.root, "test");
+    const prompts: string[] = [];
+    const wake = new WakeBus({
+      cfg,
+      store,
+      counters,
+      runFn: async ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt);
+        return { reply: JSON.stringify({ intent: "note", note_content: "ok", title: "t" }) };
+      },
+      board: { listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [] }
+    });
+    return { wake, prompts, store };
+  }
+
+  const seg = (text: string, start: number, isUser = true) => ({
+    text, speaker: "SPEAKER_00", speakerId: 0, is_user: isUser, start, end: start + 1
+  });
+
+  it("carries pre-wake segments into the classifier prompt", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-"));
+    const { wake, prompts } = bus(home);
+    // The subject arrives BEFORE the wake word, as it did live.
+    wake.handleSegments({ sessionId: "s1", segments: [seg("tomorrow it could rain", 0)] });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary, create a task saying", 2)] });
+    await wake.close("s1", "silence");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("tomorrow it could rain");
+    expect(prompts[0]).toContain("create a task saying");
+    // Context must be labelled as context, not folded into the command.
+    expect(prompts[0]).toMatch(/BEFORE the wake word/);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("bounds the window by segment count", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-cap-"));
+    const { wake, prompts } = bus(home, { wakeContextSegments: 2 });
+    for (let i = 0; i < 5; i++) {
+      wake.handleSegments({ sessionId: "s1", segments: [seg(`filler ${i}`, i)] });
+    }
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary do it", 9)] });
+    await wake.close("s1", "silence");
+    expect(prompts[0]).toContain("filler 4");
+    expect(prompts[0]).toContain("filler 3");
+    expect(prompts[0]).not.toContain("filler 0");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("drops context that is too old to be the same conversation", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-age-"));
+    let clock = 1_000_000;
+    const cfg = cfgFor(home, { wakeContextMaxAgeMs: 5000 });
+    const store = new OmiStore(path.join(home, "omi"));
+    const prompts: string[] = [];
+    const wake = new WakeBus({
+      cfg,
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt);
+        return { reply: JSON.stringify({ intent: "note", note_content: "ok", title: "t" }) };
+      },
+      board: { listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [] },
+      now: () => clock
+    });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("stale talk", 0)] });
+    clock += 60_000; // a minute later - unrelated conversation
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary do it", 9)] });
+    await wake.close("s1", "silence");
+    expect(prompts[0]).not.toContain("stale talk");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("still records nothing when a session never wakes (I5)", () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-i5-"));
+    const { wake, store } = bus(home);
+    wake.handleSegments({ sessionId: "s1", segments: [seg("private conversation", 0)] });
+    const files = existsSync(path.join(store.root, "events"))
+      ? readdirSync(path.join(store.root, "events"))
+      : [];
+    expect(files).toHaveLength(0);
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+// Feature (2026-07-31, user-requested): "after the keyword it should wait for
+// 15-20 seconds of more messages before deciding". Omi delivers one spoken
+// sentence across bursts with real gaps, so the first quiet moment is not the
+// end of the command - holding the window open is what stops the truncation.
+describe("wake minimum capture window", () => {
+  it("holds the window open through silence, then still respects the cap", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-"));
+    let clock = 1_000_000;
+    const store = new OmiStore(path.join(home, "omi"));
+    const prompts: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 1000,
+        wakeMinCaptureMs: 15000,
+        wakeMaxCaptureMs: 20000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt);
+        return { reply: JSON.stringify({ intent: "create_task", title: "t", description: "d" }) };
+      },
+      board: { listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [] },
+      now: () => clock
+    });
+
+    wake.handleSegments({
+      sessionId: "s1",
+      segments: [{ text: "Gary, create a task saying", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    // Silence arrives long before the minimum - must NOT dispatch yet.
+    clock += 2000;
+    await wake.close("s1", "silence");
+    expect(prompts).toHaveLength(0);
+
+    // The rest of the sentence lands during the held-open window.
+    wake.handleSegments({
+      sessionId: "s1",
+      segments: [{ text: "remind me it could rain tomorrow", speaker: "S", speakerId: 0, is_user: true, start: 3, end: 4 }]
+    });
+    clock += 14000; // past the minimum
+    await wake.close("s1", "silence");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("create a task saying");
+    expect(prompts[0]).toContain("remind me it could rain tomorrow");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("max-capture still closes the window regardless of the minimum", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-cap-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    const prompts: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 1000,
+        wakeMinCaptureMs: 999999,
+        wakeMaxCaptureMs: 20000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt);
+        return { reply: JSON.stringify({ intent: "note", note_content: "n", title: "t" }) };
+      },
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [] }
+    });
+    wake.handleSegments({
+      sessionId: "s1",
+      segments: [{ text: "Gary do the thing", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    await wake.close("s1", "max-capture");
+    expect(prompts).toHaveLength(1);
     rmSync(home, { recursive: true, force: true });
   });
 });

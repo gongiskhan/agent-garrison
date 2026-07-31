@@ -115,6 +115,20 @@ export function loadConfig(env = process.env) {
     })(),
     wakeSilenceCloseMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_SILENCE_CLOSE_MS, 4000),
     wakeMaxCaptureMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_MAX_CAPTURE_MS, 20000),
+    // Conversation context handed to the classifier on a wake hit. Omi
+    // fragments speech across segments and mis-attributes speakers, so the
+    // words that give a command its meaning are often in a segment BEFORE the
+    // wake word - which the gate used to drop. 0 disables (pre-2026-07-31
+    // behaviour: post-wake speech only). Bounded by count AND age so a hit can
+    // never pull in unrelated conversation from earlier in the day.
+    // Hold the capture window open for at least this long AFTER the wake word,
+    // even through silence. Omi's transcript arrives in bursts with real gaps
+    // inside a single sentence, so closing on the first quiet moment truncates
+    // the command ("create a task saying" + nothing). 0 = close on silence as
+    // before. The max-capture cap is still the hard ceiling.
+    wakeMinCaptureMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_MIN_CAPTURE_MS, 0),
+    wakeContextSegments: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_SEGMENTS, 6),
+    wakeContextMaxAgeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_MAX_AGE_MS, 120000),
 
     // Outbound caps (M3)
     notifyMaxPerDay: parseIntOr(env.GARRISON_OMICHANNEL_NOTIFY_MAX_PER_DAY, 50),
