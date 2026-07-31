@@ -1499,6 +1499,27 @@ async function handlePatchCard(req, res, opts, id) {
     }
     next.placement = normalisePlacement(body.placement);
   }
+  // `outpost` affinity was create-only, so a card pinned to a machine could never
+  // be repinned OR unpinned - while the engine's park message told the user to
+  // "clear the affinity from needs-attention", a remedy that did not exist. The
+  // only recovery was hand-editing cards/<id>/card.json. Accept null/"" to clear
+  // and a non-empty string to repin. Guarded like `placement`: not mid-claim.
+  if (body.outpost !== undefined) {
+    const heldByWorker = card.dispatch && card.dispatch.state !== "done" && card.dispatch.state !== "failed";
+    if (heldByWorker && !isEngineRequest(req)) {
+      return jsonRes(res, 409, {
+        error: "dispatch-held",
+        message: `Card is claimed by ${card.dispatch.machine} — outpost affinity cannot change mid-run. Wait for it to finish, or resolve it from needs-attention.`
+      });
+    }
+    if (body.outpost === null || (typeof body.outpost === "string" && !body.outpost.trim())) {
+      next.outpost = null;
+    } else if (typeof body.outpost === "string") {
+      next.outpost = body.outpost.trim();
+    } else {
+      return jsonRes(res, 400, { error: "bad-outpost", message: "outpost must be a non-empty string or null" });
+    }
+  }
   // The dispatch record is ENGINE-ONLY: it is the claim ledger (who holds this
   // card, and when they last checked in). A hand-edited claim would let any
   // caller steal or forge a lease.

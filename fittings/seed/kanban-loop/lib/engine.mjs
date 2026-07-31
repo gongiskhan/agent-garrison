@@ -1325,6 +1325,26 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
         return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-offline" } };
       }
+      // RESOLVED AND CONNECTED — and we still refuse to run. Remote card
+      // execution is NOT implemented: `outpostRunFn` is imported by nothing but
+      // its test, the host relay's RPC ceiling is 10s (no Claude turn fits), and
+      // the payload carries no cwd, repo, routing or account. Falling through
+      // here is what the placement guard above warns about: the card would run
+      // LOCALLY, on the wrong machine, against the wrong checkout, under the
+      // wrong account, while reporting success. Park instead - honest and
+      // recoverable beats silently-wrong. Delete this branch only in the same
+      // change that actually wires the dispatch.
+      const reason =
+        `Outpost affinity "${card.outpost}" resolved (the machine is online), but running a card on an ` +
+        `outpost is not implemented yet. Refusing to run it here, because that would use this machine's ` +
+        `checkout and account instead. Clear the affinity (PATCH the card with {"outpost": null}) to run it here.`;
+      const res = await saveCardCAS(root, {
+        ...card,
+        ...parkFields(card, card.list, reason),
+        events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost execution not implemented`, detail: reason })
+      }, baseRev, now());
+      if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+      return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-not-implemented" } };
     } catch {
       // The seam is absent (outposts not built/installed) — an affinity card
       // cannot honor its affinity; park honestly rather than run locally.

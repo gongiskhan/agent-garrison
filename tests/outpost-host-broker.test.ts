@@ -201,3 +201,56 @@ it("binary frame from subscriber is forwarded as process.send_input RPC to bridg
   bridge.close();
   sub.close();
 });
+
+// ---------------------------------------------------------------------------
+// Registry shape robustness. The registry file is 0600 and hand-editable, and a
+// SHAPE error is not a parse error: a bare `[...]` array parses fine, then every
+// `reg.outposts.map/find` throws TypeError inside an async handler, which escapes
+// createServer(handleHttp) as an unhandled rejection and kills the daemon. Live:
+// ~/.garrison-dev/outpost-registry.json WAS a bare array, so one unauthenticated
+// GET /outposts would have taken the whole dev instance down with it
+// (concurrently --kill-others-on-fail also stops Next and the scheduler).
+// ---------------------------------------------------------------------------
+describe("outpost-host registry shape robustness", () => {
+  async function startWithRegistry(body: string): Promise<{ port: number; proc: ChildProcess; home: string }> {
+    const { writeFileSync, mkdirSync } = await import("node:fs");
+    const port = await freePort();
+    const home = mkdtempSync(join(tmpdir(), "garrison-outpost-shape-"));
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "outpost-registry.json"), body);
+    const proc = spawnProcess("node", [OUTPOST_HOST_SCRIPT], {
+      env: { ...process.env, GARRISON_HOME: home, GARRISON_OUTPOST_PORT: String(port), GARRISON_OUTPOST_BIND: "127.0.0.1" },
+      stdio: "ignore",
+    });
+    await waitForPort(port);
+    return { port, proc, home };
+  }
+
+  const CASES: Array<[string, string, string[]]> = [
+    ["a bare array (the shape that crashed dev)", '[{"name":"a","token":"t"}]', ["a"]],
+    ["the normal object", '{"outposts":[{"name":"b","token":"t"}]}', ["b"]],
+    ["a non-object scalar", '"nope"', []],
+    ["an object with no outposts key", '{"something":1}', []],
+    ["null entries inside the list", '{"outposts":[null,{"name":"c","token":"t"}]}', ["c"]],
+  ];
+
+  for (const [label, body, expected] of CASES) {
+    it(`serves /outposts and survives ${label}`, async () => {
+      const { port, proc, home } = await startWithRegistry(body);
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/outposts`);
+        expect(res.status).toBe(200);
+        const json = (await res.json()) as { outposts: Array<{ name: string }> };
+        expect(json.outposts.map((o) => o.name)).toEqual(expected);
+
+        // Still alive afterwards — the crash killed the PROCESS, so one request
+        // succeeding is not enough; prove the daemon is still serving.
+        const again = await fetch(`http://127.0.0.1:${port}/health`);
+        expect(again.status).toBe(200);
+      } finally {
+        proc.kill("SIGTERM");
+        rmSync(home, { recursive: true, force: true });
+      }
+    }, 20000);
+  }
+});

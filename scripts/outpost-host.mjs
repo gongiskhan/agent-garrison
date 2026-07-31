@@ -98,10 +98,21 @@ const outpostSubscribers = new Map();
 // Registry
 // ---------------------------------------------------------------------------
 
+// Always returns { outposts: [...] }. The file is 0600 and hand-editable, and a
+// SHAPE error is not a parse error: a bare `[...]` array parses fine, then every
+// `reg.outposts.map/find` throws TypeError deep inside an async request handler.
+// That is not theoretical - ~/.garrison-dev/outpost-registry.json was a bare
+// array, so a single unauthenticated GET /outposts killed the whole dev instance
+// (the throw escapes createServer(handleHttp) as an unhandled rejection, and
+// `concurrently --kill-others-on-fail` then takes Next and the scheduler down).
+// Normalise here so no caller has to defend itself.
 function loadRegistry() {
   try {
     if (!existsSync(registryPath())) return { outposts: [] };
-    return JSON.parse(readFileSync(registryPath(), "utf8"));
+    const raw = JSON.parse(readFileSync(registryPath(), "utf8"));
+    if (Array.isArray(raw)) return { outposts: raw.filter(Boolean) };
+    if (raw && Array.isArray(raw.outposts)) return { ...raw, outposts: raw.outposts.filter(Boolean) };
+    return { outposts: [] };
   } catch {
     return { outposts: [] };
   }
@@ -754,8 +765,21 @@ async function handleHttp(req, res) {
 
 const ioPathRe = /^\/outposts\/(.+)\/io$/;
 
+// handleHttp is async, so a throw inside it becomes an UNHANDLED REJECTION that
+// kills the daemon rather than failing one request. Convert it to a 500 - one
+// bad request must never take the instance down with it.
+async function handleHttpGuarded(req, res) {
+  try {
+    await handleHttp(req, res);
+  } catch (e) {
+    console.error("[outpost-host] request failed:", e instanceof Error ? e.stack || e.message : String(e));
+    if (!res.headersSent) json(res, 500, { error: "internal error" });
+    else try { res.end(); } catch { /* socket already gone */ }
+  }
+}
+
 function createHostServer() {
-  const server = createServer(handleHttp);
+  const server = createServer(handleHttpGuarded);
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req, socket, head) => {

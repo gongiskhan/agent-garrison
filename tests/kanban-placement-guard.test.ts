@@ -135,3 +135,73 @@ describe("engine placement guard", () => {
     expect(ran).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The OLDER `card.outpost` affinity, closing the exact hole this file's header
+// describes. Before this, `if (!disp.ok)` parked, and the resolved-and-CONNECTED
+// case simply fell out of the block into the local dispatch path — so a card
+// pinned to a live Mac ran on the Garrison host, against the host's checkout and
+// account, and reported success. It was invisible only because no Mac had ever
+// connected; it would have activated the moment one did.
+// ---------------------------------------------------------------------------
+describe("engine outpost affinity guard", () => {
+  async function withFakeDaemon<T>(outposts: unknown[], fn: () => Promise<T>): Promise<T> {
+    const { createServer } = await import("node:http");
+    const srv = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ outposts }));
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const addr = srv.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const prev = process.env.GARRISON_OUTPOST_URL;
+    process.env.GARRISON_OUTPOST_URL = `http://127.0.0.1:${port}`;
+    try {
+      return await fn();
+    } finally {
+      if (prev === undefined) delete process.env.GARRISON_OUTPOST_URL;
+      else process.env.GARRISON_OUTPOST_URL = prev;
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
+  }
+
+  it("refuses to run locally when the pinned outpost is CONNECTED", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "pinned work", list: "implement", outpost: "goncalos-mac-mini-1" });
+    expect(card.outpost).toBe("goncalos-mac-mini-1");
+
+    const { card: after, outcome } = await withFakeDaemon<{ card: { status: string; events?: Array<{ kind: string }> }; outcome: { status: string; reason: string } }>(
+      [{ name: "goncalos-mac-mini-1", connected: true }],
+      () => processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root })
+    );
+
+    expect(outcome.status).toBe("needs-attention");
+    expect(outcome.reason).toBe("outpost-not-implemented");
+    expect(after.status).toBe("needs-attention");
+    // The park must SAY why, and name a remedy that now actually exists.
+    const parked = (after.events ?? []).filter((e) => e.kind === "parked");
+    expect(parked.length).toBeGreaterThan(0);
+    expect(JSON.stringify(parked)).toMatch(/not implemented/i);
+  });
+
+  it("still parks a pinned-but-OFFLINE outpost with the offline reason", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "offline work", list: "implement", outpost: "goncalos-mac-mini-1" });
+    const { outcome } = await withFakeDaemon<{ outcome: { status: string; reason: string } }>(
+      [{ name: "goncalos-mac-mini-1", connected: false }],
+      () => processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root })
+    );
+    expect(outcome.status).toBe("needs-attention");
+    expect(outcome.reason).toBe("outpost-offline");
+  });
+
+  it("leaves a card with NO affinity running locally", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "local work", list: "implement" });
+    let ran = false;
+    await withFakeDaemon([{ name: "goncalos-mac-mini-1", connected: true }], async () => {
+      await processCard({ root, board, card, runFn: async () => { ran = true; return { reply: "implement\n" }; }, cwd: root });
+    });
+    expect(ran).toBe(true);
+  });
+});
