@@ -869,5 +869,19 @@
     "platforms": [
       "all"
     ]
+  },
+  {
+    "id": "roadmaps",
+    "name": "Roadmaps",
+    "repo": "local:fittings/seed/roadmaps",
+    "localPath": "fittings/seed/roadmaps",
+    "summary": "A roadmap per project, stored as roadmap.json at the root of the repo itself: ordered categories, tasks with stable ids, and notes recording the decisions behind them. The view reads and edits the live file (no shadow copy) and hands any task to the Kanban board's Backlog or To Do. Agents are the expected main authors.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
   }
 ]

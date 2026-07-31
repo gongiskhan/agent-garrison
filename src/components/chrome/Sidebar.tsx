@@ -13,6 +13,7 @@ import {
   KeyRound,
   Component,
   Drill,
+  Milestone,
   ExternalLink,
   LayoutGrid,
   Globe,
@@ -360,7 +361,8 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   "deepgram-voice": Mic,
   "web-channel-default": MessagesSquare,
   "slack-channel": MessagesSquare,
-  "outpost-tailscale-host": Radio
+  "outpost-tailscale-host": Radio,
+  roadmaps: Milestone
 };
 
 const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {

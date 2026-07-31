@@ -24,7 +24,11 @@ const ROOT = path.resolve(__dirname, "..");
 const TARGET_DIRS = ["src", "packages", "fittings", "scripts"];
 
 const BANNED: Array<{ label: string; re: RegExp }> = [
-  { label: "claude --print (headless)", re: /--print\b/ },
+  // `\b` alone also matched an unrelated flag whose name merely STARTS with
+  // print (`--print-only` in a spike script), which is not headless mode and
+  // not what this guard is about. Claude's headless flag is exactly `--print`,
+  // so require the match to end there.
+  { label: "claude --print (headless)", re: /--print(?![-\w])/ },
   { label: "claude -p (headless short flag)", re: /\bclaude['"]?,?\s+['"]?-p\b/ },
   { label: "headless stream-json output", re: /output-format[ "',]+stream-json/ },
 ];

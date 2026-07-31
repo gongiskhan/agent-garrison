@@ -198,6 +198,20 @@ Fitting. The Workbench shell area was dissolved 2026-05-17; the
 own-port UIs that survive it are surfaced by the sidebar Fittings
 section.
 
+### Roadmaps (2026-07-31)
+
+- `roadmaps` — a roadmap per project, stored as `roadmap.json` at the root of
+  the project repo itself (never in Garrison state). Ordered categories, tasks
+  with stable ids, and notes recording the decisions behind them. `knowledge`
+  role, `cli` shape, no config, no own port: the view is an embedded
+  sidebar-surface (`src/components/fitting-views/RoadmapView.tsx`) over
+  `/api/roadmaps/*`, and any task can be handed to the Kanban board's Backlog
+  or To Do (one-way; finishing the card does not tick the roadmap). Agents are
+  the expected main authors and edit the file directly — the two invariants
+  that keeps honest (ids never renumber, done is never removed) are enforced in
+  both halves, and `tests/roadmaps.test.ts` runs the fitting's CLI against
+  `src/lib/roadmaps.ts` so they cannot drift.
+
 The Monitor Faculty (2026-05-16) adds `monitor-default`, which is the
 first Fitting to ship with its own React UI on its own port (default
 `27077`). The pattern that governs UI-bearing Fittings — own server,

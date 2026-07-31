@@ -35,6 +35,7 @@ dependencies:
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/roadmaps
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
     - path: ../../fittings/seed/slack-channel
@@ -236,6 +237,9 @@ x-garrison:
         - id: identity-gary
           config:
             user_name: the user
+      knowledge:
+        - id: roadmaps
+          config: {}
       building:
         - id: drill
           config:

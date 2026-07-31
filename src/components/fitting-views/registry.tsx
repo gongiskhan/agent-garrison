@@ -68,7 +68,17 @@ const REGISTRY: Record<string, FittingViewComponent> = {
       ssr: false,
       loading: ViewLoading
     }
-  )
+  ),
+  // Both Roadmaps views render the same component: `roadmap` is the picker at
+  // the root, `project` is the same screen deep-linked to one project.
+  "roadmaps:roadmap": dynamic(() => import("@/components/fitting-views/RoadmapView"), {
+    ssr: false,
+    loading: ViewLoading
+  }),
+  "roadmaps:project": dynamic(() => import("@/components/fitting-views/RoadmapView"), {
+    ssr: false,
+    loading: ViewLoading
+  })
 };
 
 // Shared shape-aware views (2026-07-29 fittings/views refit: every Fitting

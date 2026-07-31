@@ -1,0 +1,72 @@
+name: roadmaps
+version: 0.1.0
+description: Per-project roadmaps for Agent Garrison - one roadmap.json per repo, with a one-way bridge onto the Kanban board.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: knowledge
+  cardinality_hint: single
+  component_shape: cli
+  platforms:
+    - all
+  summary: >-
+    A roadmap per project, stored as `roadmap.json` at the root of the repo
+    itself (never in Garrison's own state): ordered categories, tasks with
+    stable ids, and notes recording the decisions behind them. The Roadmaps
+    view reads and edits the live file - there is no shadow copy - and can
+    hand any task to the Kanban board's Backlog or To Do. Agents are the
+    expected main authors: they edit the file directly in the project they are
+    working in, and the view reflects it on the next read.
+  config_schema: []
+  provides: []
+  consumes: []
+  verify:
+    command: node apm_modules/_local/roadmaps/scripts/roadmap.mjs --probe
+    expect: ROADMAPS-OK
+    timeout_ms: 10000
+  ui:
+    views:
+      - id: roadmap
+        placement: sidebar-surface
+        entry: ./ui/Roadmap.tsx
+        route: /
+      - id: project
+        placement: sidebar-surface
+        entry: ./ui/Roadmap.tsx
+        route: /:project
+  for_consumers: |
+    Every project may carry a roadmap at `<repo>/roadmap.json`. It is the
+    project's plan of record: what is being built, in what order, and the
+    decisions already taken. Read it before planning work in a repo, and keep
+    it current as work lands - you are its main author, the UI is for the user.
+
+    Shape:
+        {
+          "title": "...", "intro": "the rule fixed at the top", "updatedAt": "<iso>",
+          "categories": [
+            { "id": "f0", "title": "Phase 0", "noteRef": "n-f0",
+              "items": [ { "id": "f0.1", "text": "...", "done": false,
+                           "sentToKanban": null, "noteRef": null } ] }
+          ],
+          "notes": [ { "id": "n-f0", "title": "Phase 0: decisions", "body": "..." } ]
+        }
+
+    Four rules, and they are not stylistic:
+    - **Ids are stable.** They are referenced from other conversations and from
+      Kanban cards. NEVER renumber on insert or delete; give a new item the next
+      unused id in its category (`f0.7` after `f0.6`, even if `f0.3` was deleted).
+    - **Done is never removed.** Set `done: true`; the item stays where it is.
+      The roadmap is a history, not a queue.
+    - **`sentToKanban` is written by the bridge, not by you.** It records that a
+      card already exists for that item (`"backlog"` / `"todo"` / `null`).
+    - **Notes hold the WHY.** When a decision gets made about an item - a number,
+      a tradeoff, a risk accepted - write it into the linked note rather than
+      inflating the task text.
+
+    A helper CLI ships with the fitting for the mechanical edits:
+        node apm_modules/_local/roadmaps/scripts/roadmap.mjs show <repo>/roadmap.json
+        node apm_modules/_local/roadmaps/scripts/roadmap.mjs check <repo>/roadmap.json f0.1
+        node apm_modules/_local/roadmaps/scripts/roadmap.mjs add-item <repo>/roadmap.json f0 "..."
+        node apm_modules/_local/roadmaps/scripts/roadmap.mjs validate <repo>/roadmap.json
+    Editing the JSON by hand is equally fine - run `validate` afterwards.
