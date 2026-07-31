@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { LIBRARY_PATH, ROOT_DIR } from "./paths";
+import { FITTINGS_DIR, LIBRARY_PATH, ROOT_DIR } from "./paths";
 import { parseGarrisonMetadata } from "./metadata";
 import { writeFileAtomic } from "./atomic-write";
 import { CATEGORY_BY_FACULTY, type LibraryEntry } from "./types";
@@ -68,8 +68,97 @@ export async function appendRawLibraryEntry(entry: RawLibraryEntry): Promise<voi
   });
 }
 
+/**
+ * Every Fitting on disk is registered, always.
+ *
+ * The registry (data/library.json) used to be an opt-in allow-list, so a
+ * Fitting could exist under fittings/ and be invisible in the Armory with
+ * nothing to indicate why — that is how 17 seed Fittings ended up unlisted.
+ * Discovery is now automatic and the registry is a CURATION layer: an entry
+ * there overrides the derived name/summary and carries ratings/cloned_from.
+ *
+ * To unregister, add the id to data/library-excluded.json (a JSON array).
+ * That is the single manual lever, and it is explicit rather than an absence.
+ */
+const AUTO_REGISTER_CAP = 300;
+const EXCLUDED_PATH = path.join(path.dirname(LIBRARY_PATH), "library-excluded.json");
+
+async function readExcludedIds(): Promise<Set<string>> {
+  try {
+    const raw = await fs.readFile(EXCLUDED_PATH, "utf8");
+    const ids = JSON.parse(raw);
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Directories under fittings/{seed,local} that hold an apm.yml. */
+async function discoverFittingDirs(): Promise<{ id: string; localPath: string }[]> {
+  const found: { id: string; localPath: string }[] = [];
+  for (const group of ["seed", "local"]) {
+    const dir = path.join(FITTINGS_DIR, group);
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const id of names) {
+      const localPath = path.join("fittings", group, id);
+      try {
+        await fs.access(path.join(ROOT_DIR, localPath, "apm.yml"));
+        found.push({ id, localPath });
+      } catch {
+        // not a fitting directory
+      }
+    }
+  }
+  return found;
+}
+
+/** Synthesize a registry entry for a Fitting that has no curated one. */
+async function deriveRawEntry(
+  id: string,
+  localPath: string
+): Promise<RawLibraryEntry | null> {
+  const manifest = await readYamlFile<Record<string, unknown>>(
+    path.join(ROOT_DIR, localPath, "apm.yml")
+  );
+  if (!manifest) return null;
+  const description =
+    typeof manifest.description === "string" ? manifest.description.trim() : "";
+  return {
+    id,
+    name: typeof manifest.name === "string" && manifest.name ? manifest.name : id,
+    repo: `local:${localPath}`,
+    localPath,
+    summary: description.replace(/\s+/g, " ").slice(0, 300) || `The ${id} fitting.`,
+    platforms: ["claude-code"],
+  };
+}
+
 export async function readLibrary(): Promise<LibraryEntry[]> {
-  const entries = await readRawLibrary();
+  const curated = await readRawLibrary();
+  const excluded = await readExcludedIds();
+  const byId = new Map(curated.map((entry) => [entry.id, entry]));
+
+  for (const { id, localPath } of await discoverFittingDirs()) {
+    if (byId.has(id)) continue;
+    const derived = await deriveRawEntry(id, localPath);
+    if (derived) byId.set(id, derived);
+  }
+
+  let entries = [...byId.values()].filter((entry) => !excluded.has(entry.id));
+  if (entries.length > AUTO_REGISTER_CAP) {
+    console.warn(
+      `[garrison] ${entries.length} fittings exceeds the ${AUTO_REGISTER_CAP} auto-register cap; ` +
+        "listing the first " +
+        `${AUTO_REGISTER_CAP} by id. Curate data/library-excluded.json or raise AUTO_REGISTER_CAP.`
+    );
+    entries = entries.sort((a, b) => a.id.localeCompare(b.id)).slice(0, AUTO_REGISTER_CAP);
+  }
+
   const resolved = await Promise.all(entries.map(resolveLibraryEntry));
   const skipped = entries.filter((_, i) => resolved[i] === null).map((e) => e.id);
   if (skipped.length > 0) {

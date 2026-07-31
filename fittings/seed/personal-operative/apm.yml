@@ -50,10 +50,8 @@ x-garrison:
     - kind: orchestrator
       name: personal-operative
   consumes:
-    - kind: soul
+    - kind: identity
       cardinality: one
-    - kind: agent-skill
-      cardinality: any
     - kind: memory-store
       cardinality: any
     - kind: automation-runner

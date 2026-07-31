@@ -105,13 +105,24 @@ async function clearStatusFile(file) {
   } catch {}
 }
 
-// Webhook URLs are typed into a phone text field, and the Omi app can store one
-// with its `&` percent-encoded. The whole `secret&uid=<uid>` string then arrives
-// as a SINGLE `key` param: auth fails, `uid` is missing, and every delivery 401s
-// — which counts toward Omi's 100-consecutive-failure auto-disable, so a typo
-// silently kills the pipe. Split it back out rather than making the user retype
-// a 48-char secret on a phone. This never weakens the check: the recovered `key`
-// is still compared in full, and real params always win over recovered ones.
+// PERMANENT compatibility layer for an upstream bug — not a workaround for a
+// user typo (verified 2026-07-31: all three stored webhook URLs end cleanly at
+// the secret, read back from GET /v1/users/developer/webhook/<type>).
+//
+// Omi's DEPLOYED realtime sender appends the uid by naive concatenation, so a
+// URL that already carries `?key=…` receives a SECOND `?`:
+//   …/omi/realtime?key=<secret>?uid=<uid>
+// The whole `secret?uid=<uid>` string then arrives as a single `key` param and
+// no `uid` param exists at all, so every delivery 401s — and 100 consecutive
+// failures make Omi auto-disable the webhook permanently. (Their current main
+// uses an &-correct urlsplit/urlencode helper, so this may fix itself upstream;
+// the repair stays because we cannot detect which version is deployed.)
+//
+// The memory_created path does NOT do this, which is why conversations worked
+// while realtime was silently dead. This never weakens auth: the recovered
+// `key` is still compared in full, and real params always beat recovered ones.
+let repairWarned = false;
+
 export function repairDoubleEncodedQuery(query, counters = null, expectedSecret = "") {
   const key = typeof query.key === "string" ? query.key : "";
   if (!key) return query;
@@ -148,11 +159,18 @@ export function repairDoubleEncodedQuery(query, counters = null, expectedSecret 
     if (present === undefined || present === "") merged[k] = v;
   }
   counters?.bump?.("query_repaired_double_encoded");
-  console.warn(
-    `[omi-channel] repaired a mangled webhook query: key swallowed ` +
-      `[${Object.keys(recovered).join(",")}] via separator ${JSON.stringify(tail.slice(0, 6))}. ` +
-      `Fix the URL in Omi's Developer Settings to stop relying on this.`
-  );
+  // Counted, not logged per delivery: this fires on EVERY realtime webhook, so
+  // a line each would be pure noise for a known upstream defect nobody can fix
+  // from this side. The counter is the signal that it is still happening.
+  if (!repairWarned) {
+    repairWarned = true;
+    console.warn(
+      `[omi-channel] repairing mangled webhook queries: key swallowed ` +
+        `[${Object.keys(recovered).join(",")}] via ${JSON.stringify(tail.slice(0, 6))}. ` +
+        `Omi appends the uid with a second '?' - upstream bug, the stored URL is correct. ` +
+        `Logged once per process; see the query_repaired_double_encoded counter.`
+    );
+  }
   return merged;
 }
 

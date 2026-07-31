@@ -40,9 +40,7 @@ x-garrison:
     Don't create documents for trivial single-turn answers, acknowledgements,
     or questions.
   config_schema: []
-  provides:
-    - kind: agent-skill
-      name: project-documents
+  provides: []
   consumes: []
   setup:
     command: bash scripts/setup.sh

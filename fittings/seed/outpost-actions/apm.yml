@@ -5,8 +5,8 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  faculty: coordination
-  category: Connections
+  faculty: building
+  category: Building
   cardinality_hint: multi
   component_shape: skill
   ui:
@@ -81,9 +81,7 @@ x-garrison:
     - If exit code is 2: tell the principal which machines are available (from `list_outposts`).
     - If exit code is 3: tell the principal the machine is offline and try again later.
     - If exit code is 5: the outpost-host may not be running. Tell the principal to start it.
-  provides:
-    - kind: agent-skill
-      name: outpost-actions
+  provides: []
   consumes:
     - kind: outpost
       cardinality: any

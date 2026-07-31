@@ -79,16 +79,8 @@ x-garrison:
       type: integer
       default: 200
       description: Max turns for the execution sub-agent. Real work needs headroom.
-  provides:
-    - kind: agent-skill
-      name: coding-subagent
-  consumes:
-    - kind: agent-skill
-      name: projects-index
-      cardinality: one
-    - kind: agent-skill
-      name: project-documents
-      cardinality: one
+  provides: []
+  consumes: []
   setup:
     command: bash scripts/setup.sh
     idempotent: true

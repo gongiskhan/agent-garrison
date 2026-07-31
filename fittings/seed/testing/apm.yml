@@ -18,9 +18,7 @@ x-garrison:
   platforms:
     - claude-code
   summary: Runs the project's native test command (npm/pytest/cargo/go test).
-  provides:
-    - kind: agent-skill
-      name: testing
+  provides: []
   verify:
     command: node apm_modules/_local/testing/scripts/run_tests.mjs --probe
     expect: ok

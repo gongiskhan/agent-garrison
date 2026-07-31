@@ -23,9 +23,7 @@ x-garrison:
       type: path
       default: ~/Projects
       description: Directory scanned for projects. Each immediate subdirectory becomes a project.
-  provides:
-    - kind: agent-skill
-      name: projects-index
+  provides: []
   setup:
     command: bash scripts/setup.sh
     idempotent: true
