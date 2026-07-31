@@ -94,6 +94,14 @@ That derivation exists **once**, in `scripts/lib/memory-vault.mjs`
 - `scripts/compare-backends.mjs` lists that one folder and diffs it against the
   same mapping.
 
+The `<remote_folder>` half is resolved at **drain** time from
+`BASIC_MEMORY_REMOTE_FOLDER`. Every shipped path bakes that variable in (the
+capture hook's command, the scheduled drain job, the comparison job), so it only
+matters if you run the drain **by hand**: `node ~/.claude/basic-memory/flush-spool.mjs`
+with the variable unset silently defaults to `vault`, which lands those captures
+outside a non-default configured folder, where the comparator will not find them.
+Export it, or let the scheduler run the job.
+
 The sidecar carries the path rather than the permalink deliberately. The hook is
 Python and the rest is Node, so stamping a permalink in the hook meant
 implementing the mapping twice — and two implementations of one mapping is one

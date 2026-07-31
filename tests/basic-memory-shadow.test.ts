@@ -1030,6 +1030,58 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       expect(drained.stdout).toContain("will NOT be reconciled by compare-backends.mjs");
       expect(remoteKeys()).toEqual(["capture-legacy-20260101-000000-42"]);
     });
+
+    // S1 - a STALE shared lib is the dangerous shape, not a missing one: it
+    // imports cleanly and then has no `permalinkForRelPath`, so the drain died
+    // with "is not a function" on every run while captures piled up until the
+    // cap evicted the oldest. That mixed-version install is the one input the
+    // dynamic import already claimed to survive.
+    //
+    // Staged the way setup.sh stages it - the drain sitting beside its own
+    // lib/ - because the drain resolves the module relative to its OWN file:
+    // running the repo copy would find the repo's healthy lib and prove nothing.
+    it("a STALE shared lib degrades to the queue key instead of killing the drain", async () => {
+      const hookHome = path.join(tmp, "stale-hook-home");
+      await fsp.mkdir(path.join(hookHome, "lib"), { recursive: true });
+      const stagedFlush = path.join(hookHome, "flush-spool.mjs");
+      await fsp.copyFile(FLUSH, stagedFlush);
+      // Imports cleanly, exports nothing the drain needs.
+      await fsp.writeFile(
+        path.join(hookHome, "lib", "memory-vault.mjs"),
+        "export const unrelated = 1;\n"
+      );
+
+      const spool = path.join(tmp, "stale-lib-spool");
+      const captured = await run(
+        "python3",
+        [CAPTURE],
+        cliEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_AUTOFLUSH: "0"
+        }),
+        JSON.stringify({ session_id: SESSION_ID, cwd: tmp, hook_event_name: "SessionEnd" })
+      );
+      expect(captured.exitCode).toBe(0);
+      // A well-formed sidecar IS present: the only thing missing is the mapping.
+      expect((await fsp.readdir(spool)).filter((n) => n.endsWith(".notepath"))).toHaveLength(1);
+
+      const drained = await run("node", [stagedFlush], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+
+      expect(drained.exitCode).toBe(0);
+      expect(drained.stdout).not.toMatch(/is not a function/);
+      expect(drained.stderr).not.toMatch(/is not a function/);
+      expect(drained.stderr).not.toContain("unexpected error");
+      // Degraded exactly like a missing lib: loud, named, and still draining.
+      expect(drained.stdout).toContain("no usable identity sidecar (mapping-module-missing)");
+      expect(drained.stdout).toContain("will NOT be reconciled by compare-backends.mjs");
+      expect(drained.stdout).toContain("flushed 1 capture(s)");
+      // And the capture LEFT the spool: it does not pile up until the cap
+      // evicts it, which is what the crash loop actually cost.
+      expect((await fsp.readdir(spool)).filter((n) => /^capture-.*\.md$/.test(n))).toHaveLength(0);
+      expect(remoteKeys()).toHaveLength(1);
+      expect(remoteKeys()[0]).toMatch(new RegExp(`^capture-${SESSION_ID}-`));
+    });
   });
 
   // ── setup.sh: shadow dual-write ────────────────────────────────────────
