@@ -16,7 +16,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the operative is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist.
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the operative is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist. Moving an existing vault to a remote store is a bounded migration rather than a mode - `scripts/import-vault.mjs` seeds the remote once from the local files, `shadow_write` keeps both sides written while the two are compared, and a daily comparator files a dated diff report whose header carries the date the migration must end on.
   config_schema:
     - key: backend
       type: select
@@ -82,6 +82,38 @@ x-garrison:
       type: string
       default: cortex
       description: Binary the spool drain invokes as `<bin> memory write --file <spoolfile> --permalink <key> --json`. A missing binary is the safe no-op path - captures stay spooled until it appears.
+    - key: shadow_write
+      type: boolean
+      default: false
+      description: >-
+        Shadow dual-write, for MIGRATING memory from the local vault to a remote store. On, the
+        capture path keeps writing the local vault EXACTLY as today and ALSO enqueues the same
+        capture for the remote store - shadow adds a destination, it never replaces one, so on
+        `backend: local` the local behaviour is unchanged. Turning it on registers the daily
+        comparator (see compare_cron) and stamps a dual-write marker at
+        $GARRISON_HOME/basic-memory/shadow-write.json fixing the review date at 14 days out. This is
+        a migration with an end, not a mode - on or before that date the review picks one of three
+        outcomes (cut reads over, extend ONCE with a written reason, or remove) and records it in
+        docs/DECISIONS.md. Precedence with the tri-state spool: an explicit `spool_enabled`
+        (`always`/`never`) still wins; `auto` resolves to on when the backend is remote OR shadow is
+        on. `shadow_write: true` together with `spool_enabled: never` therefore leaves the shadow
+        INERT, and setup says so loudly every run.
+    - key: remote_folder
+      type: string
+      default: vault
+      description: >-
+        Remote permalink folder the vault import and the comparator use, i.e. the `<folder>` in the
+        `<folder>/<slug>` permalink each local note maps to. One folder segment on purpose - the
+        contract lists notes one folder at a time, so a single flat namespace is what lets the
+        comparator enumerate exactly the imported set in one call.
+    - key: compare_cron
+      type: string
+      default: "27 4 * * *"
+      description: Local cron schedule for the daily job that compares the local vault against the remote store and files a dated markdown diff report in the composition's data dir. Registered only while shadow_write is on, and retired when it goes off.
+    - key: compare_sample_size
+      type: integer
+      default: 5
+      description: How many notes present on BOTH sides the daily comparator reads back and compares byte-for-byte. Set differences are computed over every note; CONTENT is only ever checked on this sample, and every report states the sample size next to its verdict so a clean sample is never mistaken for parity.
   provides:
     - kind: memory-store
       name: basic-memory

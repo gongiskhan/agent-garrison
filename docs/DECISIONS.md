@@ -652,3 +652,52 @@ Fittings, unset vault keys, the id it will land on), stages into a hidden siblin
 and renames only when complete, and refuses to overwrite an existing composition.
 **Source:** composition-transfer.ts, `tests/composition-transfer.test.ts`,
 `tests/e2e/muster-transfer.spec.ts`. **Status:** Settled.
+
+## 2026-07-31 · Memory backend migration is dated: shadow, compare, then cut over or remove by 2026-08-14
+
+Moving operative memory from the local markdown vault to a remote note vault is
+a **migration with an end**, not a second permanent backend and not a flag that
+becomes furniture. The basic-memory Fitting now ships the whole shape:
+
+- **A one-time import.** `scripts/import-vault.mjs` copies the existing vault
+  into the remote store. Each note's permalink is derived deterministically from
+  its path relative to the vault root — `Memory/2026/Session Notes.md` →
+  `vault/memory-2026-session-notes` — and the permalink IS the note's identity
+  remotely, so a re-run overwrites rather than duplicating. It refuses (loudly)
+  any two paths that slugify to the same permalink instead of letting one
+  silently overwrite the other, supports `--dry-run`, and VERIFIES after
+  importing: it re-lists the remote folder, compares the set, and reads a sample
+  back to compare content. It never writes to the vault.
+
+- **Shadow dual-write.** `shadow_write` (default false) keeps the local vault
+  written exactly as before and ALSO enqueues each capture for the remote store,
+  through the capture spool that already existed. Shadow adds a destination, it
+  never replaces one. Precedence with the tri-state spool: an explicit
+  `spool_enabled` still wins, and `auto` now resolves to on when the backend is
+  remote **or** shadow is on; `shadow_write: true` with `spool_enabled: never`
+  is an inert shadow and setup says so on every run.
+
+- **A daily comparator with a deadline in its header.**
+  `scripts/compare-backends.mjs` lists both sides, diffs them by permalink,
+  samples N notes for content, and files a dated markdown report into the
+  composition's data dir. It reports counts, missing-on-either-side and content
+  mismatches **separately**, states its own sample size beside every verdict,
+  and marks an unparseable listing or an unlocatable note body INCONCLUSIVE
+  rather than folding it into "match". It records identities, counts and
+  digests; never a note body.
+
+**The review is the point.** The first run with shadow on stamps
+`$GARRISON_HOME/basic-memory/shadow-write.json` with the first dual-write
+timestamp and a review date 14 days later, and every report carries both. The
+window is deliberately not configurable and the marker is deliberately not reset
+by toggling the config key. **On or before the review date, exactly one of three
+outcomes is chosen and appended here:** cut reads over (remote becomes the
+memory of record, shadow off), extend ONCE with a written reason, or remove
+(shadow off, local stays the memory of record, marker deleted). For the
+dual-write started on **2026-07-31** the review is due **2026-08-14**; a
+dual-write that outlives its review without one of those three entries is the
+permanent parallel implementation this process exists to prevent.
+**Source:** capability contract rule 10 (`docs/CAPABILITY_CONTRACT.md` in the
+provider repo), `fittings/seed/basic-memory/scripts/{import-vault,compare-backends}.mjs`,
+`tests/basic-memory-shadow.test.ts`. **Status:** Open — closes at the 2026-08-14
+review with one of the three outcomes above.

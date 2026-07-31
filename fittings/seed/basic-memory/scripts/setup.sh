@@ -42,6 +42,26 @@ REMOTE_BIN="${BASIC_MEMORY_REMOTE_CLI_BIN:-cortex}"
 FLUSH_PATH="$HOOK_HOME/flush-spool.mjs"
 FLUSH_JOB_ID="basic-memory-spool-flush"
 BACKEND="${BASIC_MEMORY_BACKEND:-local}"
+
+# Shadow dual-write and its comparator - the rule-10 migration half. Default
+# OFF: with `shadow_write` absent nothing below runs and the fitting is exactly
+# what the backend-switch slice shipped. The dual-write marker is machine-global
+# (under GARRISON_HOME, beside the spool) because the review deadline belongs to
+# the machine that started dual-writing, not to one composition.
+SHADOW_WRITE="${BASIC_MEMORY_SHADOW_WRITE:-false}"
+REMOTE_FOLDER="${BASIC_MEMORY_REMOTE_FOLDER:-vault}"
+COMPARE_CRON="${BASIC_MEMORY_COMPARE_CRON:-27 4 * * *}"
+COMPARE_SAMPLE="${BASIC_MEMORY_COMPARE_SAMPLE_SIZE:-5}"
+GARRISON_ROOT="${GARRISON_HOME:-$HOME/.garrison}"
+STATE_DIR="$GARRISON_ROOT/basic-memory"
+SHADOW_MARKER="$STATE_DIR/shadow-write.json"
+COMPARE_PATH="$HOOK_HOME/compare-backends.mjs"
+IMPORT_PATH="$HOOK_HOME/import-vault.mjs"
+COMPARE_JOB_ID="basic-memory-backend-compare"
+# NOT configurable, on purpose: a knob that moves the deadline is the "flag that
+# becomes furniture" this shape exists to prevent. Extending is a review outcome
+# with a written reason, not a config value.
+REVIEW_WINDOW_DAYS=14
 quote() { printf "%q" "$1"; }
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
@@ -73,11 +93,26 @@ case "$(lower "$BACKEND")" in
   *) log "unknown backend '$BACKEND'; falling back to local"; BACKEND="local" ;;
 esac
 
-# spool: `auto` follows the backend (off local, on remote - a remote backend
-# that never drains is a silent no-op); `always`/`never` override it in either
-# direction. Legacy booleans from the pre-switch config are read as the
-# corresponding explicit choice.
-if [ "$BACKEND" = "cortex" ]; then SPOOL_AUTO=1; else SPOOL_AUTO=0; fi
+# shadow_write: a plain boolean, default false. On means "keep writing the LOCAL
+# vault exactly as today AND enqueue the same capture for the remote store" -
+# shadow ADDS a destination, it never replaces one. Unknown values read as the
+# shipped default (off), like `backend` does.
+case "$(lower "$SHADOW_WRITE")" in
+  1|true|yes|on) SHADOW_ON=1 ;;
+  ""|0|false|no|off) SHADOW_ON=0 ;;
+  *) log "unknown shadow_write '$SHADOW_WRITE'; falling back to false"; SHADOW_ON=0 ;;
+esac
+shadow_on() { [ "$SHADOW_ON" = "1" ]; }
+
+# spool: `auto` follows the backend AND the shadow (off on plain local, on for a
+# remote backend - a remote backend that never drains is a silent no-op - and on
+# under shadow, because the spool IS how a shadow capture reaches the remote
+# store); `always`/`never` override it in either direction. Legacy booleans from
+# the pre-switch config are read as the corresponding explicit choice.
+#
+# PRECEDENCE, in one line: explicit spool_enabled > (backend remote OR
+# shadow_write) > off.
+if [ "$BACKEND" = "cortex" ] || shadow_on; then SPOOL_AUTO=1; else SPOOL_AUTO=0; fi
 case "$(lower "$SPOOL_ENABLED")" in
   always|1|true|yes|on) SPOOL_ON=1 ;;
   never|0|false|no|off) SPOOL_ON=0 ;;
@@ -88,6 +123,14 @@ case "$(lower "$SPOOL_ENABLED")" in
     ;;
 esac
 spool_on() { [ "$SPOOL_ON" = "1" ]; }
+
+# The one combination that cannot do what it says. `never` is an explicit
+# opt-out and keeps beating an implicit switch, so it wins - but a shadow with
+# nothing to enqueue into is inert, and a silent inert shadow is exactly the
+# kind of furniture rule 10 exists to prevent. Say so, loudly, every run.
+if shadow_on && ! spool_on; then
+  log "warning: shadow_write=true but spool_enabled=never - NO capture is enqueued for the remote store; the shadow is INERT until spool_enabled is auto or always"
+fi
 
 # 1. Required tools.
 command -v uv >/dev/null 2>&1 || { echo "uv not on PATH; install uv (https://docs.astral.sh/uv/) and re-run" >&2; exit 1; }
@@ -268,6 +311,30 @@ sched_env=()
 [ -n "$log_file" ] && sched_env+=("GARRISON_SCHEDULER_LOG=$log_file")
 sched() { env ${sched_env[@]+"${sched_env[@]}"} node "$scheduler_script" "$@"; }
 
+# Is a job of ours already in the machine-global jobs file? Used to gate every
+# `remove` (improver-nightly's conditional idiom): scheduler.mjs `remove`
+# rewrites the jobs file even for a no-op, and the default-off path must touch
+# nothing at all. The listing goes through a TEMP FILE rather than a pipe, so
+# the exit code being tested is unambiguously this check's own.
+job_registered() {
+  [ -f "$scheduler_script" ] || return 1
+  local wanted="$1" listing rc
+  listing="$(mktemp)"
+  if ! sched list >"$listing" 2>/dev/null; then
+    rm -f "$listing"
+    return 1
+  fi
+  if SCHED_LISTING="$listing" SCHED_WANTED_ID="$wanted" node -e '
+    const fs = require("node:fs");
+    let jobs = [];
+    try { jobs = JSON.parse(fs.readFileSync(process.env.SCHED_LISTING, "utf8")).jobs ?? []; }
+    catch { process.exit(1); }
+    process.exit(jobs.some((j) => j?.id === process.env.SCHED_WANTED_ID) ? 0 : 1);
+  '; then rc=0; else rc=1; fi
+  rm -f "$listing"
+  return "$rc"
+}
+
 if spool_on; then
   # The drain must survive composition churn like the hook does, so it runs
   # from the same stable install dir ($CLAUDE_HOME/basic-memory).
@@ -286,20 +353,82 @@ if spool_on; then
   fi
 else
   # Spool off (the default, and what a flip back to local resolves to): retire
-  # our drain job if a previous enable left one behind. Gated on the job
-  # actually existing (improver-nightly's conditional idiom) - scheduler.mjs
-  # `remove` rewrites the machine-global jobs file even for a no-op, and the
-  # default-off path must touch nothing.
-  if [ -f "$scheduler_script" ] && sched list 2>/dev/null | node -e '
-    let raw = "";
-    process.stdin.on("data", (c) => { raw += c; });
-    process.stdin.on("end", () => {
-      let jobs = [];
-      try { jobs = JSON.parse(raw).jobs ?? []; } catch { process.exit(1); }
-      process.exit(jobs.some((j) => j?.id === "basic-memory-spool-flush") ? 0 : 1);
-    });
-  '; then
+  # our drain job if a previous enable left one behind.
+  if job_registered "$FLUSH_JOB_ID"; then
     sched remove "$FLUSH_JOB_ID" >/dev/null 2>&1 || true
+  fi
+fi
+
+# 8. Shadow dual-write: the marker that fixes the review date, and the daily
+# comparator. Gated on shadow_write; nothing here runs on the default path.
+#
+# The marker is written ONCE, the first time shadow resolves on, and is then
+# left alone - including when shadow goes off again. That is the point: rule 10
+# fixes the review date UP FRONT, so it must not be resettable by toggling a
+# config key. Deleting the marker by hand is how you close a dual-write period
+# (cut over, or remove), and starting a new period is a deliberate act.
+if shadow_on; then
+  mkdir -p "$STATE_DIR"
+  if [ -f "$SHADOW_MARKER" ]; then
+    log "shadow dual-write already recorded in $SHADOW_MARKER (review date unchanged)"
+  else
+    REVIEW_WINDOW_DAYS="$REVIEW_WINDOW_DAYS" python3 - "$SHADOW_MARKER" <<'PY'
+import datetime, json, os, sys
+days = int(os.environ.get("REVIEW_WINDOW_DAYS") or 14)
+now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+due = now + datetime.timedelta(days=days)
+iso = lambda t: t.isoformat().replace("+00:00", "Z")
+with open(sys.argv[1], "w") as fh:
+    json.dump({
+        "first_dual_write_at": iso(now),
+        "review_window_days": days,
+        "review_due_at": iso(due),
+        "note": (
+            "Shadow dual-write is a migration, not a mode. On or before review_due_at, "
+            "choose ONE: cut reads over, extend ONCE with a written reason, or remove. "
+            "Record the choice in docs/DECISIONS.md. This file is deliberately not reset "
+            "by toggling shadow_write; delete it by hand to close the period."
+        )
+    }, fh, indent=2)
+    fh.write("\n")
+print("[basic-memory-setup] dual-write marker written: " + sys.argv[1])
+PY
+  fi
+
+  # The comparator (and the one-time importer, for convenience) run from the
+  # same stable install dir as the hook and the drain, so they survive
+  # composition churn. The shared lib travels with them.
+  mkdir -p "$HOOK_HOME/lib"
+  cp "$SCRIPT_DIR/compare-backends.mjs" "$COMPARE_PATH"
+  cp "$SCRIPT_DIR/import-vault.mjs" "$IMPORT_PATH"
+  cp "$SCRIPT_DIR/lib/memory-vault.mjs" "$HOOK_HOME/lib/memory-vault.mjs"
+  log "one-time vault import available: node $IMPORT_PATH --dry-run"
+
+  if [ ! -f "$scheduler_script" ]; then
+    log "scheduler not installed; backend comparison job not registered"
+  else
+    # The daemon has no idea which composition registered the job, so every
+    # path the comparator needs is baked in %q-quoted (data, never shell):
+    # where the vault is, which remote folder holds the imported notes, where
+    # the dated report goes, and which GARRISON_HOME holds the marker + the
+    # CLI install receipt.
+    cmp_env="REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN")"
+    cmp_env="$cmp_env GARRISON_HOME=$(quote "$GARRISON_ROOT")"
+    cmp_env="$cmp_env BASIC_MEMORY_VAULT_DIR=$(quote "$VAULT_DIR")"
+    cmp_env="$cmp_env BASIC_MEMORY_MEMORY_DIR=$(quote "$MEMORY_DIR")"
+    cmp_env="$cmp_env BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER")"
+    cmp_env="$cmp_env BASIC_MEMORY_COMPARE_SAMPLE_SIZE=$(quote "$COMPARE_SAMPLE")"
+    cmp_env="$cmp_env BASIC_MEMORY_COMPARE_REPORT_DIR=$(quote "$COMPOSITION_DIR/data/memory-backend-compare")"
+    sched register "$COMPARE_JOB_ID" "$COMPARE_CRON" \
+      --description "Compare the local memory vault against the remote store and file a dated diff report" \
+      -- "$cmp_env node $(quote "$COMPARE_PATH")"
+    log "backend comparison job registered ($COMPARE_JOB_ID: $COMPARE_CRON)"
+  fi
+else
+  # Shadow off (the default): retire the comparator if a previous enable left
+  # one behind. The MARKER is deliberately NOT removed here - see above.
+  if job_registered "$COMPARE_JOB_ID"; then
+    sched remove "$COMPARE_JOB_ID" >/dev/null 2>&1 || true
   fi
 fi
 
