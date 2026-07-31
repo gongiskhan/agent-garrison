@@ -311,6 +311,7 @@ declare module "*/omi-channel/lib/notify.mjs" {
 
 declare module "*/omi-channel/lib/wake.mjs" {
   export function wakeRegex(variants: string[]): RegExp | null;
+  export function normalizeTitle(title: unknown): string;
   export function buildWakePrompt(command: string, projects: string[]): string;
   export function parseWakeReply(reply: string): {
     intent: "create_task" | "create_event" | "query" | "note" | "unknown";
@@ -334,6 +335,11 @@ declare module "*/omi-channel/lib/wake.mjs" {
     });
     sessions: Map<string, unknown>;
     handleSegments(args: { sessionId: string; segments: unknown[] }): void;
+    handleCommand(args: {
+      command: string;
+      eventId: string;
+      context?: Array<{ text: string; isUser: boolean; at: number }>;
+    }): Promise<{ confirmation: string; cardUrl: string | null; result: Record<string, unknown> }>;
     close(sessionId: string, reason: string): Promise<unknown>;
   }
 }

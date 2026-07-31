@@ -127,6 +127,17 @@ export function loadConfig(env = process.env) {
     // the command ("create a task saying" + nothing). 0 = close on silence as
     // before. The max-capture cap is still the hard ceiling.
     wakeMinCaptureMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_MIN_CAPTURE_MS, 0),
+    // How much of the post-wake speech counts as THE COMMAND. Everything after
+    // it is still captured but handed to the classifier as trailing context.
+    // With an always-on mic in a room with a television the capture window can
+    // run for minutes; without this split a 10-minute transcript of the TV
+    // would drown the two sentences the user actually addressed to Gary.
+    wakeCommandWindowMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_COMMAND_WINDOW_MS, 60000),
+    // Suppress a second card whose resolved title matches one just created.
+    // A spoken command takes ~25s to appear, so repeating it is the natural
+    // reaction - and the repeat is different transcript text, so nothing else
+    // catches it. 0 disables.
+    wakeCardDedupeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CARD_DEDUPE_MS, 600000),
     wakeContextSegments: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_MAX_AGE_MS, 120000),
 

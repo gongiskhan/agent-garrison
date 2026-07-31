@@ -90,12 +90,17 @@ x-garrison:
             # segment carrying "Gary, create a task saying" and the one carrying
             # the title exceeded the 4s default - the window shut mid-sentence
             # and the truncated command classified as unknown.
-            wake_silence_close_ms: 7000
-            # Always collect for 15s after the wake word, through silence, and
-            # never past 20s. Trades latency (~15s + the orchestrator turn) for
-            # commands that survive Omi's bursty, speaker-switching transcript.
+            # Close 20s after the last speech, or 10 minutes after the wake
+            # word, whichever comes first. With an always-on mic near a TV the
+            # stream never really goes quiet, so the 10-minute ceiling is the
+            # real terminator; 20s of genuine silence ends it early.
+            wake_silence_close_ms: 20000
             wake_min_capture_ms: 15000
-            wake_max_capture_ms: 20000
+            wake_max_capture_ms: 600000
+            # Only the first minute after the wake word is treated as the
+            # command; the rest is captured but passed as trailing context, so
+            # ten minutes of television cannot drown two sentences of intent.
+            wake_command_window_ms: 60000
             # Segments from BEFORE the wake word handed to the classifier as
             # context - that is where the subject of a fragmented command lands.
             wake_context_segments: 6

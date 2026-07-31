@@ -558,3 +558,147 @@ describe("wake minimum capture window", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+// Regression (2026-07-31): a spoken command takes ~25s to become a card, so the
+// user repeats it - and the repeat is DIFFERENT transcript text ("Create a task.
+// Vamos, vamos. Saying that tomorrow it will be sunny." vs "create a task saying
+// that tomorrow it will be sunny...") so no upstream dedupe catches it. Observed
+// live: two identical "Tomorrow it will be sunny" cards 44s apart.
+describe("wake duplicate card suppression", () => {
+  function bus(home: string, title: string, extra: Record<string, unknown> = {}) {
+    const store = new OmiStore(path.join(home, "omi"));
+    const created: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeCardDedupeMs: 600000,
+        ...extra
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title, description: "d" }) }),
+      board: {
+        listProjects: async () => [],
+        createCard: async (c: { title: string }) => {
+          created.push(c.title);
+          return { id: `c${created.length}`, url: null };
+        }
+      },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [], cardUrl: async () => null }
+    });
+    return { wake, created, store };
+  }
+
+  it("suppresses a repeat of the same resolved title, despite different wording", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-"));
+    const { wake, created, store } = bus(home, "Tomorrow it will be sunny");
+    await wake.handleCommand({ command: "Create a task. Vamos, vamos. Saying that tomorrow it will be sunny.", eventId: "e1" });
+    await wake.handleCommand({ command: "create a task saying that tomorrow it will be sunny. Porque...", eventId: "e2" });
+    expect(created).toEqual(["Tomorrow it will be sunny"]);
+    expect(mergedCounters(store.root).wake_duplicate_suppressed).toBe(1);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("treats accents, case and punctuation as the same title", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-acc-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    let title = "Lembrar que amanhã pode chover";
+    const created: string[] = [];
+    const wake = new WakeBus({
+      cfg: { ...loadConfig({ GARRISON_HOME: home }), wakeEnabled: true, gatewayUrl: "http://x", wakeCardDedupeMs: 600000 },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title, description: "d" }) }),
+      board: {
+        listProjects: async () => [],
+        createCard: async (c: { title: string }) => { created.push(c.title); return { id: "c", url: null }; }
+      },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [], cardUrl: async () => null }
+    });
+    await wake.handleCommand({ command: "a", eventId: "e1" });
+    title = "lembrar que amanha pode chover!";
+    await wake.handleCommand({ command: "b", eventId: "e2" });
+    expect(created).toHaveLength(1);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("still creates a genuinely different task", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-diff-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    let title = "Tomorrow it will be sunny";
+    const created: string[] = [];
+    const wake = new WakeBus({
+      cfg: { ...loadConfig({ GARRISON_HOME: home }), wakeEnabled: true, gatewayUrl: "http://x", wakeCardDedupeMs: 600000 },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title, description: "d" }) }),
+      board: {
+        listProjects: async () => [],
+        createCard: async (c: { title: string }) => { created.push(c.title); return { id: "c", url: null }; }
+      },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [], cardUrl: async () => null }
+    });
+    await wake.handleCommand({ command: "a", eventId: "e1" });
+    title = "Ir ao Fado";
+    await wake.handleCommand({ command: "b", eventId: "e2" });
+    expect(created).toEqual(["Tomorrow it will be sunny", "Ir ao Fado"]);
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+// Feature (2026-07-31, user-requested): with a TV on, silence never arrives, so
+// the capture window runs for minutes. Everything is still captured, but only
+// the speech near the wake word counts as the COMMAND - the rest is trailing
+// context, or ten minutes of television would drown two sentences of intent.
+describe("wake command window vs trailing context", () => {
+  it("splits speech near the wake word from what the mic caught later", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-window-"));
+    let clock = 1_000_000;
+    const store = new OmiStore(path.join(home, "omi"));
+    const prompts: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 20000,
+        wakeMinCaptureMs: 0,
+        wakeMaxCaptureMs: 600000,
+        wakeCommandWindowMs: 60000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt);
+        return { reply: JSON.stringify({ intent: "create_task", title: "t", description: "d" }) };
+      },
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c", url: null }) },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [], cardUrl: async () => null },
+      now: () => clock
+    });
+
+    const seg = (text: string) => ({ text, speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary, create a task to book the car service")] });
+    clock += 10_000; // still inside the command window
+    wake.handleSegments({ sessionId: "s1", segments: [seg("for next Tuesday morning")] });
+    clock += 300_000; // five minutes of television later
+    wake.handleSegments({ sessionId: "s1", segments: [seg("and now the weather for the weekend")] });
+    await wake.close("s1", "max-capture");
+
+    expect(prompts).toHaveLength(1);
+    const p = prompts[0];
+    // Both parts of the real command are in the command line...
+    expect(p).toMatch(/Command \(spoken right after the wake word\): "[^"]*book the car service[^"]*next Tuesday morning/);
+    // ...and the television is present but quarantined as trailing context.
+    expect(p).toContain("CONTINUED afterwards");
+    expect(p).toContain("weather for the weekend");
+    expect(p).not.toMatch(/Command \(spoken right after the wake word\): "[^"]*weather for the weekend/);
+    rmSync(home, { recursive: true, force: true });
+  });
+});

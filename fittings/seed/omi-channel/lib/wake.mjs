@@ -29,9 +29,20 @@ export function wakeRegex(variants) {
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "iu");
 }
 
+// Titles are compared loosely: the same intent spoken twice yields wording that
+// differs in case, accents and punctuation but not in meaning.
+export function normalizeTitle(title) {
+  return String(title ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 // ---- dispatch prompt + reply ------------------------------------------------
 
-export function buildWakePrompt(command, projects, context = []) {
+export function buildWakePrompt(command, projects, context = [], trailing = "") {
   const projectList = projects.length > 0 ? projects.join(", ") : "(none known)";
   // The transcript is fragmented and speakers are often mis-attributed, so the
   // words that give a command its meaning frequently sit in a NEARBY segment
@@ -49,8 +60,17 @@ ${context.map((c) => `- [${c.isUser ? "user" : "other"}] ${c.text}`).join("\n")}
       : "";
   return `A spoken wake-word command just arrived from the user's wearable (Portuguese or English). Classify it and respond as STRICT JSON only - no prose, no fence.
 
-${contextBlock}Command (spoken after the wake word): "${command}"
-
+${contextBlock}Command (spoken right after the wake word): "${command}"
+${
+  trailing
+    ? `
+Conversation that CONTINUED afterwards (the mic stays on - this is very often
+television, other people, or unrelated talk. Use it ONLY to complete a detail the
+command clearly refers to, and ignore it entirely otherwise):
+"${trailing}"
+`
+    : ""
+}
 Schema:
 {
   "intent": "create_task" | "create_event" | "query" | "note" | "unknown",
@@ -118,6 +138,18 @@ export class WakeBus {
     this.sessions = new Map(); // sessionId -> session state (in memory ONLY)
     this.regex = wakeRegex(cfg.wakeVariants);
     this.dispatchChain = Promise.resolve();
+    this.recentCards = new Map(); // dedupeKey -> created-at ms (in memory)
+  }
+
+  // Remember a just-created card and evict anything past the dedupe window, so
+  // the map cannot grow without bound in a long-lived process.
+  rememberCard(key) {
+    const now = this.now();
+    this.recentCards.set(key, now);
+    const window = this.cfg.wakeCardDedupeMs ?? 0;
+    for (const [k, at] of this.recentCards) {
+      if (now - at >= window) this.recentCards.delete(k);
+    }
   }
 
   session(sessionId) {
@@ -169,7 +201,7 @@ export class WakeBus {
         s.seen.add(fingerprint);
 
         if (s.state === "capturing") {
-          s.parts.push(text.trim());
+          s.parts.push({ text: text.trim(), at: this.now() });
           this.armSilenceTimer(s);
           continue;
         }
@@ -194,7 +226,7 @@ export class WakeBus {
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
         const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
-        if (after) s.parts.push(after);
+        if (after) s.parts.push({ text: after, at: s.wakeHitAt });
         this.armSilenceTimer(s);
         s.capTimer = setTimeout(() => this.close(sessionId, "max-capture"), this.cfg.wakeMaxCaptureMs);
         if (s.capTimer.unref) s.capTimer.unref();
@@ -263,7 +295,14 @@ export class WakeBus {
 
     this.clearTimers(s);
     s.state = "armed";
-    const command = s.parts.join(" ").replace(/\s+/g, " ").trim();
+    // Speech close to the wake word is the command; everything the mic picked up
+    // afterwards is trailing context, not instruction.
+    const commandWindow = this.cfg.wakeCommandWindowMs ?? 0;
+    const inCommand = (p) => commandWindow <= 0 || p.at - s.wakeHitAt <= commandWindow;
+    const join = (parts) => parts.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim();
+    const command = join(s.parts.filter(inCommand));
+    const trailing = join(s.parts.filter((p) => !inCommand(p)));
+    if (trailing) this.counters.bump("wake_trailing_context_used");
     const wakeHitAt = s.wakeHitAt;
     const context = s.contextUsed;
     s.parts = [];
@@ -282,12 +321,12 @@ export class WakeBus {
       return this.dispatchChain;
     }
     this.dispatchChain = this.dispatchChain
-      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context }))
+      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing }))
       .catch((err) => this.log.error(`[omi-channel] wake dispatch error: ${err?.message ?? err}`));
     return this.dispatchChain;
   }
 
-  async dispatch({ sessionId, command, wakeHitAt, context = [] }) {
+  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "" }) {
     this.counters.bump("wake_dispatches");
     // The ONLY persistence from the wake bus: the assembled command text.
     const eventId = ulid();
@@ -306,7 +345,7 @@ export class WakeBus {
 
     let outcome = null;
     try {
-      outcome = await this.handleCommand({ command, eventId, context });
+      outcome = await this.handleCommand({ command, eventId, context, trailing });
     } catch (err) {
       outcome = await this.fallbackNote({
         command,
@@ -335,7 +374,7 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [] }) {
+  async handleCommand({ command, eventId, context = [], trailing = "" }) {
     if (!this.cfg.gatewayUrl || !this.runFn) {
       return this.fallbackNote({
         command,
@@ -345,7 +384,7 @@ export class WakeBus {
       });
     }
     const projects = await this.board.listProjects().catch(() => []);
-    const { reply } = await this.runFn({ prompt: buildWakePrompt(command, projects, context) });
+    const { reply } = await this.runFn({ prompt: buildWakePrompt(command, projects, context, trailing) });
     const parsed = parseWakeReply(reply);
     if (!parsed) {
       return this.fallbackNote({
@@ -361,6 +400,24 @@ export class WakeBus {
       case "create_event": {
         const isEvent = parsed.intent === "create_event";
         const title = parsed.title || command.slice(0, 80);
+        // A spoken command takes ~25s to become a card, so the natural human
+        // reaction is to say it again - and the second attempt is different text
+        // ("Create a task. Vamos, vamos. Saying that...") so nothing upstream
+        // dedupes it. Suppress on the RESOLVED title instead: two utterances
+        // meaning the same thing land on the same title even when the raw
+        // transcripts differ. Keyed per intent so a task and an event with the
+        // same title stay distinct.
+        const dedupeKey = `${parsed.intent}:${normalizeTitle(title)}`;
+        const dupeAt = this.recentCards.get(dedupeKey);
+        const dedupeMs = this.cfg.wakeCardDedupeMs ?? 0;
+        if (dedupeMs > 0 && dupeAt && this.now() - dupeAt < dedupeMs) {
+          this.counters.bump("wake_duplicate_suppressed");
+          return {
+            confirmation: `Already created: ${title}`,
+            cardUrl: null,
+            result: { intent: parsed.intent, cardId: null, title, suppressed: "duplicate" }
+          };
+        }
         try {
           const card = await this.board.createCard({
             title: isEvent ? `Event: ${title}` : title,
@@ -376,6 +433,7 @@ export class WakeBus {
             originChannel: { channel: "omi", threadId: "omi-reports" }
           });
           this.counters.bump("wake_cards_created");
+          this.rememberCard(dedupeKey);
           const cardUrl = await this.notifier.cardUrl(card?.id ?? null);
           return {
             confirmation: `${isEvent ? "Event card" : "Card"} created: ${title}`,
