@@ -739,3 +739,50 @@ than inside a markdown file nobody is obliged to open. A hand-edited review wind
 in the marker is detected and ignored in favour of the standing 14 days.
 **Source:** G4 fresh review F1-F11; `tests/basic-memory-shadow.test.ts`.
 **Status:** Settled (the 2026-08-14 review date in the entry above is unchanged).
+
+## 2026-07-31 · The review deadline is evaluated before every exit, and the permalink mapping has exactly one implementation
+
+Third and final round on the memory migration, from its re-review.
+
+**The deadline failed open in the one state that matters.** The comparator
+evaluated the overdue review at the END of a successful comparison, so every
+early return skipped it — and the worst of those returned 0: "the remote memory
+CLI is not installed". That is precisely the furniture configuration (shadow
+switched on, the CLI never installed, nothing has ever worked), and a review 46
+days past its date exited 0 there while the report header printed OVERDUE. The
+gate is now a `finish()` every exit routes through, so the deadline is announced
+and enforced on the CLI-missing, listing-failed, unparseable-listing and
+missing-vault-root paths alike. Usage errors (exit 2) stay above it: they cannot
+fail open, and folding them in would hide which failure happened.
+
+**The permalink mapping has one implementation, not two.** The identity sidecar
+now holds the note's VAULT-RELATIVE PATH (`<key>.notepath`) rather than a
+permalink the Python hook derived itself, and `flush-spool.mjs` maps it through
+`scripts/lib/memory-vault.mjs` — the same module the import and the comparator
+use. The Python mirror was not byte-identical, only identical over the corpus it
+was tested against: it diverged on codepoints whose folding depends on the
+machine's Python-vs-Node Unicode versions, and on a trailing newline (Python `$`
+matches before one). Unreachable in practice, because the hook only ever mapped
+its own ASCII filename — but a trap laid for the next person, and no fixed test
+corpus can catch a skew that is a property of the installed interpreters. The
+claim of a byte-identical mirror is withdrawn; the structure that made it
+necessary is gone.
+
+**The orphan-sidecar sweep raced the hook.** The hook writes the sidecar, then
+the capture; a drain firing between those two renames swept the in-flight
+sidecar, and the capture then shipped under the bare queue key — permanently
+unreconcilable, and with `--fail-on-diff` on the daily job, a permanently red
+gate. Drains are spawned detached by every hook plus every 15 minutes, so two
+near-simultaneous session ends sufficed. The sweep now skips any sidecar newer
+than both the drain's start and a two-minute grace window.
+
+**Accepted risk, recorded rather than fixed:** nothing binds a sidecar to the
+capture beside it, so a well-formed but WRONG sidecar makes the drain overwrite
+an unrelated note's remote copy. The spool is a user-owned directory inside the
+single-machine, single-user trust boundary (GOVERNANCE §2) — anything able to
+write a sidecar can already rewrite the capture, the vault, or call the CLI — so
+this is not an escalation. The mitigation is a trail, not a guarantee: the drain
+logs `<capture> -> <permalink>` on EVERY flush. If the spool ever leaves that
+boundary this stops being acceptable. See this fitting's README, "Accepted risk".
+**Source:** G4 re-review N1-N4; `tests/basic-memory-shadow.test.ts`.
+**Status:** Settled (the 2026-08-14 review date stands).

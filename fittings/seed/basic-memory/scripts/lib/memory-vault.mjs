@@ -156,10 +156,15 @@ export function parseJsonDocument(stdout) {
  * matters: the SAME file must not change permalink when the vault moves between
  * machines.
  *
- * The exact same algorithm is re-implemented in capture-session.py
- * (`_remote_permalink`) so a spooled capture lands on the identity this
- * function derives from its vault path. Changing one without the other splits
- * the shadow's identity from the comparator's - the G4 review's F1.
+ * THIS IS THE ONLY IMPLEMENTATION, and it stays that way. The import, the
+ * comparator and the spool drain all call it, so a spooled capture and the
+ * vault note it copies land on one identity by construction. It was briefly
+ * mirrored in capture-session.py so the Python hook could stamp a permalink
+ * directly: the two agreed on every case anyone pinned and diverged on
+ * codepoints whose folding depends on the machine's Python-vs-Node Unicode
+ * versions - a skew NO FIXED TEST CORPUS CAN CATCH, since the diverging set is
+ * a property of the installed interpreters. The hook now records the note's
+ * PATH and the drain maps it here.
  */
 export function slugSegment(text) {
   return String(text)

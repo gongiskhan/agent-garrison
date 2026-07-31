@@ -5,24 +5,30 @@
 //
 // WHERE <key> COMES FROM, and why it is no longer just the filename:
 //
-//   1. `<spoolfile minus .md>.permalink`, the identity sidecar the capture hook
-//      writes beside each capture. It holds the permalink the SAME note would
-//      get if it were imported from its vault path (`<folder>/<slug>`), so the
-//      note the shadow ships and the note the comparator looks for are ONE
-//      note. Before this the drain shipped `capture-<sid>-<ts>-<pid>` - a QUEUE
-//      KEY, not a note identity - while compare-backends.mjs listed one folder
-//      of `<folder>/<slug>` permalinks. The two never met: a perfectly working
+//   1. `<spoolfile minus .md>.notepath`, the identity sidecar the capture hook
+//      writes beside each capture, holding the VAULT-RELATIVE PATH of the note
+//      the capture is a copy of. This drain derives the permalink from that
+//      path with `permalinkForRelPath` from ./lib/memory-vault.mjs - THE SAME
+//      MODULE compare-backends.mjs uses - so the note the shadow ships and the
+//      note the comparator looks for are one note BY CONSTRUCTION, rather than
+//      by two implementations of one mapping happening to agree.
+//
+//      Before this the drain shipped `capture-<sid>-<ts>-<pid>` - a QUEUE KEY,
+//      not a note identity - while the comparator listed one folder of
+//      `<folder>/<slug>` permalinks. The two never met: a perfectly working
 //      shadow could not show parity, a broken drain looked identical to a
 //      working one, and a re-import stored the same bytes twice under two
 //      identities (the G4 review's F1).
-//   2. Only when no sidecar is present - a capture spooled by an older hook -
-//      the filename minus `.md`, the historical behaviour and still a stable
-//      idempotency key. That fallback is LOGGED, because such a note lands
-//      outside every folder the comparator lists and will never be reconciled.
+//   2. Only when no usable sidecar is present - a capture spooled by an older
+//      hook - the filename minus `.md`, the historical behaviour and still a
+//      stable idempotency key. That fallback is LOGGED, because such a note
+//      lands outside every folder the comparator lists and is never reconciled.
 //
 // Either way the key is stable for a given spool file, so retrying the same
 // file always presents the same permalink and the backend overwrites rather
-// than duplicating.
+// than duplicating. EVERY flush logs the permalink it used: nothing binds a
+// sidecar to the capture beside it, so the log is the only trail of where a
+// given capture actually went.
 //
 // Contract (deliberately boring - the next scheduled run is the retry loop):
 //   - empty/missing spool ........ log one line, exit 0
@@ -35,7 +41,8 @@
 // Never throws unhandled. Never logs file contents (captures are redacted at
 // write time, but they still never belong in a scheduler log).
 //
-// Stdlib only - no new deps.
+// Stdlib only - no new deps. The one local import is the shared permalink
+// mapping, so that mapping exists exactly once.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -44,26 +51,54 @@ import { spawnSync } from "node:child_process";
 const PREFIX = "[basic-memory] flush:";
 const log = (msg) => console.log(`${PREFIX} ${msg}`);
 
+/**
+ * The shared mapping module, loaded dynamically so a stale install that has the
+ * drain but not the lib degrades to the queue-key fallback (loudly) instead of
+ * dying at module load and never draining anything. setup.sh stages both
+ * together, so this is belt-and-braces.
+ */
+async function loadMapping() {
+  try {
+    return await import(new URL("./lib/memory-vault.mjs", import.meta.url).href);
+  } catch {
+    return null;
+  }
+}
+
 // 30s per file; env override exists for tests only. Timeout kills with
 // SIGKILL - a CLI that traps/ignores SIGTERM (spawnSync's default) would
 // otherwise block the drain until it felt like exiting.
 const FLUSH_TIMEOUT_MS =
   Number(process.env.BASIC_MEMORY_FLUSH_TIMEOUT_MS || "") || 30_000;
 
-const SIDECAR_SUFFIX = ".permalink";
-/** `folder/slug`, lowercase - the only shape this drain will hand to the CLI. */
-const PERMALINK_RE = /^[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)+$/;
+const SIDECAR_SUFFIX = ".notepath";
+/** A vault-relative markdown path - the only sidecar content this drain acts on. */
+const NOTE_PATH_RE = /^[^/\\][^\r\n]*\.md$/i;
+
+/**
+ * How recent a sidecar has to be before the orphan sweep leaves it alone.
+ *
+ * The hook writes the sidecar and THEN the capture, so between those two
+ * renames a sidecar legitimately has no `.md` beside it. A drain firing in that
+ * window used to sweep the in-flight sidecar, and the capture then shipped
+ * under the bare queue key - permanently unreconcilable, and with the daily job
+ * running --fail-on-diff, a permanently red gate. Drains are spawned detached
+ * by EVERY hook and every 15 minutes, so two near-simultaneous session ends were
+ * enough. Nothing is lost by waiting: an orphan is a few dozen bytes.
+ */
+const SIDECAR_GRACE_MS =
+  Number(process.env.BASIC_MEMORY_SIDECAR_GRACE_MS || "") || 120_000;
 
 const sidecarPath = (spoolDir, name) =>
   path.join(spoolDir, name.replace(/\.md$/, SIDECAR_SUFFIX));
 
 /**
- * The note identity for a spool file: the sidecar when it is there and
- * well-formed, otherwise the historical queue key. Returns the reason too, so
- * the caller can say out loud when a capture is going out under a key nothing
- * will reconcile.
+ * The note identity for a spool file: derived from the sidecar's vault path
+ * through the SHARED mapping when both are available, otherwise the historical
+ * queue key. Returns the reason too, so the caller can say out loud when a
+ * capture is going out under a key nothing will reconcile.
  */
-function permalinkFor(spoolDir, name) {
+function permalinkFor(spoolDir, name, mapping, folder) {
   const fallback = name.replace(/\.md$/, "");
   let raw;
   try {
@@ -71,22 +106,26 @@ function permalinkFor(spoolDir, name) {
   } catch {
     return { key: fallback, source: "queue-key" };
   }
-  if (!PERMALINK_RE.test(raw)) return { key: fallback, source: "malformed-sidecar" };
-  return { key: raw, source: "sidecar" };
+  if (!NOTE_PATH_RE.test(raw)) return { key: fallback, source: "malformed-sidecar" };
+  if (!mapping) return { key: fallback, source: "mapping-module-missing" };
+  return { key: mapping.permalinkForRelPath(raw, folder), source: "sidecar", relPath: raw };
 }
 
 /**
- * Sidecars whose capture is gone (a partial write, an out-of-band delete).
- * Tiny, ours by name, and meaningless without the capture they describe.
+ * Sidecars whose capture is gone (a partial write, an out-of-band delete) AND
+ * which are old enough that no hook can still be mid-write. Tiny, ours by name,
+ * and meaningless without the capture they describe.
  */
-function sweepOrphanSidecars(spoolDir, names) {
+function sweepOrphanSidecars(spoolDir, names, notAfterMs) {
   let swept = 0;
   for (const name of names) {
-    if (!/^capture-.+\.permalink$/.test(name)) continue;
-    const capture = path.join(spoolDir, name.replace(/\.permalink$/, ".md"));
+    if (!new RegExp(`^capture-.+\\${SIDECAR_SUFFIX}$`).test(name)) continue;
+    const full = path.join(spoolDir, name);
+    const capture = path.join(spoolDir, name.replace(new RegExp(`\\${SIDECAR_SUFFIX}$`), ".md"));
     if (fs.existsSync(capture)) continue;
     try {
-      fs.unlinkSync(path.join(spoolDir, name));
+      if (fs.statSync(full).mtimeMs > notAfterMs) continue; // still possibly in flight
+      fs.unlinkSync(full);
       swept += 1;
     } catch {
       // not ours to worry about
@@ -95,12 +134,20 @@ function sweepOrphanSidecars(spoolDir, names) {
   return swept;
 }
 
-function main() {
+async function main() {
+  // Captured BEFORE any work: a sidecar that appeared after this drain started
+  // belongs to a hook that is still running, whatever the wall clock says.
+  const startedAtMs = Date.now();
   const dryRun = process.argv.slice(2).includes("--dry-run");
   const spoolDir = (process.env.BASIC_MEMORY_SPOOL_DIR || "").trim() ||
     path.join(os.homedir(), ".garrison", "memory-spool");
   const bin = (process.env.REMOTE_MEMORY_CLI_BIN || "").trim() ||
     (process.env.BASIC_MEMORY_REMOTE_CLI_BIN || "").trim() || "cortex";
+  const mapping = await loadMapping();
+  // Resolved at DRAIN time, not capture time: the comparator lists whatever
+  // folder is configured now, so that is the folder a capture must land in.
+  const folderRaw = (process.env.BASIC_MEMORY_REMOTE_FOLDER || "").trim() || "vault";
+  const folder = mapping?.resolveRemoteFolder(folderRaw)?.folder || "vault";
 
   let names;
   try {
@@ -133,7 +180,7 @@ function main() {
 
   if (dryRun) {
     for (const f of files) {
-      log(`would flush ${f.name} -> permalink ${permalinkFor(spoolDir, f.name).key}`);
+      log(`would flush ${f.name} -> permalink ${permalinkFor(spoolDir, f.name, mapping, folder).key}`);
     }
     log(`dry run: ${files.length} capture(s) pending`);
     return 0;
@@ -141,13 +188,18 @@ function main() {
 
   let flushed = 0;
   for (const f of files) {
-    const { key, source } = permalinkFor(spoolDir, f.name);
+    const { key, source } = permalinkFor(spoolDir, f.name, mapping, folder);
     if (source !== "sidecar") {
       // Loud, because the consequence is invisible otherwise: this note lands
       // under a bare queue key, outside every folder the comparator lists, and
       // will show up forever as "missing on the remote".
-      log(`${f.name}: no identity sidecar (${source}); shipping under the queue key '${key}' - it will NOT be reconciled by compare-backends.mjs`);
+      log(`${f.name}: no usable identity sidecar (${source}); shipping under the queue key '${key}' - it will NOT be reconciled by compare-backends.mjs`);
     }
+    // EVERY flush, not just the odd ones. A sidecar is an unauthenticated file
+    // in a user-owned directory: nothing binds it to the capture beside it, so
+    // if one ever names the wrong note, this line is the only record of where
+    // the capture actually went.
+    log(`${f.name} -> ${key}`);
     const res = spawnSync(
       bin,
       ["memory", "write", "--file", f.full, "--permalink", key, "--json"],
@@ -192,14 +244,20 @@ function main() {
   } catch {
     after = [];
   }
-  const swept = sweepOrphanSidecars(spoolDir, after);
+  // Only sidecars older than BOTH this drain's start and the grace window: any
+  // newer one may belong to a hook still between its two renames.
+  const swept = sweepOrphanSidecars(
+    spoolDir,
+    after,
+    Math.min(startedAtMs, Date.now() - SIDECAR_GRACE_MS)
+  );
   log(`flushed ${flushed} capture(s)${swept ? ` (swept ${swept} orphan sidecar(s))` : ""}`);
   return 0;
 }
 
-try {
-  process.exit(main());
-} catch (err) {
-  console.error(`${PREFIX} unexpected error: ${err?.message || err}`);
-  process.exit(1);
-}
+main()
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    console.error(`${PREFIX} unexpected error: ${err?.message || err}`);
+    process.exit(1);
+  });

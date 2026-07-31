@@ -725,6 +725,45 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       expect(report).toContain("**OVERDUE**");
     });
 
+    // N1 - the overdue gate used to FAIL OPEN on every early return, and the
+    // worst of those returned 0: "the remote CLI is not installed", which is
+    // exactly the furniture configuration (shadow on, CLI never installed,
+    // nothing has ever worked).
+    it("an overdue review still exits nonzero with NO remote CLI installed", async () => {
+      await seedNote("Memory/alpha.md", note("Alpha", "SENTINEL-BODY-ALPHA"));
+      await writeMarker(60); // 46 days past the 14-day review
+
+      const result = await run(
+        "node",
+        [COMPARE, "--out-dir", reports, "--fail-on-diff"],
+        cliEnv({ REMOTE_MEMORY_CLI_BIN: path.join(tmp, "no-such-cortex") })
+      );
+      expect(result.stdout).toContain("remote memory CLI not found");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toMatch(/REVIEW OVERDUE by 46 day\(s\)/);
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("**OVERDUE**");
+    });
+
+    it("the review gate is evaluated on EVERY early exit, not just the happy path", async () => {
+      await seedNote("Memory/alpha.md", note("Alpha", "SENTINEL-BODY-ALPHA"));
+      await writeMarker(60);
+
+      // Four different ways for the comparison to stop short; the deadline is
+      // announced and enforced on all of them.
+      const branches: Array<[string, Record<string, string | undefined>]> = [
+        ["no CLI", { REMOTE_MEMORY_CLI_BIN: path.join(tmp, "no-such-cortex") }],
+        ["unparseable listing", { STUB_BAD_LIST: "1" }],
+        ["listing failed", { STUB_FAIL: "1" }],
+        ["missing vault root", { BASIC_MEMORY_VAULT_DIR: path.join(tmp, "not-mounted") }]
+      ];
+      for (const [label, env] of branches) {
+        const result = await run("node", [COMPARE, "--out-dir", reports], cliEnv(env));
+        expect(result.exitCode, `${label}: exit code`).toBe(1);
+        expect(result.stderr, `${label}: overdue line`).toContain("REVIEW OVERDUE");
+      }
+    });
+
     // F8 - the comparator used to keep the first of a colliding pair.
     it("excludes BOTH members of a colliding pair and keeps the counts adding up", async () => {
       await seedNote("Memory/a-b.md", note("Flat", "SENTINEL-BODY-FLAT"));
@@ -802,7 +841,7 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
       expect(drained.exitCode).toBe(0);
       expect(drained.stdout).toContain("flushed 1 capture(s)");
-      expect(drained.stdout).not.toContain("no identity sidecar");
+      expect(drained.stdout).not.toContain("no usable identity sidecar");
       expect((await fsp.readdir(spool)).sort()).toEqual([]); // capture + sidecar both gone
 
       // 3. The remote note carries the SAME identity the comparator derives
@@ -850,55 +889,134 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       expect(imported.stdout).toContain("scanned 1 | sent 1 | skipped 0 | failed 0");
     });
 
-    // The mapping exists twice - JS for the import/comparator, Python for the
-    // hook, which must not grow a Node dependency. Two implementations of one
-    // identity is exactly how F1 happened, so their agreement is pinned rather
-    // than assumed.
-    it("the Python and JavaScript halves derive byte-identical permalinks", async () => {
-      const cases = [
-        "Memory/alpha.md",
-        "Memory/2026/Session Notes.md",
-        "Memory/Reunião.md",
-        "Memory/Reuniao.md",
-        "Memory/ﬁle.MD",
-        "Memory/Ⅻ roman.md",
-        "Memory/①circled.md",
-        "Memory/a/b.md",
-        "Memory/session-20260101-120000-abc123de.md",
-        "Memory/UPPER  double--dash .md"
-      ];
-      const list = JSON.stringify(cases);
-
-      const js = await run(
-        "node",
-        [
-          "--input-type=module",
-          "-e",
-          `import { permalinkForRelPath } from ${JSON.stringify(path.join(SCRIPTS, "lib", "memory-vault.mjs"))};
-           for (const c of ${list}) console.log(permalinkForRelPath(c, "vault"));`
-        ],
-        {}
-      );
-      const py = await run(
+    // N3: the mapping used to exist twice - JS for the import/comparator,
+    // Python for the hook - and two implementations of one mapping is one
+    // mapping with two answers. The hook now records the note's PATH and only
+    // the shared JS module derives permalinks, so THAT is what is pinned: the
+    // sidecar holds a path, and no Python file computes a permalink.
+    it("the sidecar holds the note PATH and the drain does the deriving", async () => {
+      const spool = path.join(tmp, "sidecar-spool");
+      const captured = await run(
         "python3",
-        [
-          "-c",
-          `import importlib.util, json
-spec = importlib.util.spec_from_file_location("cap", ${JSON.stringify(CAPTURE)})
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-for c in json.loads(${JSON.stringify(list)}): print(m._remote_permalink(c, "vault"))`
-        ],
-        // Importing the hook to reach its half of the mapping must not drop a
-        // __pycache__ into the fitting's committed source tree.
-        { PYTHONDONTWRITEBYTECODE: "1" }
+        [CAPTURE],
+        cliEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_AUTOFLUSH: "0"
+        }),
+        JSON.stringify({ session_id: SESSION_ID, cwd: tmp, hook_event_name: "SessionEnd" })
       );
+      expect(captured.exitCode).toBe(0);
 
-      expect(js.exitCode).toBe(0);
-      expect(py.exitCode).toBe(0);
-      expect(js.stdout.trim().split("\n")).toHaveLength(cases.length);
-      expect(py.stdout).toBe(js.stdout);
-      // And the mapping is the documented one, not just self-consistent.
-      expect(js.stdout.trim().split("\n")[1]).toBe("vault/memory-2026-session-notes");
+      const sidecars = (await fsp.readdir(spool)).filter((n) => n.endsWith(".notepath"));
+      expect(sidecars).toHaveLength(1);
+      const held = (await fsp.readFile(path.join(spool, sidecars[0]), "utf8")).trim();
+      // A vault-relative PATH, not a permalink: no folder prefix, keeps `.md`.
+      expect(held).toMatch(/^Memory\/session-\d{8}-\d{6}-abc123de\.md$/);
+      expect(held).not.toContain("vault/");
+
+      // The permalink appears for the first time at drain, from the shared lib.
+      const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(drained.exitCode).toBe(0);
+      const expected = `vault/${held.replace(/\.md$/, "").replace(/[^A-Za-z0-9]+/g, "-").toLowerCase()}`;
+      expect(remoteKeys()).toEqual([expected]);
+
+      // And the mapping has exactly one home: no Python file derives a permalink.
+      const py = await fsp.readFile(CAPTURE, "utf8");
+      expect(py).not.toContain("_remote_permalink");
+      expect(py).not.toContain("_slug_segment");
+      expect(py).not.toContain("unicodedata");
+    });
+
+    // N3 corollary: the folder is resolved at DRAIN time from the same shared
+    // helper the comparator uses, so the two cannot drift apart.
+    it("the drain honours a non-default remote folder, slugified the same way", async () => {
+      const spool = path.join(tmp, "folder-spool");
+      await run(
+        "python3",
+        [CAPTURE],
+        cliEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_AUTOFLUSH: "0"
+        }),
+        JSON.stringify({ session_id: SESSION_ID, cwd: tmp, hook_event_name: "SessionEnd" })
+      );
+      const drained = await run(
+        "node",
+        [FLUSH],
+        cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool, BASIC_MEMORY_REMOTE_FOLDER: "My Vault" })
+      );
+      expect(drained.exitCode).toBe(0);
+      expect(remoteKeys()[0]).toMatch(/^my-vault\/memory-session-/);
+    });
+
+    // N2: the hook writes the sidecar and THEN the capture. A drain firing in
+    // that window used to sweep the in-flight sidecar as an orphan, and the
+    // capture then shipped under the bare queue key - permanently
+    // unreconcilable, and a permanently red daily gate.
+    it("the orphan sweep leaves an IN-FLIGHT sidecar alone", async () => {
+      const spool = path.join(tmp, "race-spool");
+      await fsp.mkdir(spool, { recursive: true });
+      // A backlog, so the drain has work to do and reaches its sweep...
+      await fsp.writeFile(path.join(spool, "capture-old-20260101-000000-1.md"), "backlog\n");
+      // ...and a sidecar whose capture has not landed yet: exactly the state
+      // the hook is in between its two renames.
+      const inFlight = path.join(spool, "capture-inflight-20260101-000001-2.notepath");
+      await fsp.writeFile(inFlight, "Memory/session-20260101-000001-abc123de.md\n");
+
+      const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(drained.exitCode).toBe(0);
+      expect(drained.stdout).toContain("flushed 1 capture(s)");
+      expect(drained.stdout).not.toContain("orphan sidecar");
+      // Still there, so the capture that follows it ships under its real identity.
+      expect(fs.existsSync(inFlight)).toBe(true);
+
+      // Now let the hook finish: the capture lands, and the next drain uses the
+      // sidecar rather than the queue key.
+      await fsp.writeFile(
+        path.join(spool, "capture-inflight-20260101-000001-2.md"),
+        "the capture\n"
+      );
+      const second = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(second.exitCode).toBe(0);
+      expect(second.stdout).not.toContain("no usable identity sidecar");
+      expect(remoteKeys()).toContain("vault/memory-session-20260101-000001-abc123de");
+    });
+
+    it("a genuinely stale orphan sidecar is still swept once it is past the grace window", async () => {
+      const spool = path.join(tmp, "stale-spool");
+      await fsp.mkdir(spool, { recursive: true });
+      await fsp.writeFile(path.join(spool, "capture-old-20260101-000000-1.md"), "backlog\n");
+      const stale = path.join(spool, "capture-gone-20260101-000001-2.notepath");
+      await fsp.writeFile(stale, "Memory/session-20260101-000001-abc123de.md\n");
+      const longAgo = Math.floor(Date.now() / 1000) - 3600;
+      await fsp.utimes(stale, longAgo, longAgo);
+
+      const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(drained.exitCode).toBe(0);
+      expect(drained.stdout).toContain("swept 1 orphan sidecar(s)");
+      expect(fs.existsSync(stale)).toBe(false);
+    });
+
+    // N4: nothing binds a sidecar to its capture, so the log is the trail.
+    it("logs the permalink for EVERY flush, not only the odd ones", async () => {
+      const spool = path.join(tmp, "trail-spool");
+      await run(
+        "python3",
+        [CAPTURE],
+        cliEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_AUTOFLUSH: "0"
+        }),
+        JSON.stringify({ session_id: SESSION_ID, cwd: tmp, hook_event_name: "SessionEnd" })
+      );
+      const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(drained.exitCode).toBe(0);
+      // The happy path - no fallback, no warning - still records where it went.
+      expect(drained.stdout).not.toContain("no usable identity sidecar");
+      expect(drained.stdout).toMatch(/capture-\S+\.md -> vault\/memory-session-\S+/);
     });
 
     it("a capture spooled without a sidecar still drains, under the queue key, and says so", async () => {
@@ -908,7 +1026,7 @@ for c in json.loads(${JSON.stringify(list)}): print(m._remote_permalink(c, "vaul
 
       const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
       expect(drained.exitCode).toBe(0);
-      expect(drained.stdout).toContain("no identity sidecar (queue-key)");
+      expect(drained.stdout).toContain("no usable identity sidecar (queue-key)");
       expect(drained.stdout).toContain("will NOT be reconciled by compare-backends.mjs");
       expect(remoteKeys()).toEqual(["capture-legacy-20260101-000000-42"]);
     });

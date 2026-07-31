@@ -69,6 +69,9 @@ STATE_DIR="$GARRISON_ROOT/basic-memory"
 SHADOW_MARKER="$STATE_DIR/shadow-write.json"
 COMPARE_PATH="$HOOK_HOME/compare-backends.mjs"
 IMPORT_PATH="$HOOK_HOME/import-vault.mjs"
+# The ONE permalink mapping, shared by the drain and the comparator. Staged
+# whenever either of them is.
+LIB_PATH="$HOOK_HOME/lib/memory-vault.mjs"
 COMPARE_JOB_ID="basic-memory-backend-compare"
 # NOT configurable, on purpose: a knob that moves the deadline is the "flag that
 # becomes furniture" this shape exists to prevent. Extending is a review outcome
@@ -316,9 +319,11 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
     # %q-quoted (like the scheduler path below): a config value carrying
     # quotes/$() must land as data in the hook command, never as shell.
     SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN") "
-    # The hook needs the remote folder to compute each capture's identity
-    # sidecar - the permalink the comparator will derive from the same note's
-    # vault path. Without it the shadow ships notes the comparator cannot find.
+    # The hook itself does not need the folder (its sidecar holds the note's
+    # vault PATH, not a derived permalink) - but it spawns a detached drain that
+    # does, and that drain inherits this env. Without it, a hook-triggered flush
+    # would default to `vault` while the comparator listed the configured
+    # folder: the same split identity, one level down.
     SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER") "
     [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR") "
   fi
@@ -393,14 +398,22 @@ job_registered() {
 
 if spool_on; then
   # The drain must survive composition churn like the hook does, so it runs
-  # from the same stable install dir ($CLAUDE_HOME/basic-memory).
-  mkdir -p "$HOOK_HOME"
+  # from the same stable install dir ($CLAUDE_HOME/basic-memory). It derives
+  # each capture's permalink through the SHARED mapping module, so the lib
+  # travels with it - staged whenever the SPOOL is on, not only under shadow,
+  # because a plain remote backend spools and drains too.
+  mkdir -p "$HOOK_HOME/lib"
   cp "$SCRIPT_DIR/flush-spool.mjs" "$FLUSH_PATH"
+  cp "$SCRIPT_DIR/lib/memory-vault.mjs" "$LIB_PATH"
 
   if [ ! -f "$scheduler_script" ]; then
     log "scheduler not installed; spool flush job not registered"
   else
     job_env="REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN")"
+    # The drain resolves the permalink folder itself, so the job must carry it:
+    # a drain defaulting to `vault` while the comparator listed something else
+    # would recreate the split identity this whole mechanism exists to remove.
+    job_env="$job_env BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER")"
     [ -n "$SPOOL_DIR" ] && job_env="$job_env BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR")"
     sched register "$FLUSH_JOB_ID" "$FLUSH_CRON" \
       --description "Drain the basic-memory capture spool via the remote memory CLI" \
@@ -420,6 +433,12 @@ else
   if [ -f "$FLUSH_PATH" ]; then
     rm -f "$FLUSH_PATH"
     log "spool off: removed the staged drain script $FLUSH_PATH"
+  fi
+  # The shared lib goes with it, unless the comparator (staged below, under
+  # shadow) still needs it. Same reasoning: no orphaned remote machinery.
+  if [ -f "$LIB_PATH" ] && ! shadow_on; then
+    rm -f "$LIB_PATH"
+    rmdir "$HOOK_HOME/lib" 2>/dev/null || true
   fi
 fi
 
@@ -465,7 +484,7 @@ PY
   mkdir -p "$HOOK_HOME/lib"
   cp "$SCRIPT_DIR/compare-backends.mjs" "$COMPARE_PATH"
   cp "$SCRIPT_DIR/import-vault.mjs" "$IMPORT_PATH"
-  cp "$SCRIPT_DIR/lib/memory-vault.mjs" "$HOOK_HOME/lib/memory-vault.mjs"
+  cp "$SCRIPT_DIR/lib/memory-vault.mjs" "$LIB_PATH"
   log "one-time vault import available: node $IMPORT_PATH --dry-run"
 
   if [ ! -f "$scheduler_script" ]; then

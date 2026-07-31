@@ -146,6 +146,48 @@ function main() {
   const reportDir = resolveReportDir(opts.outDir);
 
   const review = reviewSchedule(readShadowMarker(), now);
+
+  /**
+   * THE REVIEW GATE, and the reason it is a function every exit goes through
+   * rather than a block at the bottom.
+   *
+   * It used to sit after the comparison, so every early return skipped it - and
+   * the worst of those returns 0: "the remote CLI is not installed". That is
+   * precisely the furniture configuration (shadow switched on, the CLI never
+   * installed, nothing has ever worked), and a 46-day-overdue review exited 0
+   * there while the report header said OVERDUE. A deadline that fails open in
+   * the state where nothing works is not a deadline. So: announce once, on
+   * EVERY path that got as far as attempting a comparison, and let it raise the
+   * exit code no matter what the comparison did or did not manage to do.
+   *
+   * (Usage errors above this point still return 2. They cannot fail open -
+   * 2 is not 0 - and turning a "you typed it wrong" into a review failure would
+   * hide which one happened.)
+   */
+  let reviewAnnounced = false;
+  const finish = (code) => {
+    if (!reviewAnnounced) {
+      reviewAnnounced = true;
+      if (!review.known) {
+        loud("dual-write marker absent: the review date is UNKNOWN (shadow_write may never have been enabled by setup)");
+      } else if (review.overdue) {
+        loud(
+          `REVIEW OVERDUE by ${Math.abs(review.daysRemaining)} day(s): dual-write started ${review.firstDualWriteAt} and was due for review ${review.reviewDueAt}. Choose ONE - cut reads over, extend ONCE with a written reason, or remove - and record it in docs/DECISIONS.md.`
+        );
+      } else {
+        log(
+          `dual-write since ${review.firstDualWriteAt}; review due ${review.reviewDueAt} (${review.daysRemaining} day(s) left)`
+        );
+      }
+      if (review.tampered) {
+        loud(
+          `the dual-write marker records a LONGER window than the standing ${REVIEW_WINDOW_DAYS} days (recorded due ${review.recordedDueAt || "n/a"}); the standing deadline ${review.reviewDueAt} is the one in force`
+        );
+      }
+    }
+    return review.overdue ? 1 : code;
+  };
+
   const { root, rootExists, notes, skipped, unreadableDirs } = listVaultNotes(
     vaultDir,
     memoryDir,
@@ -203,7 +245,7 @@ function main() {
     const written = writeReport(reportDir, now, result);
     loud(`local vault folder ${root} does not exist; comparison INCONCLUSIVE`);
     log(`report: ${written}`);
-    return 1;
+    return finish(1);
   }
   for (const dir of unreadableDirs) {
     loud(`cannot read ${dir}/ - an unknown number of local notes under it were not compared`);
@@ -217,7 +259,7 @@ function main() {
     const written = writeReport(reportDir, now, result);
     log(`remote memory CLI not found ('${cli.bin}'); nothing compared`);
     log(`report: ${written}`);
-    return 0;
+    return finish(0);
   }
 
   const listed = runCli(
@@ -230,7 +272,7 @@ function main() {
     const written = writeReport(reportDir, now, result);
     loud(`could not list remote folder '${folder}' (${listed.why})`);
     log(`report: ${written}`);
-    return 1;
+    return finish(1);
   }
   const remote = extractPermalinks(parseJsonDocument(listed.stdout));
   if (remote === null) {
@@ -238,7 +280,7 @@ function main() {
     const written = writeReport(reportDir, now, result);
     loud(`remote listing for '${folder}' not understood; comparison INCONCLUSIVE`);
     log(`report: ${written}`);
-    return 1;
+    return finish(1);
   }
 
   result.compared = true;
@@ -369,34 +411,14 @@ function main() {
   }
   log(`status ${result.status}`);
   for (const why of cannotClaimParity) loud(`not parity: ${why}`);
-
-  // The deadline has to be able to go RED somewhere other than inside a
-  // markdown file nobody is obliged to open. An overdue review is the failure
-  // this whole slice exists to make impossible to ignore, so it fails the job.
-  let overdue = false;
-  if (!review.known) {
-    loud("dual-write marker absent: the review date is UNKNOWN (shadow_write may never have been enabled by setup)");
-  } else if (review.overdue) {
-    overdue = true;
-    loud(
-      `REVIEW OVERDUE by ${Math.abs(review.daysRemaining)} day(s): dual-write started ${review.firstDualWriteAt} and was due for review ${review.reviewDueAt}. Choose ONE - cut reads over, extend ONCE with a written reason, or remove - and record it in docs/DECISIONS.md.`
-    );
-  } else {
-    log(`dual-write since ${review.firstDualWriteAt}; review due ${review.reviewDueAt} (${review.daysRemaining} day(s) left)`);
-  }
-  if (review.tampered) {
-    loud(
-      `the dual-write marker records a LONGER window than the standing ${REVIEW_WINDOW_DAYS} days (recorded due ${review.recordedDueAt || "n/a"}); the standing deadline ${review.reviewDueAt} is the one in force`
-    );
-  }
   log(`report: ${written}`);
 
-  if (overdue) return 1;
-  // Not just `diverged`: an INCONCLUSIVE daily run is a comparator that could
-  // not do its job, and letting that exit 0 is the same failure as letting a
-  // divergence exit 0 - the gate would pass while nothing was being checked.
-  if (opts.failOnDiff && result.status !== "parity-on-sample") return 1;
-  return 0;
+  // `finish` announces the review and raises the exit on an overdue one; it is
+  // the only way out of this function, on this path and on every early return
+  // above. Not just `diverged`: an INCONCLUSIVE daily run is a comparator that
+  // could not do its job, and letting that exit 0 is the same failure as
+  // letting a divergence exit 0 - the gate would pass while nothing was checked.
+  return finish(opts.failOnDiff && result.status !== "parity-on-sample" ? 1 : 0);
 }
 
 function bullets(list, empty) {

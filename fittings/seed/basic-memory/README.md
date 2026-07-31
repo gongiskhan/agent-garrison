@@ -77,27 +77,55 @@ renders it blank — re-pick the value to make your choice visible.
 
 ## One note, one identity
 
-A note's identity on the remote store is its **permalink**, and all three halves
-of the migration derive it the same way, from the note's path relative to the
-vault root:
+A note's identity on the remote store is its **permalink**, derived from the
+note's path relative to the vault root:
 
 ```
 <vault>/Memory/2026/Session Notes.md   ->   <remote_folder>/memory-2026-session-notes
 ```
 
+That derivation exists **once**, in `scripts/lib/memory-vault.mjs`
+(`permalinkForRelPath`), and all three writers call it:
+
 - `scripts/import-vault.mjs` writes each existing note under that permalink.
-- The capture hook spools each new capture with an identity sidecar,
-  `<key>.permalink`, holding the same value, and `scripts/flush-spool.mjs` ships
-  it under that permalink rather than under the spool's queue key.
+- The capture hook spools each capture with a sidecar, `<key>.notepath`, holding
+  the note's **vault-relative path** — not a permalink. `scripts/flush-spool.mjs`
+  reads that path and derives the permalink through the shared module.
 - `scripts/compare-backends.mjs` lists that one folder and diffs it against the
   same mapping.
 
-This is what makes parity **reachable**: a shadow that shipped notes under a
-queue key while the comparator looked for path-derived permalinks would report a
-constant, unchanging difference whether it was working perfectly or not working
+The sidecar carries the path rather than the permalink deliberately. The hook is
+Python and the rest is Node, so stamping a permalink in the hook meant
+implementing the mapping twice — and two implementations of one mapping is one
+mapping with two answers. It was exactly that for a while: the two agreed on
+every case anyone pinned, and diverged on codepoints whose folding depends on
+the machine's Python-vs-Node Unicode versions, which no fixed test corpus can
+catch because the diverging set changes with the interpreters installed.
+
+This is what makes parity **reachable**: a shadow that shipped notes under the
+spool's queue key while the comparator looked for path-derived permalinks would
+report a constant, unchanging difference whether it was working perfectly or not
 at all — and a signal that never changes is not a signal. A capture spooled
 before this existed still drains, under its queue key; the drain logs a line
 saying so, and such notes are outside every folder the comparator can list.
+
+### Accepted risk: the sidecar is not bound to its capture
+
+Nothing structurally ties a `.notepath` sidecar to the capture beside it. A
+sidecar that is well-formed but **wrong** — naming `Memory/some-other-note.md` —
+makes the drain overwrite that note's remote copy with an unrelated capture, and
+the remote store has no way to tell.
+
+This is accepted rather than fixed. The spool lives in the user's own directory
+(`~/.garrison/memory-spool` by default), inside Garrison's single-machine,
+single-user trust boundary ([GOVERNANCE](../../../docs/GOVERNANCE.md) §2), so
+anything able to write a sidecar can already rewrite the capture itself, edit the
+vault, or call the CLI directly: there is no privilege to escalate. The
+mitigation is a **trail**, not a guarantee — `flush-spool.mjs` logs
+`<capture file> -> <permalink>` on **every** flush, not only the odd ones, so
+where each capture went stays recoverable from the scheduler log. If the spool
+ever moves outside that boundary this stops being acceptable, and the sidecar
+would need to be derived from, or checked against, the capture's own content.
 
 ## Credentials
 
