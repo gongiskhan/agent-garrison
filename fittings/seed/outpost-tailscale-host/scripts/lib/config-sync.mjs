@@ -9,13 +9,39 @@
 // the outposts. Deleting an entire portable dir on the host is skipped (not
 // mirrored as an empty dir) - it is treated as "nothing to sync for that dir".
 //
+// ADOPT-BEFORE-DELETE (the outpost's own Quarters changes survive). A pure
+// `--delete` mirror silently destroyed anything installed on an OUTPOST: a skill
+// promoted into that machine's ~/.claude (Quarters) was wiped by the next heal,
+// ~10 minutes later, with no record anywhere. Observed live - `scroll-world` and
+// taste's two skills were deleted four times in one afternoon on dev-madrid.
+//
+// So before mirroring a directory we ask rsync (dry-run) which top-level entries
+// `--delete` WOULD remove on that outpost, and split them by ORIGIN using the
+// per-target `mirrored` ledger (the entries this host last pushed there):
+//
+//   in the ledger  -> the HOST retired it. Mirror the deletion, as before.
+//   not in ledger  -> it ORIGINATED on the outpost, after the last sync (had it
+//                     existed before, the previous mirror would already have
+//                     deleted it). Pull it back into THIS host's ~/.claude -
+//                     i.e. read it back into Quarters, where reconcile.ts picks
+//                     it up as a loose primitive - and let the mirror then
+//                     propagate it to every other outpost.
+//
+// Adoption is per TOP-LEVEL entry (one skill dir, one command file), never a
+// nested file: inside an entry the host stays authoritative, so a host-side edit
+// that removes a file from a shared skill still propagates. With no ledger yet
+// (a target added before this change, or whose first sync has not landed) every
+// remote-only entry is adopted - the safe direction is never to destroy.
+// Set GARRISON_OUTPOST_SYNC_STRICT_MIRROR=1 to restore the old pure-mirror
+// behaviour.
+//
 // Deliberately NOT synced: settings.json / plugins / mcp.json (machine-specific
 // hook ports, absolute installPaths, model tokens), and everything ephemeral
 // (projects/, sessions/, todos/, statsig/, logs/, credentials, the vault).
 // Those are what made the old wholesale claude-share git sync churn and diverge.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, lstatSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, lstatSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -94,6 +120,123 @@ export function buildRsyncArgs({ claudeDir, user, host, kind, name }) {
   ];
 }
 
+/**
+ * Build the argv for a DRY-RUN of the directory mirror, itemized, so we can read
+ * off exactly which paths `--delete` would remove on the outpost. Same flag set
+ * as the real transfer (identical include/exclude semantics) plus --dry-run and
+ * --itemize-changes; nothing is written on either side.
+ * @param {{ claudeDir:string, user:string, host:string, name:string }} spec
+ * @returns {string[]} rsync argv (no shell)
+ */
+export function buildDeleteProbeArgs({ claudeDir, user, host, name }) {
+  return [
+    ...buildRsyncArgs({ claudeDir, user, host, kind: "dir", name }),
+    "--dry-run",
+    "--itemize-changes",
+  ];
+}
+
+/**
+ * Parse `*deleting <path>` lines out of an itemized rsync dry-run and reduce
+ * them to the set of TOP-LEVEL entry names under the synced directory. rsync
+ * emits one line per path (`*deleting   scroll-world/SKILL.md`,
+ * `*deleting   scroll-world/`), so the first path segment is the entry.
+ * Pure + exported for tests.
+ * @param {string} out raw rsync stdout+stderr
+ * @returns {string[]} unique top-level entry names, in first-seen order
+ */
+export function parseDeletedEntries(out) {
+  const entries = [];
+  for (const line of String(out || "").split("\n")) {
+    const m = /^\*deleting\s+(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    // Strip any leading "./" and take the first path segment.
+    const rel = m[1].replace(/^\.\//, "");
+    const entry = rel.split("/")[0];
+    if (entry && !entries.includes(entry)) entries.push(entry);
+  }
+  return entries;
+}
+
+// An adoptable entry name is read off a REMOTE machine's filesystem and then
+// embedded in an rsync remote spec (`user@host:.claude/<dir>/<entry>`), which
+// rsync hands to the remote shell, and used as a LOCAL destination path. So it
+// is untrusted input on both ends: reject anything that could traverse out of
+// the portable dir (`..`, a slash), be parsed as an option by rsync's getopt (a
+// leading `-`), or reach a shell (quotes, $, ;, backticks, whitespace, glob).
+// Anything not matching is not adopted AND suppresses the mirror for that dir -
+// refusing to delete is always the safe direction.
+const SAFE_ENTRY_RE = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
+export const isSafeEntry = (entry) =>
+  typeof entry === "string" &&
+  entry.length > 0 &&
+  entry.length <= 255 &&
+  entry !== "." &&
+  entry !== ".." &&
+  SAFE_ENTRY_RE.test(entry);
+
+/**
+ * Build the argv that PULLS one top-level entry back from the outpost into this
+ * host's ~/.claude (adoption). No --delete and no trailing slashes: rsync copies
+ * `<entry>` itself into the local directory, which works for both a skill dir
+ * and a single command/rule file.
+ * @param {{ claudeDir:string, user:string, host:string, name:string, entry:string }} spec
+ * @returns {string[]} rsync argv (no shell)
+ */
+export function buildAdoptArgs({ claudeDir, user, host, name, entry }) {
+  if (!isSafeEntry(entry)) throw new Error(`unsafe entry name: ${entry}`);
+  const rhost = host.includes(":") ? `[${host}]` : host;
+  const target = `${user}@${rhost}`;
+  const excludes = RSYNC_EXCLUDES.flatMap((p) => ["--exclude", p]);
+  return [
+    "--timeout=30",
+    "-e", SSH_OPTS,
+    "-rlpt",
+    "--safe-links",
+    ...excludes,
+    `${target}:.claude/${name}/${entry}`,
+    `${path.join(claudeDir, name)}/`,
+  ];
+}
+
+/**
+ * Split the entries a mirror would delete into the ones the HOST retired (mirror
+ * the deletion) and the ones that ORIGINATED on the outpost (adopt them back).
+ * An entry that exists locally is never in either list - rsync would not be
+ * deleting it. Pure + exported for tests.
+ * `unsafe` collects outpost-originated entries whose NAME we refuse to handle
+ * (see isSafeEntry); the caller must skip the mirror for that dir rather than
+ * let --delete remove something it could not adopt.
+ * @param {string[]} deleted top-level entries the dry-run would remove
+ * @param {string[]|undefined} previouslyMirrored ledger for this target+dir
+ * @returns {{ retired:string[], adopt:string[], unsafe:string[] }}
+ */
+export function classifyDeletions(deleted, previouslyMirrored) {
+  // No ledger (target predates this change, or its first sync never landed):
+  // we cannot prove the host ever owned these, so never destroy them.
+  const ledger = Array.isArray(previouslyMirrored) ? previouslyMirrored : null;
+  const retired = [];
+  const adopt = [];
+  const unsafe = [];
+  for (const entry of deleted) {
+    // A ledger hit is the host's OWN entry name, already proven safe by having
+    // been pushed from here — retiring it needs no adoption and no pull.
+    if (ledger && ledger.includes(entry)) retired.push(entry);
+    else if (isSafeEntry(entry)) adopt.push(entry);
+    else unsafe.push(entry);
+  }
+  return { retired, adopt, unsafe };
+}
+
+/** Top-level entry names inside a local portable dir (the ledger we record). */
+export function localEntries(claudeDir, name) {
+  try {
+    return readdirSync(path.join(claudeDir, name)).sort();
+  } catch {
+    return [];
+  }
+}
+
 function runRsync(args, { timeoutMs = 45000 } = {}) {
   return new Promise((resolve) => {
     let out = "";
@@ -143,14 +286,27 @@ function ensureRemoteDirs(user, host, { timeoutMs = 20000 } = {}) {
   });
 }
 
+/** Pure-mirror mode: no adoption, `--delete` wins (the pre-adoption behaviour). */
+export const strictMirror = () => process.env.GARRISON_OUTPOST_SYNC_STRICT_MIRROR === "1";
+
 /**
  * Sync the portable config subset to one target. Returns a per-item summary.
  * @param {{ name?:string, sshUser:string, sshHost:string }} target
- * @param {{ claudeDir?:string, at?:string }} [opts]
+ * @param {{ claudeDir?:string, at?:string, mirrored?:Record<string,string[]>,
+ *           runRsync?:(args:string[])=>Promise<{code:number,out:string,error?:string}>,
+ *           ensureRemoteDirs?:(user:string,host:string)=>Promise<{ok:boolean,error?:string}> }} [opts]
+ *   opts.mirrored is the target's ledger from the last successful sync:
+ *   { <portable dir>: [top-level entries this host pushed] }.
+ *   opts.runRsync / opts.ensureRemoteDirs are seams for tests (same shape as the
+ *   module-private defaults), so the adopt/mirror orchestration is exercisable
+ *   without ssh — mirroring the injectable ApmRunner convention in src/lib.
  */
 export async function syncTarget(target, opts = {}) {
   const claudeDir = opts.claudeDir || CLAUDE_DIR;
   const at = opts.at || new Date().toISOString();
+  const prevMirrored = opts.mirrored && typeof opts.mirrored === "object" ? opts.mirrored : {};
+  const rsync = opts.runRsync || runRsync;
+  const prepDirs = opts.ensureRemoteDirs || ensureRemoteDirs;
   const user = target.sshUser;
   const host = target.sshHost;
   if (!isValidSshTarget(user, host)) {
@@ -168,28 +324,80 @@ export async function syncTarget(target, opts = {}) {
   // One ssh round-trip to pre-create the dir tree (replaces --mkpath). If we
   // cannot even reach the outpost, fail the whole target with the ssh error
   // rather than emitting one identical rsync failure per item.
-  const prep = await ensureRemoteDirs(user, host);
+  const prep = await prepDirs(user, host);
   if (!prep.ok) {
     return { name: target.name, ok: false, at, error: prep.error || "could not reach outpost over ssh", items: [] };
   }
 
   const items = [];
+  const mirrored = {};
   let ok = true;
   for (const name of dirs) {
-    const r = await runRsync(buildRsyncArgs({ claudeDir, user, host, kind: "dir", name }));
+    // ADOPT phase — pull back anything the mirror would delete that this host
+    // never pushed (it originated on the outpost, i.e. a Quarters change made
+    // there since the last sync). Best-effort: a probe or pull failure must not
+    // fail the sync, but it MUST suppress the mirror for that dir, or the very
+    // deletion we were trying to avoid happens anyway.
+    let adopted = [];
+    let adoptFailed = false;
+    if (!strictMirror()) {
+      const probe = await rsync(buildDeleteProbeArgs({ claudeDir, user, host, name }));
+      if (probe.code === 0) {
+        const { adopt, unsafe } = classifyDeletions(parseDeletedEntries(probe.out), prevMirrored[name]);
+        if (unsafe.length) adoptFailed = true;
+        for (const entry of adopt) {
+          const pull = await rsync(buildAdoptArgs({ claudeDir, user, host, name, entry }));
+          if (pull.code === 0) adopted.push(entry);
+          else adoptFailed = true;
+        }
+      } else {
+        // Could not determine what would be deleted — do not mirror this dir
+        // blind, or --delete may destroy an un-probed outpost-side addition.
+        adoptFailed = true;
+      }
+    }
+    if (adoptFailed) {
+      ok = false;
+      items.push({
+        name,
+        ok: false,
+        adopted: adopted.length ? adopted : undefined,
+        error: "could not adopt outpost-side changes; mirror skipped to avoid deleting them",
+      });
+      continue;
+    }
+
+    const r = await rsync(buildRsyncArgs({ claudeDir, user, host, kind: "dir", name }));
     const itemOk = r.code === 0;
     ok = ok && itemOk;
-    items.push({ name, ok: itemOk, error: itemOk ? undefined : (r.error || r.out || "failed") });
+    // Ledger AFTER adoption, so an adopted entry counts as host-owned from now
+    // on and a later host-side removal of it propagates normally.
+    if (itemOk) mirrored[name] = localEntries(claudeDir, name);
+    items.push({
+      name,
+      ok: itemOk,
+      adopted: adopted.length ? adopted : undefined,
+      error: itemOk ? undefined : (r.error || r.out || "failed"),
+    });
   }
   for (const name of files) {
-    const r = await runRsync(buildRsyncArgs({ claudeDir, user, host, kind: "file", name }));
+    const r = await rsync(buildRsyncArgs({ claudeDir, user, host, kind: "file", name }));
     const itemOk = r.code === 0;
     ok = ok && itemOk;
     items.push({ name, ok: itemOk, error: itemOk ? undefined : (r.error || r.out || "failed") });
   }
 
   const firstErr = items.find((i) => !i.ok)?.error;
-  return { name: target.name, ok, at, error: ok ? undefined : (firstErr || "sync failed"), items };
+  const adopted = items.flatMap((i) => (i.adopted ?? []).map((e) => `${i.name}/${e}`));
+  return {
+    name: target.name,
+    ok,
+    at,
+    error: ok ? undefined : (firstErr || "sync failed"),
+    items,
+    mirrored,
+    adopted,
+  };
 }
 
 function safeIsDir(p) {
@@ -249,11 +457,17 @@ export function removeTarget(name, file = TARGETS_FILE) {
 function recordSync(name, result, file = TARGETS_FILE) {
   const map = readTargets(file);
   if (!map[name]) return;
+  // Merge the per-dir ledger rather than replacing it: a dir whose mirror failed
+  // this round reports nothing, and dropping its entries would make every one of
+  // them look outpost-originated (and so adoptable) on the next pass.
+  const mirrored = { ...(map[name].mirrored || {}), ...(result.mirrored || {}) };
   map[name] = {
     ...map[name],
     lastSyncAt: result.at,
     lastSyncOk: result.ok,
     lastError: result.ok ? undefined : (result.error || "sync failed"),
+    mirrored,
+    lastAdopted: result.adopted?.length ? result.adopted : undefined,
   };
   writeTargets(map, file);
 }
@@ -279,7 +493,16 @@ async function doSyncAll(opts) {
   const results = [];
   for (const name of names) {
     const t = map[name];
-    const r = await syncTarget({ name, sshUser: t.sshUser, sshHost: t.sshHost }, { claudeDir: opts.claudeDir, at });
+    const r = await syncTarget(
+      { name, sshUser: t.sshUser, sshHost: t.sshHost },
+      {
+        claudeDir: opts.claudeDir,
+        at,
+        mirrored: t.mirrored,
+        runRsync: opts.runRsync,
+        ensureRemoteDirs: opts.ensureRemoteDirs,
+      }
+    );
     recordSync(name, r, file);
     results.push(r);
   }
@@ -291,7 +514,15 @@ async function doSyncOne(name, opts) {
   const map = readTargets(file);
   const t = map[name];
   if (!t) return { name, ok: false, error: "no such target", items: [] };
-  const r = await syncTarget({ name, sshUser: t.sshUser, sshHost: t.sshHost }, { claudeDir: opts.claudeDir });
+  const r = await syncTarget(
+    { name, sshUser: t.sshUser, sshHost: t.sshHost },
+    {
+      claudeDir: opts.claudeDir,
+      mirrored: t.mirrored,
+      runRsync: opts.runRsync,
+      ensureRemoteDirs: opts.ensureRemoteDirs,
+    }
+  );
   recordSync(name, r, file);
   return r;
 }

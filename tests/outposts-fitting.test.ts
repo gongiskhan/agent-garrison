@@ -13,7 +13,7 @@ import { resolveOutpostDispatch, outpostRunFn } from "../fittings/seed/kanban-lo
 // @ts-ignore — pure .mjs; the UI server is guarded by an entry check so importing is side-effect-free
 import { isValidSshTarget } from "../fittings/seed/outpost-tailscale-host/scripts/server.mjs";
 // @ts-ignore — pure .mjs config-sync lib; store fns take an explicit file arg so the sandbox is honoured
-import { buildRsyncArgs, PORTABLE_DIRS, PORTABLE_FILES, readTargets, upsertTarget, removeTarget, syncTarget } from "../fittings/seed/outpost-tailscale-host/scripts/lib/config-sync.mjs";
+import { buildRsyncArgs, buildDeleteProbeArgs, buildAdoptArgs, parseDeletedEntries, classifyDeletions, isSafeEntry, localEntries, PORTABLE_DIRS, PORTABLE_FILES, readTargets, upsertTarget, removeTarget, syncTarget, syncAll } from "../fittings/seed/outpost-tailscale-host/scripts/lib/config-sync.mjs";
 
 interface LogRow { at: string; verb: string; outpost: string; caller: string; ok: boolean; ms: number; error?: string }
 
@@ -323,5 +323,303 @@ describe("config-sync: syncTarget guards", () => {
     const r = await syncTarget({ name: "empty", sshUser: "me", sshHost: "100.1.2.3" }, { claudeDir: sandbox });
     expect(r.items).toEqual([]);
     expect(r.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADOPT-BEFORE-DELETE. The mirror used to destroy anything installed on an
+// OUTPOST's ~/.claude: a skill promoted there was gone within ~10 minutes (the
+// heal interval). Reproduced live on dev-madrid — scroll-world and taste's two
+// skills wiped four times. An entry the host never pushed is now pulled BACK
+// into the host's ~/.claude (Quarters) instead of deleted.
+// ---------------------------------------------------------------------------
+
+describe("config-sync: entry-name safety (untrusted, read off a REMOTE machine)", () => {
+  it("accepts ordinary skill/command entry names", () => {
+    for (const ok of ["scroll-world", "design-taste-frontend", "foo.md", "_private", ".hidden", "a"]) {
+      expect(isSafeEntry(ok), ok).toBe(true);
+    }
+  });
+
+  it("rejects traversal, option-shaped, and shell-reaching names", () => {
+    // The name is embedded in `user@host:.claude/<dir>/<entry>` (which rsync hands
+    // to the REMOTE shell) and used as a LOCAL destination path.
+    for (const bad of [
+      "..", ".", "a/b", "../../etc/passwd",
+      "-oProxyCommand=touch /tmp/pwn",   // rsync/ssh getopt
+      "$(touch /tmp/pwn)", "`id`", "a;rm -rf ~", "a b", "a|b", "a*b", "a'b", 'a"b',
+      "", null as unknown as string, 123 as unknown as string
+    ]) {
+      expect(isSafeEntry(bad), String(bad)).toBe(false);
+    }
+  });
+
+  it("buildAdoptArgs refuses an unsafe entry rather than building the argv", () => {
+    expect(() =>
+      buildAdoptArgs({ claudeDir: "/home/u/.claude", user: "me", host: "h", name: "skills", entry: "-oProxyCommand=x" })
+    ).toThrow(/unsafe entry/i);
+  });
+});
+
+describe("config-sync: delete probe + parsing", () => {
+  it("probes with the SAME flags as the real mirror, plus dry-run and itemize", () => {
+    const spec = { claudeDir: "/home/u/.claude", user: "me", host: "100.1.2.3", name: "skills" };
+    const probe = buildDeleteProbeArgs(spec);
+    const real = buildRsyncArgs({ ...spec, kind: "dir" as const });
+    expect(probe).toContain("--dry-run");
+    expect(probe).toContain("--itemize-changes");
+    expect(probe).toContain("--delete");                       // must see what --delete WOULD do
+    for (const a of real) expect(probe).toContain(a);          // identical include/exclude semantics
+  });
+
+  it("reduces *deleting lines to unique TOP-LEVEL entries", () => {
+    const out = [
+      "*deleting   scroll-world/references/gotchas.md",
+      "*deleting   scroll-world/SKILL.md",
+      "*deleting   scroll-world/",
+      "*deleting   ./design-taste-frontend/SKILL.md",
+      "*deleting   notes.md",
+      ".d..t...... ./",
+      ">f+++++++++ kept/SKILL.md",
+    ].join("\n");
+    expect(parseDeletedEntries(out)).toEqual(["scroll-world", "design-taste-frontend", "notes.md"]);
+  });
+
+  it("returns nothing for output with no deletions", () => {
+    expect(parseDeletedEntries(">f+++++++++ a/SKILL.md\n")).toEqual([]);
+    expect(parseDeletedEntries("")).toEqual([]);
+    expect(parseDeletedEntries(undefined as unknown as string)).toEqual([]);
+  });
+
+  it("parses the REAL installed rsync's dry-run output (format assumption, not a mock)", async () => {
+    // Local dir->dir, same flags as the mirror. Proves the `*deleting` shape this
+    // parser depends on is what this machine's rsync actually emits.
+    const { execFileSync } = await import("node:child_process");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const src = join(sandbox, "src");
+    const dst = join(sandbox, "dst");
+    mkdirSync(join(src, "kept"), { recursive: true });
+    writeFileSync(join(src, "kept", "SKILL.md"), "x");
+    mkdirSync(join(dst, "kept"), { recursive: true });
+    writeFileSync(join(dst, "kept", "SKILL.md"), "x");
+    mkdirSync(join(dst, "outpost-only", "references"), { recursive: true });
+    writeFileSync(join(dst, "outpost-only", "SKILL.md"), "y");
+    writeFileSync(join(dst, "outpost-only", "references", "r.md"), "y");
+
+    const out = execFileSync(
+      "rsync",
+      ["-rlpt", "--delete", "--safe-links", "--dry-run", "--itemize-changes", `${src}/`, `${dst}/`],
+      { encoding: "utf8" }
+    );
+    expect(parseDeletedEntries(out)).toEqual(["outpost-only"]);
+    // Dry run really was a dry run.
+    expect(existsSync(join(dst, "outpost-only", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("config-sync: classifyDeletions (origin decides delete vs adopt)", () => {
+  it("host-retired entries (in the ledger) are mirrored away, not adopted", () => {
+    const r = classifyDeletions(["autothing"], ["autothing", "walkthrough"]);
+    expect(r.retired).toEqual(["autothing"]);
+    expect(r.adopt).toEqual([]);
+  });
+
+  it("outpost-originated entries (never pushed from here) are adopted", () => {
+    const r = classifyDeletions(["scroll-world"], ["autothing", "walkthrough"]);
+    expect(r.adopt).toEqual(["scroll-world"]);
+    expect(r.retired).toEqual([]);
+  });
+
+  it("with NO ledger, nothing is destroyed — every entry is adopted", () => {
+    expect(classifyDeletions(["a", "b"], undefined).adopt).toEqual(["a", "b"]);
+    expect(classifyDeletions(["a"], undefined).retired).toEqual([]);
+  });
+
+  it("an empty ledger is still a ledger (not the same as absent)", () => {
+    // [] means "the host pushed nothing here", so a remote entry is still
+    // outpost-originated and adoptable — but it must not be treated as retired.
+    expect(classifyDeletions(["a"], []).adopt).toEqual(["a"]);
+    expect(classifyDeletions(["a"], []).retired).toEqual([]);
+  });
+
+  it("separates unsafe names instead of adopting or silently dropping them", () => {
+    const r = classifyDeletions(["ok", "../evil"], ["other"]);
+    expect(r.adopt).toEqual(["ok"]);
+    expect(r.unsafe).toEqual(["../evil"]);
+  });
+});
+
+// A fake rsync: classifies each argv, records it, and materialises an adopted
+// entry locally so localEntries() reflects the pull the way real rsync would.
+function fakeRsync(opts: {
+  deletes?: string[];
+  probeFails?: boolean;
+  pullFails?: boolean;
+  claudeDir?: string;
+}) {
+  const calls: { kind: string; args: string[] }[] = [];
+  const run = async (args: string[]) => {
+    const isProbe = args.includes("--dry-run");
+    // Direction is positional: a PUSH (mirror/probe) ends with the remote spec,
+    // a PULL (adopt) has the remote spec as the source and a local dest last.
+    const isPull = !isProbe && !args[args.length - 1].includes(":.claude/");
+    if (isProbe) {
+      calls.push({ kind: "probe", args });
+      if (opts.probeFails) return { code: 23, out: "", error: "rsync exit 23" };
+      return { code: 0, out: (opts.deletes ?? []).map((d) => `*deleting   ${d}`).join("\n") };
+    }
+    if (isPull) {
+      calls.push({ kind: "pull", args });
+      if (opts.pullFails) return { code: 23, out: "", error: "rsync exit 23" };
+      const remote = args.find((a) => a.includes(":.claude/"))!;
+      const entry = remote.split("/").pop()!;
+      const dest = args[args.length - 1];
+      const { mkdirSync, writeFileSync } = require("node:fs");
+      mkdirSync(join(dest, entry), { recursive: true });
+      writeFileSync(join(dest, entry, "SKILL.md"), "adopted");
+      return { code: 0, out: "" };
+    }
+    calls.push({ kind: "mirror", args });
+    return { code: 0, out: "" };
+  };
+  return { run, calls };
+}
+
+const noPrep = async () => ({ ok: true });
+
+describe("config-sync: syncTarget adopt phase", () => {
+  function seedHostSkill(dir: string, name: string) {
+    const { mkdirSync, writeFileSync } = require("node:fs");
+    mkdirSync(join(dir, "skills", name), { recursive: true });
+    writeFileSync(join(dir, "skills", name, "SKILL.md"), "host");
+  }
+
+  it("REGRESSION: an outpost-installed skill is pulled back to the host, then mirrored", async () => {
+    seedHostSkill(sandbox, "walkthrough");
+    const rs = fakeRsync({ deletes: ["scroll-world/SKILL.md", "scroll-world/"] });
+    const r = await syncTarget(
+      { name: "madrid", sshUser: "me", sshHost: "100.1.2.3" },
+      { claudeDir: sandbox, mirrored: { skills: ["walkthrough"] }, runRsync: rs.run, ensureRemoteDirs: noPrep }
+    );
+
+    expect(r.ok).toBe(true);
+    expect(r.adopted).toEqual(["skills/scroll-world"]);
+    // It now lives on the HOST — i.e. read back into Quarters.
+    expect(existsSync(join(sandbox, "skills", "scroll-world", "SKILL.md"))).toBe(true);
+    // Adoption happened BEFORE the mirror, or --delete would have removed it.
+    const kinds = rs.calls.filter((c) => c.args.some((a) => a.includes("skills"))).map((c) => c.kind);
+    expect(kinds.indexOf("pull")).toBeLessThan(kinds.indexOf("mirror"));
+    // ...and the ledger now claims it, so a later host-side removal propagates.
+    expect(r.mirrored.skills).toContain("scroll-world");
+  });
+
+  it("a skill the HOST retired is still deleted on the outpost (no resurrection)", async () => {
+    seedHostSkill(sandbox, "walkthrough");
+    const rs = fakeRsync({ deletes: ["autothing/"] });
+    const r = await syncTarget(
+      { name: "madrid", sshUser: "me", sshHost: "100.1.2.3" },
+      { claudeDir: sandbox, mirrored: { skills: ["walkthrough", "autothing"] }, runRsync: rs.run, ensureRemoteDirs: noPrep }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.adopted).toEqual([]);
+    expect(rs.calls.some((c) => c.kind === "pull")).toBe(false);
+    expect(rs.calls.some((c) => c.kind === "mirror")).toBe(true);   // deletion propagates
+    expect(existsSync(join(sandbox, "skills", "autothing"))).toBe(false);
+  });
+
+  it("a FAILED probe skips the mirror — never blind-delete what we could not inspect", async () => {
+    seedHostSkill(sandbox, "walkthrough");
+    const rs = fakeRsync({ probeFails: true });
+    const r = await syncTarget(
+      { name: "madrid", sshUser: "me", sshHost: "100.1.2.3" },
+      { claudeDir: sandbox, mirrored: { skills: ["walkthrough"] }, runRsync: rs.run, ensureRemoteDirs: noPrep }
+    );
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/mirror skipped/i);
+    expect(rs.calls.some((c) => c.kind === "mirror" && c.args.some((a) => a.includes("skills")))).toBe(false);
+  });
+
+  it("a FAILED pull skips the mirror for that dir", async () => {
+    seedHostSkill(sandbox, "walkthrough");
+    const rs = fakeRsync({ deletes: ["scroll-world/"], pullFails: true });
+    const r = await syncTarget(
+      { name: "madrid", sshUser: "me", sshHost: "100.1.2.3" },
+      { claudeDir: sandbox, mirrored: { skills: ["walkthrough"] }, runRsync: rs.run, ensureRemoteDirs: noPrep }
+    );
+    expect(r.ok).toBe(false);
+    expect(rs.calls.some((c) => c.kind === "mirror" && c.args.some((a) => a.includes("skills")))).toBe(false);
+  });
+
+  it("an UNSAFE remote entry name skips the mirror instead of deleting it", async () => {
+    seedHostSkill(sandbox, "walkthrough");
+    const rs = fakeRsync({ deletes: ["$(id)/SKILL.md"] });
+    const r = await syncTarget(
+      { name: "madrid", sshUser: "me", sshHost: "100.1.2.3" },
+      { claudeDir: sandbox, mirrored: { skills: ["walkthrough"] }, runRsync: rs.run, ensureRemoteDirs: noPrep }
+    );
+    expect(r.ok).toBe(false);
+    expect(rs.calls.some((c) => c.kind === "pull")).toBe(false);
+    expect(rs.calls.some((c) => c.kind === "mirror" && c.args.some((a) => a.includes("skills")))).toBe(false);
+  });
+
+  it("STRICT_MIRROR=1 restores the old pure-mirror behaviour (no probe at all)", async () => {
+    seedHostSkill(sandbox, "walkthrough");
+    process.env.GARRISON_OUTPOST_SYNC_STRICT_MIRROR = "1";
+    try {
+      const rs = fakeRsync({ deletes: ["scroll-world/"] });
+      const r = await syncTarget(
+        { name: "madrid", sshUser: "me", sshHost: "100.1.2.3" },
+        { claudeDir: sandbox, mirrored: {}, runRsync: rs.run, ensureRemoteDirs: noPrep }
+      );
+      expect(r.ok).toBe(true);
+      expect(rs.calls.some((c) => c.kind === "probe")).toBe(false);
+      expect(rs.calls.some((c) => c.kind === "mirror")).toBe(true);
+    } finally {
+      delete process.env.GARRISON_OUTPOST_SYNC_STRICT_MIRROR;
+    }
+  });
+
+  it("localEntries lists top-level entries and tolerates a missing dir", () => {
+    seedHostSkill(sandbox, "b");
+    seedHostSkill(sandbox, "a");
+    expect(localEntries(sandbox, "skills")).toEqual(["a", "b"]);
+    expect(localEntries(sandbox, "nope")).toEqual([]);
+  });
+});
+
+describe("config-sync: ledger persistence across syncs", () => {
+  it("records what was mirrored, so the SECOND sync can tell retired from outpost-born", async () => {
+    const { mkdirSync, writeFileSync } = require("node:fs");
+    mkdirSync(join(sandbox, "skills", "walkthrough"), { recursive: true });
+    writeFileSync(join(sandbox, "skills", "walkthrough", "SKILL.md"), "host");
+    const f = join(sandbox, "outpost-sync-targets.json");
+    upsertTarget({ name: "madrid", sshUser: "me", sshHost: "100.1.2.3" }, f);
+
+    // First sync: no ledger yet, nothing remote-only.
+    const rs1 = fakeRsync({ deletes: [] });
+    await syncAll({ file: f, claudeDir: sandbox, runRsync: rs1.run, ensureRemoteDirs: noPrep });
+    expect(readTargets(f).madrid.mirrored.skills).toEqual(["walkthrough"]);
+
+    // Host retires it; second sync must NOT adopt it back.
+    rmSync(join(sandbox, "skills", "walkthrough"), { recursive: true, force: true });
+    const rs2 = fakeRsync({ deletes: ["walkthrough/"] });
+    await syncAll({ file: f, claudeDir: sandbox, runRsync: rs2.run, ensureRemoteDirs: noPrep });
+    expect(rs2.calls.some((c) => c.kind === "pull")).toBe(false);
+    expect(existsSync(join(sandbox, "skills", "walkthrough"))).toBe(false);
+  });
+
+  it("a dir whose mirror FAILED keeps its previous ledger (else its entries look adoptable)", async () => {
+    const { mkdirSync, writeFileSync } = require("node:fs");
+    mkdirSync(join(sandbox, "skills", "walkthrough"), { recursive: true });
+    writeFileSync(join(sandbox, "skills", "walkthrough", "SKILL.md"), "host");
+    const f = join(sandbox, "outpost-sync-targets.json");
+    upsertTarget({ name: "madrid", sshUser: "me", sshHost: "100.1.2.3" }, f);
+
+    await syncAll({ file: f, claudeDir: sandbox, runRsync: fakeRsync({ deletes: [] }).run, ensureRemoteDirs: noPrep });
+    expect(readTargets(f).madrid.mirrored.skills).toEqual(["walkthrough"]);
+
+    // Probe fails -> no `mirrored` reported for skills this round.
+    await syncAll({ file: f, claudeDir: sandbox, runRsync: fakeRsync({ probeFails: true }).run, ensureRemoteDirs: noPrep });
+    expect(readTargets(f).madrid.mirrored.skills).toEqual(["walkthrough"]);   // preserved, not wiped
   });
 });

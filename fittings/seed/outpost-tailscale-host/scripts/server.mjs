@@ -483,7 +483,11 @@ function scheduleSync(reason) {
     try {
       const r = await syncAll();
       const ok = r.results.filter((x) => x.ok).length;
-      console.log(`[outpost] config sync (${reason}): ${ok}/${r.count} outposts ok`);
+      // Name what came BACK from an outpost: adoption writes into this host's
+      // ~/.claude (Quarters), so it must never be a silent mutation.
+      const adopted = r.results.flatMap((x) => x.adopted ?? []);
+      const suffix = adopted.length ? ` · adopted from outposts: ${adopted.join(", ")}` : "";
+      console.log(`[outpost] config sync (${reason}): ${ok}/${r.count} outposts ok${suffix}`);
     } catch (e) {
       console.error("[outpost] config sync failed:", e instanceof Error ? e.message : String(e));
     }
