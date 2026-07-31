@@ -410,7 +410,7 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
     SLOW
   );
 
-  it("license isolation: a clone path inside the MIT tree is refused BEFORE any write", async () => {
+  it("byte containment: a clone path inside the MIT tree is refused BEFORE any write", async () => {
     const inside = path.join(REPO_ROOT, ".tmp-cortex-client-guard-fixture");
     const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_CLONE_DIR: inside }));
 
@@ -418,10 +418,14 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
     expect(setup.stderr).toContain("INSIDE Garrison's own source tree");
     expect(setup.stderr).toContain("aborting before any write");
     await expect(fs.stat(inside)).rejects.toMatchObject({ code: "ENOENT" });
+    // The guard is the ONE refusal that legitimately leaves no marker: it runs
+    // before every write, and the marker's own write would otherwise need guarding
+    // too. So a guarded path is indistinguishable from unconfigured to verify -
+    // recorded as an accepted residual rather than pretended away.
     await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("license isolation: a path that only RESOLVES into the MIT tree is refused too", async () => {
+  it("byte containment: a path that only RESOLVES into the MIT tree is refused too", async () => {
     // Deliberately NOT path.join: the literal `..` has to survive into the script,
     // which is what the guard has to see through.
     const sneaky = `${REPO_ROOT}/../${path.basename(REPO_ROOT)}/.tmp-cortex-client-guard-sneaky`;
@@ -437,7 +441,9 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
 
     expect(setup.exitCode).toBe(1);
     expect(setup.stderr).toContain("not a commit sha");
-    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    // Nothing is cloned, but the failure IS recorded: a bad pin on a configured
+    // repo_url is configured-and-broken, not the shipped default.
+    expect((await run("bash", [VERIFY], setupEnv())).exitCode).toBe(1);
   });
 
   it(
@@ -699,28 +705,36 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
   // be http(s)-only. The earlier version was, and its own advice ("use an ssh remote") named a
   // spelling it let straight through: ssh://user:secret@host IS an ssh remote.
   it.each([
-    ["https", "https://user:ghp_notarealtoken@example.invalid/private.git"],
-    ["http", "http://user:ghp_notarealtoken@example.invalid/private.git"],
-    ["ssh", "ssh://user:ghp_notarealtoken@example.invalid/private.git"],
-    ["git", "git://user:ghp_notarealtoken@example.invalid/private.git"],
-  ])("R6: a %s repo_url carrying credentials is refused before any write", async (_scheme, url) => {
+    ["https with secret", "https://user:ghp_notarealtoken@example.invalid/private.git"],
+    // http(s) treats a bare userinfo as a credential too - that IS how a PAT is passed.
+    ["https bare token", "https://ghp_notarealtoken@example.invalid/private.git"],
+    ["http with secret", "http://user:ghp_notarealtoken@example.invalid/private.git"],
+    ["ssh with secret", "ssh://user:ghp_notarealtoken@example.invalid/private.git"],
+    ["git with secret", "git://user:ghp_notarealtoken@example.invalid/private.git"],
+    // scp-style has no scheme, so the URL branch cannot see it; only a colon
+    // BEFORE the @ is a secret (the one after the host is a path separator).
+    ["scp-style with secret", "deploy:ghp_notarealtoken@example.invalid:org/private.git"],
+  ])("R6: a repo_url carrying credentials (%s) is refused before any write", async (_shape, url) => {
     const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_REPO_URL: url }));
     expect(setup.exitCode).toBe(1);
     expect(setup.stderr).toContain(".git/config");
     expect(setup.stderr).toContain("credential helper");
     expect(setup.stderr).not.toContain("ghp_notarealtoken");
-    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await run("bash", [VERIFY], setupEnv())).exitCode).toBe(1);
   });
 
-  // The scp-style spelling the advice now points at carries no secret and must NOT be refused
-  // by the authority check (it fails later, on the clone, which is a different thing).
-  it("R6: scp-style ssh without a secret is not refused by the credential check", async () => {
-    const setup = await run(
-      "bash",
-      [SETUP],
-      setupEnv({ CORTEX_CLIENT_REPO_URL: "git@example.invalid:org/repo.git" })
-    );
-    expect(setup.stderr).not.toContain("carries credentials in the URL");
+  // The credential-free spellings the advice points at must NOT be refused. The
+  // ssh:// form matters most: `ssh://git@github.com/org/repo.git` is what GitHub
+  // and GitLab hand you, `git` is a username rather than a secret, and an earlier
+  // version refused it while the manifest told operators to use exactly that.
+  it.each([
+    ["scp-style", "git@example.invalid:org/repo.git"],
+    ["ssh:// with a username", "ssh://git@example.invalid/org/repo.git"],
+    ["ssh:// with a username and port", "ssh://git@example.invalid:2222/org/repo.git"],
+    ["no userinfo at all", "https://example.invalid/org/repo.git"],
+  ])("R6: a credential-free %s repo_url is NOT refused by the credential check", async (_shape, url) => {
+    const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_REPO_URL: url }));
+    expect(setup.stderr).not.toContain("carries a credential in the URL");
   });
 
   it(
@@ -786,7 +800,8 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
     const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_GIT_REF: pin.slice(0, 7) }));
     expect(setup.exitCode).toBe(1);
     expect(setup.stderr).toContain("pin the FULL sha");
-    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    // After the unconfigured exit, so a bad pin IS recorded as configured-and-broken.
+    expect((await run("bash", [VERIFY], setupEnv())).exitCode).toBe(1);
   });
 
   it(

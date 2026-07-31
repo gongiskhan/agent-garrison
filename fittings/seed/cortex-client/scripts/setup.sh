@@ -10,8 +10,11 @@
 # composition's materialised vault. Setting repo_url is therefore a trust decision
 # about that repository, stated plainly here and in for_consumers rather than
 # implied away by the word "isolated". What IS reduced here: `npm install
-# --ignore-scripts` keeps the repository's (and every transitive dependency's)
-# install lifecycle from executing, so only the DECLARED build script runs.
+# --ignore-scripts` blocks the install lifecycle (preinstall/postinstall) on the
+# repository AND on every dependency, and a repo .npmrc cannot re-enable it.
+# It does NOT stop everything: `prepare` still runs for every WORKSPACE MEMBER
+# package, and the declared `build` runs by design. So repo code executes here
+# either way - measured, not assumed.
 #
 # Idempotent: re-running re-checks the pin, rebuilds only when the pin moved or the
 # build output stopped working, and RE-POINTS the symlink instead of adding one.
@@ -118,6 +121,14 @@ guard_outside_tree "bin_dir" "$BIN_DIR"
 # 2) Unconfigured, in BOTH directions: never configured, or configured and then
 #    cleared. Clearing repo_url withdraws exactly what this Fitting published.
 # ---------------------------------------------------------------------------
+# A configured repo_url means every later refusal - a guarded path, a credential
+# URL, a bad pin - is a CONFIGURED-AND-BROKEN outcome, not "never configured".
+# Arming the marker here rather than at the first write is what stops verify
+# reporting a deliberate configuration error as the shipped default and exiting 0.
+if [ -n "$REPO_URL" ]; then
+  MARK_FAILURES=1
+fi
+
 if [ -z "$REPO_URL" ]; then
   if [ -f "$RECEIPT" ] || [ -f "$MARKER" ]; then
     PREV_BIN="$(receipt_field bin)"
@@ -145,12 +156,35 @@ fi
 #    `git clone`, i.e. world-readable in /proc/<pid>/cmdline while it runs. Neither
 #    is something this Fitting can undo after the fact.
 # ---------------------------------------------------------------------------
+_cred_die() {
+  die "repo_url carries a credential in the URL ($1). Refused: git writes the remote VERBATIM into <clone>/.git/config and the URL is an argv of git clone, so it is readable in /proc while it runs - both true of any transport. Use git@host:org/repo.git or ssh://git@host/org/repo.git (a username is not a secret), or configure a git credential helper."
+}
 case "$REPO_URL" in
   *://*)
-    _rest="${REPO_URL#*://}"
-    case "${_rest%%/*}" in
+    _authority="${REPO_URL#*://}"
+    _authority="${_authority%%/*}"
+    _userinfo="${_authority%%@*}"
+    case "$_authority" in
       *@*)
-        die "repo_url carries credentials in the URL (user[:secret]@host). Refused: git writes the remote verbatim into <clone>/.git/config and the URL is visible in the process command line while it clones - both true of ANY scheme, which is why this check is not http(s)-only. Use scp-style ssh (git@host:org/repo.git, no secret in the URL) or configure a git credential helper." ;;
+        case "$REPO_URL" in
+          # http(s) treats the userinfo as credentials whether or not a colon is
+          # present - a bare `token@host` is exactly how a PAT is passed - so any
+          # userinfo is refused on those schemes.
+          http://*|https://*) _cred_die "user[:secret]@host on an http(s) URL" ;;
+          # Other transports: `git@host` is the STANDARD, credential-free spelling
+          # that GitHub and GitLab hand you. Only an embedded secret (a colon in
+          # the userinfo) is a credential. Refusing git@host would reject the very
+          # form this message recommends.
+          *) case "$_userinfo" in *:*) _cred_die "user:secret@host" ;; esac ;;
+        esac ;;
+    esac
+    ;;
+  # scp-style (user@host:path) has no scheme, so the branch above cannot see it.
+  # The colon after the host is a path separator, not a secret - only a colon
+  # BEFORE the @ is one.
+  *@*:*)
+    case "${REPO_URL%%@*}" in
+      *:*) _cred_die "user:secret@host:path (scp-style)" ;;
     esac
     ;;
 esac
@@ -172,9 +206,8 @@ for tool in git node npm; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required to install the CLI but is not on PATH"
 done
 
-# From here on this script writes, so a failure leaves a marker verify can read.
-# Without it a setup that died half way looks identical to "never configured" —
-# no receipt — and a standalone verify would happily print ok over a broken box.
+# Already armed above, the moment we knew repo_url was configured. Left here as a
+# no-op so the reason stays where the writes begin.
 MARK_FAILURES=1
 
 # ---------------------------------------------------------------------------
@@ -284,13 +317,17 @@ trap 'rm -f "$PROBE_OUT"' EXIT
 #    working. The clone MUST keep its node_modules and stay built: the CLI
 #    resolves its workspace dependencies at runtime through those symlinks.
 #
-#    --ignore-scripts on both: the repository's install lifecycle (and every
-#    transitive dependency's) does not execute, and only the declared `build`
-#    script runs, not a pre/post wrapper around it. The build itself IS repo code
-#    running with this hook's environment — see the header and for_consumers.
+#    --ignore-scripts on both: install lifecycles do not execute, on the
+#    repository or on any dependency, and no pre/post wrapper runs around the
+#    build. It is NOT a sandbox: a workspace member's `prepare` still runs, and
+#    the declared `build` runs by design. Repo code executes here with this
+#    hook's environment - see the header and for_consumers.
 # ---------------------------------------------------------------------------
 PREV_REF="$(receipt_field ref)"
-if [ "$PREV_REF" = "$HEAD_SHA" ] && probe_cli "$BIN_TARGET" "$PROBE_OUT"; then
+# require_shebang before the probe, so the fast path cannot bless a binary verify
+# would refuse: they must apply the SAME test or setup writes a success receipt
+# over an install verify then calls broken.
+if [ "$PREV_REF" = "$HEAD_SHA" ] && require_shebang "$BIN_TARGET" 2>/dev/null && probe_cli "$BIN_TARGET" "$PROBE_OUT"; then
   say "already installed at this pin — skipping install and build"
 else
   say "npm install (workspaces, --ignore-scripts) in $CLONE"
