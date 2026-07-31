@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Basic Memory Fitting verify. Confirms Basic Memory is installed, the vault
-# project is registered and present, the MCP server is registered with Claude
-# Code, and (when enabled) the capture hook is wired into settings.json.
+# project is registered and present, the backend's ops surface is actually in
+# place (the MCP server on `local`, the remote-CLI skill variant otherwise), and
+# (when enabled) the capture hook is wired into settings.json.
+#
+# Read-only, and it must pass UNCONFIGURED - the default local backend needs no
+# account, no key and no network. It never reads or prints a credential.
 set -uo pipefail
 
 VAULT_DIR="${BASIC_MEMORY_VAULT_DIR:-$HOME/ObsidianVault}"
@@ -11,6 +15,30 @@ CAPTURE_ENABLED="${BASIC_MEMORY_CAPTURE_ENABLED:-true}"
 CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
 SETTINGS_FILE="${CLAUDE_SETTINGS_FILE:-${GARRISON_CLAUDE_SETTINGS_PATH:-$CLAUDE_HOME/settings.json}}"
 CONFIG_DIR="${BASIC_MEMORY_CONFIG_DIR:-${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/basic-memory}}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSITION_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
+SKILL_REMOTE_MARK="garrison-memory-backend: cortex"
+
+# Which backend to verify against. `runner.verify()` projects only the gateway
+# env into verify hooks - NOT the fitting's config (unlike setup, which gets
+# setupConfigEnv) - so BASIC_MEMORY_BACKEND is normally absent here and the
+# backend is INFERRED from the artifact setup.sh installed: the skill variant
+# carrying the remote marker. That is the right thing to key on anyway, because
+# verify's job is to attest the state actually on disk. An explicitly set
+# BASIC_MEMORY_BACKEND (a manual run, a test) wins, so intent can still be
+# asserted against reality. Unknown values read as the shipped default.
+BACKEND="$(printf '%s' "${BASIC_MEMORY_BACKEND:-}" | tr '[:upper:]' '[:lower:]')"
+if [ -z "$BACKEND" ]; then
+  if [ -f "$SKILL_DEST" ] && grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null; then
+    BACKEND="cortex"
+  else
+    BACKEND="local"
+  fi
+fi
+[ "$BACKEND" = "cortex" ] || BACKEND="local"
 
 export PATH="$HOME/.local/bin:$PATH"
 fail() { echo "verify failed: $*" >&2; exit 1; }
@@ -40,8 +68,22 @@ PY
 }
 project_registered || fail "project '$PROJECT_NAME' not registered"
 
-if command -v claude >/dev/null 2>&1; then
-  claude mcp get basic-memory >/dev/null 2>&1 || fail "basic-memory MCP not registered with Claude Code"
+if [ "$BACKEND" = "local" ]; then
+  if command -v claude >/dev/null 2>&1; then
+    claude mcp get basic-memory >/dev/null 2>&1 || fail "basic-memory MCP not registered with Claude Code"
+  fi
+else
+  # Remote backend: the local MCP server must be gone (two memories, no way to
+  # tell which is authoritative, is the failure this catches) and the operative
+  # must have been handed the remote-CLI skill variant.
+  if command -v claude >/dev/null 2>&1 && claude mcp get basic-memory >/dev/null 2>&1; then
+    fail "backend=$BACKEND but the basic-memory MCP server is still registered with Claude Code"
+  fi
+  if [ "$(basename "$MODULES_DIR")" = "apm_modules" ]; then
+    [ -f "$SKILL_DEST" ] || fail "backend=$BACKEND but $SKILL_DEST is missing"
+    grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null \
+      || fail "backend=$BACKEND but $SKILL_DEST is not the remote skill variant"
+  fi
 fi
 
 if [ "$CAPTURE_ENABLED" = "true" ]; then

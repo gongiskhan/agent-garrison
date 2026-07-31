@@ -5,7 +5,19 @@
 # location, and idempotently wires SessionEnd / PreCompact into
 # ~/.claude/settings.json.
 #
-# Safe to re-run: every step checks current state before changing it.
+# Two backends (config key `backend`, default `local`):
+#   local  - everything above, unchanged. The whole fitting works on a fresh
+#            clone with an empty vault and reaches nothing off the machine.
+#   cortex - memory of record lives in a remote note vault. The local capture
+#            keeps running (it is the spool's source), but the local MCP server
+#            is NOT registered and the operative is taught the remote memory CLI
+#            instead, via the skill variant under skill-variants/.
+# The local path must stay byte-identical to the pre-switch fitting, so every
+# cortex-only branch below is explicitly gated and every cleanup is conditional
+# on the artifact actually being there.
+#
+# Safe to re-run: every step checks current state before changing it, and a
+# backend flip in either direction cleans up the other backend's artifacts.
 set -euo pipefail
 
 VAULT_DIR="${BASIC_MEMORY_VAULT_DIR:-$HOME/ObsidianVault}"
@@ -20,27 +32,62 @@ HOOK_HOME="$CLAUDE_HOME/basic-memory"
 HOOK_PATH="$HOOK_HOME/capture-session.py"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Spool drain (opt-in; composition config arrives as BASIC_MEMORY_*
-# via setupConfigEnv). With the defaults everything below is a no-op and the
-# stock local behavior stays byte-identical.
-SPOOL_ENABLED="${BASIC_MEMORY_SPOOL_ENABLED:-false}"
+# Spool drain (composition config arrives as BASIC_MEMORY_* via
+# setupConfigEnv). With the defaults everything below is a no-op and the stock
+# local behavior stays byte-identical.
+SPOOL_ENABLED="${BASIC_MEMORY_SPOOL_ENABLED:-auto}"
 SPOOL_DIR="${BASIC_MEMORY_SPOOL_DIR:-}"
 FLUSH_CRON="${BASIC_MEMORY_FLUSH_INTERVAL_CRON:-*/15 * * * *}"
 REMOTE_BIN="${BASIC_MEMORY_REMOTE_CLI_BIN:-cortex}"
 FLUSH_PATH="$HOOK_HOME/flush-spool.mjs"
 FLUSH_JOB_ID="basic-memory-spool-flush"
-# Truthiness matches the hook's _truthy() (true|1|yes|on, case-insensitive) so
-# an env-set "yes" cannot spool captures without also getting a drain job.
-spool_on() {
-  case "$(printf '%s' "$SPOOL_ENABLED" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on) return 0 ;;
-    *) return 1 ;;
-  esac
-}
+BACKEND="${BASIC_MEMORY_BACKEND:-local}"
 quote() { printf "%q" "$1"; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# Where the two skill variants live, and where the installed one goes. The
+# installed layout is <composition>/apm_modules/_local/basic-memory/scripts, so
+# the composition dir is four levels up; APM installs .apm/skills/<name>/ into
+# <composition>/.claude/skills/<name>/, and that is the file we swap.
+SCRIPT_DIR_PARENT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+COMPOSITION_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+SKILL_LOCAL_SRC="$SCRIPT_DIR_PARENT/.apm/skills/garrison-memory/SKILL.md"
+SKILL_CORTEX_SRC="$SCRIPT_DIR_PARENT/skill-variants/cortex/SKILL.md"
+SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
+# Marks an installed SKILL.md as OURS (a remote-backend variant we wrote), so a
+# flip back to local restores only what this fitting put there and never a
+# hand-authored or reconciled file.
+SKILL_REMOTE_MARK="garrison-memory-backend: cortex"
 
 export PATH="$HOME/.local/bin:$PATH"
 log() { printf '[basic-memory-setup] %s\n' "$*"; }
+
+# --- backend + spool precedence -------------------------------------------
+# backend: unknown values fall back to the shipped default rather than failing
+# the composition - an unrecognised backend is a config typo, not a reason to
+# leave the operative with no memory at all.
+case "$(lower "$BACKEND")" in
+  ""|local) BACKEND="local" ;;
+  cortex) BACKEND="cortex" ;;
+  *) log "unknown backend '$BACKEND'; falling back to local"; BACKEND="local" ;;
+esac
+
+# spool: `auto` follows the backend (off local, on remote - a remote backend
+# that never drains is a silent no-op); `always`/`never` override it in either
+# direction. Legacy booleans from the pre-switch config are read as the
+# corresponding explicit choice.
+if [ "$BACKEND" = "cortex" ]; then SPOOL_AUTO=1; else SPOOL_AUTO=0; fi
+case "$(lower "$SPOOL_ENABLED")" in
+  always|1|true|yes|on) SPOOL_ON=1 ;;
+  never|0|false|no|off) SPOOL_ON=0 ;;
+  ""|auto) SPOOL_ON="$SPOOL_AUTO" ;;
+  *)
+    log "unknown spool_enabled '$SPOOL_ENABLED'; treating as auto"
+    SPOOL_ON="$SPOOL_AUTO"
+    ;;
+esac
+spool_on() { [ "$SPOOL_ON" = "1" ]; }
 
 # 1. Required tools.
 command -v uv >/dev/null 2>&1 || { echo "uv not on PATH; install uv (https://docs.astral.sh/uv/) and re-run" >&2; exit 1; }
@@ -71,35 +118,88 @@ else
 fi
 "$BM" project default "$PROJECT_NAME" >/dev/null 2>&1 || true
 
-# 4. Register the MCP server with Claude Code (user scope, idempotent).
-if command -v claude >/dev/null 2>&1; then
-  if claude mcp get basic-memory >/dev/null 2>&1; then
-    log "claude mcp 'basic-memory' already registered"
+# 4-5. MCP registration. Only the local backend hands the agents the upstream
+# basic-memory MCP server; on a remote backend the ops surface is the remote
+# CLI, and leaving the local server registered would offer the operative two
+# memories with no way to tell which one is authoritative.
+if [ "$BACKEND" = "local" ]; then
+  # 4. Register the MCP server with Claude Code (user scope, idempotent).
+  if command -v claude >/dev/null 2>&1; then
+    if claude mcp get basic-memory >/dev/null 2>&1; then
+      log "claude mcp 'basic-memory' already registered"
+    else
+      log "registering basic-memory MCP with Claude Code"
+      claude mcp add -s user basic-memory -- "$BM" mcp >/dev/null 2>&1 || true
+    fi
   else
-    log "registering basic-memory MCP with Claude Code"
-    claude mcp add -s user basic-memory -- "$BM" mcp >/dev/null 2>&1 || true
+    log "claude CLI not on PATH; skipping Claude MCP registration"
+  fi
+
+  # 5. Register the MCP server with Codex + Gemini (idempotent, soft-fail).
+  if [ "$REGISTER_CG" = "true" ]; then
+    if command -v codex >/dev/null 2>&1; then
+      if codex mcp get basic-memory >/dev/null 2>&1; then
+        log "codex mcp 'basic-memory' already registered"
+      else
+        log "registering basic-memory MCP with Codex"
+        codex mcp add basic-memory -- "$BM" mcp >/dev/null 2>&1 || log "codex mcp add failed (non-fatal)"
+      fi
+    fi
+    if command -v gemini >/dev/null 2>&1; then
+      if gemini mcp list 2>/dev/null | grep -q basic-memory; then
+        log "gemini mcp 'basic-memory' already registered"
+      else
+        log "registering basic-memory MCP with Gemini"
+        gemini mcp add -s user basic-memory "$BM" mcp >/dev/null 2>&1 || log "gemini mcp add failed (non-fatal)"
+      fi
+    fi
   fi
 else
-  log "claude CLI not on PATH; skipping Claude MCP registration"
+  # Remote backend: skip registration, and retire a registration a previous
+  # local run left behind. Conditional on it actually existing, so a machine
+  # that was never on the local backend is untouched.
+  log "backend=$BACKEND: not registering the basic-memory MCP server"
+  if command -v claude >/dev/null 2>&1 && claude mcp get basic-memory >/dev/null 2>&1; then
+    log "retiring the basic-memory MCP registration from Claude Code"
+    claude mcp remove -s user basic-memory >/dev/null 2>&1 || log "claude mcp remove failed (non-fatal)"
+  fi
+  if command -v codex >/dev/null 2>&1 && codex mcp get basic-memory >/dev/null 2>&1; then
+    log "retiring the basic-memory MCP registration from Codex"
+    codex mcp remove basic-memory >/dev/null 2>&1 || log "codex mcp remove failed (non-fatal)"
+  fi
+  if command -v gemini >/dev/null 2>&1 && gemini mcp list 2>/dev/null | grep -q basic-memory; then
+    log "retiring the basic-memory MCP registration from Gemini"
+    gemini mcp remove basic-memory >/dev/null 2>&1 || log "gemini mcp remove failed (non-fatal)"
+  fi
 fi
 
-# 5. Register the MCP server with Codex + Gemini (idempotent, soft-fail).
-if [ "$REGISTER_CG" = "true" ]; then
-  if command -v codex >/dev/null 2>&1; then
-    if codex mcp get basic-memory >/dev/null 2>&1; then
-      log "codex mcp 'basic-memory' already registered"
-    else
-      log "registering basic-memory MCP with Codex"
-      codex mcp add basic-memory -- "$BM" mcp >/dev/null 2>&1 || log "codex mcp add failed (non-fatal)"
-    fi
+# 5b. Install the skill variant that matches the backend, so the operative is
+# taught the ops surface that actually exists in its session. APM already
+# installed the local variant from .apm/skills/, so the DEFAULT path writes
+# nothing at all; the remote path overwrites that copy and a flip back restores
+# it - but only when the installed file is one WE wrote (it carries the marker),
+# never a hand-edited or reconciled file.
+if [ "$(basename "$MODULES_DIR")" != "apm_modules" ]; then
+  log "not running from an installed composition; skill variant left alone"
+elif [ "$BACKEND" != "local" ]; then
+  if [ ! -f "$SKILL_CORTEX_SRC" ]; then
+    echo "backend=$BACKEND but the skill variant is missing at $SKILL_CORTEX_SRC" >&2
+    exit 1
   fi
-  if command -v gemini >/dev/null 2>&1; then
-    if gemini mcp list 2>/dev/null | grep -q basic-memory; then
-      log "gemini mcp 'basic-memory' already registered"
-    else
-      log "registering basic-memory MCP with Gemini"
-      gemini mcp add -s user basic-memory "$BM" mcp >/dev/null 2>&1 || log "gemini mcp add failed (non-fatal)"
-    fi
+  if cmp -s "$SKILL_CORTEX_SRC" "$SKILL_DEST"; then
+    log "skill variant already installed for backend=$BACKEND"
+  else
+    mkdir -p "$(dirname "$SKILL_DEST")"
+    cp -f "$SKILL_CORTEX_SRC" "$SKILL_DEST"
+    log "installed the $BACKEND skill variant -> $SKILL_DEST"
+  fi
+elif [ -f "$SKILL_DEST" ] && grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null; then
+  if [ -f "$SKILL_LOCAL_SRC" ]; then
+    cp -f "$SKILL_LOCAL_SRC" "$SKILL_DEST"
+    log "backend=local: restored the local skill variant"
+  else
+    rm -f "$SKILL_DEST"
+    log "backend=local: removed the stale remote skill variant (no local source to restore)"
   fi
 fi
 
@@ -154,14 +254,13 @@ else
   log "capture hook disabled (capture_enabled=false)"
 fi
 
-# 7. Spool drain job (opt-in). Mirrors the improver-nightly scheduler idiom:
-# state is machine-global (~/.garrison per instance) - scheduler.mjs derives
-# its own GARRISON_HOME defaults, so we only pass overrides that are set.
-# Installed layout puts this script at
-# <composition>/apm_modules/_local/basic-memory/scripts, hence the ../../..;
-# outside a composition the scheduler is simply absent and we skip.
-composition_dir="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-scheduler_script="$composition_dir/apm_modules/_local/scheduler/scripts/scheduler.mjs"
+# 7. Spool drain job. Registered exactly when spooling resolved to on above
+# (never on the default local+auto path), retired when it resolved to off.
+# Mirrors the improver-nightly scheduler idiom: state is machine-global
+# (~/.garrison per instance) - scheduler.mjs derives its own GARRISON_HOME
+# defaults, so we only pass overrides that are set. Outside an installed
+# composition the scheduler is simply absent and we skip.
+scheduler_script="$COMPOSITION_DIR/apm_modules/_local/scheduler/scripts/scheduler.mjs"
 jobs_file="${GARRISON_SCHEDULER_JOBS:-}"
 log_file="${GARRISON_SCHEDULER_LOG:-}"
 sched_env=()
@@ -186,10 +285,11 @@ if spool_on; then
     log "spool flush job registered ($FLUSH_JOB_ID: $FLUSH_CRON)"
   fi
 else
-  # Spool off (the default): retire our drain job if a previous enable left
-  # one behind. Gated on the job actually existing (improver-nightly's
-  # conditional idiom) - scheduler.mjs `remove` rewrites the machine-global
-  # jobs file even for a no-op, and the default-off path must touch nothing.
+  # Spool off (the default, and what a flip back to local resolves to): retire
+  # our drain job if a previous enable left one behind. Gated on the job
+  # actually existing (improver-nightly's conditional idiom) - scheduler.mjs
+  # `remove` rewrites the machine-global jobs file even for a no-op, and the
+  # default-off path must touch nothing.
   if [ -f "$scheduler_script" ] && sched list 2>/dev/null | node -e '
     let raw = "";
     process.stdin.on("data", (c) => { raw += c; });

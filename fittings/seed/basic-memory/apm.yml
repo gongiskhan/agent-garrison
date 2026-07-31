@@ -16,8 +16,25 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in - the index rebuilds from the markdown files.
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the operative is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist.
   config_schema:
+    - key: backend
+      type: select
+      options:
+        - local
+        - cortex
+      default: local
+      description: >-
+        Where operative memory lives. `local` (the default) is the whole stock fitting - upstream
+        Basic Memory, its MCP server registered with the local CLIs, a plain-markdown vault on this
+        disk: no account, no network, works on a fresh clone with an empty vault. A remote backend
+        suits the other shape of agent workstation - one whose memory has to outlive the machine and
+        be readable from the phone, the laptop and the box in the corner at once, which a per-machine
+        SQLite index cannot do. On a remote backend the fitting stops registering the local MCP
+        server, teaches the operative the remote memory CLI instead of the MCP tools, and turns the
+        capture spool on so captures drain off the box. Any provider implementing the capability
+        contract (docs/CAPABILITY_CONTRACT.md) can fill that slot; each ships its own enum value and
+        skill variant, and `cortex` is the reference implementation that ships as the default remote.
     - key: vault_dir
       type: path
       default: ~/ObsidianVault
@@ -39,9 +56,20 @@ x-garrison:
       default: true
       description: Also register the basic-memory MCP server with the Codex CLI and Gemini CLI so all three agents read/write the same vault.
     - key: spool_enabled
-      type: boolean
-      default: false
-      description: Also spool each session capture (same markdown, idempotency-keyed filename) for a scheduled drain into a remote memory CLI (any provider implementing the capability contract). Off by default; when off, behavior is byte-identical to the stock local-only capture and no drain job is registered.
+      type: select
+      options:
+        - auto
+        - always
+        - never
+      default: auto
+      description: >-
+        Whether each session capture is ALSO spooled (same markdown, idempotency-keyed filename) for
+        a scheduled drain into a remote memory CLI. `auto` (the default) follows `backend`: off on
+        `local`, on for a remote backend - a remote backend that never drains is a silent no-op, so
+        it has to be the default there. `always` and `never` override the switch in either direction
+        (a legacy boolean `true`/`false` is read as `always`/`never`). With the defaults - `local` +
+        `auto` - nothing is spooled and no drain job is registered, and behavior is byte-identical to
+        the stock local-only capture.
     - key: spool_dir
       type: string
       default: ""
@@ -49,7 +77,7 @@ x-garrison:
     - key: flush_interval_cron
       type: string
       default: "*/15 * * * *"
-      description: Local cron schedule for the scheduler job that drains the spool via the remote memory CLI. Only registered when spool_enabled is true.
+      description: Local cron schedule for the scheduler job that drains the spool via the remote memory CLI. The job is registered only when spooling resolves to on (see spool_enabled), and is retired again when it resolves to off.
     - key: remote_cli_bin
       type: string
       default: cortex
