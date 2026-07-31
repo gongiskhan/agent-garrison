@@ -1,0 +1,136 @@
+name: cortex-automations
+version: 0.1.0
+description: >-
+  Remote automations view (connectors role). A skill-first Fitting over an automation runner
+  that lives OFF this machine: it teaches the operative to find what it may start, start a run
+  under an idempotency key, follow that run to a conclusion, and read its logs - through the
+  capability CLI a companion Fitting installs. No engine, no scheduler, no port and no server
+  of its own; the runs execute on the provider's side under a user-scoped key, and this Fitting
+  is the view plus the usage knowledge over that contract. Ships INERT: with no CLI installed
+  nothing is callable and verify is degraded-ok.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: connectors
+  # Single: one view over one remote runner. Two of these would teach the same
+  # session two catalogs under one binary and one key.
+  cardinality_hint: single
+  component_shape: cli-skill
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /skill
+  platforms:
+    - all
+  summary: >-
+    A remote automation runner, driven from the session. An operative on a workstation is
+    frequently the wrong place to EXECUTE long, gated, multi-step work - it needs a machine that
+    stays up, keeps the run's state, and holds its own integrations - but it is exactly the right
+    place to DECIDE to start that work and to act on the outcome. This Fitting is that seam: the
+    catalog below is the run lifecycle (list, show, run, status, logs, watch) as the capability
+    CLI exposes it, and the skill it installs teaches an agent when to reach for it and how to
+    read what comes back. It runs nothing locally: no engine, no port, no state. Where the runner
+    lives is the CLI's business (CORTEX_BASE_URL); the key is Vault-sealed and delivered scoped.
+    With no CLI installed the whole thing is inert and verify still passes, so a fresh clone with
+    an empty vault composes and runs.
+  connector:
+    auth: api_key
+    actions:
+      - name: automations_list
+        mutates: false
+        description: List the automations this key may start.
+      - name: automations_show
+        args:
+          - automation_id
+        mutates: false
+        description: Show one automation's definition, inputs and step count.
+      - name: automations_run
+        args:
+          - automation_id
+          - input
+          - idempotency_key
+        mutates: true
+        description: >-
+          Start a run. With an idempotency key the start is at-most-once, and the response
+          distinguishes a fresh start from a replay of one that already existed.
+      - name: automations_status
+        args:
+          - run_id
+        mutates: false
+        description: Read a run's current record - status, summary, start/finish times.
+      - name: automations_logs
+        args:
+          - run_id
+        mutates: false
+        description: Read a run's per-step logs.
+      - name: automations_watch
+        args:
+          - run_id
+          - interval_ms
+          - timeout_ms
+        mutates: false
+        description: >-
+          POLL a run until it is terminal, parks on a gate that needs a human or an external
+          system, or the timeout expires. Polling, not streaming - the run event stream is not
+          on the key-reachable surface.
+  secret_scope:
+    - CORTEX_API_KEY
+  provides:
+    # connector, NOT automation-runner: consumers of automation-runner expect a
+    # LOCAL scheduler they can enumerate, schedule against and observe in-process.
+    # Nothing here runs on this machine - it is an authenticated connection to a
+    # service with a callable catalog, which is what `connector` means.
+    - kind: connector
+      name: cortex-automations
+  consumes:
+    - kind: vault
+      cardinality: one
+  verify:
+    command: bash apm_modules/_local/cortex-automations/scripts/verify.sh
+    expect: ok
+    # 120s, not the 10s default. This verify cold-starts node through the CLI's
+    # bin shim, and `up` runs every fitting's verify alongside the other setup
+    # hooks: a hook that loses that race is killed on its timeout with EMPTY
+    # stderr, which reads like a broken fitting rather than a slow one and fails
+    # the whole composition. Same budget, same reason, as basic-memory and
+    # cortex-client - see the note in fittings/seed/basic-memory/apm.yml.
+    timeout_ms: 120000
+  for_consumers: |
+    Automations that run somewhere ELSE, driven from this session. The usage knowledge is a
+    SKILL installed into the session (`cortex-automations`); read it before the first call
+    rather than guessing flags. The essentials:
+
+    HOW TO REACH THE BINARY (never hardcode a path):
+      1. Read `bin` from $GARRISON_HOME/cortex-client/install.json. If that receipt is ABSENT
+         the CLI is not installed - that is the shipped default, so SAY the capability is not
+         available and stop. It is not an error to report.
+      2. Only then fall back to the bin name (`cortex`) on PATH.
+    Configuration is environment-only: CORTEX_BASE_URL (take it from `base_url` in the receipt
+    if it is not already exported) and CORTEX_API_KEY (Vault-held, delivered through
+    secret_scope). A missing variable exits 2 naming it, BEFORE anything is sent.
+
+    THE LIFECYCLE: `cortex automations list | show <automationId> | run <automationId>
+    [--input k=v]... [--idempotency-key <key>] | status <runId> | logs <runId> | watch <runId>`.
+    `--json` on any of them prints exactly one JSON document on stdout (empty on failure).
+    Exit codes: 0 ok, 1 the provider refused it or the request failed, 2 bad invocation.
+
+    THREE THINGS THAT ARE EASY TO GET WRONG:
+      - `watch` POLLS `status` on an interval. It is not a stream and there is no stream to
+        prefer - never describe it as live. It exits 0 whenever the polling concluded, so read
+        the run's own `status` to learn whether the work actually succeeded.
+      - This surface cannot CREATE an automation and cannot mint a key. It starts ones that
+        already exist, with a key you were handed. It also cannot clear a run that parks on a
+        consent/approval gate: hand that back to the principal.
+      - A `run` whose JSON reports `"created": false` was a REPLAY - the identical run already
+        existed and nothing new was started. Retrying a failed call with the SAME
+        `--idempotency-key` is therefore safe and will not double-execute.
+
+    This is not the local automations engine, and it is not a scheduler. It provides `connector`,
+    not `automation-runner`, precisely so nothing that expects a local scheduler binds to it.

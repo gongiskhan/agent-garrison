@@ -11,6 +11,17 @@ implement it and serves as the reference implementation, which is where the mirr
 (`docs/CAPABILITY_CONTRACT.md` in that repo). Nothing here is required by, or for, a particular consumer or
 provider - see the Honesty Test in [GOVERNANCE.md](./GOVERNANCE.md) section 3.
 
+## Known platform gap (found 2026-07-31, not yet fixed)
+
+`runner.verify()` passes only the gateway hook env to a fitting's verify hook - it never projects
+`setupConfigEnv`, unlike `runFittingSetup`. So a fitting's own config keys do NOT reach `verify.sh`
+at runtime (this predates the capability work: `vault_dir`, `project_name` and `capture_enabled`
+have never reached basic-memory's verify either). A verify that branches on config will therefore
+behave as if every key were unset, which for a backend switch means failing every non-default
+composition. Until `src/lib/runner.ts` projects config env for verify hooks the same way it does for
+setup, **a verify hook must read what it needs from its own installed artefacts** (an install
+receipt, a marker in an installed file) rather than from config.
+
 ## The pattern
 
 A capability is implemented once, by the provider, and exposed as a public, versioned, OpenAPI-documented API.

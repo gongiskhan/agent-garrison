@@ -9,6 +9,7 @@ dependencies:
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/cortex-automations
     - path: ../../fittings/seed/cortex-client
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
@@ -220,6 +221,8 @@ x-garrison:
         - id: taste
           config: {}
       connectors:
+        - id: cortex-automations
+          config: {}
         - id: cortex-client
           config:
             repo_url: ''

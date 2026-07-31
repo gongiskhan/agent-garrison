@@ -859,5 +859,15 @@
     "platforms": [
       "all"
     ]
+  },
+  {
+    "id": "cortex-automations",
+    "name": "Remote automations",
+    "repo": "local:fittings/seed/cortex-automations",
+    "localPath": "fittings/seed/cortex-automations",
+    "summary": "Drive an automation runner that lives off this machine: find what a user-scoped key may start, start a run at-most-once, poll it to a conclusion, read its logs. A skill plus a view over an already-installed capability CLI - no local engine, no port, no state of its own. Inert with no CLI installed, and verify passes then.",
+    "platforms": [
+      "all"
+    ]
   }
 ]
