@@ -270,36 +270,6 @@ x-garrison:
           config:
             port: 7096
             bind_host: 127.0.0.1
-        # The duty Fittings — the work pipeline that supersedes the loose
-        # ~/.claude/skills/autothing* family. Each OWNS its garrison-* skill, so
-        # equipping them here is what materializes those skills into ~/.claude
-        # through APM. Until now duty-* was equipped in NO composition, which is
-        # why autothing kept running (a loose file on disk) while garrison-*
-        # never appeared. `building` is multi-cardinality, so these coexist with
-        # drill rather than displacing it.
-        - id: duty-plan
-          config: {}
-        - id: duty-implement
-          config: {}
-        - id: duty-test
-          config: {}
-        - id: duty-review
-          config: {}
-        - id: duty-adversarial-test
-          config: {}
-        - id: duty-walkthrough
-          config: {}
-        - id: duty-develop
-          config: {}
-        - id: duty-discuss
-          config: {}
-        # Skill Fittings promoted out of loose ~/.claude/skills (2026-07-31).
-        - id: skill-creator
-          config: {}
-        - id: skill-improver
-          config: {}
-        - id: walkthrough
-          config: {}
       design:
         - id: taste
           config: {}
