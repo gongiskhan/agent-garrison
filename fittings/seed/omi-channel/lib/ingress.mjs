@@ -202,17 +202,54 @@ export class Ingress {
   acceptRealtime({ bodyText, sessionId = null }) {
     this.counters.bump("realtime_calls");
     try {
-      const segments = JSON.parse(bodyText);
-      if (Array.isArray(segments)) {
+      const payload = JSON.parse(bodyText);
+      // The docs promise a bare array of segments; live deliveries are not
+      // always one, so accept the known envelopes too. `transcript_segments` is
+      // the key the memory-creation payload uses, so Omi is not consistent
+      // across triggers and we should not assume this list is complete —
+      // anything unrecognised logs its SHAPE below (never its content, I5).
+      const segments = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.segments)
+          ? payload.segments
+          : Array.isArray(payload?.transcript_segments)
+            ? payload.transcript_segments
+            : Array.isArray(payload?.data?.segments)
+              ? payload.data.segments
+              : null;
+      // A session id can arrive on the query OR in the body; without one the
+      // wake gate is skipped entirely, so a mangled URL that drops session_id
+      // would silently disable the wake bus even once auth is repaired.
+      const session =
+        sessionId || payload?.session_id || payload?.sessionId || payload?.data?.session_id || null;
+      if (segments) {
         this.counters.bump("realtime_segments", segments.length);
-        if (this.cfg.wakeEnabled && this.wakeBus && sessionId) {
-          this.wakeBus.handleSegments({ sessionId, segments });
+        if (!Array.isArray(payload)) this.counters.bump("realtime_enveloped");
+        if (this.cfg.wakeEnabled && this.wakeBus && session) {
+          this.wakeBus.handleSegments({ sessionId: session, segments });
+        } else if (this.cfg.wakeEnabled && this.wakeBus && !session) {
+          this.counters.bump("realtime_no_session_id");
         }
       } else {
         this.counters.bump("realtime_malformed");
+        // Structure only: top-level type and KEY NAMES. Key names describe the
+        // envelope, not the conversation, so this stays inside I5 while making
+        // an unknown payload shape diagnosable instead of just counted.
+        const shape =
+          payload === null
+            ? "null"
+            : Array.isArray(payload)
+              ? `array[${payload.length}]`
+              : typeof payload === "object"
+                ? `object keys=[${Object.keys(payload).join(",")}]`
+                : typeof payload;
+        this.log.warn?.(`[omi-channel] realtime payload not segments: ${shape}`);
       }
     } catch {
       this.counters.bump("realtime_malformed");
+      this.log.warn?.(
+        `[omi-channel] realtime payload unparseable as JSON (bytes=${bodyText?.length ?? 0})`
+      );
     }
   }
 }

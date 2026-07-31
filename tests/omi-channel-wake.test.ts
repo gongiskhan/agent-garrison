@@ -11,7 +11,8 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { OmiStore, Counters } from "../fittings/seed/omi-channel/lib/store.mjs";
+import { OmiStore, Counters, mergedCounters } from "../fittings/seed/omi-channel/lib/store.mjs";
+import { Ingress } from "../fittings/seed/omi-channel/lib/ingress.mjs";
 import { WakeBus, buildWakePrompt, parseWakeReply, wakeRegex } from "../fittings/seed/omi-channel/lib/wake.mjs";
 import { MemoryWriter } from "../fittings/seed/omi-channel/lib/memory-writer.mjs";
 
@@ -303,5 +304,61 @@ describe("wake units", () => {
     });
     expect(parseWakeReply('{"intent":"weird"}')).toMatchObject({ intent: "unknown" });
     expect(parseWakeReply("nope")).toBeNull();
+  });
+});
+
+// Regression (2026-07-31): live Omi realtime deliveries counted as
+// `realtime_malformed` because the parser only accepted a BARE array, which is
+// what the docs promise. Separately, a mangled webhook URL can drop session_id,
+// and without one the wake gate was skipped silently - so auth could be fixed
+// and the wake bus still do nothing.
+describe("realtime payload envelopes and session id recovery", () => {
+  const segs = [
+    { text: "Gary, create a task called envelope test.", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 0, end: 2 }
+  ];
+
+  function harness(home: string) {
+    const cfg = { ...loadConfig({ GARRISON_HOME: home }), enabled: true, wakeEnabled: true };
+    const store = new OmiStore(path.join(home, "omi"));
+    const counters = new Counters(store.root, "test");
+    const seen: Array<{ sessionId: string }> = [];
+    const wakeBus = { handleSegments: (a: { sessionId: string }) => seen.push(a) };
+    return { ingress: new Ingress({ cfg, store, counters, wakeBus }), counters, seen, store };
+  }
+
+  it("accepts {segments:[...]} and {transcript_segments:[...]}, not just a bare array", () => {
+    for (const body of [
+      JSON.stringify(segs),
+      JSON.stringify({ segments: segs }),
+      JSON.stringify({ transcript_segments: segs })
+    ]) {
+      const home = mkdtempSync(path.join(os.tmpdir(), "omi-env-"));
+      const h = harness(home);
+      h.ingress.acceptRealtime({ bodyText: body, sessionId: "s1" });
+      expect(mergedCounters(h.store.root).realtime_malformed ?? 0).toBe(0);
+      expect(h.seen).toHaveLength(1);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers session_id from the body when the URL lost it", () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-sess-"));
+    const h = harness(home);
+    h.ingress.acceptRealtime({
+      bodyText: JSON.stringify({ session_id: "from-body", segments: segs }),
+      sessionId: null
+    });
+    expect(h.seen).toHaveLength(1);
+    expect(h.seen[0].sessionId).toBe("from-body");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("counts an unusable payload rather than pretending it worked", () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-bad-"));
+    const h = harness(home);
+    h.ingress.acceptRealtime({ bodyText: JSON.stringify({ nope: 1 }), sessionId: "s1" });
+    expect(mergedCounters(h.store.root).realtime_malformed).toBe(1);
+    expect(h.seen).toHaveLength(0);
+    rmSync(home, { recursive: true, force: true });
   });
 });

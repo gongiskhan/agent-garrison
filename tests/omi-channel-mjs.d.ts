@@ -122,8 +122,17 @@ declare module "*/omi-channel/lib/store.mjs" {
 declare module "*/omi-channel/lib/ingress.mjs" {
   export function secretMatches(presented: string | undefined, expected: string | undefined): boolean;
   export class Ingress {
-    constructor(opts: { cfg: unknown; store: unknown; counters: unknown; log?: unknown });
-    authorize(query: Record<string, unknown>): { ok: true; uid: string } | { ok: false; status: number; reason: string };
+    constructor(opts: {
+      cfg: unknown;
+      store: unknown;
+      counters: unknown;
+      wakeBus?: unknown;
+      log?: unknown;
+    });
+    authorize(
+      query: Record<string, unknown>,
+      pathname?: string
+    ): { ok: true; uid: string } | { ok: false; status: number; reason: string };
     accept(entry: { kind: string; uid: string; bodyText: string; sessionId?: string | null }): void;
     acceptRealtime(entry: { bodyText: string; sessionId?: string | null }): void;
     scheduleDrain(): Promise<void>;
