@@ -20,9 +20,7 @@ x-garrison:
     - claude-code
   summary: >-
     Consult official Claude Code documentation from code.claude.com using selective fetching. Use when working on hooks, skills, subagents, plugins, agent teams, MCP servers, permissions, settings, CI/CD (GitHub Actions, GitLab), IDE extensions (VS Code, JetBrains), desktop/web app features, scheduling, memory/CLAUDE.md, deployment (Bedrock, Vertex, Foundry), sandboxing, monitoring, or any Claude Code feature requiring official docs. Fetches only the specific docs needed per task.
-  provides:
-    - kind: agent-skill
-      name: claude-docs-consultant
+  provides: []
   consumes: []
   verify:
     command: test -f apm_modules/_local/claude-docs-consultant/.apm/skills/claude-docs-consultant/SKILL.md && echo ok

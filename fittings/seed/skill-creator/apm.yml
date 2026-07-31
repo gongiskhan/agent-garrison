@@ -20,9 +20,7 @@ x-garrison:
     - claude-code
   summary: >-
     Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.
-  provides:
-    - kind: agent-skill
-      name: skill-creator
+  provides: []
   consumes: []
   verify:
     command: test -f apm_modules/_local/skill-creator/.apm/skills/skill-creator/SKILL.md && echo ok

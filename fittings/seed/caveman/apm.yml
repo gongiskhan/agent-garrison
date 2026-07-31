@@ -6,8 +6,8 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  faculty: modes
-  category: Core
+  faculty: channels
+  category: Interfaces
   cardinality_hint: single
   component_shape: skill
   ui:
@@ -20,9 +20,7 @@ x-garrison:
     - claude-code
   summary: >-
     >
-  provides:
-    - kind: agent-skill
-      name: caveman
+  provides: []
   consumes: []
   verify:
     command: test -f apm_modules/_local/caveman/.apm/skills/caveman/SKILL.md && echo ok

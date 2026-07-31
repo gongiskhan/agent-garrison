@@ -394,6 +394,8 @@ export interface DutySpec {
 
 export interface GarrisonMetadata {
   faculty: FacultyId;
+  /** Presentation-only browsing axis; resolved from `faculty` when omitted. */
+  category?: FittingCategory;
   cardinality_hint: Cardinality;
   /**
    * Station this Fitting in every composition unless explicitly unfitted. Only
@@ -544,6 +546,13 @@ export interface LibraryEntry {
   id: string;
   name: string;
   faculty: FacultyId;
+  /**
+   * Presentation-only grouping for the Fittings views, hoisted from
+   * `metadata.category` and resolved from `faculty` when the manifest omits it.
+   * Optional on the type (test fixtures build entries by hand) but always
+   * populated by resolveLibraryEntry. Never branch contract logic on this.
+   */
+  category?: FittingCategory;
   repo: string;
   localPath?: string;
   summary: string;

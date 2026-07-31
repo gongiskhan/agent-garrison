@@ -1,384 +1,15 @@
 [
   {
-    "id": "http-gateway",
-    "name": "HTTP gateway",
-    "repo": "local:fittings/seed/http-gateway",
-    "localPath": "fittings/seed/http-gateway",
-    "summary": "Small local HTTP gateway for inbound jobs, channels, and session checks.",
+    "id": "agent-sdk-runtime",
+    "name": "Agent SDK runtime",
+    "repo": "local:fittings/seed/agent-sdk-runtime",
+    "localPath": "fittings/seed/agent-sdk-runtime",
+    "summary": "Runtime Faculty — implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls — no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-http-gateway",
-      "global": 4.4,
-      "claude_code": 4.4
-    }
-  },
-  {
-    "id": "mcp-gateway",
-    "name": "MCP gateway",
-    "repo": "local:fittings/seed/mcp-gateway",
-    "localPath": "fittings/seed/mcp-gateway",
-    "summary": "MCP sidecar for orchestrator/soul-mode sessions. Spawned per session by the http-gateway as a stdio MCP child; hosts the garrison-control tool set (talk_to, wait_for, session and worktree management).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-mcp-gateway",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "basic-memory",
-    "name": "Basic Memory",
-    "repo": "local:fittings/seed/basic-memory",
-    "localPath": "fittings/seed/basic-memory",
-    "summary": "Obsidian-native, plain-markdown memory backed by Basic Memory. Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a session checkpoint on SessionEnd/PreCompact.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-basic-memory",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "trello",
-    "name": "Trello connector",
-    "repo": "local:fittings/seed/trello",
-    "localPath": "fittings/seed/trello",
-    "summary": "Trello connector — board lists and cards as a Vault-sealed callable action catalog.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-trello",
-      "global": 4.4,
-      "claude_code": 4.4
-    }
-  },
-  {
-    "id": "google",
-    "name": "Google Workspace connector",
-    "repo": "local:fittings/seed/google",
-    "localPath": "fittings/seed/google",
-    "summary": "Google Workspace connector — Gmail/Drive/Calendar as a Vault-sealed OAuth2 action catalog.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-google",
-      "global": 4.6,
-      "claude_code": 4.6
-    }
-  },
-  {
-    "id": "slack-channel",
-    "name": "Slack channel",
-    "repo": "local:fittings/seed/slack-channel",
-    "localPath": "fittings/seed/slack-channel",
-    "summary": "Receives Slack app_mention and DM events, round-trips via the gateway's /chat.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-slack-channel",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "web-channel-default",
-    "name": "Web channel",
-    "repo": "local:fittings/seed/web-channel-default",
-    "localPath": "fittings/seed/web-channel-default",
-    "summary": "Mobile-first browser chat surface. Serves a React UI on its own port (default 27083) and proxies the http-gateway for streaming replies.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-web-channel",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "omi-channel",
-    "name": "Omi channel",
-    "repo": "local:fittings/seed/omi-channel",
-    "localPath": "fittings/seed/omi-channel",
-    "summary": "Bidirectional Omi wearable channel: webhook ingress, heartbeat triage into cards and memories, wake-word commands, Omi direct notifications, ask_gary chat tool, backfeed.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-omi-channel",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "browser-default",
-    "name": "Browser",
-    "repo": "local:fittings/seed/browser-default",
-    "localPath": "fittings/seed/browser-default",
-    "summary": "Headless Chromium substrate on port 27084. JPEG screencast, mouse/key/touch input, raw CDP, and Chromium's built-in DevTools reverse-proxied for any browser on the Tailnet.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-browser-default",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "deepgram-voice",
-    "name": "Voice (Deepgram)",
-    "repo": "local:fittings/seed/deepgram-voice",
-    "localPath": "fittings/seed/deepgram-voice",
-    "summary": "Speech I/O on port 27085. Proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side; provides a kind:voice capability that channels consume for push-to-talk and read-aloud.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-deepgram-voice",
-      "global": 4.4,
-      "claude_code": 4.4
-    }
-  },
-  {
-    "id": "dev-env",
-    "name": "Dev Env",
-    "repo": "local:fittings/seed/dev-env",
-    "localPath": "fittings/seed/dev-env",
-    "summary": "Consolidated dev surface on port 27086 — every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "screen-share-default",
-    "name": "Screen share",
-    "repo": "local:fittings/seed/screen-share-default",
-    "localPath": "fittings/seed/screen-share-default",
-    "summary": "macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.2,
-      "claude_code": 4.2
-    }
-  },
-  {
-    "id": "ports-default",
-    "name": "Ports",
-    "repo": "local:fittings/seed/ports-default",
-    "localPath": "fittings/seed/ports-default",
-    "summary": "Lists every listening TCP port on this box, labels each from the worktree registry / ui-fitting status files / owning process, and offers open-over-tailnet, open-in-Browser-pane, copy-URL, and guarded kill actions. Serves its own phone-friendly React UI on its own port (default 27088).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "outpost-tailscale-host",
-    "name": "Outpost",
-    "repo": "local:fittings/seed/outpost-tailscale-host",
-    "localPath": "fittings/seed/outpost-tailscale-host",
-    "summary": "Garrison Outpost bridge for a Tailscale-connected remote Mac. Spawn processes, read files, and manage git worktrees on the remote machine via Garrison Outpost Protocol v1.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "outpost-worker",
-    "name": "Outpost Worker",
-    "repo": "local:fittings/seed/outpost-worker",
-    "localPath": "fittings/seed/outpost-worker",
-    "summary": "The remote half of Outpost Dispatch: install it ON an outpost so that machine polls the Garrison host, claims cards placed on it, materializes the project Loadout with a vault-rendered .env, runs the card, heartbeats, and copies evidence back to the host board. Outbound-only, so a sleeping machine simply stops asking.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
-    "id": "monitor-default",
-    "name": "Monitor (default)",
-    "repo": "local:fittings/seed/monitor-default",
-    "localPath": "fittings/seed/monitor-default",
-    "summary": "Read-only visibility into every entity Garrison spawns — PIDs, status, ports, logs. Serves its own React UI on its own port (default 27077).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-monitor-default",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "power-default",
-    "name": "Power (default)",
-    "repo": "local:fittings/seed/power-default",
-    "localPath": "fittings/seed/power-default",
-    "summary": "Idle watcher that self-suspends the box when nothing is running - evaluates dev-env sessions, kanban cards, presence, SSH, load, and a Keep Awake pin, then suspends the GCE instance after a continuous-clear window. Serves a mobile-first control UI on its own port (default 27092).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-power-default",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "orchestrator",
-    "name": "Orchestrator",
-    "repo": "local:fittings/seed/orchestrator",
-    "localPath": "fittings/seed/orchestrator",
-    "summary": "Orchestrator Faculty - the single brain. Owns the compiled policy (task types, matrix, phase plans, work kinds, skill bindings), the preRoute (task-type + tier + execution) and the {{routing}} injection; configured from the Muster Orchestrator tab. Absorbs the former Model Router.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-orchestrator",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "improver",
-    "name": "Improver",
-    "repo": "local:fittings/seed/improver",
-    "localPath": "fittings/seed/improver",
-    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 27093). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-improver",
-      "global": 4.4,
-      "claude_code": 4.4
-    }
-  },
-  {
-    "id": "codex-runtime",
-    "name": "Codex runtime",
-    "repo": "local:fittings/seed/codex-runtime",
-    "localPath": "fittings/seed/codex-runtime",
-    "summary": "Runtime Faculty (secondary) — drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-codex-runtime",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "gemini-runtime",
-    "name": "Gemini runtime",
-    "repo": "local:fittings/seed/gemini-runtime",
-    "localPath": "fittings/seed/gemini-runtime",
-    "summary": "Runtime Faculty (secondary) — drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-gemini-runtime",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "openrouter-runtime",
-    "name": "OpenRouter runtime",
-    "repo": "local:fittings/seed/openrouter-runtime",
-    "localPath": "fittings/seed/openrouter-runtime",
-    "summary": "Runtimes Faculty (secondary) - one API key, 345+ models from every major lab behind a single OpenAI-compatible endpoint. Pick the model per delegation; authenticate by pinning an OpenRouter account (OPENROUTER_API_KEY).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-openrouter-runtime",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "huggingface-runtime",
-    "name": "Hugging Face runtime",
-    "repo": "local:fittings/seed/huggingface-runtime",
-    "localPath": "fittings/seed/huggingface-runtime",
-    "summary": "Runtimes Faculty (secondary) - open-weight models through Hugging Face's Inference Providers router (OpenAI-compatible). Authenticate by pinning a Hugging Face account (HF_TOKEN).",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-huggingface-runtime",
-      "global": 4.2,
-      "claude_code": 4.2
-    }
-  },
-  {
-    "id": "opencode-runtime",
-    "name": "OpenCode runtime",
-    "repo": "local:fittings/seed/opencode-runtime",
-    "localPath": "fittings/seed/opencode-runtime",
-    "summary": "Runtime Faculty (secondary) - drives `opencode run` (stateless subprocess, prompt via stdin, JSON event stream, `-s` session resume) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:opencode` tasks here; the primary calls the bridge and OpenCode does the work in its own loop against any configured provider (hosted `opencode/*` or a local Ollama).",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-opencode-runtime",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "cursor-runtime",
-    "name": "Cursor runtime",
-    "repo": "local:fittings/seed/cursor-runtime",
-    "localPath": "fittings/seed/cursor-runtime",
-    "summary": "Runtimes Faculty - drives the Cursor Agent CLI (`cursor-agent -p`, prompt via stdin, one JSON result object, `--resume` chat continuity) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. One Cursor subscription fronts a multi-lab model catalog (GPT/Codex, Claude, Gemini, Grok, Composer, Kimi), so it works as a secondary delegate target or as the composition's PRIMARY engine.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-cursor-runtime",
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "scheduler",
-    "name": "Scheduler",
-    "repo": "local:fittings/seed/scheduler",
-    "localPath": "fittings/seed/scheduler",
-    "summary": "Cron-style job scheduler. Machine-global jobs file (~/.garrison/scheduler-jobs.json); add/remove/list/run-now plus tick and daemon modes. Fitting setup hooks register jobs; the io.garrison.scheduler launchd agent runs the daemon.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-agent-sdk-runtime",
       "global": 4.4,
       "claude_code": 4.4
     }
@@ -399,47 +30,97 @@
     }
   },
   {
-    "id": "file-browser",
-    "name": "File Browser",
-    "repo": "local:fittings/seed/file-browser",
-    "localPath": "fittings/seed/file-browser",
-    "summary": "Mobile-first file browser/viewer/editor scoped to a workspace root (Monaco + Markdown + images). The artifact surface that replaces the artifact-store.",
+    "id": "basic-memory",
+    "name": "Basic Memory",
+    "repo": "local:fittings/seed/basic-memory",
+    "localPath": "fittings/seed/basic-memory",
+    "summary": "Obsidian-native, plain-markdown memory backed by Basic Memory. Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a session checkpoint on SessionEnd/PreCompact.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-file-browser",
+      "github_stars_url": "https://github.com/gongiskhan/garrison-basic-memory",
       "global": 4.5,
       "claude_code": 4.5
     }
   },
   {
-    "id": "drill",
-    "name": "Drill",
-    "repo": "local:fittings/seed/drill",
-    "localPath": "fittings/seed/drill",
-    "summary": "Visual, agent-driven QA. Author a Drill Book (pages, areas, steps, states) against the target app, run it live via the automations engine (vision-first, deterministic once graduated), and graduate passing vision steps into committed Playwright specs. Findings triage into batch fix cards on the normal code pipeline; a blind adversarial pass and a viewport matrix catch regressions and mobile-only bugs the graduated specs alone would miss. Provides duty:drill; consumes automation-runner.",
+    "id": "browser-default",
+    "name": "Browser",
+    "repo": "local:fittings/seed/browser-default",
+    "localPath": "fittings/seed/browser-default",
+    "summary": "Headless Chromium substrate on port 27084. JPEG screencast, mouse/key/touch input, raw CDP, and Chromium's built-in DevTools reverse-proxied for any browser on the Tailnet.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-drill",
+      "github_stars_url": "https://github.com/gongiskhan/garrison-browser-default",
       "global": 4.5,
       "claude_code": 4.5
     }
   },
   {
-    "id": "vault-git-sync",
-    "name": "Vault Git Sync",
-    "repo": "local:fittings/seed/vault-git-sync",
-    "localPath": "fittings/seed/vault-git-sync",
-    "summary": "Commit + push the Basic Memory Obsidian vault to git on a schedule (default nightly), so memory written by any agent syncs across machines. Pure shell; registered as a scheduler job.",
+    "id": "caveman",
+    "name": "Caveman",
+    "repo": "local:fittings/seed/caveman",
+    "localPath": "fittings/seed/caveman",
+    "summary": ">",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "claude-code-runtime",
+    "name": "Claude Code runtime",
+    "repo": "local:fittings/seed/claude-code-runtime",
+    "localPath": "fittings/seed/claude-code-runtime",
+    "summary": "Runtime Faculty (default PRIMARY) — the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "global": 4.4,
-      "claude_code": 4.4
+      "github_stars_url": "https://github.com/gongiskhan/garrison-claude-code-runtime",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
+  },
+  {
+    "id": "claude-config",
+    "name": "Claude Config",
+    "repo": "local:fittings/seed/claude-config",
+    "localPath": "fittings/seed/claude-config",
+    "summary": "Garrison-managed ~/.claude config surfaces (commands, agents, hooks, templates, mcp.json, settings fragments), imported from the decommissioned claude-share repo. Synced via `garrison config`.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "claude-docs-consultant",
+    "name": "Claude docs consultant",
+    "repo": "local:fittings/seed/claude-docs-consultant",
+    "localPath": "fittings/seed/claude-docs-consultant",
+    "summary": "Consult official Claude Code documentation from code.claude.com using selective fetching. Use when working on hooks, skills, subagents, plugins, agent teams, MCP servers, permissions, settings, CI/CD (GitHub Actions, GitLab), IDE extensions (VS Code, JetBrains), desktop/web app features,...",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "codex-runtime",
+    "name": "Codex runtime",
+    "repo": "local:fittings/seed/codex-runtime",
+    "localPath": "fittings/seed/codex-runtime",
+    "summary": "Runtime Faculty (secondary) — drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-codex-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
     }
   },
   {
@@ -472,56 +153,61 @@
     }
   },
   {
-    "id": "kanban-loop",
-    "name": "Kanban Loop",
-    "repo": "local:fittings/seed/kanban-loop",
-    "localPath": "fittings/seed/kanban-loop",
-    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :27089, embedded at /embed/kanban-loop). Full garrison-* pipeline: Backlog → To Do → Discuss → Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate → Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their garrison-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
+    "id": "cortex-automations",
+    "name": "Remote automations",
+    "repo": "local:fittings/seed/cortex-automations",
+    "localPath": "fittings/seed/cortex-automations",
+    "summary": "Drive an automation runner that lives off this machine: find what a user-scoped key may start, start a run at-most-once, poll it to a conclusion, read its logs. A skill plus a view over an already-installed capability CLI - no local engine, no port, no state of its own. Inert with no CLI installed, and verify passes then.",
     "platforms": [
-      "claude-code"
+      "all"
+    ]
+  },
+  {
+    "id": "cortex-client",
+    "name": "Remote capability CLI",
+    "repo": "local:fittings/seed/cortex-client",
+    "localPath": "fittings/seed/cortex-client",
+    "summary": "A remote capability reached through one pinned CLI binary, byte-contained under GARRISON_HOME and recorded in an install receipt every consumer can read. Ships inert: no repository, origin or credential in the defaults, and verify passes unconfigured. Configuring a repository grants it code execution during its build.",
+    "platforms": [
+      "all"
+    ]
+  },
+  {
+    "id": "cursor-runtime",
+    "name": "Cursor runtime",
+    "repo": "local:fittings/seed/cursor-runtime",
+    "localPath": "fittings/seed/cursor-runtime",
+    "summary": "Runtimes Faculty - drives the Cursor Agent CLI (`cursor-agent -p`, prompt via stdin, one JSON result object, `--resume` chat continuity) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. One Cursor subscription fronts a multi-lab model catalog (GPT/Codex, Claude, Gemini, Grok, Composer, Kimi), so it works as a secondary delegate target or as the composition's PRIMARY engine.",
+    "platforms": [
+      "all"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-kanban-loop",
-      "global": 4.5,
-      "claude_code": 4.5
+      "github_stars_url": "https://github.com/gongiskhan/garrison-cursor-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
     }
   },
   {
-    "id": "claude-code-runtime",
-    "name": "Claude Code runtime",
-    "repo": "local:fittings/seed/claude-code-runtime",
-    "localPath": "fittings/seed/claude-code-runtime",
-    "summary": "Runtime Faculty (default PRIMARY) — the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
+    "id": "deepgram-voice",
+    "name": "Voice (Deepgram)",
+    "repo": "local:fittings/seed/deepgram-voice",
+    "localPath": "fittings/seed/deepgram-voice",
+    "summary": "Speech I/O on port 27085. Proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side; provides a kind:voice capability that channels consume for push-to-talk and read-aloud.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-claude-code-runtime",
-      "global": 4.6,
-      "claude_code": 4.6
-    }
-  },
-  {
-    "id": "agent-sdk-runtime",
-    "name": "Agent SDK runtime",
-    "repo": "local:fittings/seed/agent-sdk-runtime",
-    "localPath": "fittings/seed/agent-sdk-runtime",
-    "summary": "Runtime Faculty — implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls — no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-agent-sdk-runtime",
+      "github_stars_url": "https://github.com/gongiskhan/garrison-deepgram-voice",
       "global": 4.4,
       "claude_code": 4.4
     }
   },
   {
-    "id": "garrison-skills",
-    "name": "Garrison Skills",
-    "repo": "local:fittings/seed/garrison-skills",
-    "localPath": "fittings/seed/garrison-skills",
-    "summary": "The garrison family — the gated-build orchestrator doorway plus every phase verb skill — as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
+    "id": "dev-env",
+    "name": "Dev Env",
+    "repo": "local:fittings/seed/dev-env",
+    "localPath": "fittings/seed/dev-env",
+    "summary": "Consolidated dev surface on port 27086 — every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
     "platforms": [
       "claude-code"
     ],
@@ -531,39 +217,11 @@
     }
   },
   {
-    "id": "claude-config",
-    "name": "Claude Config",
-    "repo": "local:fittings/seed/claude-config",
-    "localPath": "fittings/seed/claude-config",
-    "summary": "Garrison-managed ~/.claude config surfaces (commands, agents, hooks, templates, mcp.json, settings fragments), imported from the decommissioned claude-share repo. Synced via `garrison config`.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "snapshots-default",
-    "name": "Snapshots",
-    "repo": "local:fittings/seed/snapshots-default",
-    "localPath": "fittings/seed/snapshots-default",
-    "summary": "Off-site, encrypted restic backups of the Garrison state - ~/.garrison, ~/.claude, and the projects root - to a GCS backend, on a systemd user timer independent of Garrison. Restore is manual: the view prints the exact restic restore command.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "scroll-world",
-    "name": "Scroll World",
-    "repo": "local:fittings/seed/scroll-world",
-    "localPath": "fittings/seed/scroll-world",
-    "summary": "Scroll-scrubbed \"fly through the world\" landing-page skill: a pre-rendered camera dives into each scene and flies on to the next with no cuts, generated with the Higgsfield CLI behind spend gates and SSIM seam checks, wired by a portable vanilla-JS scrub engine. Vendored MIT from cth9191/scroll-world at a pinned commit.",
+    "id": "discuss-automation",
+    "name": "Discuss Automation",
+    "repo": "local:fittings/seed/discuss-automation",
+    "localPath": "fittings/seed/discuss-automation",
+    "summary": "The \"Discuss an automation\" skill — opens a James conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
     "platforms": [
       "claude-code"
     ],
@@ -573,51 +231,11 @@
     }
   },
   {
-    "id": "taste",
-    "name": "Taste",
-    "repo": "local:fittings/seed/taste",
-    "localPath": "fittings/seed/taste",
-    "summary": "Design-taste skill pair (design-taste-frontend v2 + redesign-existing-projects) vendored MIT from Leonxlnx/taste-skill at a pinned commit; plain SKILL.md, runtime-agnostic.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "taste-copy",
-    "name": "Taste (copy)",
-    "repo": "local:fittings/local/taste-copy",
-    "localPath": "fittings/local/taste-copy",
-    "summary": "Design-taste skill pair (design-taste-frontend v2 + redesign-existing-projects) vendored MIT from Leonxlnx/taste-skill at a pinned commit; plain SKILL.md, runtime-agnostic.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {},
-    "cloned_from": "taste@0.1.0"
-  },
-  {
-    "id": "garrison-assistant",
-    "name": "Garrison Assistant",
-    "repo": "local:fittings/seed/garrison-assistant",
-    "localPath": "fittings/seed/garrison-assistant",
-    "summary": "Answer, Guide, Build — grounded Q&A over docs+Fittings, guided-tour launcher, and an interview that files review-queue proposals (provenance assistant). Never edits artifacts directly.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "identity-gary",
-    "name": "Identity Gary",
-    "repo": "local:fittings/seed/identity-gary",
-    "localPath": "fittings/seed/identity-gary",
-    "summary": "The operative's resting identity — Gary, the base persona. Conversational and prose-first; knows the user, handles the day, tasks, calendar, and questions, and hands work off to the right duty rather ",
+    "id": "dispatcher",
+    "name": "Dispatcher",
+    "repo": "local:fittings/seed/dispatcher",
+    "localPath": "fittings/seed/dispatcher",
+    "summary": "The routing brain, duties-and-levels edition. One single-shot STRUCTURED garrison-call on a small fast model turns a message + the composition's selected duties/levels into a (duty, level) + confidenc",
     "platforms": [
       "claude-code"
     ],
@@ -627,11 +245,68 @@
     }
   },
   {
-    "id": "duty-plan",
-    "name": "Plan",
-    "repo": "local:fittings/seed/duty-plan",
-    "localPath": "fittings/seed/duty-plan",
-    "summary": "Provides the `plan` duty and owns the garrison-plan skill. Reproduces Claude Code plan mode autonomously: read-only exploration + design, then a durable plan file. The duty's default level binds the s",
+    "id": "drill",
+    "name": "Drill",
+    "repo": "local:fittings/seed/drill",
+    "localPath": "fittings/seed/drill",
+    "summary": "Visual, agent-driven QA. Author a Drill Book (pages, areas, steps, states) against the target app, run it live via the automations engine (vision-first, deterministic once graduated), and graduate passing vision steps into committed Playwright specs. Findings triage into batch fix cards on the normal code pipeline; a blind adversarial pass and a viewport matrix catch regressions and mobile-only bugs the graduated specs alone would miss. Provides duty:drill; consumes automation-runner.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-drill",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "duty-adversarial-test",
+    "name": "Adversarial Test",
+    "repo": "local:fittings/seed/duty-adversarial-test",
+    "localPath": "fittings/seed/duty-adversarial-test",
+    "summary": "Provides the `adversarial-test` duty and owns the garrison-adversarial-test skill. A fresh-context session that has seen neither the diff nor the committed test drives the running app through the acce",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "duty-develop",
+    "name": "Develop",
+    "repo": "local:fittings/seed/duty-develop",
+    "localPath": "fittings/seed/duty-develop",
+    "summary": "Provides the `develop` duty and owns the duty-develop skill — the dev face. Develop a change end to end: level 1 is a quick fix (implement only), level 2 plans, implements, reviews, and tests. A compo",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "duty-discuss",
+    "name": "Discuss",
+    "repo": "local:fittings/seed/duty-discuss",
+    "localPath": "fittings/seed/duty-discuss",
+    "summary": "Provides the `discuss` duty and owns the duty-discuss skill. Think a problem through out loud like a calm whiteboard conversation; when the thinking settles into something reusable, write a brief to d",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "duty-image",
+    "name": "Image",
+    "repo": "local:fittings/seed/duty-image",
+    "localPath": "fittings/seed/duty-image",
+    "summary": "Produce an image from a prompt via the simplest path that already works in the composition: invoke an image-capable model the operative can reach (the gemini runtime, or an image MCP tool) with the pr",
     "platforms": [
       "claude-code"
     ],
@@ -646,6 +321,20 @@
     "repo": "local:fittings/seed/duty-implement",
     "localPath": "fittings/seed/duty-implement",
     "summary": "Provides the `implement` duty and owns the garrison-implement skill. Explores the relevant code first (vision-first for UI), then writes code to satisfy the acceptance, following existing conventions ",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "duty-plan",
+    "name": "Plan",
+    "repo": "local:fittings/seed/duty-plan",
+    "localPath": "fittings/seed/duty-plan",
+    "summary": "Provides the `plan` duty and owns the garrison-plan skill. Reproduces Claude Code plan mode autonomously: read-only exploration + design, then a durable plan file. The duty's default level binds the s",
     "platforms": [
       "claude-code"
     ],
@@ -683,11 +372,11 @@
     }
   },
   {
-    "id": "duty-adversarial-test",
-    "name": "Adversarial Test",
-    "repo": "local:fittings/seed/duty-adversarial-test",
-    "localPath": "fittings/seed/duty-adversarial-test",
-    "summary": "Provides the `adversarial-test` duty and owns the garrison-adversarial-test skill. A fresh-context session that has seen neither the diff nor the committed test drives the running app through the acce",
+    "id": "duty-video",
+    "name": "Video",
+    "repo": "local:fittings/seed/duty-video",
+    "localPath": "fittings/seed/duty-video",
+    "summary": "Produce a video walkthrough of a change by driving the existing walkthrough recorder (narrated, captioned MP4 via playwright-cli capture + ffmpeg stitch + vision self-check). This duty adds no pipelin",
     "platforms": [
       "claude-code"
     ],
@@ -711,73 +400,42 @@
     }
   },
   {
-    "id": "duty-discuss",
-    "name": "Discuss",
-    "repo": "local:fittings/seed/duty-discuss",
-    "localPath": "fittings/seed/duty-discuss",
-    "summary": "Provides the `discuss` duty and owns the duty-discuss skill. Think a problem through out loud like a calm whiteboard conversation; when the thinking settles into something reusable, write a brief to d",
+    "id": "file-browser",
+    "name": "File Browser",
+    "repo": "local:fittings/seed/file-browser",
+    "localPath": "fittings/seed/file-browser",
+    "summary": "Mobile-first file browser/viewer/editor scoped to a workspace root (Monaco + Markdown + images). The artifact surface that replaces the artifact-store.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "global": 4,
-      "claude_code": 4
+      "github_stars_url": "https://github.com/gongiskhan/garrison-file-browser",
+      "global": 4.5,
+      "claude_code": 4.5
     }
   },
   {
-    "id": "duty-develop",
-    "name": "Develop",
-    "repo": "local:fittings/seed/duty-develop",
-    "localPath": "fittings/seed/duty-develop",
-    "summary": "Provides the `develop` duty and owns the duty-develop skill — the dev face. Develop a change end to end: level 1 is a quick fix (implement only), level 2 plans, implements, reviews, and tests. A compo",
+    "id": "frontend-design",
+    "name": "Frontend design",
+    "repo": "local:fittings/seed/frontend-design",
+    "localPath": "fittings/seed/frontend-design",
+    "summary": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when...",
     "platforms": [
       "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
+    ]
   },
   {
-    "id": "duty-video",
-    "name": "Video",
-    "repo": "local:fittings/seed/duty-video",
-    "localPath": "fittings/seed/duty-video",
-    "summary": "Produce a video walkthrough of a change by driving the existing walkthrough recorder (narrated, captioned MP4 via playwright-cli capture + ffmpeg stitch + vision self-check). This duty adds no pipelin",
+    "id": "garrison-assistant",
+    "name": "Garrison Assistant",
+    "repo": "local:fittings/seed/garrison-assistant",
+    "localPath": "fittings/seed/garrison-assistant",
+    "summary": "Answer, Guide, Build — grounded Q&A over docs+Fittings, guided-tour launcher, and an interview that files review-queue proposals (provenance assistant). Never edits artifacts directly.",
     "platforms": [
-      "claude-code"
+      "all"
     ],
     "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
-    "id": "duty-image",
-    "name": "Image",
-    "repo": "local:fittings/seed/duty-image",
-    "localPath": "fittings/seed/duty-image",
-    "summary": "Produce an image from a prompt via the simplest path that already works in the composition: invoke an image-capable model the operative can reach (the gemini runtime, or an image MCP tool) with the pr",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
-    "id": "dispatcher",
-    "name": "Dispatcher",
-    "repo": "local:fittings/seed/dispatcher",
-    "localPath": "fittings/seed/dispatcher",
-    "summary": "The routing brain, duties-and-levels edition. One single-shot STRUCTURED garrison-call on a small fast model turns a message + the composition's selected duties/levels into a (duty, level) + confidenc",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
+      "global": 4.5,
+      "claude_code": 4.5
     }
   },
   {
@@ -795,11 +453,95 @@
     }
   },
   {
-    "id": "openai-agents-runtime",
-    "name": "Openai Agents Runtime",
-    "repo": "local:fittings/seed/openai-agents-runtime",
-    "localPath": "fittings/seed/openai-agents-runtime",
-    "summary": "A Runtime fitting over OpenAI-compatible endpoints. Implements the RuntimeAdapter contract over the OpenAI Agents SDK (@openai/agents - structured request/response, native function-tool handling, NO P",
+    "id": "garrison-skills",
+    "name": "Garrison Skills",
+    "repo": "local:fittings/seed/garrison-skills",
+    "localPath": "fittings/seed/garrison-skills",
+    "summary": "The garrison family — the gated-build orchestrator doorway plus every phase verb skill — as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "gemini-runtime",
+    "name": "Gemini runtime",
+    "repo": "local:fittings/seed/gemini-runtime",
+    "localPath": "fittings/seed/gemini-runtime",
+    "summary": "Runtime Faculty (secondary) — drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-gemini-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "google",
+    "name": "Google Workspace connector",
+    "repo": "local:fittings/seed/google",
+    "localPath": "fittings/seed/google",
+    "summary": "Google Workspace connector — Gmail/Drive/Calendar as a Vault-sealed OAuth2 action catalog.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-google",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
+  },
+  {
+    "id": "http-gateway",
+    "name": "HTTP gateway",
+    "repo": "local:fittings/seed/http-gateway",
+    "localPath": "fittings/seed/http-gateway",
+    "summary": "Small local HTTP gateway for inbound jobs, channels, and session checks.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-http-gateway",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "huashu-design",
+    "name": "Huashu design",
+    "repo": "local:fittings/seed/huashu-design",
+    "localPath": "fittings/seed/huashu-design",
+    "summary": "花叔Design（Huashu-Design）——用HTML做高保真原型、交互Demo、幻灯片、动画、设计变体探索+设计方向顾问+专家评审的一体化设计能力。HTML是工具不是媒介，根据任务embody不同专家（UX设计师/动画师/幻灯片设计师/原型师），避免web design tropes。触发词：做原型、设计Demo、交互原型、HTML演示、动画Demo、设计变体、hi-fi设计、UI...",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "huggingface-runtime",
+    "name": "Hugging Face runtime",
+    "repo": "local:fittings/seed/huggingface-runtime",
+    "localPath": "fittings/seed/huggingface-runtime",
+    "summary": "Runtimes Faculty (secondary) - open-weight models through Hugging Face's Inference Providers router (OpenAI-compatible). Authenticate by pinning a Hugging Face account (HF_TOKEN).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-huggingface-runtime",
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
+    "id": "identity-gary",
+    "name": "Identity Gary",
+    "repo": "local:fittings/seed/identity-gary",
+    "localPath": "fittings/seed/identity-gary",
+    "summary": "The operative's resting identity — Gary, the base persona. Conversational and prose-first; knows the user, handles the day, tasks, calendar, and questions, and hands work off to the right duty rather ",
     "platforms": [
       "claude-code"
     ],
@@ -809,17 +551,18 @@
     }
   },
   {
-    "id": "discuss-automation",
-    "name": "Discuss Automation",
-    "repo": "local:fittings/seed/discuss-automation",
-    "localPath": "fittings/seed/discuss-automation",
-    "summary": "The \"Discuss an automation\" skill — opens a James conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
+    "id": "improver",
+    "name": "Improver",
+    "repo": "local:fittings/seed/improver",
+    "localPath": "fittings/seed/improver",
+    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 27093). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
     "platforms": [
       "claude-code"
     ],
     "ratings": {
-      "global": 4,
-      "claude_code": 4
+      "github_stars_url": "https://github.com/gongiskhan/garrison-improver",
+      "global": 4.4,
+      "claude_code": 4.4
     }
   },
   {
@@ -837,6 +580,21 @@
     }
   },
   {
+    "id": "kanban-loop",
+    "name": "Kanban Loop",
+    "repo": "local:fittings/seed/kanban-loop",
+    "localPath": "fittings/seed/kanban-loop",
+    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :27089, embedded at /embed/kanban-loop). Full garrison-* pipeline: Backlog → To Do → Discuss → Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate → Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their garrison-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-kanban-loop",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "loop-heartbeat",
     "name": "Loop Heartbeat",
     "repo": "local:fittings/seed/loop-heartbeat",
@@ -848,6 +606,36 @@
     "ratings": {
       "global": 4,
       "claude_code": 4
+    }
+  },
+  {
+    "id": "mcp-gateway",
+    "name": "MCP gateway",
+    "repo": "local:fittings/seed/mcp-gateway",
+    "localPath": "fittings/seed/mcp-gateway",
+    "summary": "MCP sidecar for orchestrator/soul-mode sessions. Spawned per session by the http-gateway as a stdio MCP child; hosts the garrison-control tool set (talk_to, wait_for, session and worktree management).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-mcp-gateway",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "monitor-default",
+    "name": "Monitor (default)",
+    "repo": "local:fittings/seed/monitor-default",
+    "localPath": "fittings/seed/monitor-default",
+    "summary": "Read-only visibility into every entity Garrison spawns — PIDs, status, ports, logs. Serves its own React UI on its own port (default 27077).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-monitor-default",
+      "global": 4.5,
+      "claude_code": 4.5
     }
   },
   {
@@ -865,6 +653,317 @@
     }
   },
   {
+    "id": "omi-channel",
+    "name": "Omi channel",
+    "repo": "local:fittings/seed/omi-channel",
+    "localPath": "fittings/seed/omi-channel",
+    "summary": "Bidirectional Omi wearable channel: webhook ingress, heartbeat triage into cards and memories, wake-word commands, Omi direct notifications, ask_gary chat tool, backfeed.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-omi-channel",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "openai-agents-runtime",
+    "name": "Openai Agents Runtime",
+    "repo": "local:fittings/seed/openai-agents-runtime",
+    "localPath": "fittings/seed/openai-agents-runtime",
+    "summary": "A Runtime fitting over OpenAI-compatible endpoints. Implements the RuntimeAdapter contract over the OpenAI Agents SDK (@openai/agents - structured request/response, native function-tool handling, NO P",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "opencode-runtime",
+    "name": "OpenCode runtime",
+    "repo": "local:fittings/seed/opencode-runtime",
+    "localPath": "fittings/seed/opencode-runtime",
+    "summary": "Runtime Faculty (secondary) - drives `opencode run` (stateless subprocess, prompt via stdin, JSON event stream, `-s` session resume) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:opencode` tasks here; the primary calls the bridge and OpenCode does the work in its own loop against any configured provider (hosted `opencode/*` or a local Ollama).",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-opencode-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "openrouter-runtime",
+    "name": "OpenRouter runtime",
+    "repo": "local:fittings/seed/openrouter-runtime",
+    "localPath": "fittings/seed/openrouter-runtime",
+    "summary": "Runtimes Faculty (secondary) - one API key, 345+ models from every major lab behind a single OpenAI-compatible endpoint. Pick the model per delegation; authenticate by pinning an OpenRouter account (OPENROUTER_API_KEY).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-openrouter-runtime",
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "orchestrator",
+    "name": "Orchestrator",
+    "repo": "local:fittings/seed/orchestrator",
+    "localPath": "fittings/seed/orchestrator",
+    "summary": "Orchestrator Faculty - the single brain. Owns the compiled policy (task types, matrix, phase plans, work kinds, skill bindings), the preRoute (task-type + tier + execution) and the {{routing}} injection; configured from the Muster Orchestrator tab. Absorbs the former Model Router.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-orchestrator",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "outpost-tailscale-host",
+    "name": "Outpost",
+    "repo": "local:fittings/seed/outpost-tailscale-host",
+    "localPath": "fittings/seed/outpost-tailscale-host",
+    "summary": "Garrison Outpost bridge for a Tailscale-connected remote Mac. Spawn processes, read files, and manage git worktrees on the remote machine via Garrison Outpost Protocol v1.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "outpost-worker",
+    "name": "Outpost Worker",
+    "repo": "local:fittings/seed/outpost-worker",
+    "localPath": "fittings/seed/outpost-worker",
+    "summary": "The remote half of Outpost Dispatch: install it ON an outpost so that machine polls the Garrison host, claims cards placed on it, materializes the project Loadout with a vault-rendered .env, runs the card, heartbeats, and copies evidence back to the host board. Outbound-only, so a sleeping machine simply stops asking.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "pdf",
+    "name": "Pdf",
+    "repo": "local:fittings/seed/pdf",
+    "localPath": "fittings/seed/pdf",
+    "summary": "Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "playwright-cli",
+    "name": "Playwright cli",
+    "repo": "local:fittings/seed/playwright-cli",
+    "localPath": "fittings/seed/playwright-cli",
+    "summary": "Automate browser interactions, test web pages and work with Playwright tests.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "ports-default",
+    "name": "Ports",
+    "repo": "local:fittings/seed/ports-default",
+    "localPath": "fittings/seed/ports-default",
+    "summary": "Lists every listening TCP port on this box, labels each from the worktree registry / ui-fitting status files / owning process, and offers open-over-tailnet, open-in-Browser-pane, copy-URL, and guarded kill actions. Serves its own phone-friendly React UI on its own port (default 27088).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
+    "id": "power-default",
+    "name": "Power (default)",
+    "repo": "local:fittings/seed/power-default",
+    "localPath": "fittings/seed/power-default",
+    "summary": "Idle watcher that self-suspends the box when nothing is running - evaluates dev-env sessions, kanban cards, presence, SSH, load, and a Keep Awake pin, then suspends the GCE instance after a continuous-clear window. Serves a mobile-first control UI on its own port (default 27092).",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-power-default",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "roadmaps",
+    "name": "Roadmaps",
+    "repo": "local:fittings/seed/roadmaps",
+    "localPath": "fittings/seed/roadmaps",
+    "summary": "A roadmap per project, stored as roadmap.json at the root of the repo itself: ordered categories, tasks with stable ids, and notes recording the decisions behind them. The view reads and edits the live file (no shadow copy) and hands any task to the Kanban board's Backlog or To Do. Agents are the expected main authors.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "scheduler",
+    "name": "Scheduler",
+    "repo": "local:fittings/seed/scheduler",
+    "localPath": "fittings/seed/scheduler",
+    "summary": "Cron-style job scheduler. Machine-global jobs file (~/.garrison/scheduler-jobs.json); add/remove/list/run-now plus tick and daemon modes. Fitting setup hooks register jobs; the io.garrison.scheduler launchd agent runs the daemon.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "screen-share-default",
+    "name": "Screen share",
+    "repo": "local:fittings/seed/screen-share-default",
+    "localPath": "fittings/seed/screen-share-default",
+    "summary": "macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.2,
+      "claude_code": 4.2
+    }
+  },
+  {
+    "id": "scroll-world",
+    "name": "Scroll World",
+    "repo": "local:fittings/seed/scroll-world",
+    "localPath": "fittings/seed/scroll-world",
+    "summary": "Scroll-scrubbed \"fly through the world\" landing-page skill: a pre-rendered camera dives into each scene and flies on to the next with no cuts, generated with the Higgsfield CLI behind spend gates and SSIM seam checks, wired by a portable vanilla-JS scrub engine. Vendored MIT from cth9191/scroll-world at a pinned commit.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
+    "id": "skill-creator",
+    "name": "Skill creator",
+    "repo": "local:fittings/seed/skill-creator",
+    "localPath": "fittings/seed/skill-creator",
+    "summary": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "skill-improver",
+    "name": "Skill improver",
+    "repo": "local:fittings/seed/skill-improver",
+    "localPath": "fittings/seed/skill-improver",
+    "summary": "Nightly batch reviewer that turns user feedback about Claude Code skills into improvements to those skills. EXPLICIT/SCHEDULED-INVOCATION ONLY — runs headless on a schedule (or invoked by hand), never mid-session. Scans the day's session transcripts for (A) which skills ran and (B) user messages...",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
+    "id": "slack-channel",
+    "name": "Slack channel",
+    "repo": "local:fittings/seed/slack-channel",
+    "localPath": "fittings/seed/slack-channel",
+    "summary": "Receives Slack app_mention and DM events, round-trips via the gateway's /chat.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-slack-channel",
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "snapshots-default",
+    "name": "Snapshots",
+    "repo": "local:fittings/seed/snapshots-default",
+    "localPath": "fittings/seed/snapshots-default",
+    "summary": "Off-site, encrypted restic backups of the Garrison state - ~/.garrison, ~/.claude, and the projects root - to a GCS backend, on a systemd user timer independent of Garrison. Restore is manual: the view prints the exact restic restore command.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "taste",
+    "name": "Taste",
+    "repo": "local:fittings/seed/taste",
+    "localPath": "fittings/seed/taste",
+    "summary": "Design-taste skill pair (design-taste-frontend v2 + redesign-existing-projects) vendored MIT from Leonxlnx/taste-skill at a pinned commit; plain SKILL.md, runtime-agnostic.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
+    "id": "taste-copy",
+    "name": "Taste (copy)",
+    "repo": "local:fittings/local/taste-copy",
+    "localPath": "fittings/local/taste-copy",
+    "summary": "Design-taste skill pair (design-taste-frontend v2 + redesign-existing-projects) vendored MIT from Leonxlnx/taste-skill at a pinned commit; plain SKILL.md, runtime-agnostic.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {},
+    "cloned_from": "taste@0.1.0"
+  },
+  {
+    "id": "trello",
+    "name": "Trello connector",
+    "repo": "local:fittings/seed/trello",
+    "localPath": "fittings/seed/trello",
+    "summary": "Trello connector — board lists and cards as a Vault-sealed callable action catalog.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-trello",
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
+    "id": "vault-git-sync",
+    "name": "Vault Git Sync",
+    "repo": "local:fittings/seed/vault-git-sync",
+    "localPath": "fittings/seed/vault-git-sync",
+    "summary": "Commit + push the Basic Memory Obsidian vault to git on a schedule (default nightly), so memory written by any agent syncs across machines. Pure shell; registered as a scheduler job.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.4,
+      "claude_code": 4.4
+    }
+  },
+  {
     "id": "vault-sync",
     "name": "Vault Sync",
     "repo": "local:fittings/seed/vault-sync",
@@ -879,35 +978,26 @@
     }
   },
   {
-    "id": "cortex-client",
-    "name": "Remote capability CLI",
-    "repo": "local:fittings/seed/cortex-client",
-    "localPath": "fittings/seed/cortex-client",
-    "summary": "A remote capability reached through one pinned CLI binary, byte-contained under GARRISON_HOME and recorded in an install receipt every consumer can read. Ships inert: no repository, origin or credential in the defaults, and verify passes unconfigured. Configuring a repository grants it code execution during its build.",
+    "id": "walkthrough",
+    "name": "Walkthrough",
+    "repo": "local:fittings/seed/walkthrough",
+    "localPath": "fittings/seed/walkthrough",
+    "summary": "Record a short, narrated, captioned video walkthrough that proves a finished coding task and shows how it behaves, then self-verify the video via vision on extracted frames and publish it as one scrubbable Tailscale link. Use after completing a change/fix/feature on a web project (Next.js/React...",
     "platforms": [
-      "all"
+      "claude-code"
     ]
   },
   {
-    "id": "cortex-automations",
-    "name": "Remote automations",
-    "repo": "local:fittings/seed/cortex-automations",
-    "localPath": "fittings/seed/cortex-automations",
-    "summary": "Drive an automation runner that lives off this machine: find what a user-scoped key may start, start a run at-most-once, poll it to a conclusion, read its logs. A skill plus a view over an already-installed capability CLI - no local engine, no port, no state of its own. Inert with no CLI installed, and verify passes then.",
+    "id": "web-channel-default",
+    "name": "Web channel",
+    "repo": "local:fittings/seed/web-channel-default",
+    "localPath": "fittings/seed/web-channel-default",
+    "summary": "Mobile-first browser chat surface. Serves a React UI on its own port (default 27083) and proxies the http-gateway for streaming replies.",
     "platforms": [
-      "all"
-    ]
-  },
-  {
-    "id": "roadmaps",
-    "name": "Roadmaps",
-    "repo": "local:fittings/seed/roadmaps",
-    "localPath": "fittings/seed/roadmaps",
-    "summary": "A roadmap per project, stored as roadmap.json at the root of the repo itself: ordered categories, tasks with stable ids, and notes recording the decisions behind them. The view reads and edits the live file (no shadow copy) and hands any task to the Kanban board's Backlog or To Do. Agents are the expected main authors.",
-    "platforms": [
-      "all"
+      "claude-code"
     ],
     "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-web-channel",
       "global": 4.5,
       "claude_code": 4.5
     }

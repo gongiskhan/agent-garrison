@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-31T12:30:03.962693+00:00'
+generated_at: '2026-07-31T21:29:50.833023+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -254,6 +254,31 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/screen-share-default
+- repo_url: _local/scroll-world
+  name: scroll-world
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/scroll-world
+  - .claude/skills/scroll-world/LICENSE
+  - .claude/skills/scroll-world/SKILL.md
+  - .claude/skills/scroll-world/references/gotchas.md
+  - .claude/skills/scroll-world/references/index-template.html
+  - .claude/skills/scroll-world/references/knockout.py
+  - .claude/skills/scroll-world/references/pipeline.md
+  - .claude/skills/scroll-world/references/prompts.md
+  - .claude/skills/scroll-world/references/scrub-engine.js
+  deployed_file_hashes:
+    .claude/skills/scroll-world/LICENSE: sha256:c4b96a7a050b85026eb68ac5b5fee2778384b14371aaeac50891dbadd848d309
+    .claude/skills/scroll-world/SKILL.md: sha256:ef0936e22d24e9ce04a7bba3c79cb22977285dd855149ced48459e27d83a672c
+    .claude/skills/scroll-world/references/gotchas.md: sha256:8082dce403a450ce68aef34d419b308de676ea48e084fb9df4d115be14763cba
+    .claude/skills/scroll-world/references/index-template.html: sha256:fdc21f24d44188ad2bd59bc94cc6e96682a3f44ee04da49b6d9d2f28298656cb
+    .claude/skills/scroll-world/references/knockout.py: sha256:c06bfc916592ba4f3dfd3e37070b20529298707ca3f94c9dcc51d508222e7792
+    .claude/skills/scroll-world/references/pipeline.md: sha256:e3e2ddc48b117bbbe1ecae11259dc34f5bd60a380d44f42ffd89c98f723f392c
+    .claude/skills/scroll-world/references/prompts.md: sha256:b39bd0804febb732c8a5d8d00dcca477c3dedc204992ab25df39bd5452a53e95
+    .claude/skills/scroll-world/references/scrub-engine.js: sha256:2c2a4bb81db16c2e0c787349e1f3a36846cf22619a8234f02078d1604083edfb
+  source: local
+  local_path: ../../fittings/seed/scroll-world
 - repo_url: _local/slack-channel
   name: slack-channel
   version: 0.1.0

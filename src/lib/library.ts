@@ -3,7 +3,7 @@ import path from "node:path";
 import { LIBRARY_PATH, ROOT_DIR } from "./paths";
 import { parseGarrisonMetadata } from "./metadata";
 import { writeFileAtomic } from "./atomic-write";
-import type { LibraryEntry } from "./types";
+import { CATEGORY_BY_FACULTY, type LibraryEntry } from "./types";
 import { readYamlFile } from "./yaml";
 
 export interface RawLibraryEntry {
@@ -106,6 +106,10 @@ async function resolveLibraryEntry(entry: RawLibraryEntry): Promise<LibraryEntry
   return {
     ...entry,
     faculty: metadata.faculty,
+    // Hoisted alongside faculty so the Fittings views can group without
+    // reaching into `metadata`. Presentation only — resolved from the faculty
+    // when a manifest omits it, so no entry is ever uncategorised.
+    category: metadata.category ?? CATEGORY_BY_FACULTY[metadata.faculty],
     platforms: entry.platforms,
     ratings: entry.ratings ?? {},
     metadata,

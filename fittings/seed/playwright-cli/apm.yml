@@ -20,9 +20,7 @@ x-garrison:
     - claude-code
   summary: >-
     Automate browser interactions, test web pages and work with Playwright tests.
-  provides:
-    - kind: agent-skill
-      name: playwright-cli
+  provides: []
   consumes: []
   verify:
     command: test -f apm_modules/_local/playwright-cli/.apm/skills/playwright-cli/SKILL.md && echo ok
