@@ -86,6 +86,12 @@ x-garrison:
             enabled: true
             triage_enabled: true
             wake_enabled: true
+            # Omi streams realtime segments in batches, and the gap between the
+            # segment carrying "Gary, create a task saying" and the one carrying
+            # the title exceeded the 4s default - the window shut mid-sentence
+            # and the truncated command classified as unknown. Costs ~2s of
+            # extra latency on every command; a truncated command costs the card.
+            wake_silence_close_ms: 7000
       gateway:
         - id: http-gateway
           config:
