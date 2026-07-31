@@ -17,7 +17,7 @@ import {
   resolveGatewayUrl,
   statusFilePath
 } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { startServer } from "../fittings/seed/omi-channel/scripts/server.mjs";
+import { repairDoubleEncodedQuery, startServer } from "../fittings/seed/omi-channel/scripts/server.mjs";
 
 describe("omi-channel config", () => {
   it("defaults every pipe flag to OFF with an empty env", () => {
@@ -159,5 +159,40 @@ describe("omi-channel server (config paths beat process.env)", () => {
     // The ambient home must be untouched — this is the actual defect.
     expect(existsSync(path.join(decoy, "ui-fittings", "omi-channel.json"))).toBe(false);
     expect(existsSync(path.join(decoy, "omi"))).toBe(false);
+  });
+});
+
+// Regression (2026-07-31): a real Omi delivery arrived with the webhook URL's
+// `&` percent-encoded, so `key` held the whole `secret&uid=<uid>` string (81
+// chars observed vs the 48-char secret) and `uid` was absent entirely. Every
+// such delivery 401s, and Omi auto-disables a dev webhook after 100 consecutive
+// failures - so a phone-typed URL silently kills the pipe.
+describe("omi-channel double-encoded webhook query", () => {
+  const SECRET = "58ac5b50cf8a6b7955eb4b448ba1f99b193edd8f715a7d04";
+  const UID = "kM7wRtH8REQhRMGpVypXXmt1jV12";
+
+  it("splits a key that swallowed uid and session_id", () => {
+    const repaired = repairDoubleEncodedQuery({
+      key: `${SECRET}&uid=${UID}&session_id=abc123`
+    });
+    expect(repaired.key).toBe(SECRET);
+    expect(repaired.uid).toBe(UID);
+    expect(repaired.session_id).toBe("abc123");
+  });
+
+  it("leaves a well-formed query untouched", () => {
+    const clean = { key: SECRET, uid: UID, session_id: "s1" };
+    expect(repairDoubleEncodedQuery({ ...clean })).toEqual(clean);
+  });
+
+  it("never lets a recovered value override a real query param", () => {
+    // A genuine `uid` on the URL wins over one smuggled inside `key`, so this
+    // can't be used to slip a different uid past the pin.
+    const repaired = repairDoubleEncodedQuery({
+      key: `${SECRET}&uid=attacker-uid`,
+      uid: UID
+    });
+    expect(repaired.key).toBe(SECRET);
+    expect(repaired.uid).toBe(UID);
   });
 });

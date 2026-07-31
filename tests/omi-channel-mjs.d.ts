@@ -42,6 +42,10 @@ declare module "*/omi-channel/lib/config.mjs" {
 }
 
 declare module "*/omi-channel/scripts/server.mjs" {
+  export function repairDoubleEncodedQuery(
+    query: Record<string, unknown>,
+    counters?: unknown
+  ): Record<string, string>;
   import type { Server } from "node:http";
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
   export function startServer(cfg?: unknown): Promise<Server>;

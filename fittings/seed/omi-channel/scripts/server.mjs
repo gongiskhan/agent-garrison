@@ -105,6 +105,32 @@ async function clearStatusFile(file) {
   } catch {}
 }
 
+// Webhook URLs are typed into a phone text field, and the Omi app can store one
+// with its `&` percent-encoded. The whole `secret&uid=<uid>` string then arrives
+// as a SINGLE `key` param: auth fails, `uid` is missing, and every delivery 401s
+// — which counts toward Omi's 100-consecutive-failure auto-disable, so a typo
+// silently kills the pipe. Split it back out rather than making the user retype
+// a 48-char secret on a phone. This never weakens the check: the recovered `key`
+// is still compared in full, and real params always win over recovered ones.
+export function repairDoubleEncodedQuery(query, counters = null) {
+  const key = typeof query.key === "string" ? query.key : "";
+  if (!key.includes("&")) return query;
+  const [head, ...tail] = key.split("&");
+  const recovered = new URLSearchParams(tail.join("&"));
+  const merged = { ...query, key: head };
+  for (const [k, v] of recovered.entries()) {
+    const present = merged[k];
+    if (present === undefined || present === "") merged[k] = v;
+  }
+  counters?.bump?.("query_repaired_double_encoded");
+  console.warn(
+    `[omi-channel] repaired a double-encoded webhook query: '&' arrived encoded so ` +
+      `key swallowed [${[...recovered.keys()].join(",")}]. Fix the URL in Omi's ` +
+      `Developer Settings to stop relying on this.`
+  );
+  return merged;
+}
+
 function flagSummary(cfg) {
   return {
     ingress: cfg.enabled,
@@ -188,7 +214,7 @@ export function makeRequestHandler(ctx) {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
-      const query = parsed.query || {};
+      const query = repairDoubleEncodedQuery(parsed.query || {}, counters);
 
       if (pathname === "/health" || pathname === "/api/health") {
         const pinned = store.pinnedUid();
