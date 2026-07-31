@@ -58,11 +58,20 @@ const log = (msg) => console.log(`${PREFIX} ${msg}`);
  * together, so this is belt-and-braces.
  */
 async function loadMapping() {
+  let m;
   try {
-    return await import(new URL("./lib/memory-vault.mjs", import.meta.url).href);
+    m = await import(new URL("./lib/memory-vault.mjs", import.meta.url).href);
   } catch {
-    return null;
+    return null; // absent or un-importable: degrade to the queue-key fallback
   }
+  // A STALE lib is the dangerous shape: it imports cleanly and then throws on a
+  // function it does not export yet, so the drain dies instead of degrading and
+  // captures pile up until the cap evicts them. Shape-check so stale routes
+  // exactly like missing - which is what this function already claimed to do.
+  const usable =
+    typeof m?.permalinkForRelPath === "function" &&
+    typeof m?.resolveRemoteFolder === "function";
+  return usable ? m : null;
 }
 
 // 30s per file; env override exists for tests only. Timeout kills with
