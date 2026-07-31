@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-30T07:54:26.078940+00:00'
+generated_at: '2026-07-31T12:30:03.962693+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -231,6 +231,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/power-default
+- repo_url: _local/roadmaps
+  name: roadmaps
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/roadmaps
 - repo_url: _local/scheduler
   name: scheduler
   version: 0.1.0
