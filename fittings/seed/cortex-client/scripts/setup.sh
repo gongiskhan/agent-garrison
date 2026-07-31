@@ -2,21 +2,44 @@
 # cortex-client setup — install a capability CLI from a PINNED clone kept OUTSIDE
 # Garrison's own (MIT) source tree, and expose it as ONE stable binary path.
 #
-# Shape borrowed from fittings/seed/coord-agentmail/scripts/setup.sh: the
-# license-isolation guard runs BEFORE any write, the clone is pinned to an exact
-# commit, and the third-party tree is arm's-length — cloned, built and invoked as a
-# separate process, never vendored into this repository.
+# WHAT THE GUARD DOES AND DOES NOT DO. The path guard below is BYTE CONTAINMENT:
+# it decides where the cloned repository's files, links and mode changes may land,
+# and it refuses anything inside Garrison's worktree. It does NOT sandbox the
+# repository. Building a repository runs that repository's code, and it runs with
+# whatever the runner put in this hook's environment — which includes the
+# composition's materialised vault. Setting repo_url is therefore a trust decision
+# about that repository, stated plainly here and in for_consumers rather than
+# implied away by the word "isolated". What IS reduced here: `npm install
+# --ignore-scripts` keeps the repository's (and every transitive dependency's)
+# install lifecycle from executing, so only the DECLARED build script runs.
 #
 # Idempotent: re-running re-checks the pin, rebuilds only when the pin moved or the
-# build output is gone, and RE-POINTS the symlink instead of adding another one.
+# build output stopped working, and RE-POINTS the symlink instead of adding one.
 #
-# Unconfigured (no repo_url) is a supported, silent, shipped-default state: nothing
-# is installed, nothing is written, exit 0.
+# Unconfigured (no repo_url) is a supported state in both directions: nothing is
+# installed, and clearing repo_url afterwards withdraws what was published.
 set -uo pipefail
+
+# Before anything else: an inherited xtrace would echo every expansion — including
+# repo_url — into the run log. SHELLOPTS is readonly in bash, so `set +x` is what
+# actually turns it off; the unsets are best effort for shells where it is not.
+set +x
+unset BASH_XTRACEFD 2>/dev/null || true
+unset SHELLOPTS 2>/dev/null || true
 
 FIT="cortex-client"
 say() { echo "[$FIT] $*"; }
-die() { echo "[$FIT] ERROR: $*" >&2; exit 1; }
+
+# Armed only once we are past the guard and know we are configured, so a refused
+# path or a bad pin still writes NOTHING.
+MARK_FAILURES=0
+die() {
+  echo "[$FIT] ERROR: $*" >&2
+  if [ "$MARK_FAILURES" = "1" ]; then
+    write_failure_marker "$*"
+  fi
+  exit 1
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -25,109 +48,140 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #    CORTEX_CLIENT_<KEY>; every value has a defined default and NONE of the
 #    defaults name a provider URL, repository or credential (CAPABILITY_CONTRACT
 #    rule 6 — a fresh clone with an empty vault must compose, run and verify).
+#    An empty bin_dir/clone_dir means "derive from GARRISON_HOME", so every path
+#    this Fitting owns moves together when the instance home moves.
 # ---------------------------------------------------------------------------
 GH="${GARRISON_HOME:-$HOME/.garrison}"
 REPO_URL="${CORTEX_CLIENT_REPO_URL:-}"
 GIT_REF="${CORTEX_CLIENT_GIT_REF:-}"
 BASE_URL="${CORTEX_CLIENT_BASE_URL:-}"
-BIN_DIR_RAW="${CORTEX_CLIENT_BIN_DIR:-$GH/bin}"
-CLONE_RAW="${CORTEX_CLIENT_CLONE_DIR:-$GH/external/cortex-cli}"
+BIN_DIR_RAW="${CORTEX_CLIENT_BIN_DIR:-}"
+CLONE_RAW="${CORTEX_CLIENT_CLONE_DIR:-}"
 PKG_SUBDIR="${CORTEX_CLIENT_PACKAGE_SUBDIR:-clients/cortex-cli}"
+[ -n "$BIN_DIR_RAW" ] || BIN_DIR_RAW="$GH/bin"
+[ -n "$CLONE_RAW" ] || CLONE_RAW="$GH/external/cortex-cli"
 
-expand_tilde() {
-  case "$1" in
-    "~") printf '%s' "$HOME" ;;
-    "~/"*) printf '%s/%s' "$HOME" "${1#\~/}" ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
-# Absolute path for a path that does not exist yet (the guard has to run before we
-# create anything). realpath -m / python3 normalise `..`; the printf fallback does
-# not, which is why guard_outside_tree refuses `..` segments outright.
-resolve_abs() {
-  local p
-  p="$(expand_tilde "$1")"
-  case "$p" in /*) : ;; *) p="$PWD/$p" ;; esac
-  if command -v realpath >/dev/null 2>&1; then
-    realpath -m "$p" 2>/dev/null || printf '%s' "$p"
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import os,sys;print(os.path.abspath(sys.argv[1]))' "$p" 2>/dev/null || printf '%s' "$p"
-  else
-    printf '%s' "$p"
-  fi
-}
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
 
 CLONE="$(resolve_abs "$CLONE_RAW")"
 BIN_DIR="$(resolve_abs "$BIN_DIR_RAW")"
 STATE="$GH/$FIT"
 RECEIPT="$STATE/install.json"
+MARKER="$STATE/install-failed.json"
+
+write_failure_marker() {
+  command -v node >/dev/null 2>&1 || return 0
+  mkdir -p "$STATE" 2>/dev/null || return 0
+  local tmp="$MARKER.tmp.$$"
+  node -e '
+    process.stdout.write(
+      JSON.stringify(
+        { fitting: "cortex-client", failed_at: new Date().toISOString(), reason: process.argv[1] },
+        null,
+        2
+      ) + "\n"
+    );
+  ' "$1" >"$tmp" 2>/dev/null && mv -f "$tmp" "$MARKER" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+receipt_field() {
+  [ -f "$RECEIPT" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  node -e '
+    const fs = require("node:fs");
+    try {
+      const doc = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(String(doc[process.argv[2]] ?? ""));
+    } catch { /* an unreadable receipt just means "rebuild" */ }
+  ' "$RECEIPT" "$1" 2>/dev/null
+}
 
 # ---------------------------------------------------------------------------
-# 1) LICENSE ISOLATION GUARD — runs BEFORE any clone, mkdir or write, and before
+# 1) BYTE-CONTAINMENT GUARD — runs BEFORE any clone, mkdir or write, and before
 #    the unconfigured early-exit, so a bad path can never be acted on.
 #
 #    The client repository carries its own licence and its own history. Cloning it
-#    (or linking into it) anywhere inside Garrison's MIT worktree would mix foreign
-#    bytes into this repository and put them in front of `apm install`, git and the
-#    packager. Third-party code stays arm's-length under GARRISON_HOME.
+#    (or linking into it, or chmodding inside it) anywhere in Garrison's MIT
+#    worktree would mix foreign bytes into this repository and put them in front of
+#    `apm install`, git and the packager. EVERY path this script writes to, links
+#    from or chmods is guarded — including the two that come from the repository
+#    itself (step 6), which are input, not configuration.
 # ---------------------------------------------------------------------------
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
-
-guard_outside_tree() {
-  local label="$1" p="$2"
-  case "/$p/" in
-    */../*) die "$label ($p) contains a '..' segment — refusing to resolve it, aborting before any write" ;;
-  esac
-  if [ -n "$REPO_ROOT" ]; then
-    case "$p/" in
-      "$REPO_ROOT"/*)
-        die "$label ($p) is INSIDE Garrison's own source tree ($REPO_ROOT) — aborting before any write" ;;
-    esac
-  fi
-  case "$p" in
-    */dev/garrison/*|*/Projects/garrison/*)
-      die "$label ($p) matches a Garrison source path — aborting before any write" ;;
-  esac
-}
-
+GUARD_REPO_ROOT="$(garrison_repo_root "$SCRIPT_DIR")"
 guard_outside_tree "clone_dir" "$CLONE"
 guard_outside_tree "bin_dir" "$BIN_DIR"
 
 # ---------------------------------------------------------------------------
-# 2) Unconfigured is the shipped default: install nothing, write nothing.
+# 2) Unconfigured, in BOTH directions: never configured, or configured and then
+#    cleared. Clearing repo_url withdraws exactly what this Fitting published.
 # ---------------------------------------------------------------------------
 if [ -z "$REPO_URL" ]; then
-  say "no repo_url configured — nothing installed (shipped default; consumers take their no-op path)"
-  if [ -f "$RECEIPT" ]; then
-    say "note: an earlier install is still recorded in $RECEIPT; delete $CLONE and that receipt by hand to undo it"
+  if [ -f "$RECEIPT" ] || [ -f "$MARKER" ]; then
+    PREV_BIN="$(receipt_field bin)"
+    PREV_CLONE="$(receipt_field clone)"
+    # Only what this Fitting published: its receipt, its failure marker, and the
+    # symlink it created. A real file of that name is never touched, and the clone
+    # is left on disk rather than silently deleted.
+    if [ -n "$PREV_BIN" ] && [ -L "$PREV_BIN" ]; then
+      rm -f "$PREV_BIN"
+    fi
+    rm -f "$RECEIPT" "$MARKER"
+    say "repo_url cleared — withdrew the published binary and receipt; consumers now take their no-op path"
+    if [ -n "$PREV_CLONE" ]; then
+      say "the clone at $PREV_CLONE is left on disk; delete it by hand to reclaim the space"
+    fi
+  else
+    say "no repo_url configured — nothing installed (shipped default; consumers take their no-op path)"
   fi
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# 3) A PIN, not a branch. A moving ref would swap the installed binary under a
-#    machine that only ever re-ran setup, with nothing in the logs to show it.
+# 3) Reject a credential-bearing remote outright rather than mitigating it. git
+#    records the remote VERBATIM in <clone>/.git/config, and the URL is an argv of
+#    `git clone`, i.e. world-readable in /proc/<pid>/cmdline while it runs. Neither
+#    is something this Fitting can undo after the fact.
+# ---------------------------------------------------------------------------
+case "$REPO_URL" in
+  http://*|https://*)
+    _rest="${REPO_URL#*://}"
+    case "${_rest%%/*}" in
+      *@*)
+        die "repo_url carries credentials in the URL (user[:secret]@host). Refused: git writes the remote verbatim into <clone>/.git/config and the URL is visible in the process command line while it clones. Use an ssh remote (git@host:org/repo.git) or configure a git credential helper." ;;
+    esac
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 4) A FULL-LENGTH commit sha — not a branch, not a tag, not an abbreviation. A
+#    moving ref would swap the installed binary under a machine that only re-ran
+#    setup; an abbreviation cannot be compared exactly at verify time.
 # ---------------------------------------------------------------------------
 case "$GIT_REF" in
-  "") die "git_ref is not set — pin an exact commit SHA (a branch name or tag is refused)" ;;
-  *[!0-9a-fA-F]*) die "git_ref ('$GIT_REF') is not a commit SHA — pin an exact commit, not a branch or tag" ;;
+  "") die "git_ref is not set — pin a full commit sha (a branch name or tag is refused)" ;;
+  *[!0-9a-fA-F]*) die "git_ref ('$GIT_REF') is not a commit sha — pin an exact commit, not a branch or tag" ;;
 esac
-if [ "${#GIT_REF}" -lt 7 ] || [ "${#GIT_REF}" -gt 40 ]; then
-  die "git_ref ('$GIT_REF') is not a commit SHA — expected 7 to 40 hex characters"
+if [ "${#GIT_REF}" -ne 40 ] && [ "${#GIT_REF}" -ne 64 ]; then
+  die "git_ref ('$GIT_REF') is ${#GIT_REF} characters — pin the FULL sha (40 hex, or 64 for a sha-256 repository), never an abbreviation"
 fi
 
 for tool in git node npm; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required to install the CLI but is not on PATH"
 done
 
+# From here on this script writes, so a failure leaves a marker verify can read.
+# Without it a setup that died half way looks identical to "never configured" —
+# no receipt — and a standalone verify would happily print ok over a broken box.
+MARK_FAILURES=1
+
 # ---------------------------------------------------------------------------
-# 4) Clone (once) and check the pin out (every run).
+# 5) Clone (once) and check the pin out (every run).
 #
-#    repo_url is never echoed and never recorded: a git remote can carry an
-#    embedded token, and setup output goes straight into the run log.
-#    A credential prompt would hang here until the setup timeout, so git is told
-#    to fail instead of asking.
+#    repo_url is never echoed and never recorded. A credential prompt would hang
+#    here until the setup timeout, so git is told to fail instead of asking.
 # ---------------------------------------------------------------------------
 export GIT_TERMINAL_PROMPT=0
 if [ ! -d "$CLONE/.git" ]; then
@@ -135,7 +189,7 @@ if [ ! -d "$CLONE/.git" ]; then
     die "$CLONE exists and is not a git clone — refusing to clobber it"
   fi
   mkdir -p "$(dirname "$CLONE")" || die "could not create $(dirname "$CLONE")"
-  say "cloning the client repository (arm's-length, license-isolated) → $CLONE"
+  say "cloning the client repository (byte-contained under GARRISON_HOME) → $CLONE"
   git clone --quiet "$REPO_URL" "$CLONE" || die "clone failed"
 else
   say "clone present at $CLONE"
@@ -151,11 +205,23 @@ HEAD_SHA="$(git -C "$CLONE" rev-parse HEAD 2>/dev/null)" || die "could not read 
 say "pinned at $HEAD_SHA"
 
 # ---------------------------------------------------------------------------
-# 5) Read the CLI package's own manifest for the workspace to build and the
-#    executable to link. Nothing about a provider's layout is hardcoded here:
-#    package.json `name` and `bin` are the npm contract.
+# 6) Locate the CLI package and its executable. Two inputs here are NOT trusted
+#    configuration: package_subdir is concatenated onto the clone path, and `bin`
+#    comes out of the CLONED REPOSITORY's package.json. Both reach chmod and ln,
+#    so both are validated and guarded exactly like the operator's directories.
 # ---------------------------------------------------------------------------
-PKG_DIR="$CLONE/$PKG_SUBDIR"
+case "$PKG_SUBDIR" in
+  "") die "package_subdir is empty — it must name the CLI's package inside the clone" ;;
+  /*) die "package_subdir ('$PKG_SUBDIR') must be relative to the clone" ;;
+esac
+case "/$PKG_SUBDIR/" in
+  */../*) die "package_subdir ('$PKG_SUBDIR') must not contain a '..' segment" ;;
+esac
+
+PKG_DIR="$(resolve_abs "$CLONE/$PKG_SUBDIR")"
+guard_outside_tree "package_subdir" "$PKG_DIR"
+require_inside_clone "package_subdir" "$PKG_DIR" "$CLONE"
+
 [ -f "$PKG_DIR/package.json" ] ||
   die "no package.json at '$PKG_SUBDIR' inside the clone — check the package_subdir config"
 
@@ -193,56 +259,61 @@ EOF
 [ -n "$BIN_NAME" ] && [ -n "$BIN_REL" ] ||
   die "$PKG_SUBDIR/package.json declares no bin entry — nothing to link"
 
-BIN_TARGET="$PKG_DIR/${BIN_REL#./}"
+# The bin NAME becomes a filename in the operator's bin dir.
+case "$BIN_NAME" in
+  *[!A-Za-z0-9._-]*) die "the package's bin name ('$BIN_NAME') contains characters that are not allowed in a linked binary name" ;;
+  .*|-*) die "the package's bin name ('$BIN_NAME') may not start with '.' or '-'" ;;
+esac
+# The bin PATH is repo-controlled and reaches chmod and ln.
+case "$BIN_REL" in
+  /*) die "the package's bin path ('$BIN_REL') is absolute — it must point inside the package" ;;
+esac
+case "/$BIN_REL/" in
+  */../*) die "the package's bin path ('$BIN_REL') contains a '..' segment — refusing" ;;
+esac
 
-# Does the built CLI actually run? `--version` is the one invocation that needs no
-# configuration, so it doubles as the build probe. Run it with the provider vars
-# explicitly stripped so a probe can never pass only because a key happened to be
-# in the environment.
-probe_bin() {
-  if [ -x "$BIN_TARGET" ] && env -u CORTEX_API_KEY -u CORTEX_BASE_URL "$BIN_TARGET" --version >/dev/null 2>&1; then
-    return 0
-  fi
-  env -u CORTEX_API_KEY -u CORTEX_BASE_URL node "$BIN_TARGET" --version >/dev/null 2>&1
-}
+BIN_TARGET="$(resolve_abs "$PKG_DIR/${BIN_REL#./}")"
+guard_outside_tree "the package's bin path" "$BIN_TARGET"
+require_inside_clone "the package's bin path" "$BIN_TARGET" "$CLONE"
 
-receipt_ref() {
-  [ -f "$RECEIPT" ] || return 0
-  node -e '
-    const fs = require("node:fs");
-    try {
-      const doc = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      process.stdout.write(String(doc.ref || ""));
-    } catch { /* an unreadable receipt just means "rebuild" */ }
-  ' "$RECEIPT" 2>/dev/null
-}
+PROBE_OUT="$(mktemp "${TMPDIR:-/tmp}/cortex-client-probe.XXXXXX")" || die "could not create a temp file"
+trap 'rm -f "$PROBE_OUT"' EXIT
 
 # ---------------------------------------------------------------------------
-# 6) Install + build, but only when the pin moved or the build output is gone.
-#    The clone MUST keep its node_modules and stay built: the CLI resolves its
-#    workspace dependencies at runtime through those symlinks.
+# 7) Install + build, but only when the pin moved or the build output stopped
+#    working. The clone MUST keep its node_modules and stay built: the CLI
+#    resolves its workspace dependencies at runtime through those symlinks.
+#
+#    --ignore-scripts on both: the repository's install lifecycle (and every
+#    transitive dependency's) does not execute, and only the declared `build`
+#    script runs, not a pre/post wrapper around it. The build itself IS repo code
+#    running with this hook's environment — see the header and for_consumers.
 # ---------------------------------------------------------------------------
-PREV_REF="$(receipt_ref)"
-if [ "$PREV_REF" = "$HEAD_SHA" ] && probe_bin; then
+PREV_REF="$(receipt_field ref)"
+if [ "$PREV_REF" = "$HEAD_SHA" ] && probe_cli "$BIN_TARGET" "$PROBE_OUT"; then
   say "already installed at this pin — skipping install and build"
 else
-  say "npm install (workspaces) in $CLONE"
-  (cd "$CLONE" && npm install --no-audit --no-fund) || die "npm install failed in $CLONE"
+  say "npm install (workspaces, --ignore-scripts) in $CLONE"
+  (cd "$CLONE" && npm install --ignore-scripts --no-audit --no-fund) || die "npm install failed in $CLONE"
   say "building workspace $WORKSPACE"
-  (cd "$CLONE" && npm run build --workspace "$WORKSPACE") || die "build failed for $WORKSPACE"
-  probe_bin || die "the CLI does not run after the build (expected '$BIN_NAME --version' to exit 0)"
+  (cd "$CLONE" && npm run build --workspace "$WORKSPACE" --ignore-scripts) ||
+    die "build failed for $WORKSPACE"
+
+  # Consumers exec the receipt's `bin` path directly, so the shape check and the
+  # probe here are exactly what verify re-applies — same helper, same bounds, so
+  # setup can never bless a binary verify would then refuse.
+  require_shebang "$BIN_TARGET"
+  [ -x "$BIN_TARGET" ] || chmod +x "$BIN_TARGET" 2>/dev/null || true
+  probe_cli "$BIN_TARGET" "$PROBE_OUT" ||
+    die "the CLI does not run after the build (expected '$BIN_NAME --version' to exit 0 within ${PROBE_TIMEOUT_SECS}s)"
 fi
 
 # ---------------------------------------------------------------------------
-# 7) One stable binary path. `ln -sfn` RE-POINTS an existing link rather than
+# 8) One stable binary path. `ln -sfn` RE-POINTS an existing link rather than
 #    nesting a second one inside it; a real file of the same name is never
 #    clobbered — that would eat something the user put there.
 # ---------------------------------------------------------------------------
 mkdir -p "$BIN_DIR" || die "could not create bin dir $BIN_DIR"
-# Consumers invoke the receipt's `bin` path directly, so the link target has to be
-# executable — npm normally does this when it links a workspace bin, but a clone
-# that was built without that step would otherwise pass setup and fail verify.
-[ -x "$BIN_TARGET" ] || chmod +x "$BIN_TARGET" 2>/dev/null || true
 LINK="$BIN_DIR/$BIN_NAME"
 if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
   die "$LINK exists and is not a symlink — refusing to clobber it (point bin_dir elsewhere)"
@@ -250,8 +321,9 @@ fi
 ln -sfn "$BIN_TARGET" "$LINK" || die "could not link $LINK → $BIN_TARGET"
 
 # ---------------------------------------------------------------------------
-# 8) The install receipt: how every consumer finds the binary (see for_consumers).
-#    Paths, the pin and the configured origin only — NEVER a credential.
+# 9) The install receipt: how every consumer finds the binary (see for_consumers).
+#    Paths, the pin and the configured origin only — never a credential, and never
+#    repo_url, which names a host the operator may authenticate to.
 # ---------------------------------------------------------------------------
 mkdir -p "$STATE" || die "could not create $STATE"
 TMP="$RECEIPT.tmp.$$"
@@ -276,6 +348,7 @@ node -e '
 ' "$BIN_NAME" "$LINK" "$CLONE" "$PKG_DIR" "$HEAD_SHA" "$BASE_URL" >"$TMP" ||
   { rm -f "$TMP"; die "could not write the install receipt"; }
 mv -f "$TMP" "$RECEIPT" || { rm -f "$TMP"; die "could not publish the install receipt"; }
+rm -f "$MARKER"
 
 if [ -z "$BASE_URL" ]; then
   say "note: base_url is not configured — consumers must supply CORTEX_BASE_URL themselves"

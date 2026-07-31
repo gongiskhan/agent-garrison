@@ -228,8 +228,8 @@ x-garrison:
             repo_url: ''
             git_ref: ''
             base_url: ''
-            bin_dir: ~/.garrison/bin
-            clone_dir: ~/.garrison/external/cortex-cli
+            bin_dir: ''
+            clone_dir: ''
             package_subdir: clients/cortex-cli
         - id: deepgram-voice
           config:

@@ -70,8 +70,27 @@ async function write(file: string, content: string, mode?: number): Promise<void
  *
  * Two commits: v1.0.0 (the PIN under test) and v2.0.0 (the branch tip). A setup that
  * silently followed the tip would print 2.0.0.
+ *
+ * `opts` turns the fixture HOSTILE in the specific ways a real repository could be:
+ * lifecycle scripts that execute during install, a bin entry that points outside the
+ * package, a bin shim with no interpreter line. None of these need a malicious author —
+ * the last one is an ordinary authoring mistake — and all three reach this Fitting.
  */
-async function buildFixtureRepo(root: string): Promise<{ pin: string; tip: string }> {
+interface FixtureOptions {
+  /** absolute paths a `postinstall` writes to; they must never appear. */
+  postinstallMarkers?: { root: string; cli: string };
+  /** replaces the package.json `bin` path (traversal / symlink escape). */
+  binPath?: string;
+  /** commits a symlink `outbound` -> this absolute path, inside the CLI package. */
+  outboundSymlink?: string;
+  /** false ships the bin shim without a `#!` line. */
+  shebang?: boolean;
+}
+
+async function buildFixtureRepo(
+  root: string,
+  opts: FixtureOptions = {}
+): Promise<{ pin: string; tip: string }> {
   const cliDir = path.join(root, "clients", "fake-cli");
   await fs.mkdir(root, { recursive: true });
   await git(root, ["init", "--quiet", "-b", "main"]);
@@ -83,11 +102,33 @@ async function buildFixtureRepo(root: string): Promise<{ pin: string; tip: strin
   await write(
     path.join(root, "package.json"),
     `${JSON.stringify(
-      { name: "fixture-monorepo", private: true, version: "0.0.0", workspaces: ["shared", "clients/*"] },
+      {
+        name: "fixture-monorepo",
+        private: true,
+        version: "0.0.0",
+        workspaces: ["shared", "clients/*"],
+        ...(opts.postinstallMarkers
+          ? { scripts: { preinstall: "node scripts/pwn.mjs", postinstall: "node scripts/pwn.mjs" } }
+          : {})
+      },
       null,
       2
     )}\n`
   );
+  if (opts.postinstallMarkers) {
+    // Writes OUTSIDE the clone and records what it could read out of the
+    // environment — the exact shape of the finding this guards against.
+    const pwn = (marker: string) =>
+      [
+        "import { writeFileSync } from 'node:fs';",
+        `writeFileSync(${JSON.stringify(marker)}, JSON.stringify(`,
+        "  Object.keys(process.env).filter((k) => /_API_KEY$|_TOKEN$/.test(k))",
+        "));",
+        ""
+      ].join("\n");
+    await write(path.join(root, "scripts", "pwn.mjs"), pwn(opts.postinstallMarkers.root));
+    await write(path.join(cliDir, "scripts", "pwn.mjs"), pwn(opts.postinstallMarkers.cli));
+  }
   await write(
     path.join(root, "shared", "package.json"),
     `${JSON.stringify({ name: "@fixture/shared", version: "1.0.0", private: true, main: "index.js" }, null, 2)}\n`
@@ -101,20 +142,29 @@ async function buildFixtureRepo(root: string): Promise<{ pin: string; tip: strin
         version,
         private: true,
         type: "module",
-        bin: { cortex: "./bin/cortex.mjs" },
-        scripts: { build: "node scripts/build.mjs" },
+        bin: { cortex: opts.binPath ?? "./bin/cortex.mjs" },
+        scripts: {
+          build: "node scripts/build.mjs",
+          ...(opts.postinstallMarkers ? { postinstall: "node scripts/pwn.mjs" } : {})
+        },
         dependencies: { "@fixture/shared": "*" }
       },
       null,
       2
     )}\n`;
 
+  if (opts.outboundSymlink) {
+    await fs.mkdir(cliDir, { recursive: true });
+    await fs.symlink(opts.outboundSymlink, path.join(cliDir, "outbound"));
+  }
+
   // The bin shim: resolves ../dist/cli.js from import.meta.url (so a symlink from
-  // anywhere works) and exits 2 when the package is not built.
+  // anywhere works) and exits 2 when the package is not built. Without the `#!`
+  // line it is not executable at all — the caller's shell would interpret it.
   await write(
     path.join(cliDir, "bin", "cortex.mjs"),
     [
-      "#!/usr/bin/env node",
+      ...(opts.shebang === false ? [] : ["#!/usr/bin/env node"]),
       "import { existsSync } from 'node:fs';",
       "import { fileURLToPath } from 'node:url';",
       "const dist = new URL('../dist/cli.js', import.meta.url);",
@@ -126,7 +176,10 @@ async function buildFixtureRepo(root: string): Promise<{ pin: string; tip: strin
       "process.exitCode = await main(process.argv.slice(2));",
       ""
     ].join("\n"),
-    0o755
+    // 644 for the shebang-less variant, matching a bin committed without the exec
+    // bit: npm sets it during install, so the file becomes "executable" without
+    // ever becoming runnable.
+    opts.shebang === false ? 0o644 : 0o755
   );
 
   // The CLI itself. `--version` reads the BUILD stamp (not package.json), so the
@@ -217,6 +270,14 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
     const result = await run(link(), ["--version"], { CORTEX_API_KEY: undefined, CORTEX_BASE_URL: undefined });
     expect(result.exitCode, result.stderr).toBe(0);
     return result.stdout.trim();
+  }
+
+  /** Replace the fixture repo with a hostile / malformed variant. */
+  async function rebuildFixture(opts: FixtureOptions): Promise<void> {
+    await fs.rm(origin, { recursive: true, force: true });
+    const refs = await buildFixtureRepo(origin, opts);
+    pin = refs.pin;
+    tip = refs.tip;
   }
 
   beforeEach(async () => {
@@ -375,7 +436,7 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
     const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_GIT_REF: "main" }));
 
     expect(setup.exitCode).toBe(1);
-    expect(setup.stderr).toContain("not a commit SHA");
+    expect(setup.stderr).toContain("not a commit sha");
     await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -425,6 +486,305 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
       expect(verify.exitCode).toBe(1);
       expect(verify.stdout).toContain("not built");
       expect(verify.stdout.trim().endsWith("ok")).toBe(false);
+    },
+    SLOW
+  );
+
+  // ---------------------------------------------------------------------------
+  // Fresh-context review findings. Each of these fails if its fix is reverted.
+  // ---------------------------------------------------------------------------
+
+  // R1 — the clone is built with the composition's materialised vault in scope.
+  // The reviewer's fixture postinstall RAN, wrote outside the clone, and read back
+  // every *_API_KEY / *_TOKEN in the environment. --ignore-scripts is what stops
+  // the install lifecycle; the honesty text is what stops the manifest implying a
+  // containment it does not provide.
+  it(
+    "R1: install lifecycle scripts in the cloned repository never execute",
+    async () => {
+      const markers = {
+        root: path.join(tmp, "pwned-root.json"),
+        cli: path.join(tmp, "pwned-cli.json")
+      };
+      await rebuildFixture({ postinstallMarkers: markers });
+
+      const setup = await run("bash", [SETUP], setupEnv({ CORTEX_API_KEY: "vault-secret-in-scope" }));
+      expect(setup.exitCode, `${setup.stdout}\n${setup.stderr}`).toBe(0);
+      expect(setup.stdout).toContain("--ignore-scripts");
+
+      // Neither the root package's pre/postinstall nor the workspace's postinstall ran.
+      await expect(fs.stat(markers.root)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.stat(markers.cli)).rejects.toMatchObject({ code: "ENOENT" });
+      // …and the install still produced a working CLI.
+      expect(await cliVersion()).toBe("1.0.0");
+    },
+    SLOW
+  );
+
+  it("R1: the manifest states the trust grant instead of implying containment", async () => {
+    const yaml = await import("js-yaml");
+    const manifest = yaml.load(
+      await fs.readFile(path.join(REPO_ROOT, "fittings", "seed", "cortex-client", "apm.yml"), "utf8")
+    ) as { description?: string; "x-garrison"?: { for_consumers?: string; summary?: string } };
+    const forConsumers = manifest["x-garrison"]?.for_consumers ?? "";
+
+    // The word that was doing the lying — in the manifest AND in the registry
+    // summary the Armory shows, which is a copy of the same claim.
+    const registry = JSON.parse(
+      await fs.readFile(path.join(REPO_ROOT, "data", "library.json"), "utf8")
+    ) as Array<{ id: string; summary: string }>;
+    const listed = registry.find((entry) => entry.id === "cortex-client");
+    expect(
+      `${manifest.description} ${manifest["x-garrison"]?.summary} ${listed?.summary}`
+    ).not.toContain("isolated");
+    // What must be said instead, plainly.
+    expect(forConsumers).toContain("EXECUTES ITS CODE");
+    expect(forConsumers).toContain("materialised vault");
+    expect(forConsumers).toContain("--ignore-scripts");
+    expect(forConsumers).toContain("There is no sandbox here");
+    // R6 — the two places a URL-borne credential actually lands.
+    expect(forConsumers).toContain(".git/config");
+    expect(forConsumers).toContain("command line");
+  });
+
+  // R2 — a bin entry with no `#!` is handed to /bin/sh by execve, which then
+  // interprets JavaScript as shell. The reviewer's repro reached ImageMagick's
+  // `import`, which blocks on X11: setup wedged for the full 900s budget.
+  it(
+    "R2: a bin shim with no '#!' is refused fast, never executed, never allowed to hang",
+    async () => {
+      await rebuildFixture({ shebang: false });
+
+      const started = Date.now();
+      const setup = await run("bash", [SETUP], setupEnv());
+      const elapsed = Date.now() - started;
+
+      expect(setup.exitCode).toBe(1);
+      expect(setup.stderr).toContain("has no '#!' line");
+      // The point of the finding: it must not sit on the budget.
+      expect(elapsed).toBeLessThan(60_000);
+      // R3 — and it must not leave a success receipt for verify to inherit.
+      await expect(fs.stat(receiptPath())).rejects.toMatchObject({ code: "ENOENT" });
+    },
+    SLOW
+  );
+
+  // R3 — setup and verify used to hold separate probes, so setup could bless a
+  // binary verify then refused, blaming a missing build. They now share one.
+  it(
+    "R3: setup and verify reach the same verdict about whether the CLI runs",
+    async () => {
+      expect((await run("bash", [SETUP], setupEnv())).exitCode).toBe(0);
+      expect((await run("bash", [VERIFY], { GARRISON_HOME: home })).exitCode).toBe(0);
+
+      // Break the build behind both of their backs.
+      await fs.rm(path.join(clone(), "clients", "fake-cli", "dist"), { recursive: true, force: true });
+      expect((await run("bash", [VERIFY], { GARRISON_HOME: home })).exitCode).toBe(1);
+
+      // setup's probe must see the same thing: it may NOT take the "already
+      // installed at this pin" shortcut, and it must repair the box.
+      const repair = await run("bash", [SETUP], setupEnv());
+      expect(repair.exitCode, `${repair.stdout}\n${repair.stderr}`).toBe(0);
+      expect(repair.stdout).not.toContain("already installed at this pin");
+      expect((await run("bash", [VERIFY], { GARRISON_HOME: home })).exitCode).toBe(0);
+    },
+    SLOW
+  );
+
+  // R4 — the runner catches a failed pre-verify setup pass and CONTINUES, so a
+  // half-installed box reached verify with no receipt and verified "ok".
+  it(
+    "R4: a failed install leaves a marker, and verify refuses to call it 'not configured'",
+    async () => {
+      const missingCommit = "0".repeat(40);
+      const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_GIT_REF: missingCommit }));
+      expect(setup.exitCode).toBe(1);
+
+      // Half-cloned, no receipt — indistinguishable from "never configured" without this.
+      await expect(fs.stat(receiptPath())).rejects.toMatchObject({ code: "ENOENT" });
+      const marker = JSON.parse(
+        await fs.readFile(path.join(home, "cortex-client", "install-failed.json"), "utf8")
+      ) as { reason?: string; fitting?: string };
+      expect(marker.fitting).toBe("cortex-client");
+      expect(marker.reason).toContain(missingCommit);
+
+      const verify = await run("bash", [VERIFY], { GARRISON_HOME: home });
+      expect(verify.exitCode).toBe(1);
+      expect(verify.stdout).toContain("setup failed");
+      expect(verify.stdout.trim().endsWith("ok")).toBe(false);
+
+      // And the marker clears once the install actually succeeds.
+      expect((await run("bash", [SETUP], setupEnv())).exitCode).toBe(0);
+      await expect(
+        fs.stat(path.join(home, "cortex-client", "install-failed.json"))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await run("bash", [VERIFY], { GARRISON_HOME: home })).exitCode).toBe(0);
+    },
+    SLOW
+  );
+
+  // R5 — package_subdir (operator) and the `bin` entry (THE CLONED REPO) both
+  // reach chmod and ln, and neither was guarded. A repo declaring a traversing
+  // bin made setup chmod +x a file inside the tree and symlink into it, exit 0.
+  it("R5: a traversing package_subdir is refused", async () => {
+    const setup = await run(
+      "bash",
+      [SETUP],
+      setupEnv({ CORTEX_CLIENT_PACKAGE_SUBDIR: "clients/../../../../etc" })
+    );
+    expect(setup.exitCode).toBe(1);
+    expect(setup.stderr).toContain("'..' segment");
+  });
+
+  it(
+    "R5: a repo-declared bin path that traverses out of the package is refused",
+    async () => {
+      const outside = path.join(tmp, "outside");
+      await write(path.join(outside, "innocent.mjs"), "// a file the repo must not reach\n", 0o644);
+      await rebuildFixture({ binPath: "../../../../outside/innocent.mjs" });
+
+      const setup = await run("bash", [SETUP], setupEnv());
+      expect(setup.exitCode).toBe(1);
+      expect(setup.stderr).toContain("'..' segment");
+      // Untouched: no chmod, no link.
+      expect((await fs.stat(path.join(outside, "innocent.mjs"))).mode & 0o111).toBe(0);
+      await expect(fs.stat(link())).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.stat(receiptPath())).rejects.toMatchObject({ code: "ENOENT" });
+    },
+    SLOW
+  );
+
+  it(
+    "R5: a bin path that escapes through a committed symlink is refused too",
+    async () => {
+      const outside = path.join(tmp, "outside");
+      await write(path.join(outside, "innocent.mjs"), "// a file the repo must not reach\n", 0o644);
+      // No '..' anywhere — the escape is a symlink the repository itself ships.
+      await rebuildFixture({ outboundSymlink: outside, binPath: "./outbound/innocent.mjs" });
+
+      const setup = await run("bash", [SETUP], setupEnv());
+      expect(setup.exitCode).toBe(1);
+      expect(setup.stderr).toContain("escapes the clone");
+      expect((await fs.stat(path.join(outside, "innocent.mjs"))).mode & 0o111).toBe(0);
+      await expect(fs.stat(receiptPath())).rejects.toMatchObject({ code: "ENOENT" });
+    },
+    SLOW
+  );
+
+  it(
+    "R5: verify re-checks WHERE the published binary points, not just the clone",
+    async () => {
+      expect((await run("bash", [SETUP], setupEnv())).exitCode).toBe(0);
+      expect((await run("bash", [VERIFY], { GARRISON_HOME: home })).exitCode).toBe(0);
+
+      // Re-point the published link at a file outside the clone.
+      const outside = path.join(tmp, "outside", "impostor.mjs");
+      await write(outside, "#!/usr/bin/env node\nprocess.stdout.write('9.9.9\\n');\n", 0o755);
+      await fs.rm(link());
+      await fs.symlink(outside, link());
+
+      const verify = await run("bash", [VERIFY], { GARRISON_HOME: home });
+      expect(verify.exitCode).toBe(1);
+      expect(verify.stdout).toContain("escapes the clone");
+      expect(verify.stdout.trim().endsWith("ok")).toBe(false);
+    },
+    SLOW
+  );
+
+  // R6 — a credential in repo_url lands in /proc/<pid>/cmdline (world-readable)
+  // and in <clone>/.git/config (persisted). Neither is undoable after the fact, so
+  // the URL form is refused rather than mitigated.
+  it("R6: a repo_url carrying credentials is refused before any write", async () => {
+    const setup = await run(
+      "bash",
+      [SETUP],
+      setupEnv({ CORTEX_CLIENT_REPO_URL: "https://user:ghp_notarealtoken@example.invalid/private.git" })
+    );
+    expect(setup.exitCode).toBe(1);
+    expect(setup.stderr).toContain(".git/config");
+    expect(setup.stderr).toContain("ssh remote");
+    expect(setup.stderr).not.toContain("ghp_notarealtoken");
+    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it(
+    "R6: an inherited xtrace is turned off before anything is expanded",
+    async () => {
+      const setup = await run("bash", [SETUP], setupEnv({ SHELLOPTS: "xtrace" }));
+      expect(setup.exitCode, `${setup.stdout}\n${setup.stderr}`).toBe(0);
+
+      const traced = setup.stderr.split("\n").filter((line) => line.startsWith("+ "));
+      // Only the two lines it takes to disable it; never a variable expansion.
+      expect(traced.length, traced.join("\n")).toBeLessThanOrEqual(2);
+      expect(setup.stderr).not.toContain("REPO_URL=");
+      expect(setup.stderr).not.toContain(origin);
+    },
+    SLOW
+  );
+
+  // R7 — un-configuring used to be a half-state: the receipt survived a cleared
+  // repo_url, so consumers kept finding a binary the operator had withdrawn.
+  it(
+    "R7: clearing repo_url withdraws the published binary and receipt",
+    async () => {
+      expect((await run("bash", [SETUP], setupEnv())).exitCode).toBe(0);
+      expect((await fs.lstat(link())).isSymbolicLink()).toBe(true);
+
+      const cleared = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_REPO_URL: "" }));
+      expect(cleared.exitCode, `${cleared.stdout}\n${cleared.stderr}`).toBe(0);
+      expect(cleared.stdout).toContain("repo_url cleared");
+
+      await expect(fs.stat(receiptPath())).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.lstat(link())).rejects.toMatchObject({ code: "ENOENT" });
+      // The clone is left on disk rather than silently deleted, and said so.
+      expect(await fs.stat(clone())).toBeTruthy();
+      expect(cleared.stdout).toContain("left on disk");
+
+      // And the state is now honestly "not configured".
+      const verify = await run("bash", [VERIFY], { GARRISON_HOME: home });
+      expect(verify.exitCode).toBe(0);
+      expect(verify.stdout).toContain("not configured");
+    },
+    SLOW
+  );
+
+  // R8 — bin_dir/clone_dir defaulted to a literal ~/.garrison while the receipt
+  // went to $GARRISON_HOME, so a non-default instance home split them apart.
+  it(
+    "R8: every path this Fitting owns is derived from GARRISON_HOME",
+    async () => {
+      expect((await run("bash", [SETUP], setupEnv())).exitCode).toBe(0);
+      const receipt = await readReceipt();
+      for (const value of [receipt.bin, receipt.clone, receipt.package_dir]) {
+        expect(value.startsWith(`${home}/`), `${value} should live under ${home}`).toBe(true);
+      }
+      // Nothing landed in the real ~/.garrison.
+      expect(receipt.bin).not.toContain(path.join(os.homedir(), ".garrison"));
+    },
+    SLOW
+  );
+
+  // R11 — an abbreviated ref is ambiguous and cannot be compared exactly, so a
+  // hand-edited 4-character ref used to satisfy verify's prefix match.
+  it("R11: an abbreviated git_ref is refused", async () => {
+    const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_GIT_REF: pin.slice(0, 7) }));
+    expect(setup.exitCode).toBe(1);
+    expect(setup.stderr).toContain("pin the FULL sha");
+    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it(
+    "R11: verify compares the pin exactly, so a truncated recorded ref is drift",
+    async () => {
+      expect((await run("bash", [SETUP], setupEnv())).exitCode).toBe(0);
+
+      const receipt = await readReceipt();
+      receipt.ref = pin.slice(0, 4);
+      await fs.writeFile(receiptPath(), JSON.stringify(receipt, null, 2));
+
+      const verify = await run("bash", [VERIFY], { GARRISON_HOME: home });
+      expect(verify.exitCode).toBe(1);
+      expect(verify.stdout).toContain("pin drift");
     },
     SLOW
   );
