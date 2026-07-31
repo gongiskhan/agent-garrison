@@ -72,7 +72,8 @@ try {
   // 2. the seeded roadmap
   console.log("\n[2] the seeded Ekoa roadmap");
   await page.goto(`${APP}/fitting/roadmaps/${PROJECT}`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(2000);
+  await page.locator("section#f7").waitFor({ state: "attached", timeout: 30000 });
+  await page.waitForTimeout(500);
   const categories = await page.locator("section[id^='f']").count();
   check("all 8 phases render", categories === 8, `${categories} sections`);
   await shot(page, "roadmap-ekoa");
@@ -99,7 +100,7 @@ try {
   // 5. manage mode: add, edit, delete - and prove ids do not renumber
   console.log("\n[5] manage mode");
   await page.goto(`${APP}/fitting/roadmaps/${PROJECT}`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1800);
+  await page.getByRole("button", { name: "Manage", exact: true }).waitFor({ state: "visible", timeout: 30000 });
   await page.getByRole("button", { name: "Manage", exact: true }).click();
   await page.waitForTimeout(800);
   await shot(page, "manage-mode", { clip: { x: 300, y: 180, width: 1140, height: 900 } });
@@ -118,7 +119,7 @@ try {
   // 6. send to the board
   console.log("\n[6] send a task to To Do");
   await page.goto(`${APP}/fitting/roadmaps/${PROJECT}`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1800);
+  await page.getByRole("button", { name: "→ To Do" }).first().waitFor({ state: "visible", timeout: 30000 });
   await page.getByRole("button", { name: "→ To Do" }).first().click();
   await page.waitForTimeout(3000);
   const afterSend = await api("GET", `/api/roadmaps/${PROJECT}`);
@@ -157,8 +158,9 @@ try {
   const scratchFile = path.join(os.homedir(), "dev", SCRATCH, "roadmap.json");
   if (existsSync(scratchFile)) throw new Error(`${scratchFile} already exists - pick another scratch project`);
   await page.goto(`${APP}/fitting/roadmaps/${SCRATCH}`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1800);
-  check("it offers to create one", await page.getByRole("button", { name: "Create roadmap.json" }).isVisible());
+  const createButton = page.getByRole("button", { name: "Create roadmap.json" });
+  await createButton.waitFor({ state: "visible", timeout: 30000 }).catch(() => {});
+  check("it offers to create one", await createButton.isVisible());
   await shot(page, "no-roadmap-yet", { clip: { x: 300, y: 180, width: 1140, height: 520 } });
   await page.getByRole("button", { name: "Create roadmap.json" }).click();
   await page.waitForTimeout(2000);
@@ -170,7 +172,8 @@ try {
   console.log("\n[10] phone width");
   const phone = await browser.newPage({ viewport: { width: 390, height: 900 }, deviceScaleFactor: 3 });
   await phone.goto(`${APP}/fitting/roadmaps/${PROJECT}`, { waitUntil: "domcontentloaded" });
-  await phone.waitForTimeout(2500);
+  await phone.locator("section#f0").waitFor({ state: "attached", timeout: 30000 });
+  await phone.waitForTimeout(600);
   const overflow = await phone.evaluate(() => {
     const out = [];
     for (const el of document.querySelectorAll("main *")) {
