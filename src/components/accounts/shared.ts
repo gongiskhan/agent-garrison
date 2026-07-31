@@ -143,6 +143,12 @@ export const PLATFORM_SECTIONS: {
       "Open-weight models through Hugging Face's Inference Providers router (OpenAI-compatible). Pin an account to the Hugging Face runtime and pick a model there. Injected as HF_TOKEN + HUGGING_FACE_HUB_TOKEN."
   },
   {
+    id: "glm",
+    label: "GLM (self-hosted)",
+    blurb:
+      "A GLM deployment behind your own OpenAI-compatible server (vLLM / SGLang). Pin an account to the OpenAI Agents runtime with provider `glm`, and set the endpoint as that runtime's baseUrl. Injected as GLM_API_KEY, and only ever sent to the configured URL. No balance API - a self-hosted box does not report one."
+  },
+  {
     id: "custom",
     label: "Custom",
     blurb:
@@ -334,6 +340,7 @@ const NATIVE_LOGIN_CMD: Record<AccountPlatform, string> = {
   // Key-only providers have no CLI login to run.
   openrouter: "",
   huggingface: "",
+  glm: "",
   custom: ""
 };
 
@@ -453,8 +460,26 @@ export function eligibleRotationCount(accounts: AccountInfo[]): number {
  * from the runtime's provided name (falling back to the fitting id): the seed
  * runtimes are claude-code/agent-sdk (anthropic), codex (openai), gemini (google).
  */
-export function platformForRuntime(fittingId: string, runtimeName?: string): AccountPlatform {
+export function platformForRuntime(
+  fittingId: string,
+  runtimeName?: string,
+  /**
+   * The runtime's selected PROVIDER, when it has one. Some engines are an endpoint
+   * FAMILY rather than a vendor — openai-agents fronts OpenAI cloud, a local
+   * Ollama and a self-hosted GLM box — so the fitting id alone cannot say which
+   * credential authenticates it, and guessing would offer a pin that injects a key
+   * the endpoint rejects.
+   */
+  provider?: string
+): AccountPlatform {
   const s = `${runtimeName ?? ""} ${fittingId}`.toLowerCase();
+  if (s.includes("openai-agents")) {
+    const p = (provider ?? "").trim().toLowerCase();
+    if (p === "glm") return "glm";
+    // `ollama-local` is keyless; there is no account to pin, and "anthropic" would
+    // be actively wrong. Fall through to openai, the only keyed vendor here.
+    return "openai";
+  }
   if (s.includes("codex")) return "openai";
   if (s.includes("gemini")) return "google";
   if (s.includes("openrouter")) return "openrouter";

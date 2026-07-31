@@ -583,6 +583,7 @@ function FittingBlock({
                   fittingId={fitting.id}
                   field={field}
                   value={fitting.config[field.key] ?? field.default ?? ""}
+                  provider={String(fitting.config.provider ?? "")}
                   onChange={(value) => onConfig(field, value)}
                 />
               ))}
@@ -640,12 +641,15 @@ function ConfigField({
   fittingId,
   field,
   value,
+  provider,
   onChange
 }: {
   faculty: string;
   fittingId: string;
   field: ConfigSchemaField;
   value: ConfigValue;
+  /** The sibling `provider` config value, for engines that front several endpoint families. */
+  provider?: string;
   onChange: (value: ConfigValue) => void;
 }) {
   const testId = `standing-config-${faculty}-${fittingId}-${field.key}`;
@@ -665,7 +669,7 @@ function ConfigField({
         <AccountField
           value={String(value)}
           onChange={(next) => onChange(next)}
-          platform={platformForRuntime(fittingId)}
+          platform={platformForRuntime(fittingId, undefined, provider)}
         />
         {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
       </div>
@@ -1283,6 +1287,7 @@ function RuntimeCard({
                   fittingId={fitting.id}
                   field={field}
                   value={fitting.config[field.key] ?? field.default ?? ""}
+                  provider={String(fitting.config.provider ?? "")}
                   onChange={(value) => onConfig(field, value)}
                 />
               ))}

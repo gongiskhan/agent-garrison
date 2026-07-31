@@ -1,0 +1,693 @@
+{
+  "version": 2,
+  "activeProfile": "balanced",
+  "primaryRuntime": "openai-agents-runtime",
+  "taskTypes": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "security-review",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report",
+    "probe-question",
+    "code",
+    "research",
+    "writing",
+    "image",
+    "video",
+    "ops",
+    "other"
+  ],
+  "tiers": [
+    "T0-trivial",
+    "T1-standard",
+    "T2-deep"
+  ],
+  "tierDefinitions": {
+    "T0-trivial": "A one-shot answer or a single mechanical edit: a rename, a typo, a fact lookup, a one-line config tweak. No multi-file reasoning, no design choices.",
+    "T1-standard": "Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused refactor, a normal review. Some reasoning across a few files; outcome is checkable by a test.",
+    "T2-deep": "High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear cause, a security-sensitive change, a multi-subsystem migration. Warrants the strongest model, full gates, and recorded evidence."
+  },
+  "providers": [
+    {
+      "id": "anthropic-plan",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "Max OAuth, no base URL, no key"
+    },
+    {
+      "id": "anthropic",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
+    },
+    {
+      "id": "ollama-local",
+      "kind": "local",
+      "baseUrl": "http://localhost:11434",
+      "dummyToken": "ollama",
+      "notes": "local Ollama Anthropic-compatible endpoint"
+    },
+    {
+      "id": "deepseek",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.deepseek.com/anthropic",
+      "vaultKey": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "zai-glm",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.z.ai/api/anthropic",
+      "vaultKey": "ZAI_API_KEY"
+    },
+    {
+      "id": "glm",
+      "kind": "cloud-oss",
+      "baseUrl": "http://154.59.156.40:33532/v1",
+      "vaultKey": "GLM_API_KEY",
+      "notes": "self-hosted GLM behind an OpenAI-compatible server; key injected as GLM_API_KEY"
+    }
+  ],
+  "exceptions": [
+    {
+      "id": "ex-secrets",
+      "when": "the prompt involves secrets, credentials, auth tokens, or the vault",
+      "target": "glm-standard"
+    },
+    {
+      "id": "ex-automation-vision-adversarial",
+      "when": "caller-asserted: an internal automation vision turn requests an independent adversarial verdict",
+      "target": "glm-deep"
+    },
+    {
+      "id": "ex-automation-vision",
+      "when": "caller-asserted: an internal automation vision turn must inspect a local browser screenshot",
+      "target": "glm-standard"
+    },
+    {
+      "id": "ex-drill-curation",
+      "when": "caller-asserted: Drill Spotter evidence curation, batch-judging captured frames into the Debrief reel",
+      "target": "glm-standard"
+    },
+    {
+      "id": "ex-image",
+      "when": "the prompt asks to generate, edit, or analyze an image",
+      "target": "glm-standard"
+    },
+    {
+      "id": "ex-video",
+      "when": "the prompt asks to generate or edit a video",
+      "target": "glm-standard"
+    }
+  ],
+  "targets": [
+    {
+      "id": "glm-fast",
+      "type": "secondary",
+      "runtime": "openai-agents",
+      "provider": "glm",
+      "model": "glm-5.2",
+      "promptMode": "lean",
+      "maxTurns": 4,
+      "notes": "one-shot answers, classification, probes"
+    },
+    {
+      "id": "glm-standard",
+      "type": "secondary",
+      "runtime": "openai-agents",
+      "provider": "glm",
+      "model": "glm-5.2",
+      "promptMode": "full",
+      "maxTurns": 12,
+      "notes": "ordinary bounded work with file tools"
+    },
+    {
+      "id": "glm-deep",
+      "type": "secondary",
+      "runtime": "openai-agents",
+      "provider": "glm",
+      "model": "glm-5.2",
+      "promptMode": "full",
+      "maxTurns": 24,
+      "notes": "wide-blast-radius work; more loop headroom"
+    },
+    {
+      "id": "glm-classifier",
+      "type": "secondary",
+      "runtime": "openai-agents",
+      "provider": "glm",
+      "model": "glm-5.2",
+      "promptMode": "lean",
+      "maxTurns": 2,
+      "pinned": true,
+      "notes": "Stage-A routing classification"
+    }
+  ],
+  "profiles": {
+    "balanced": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "glm-standard"
+        },
+        "columns": {
+          "T2-deep": "glm-deep"
+        },
+        "rows": {
+          "plan": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "implement": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-standard",
+              "T2-deep": "glm-deep"
+            }
+          },
+          "review": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "adversarial-review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "test": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "validate": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "report": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "code": {
+            "default": "glm-standard",
+            "cells": {
+              "T0-trivial": "glm-fast",
+              "T2-deep": "glm-deep"
+            }
+          },
+          "research": {
+            "default": "glm-standard",
+            "cells": {
+              "T2-deep": "glm-deep"
+            }
+          },
+          "image": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "video": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "writing": {
+            "default": "glm-standard",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "ops": {
+            "default": "glm-standard",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "other": {
+            "default": "glm-standard",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "glm-fast",
+        "glm-standard",
+        "glm-deep"
+      ],
+      "disciplineOverrides": {}
+    },
+    "economy": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "glm-fast"
+        },
+        "columns": {
+          "T2-deep": "glm-fast"
+        },
+        "rows": {
+          "plan": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "implement": {
+            "default": "glm-fast",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "review": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "adversarial-review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "test": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "validate": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "report": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "code": {
+            "default": "glm-fast",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "research": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "image": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "video": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "writing": {
+            "default": "glm-fast",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "ops": {
+            "default": "glm-fast",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          },
+          "other": {
+            "default": "glm-fast",
+            "cells": {
+              "T0-trivial": "glm-fast"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "glm-fast",
+        "glm-fast",
+        "glm-fast"
+      ],
+      "disciplineOverrides": {
+        "T2-deep": {
+          "review": "self-review",
+          "testing": "tests",
+          "evidence": "text",
+          "distribution": "none"
+        }
+      },
+      "exceptionOverrides": {
+        "ex-secrets": "glm-fast"
+      }
+    },
+    "premium": {
+      "preRoute": "on",
+      "matrix": {
+        "defaults": {
+          "target": "glm-deep"
+        },
+        "columns": {
+          "T2-deep": "glm-deep"
+        },
+        "rows": {
+          "plan": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "implement": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-standard"
+            }
+          },
+          "review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "adversarial-review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "test": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "adversarial-test": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "security-review": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "ux-qa": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "walkthrough": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "validate": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "codex-checkpoint": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "report": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "probe-question": {
+            "default": "glm-fast",
+            "cells": {}
+          },
+          "code": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-standard"
+            }
+          },
+          "research": {
+            "default": "glm-deep",
+            "cells": {}
+          },
+          "image": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "video": {
+            "default": "glm-standard",
+            "cells": {}
+          },
+          "writing": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-standard"
+            }
+          },
+          "ops": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-standard"
+            }
+          },
+          "other": {
+            "default": "glm-deep",
+            "cells": {
+              "T0-trivial": "glm-standard"
+            }
+          }
+        }
+      },
+      "computeLadder": [
+        "glm-standard",
+        "glm-deep",
+        "glm-deep"
+      ],
+      "disciplineOverrides": {},
+      "exceptionOverrides": {
+        "ex-secrets": "glm-deep"
+      }
+    }
+  },
+  "discipline": {
+    "T0-trivial": {
+      "review": "none",
+      "testing": "none",
+      "evidence": "none",
+      "distribution": "none"
+    },
+    "T1-standard": {
+      "review": "self-review",
+      "testing": "tests",
+      "evidence": "text",
+      "distribution": "none"
+    },
+    "T2-deep": {
+      "review": "review-by:default",
+      "testing": "full-gates",
+      "evidence": "video",
+      "distribution": "link"
+    }
+  },
+  "continuations": [
+    {
+      "id": "cont-plan",
+      "when": "plan",
+      "then": [
+        {
+          "verb": "ask",
+          "arg": "Implement this plan?"
+        },
+        {
+          "verb": "route",
+          "arg": "glm-standard"
+        }
+      ]
+    },
+    {
+      "id": "cont-report",
+      "when": "report",
+      "then": [
+        {
+          "verb": "store"
+        },
+        {
+          "verb": "ask",
+          "arg": "Act on this report?"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "security-review",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report"
+  ],
+  "phasePlans": {
+    "implement-only-text": {
+      "phases": [
+        "implement"
+      ],
+      "evidence": "text"
+    },
+    "implement-only-logs": {
+      "phases": [
+        "implement"
+      ],
+      "evidence": "logs"
+    },
+    "implement-test": {
+      "phases": [
+        "implement",
+        "test"
+      ],
+      "evidence": "logs"
+    },
+    "ui-change": {
+      "phases": [
+        "implement",
+        "review",
+        "ux-qa",
+        "walkthrough"
+      ],
+      "evidence": "video"
+    },
+    "full": {
+      "phases": [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "ux-qa",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ],
+      "evidence": "video"
+    },
+    "manual-only": {
+      "phases": [],
+      "evidence": "none"
+    }
+  },
+  "workKinds": {
+    "docs-change": {
+      "phasePlan": "implement-only-text",
+      "description": "Documentation or prose-only change"
+    },
+    "api-change": {
+      "phasePlan": "implement-test",
+      "description": "API/backend change with tests, no walkthrough"
+    },
+    "video-edit": {
+      "phasePlan": "implement-only-logs",
+      "description": "Video production/edit work"
+    },
+    "ui-change": {
+      "phasePlan": "ui-change",
+      "description": "UI change through review + UX QA + a walkthrough"
+    },
+    "full-feature": {
+      "phasePlan": "full",
+      "description": "Feature work through the full gated pipeline"
+    },
+    "personal": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Personal task - rides backlog/todo/done by hand, no agent phases"
+    },
+    "channel": {
+      "phasePlan": "manual-only",
+      "evidence": false,
+      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge"
+    }
+  },
+  "defaultWorkKind": "full-feature",
+  "phaseSkills": {
+    "bindings": {
+      "plan": "garrison-plan",
+      "implement": "garrison-implement",
+      "review": "garrison-review",
+      "adversarial-review": "garrison-adversarial-review",
+      "security-review": "garrison-security-review",
+      "test": "garrison-test",
+      "adversarial-test": "garrison-adversarial-test",
+      "ux-qa": "garrison-ux-qa",
+      "walkthrough": "garrison-walkthrough",
+      "validate": "garrison-validate",
+      "codex-checkpoint": "garrison-codex-checkpoint",
+      "report": "garrison-report"
+    },
+    "overrides": {}
+  },
+  "projects": {
+    "agent-garrison": {
+      "security_sensitive": false,
+      "profile": {
+        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:27777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
+      }
+    }
+  },
+  "uxQa": {
+    "severityThreshold": "major"
+  },
+  "coordination": {
+    "enabled": true,
+    "thresholds": {
+      "heavyFiles": 3,
+      "heavyRatio": 0.5
+    },
+    "exclusiveLeases": [
+      "apm.lock.yaml",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock"
+    ],
+    "fences": {
+      "enabled": true,
+      "trailer": "Garrison-Card"
+    },
+    "leaseTtlMinutes": 60,
+    "serializeWhenUnavailable": true
+  }
+}

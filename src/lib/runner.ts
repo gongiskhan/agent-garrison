@@ -458,7 +458,12 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
       buildPrimaryRuntimeEnv(
         effectivePrimaryRuntime,
         (key) => primaryVaultEnv[key] ?? accountEnv[key],
-        providersList
+        providersList,
+        // The primary Fitting's own declaration of HOW a provider override is
+        // applied. Without it, an OpenAI-shape engine would have its base URL
+        // written to ANTHROPIC_BASE_URL — which it never reads — and its endpoint
+        // would stay untrusted, so its key would be silently withheld.
+        primaryEntry?.metadata.provider_mechanism
       );
     record.activeAccount = pinnedAccount;
     record.authFailureFlagged = false;

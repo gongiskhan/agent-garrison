@@ -315,6 +315,16 @@ export async function writeComposition(
   const nextGlobalConfig = update.globalConfig ?? current.globalConfig;
   await validateCompositionSelections(nextSelections);
 
+  // Derive `unfitted` from the DESIRED set rather than asking callers to track
+  // it: the Compose grid and the Muster swap endpoint are independent writers,
+  // and any id a caller forgot to add here would silently re-station itself on
+  // the next read. A caller that sends no selections at all is not expressing an
+  // opt-out, so the stored list is preserved untouched in that case.
+  const library = await readLibrary();
+  const nextUnfitted = update.selections
+    ? deriveUnfitted(nextSelections, library)
+    : normalizeUnfitted(current.unfitted);
+
   const selectedEntries = await selectedLibraryEntries(nextSelections);
   const dependencies = authorApmDependencies(
     selectedEntries.map((entry) =>
@@ -340,6 +350,9 @@ export async function writeComposition(
       name: nextName,
       global_config: nextGlobalConfig,
       selections: nextSelections,
+      // Omit the key entirely when nothing is unfitted, so a composition that
+      // simply takes every default stays byte-clean in the diff.
+      ...(nextUnfitted.length ? { unfitted: nextUnfitted } : {}),
       prompt_sources: {
         orchestrator: ".garrison/prompts/orchestrator.md",
         soul: ".garrison/prompts/soul.md"
@@ -545,6 +558,7 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
     directory: getCompositionDirectory(id),
     manifestPath: getCompositionManifestPath(id),
     selections,
+    unfitted: normalizeUnfitted((composition as { unfitted?: unknown } | undefined)?.unfitted),
     globalConfig: composition?.global_config ?? defaultGlobalConfig(),
     // Derived Tasks disconnected (decision F4): Trello-as-tasks is retired in
     // favour of the Kanban; no Fitting backs a derived-Tasks surface anymore.
@@ -566,11 +580,16 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
   }
   const overlay = await readLocalOverlay(id);
   const composition = manifestToComposition(id, applyLocalOverlay(manifest, overlay));
-  const entries = await selectedLibraryEntries(composition.selections);
+  // Station every default-fit Fitting the composition has not unfitted, BEFORE
+  // resolving library entries — the capability graph, the readiness rules and the
+  // runner all have to see the same set the user sees.
+  const library = await readLibrary();
+  const withDefaults = applyDefaultFit(composition.selections, library, composition.unfitted);
+  const entries = await selectedLibraryEntries(withDefaults);
   // Self-heal selections grouped under a stale faculty key (e.g. fittings
   // saved under `sessions` before the 2026-06-18 split). The UI then always
   // sees the current grouping, and the next save persists it.
-  const selections = migrateSelectionsByFaculty(composition.selections, entries);
+  const selections = migrateSelectionsByFaculty(withDefaults, entries);
   const { issues, graph } = computeCapabilityResolution(entries);
   return {
     ...composition,
@@ -631,6 +650,80 @@ export async function validateCompositionSelections(selections: FittingSelection
     });
     validateSelection(facultyId, selected.length, metadata);
   }
+}
+
+/**
+ * Fittings that station themselves in every composition (`x-garrison.default_fit`).
+ * Ordered by id so the derived `unfitted` list is stable across saves and a diff
+ * never churns.
+ */
+export function defaultFitEntries(entries: LibraryEntry[]): LibraryEntry[] {
+  return entries
+    .filter((entry) => entry.metadata.default_fit === true)
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/**
+ * Union the stored selections with every `default_fit` Fitting the composition
+ * has not explicitly unfitted.
+ *
+ * Membership in a composition is otherwise presence-based, which cannot express
+ * "deliberately not stationed" — so removing an auto-fitted Fitting would be
+ * undone by the very next read. `unfitted` is that missing vocabulary, and it is
+ * consulted ONLY for default-fit ids: for everything else absence already means
+ * absence, and honouring the list there would let a stale entry veto a Fitting
+ * the user has since re-added by hand.
+ *
+ * A stored entry always wins over the default: it carries the user's config.
+ */
+export function applyDefaultFit(
+  selections: FittingSelectionMap,
+  entries: LibraryEntry[],
+  unfitted: string[] = []
+): FittingSelectionMap {
+  const excluded = new Set(unfitted);
+  const stored = new Set(
+    Object.values(selections)
+      .flatMap((items) => items ?? [])
+      .map((item) => item.id)
+  );
+  const additions = defaultFitEntries(entries).filter(
+    (entry) => !stored.has(entry.id) && !excluded.has(entry.id)
+  );
+  if (!additions.length) return selections;
+  const next: FittingSelectionMap = {};
+  for (const [faculty, items] of Object.entries(selections)) {
+    next[faculty as FacultyId] = [...(items ?? [])];
+  }
+  for (const entry of additions) {
+    (next[entry.faculty] ??= []).push(defaultConfigForEntry(entry));
+  }
+  return next;
+}
+
+/**
+ * The `unfitted` list implied by a desired selection set: every default-fit
+ * Fitting the user did NOT ask for. Derived at save time from the full desired
+ * map rather than tracked by the UI, so the Compose grid and the Muster swap
+ * endpoint — two independent writers — cannot disagree about it.
+ */
+export function deriveUnfitted(
+  selections: FittingSelectionMap,
+  entries: LibraryEntry[]
+): string[] {
+  const selected = new Set(
+    Object.values(selections)
+      .flatMap((items) => items ?? [])
+      .map((item) => item.id)
+  );
+  return defaultFitEntries(entries)
+    .map((entry) => entry.id)
+    .filter((id) => !selected.has(id));
+}
+
+function normalizeUnfitted(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((v): v is string => typeof v === "string" && v.length > 0))].sort();
 }
 
 function normalizeSelections(selections: FittingSelectionMap): FittingSelectionMap {

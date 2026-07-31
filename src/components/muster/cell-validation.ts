@@ -11,7 +11,7 @@
 // AGENTIC target - a target whose runtime hosts an agent loop. garrison-call is
 // single-shot and deliberately ineligible for a skill cell.
 
-export const AGENTIC_RUNTIMES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode", "cursor"] as const;
+export const AGENTIC_RUNTIMES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode", "cursor", "openai-agents"] as const;
 const AGENTIC_RUNTIME_SET = new Set<string>(AGENTIC_RUNTIMES);
 
 export interface CellLike {

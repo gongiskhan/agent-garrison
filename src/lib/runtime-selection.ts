@@ -8,8 +8,42 @@
 // This module is the small, pure decision layer the runner uses to decide WHICH
 // engine to spawn and WITH WHICH provider env. It is deliberately decoupled from
 // the heavy runner internals so it can be unit-tested in isolation.
-import type { CapabilityProvision } from "./types";
+import type { CapabilityProvision, ProviderMechanism } from "./types";
 import { accountAuthEnv, accountVaultKey } from "./account-env";
+
+/**
+ * The env-var pair a provider override is applied through. Defaults are the
+ * Anthropic pair, which is what claude-code-runtime declares and what this
+ * module hardcoded before runtimes with a different wire shape existed.
+ */
+const DEFAULT_BASE_URL_ENV = "ANTHROPIC_BASE_URL";
+const DEFAULT_AUTH_ENV = "ANTHROPIC_AUTH_TOKEN";
+
+/**
+ * Resolve the base-URL / auth env-var names for one provider slot from the
+ * runtime Fitting's own declaration. `provider_env[<slot>]` wins over the
+ * top-level pair, so an engine that fronts several endpoint families keeps one
+ * key per family instead of them contending for a single name.
+ *
+ * Reading the FITTING's declaration (rather than mirroring its provider table in
+ * src/lib) is deliberate: the fitting is an independent package, and a second copy
+ * of that table here would drift the moment a provider is added on one side only.
+ */
+export function providerEnvNames(
+  mechanism: ProviderMechanism | undefined,
+  provider: string
+): { baseUrlEnv: string; authEnv: string; anthropicShape: boolean } {
+  const perProvider = mechanism?.type === "env" ? mechanism.provider_env?.[provider] : undefined;
+  const baseUrlEnv =
+    perProvider?.base_url_env ??
+    (mechanism?.type === "env" ? mechanism.base_url_env : undefined) ??
+    DEFAULT_BASE_URL_ENV;
+  const authEnv =
+    perProvider?.auth_env ??
+    (mechanism?.type === "env" ? mechanism.auth_env : undefined) ??
+    DEFAULT_AUTH_ENV;
+  return { baseUrlEnv, authEnv, anthropicShape: baseUrlEnv === DEFAULT_BASE_URL_ENV };
+}
 
 /** The default primary runtime when GlobalConfig.primary_runtime is unset. */
 export const DEFAULT_PRIMARY_RUNTIME = "claude-code-runtime";
@@ -136,7 +170,13 @@ export interface PrimaryRuntimeEnv {
 export function buildPrimaryRuntimeEnv(
   descriptor: PrimaryRuntimeDescriptor,
   secretLookup: (vaultKey: string) => string | undefined,
-  providers: PolicyProvider[]
+  providers: PolicyProvider[],
+  /**
+   * The primary Fitting's declared `provider_mechanism`. Absent → the historical
+   * Anthropic env pair, which is exactly what claude-code-runtime declares, so
+   * omitting it is byte-identical to the pre-generalisation behaviour.
+   */
+  mechanism?: ProviderMechanism
 ): PrimaryRuntimeEnv {
   const config = descriptor.config;
   const env: Record<string, string> = {
@@ -229,15 +269,28 @@ export function buildPrimaryRuntimeEnv(
     dummyToken: entry.dummyToken ?? null
   };
 
-  const baseUrlOverride = config.base_url !== undefined ? String(config.base_url).trim() : "";
+  // `base_url` is the historical (claude-code) config key; `baseUrl` is the key
+  // the OpenAI-shape runtimes declare. Accept both so the override works whichever
+  // spelling the fitting's config_schema uses.
+  const rawOverride = config.base_url ?? config.baseUrl;
+  const baseUrlOverride = rawOverride !== undefined ? String(rawOverride).trim() : "";
   const baseUrl = baseUrlOverride || spec.baseUrl;
   if (!baseUrl) {
     throw new Error(`provider "${provider}" requires a base URL but none is configured.`);
   }
-  env.ANTHROPIC_BASE_URL = baseUrl;
+
+  // Apply the override through the env pair the FITTING declares for this provider
+  // slot. For claude-code that is ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN (byte
+  // identical to before); for an OpenAI-shape engine it is that provider's own
+  // pair — and projecting the base URL there is what makes the endpoint TRUSTED,
+  // which is the precondition for its key being attached at all.
+  const { baseUrlEnv, authEnv, anthropicShape } = providerEnvNames(mechanism, provider);
+  env[baseUrlEnv] = baseUrl;
   env.GARRISON_PROVIDER = provider;
-  // Force the auth-token path (never ride an inherited ANTHROPIC_API_KEY).
-  env.ANTHROPIC_API_KEY = "";
+  if (anthropicShape) {
+    // Force the auth-token path (never ride an inherited ANTHROPIC_API_KEY).
+    env.ANTHROPIC_API_KEY = "";
+  }
 
   let token = spec.dummyToken ?? "";
   if (spec.vaultKey) {
@@ -250,10 +303,13 @@ export function buildPrimaryRuntimeEnv(
     token = resolved;
   }
   if (token) {
-    env.ANTHROPIC_AUTH_TOKEN = token;
+    env[authEnv] = token;
   }
 
-  return { env, providerLaunch: true };
+  // providerLaunch means only one thing: "the claude-pty spawn must not scrub the
+  // ANTHROPIC_* pair it was handed". A non-Anthropic pair has nothing for it to
+  // keep, so claiming it would assert a provider launch that never happened.
+  return { env, providerLaunch: anthropicShape };
 }
 
 /** A model-router target (subset of the routing.json target shape). */

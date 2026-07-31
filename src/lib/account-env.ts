@@ -32,6 +32,7 @@ export type AccountPlatform =
   | "google"
   | "openrouter"
   | "huggingface"
+  | "glm"
   | "custom";
 
 export const ACCOUNT_PLATFORMS: AccountPlatform[] = [
@@ -40,6 +41,7 @@ export const ACCOUNT_PLATFORMS: AccountPlatform[] = [
   "google",
   "openrouter",
   "huggingface",
+  "glm",
   "custom"
 ];
 
@@ -289,6 +291,31 @@ export const PLATFORM_SPECS: Record<AccountPlatform, PlatformSpec> = {
       ],
       extra: { url: "https://huggingface.co/docs/hub/security-tokens", label: "Token docs" },
       note: "Inference Providers usage bills to your Hugging Face account; free accounts get a small monthly allowance."
+    }
+  },
+  glm: {
+    id: "glm",
+    label: "GLM (self-hosted)",
+    runtimes: "the OpenAI Agents runtime pointed at a self-hosted GLM endpoint",
+    // A dedicated name, NOT OPENAI_API_KEY: a composition may hold both a real
+    // OpenAI key and a self-hosted endpoint, and one shared name means whichever
+    // key is present is sent to whichever endpoint is configured.
+    envKeys: ["GLM_API_KEY"],
+    clearKeys: [],
+    // Self-hosted: no vendor CLI, so no machine login and no auth file.
+    nativeLoginPath: null,
+    tokenHint: "the bearer token your endpoint accepts",
+    apiKeyGuide: {
+      // There is no vendor console to link to — the endpoint is somebody's box —
+      // so point at the upstream project that most commonly serves this shape.
+      url: "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+      urlLabel: "vLLM - OpenAI-compatible server (--api-key)",
+      steps: [
+        "Get the bearer token from whoever runs the endpoint (for vLLM/SGLang it is the value passed to --api-key).",
+        "Paste it below, then set the endpoint URL on the OpenAI Agents runtime's config as baseUrl (ending in /v1).",
+        "Garrison injects the token as GLM_API_KEY and only ever sends it to that configured URL."
+      ],
+      note: "A self-hosted endpoint has no balance or usage API, so no credit is shown here. If the endpoint is plain http:// on a public address, the token and every prompt travel unencrypted - prefer a tailnet address or a TLS terminator."
     }
   },
   custom: {

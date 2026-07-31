@@ -724,6 +724,7 @@ function FittingConfigSection({
                 field={field}
                 fittingId={entry.id}
                 value={selection.config[field.key] ?? field.default ?? ""}
+                provider={String(selection.config.provider ?? "")}
                 onChange={(value) => updateConfig(entry, field.key, value)}
               />
             ))}
@@ -769,11 +770,14 @@ function ConfigInput({
   field,
   fittingId,
   value,
+  provider,
   onChange
 }: {
   field: ConfigSchemaField;
   fittingId: string;
   value: string | number | boolean;
+  /** The sibling `provider` config value, for engines that front several endpoint families. */
+  provider?: string;
   onChange: (value: string | number | boolean) => void;
 }) {
   // RUNTIME-ACCOUNTS-V1: the "account" key renders as the account selector +
@@ -786,7 +790,7 @@ function ConfigInput({
         <AccountField
           value={String(value)}
           onChange={(next) => onChange(next)}
-          platform={platformForRuntime(fittingId)}
+          platform={platformForRuntime(fittingId, undefined, provider)}
         />
         {field.description ? <div className="hint">{field.description}</div> : null}
       </div>

@@ -1,0 +1,234 @@
+name: glm-operative
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/basic-memory
+    - path: ../../fittings/seed/dispatcher
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/identity-gary
+    - path: ../../fittings/seed/openai-agents-runtime
+    - path: ../../fittings/seed/orchestrator
+    - path: ../../fittings/seed/web-channel-default
+x-garrison:
+  composition:
+    schema: 4
+    id: glm
+    name: GLM (self-hosted, OpenAI-compatible)
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 10
+        max_spend_per_day: 0
+        max_tool_calls_per_tick: 300
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      orchestrator:
+        - id: orchestrator
+          config:
+            port: 7087
+            bind_host: 127.0.0.1
+      channels:
+        - id: web-channel-default
+          config:
+            port: 7083
+            bind_host: 127.0.0.1
+            gateway_url: ''
+      gateway:
+        - id: http-gateway
+          config:
+            port: 4777
+            bind_host: 127.0.0.1
+            compact_enabled: false
+            compact_threshold_pct: 60
+            # Pins BOTH halves of the routing brain to the primary's own adapter.
+            # Without it the classifier defaults to a Claude Code haiku PTY -
+            # which would put this composition back on the Anthropic plan for
+            # every turn's Stage-A - and the Dispatcher would call through
+            # garrison-call, whose default-deny table does not list this endpoint.
+            routing_on_primary: true
+        - id: dispatcher
+          config:
+            evidence_file: .garrison/decisions.jsonl
+      runtimes:
+        - id: openai-agents-runtime
+          config:
+            provider: glm
+            model: glm-5.2
+            # The TRUSTED endpoint. The runner projects this into GLM_BASE_URL
+            # (provider_mechanism.provider_env.glm), and the adapter attaches
+            # GLM_API_KEY only to a request that actually goes here.
+            baseUrl: http://154.59.156.40:33532/v1
+            promptMode: full
+            maxTurns: 12
+            account: ''
+      memory:
+        - id: basic-memory
+          config:
+            vault_dir: ~/ObsidianVault
+            memory_dir: Memory
+            project_name: main
+            capture_enabled: true
+            register_codex_gemini: false
+      modes:
+        - id: identity-gary
+          config:
+            user_name: the user
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+      soul: .garrison/prompts/soul.md
+    duties:
+      - id: dispatch
+        title: Dispatch
+        description: Read an inbound task and route it to the right duty and level.
+        levels:
+          - description: >-
+              Single-shot structured classification of the task into (duty, level) on the
+              lean harness - no file tools, minimal prompt, lowest token floor.
+            cell:
+              target: glm-fast
+      - id: code
+        title: Code
+        description: 'Write or change code: features, fixes, refactors.'
+        levels:
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
+            cell:
+              target: glm-fast
+          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
+            cell:
+              target: glm-standard
+          - description: >-
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
+              security-sensitive or multi-subsystem work
+            cell:
+              target: glm-deep
+      - id: other
+        title: Other
+        description: Anything that fits no other duty.
+        levels:
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+            cell:
+              target: glm-fast
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+            cell:
+              target: glm-standard
+      - id: research
+        title: Research
+        description: 'Find things out: look up, survey, investigate.'
+        levels:
+          - description: 'lookup: a fact check or a single-source answer'
+            cell:
+              target: glm-fast
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+            cell:
+              target: glm-deep
+      - id: plan
+        title: Plan
+        description: Design an implementation plan before building.
+        levels:
+          - description: 'design the implementation plan for the work at hand: explore, decide, write the plan'
+            cell:
+              target: glm-deep
+      - id: implement
+        title: Implement
+        description: Execute a planned change end to end.
+        levels:
+          - description: 'carry a planned change end to end: code, verify, evidence'
+            cell:
+              target: glm-standard
+      - id: review
+        title: Review
+        description: Review a change for correctness and quality.
+        levels:
+          - description: 'standard: review a focused diff for correctness and style'
+            cell:
+              target: glm-standard
+          - description: 'deep: review a large or risky change; hunt for real defects, not nits'
+            cell:
+              target: glm-deep
+      - id: test
+        title: Test
+        description: Exercise a change with tests.
+        levels:
+          - description: 'standard: run and extend the tests that cover the change'
+            cell:
+              target: glm-standard
+      - id: writing
+        title: Writing
+        description: 'Write prose: notes, docs, posts, specs.'
+        levels:
+          - description: 'short-form: a note, a summary, an announcement, a doc tweak'
+            cell:
+              target: glm-fast
+          - description: 'long-form: a document, a spec, a post with structure and polish'
+            cell:
+              target: glm-deep
+      - id: ops
+        title: Ops
+        description: 'Operate the system: run, restart, configure, deploy.'
+        levels:
+          - description: 'routine: restart a service, check a status, run a known command'
+            cell:
+              target: glm-fast
+          - description: 'careful: config changes, migrations, anything with blast radius'
+            cell:
+              target: glm-standard
+      - id: probe-question
+        title: Probe Question
+        description: Answer a health-probe question with one short reply.
+        levels:
+          - description: answer a routing probe with a single short reply
+            cell:
+              target: glm-fast
+    selected_duties:
+      - dispatch
+      - code
+      - other
+      - research
+      - plan
+      - implement
+      - review
+      - test
+      - writing
+      - ops
+      - probe-question
+    targets:
+      # Engine identity only - effort lives in the duty cells, and this engine has
+      # no effort control at all (plain chat_completions carries no such
+      # parameter), so no cell here declares one.
+      - id: glm-fast
+        runtime: openai-agents
+        model: glm-5.2
+        provider: glm
+        params:
+          type: secondary
+          promptMode: lean
+          maxTurns: 4
+      - id: glm-standard
+        runtime: openai-agents
+        model: glm-5.2
+        provider: glm
+        params:
+          type: secondary
+          promptMode: full
+          maxTurns: 12
+      - id: glm-deep
+        runtime: openai-agents
+        model: glm-5.2
+        provider: glm
+        params:
+          type: secondary
+          promptMode: full
+          maxTurns: 24
+      - id: glm-classifier
+        runtime: openai-agents
+        model: glm-5.2
+        provider: glm
+        params:
+          type: secondary
+          promptMode: lean
+          maxTurns: 2
