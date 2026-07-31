@@ -43,6 +43,19 @@ export class Ingress {
     }
     if (!secretMatches(query.key, expected)) {
       this.counters.bump("rejected_auth");
+      // A rejected key is otherwise invisible: the counter says "someone was
+      // turned away" but not whether the URL was truncated, double-encoded, or
+      // simply absent - and that is exactly the difference between a config typo
+      // and an attack. Shape only, never the value: length + first/last 2 chars
+      // of BOTH sides, so a mismatch is diagnosable without printing a secret.
+      const shape = (s) =>
+        typeof s !== "string" || s.length === 0
+          ? "<absent>"
+          : `len=${s.length} ${s.slice(0, 2)}..${s.slice(-2)}`;
+      this.log.warn?.(
+        `[omi-channel] rejected bad key: presented ${shape(query.key)}; expected ${shape(expected)}; ` +
+          `params=[${Object.keys(query).join(",")}]`
+      );
       return { ok: false, status: 401, reason: "bad key" };
     }
     const uid = typeof query.uid === "string" ? query.uid.trim() : "";
