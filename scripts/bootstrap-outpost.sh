@@ -89,9 +89,29 @@ sed \
   "$INSTALL_DIR/launchd/io.garrison.outpost.plist" \
   > "$PLIST_PATH"
 
+# The bridge entrypoint starts with `#!/usr/bin/env node`, and launchd runs with a
+# minimal PATH that contains NONE of the places a Mac keeps node (Homebrew, nvm).
+# Without this the agent loads, fails instantly with `env: node: No such file or
+# directory`, and launchd respawn-loops forever - the install "succeeds" and the
+# bridge never connects. Observed on the MacBook Pro. Pin the node directory we
+# already resolved into the plist so the agent's environment does not depend on a
+# login shell it will never get.
+NODE_DIR="$(dirname "$(command -v node)")"
+if [[ -x /usr/libexec/PlistBuddy ]]; then
+  /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$PLIST_PATH" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$PLIST_PATH" >/dev/null
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string ${NODE_DIR}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" "$PLIST_PATH" >/dev/null
+  echo "==> Pinned node dir into the agent PATH: $NODE_DIR"
+else
+  echo "WARNING: PlistBuddy not found; the agent will rely on launchd's PATH and may not find node." >&2
+fi
+
 # --- Load ---
 echo "==> Loading service"
 launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
+# A previously DISABLED label refuses to bootstrap with a bare "Input/output
+# error" (5). Re-enable first so a re-install after a deliberate shutdown works.
+launchctl enable "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 
 # --- Wait for ready ---

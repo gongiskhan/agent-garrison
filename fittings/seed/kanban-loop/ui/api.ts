@@ -389,6 +389,19 @@ async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface MachineOption {
+  name: string;
+  label: string;
+  connected: boolean;
+  pending?: boolean;
+  isHost: boolean;
+}
+export interface MachinesView {
+  machines: MachineOption[];
+  outpostsAvailable: boolean;
+  reason?: string;
+}
+
 export const api = {
   board: () => jfetch<BoardView>("/board"),
   runtime: () => jfetch<BoardRuntime>("/board/runtime"),
@@ -407,8 +420,16 @@ export const api = {
   // `routing` is the card's explicit run spec (RUN-SPEC-V1) — the SAME TurnRouting
   // pin the Web Channel's rail produces. Every field is optional and an absent one
   // means automatic, which is the default for every card.
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string }) =>
+  // `placement` (brief D6) is WHERE the card runs: { target: "host" } (the
+  // default) or a paired machine name. Absent means host, so an untouched picker
+  // sends nothing at all.
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string } }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
+  // GET /machines — the placement picker's vocabulary: the host plus every paired
+  // outpost and whether it is connected right now. Degrades to host-only with a
+  // `reason` when the outpost daemon is unreachable, so the picker is never an
+  // unexplained empty menu.
+  machines: () => jfetch<MachinesView>("/machines"),
   // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
   policy: () => jfetch<PolicyView>("/policy"),

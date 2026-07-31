@@ -12,6 +12,7 @@ import {
   parsePlacement,
   selectClaimable,
   buildJob,
+  buildDutyPrompt,
   DISPATCH_LEASE_SECONDS,
   type CardDispatch,
   type ClaimableCard
@@ -30,6 +31,10 @@ function card(over: Partial<ClaimableCard> = {}): ClaimableCard {
     placement: { target: MACHINE },
     dispatch: null,
     command: "echo hi",
+    description: null,
+    acceptance: null,
+    duty: null,
+    goalMode: false,
     ...over
   };
 }
@@ -181,16 +186,62 @@ describe("findExpiredClaims", () => {
 });
 
 describe("buildJob", () => {
-  it("refuses to build a job with no runnable payload", () => {
-    // Handing a worker a job it cannot execute would burn a claim and a lease
-    // for nothing.
-    expect(buildJob(card({ command: null }))).toBeNull();
-  });
-
   it("carries the command and the lease terms", () => {
     const job = buildJob(card())!;
     expect(job.run).toEqual({ kind: "command", command: "echo hi" });
     expect(job.leaseSeconds).toBe(DISPATCH_LEASE_SECONDS);
     expect(job.heartbeatSeconds).toBeLessThan(job.leaseSeconds);
+  });
+
+  // A literal command was once the ONLY runnable payload: buildJob returned null
+  // for anything else, so an agentic card placed on a machine was skipped
+  // forever - the worker polled, saw nothing claimable, and the card sat on the
+  // board looking dispatched while nothing intended to run it.
+  it("builds a DUTY run for an agentic card (no literal command)", () => {
+    const job = buildJob(card({ command: null, duty: "implement" }))!;
+    expect(job).not.toBeNull();
+    expect(job.run.kind).toBe("duty");
+    if (job.run.kind !== "duty") throw new Error("expected a duty run");
+    expect(job.run.duty).toBe("implement");
+    expect(job.run.prompt).toContain("stub");        // the title
+    expect(job.run.prompt).toContain("garrison");    // the project
+  });
+
+  it("falls back to the card's list when it names no duty", () => {
+    const job = buildJob(card({ command: null, duty: null, list: "review" }))!;
+    if (job.run.kind !== "duty") throw new Error("expected a duty run");
+    expect(job.run.duty).toBe("review");
+  });
+
+  it("prefers an explicit command over the duty lane", () => {
+    // The zero-token stub lane stays the cheapest way to smoke test a machine.
+    const job = buildJob(card({ command: "echo probe", duty: "implement" }))!;
+    expect(job.run).toEqual({ kind: "command", command: "echo probe" });
+  });
+});
+
+describe("buildDutyPrompt", () => {
+  it("states the work item, acceptance, and where the agent is running", () => {
+    const p = buildDutyPrompt(card({
+      command: null,
+      title: "Add a health endpoint",
+      description: "Return 200 with a version string.",
+      acceptance: "GET /health returns 200."
+    }));
+    expect(p).toContain("# Work item: Add a health endpoint");
+    expect(p).toContain("Return 200 with a version string.");
+    expect(p).toContain("# Acceptance");
+    expect(p).toContain("GET /health returns 200.");
+    expect(p).toContain("OUTPOST");
+  });
+
+  it("says the project must be inferred when the card has none", () => {
+    const p = buildDutyPrompt(card({ command: null, project: null }));
+    expect(p).toMatch(/none assigned/i);
+  });
+
+  it("never leaves a goalMode card without a definition of done", () => {
+    const p = buildDutyPrompt(card({ command: null, goalMode: true, acceptance: null }));
+    expect(p).toContain("# Acceptance");
   });
 });

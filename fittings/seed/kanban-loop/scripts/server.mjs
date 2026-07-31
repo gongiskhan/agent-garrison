@@ -2850,6 +2850,45 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
+      // GET /machines — the placement picker's vocabulary: the host plus every
+      // paired outpost with its live connected state. Same-origin proxy of the
+      // outpost daemon, exactly as /route-options proxies the gateway, so the
+      // browser never needs to reach the daemon (which binds loopback) and the
+      // picker cannot offer a machine the dispatcher would then refuse.
+      //
+      // The daemon URL is INSTANCE-SPECIFIC and arrives already port-shifted as
+      // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. No literal fallback: the old one
+      // named the codex port and every probe silently failed.
+      if (pathname === "/machines" && method === "GET") {
+        const host = { name: "host", label: "This machine (Garrison host)", connected: true, isHost: true };
+        const daemon = (process.env.GARRISON_OUTPOST_URL
+          || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
+          || "").trim();
+        if (!daemon) {
+          return jsonRes(res, 200, { machines: [host], outpostsAvailable: false, reason: "no outpost_host_url configured for this instance" });
+        }
+        try {
+          const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });
+          if (!r.ok) throw new Error(`daemon ${r.status}`);
+          const list = (await r.json()).outposts || [];
+          const machines = [host, ...list.map((o) => ({
+            name: o.name,
+            label: o.name,
+            connected: Boolean(o.connected),
+            pending: Boolean(o.pending),
+            isHost: false
+          }))];
+          return jsonRes(res, 200, { machines, outpostsAvailable: true });
+        } catch (e) {
+          // The daemon being down must not break card creation — degrade to
+          // host-only and SAY why, rather than rendering an empty picker.
+          return jsonRes(res, 200, {
+            machines: [host],
+            outpostsAvailable: false,
+            reason: `outpost daemon unreachable: ${e instanceof Error ? e.message : String(e)}`
+          });
+        }
+      }
       // GET /policy — read-only passthrough of the compiled Orchestrator policy
       // (work kinds, phase plans, skill bindings) so the card-create UI can
       // offer work kinds + per-card phase toggles (D17). 404 when Garrison has

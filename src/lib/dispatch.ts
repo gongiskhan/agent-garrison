@@ -93,6 +93,10 @@ interface RawCard {
   placement?: unknown;
   dispatch?: unknown;
   dispatchCommand?: unknown;
+  description?: unknown;
+  acceptance?: unknown;
+  duty?: unknown;
+  goalMode?: unknown;
 }
 
 export interface ClaimableCard {
@@ -104,6 +108,10 @@ export interface ClaimableCard {
   placement: CardPlacement;
   dispatch: CardDispatch | null;
   command: string | null;
+  description: string | null;
+  acceptance: string | null;
+  duty: string | null;
+  goalMode: boolean;
 }
 
 export function kanbanBoardDir(): string {
@@ -156,7 +164,11 @@ function parseCard(raw: unknown): ClaimableCard | null {
     rev: typeof card.rev === "number" ? card.rev : 0,
     placement: parsePlacement(card.placement),
     dispatch: parseDispatch(card.dispatch),
-    command: typeof card.dispatchCommand === "string" ? card.dispatchCommand : null
+    command: typeof card.dispatchCommand === "string" ? card.dispatchCommand : null,
+    description: typeof card.description === "string" ? card.description : null,
+    acceptance: typeof card.acceptance === "string" ? card.acceptance : null,
+    duty: typeof card.duty === "string" ? card.duty : null,
+    goalMode: card.goalMode === true
   };
 }
 
@@ -268,18 +280,58 @@ export function findExpiredClaims(
   });
 }
 
+// The brief for a duty run. Deliberately NOT kanban-loop's buildCardPrompt:
+// that one lives in the fitting and needs the board's list definitions, the
+// valid-next set, discussion/continuation/steering context and the resolved
+// skill — none of which the host dispatch layer has, and importing across that
+// boundary would drag the whole board model into src/lib. This is the smaller,
+// self-contained contract: WHAT the work is, and what "done" means. The remote
+// agent has the same skills (config-sync mirrors ~/.claude) and the same repo
+// (the Loadout materialized it), so the work item plus acceptance is enough.
+export function buildDutyPrompt(card: ClaimableCard): string {
+  const parts: string[] = [`# Work item: ${card.title || "(untitled)"}`];
+  parts.push(
+    card.project
+      ? `Project: ${card.project}`
+      : "Project: (none assigned — work in the repository this session starts in)"
+  );
+  parts.push(`Card: ${card.id}`, `List: ${card.list}`);
+  if (card.description && card.description.trim()) parts.push("", card.description.trim());
+  const acceptance = (card.acceptance || "").trim();
+  if (acceptance) parts.push("", "# Acceptance", acceptance);
+  else if (card.goalMode) {
+    // goalMode with no acceptance is the one case the local engine tolerates by
+    // falling back to the description; say so rather than shipping a run with no
+    // definition of done.
+    parts.push("", "# Acceptance", "(none recorded — treat the description above as the acceptance criteria)");
+  }
+  parts.push(
+    "",
+    "You are running on a Garrison OUTPOST, dispatched from the host board. The",
+    "repository has already been checked out and its environment materialized, so",
+    "work in the current directory. Finish the work item above, then stop."
+  );
+  return parts.join("\n");
+}
+
 export function buildJob(card: ClaimableCard, extra: Partial<DispatchJob> = {}): DispatchJob | null {
-  // v1 dispatches only stub commands — enough to prove claim → heartbeat →
-  // status → evidence with zero model tokens. A card with no command is not
-  // yet runnable remotely; returning null keeps it visible as unclaimable
-  // rather than handing a worker a job it cannot execute.
-  if (!card.command) return null;
+  // A literal command still wins when one is set: that is the zero-token stub
+  // lane the transport was proven with, and it stays the cheapest way to smoke
+  // test a machine.
+  //
+  // Everything else becomes a DUTY run. Returning null here (the old v1
+  // behaviour) meant an agentic card placed on a machine was skipped forever —
+  // the worker polled, saw nothing claimable, and the card sat on the board
+  // looking dispatched while nothing anywhere intended to run it.
+  const run: DispatchRun = card.command
+    ? { kind: "command", command: card.command }
+    : { kind: "duty", duty: card.duty || card.list, prompt: buildDutyPrompt(card) };
   return {
     cardId: card.id,
     title: card.title,
     list: card.list,
     project: card.project,
-    run: { kind: "command", command: card.command },
+    run,
     leaseSeconds: DISPATCH_LEASE_SECONDS,
     heartbeatSeconds: DISPATCH_HEARTBEAT_SECONDS,
     ...extra

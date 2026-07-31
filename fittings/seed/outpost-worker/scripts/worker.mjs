@@ -132,6 +132,51 @@ function runCommand(command, cwd) {
   });
 }
 
+// Run an AGENTIC job: a Claude Code turn against the card's brief, in the
+// materialized checkout. Two deliberate choices, both learned from the push
+// lane's bugs (kanban-loop/lib/outpost-dispatch.mjs):
+//
+//   - the prompt goes over STDIN, never argv. A card description is arbitrary
+//     user text of arbitrary length; embedding it in a shell command line is how
+//     that lane ended up base64-piping through `sh` and tripping over quoting.
+//     stdin has no length limit and no quoting rules at all.
+//   - `claude` is spawned DIRECTLY (no shell), so nothing in the prompt can be
+//     interpreted as shell syntax.
+//
+// The permission mode matches how Garrison runs Claude Code everywhere else
+// (CLAUDE.md: bypassPermissions) - an unattended remote turn has no surface to
+// answer a permission prompt on, so anything stricter simply hangs.
+function runAgent(prompt, cwd) {
+  return new Promise((resolve) => {
+    const bin = process.env.GARRISON_DISPATCH_CLAUDE_BIN || "claude";
+    const args = ["-p", "--permission-mode", "bypassPermissions"];
+    const child = spawn(bin, args, {
+      cwd,
+      env: { ...process.env, GARRISON_OUTPOST_MACHINE: MACHINE },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true
+    });
+    let stdout = "";
+    let stderr = "";
+    const CAP = 1024 * 1024;
+    child.stdout.on("data", (d) => { if (stdout.length < CAP) stdout += d.toString(); });
+    child.stderr.on("data", (d) => { if (stderr.length < CAP) stderr += d.toString(); });
+    const timer = setTimeout(() => {
+      try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+    }, MAX_RUN_MS);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ exitCode: -1, stdout, stderr: `${stderr}\nspawn error: ${err.message}` });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ exitCode: code ?? -1, stdout, stderr });
+    });
+    child.stdin.on("error", () => { /* claude exited before reading; close() below still resolves */ });
+    child.stdin.end(prompt, "utf8");
+  });
+}
+
 async function uploadEvidence(cardId, name, content) {
   try {
     const res = await api("evidence", {
@@ -278,14 +323,17 @@ async function executeJob(job) {
       cwd = m.target;
     }
 
-    if (job.run.kind !== "command") {
+    if (job.run.kind === "command") {
+      result = await runCommand(job.run.command, cwd);
+    } else if (job.run.kind === "duty") {
+      log(`running duty "${job.run.duty}" for ${job.cardId} in ${cwd}`);
+      result = await runAgent(job.run.prompt, cwd);
+    } else {
       result = {
         exitCode: -1,
         stdout: "",
         stderr: `unsupported run kind: ${job.run.kind}`
       };
-    } else {
-      result = await runCommand(job.run.command, cwd);
     }
   } finally {
     clearInterval(beat);
@@ -297,7 +345,9 @@ async function executeJob(job) {
     `title:   ${job.title}`,
     `machine: ${MACHINE}`,
     `worker:  ${WORKER_ID}`,
-    `command: ${job.run.kind === "command" ? job.run.command : "(n/a)"}`,
+    job.run.kind === "command"
+      ? `command: ${job.run.command}`
+      : `duty:    ${job.run.duty}`,
     `exit:    ${result.exitCode}`,
     ``,
     `## stdout`,

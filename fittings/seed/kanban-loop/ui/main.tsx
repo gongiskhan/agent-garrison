@@ -25,6 +25,7 @@ import {
   type PolicyView,
   type CardRouting,
   type RouteOptionsView,
+  type MachinesView,
   type WaitingOn,
   type DrillStamp
 } from "./api";
@@ -851,6 +852,11 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [spec, setSpec] = useState<CardRouting>({});
   const [options, setOptions] = useState<RouteOptionsView | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  // Placement (brief D6): WHERE the card runs. "" = the host, which is the
+  // default and sends no placement at all. Only CONNECTED outposts are offered:
+  // pinning a card to a sleeping Mac just parks it in needs-attention.
+  const [machines, setMachines] = useState<MachinesView | null>(null);
+  const [placement, setPlacement] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -865,6 +871,9 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     api.routeOptions()
       .then((v) => { if (alive) setOptions(v); })
       .catch((e) => { if (alive) setOptionsError(e instanceof Error ? e.message : String(e)); });
+    // Best-effort: the endpoint already degrades to host-only with a reason, so a
+    // failure here leaves the picker on "This machine" rather than blocking.
+    api.machines().then((v) => { if (alive) setMachines(v); }).catch(() => { /* host-only */ });
     return () => { alive = false; };
   }, []);
 
@@ -889,7 +898,10 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         project: proj,
         description,
         goalMode,
-        ...(Object.keys(routing).length ? { routing } : {})
+        ...(Object.keys(routing).length ? { routing } : {}),
+        // Absent placement IS "host" on the wire — never send { target: "host" },
+        // or every card carries a pin it did not ask for.
+        ...(placement ? { placement: { target: placement } } : {})
       });
       onCreated();
       onClose();
@@ -956,6 +968,26 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         </label>
       </div>
       <RunSpec spec={spec} setSpec={setSpec} options={options} optionsError={optionsError} />
+      {/* WHERE the card runs (brief D6). Deliberately OUTSIDE <RunSpec>: routing
+          decides runtime/model/effort, placement decides the MACHINE, and they are
+          orthogonal - any card can run on any outpost regardless of project. */}
+      <div className="spec-grid">
+        <SpecSelect
+          id="nc-machine" label="Machine" hint="this machine (the Garrison host)"
+          value={placement}
+          disabled={machines && !machines.outpostsAvailable ? (machines.reason || "no outposts paired") : null}
+          options={(machines?.machines ?? [])
+            .filter((m) => !m.isHost)
+            .map((m) => ({
+              value: m.name,
+              label: m.label,
+              // Say the state plainly: a card pinned to an offline machine parks
+              // in needs-attention until that machine comes back.
+              detail: m.connected ? "online" : m.pending ? "pairing not finished" : "offline - card will park"
+            }))}
+          onChange={setPlacement}
+        />
+      </div>
       {err && <div className="banner">{err}</div>}
       <button className="btn primary" disabled={saving} onClick={() => void submit()}>
         {saving ? "Creating…" : "Create card"}
