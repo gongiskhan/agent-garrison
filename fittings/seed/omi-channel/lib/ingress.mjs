@@ -31,7 +31,7 @@ export class Ingress {
   }
 
   // -> { ok: true, uid } | { ok: false, status, reason }
-  authorize(query) {
+  authorize(query, pathname = "?") {
     if (!this.cfg.enabled) {
       this.counters.bump("rejected_disabled");
       return { ok: false, status: 403, reason: "ingress disabled" };
@@ -52,9 +52,21 @@ export class Ingress {
         typeof s !== "string" || s.length === 0
           ? "<absent>"
           : `len=${s.length} ${s.slice(0, 2)}..${s.slice(-2)}`;
+      // When the presented value merely has our secret plus a tail, the tail is
+      // the interesting part and is NOT itself a secret (it is whatever the
+      // sender glued on - a separator plus uid). Print it JSON-escaped so an
+      // invisible separator (newline, tab, %26 left encoded) is actually
+      // readable; inferring it from a length delta got the separator wrong once.
+      const presented = typeof query.key === "string" ? query.key : "";
+      const tail =
+        typeof expected === "string" && expected && presented.startsWith(expected)
+          ? ` trailing=${JSON.stringify(presented.slice(expected.length))}`
+          : "";
+      // The PATH is what makes this actionable: each Omi trigger is configured
+      // with its own URL, so "which endpoint" IS "which field the human must fix".
       this.log.warn?.(
-        `[omi-channel] rejected bad key: presented ${shape(query.key)}; expected ${shape(expected)}; ` +
-          `params=[${Object.keys(query).join(",")}]`
+        `[omi-channel] rejected bad key on ${pathname}: presented ${shape(query.key)}; ` +
+          `expected ${shape(expected)}; params=[${Object.keys(query).join(",")}]${tail}`
       );
       return { ok: false, status: 401, reason: "bad key" };
     }

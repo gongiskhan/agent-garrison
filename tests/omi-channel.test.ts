@@ -174,7 +174,7 @@ describe("omi-channel double-encoded webhook query", () => {
   it("splits a key that swallowed uid and session_id", () => {
     const repaired = repairDoubleEncodedQuery({
       key: `${SECRET}&uid=${UID}&session_id=abc123`
-    });
+    }, null, SECRET);
     expect(repaired.key).toBe(SECRET);
     expect(repaired.uid).toBe(UID);
     expect(repaired.session_id).toBe("abc123");
@@ -182,7 +182,31 @@ describe("omi-channel double-encoded webhook query", () => {
 
   it("leaves a well-formed query untouched", () => {
     const clean = { key: SECRET, uid: UID, session_id: "s1" };
-    expect(repairDoubleEncodedQuery({ ...clean })).toEqual(clean);
+    expect(repairDoubleEncodedQuery({ ...clean }, null, SECRET)).toEqual(clean);
+  });
+
+
+  it("recovers when the separator is NOT an ampersand (newline, space, or encoded)", () => {
+    // The live failure: same 81-char length, same first/last chars, but no
+    // literal '&' - so an includes("&") check missed it entirely. Prefix match
+    // on the secret is separator-agnostic.
+    for (const sep of ["\n", " ", "\t", "%26"]) {
+      const repaired = repairDoubleEncodedQuery(
+        { key: `${SECRET}${sep}uid=${UID}` },
+        null,
+        SECRET
+      );
+      expect(repaired.key).toBe(SECRET);
+      expect(repaired.uid).toBe(UID);
+    }
+  });
+
+  it("does not repair a key that merely resembles the secret", () => {
+    const wrong = { key: `not-the-secret&uid=${UID}` };
+    const repaired = repairDoubleEncodedQuery({ ...wrong }, null, SECRET);
+    // Splitting on '&' still happens, but the head is NOT the secret, so auth
+    // downstream rejects it - the repair never invents authorisation.
+    expect(repaired.key).toBe("not-the-secret");
   });
 
   it("never lets a recovered value override a real query param", () => {
@@ -191,7 +215,7 @@ describe("omi-channel double-encoded webhook query", () => {
     const repaired = repairDoubleEncodedQuery({
       key: `${SECRET}&uid=attacker-uid`,
       uid: UID
-    });
+    }, null, SECRET);
     expect(repaired.key).toBe(SECRET);
     expect(repaired.uid).toBe(UID);
   });

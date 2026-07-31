@@ -112,21 +112,46 @@ async function clearStatusFile(file) {
 // silently kills the pipe. Split it back out rather than making the user retype
 // a 48-char secret on a phone. This never weakens the check: the recovered `key`
 // is still compared in full, and real params always win over recovered ones.
-export function repairDoubleEncodedQuery(query, counters = null) {
+export function repairDoubleEncodedQuery(query, counters = null, expectedSecret = "") {
   const key = typeof query.key === "string" ? query.key : "";
-  if (!key.includes("&")) return query;
-  const [head, ...tail] = key.split("&");
-  const recovered = new URLSearchParams(tail.join("&"));
+  if (!key) return query;
+
+  // Two ways the params get glued into `key`, and we must not assume which:
+  //  1. a literal '&' survived the decode  -> split on it;
+  //  2. some OTHER separator (encoded '&', newline, space) -> we cannot know it,
+  //     so detect the boundary by exact-prefix match on the secret instead.
+  // Guessing the separator from a length delta already failed once, so never
+  // infer it again. The prefix test is only PARSING: the authoritative check is
+  // still the timing-safe compare below, and a value that begins with the whole
+  // secret is by definition presented by someone who already holds it.
+  let head;
+  let tail;
+  if (key.includes("&")) {
+    const at = key.indexOf("&");
+    head = key.slice(0, at);
+    tail = key.slice(at + 1);
+  } else if (expectedSecret && key.length > expectedSecret.length && key.startsWith(expectedSecret)) {
+    head = expectedSecret;
+    tail = key.slice(expectedSecret.length);
+  } else {
+    return query;
+  }
+
+  // Permissive: handles "&uid=X&session_id=Y" and "<sep>uid=X" alike.
+  const recovered = {};
+  for (const match of tail.matchAll(/([a-z_]+)=([^&?\s]+)/gi)) recovered[match[1]] = match[2];
+  if (Object.keys(recovered).length === 0) return query;
+
   const merged = { ...query, key: head };
-  for (const [k, v] of recovered.entries()) {
+  for (const [k, v] of Object.entries(recovered)) {
     const present = merged[k];
     if (present === undefined || present === "") merged[k] = v;
   }
   counters?.bump?.("query_repaired_double_encoded");
   console.warn(
-    `[omi-channel] repaired a double-encoded webhook query: '&' arrived encoded so ` +
-      `key swallowed [${[...recovered.keys()].join(",")}]. Fix the URL in Omi's ` +
-      `Developer Settings to stop relying on this.`
+    `[omi-channel] repaired a mangled webhook query: key swallowed ` +
+      `[${Object.keys(recovered).join(",")}] via separator ${JSON.stringify(tail.slice(0, 6))}. ` +
+      `Fix the URL in Omi's Developer Settings to stop relying on this.`
   );
   return merged;
 }
@@ -214,7 +239,7 @@ export function makeRequestHandler(ctx) {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
-      const query = repairDoubleEncodedQuery(parsed.query || {}, counters);
+      const query = repairDoubleEncodedQuery(parsed.query || {}, counters, cfg.secrets?.webhookSecret ?? "");
 
       if (pathname === "/health" || pathname === "/api/health") {
         const pinned = store.pinnedUid();
@@ -240,7 +265,7 @@ export function makeRequestHandler(ctx) {
       // ---- Ingress surface. Everything under /omi/ (the public Funnel mount
       // path); ?key= shared secret + pinned uid on every route (I8). ----
       if (pathname === "/omi/memory" && method === "POST") {
-        const auth = ingress.authorize(query);
+        const auth = ingress.authorize(query, pathname);
         if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
         const bodyText = await readBody(req);
         if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
@@ -251,7 +276,7 @@ export function makeRequestHandler(ctx) {
       }
 
       if (pathname === "/omi/day-summary" && method === "POST") {
-        const auth = ingress.authorize(query);
+        const auth = ingress.authorize(query, pathname);
         if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
         const bodyText = await readBody(req);
         if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
@@ -260,7 +285,7 @@ export function makeRequestHandler(ctx) {
       }
 
       if (pathname === "/omi/realtime" && method === "POST") {
-        const auth = ingress.authorize(query);
+        const auth = ingress.authorize(query, pathname);
         if (!auth.ok) return jsonRes(res, auth.status, { error: auth.reason });
         const bodyText = await readBody(req);
         if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
