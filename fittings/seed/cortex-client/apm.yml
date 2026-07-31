@@ -1,0 +1,225 @@
+name: cortex-client
+version: 0.1.0
+description: >-
+  Remote-capability CLI client (connectors role). Installs a PINNED, license-isolated
+  clone of a capability-API command-line client and exposes it as one stable binary
+  path, so hooks, scheduled jobs and in-session agents reach a remote capability through
+  a single contract-generated client instead of a hand-rolled HTTP path each. Ships
+  INERT: no repository, no origin and no credential in the defaults - a fresh clone with
+  an empty vault installs nothing and still verifies green. The shipped reference
+  implementation is Ekoa's `cortex` CLI; any client honouring docs/CAPABILITY_CONTRACT.md
+  can take its place by pointing repo_url + git_ref somewhere else.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: connectors
+  # One binary name in one bin dir: two of these would fight over the same link.
+  cardinality_hint: single
+  component_shape: cli
+  ui:
+    views:
+      - id: connector
+        placement: sidebar-surface
+        entry: garrison:connector
+        route: /
+  platforms:
+    - all
+  summary: >-
+    A remote capability reached through ONE binary. Setup clones the client repository at
+    an exact commit (never a branch tip), installs and builds it outside Garrison's own
+    source tree, and links its executable into a stable bin dir; the install receipt at
+    $GARRISON_HOME/cortex-client/install.json tells every consumer where that binary is.
+    Configuration is environment-only on the binary's side (CORTEX_BASE_URL +
+    CORTEX_API_KEY); the key is Vault-sealed and delivered scoped, never written to disk
+    by this Fitting. Unconfigured is a supported state - nothing is installed and verify
+    still passes. The action catalog below is the shipped reference client's surface.
+  config_schema:
+    - key: repo_url
+      type: string
+      default: ''
+      description: >-
+        Git remote of the repository that ships the capability CLI. EMPTY BY DEFAULT: with
+        no remote configured this Fitting installs nothing, verify passes, and every
+        consumer takes its no-op path. Set it to the repository of the provider you chose.
+    - key: git_ref
+      type: string
+      default: ''
+      description: >-
+        Exact commit SHA to check out - a PIN. A branch name or a tag is refused: a moving
+        ref would silently swap the installed binary under a machine that only re-ran setup.
+    - key: base_url
+      type: string
+      default: ''
+      description: >-
+        Origin of the capability API the CLI talks to. Recorded in the install receipt for
+        consumers to export as CORTEX_BASE_URL. Empty by default - no provider origin ships
+        with this Fitting.
+    - key: bin_dir
+      type: path
+      default: ~/.garrison/bin
+      description: >-
+        Directory the CLI executable is symlinked into. Put it on PATH to call the binary by
+        name; consumers that cannot rely on PATH read the absolute path from the install
+        receipt instead. An existing NON-symlink of the same name is never clobbered.
+    - key: clone_dir
+      type: path
+      default: ~/.garrison/external/cortex-cli
+      description: >-
+        Where the pinned clone lives, with its node_modules and its build output. Must be
+        OUTSIDE Garrison's own (MIT) source tree - setup resolves this path and refuses one
+        inside the tree before it writes anything, so foreign-licensed bytes can never land
+        in this repository.
+    - key: package_subdir
+      type: string
+      default: clients/cortex-cli
+      description: >-
+        Path inside the cloned repository to the CLI's npm workspace package. Its
+        package.json supplies the workspace name to build and the bin entry to link, so no
+        provider's directory layout is hardcoded in the setup script.
+  connector:
+    auth: api_key
+    actions:
+      - name: memory_write
+        args:
+          - file
+          - permalink
+          - tag
+        mutates: true
+        description: Write (or overwrite, by permalink) a markdown note in the per-user vault.
+      - name: memory_read
+        args:
+          - permalink
+        mutates: false
+        description: Read one note by permalink.
+      - name: memory_list
+        args:
+          - folder
+          - limit
+        mutates: false
+        description: List notes in a folder.
+      - name: memory_search
+        args:
+          - query
+          - limit
+        mutates: false
+        description: Full-text search across the per-user note vault.
+      - name: memory_export
+        args:
+          - out
+        mutates: false
+        description: Export the whole note vault as a tar of markdown.
+      - name: memory_delete
+        args:
+          - permalink
+        mutates: true
+        description: Delete one note by permalink.
+      - name: knowledge_search
+        args:
+          - query
+          - limit
+        mutates: false
+        description: Search the org and shared knowledge corpora (read-only surface).
+      - name: knowledge_collections
+        mutates: false
+        description: List the knowledge collections a key can read.
+      - name: knowledge_documents
+        args:
+          - collection
+          - limit
+        mutates: false
+        description: List documents in a collection.
+      - name: knowledge_read
+        args:
+          - collection
+          - doc_id
+        mutates: false
+        description: Read one knowledge document.
+      - name: automations_list
+        mutates: false
+        description: List the automations the key can start.
+      - name: automations_show
+        args:
+          - automation_id
+        mutates: false
+        description: Show one automation's definition and inputs.
+      - name: automations_run
+        args:
+          - automation_id
+          - input
+          - idempotency_key
+        mutates: true
+        description: Start a run; an idempotency key makes the start at-most-once.
+      - name: automations_status
+        args:
+          - run_id
+        mutates: false
+        description: Read a run's current status.
+      - name: automations_logs
+        args:
+          - run_id
+        mutates: false
+        description: Read a run's logs.
+      - name: automations_watch
+        args:
+          - run_id
+          - timeout_ms
+        mutates: false
+        description: Poll a run until it is terminal, blocked on a human gate, or times out.
+  secret_scope:
+    - CORTEX_API_KEY
+  provides:
+    - kind: connector
+      name: cortex
+  consumes:
+    - kind: vault
+      cardinality: one
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    # Generous on purpose: the configured path is a full `npm install` of a
+    # workspace monorepo plus a TypeScript build on a cold cache. The default
+    # (unconfigured) path returns in milliseconds.
+    timeout_ms: 900000
+  verify:
+    command: bash apm_modules/_local/cortex-client/scripts/verify.sh
+    expect: ok
+    # 120s, not the 10s default: this verify shells out to git twice and cold-starts
+    # node to run the binary. `up` runs every fitting's verify alongside the other
+    # setup hooks, and a hook that loses that race is killed on the timeout with an
+    # EMPTY stderr - which reads like a broken fitting rather than a slow one and
+    # fails the whole composition. See fittings/seed/basic-memory/apm.yml for the
+    # incident this budget is copied from.
+    timeout_ms: 120000
+  for_consumers: |
+    This Fitting installs (or deliberately does not install) ONE binary, and records
+    exactly where it put it:
+
+      $GARRISON_HOME/cortex-client/install.json
+        { "bin_name": "cortex", "bin": "<absolute path to the executable>",
+          "clone": "...", "package_dir": "...", "ref": "<the pinned commit>",
+          "base_url": "<configured origin, or empty>", "updated_at": "..." }
+
+    HOW TO LOCATE THE BINARY (any consumer - a hook, a scheduled job, another Fitting):
+      1. Read `bin` from that receipt. If the receipt is ABSENT the CLI is not installed:
+         that is the shipped default, and the consumer must take its no-op path rather
+         than error.
+      2. Only then fall back to the bin name on PATH ($GARRISON_HOME/bin is where the
+         link lands, but nothing guarantees it is on PATH).
+      Never hardcode a clone path, and never assume the CLI exists.
+
+    ENVIRONMENT THE BINARY NEEDS (its own interface; Garrison invents nothing):
+      CORTEX_BASE_URL - the deployment origin; take it from `base_url` in the receipt.
+      CORTEX_API_KEY  - user-scoped key, Vault-held and delivered through secret_scope.
+    Configuration is environment-only: there is no config file and no key flag. A missing
+    variable makes the CLI exit 2 naming it, BEFORE any request is sent. `--version` and
+    `--help` work with neither variable set, so a consumer can probe the install without
+    holding a key.
+
+    EXIT CODES: 0 the call succeeded; 1 the provider refused it or the request failed;
+    2 the invocation was wrong or a required variable was missing (nothing was sent).
+    With --json, stdout carries exactly one JSON document on success and stays EMPTY on
+    failure (the error document goes to stderr).
+
+    Agent-facing usage for the shipped reference client lives in SKILL.md inside the
+    cloned repository, at <clone>/<package_subdir>/SKILL.md.

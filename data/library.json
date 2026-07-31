@@ -849,5 +849,15 @@
       "global": 4,
       "claude_code": 4
     }
+  },
+  {
+    "id": "cortex-client",
+    "name": "Remote capability CLI",
+    "repo": "local:fittings/seed/cortex-client",
+    "localPath": "fittings/seed/cortex-client",
+    "summary": "A remote capability reached through one pinned, license-isolated CLI binary, recorded in an install receipt every consumer can read. Ships inert: no repository, origin or credential in the defaults, and verify passes unconfigured.",
+    "platforms": [
+      "all"
+    ]
   }
 ]
