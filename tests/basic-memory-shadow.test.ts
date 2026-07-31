@@ -28,6 +28,8 @@ const FITTING_SRC = path.join(REPO_ROOT, "fittings", "seed", "basic-memory");
 const SCRIPTS = path.join(FITTING_SRC, "scripts");
 const IMPORT = path.join(SCRIPTS, "import-vault.mjs");
 const COMPARE = path.join(SCRIPTS, "compare-backends.mjs");
+const CAPTURE = path.join(SCRIPTS, "capture-session.py");
+const FLUSH = path.join(SCRIPTS, "flush-spool.mjs");
 const SCHEDULER_SRC = path.join(
   REPO_ROOT,
   "fittings",
@@ -221,13 +223,31 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
     return out;
   }
 
-  async function writeMarker(firstAt: string, dueAt: string): Promise<void> {
+  /**
+   * A dual-write marker `daysAgo` days old. Relative to the clock on purpose:
+   * a fixed date would silently become OVERDUE as the calendar moved, and an
+   * overdue review is now a non-zero exit (F7), so the fixture has to say which
+   * side of the deadline it is testing.
+   */
+  async function writeMarker(daysAgo: number, overrides: Record<string, unknown> = {}) {
     const dir = path.join(garrisonHome, "basic-memory");
     await fsp.mkdir(dir, { recursive: true });
+    const started = new Date(Date.now() - daysAgo * 86_400_000);
+    const due = new Date(started.getTime() + 14 * 86_400_000);
     await fsp.writeFile(
       path.join(dir, "shadow-write.json"),
-      JSON.stringify({ first_dual_write_at: firstAt, review_window_days: 14, review_due_at: dueAt }, null, 2)
+      JSON.stringify(
+        {
+          first_dual_write_at: started.toISOString(),
+          review_window_days: 14,
+          review_due_at: due.toISOString(),
+          ...overrides
+        },
+        null,
+        2
+      )
     );
+    return { started, due };
   }
 
   function todaysReport(): string {
@@ -370,6 +390,82 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       expect(result.stdout).toContain("vault untouched");
       expect(remoteKeys()).toEqual([]);
     });
+
+    // F3 - a chmod-000 subtree used to be reported as "complete", exit 0.
+    it("an unreadable directory is a LOUD nonzero outcome, never a silent drop", async () => {
+      await seedNote("Memory/alpha.md", note("Alpha", "SENTINEL-BODY-ALPHA"));
+      await seedNote("Memory/private/one.md", note("One", "SENTINEL-BODY-ONE"));
+      await seedNote("Memory/private/two.md", note("Two", "SENTINEL-BODY-TWO"));
+      const locked = path.join(vault, "Memory", "private");
+      await fsp.chmod(locked, 0o000);
+      try {
+        const result = await run("node", [IMPORT], cliEnv());
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "cannot read Memory/private/ - an unknown number of notes under it were NEITHER scanned NOR imported"
+        );
+        expect(result.stdout).not.toContain("import complete and verified");
+        expect(result.stderr).toContain("unreadable director(ies)");
+        // The one readable note still went across - the run is loud, not aborted.
+        expect(remoteKeys()).toEqual(["vault/memory-alpha"]);
+      } finally {
+        await fsp.chmod(locked, 0o755);
+      }
+    });
+
+    // F4 - `--folder "My Vault"` used to list one namespace and write another.
+    it("normalises a non-slug remote folder ONCE, so the write and the listing agree", async () => {
+      await seedNote("Memory/alpha.md", note("Alpha", "SENTINEL-BODY-ALPHA"));
+      const result = await run("node", [IMPORT, "--folder", "My Vault"], cliEnv());
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("normalised to 'my-vault'");
+      expect(remoteKeys()).toEqual(["my-vault/memory-alpha"]);
+      expect(result.stderr).not.toContain("missing:");
+      // And the comparator agrees with it, rather than hunting in `My Vault`.
+      await writeMarker(2);
+      const compared = await run(
+        "node",
+        [COMPARE, "--folder", "My Vault", "--out-dir", reports],
+        cliEnv()
+      );
+      expect(compared.exitCode).toBe(0);
+      expect(compared.stdout).toContain("status parity-on-sample");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| remote folder | `my-vault` (normalised from `My Vault`) |");
+    });
+
+    // F6 - "import complete and verified" used to print for runs that verified nothing.
+    it("the LAST line never says verified for a run that verified nothing", async () => {
+      await seedThree();
+
+      const skipped = await run("node", [IMPORT, "--no-verify"], cliEnv());
+      expect(skipped.exitCode).toBe(0);
+      expect(skipped.stdout).not.toContain("import complete and verified");
+      expect(skipped.stdout.trim().split("\n").pop()).toContain(
+        "import complete; NOT verified (--no-verify)"
+      );
+
+      const unsampled = await run("node", [IMPORT, "--sample", "0"], cliEnv());
+      expect(unsampled.exitCode).toBe(0);
+      expect(unsampled.stdout).not.toContain("import complete and verified");
+      expect(unsampled.stdout).toContain("content was compared on ZERO notes");
+
+      const full = await run("node", [IMPORT], cliEnv());
+      expect(full.stdout).toContain("import complete and verified (set + content on 3 sampled note(s))");
+    });
+
+    // F11 - a listing at the cap used to produce a false "missing" list.
+    it("a verification listing at the --limit is INCONCLUSIVE, not a data-loss report", async () => {
+      await seedThree();
+      const result = await run("node", [IMPORT, "--limit", "3"], cliEnv());
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("verification INCONCLUSIVE");
+      expect(result.stderr).toContain("at or above the --limit of 3, so it may be truncated");
+      expect(result.stderr).not.toContain("missing:"); // no false alarm from a cut listing
+      expect(remoteKeys()).toHaveLength(3); // the notes really did go across
+    });
   });
 
   // ── the comparator ────────────────────────────────────────────────────
@@ -387,7 +483,7 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       await seedRemote("vault/memory-beta", note("Beta", "SENTINEL-BODY-BETA-DRIFTED"));
       await seedRemote("vault/orphan-note", note("Orphan", "SENTINEL-BODY-ORPHAN"));
 
-      await writeMarker("2026-07-01T09:00:00Z", "2026-07-15T09:00:00Z");
+      const review = await writeMarker(2);
 
       const result = await run(
         "node",
@@ -400,15 +496,18 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       const report = await fsp.readFile(todaysReport(), "utf8");
 
       // The three header fields rule 10 turns on.
-      expect(report).toContain("| first dual-write | 2026-07-01T09:00:00.000Z |");
-      expect(report).toContain("| review due (first dual-write + 14 days) | 2026-07-15T09:00:00.000Z |");
+      expect(report).toContain(`| first dual-write | ${review.started.toISOString()} |`);
+      expect(report).toContain(
+        `| review due (first dual-write + 14 days) | ${review.due.toISOString()} |`
+      );
+      expect(report).toContain("| days remaining | 11 |");
       expect(report).toContain("**Cut reads over**");
       expect(report).toContain("**Extend ONCE**");
       expect(report).toContain("**Remove**");
       expect(report).toContain("| status | **diverged** |");
 
       // Counts, set differences and content mismatches reported SEPARATELY.
-      expect(report).toContain("| local (vault) | 4 |");
+      expect(report).toContain("| local notes found | 4 |");
       expect(report).toContain("| remote (folder `vault`) | 4 |");
       expect(report).toContain("| present on both | 3 |");
       expect(report).toContain("| missing on the remote | 1 |");
@@ -439,7 +538,7 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
         await seedNote(`Memory/${name}.md`, body);
         await seedRemote(`vault/memory-${name}`, body);
       }
-      await writeMarker("2026-07-01T09:00:00Z", "2026-07-15T09:00:00Z");
+      await writeMarker(2);
 
       const result = await run("node", [COMPARE, "--sample", "2", "--out-dir", reports], cliEnv());
       expect(result.exitCode).toBe(0);
@@ -457,7 +556,7 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
 
     it("an unreadable remote listing is INCONCLUSIVE, never an empty remote store", async () => {
       await seedNote("Memory/alpha.md", note("Alpha", "SENTINEL-BODY-ALPHA"));
-      await writeMarker("2026-07-01T09:00:00Z", "2026-07-15T09:00:00Z");
+      await writeMarker(2);
 
       const result = await run(
         "node",
@@ -484,7 +583,7 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       const report = await fsp.readFile(todaysReport(), "utf8");
       expect(report).toContain("| status | **inconclusive** |");
       expect(report).toContain("is not installed on this machine");
-      expect(report).toContain("| local (vault) | 1 |");
+      expect(report).toContain("| local notes found | 1 |");
     });
 
     it("a missing dual-write marker is reported UNKNOWN, never invented", async () => {
@@ -500,7 +599,7 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
 
     it("--fail-on-diff turns a reported divergence into a nonzero exit", async () => {
       await seedNote("Memory/alpha.md", note("Alpha", "SENTINEL-BODY-ALPHA"));
-      await writeMarker("2026-07-01T09:00:00Z", "2026-07-15T09:00:00Z");
+      await writeMarker(2);
 
       const reported = await run("node", [COMPARE, "--out-dir", reports], cliEnv());
       expect(reported.exitCode).toBe(0); // a difference is REPORTED, not an error
@@ -520,6 +619,298 @@ describe("basic-memory: import, shadow dual-write, and the comparator", () => {
       expect((await run("node", [COMPARE, "--out-dir", reports], cliEnv())).exitCode).toBe(0);
 
       expect(vaultSnapshot()).toEqual(before);
+    });
+
+    // F2 - `parity-on-sample` used to be reachable with NOTHING compared.
+    it("a missing vault root is INCONCLUSIVE and nonzero, never a clean parity report", async () => {
+      await writeMarker(2);
+      const result = await run(
+        "node",
+        [COMPARE, "--out-dir", reports],
+        cliEnv({ BASIC_MEMORY_VAULT_DIR: path.join(tmp, "not-mounted") })
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).not.toContain("parity-on-sample");
+      expect(result.stderr).toContain("does not exist; comparison INCONCLUSIVE");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| status | **inconclusive** |");
+      expect(report).toContain("**MISSING**");
+      expect(report).toContain("this is NOT a report that the two agree");
+    });
+
+    it("a sample of zero is INCONCLUSIVE: a comparison that compared nothing found nothing", async () => {
+      const body = note("Alpha", "SENTINEL-BODY-ALPHA");
+      await seedNote("Memory/alpha.md", body);
+      await seedRemote("vault/memory-alpha", body);
+      await writeMarker(2);
+
+      const result = await run("node", [COMPARE, "--sample", "0", "--out-dir", reports], cliEnv());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("status inconclusive");
+      expect(result.stderr).toContain("not parity: the sample size is 0");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| status | **inconclusive** |");
+      expect(report).toContain("no difference was found, but this is NOT parity");
+    });
+
+    it("an empty vault against an empty store is INCONCLUSIVE, not parity", async () => {
+      await fsp.mkdir(path.join(vault, "Memory"), { recursive: true });
+      await writeMarker(2);
+      const result = await run("node", [COMPARE, "--out-dir", reports], cliEnv());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("status inconclusive");
+      expect(result.stderr).toContain("no note was present on both sides");
+    });
+
+    // F3 - an unreadable directory used to vanish from both tools.
+    it("refuses to claim parity while part of the vault cannot be read", async () => {
+      const body = note("Alpha", "SENTINEL-BODY-ALPHA");
+      await seedNote("Memory/alpha.md", body);
+      await seedRemote("vault/memory-alpha", body);
+      await seedNote("Memory/private/secret.md", note("Secret", "SENTINEL-BODY-SECRET"));
+      const locked = path.join(vault, "Memory", "private");
+      await fsp.chmod(locked, 0o000);
+      await writeMarker(2);
+      try {
+        const result = await run("node", [COMPARE, "--sample", "5", "--out-dir", reports], cliEnv());
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain("status inconclusive");
+        expect(result.stderr).toContain("cannot read Memory/private/");
+        const report = await fsp.readFile(todaysReport(), "utf8");
+        expect(report).toContain("| local directories unreadable | 1 |");
+        expect(report).toContain("Part of the vault could not be read");
+      } finally {
+        await fsp.chmod(locked, 0o755);
+      }
+    });
+
+    // F5 - the truncation warning used to name the column that is fine.
+    it("a truncated listing is INCONCLUSIVE and names the column truncation actually poisons", async () => {
+      for (const name of ["one", "two", "three", "four", "five", "six"]) {
+        const body = note(name, `SENTINEL-BODY-${name.toUpperCase()}`);
+        await seedNote(`Memory/${name}.md`, body);
+        await seedRemote(`vault/memory-${name}`, body);
+      }
+      await writeMarker(2);
+
+      const result = await run(
+        "node",
+        [COMPARE, "--limit", "3", "--sample", "5", "--out-dir", reports],
+        cliEnv()
+      );
+      expect(result.exitCode).toBe(0);
+      // Every note IS present remotely; the cut is what makes three look absent.
+      expect(result.stdout).toContain("status inconclusive");
+      expect(result.stdout).not.toContain("status diverged");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| status | **inconclusive** |");
+      expect(report).toContain("at or above the `--limit` of 3");
+      expect(report).toContain("inflate **missing on the remote**");
+      expect(report).toContain('it can only ever SHRINK "missing locally"');
+    });
+
+    // F7 - the deadline used to go red only inside the markdown file.
+    it("an overdue review is LOUD on stderr and exits nonzero, even with the two sides in parity", async () => {
+      const body = note("Alpha", "SENTINEL-BODY-ALPHA");
+      await seedNote("Memory/alpha.md", body);
+      await seedRemote("vault/memory-alpha", body);
+      await writeMarker(20); // started 20 days ago; the 14-day review is 6 days past
+
+      const result = await run("node", [COMPARE, "--out-dir", reports], cliEnv());
+      expect(result.stdout).toContain("status parity-on-sample"); // the data is fine...
+      expect(result.exitCode).toBe(1); // ...and the run still fails, because the review is late
+      expect(result.stderr).toMatch(/REVIEW OVERDUE by 6 day\(s\)/);
+      expect(result.stderr).toContain("cut reads over, extend ONCE with a written reason, or remove");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("**OVERDUE**");
+    });
+
+    // F8 - the comparator used to keep the first of a colliding pair.
+    it("excludes BOTH members of a colliding pair and keeps the counts adding up", async () => {
+      await seedNote("Memory/a-b.md", note("Flat", "SENTINEL-BODY-FLAT"));
+      await seedNote("Memory/a/b.md", note("Deep", "SENTINEL-BODY-DEEP"));
+      const body = note("Alpha", "SENTINEL-BODY-ALPHA");
+      await seedNote("Memory/alpha.md", body);
+      await seedRemote("vault/memory-alpha", body);
+      await writeMarker(2);
+
+      const result = await run("node", [COMPARE, "--sample", "5", "--out-dir", reports], cliEnv());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("status inconclusive");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| local notes found | 3 |");
+      expect(report).toContain("| local notes compared | 1 |");
+      expect(report).toContain("| local notes excluded (permalink collision) | 2 |");
+      expect(report).toContain("_The first three rows add up: 1 compared + 2 excluded = 3 found._");
+      // The colliding permalink is NOT reported as missing on the remote: it was
+      // never comparable in the first place.
+      expect(report).toMatch(/## Missing on the remote\n\n[\s\S]*?\n\n_none_/);
+      expect(report).toContain("ALL members are excluded");
+    });
+
+    // F10 - the marker's own numbers used to be taken at face value.
+    it("a hand-extended review window is flagged and the standing deadline still applies", async () => {
+      const body = note("Alpha", "SENTINEL-BODY-ALPHA");
+      await seedNote("Memory/alpha.md", body);
+      await seedRemote("vault/memory-alpha", body);
+      // Started 20 days ago, but someone rewrote the marker to give themselves 90.
+      const started = new Date(Date.now() - 20 * 86_400_000);
+      await writeMarker(20, {
+        review_window_days: 90,
+        review_due_at: new Date(started.getTime() + 90 * 86_400_000).toISOString()
+      });
+
+      const result = await run("node", [COMPARE, "--out-dir", reports], cliEnv());
+      expect(result.exitCode).toBe(1); // the standing 14-day deadline is 6 days past
+      expect(result.stderr).toContain("REVIEW OVERDUE");
+      expect(result.stderr).toContain("records a LONGER window than the standing 14 days");
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| marker window | **HAND-EXTENDED**");
+      expect(report).toContain("**OVERDUE**");
+    });
+  });
+
+  // ── F1: the shadow and the comparator must agree on what a note IS ──────
+  describe("the round trip: hook -> spool -> drain -> compare", () => {
+    it("the comparator SEES a capture the shadow actually shipped", async () => {
+      const spool = path.join(tmp, "roundtrip-spool");
+      const payload = JSON.stringify({
+        session_id: SESSION_ID,
+        cwd: path.join(tmp, "proj"),
+        hook_event_name: "SessionEnd",
+        transcript_path: ""
+      });
+
+      // 1. The hook writes the vault note AND spools a copy.
+      const captured = await run(
+        "python3",
+        [CAPTURE],
+        cliEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_AUTOFLUSH: "0"
+        }),
+        payload
+      );
+      expect(captured.exitCode).toBe(0);
+      const vaultNotes = (await fsp.readdir(path.join(vault, "Memory"))).filter((n) =>
+        n.startsWith("session-")
+      );
+      expect(vaultNotes).toHaveLength(1);
+
+      // 2. The drain ships it.
+      const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(drained.exitCode).toBe(0);
+      expect(drained.stdout).toContain("flushed 1 capture(s)");
+      expect(drained.stdout).not.toContain("no identity sidecar");
+      expect((await fsp.readdir(spool)).sort()).toEqual([]); // capture + sidecar both gone
+
+      // 3. The remote note carries the SAME identity the comparator derives
+      // from the vault path - one note, not two.
+      const expectedPermalink = `vault/memory-session-${vaultNotes[0]
+        .replace(/^session-/, "")
+        .replace(/\.md$/, "")}`;
+      expect(remoteKeys()).toEqual([expectedPermalink]);
+      expect(
+        stubCalls().filter((line) => line.startsWith("memory write "))[0]
+      ).toContain(`--permalink ${expectedPermalink} `);
+
+      // 4. So the comparator finds it. This is the whole point: with a working
+      // shadow, parity is REACHABLE.
+      await writeMarker(2);
+      const compared = await run("node", [COMPARE, "--sample", "5", "--out-dir", reports], cliEnv());
+      expect(compared.exitCode).toBe(0);
+      expect(compared.stdout).toContain("on both 1 | missing on remote 0 | missing locally 0");
+      expect(compared.stdout).toContain("status parity-on-sample");
+
+      const report = await fsp.readFile(todaysReport(), "utf8");
+      expect(report).toContain("| status | **parity-on-sample** |");
+      expect(report).toMatch(/## Missing on the remote\n\n[\s\S]*?\n\n_none_/);
+    });
+
+    it("a re-import after the drain overwrites that same note instead of storing it twice", async () => {
+      const spool = path.join(tmp, "roundtrip-spool");
+      await run(
+        "python3",
+        [CAPTURE],
+        cliEnv({
+          BASIC_MEMORY_SPOOL_ENABLED: "1",
+          BASIC_MEMORY_SPOOL_DIR: spool,
+          BASIC_MEMORY_SPOOL_AUTOFLUSH: "0"
+        }),
+        JSON.stringify({ session_id: SESSION_ID, cwd: tmp, hook_event_name: "SessionEnd" })
+      );
+      expect((await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }))).exitCode).toBe(0);
+      expect(remoteKeys()).toHaveLength(1);
+
+      const imported = await run("node", [IMPORT], cliEnv());
+      expect(imported.exitCode).toBe(0);
+      // ONE note on the remote store, not the same bytes under two identities.
+      expect(remoteKeys()).toHaveLength(1);
+      expect(imported.stdout).toContain("scanned 1 | sent 1 | skipped 0 | failed 0");
+    });
+
+    // The mapping exists twice - JS for the import/comparator, Python for the
+    // hook, which must not grow a Node dependency. Two implementations of one
+    // identity is exactly how F1 happened, so their agreement is pinned rather
+    // than assumed.
+    it("the Python and JavaScript halves derive byte-identical permalinks", async () => {
+      const cases = [
+        "Memory/alpha.md",
+        "Memory/2026/Session Notes.md",
+        "Memory/Reunião.md",
+        "Memory/Reuniao.md",
+        "Memory/ﬁle.MD",
+        "Memory/Ⅻ roman.md",
+        "Memory/①circled.md",
+        "Memory/a/b.md",
+        "Memory/session-20260101-120000-abc123de.md",
+        "Memory/UPPER  double--dash .md"
+      ];
+      const list = JSON.stringify(cases);
+
+      const js = await run(
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          `import { permalinkForRelPath } from ${JSON.stringify(path.join(SCRIPTS, "lib", "memory-vault.mjs"))};
+           for (const c of ${list}) console.log(permalinkForRelPath(c, "vault"));`
+        ],
+        {}
+      );
+      const py = await run(
+        "python3",
+        [
+          "-c",
+          `import importlib.util, json
+spec = importlib.util.spec_from_file_location("cap", ${JSON.stringify(CAPTURE)})
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+for c in json.loads(${JSON.stringify(list)}): print(m._remote_permalink(c, "vault"))`
+        ],
+        // Importing the hook to reach its half of the mapping must not drop a
+        // __pycache__ into the fitting's committed source tree.
+        { PYTHONDONTWRITEBYTECODE: "1" }
+      );
+
+      expect(js.exitCode).toBe(0);
+      expect(py.exitCode).toBe(0);
+      expect(js.stdout.trim().split("\n")).toHaveLength(cases.length);
+      expect(py.stdout).toBe(js.stdout);
+      // And the mapping is the documented one, not just self-consistent.
+      expect(js.stdout.trim().split("\n")[1]).toBe("vault/memory-2026-session-notes");
+    });
+
+    it("a capture spooled without a sidecar still drains, under the queue key, and says so", async () => {
+      const spool = path.join(tmp, "legacy-spool");
+      await fsp.mkdir(spool, { recursive: true });
+      await fsp.writeFile(path.join(spool, "capture-legacy-20260101-000000-42.md"), "old capture\n");
+
+      const drained = await run("node", [FLUSH], cliEnv({ BASIC_MEMORY_SPOOL_DIR: spool }));
+      expect(drained.exitCode).toBe(0);
+      expect(drained.stdout).toContain("no identity sidecar (queue-key)");
+      expect(drained.stdout).toContain("will NOT be reconciled by compare-backends.mjs");
+      expect(remoteKeys()).toEqual(["capture-legacy-20260101-000000-42"]);
     });
   });
 
@@ -708,6 +1099,13 @@ fi`
       expect(compare!.command).toContain(`BASIC_MEMORY_COMPARE_REPORT_DIR=${comp}/data/memory-backend-compare`);
       expect(compare!.command).toContain("BASIC_MEMORY_REMOTE_FOLDER=vault");
       expect(compare!.command).toContain(`GARRISON_HOME=${garrisonHome}`);
+      // F7: the daily job goes RED on a divergence instead of filing another
+      // quiet report - the deadline cannot live only inside the artifact.
+      expect(compare!.command).toContain("--fail-on-diff");
+      // F1: the hook needs the folder to stamp each capture's identity sidecar,
+      // or the shadow ships notes under an identity the comparator never looks
+      // for.
+      expect(hookCommand()).toContain("BASIC_MEMORY_REMOTE_FOLDER=vault");
       for (const rel of ["compare-backends.mjs", "import-vault.mjs", "lib/memory-vault.mjs"]) {
         expect(fs.existsSync(path.join(claudeHome, "basic-memory", rel))).toBe(true);
       }

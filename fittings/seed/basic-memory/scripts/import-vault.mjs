@@ -42,6 +42,7 @@ import {
   pickSample,
   probeCli,
   resolveRemoteCli,
+  resolveRemoteFolder,
   runCli,
   shortDigest
 } from "./lib/memory-vault.mjs";
@@ -94,7 +95,20 @@ function main() {
     (process.env.BASIC_MEMORY_VAULT_DIR || "").trim() || path.join(os.homedir(), "ObsidianVault")
   );
   const memoryDir = (process.env.BASIC_MEMORY_MEMORY_DIR || "").trim() || "Memory";
-  const folder = opts.folder || (process.env.BASIC_MEMORY_REMOTE_FOLDER || "").trim() || "vault";
+  // ONE normalised folder for BOTH the permalink prefix and every `--folder`
+  // argument. They used to be able to disagree, and the import then reported a
+  // note missing that was sitting right there under the slugified name.
+  const resolvedFolder = resolveRemoteFolder(
+    opts.folder || (process.env.BASIC_MEMORY_REMOTE_FOLDER || "").trim() || "vault"
+  );
+  if (!resolvedFolder) {
+    loud("remote folder is empty once slugified; refusing to guess a namespace for your vault");
+    return 2;
+  }
+  const folder = resolvedFolder.folder;
+  if (resolvedFolder.normalised) {
+    log(`remote folder '${resolvedFolder.raw}' normalised to '${folder}' (a permalink segment is lowercase [a-z0-9-])`);
+  }
   const sampleSize = Number.isFinite(opts.sample)
     ? opts.sample
     : Number(process.env.BASIC_MEMORY_IMPORT_SAMPLE_SIZE || "") || 3;
@@ -103,12 +117,23 @@ function main() {
     : Number(process.env.BASIC_MEMORY_LIST_LIMIT || "") || 1000;
   const timeoutMs = Number(process.env.BASIC_MEMORY_IMPORT_TIMEOUT_MS || "") || 30_000;
 
-  const { root, notes, skipped } = listVaultNotes(vaultDir, memoryDir, folder);
+  const { root, rootExists, notes, skipped, unreadableDirs } = listVaultNotes(
+    vaultDir,
+    memoryDir,
+    folder
+  );
   const scanned = notes.length + skipped.length;
 
-  if (!fs.existsSync(root)) {
+  if (!rootExists) {
     log(`vault folder ${root} does not exist; nothing to import`);
     return 0;
+  }
+
+  // A directory this process cannot read holds an unknown number of notes, so
+  // no run that hits one may report success: "scanned 1, sent 1, complete" over
+  // a chmod-000 subtree is a lie about the only thing the import was asked.
+  for (const dir of unreadableDirs) {
+    loud(`cannot read ${dir}/ - an unknown number of notes under it were NEITHER scanned NOR imported`);
   }
 
   // Two notes whose paths slugify to the same permalink would silently
@@ -135,7 +160,7 @@ function main() {
       `dry run: scanned ${scanned} | would send ${importable.length} | skipped ${skipped.length} | failed ${refused.size}`
     );
     log("dry run: the remote CLI was not invoked and nothing was sent");
-    return refused.size > 0 ? 1 : 0;
+    return refused.size > 0 || unreadableDirs.length > 0 ? 1 : 0;
   }
 
   const cli = resolveRemoteCli();
@@ -187,10 +212,11 @@ function main() {
   if (skipSummary) log(`skipped breakdown: ${skipSummary}`);
 
   let verifyFailed = false;
+  let sampled = 0;
   if (!opts.verify) {
     loud("verification SKIPPED (--no-verify): this run makes NO claim that the remote store matches the vault");
   } else {
-    verifyFailed = verify({
+    const outcome = verify({
       cli,
       folder,
       importable,
@@ -198,17 +224,33 @@ function main() {
       sampleSize,
       timeoutMs
     });
+    verifyFailed = outcome.failed;
+    sampled = outcome.sampled;
   }
 
-  if (failures.length > 0 || verifyFailed) {
-    loud(`import did NOT complete cleanly (${failures.length} failed, verification ${verifyFailed ? "FAILED" : "ok"})`);
+  if (failures.length > 0 || verifyFailed || unreadableDirs.length > 0) {
+    loud(
+      `import did NOT complete cleanly (${failures.length} failed, ${unreadableDirs.length} unreadable director(ies), verification ${opts.verify ? (verifyFailed ? "FAILED" : "ok") : "SKIPPED"})`
+    );
     return 1;
   }
-  log("import complete and verified");
+  // The LAST line is the one a log skim reads, so it states exactly what was
+  // established - never "verified" for a run that verified nothing.
+  if (!opts.verify) log("import complete; NOT verified (--no-verify) - no claim is made about the remote store");
+  else if (sampled === 0) {
+    log(
+      `import complete; the note SET was verified against the remote folder, but content was compared on ZERO notes (sample size ${sampleSize})`
+    );
+  } else {
+    log(`import complete and verified (set + content on ${sampled} sampled note(s))`);
+  }
   return 0;
 }
 
-/** Returns true when verification found a problem. Loud on every one of them. */
+/**
+ * Returns { failed, sampled }. Loud on every problem it finds, and it will not
+ * call a listing it could not trust a clean result.
+ */
 function verify({ cli, folder, importable, listLimit, sampleSize, timeoutMs }) {
   let failed = false;
 
@@ -219,12 +261,21 @@ function verify({ cli, folder, importable, listLimit, sampleSize, timeoutMs }) {
   );
   if (listed.status !== 0) {
     loud(`verification INCONCLUSIVE: could not list remote folder '${folder}' (${listed.why})`);
-    return true;
+    return { failed: true, sampled: 0 };
   }
   const remote = extractPermalinks(parseJsonDocument(listed.stdout));
   if (remote === null) {
     loud(`verification INCONCLUSIVE: the remote listing for '${folder}' was not in a shape this script understands`);
-    return true;
+    return { failed: true, sampled: 0 };
+  }
+  // A listing that came back full is a listing that may have been cut short,
+  // and every note past the cut would be reported "missing" - a false alarm
+  // dressed as a data-loss report. Refuse to run the comparison at all.
+  if (remote.length >= listLimit) {
+    loud(
+      `verification INCONCLUSIVE: the remote listing returned ${remote.length} row(s), at or above the --limit of ${listLimit}, so it may be truncated; re-run with a higher --limit rather than trusting a "missing" list computed from it`
+    );
+    return { failed: true, sampled: 0 };
   }
 
   const remoteSet = new Set(remote);
@@ -279,7 +330,7 @@ function verify({ cli, folder, importable, listLimit, sampleSize, timeoutMs }) {
     }
   }
   if (!failed) log(`verify: ok on the sampled ${sample.length} note(s) - NOT a claim about the other ${Math.max(0, comparable.length - sample.length)}`);
-  return failed;
+  return { failed, sampled: sample.length };
 }
 
 try {

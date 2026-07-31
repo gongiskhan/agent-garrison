@@ -21,8 +21,24 @@ NEVER touches the network. The spool dir is capped (default 50MB,
 BASIC_MEMORY_SPOOL_CAP_BYTES override): oldest captures are evicted first with
 one loud stderr line. Every spool failure is swallowed; local vault behavior
 is byte-identical whether the spool is on, off, or broken.
+
+THE SPOOL FILENAME IS A QUEUE KEY, NOT A NOTE IDENTITY. Conflating the two was
+the G4 review's F1: the drain shipped each capture under the bare queue key,
+while the comparator - which lists ONE remote folder and maps every vault file
+to `<folder>/<slug>` - looked somewhere else entirely. A PERFECTLY working
+shadow could therefore never show parity, a broken drain was indistinguishable
+from a working one, and a later re-import stored the same bytes twice under two
+identities.
+
+So each capture is spooled with a SIDECAR, `<key>.permalink`, holding the
+permalink the note would get if it were imported from its vault path. The drain
+prefers the sidecar and falls back to the bare key only for a spool file written
+before this existed. `_remote_permalink` below is a line-for-line
+re-implementation of `slugSegment` / `permalinkForRelPath` in
+scripts/lib/memory-vault.mjs: change one and you MUST change the other, or the
+shadow and the comparator stop agreeing about what a note is.
 """
-import sys, os, json, re, datetime
+import sys, os, json, re, datetime, unicodedata
 
 SPOOL_CAP_DEFAULT = 50 * 1024 * 1024  # 50MB
 # Only files THIS hook produces (finished captures + its own write-then-rename
@@ -31,9 +47,24 @@ SPOOL_CAP_DEFAULT = 50 * 1024 * 1024  # 50MB
 # cap accounting are both restricted to this shape (mirrors flush-spool.mjs's
 # /^capture-.+\.md$/ drain filter).
 SPOOL_FILE_RE = re.compile(r"^capture-.+\.md(\.tmp)?$")
+# The identity sidecar that travels with a capture. Tiny, so it is deliberately
+# NOT counted against the spool cap; it is removed with the capture it belongs
+# to (on eviction here, on a successful drain in flush-spool.mjs).
+SPOOL_SIDECAR_SUFFIX = ".permalink"
 
 def _truthy(v):
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
+
+def _slug_segment(text):
+    """Mirror of slugSegment() in scripts/lib/memory-vault.mjs. Keep in step."""
+    decomposed = unicodedata.normalize("NFKD", str(text)).lower()
+    return re.sub(r"^-+|-+$", "", re.sub(r"[^a-z0-9]+", "-", decomposed))
+
+def _remote_permalink(rel_path, folder):
+    """Mirror of permalinkForRelPath(). `Memory/session-x.md` -> `vault/memory-session-x`."""
+    without_ext = re.sub(r"\.md$", "", str(rel_path), flags=re.IGNORECASE)
+    slug = _slug_segment(without_ext.replace(os.sep, "/")) or "note"
+    return "%s/%s" % (_slug_segment(folder) or "vault", slug)
 
 def _spool_evict_over_cap(spool_dir, cap, incoming):
     """Evict oldest CAPTURES until existing + incoming fits under cap."""
@@ -53,11 +84,17 @@ def _spool_evict_over_cap(spool_dir, cap, incoming):
     if total + incoming <= cap:
         return
     evicted = 0
-    for _, _, p, size in sorted(entries):
+    for _, name, p, size in sorted(entries):
         try:
             os.remove(p)
         except OSError:
             continue
+        # The identity sidecar has no life of its own - it goes with its capture.
+        if name.endswith(".md"):
+            try:
+                os.remove(p[: -len(".md")] + SPOOL_SIDECAR_SUFFIX)
+            except OSError:
+                pass
         evicted += 1
         total -= size
         if total + incoming <= cap:
@@ -66,7 +103,7 @@ def _spool_evict_over_cap(spool_dir, cap, incoming):
         print(f"[basic-memory] spool cap: evicted {evicted} oldest captures",
               file=sys.stderr)
 
-def _spool_write(session_id, now, payload_text):
+def _spool_write(session_id, now, payload_text, permalink):
     """Write the capture into the spool. Any failure is swallowed upstream."""
     spool_dir = os.path.expanduser(
         os.environ.get("BASIC_MEMORY_SPOOL_DIR") or "~/.garrison/memory-spool")
@@ -88,10 +125,29 @@ def _spool_write(session_id, now, payload_text):
     # (SessionEnd + PreCompact are distinct hook processes).
     key = f"capture-{sid}-{now.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
     final = os.path.join(spool_dir, key + ".md")
+    # The identity sidecar lands BEFORE the capture it describes: the drain
+    # picks up `.md` files, so a capture must never be visible without the
+    # permalink that says what it is - a drain that fell back to the queue key
+    # would ship the note under an identity nothing else can find.
+    side = os.path.join(spool_dir, key + SPOOL_SIDECAR_SUFFIX)
+    side_tmp = side + ".writing"
+    with open(side_tmp, "w") as f:
+        f.write(permalink + "\n")
+    os.replace(side_tmp, side)
     tmp = final + ".tmp"  # write-then-rename so the flusher never sees a partial file
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, final)
+    try:
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, final)
+    except Exception:
+        # No capture means the sidecar describes nothing: take it back out
+        # rather than leave an orphan behind.
+        for stale in (tmp, side):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+        raise
 
 def _spawn_detached_flush():
     """Fire-and-forget spool drain: fully detached, never waited on, never fatal."""
@@ -183,21 +239,28 @@ def main():
     else:
         body += ["_No transcript tail available._", ""]
 
+    # The vault-relative path is computed OUTSIDE the write, because it is also
+    # the note's remote identity: the spool copy has to claim the same permalink
+    # the comparator will derive from this very path.
+    fname = f"session-{now.strftime('%Y%m%d-%H%M%S')}-{session_id[:8]}.md"
+    rel_path = os.path.join(mem_dir, fname)
     try:
         out_dir = os.path.join(vault, mem_dir)
         os.makedirs(out_dir, exist_ok=True)
-        fname = f"session-{now.strftime('%Y%m%d-%H%M%S')}-{session_id[:8]}.md"
         with open(os.path.join(out_dir, fname), "w") as f:
             f.write("\n".join(body))
     except Exception:
         pass  # never fail the session
 
-    # Optional spool copy (opt-in; same markdown, idempotency-keyed filename).
-    # No network here, ever - a scheduled drain ships it later. Any failure is
-    # swallowed so the hook stays sub-second and always exits 0.
+    # Optional spool copy (opt-in; same markdown, idempotency-keyed filename,
+    # plus the sidecar naming the note's remote identity). No network here,
+    # ever - a scheduled drain ships it later. Any failure is swallowed so the
+    # hook stays sub-second and always exits 0.
     if _truthy(os.environ.get("BASIC_MEMORY_SPOOL_ENABLED")):
         try:
-            _spool_write(session_id, now, "\n".join(body))
+            folder = os.environ.get("BASIC_MEMORY_REMOTE_FOLDER") or "vault"
+            _spool_write(session_id, now, "\n".join(body),
+                         _remote_permalink(rel_path, folder))
         except Exception:
             pass
         _spawn_detached_flush()

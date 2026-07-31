@@ -701,3 +701,41 @@ permanent parallel implementation this process exists to prevent.
 provider repo), `fittings/seed/basic-memory/scripts/{import-vault,compare-backends}.mjs`,
 `tests/basic-memory-shadow.test.ts`. **Status:** Open — closes at the 2026-08-14
 review with one of the three outcomes above.
+
+## 2026-07-31 · A note's remote identity is its vault path, on every path that writes it
+
+Follow-up to the entry above, from its review. The shadow and the comparator did
+not agree on what a note IS. The drain shipped each capture under the spool's
+**queue key** (`capture-<session>-<ts>-<pid>`, no folder), while the comparator
+listed one folder of **path-derived permalinks** (`<remote_folder>/<slug>`). The
+two never met, with three consequences — parity was unreachable *while the
+shadow worked*, a broken drain was indistinguishable from a working one, and a
+re-import stored the same bytes twice under two identities. The third is bad; the
+second is fatal to the point of the exercise, because a signal that reads the same
+whether the migration is healthy or dead is not a signal, and a shadow nobody can
+evaluate is exactly the furniture rule 10 exists to prevent.
+
+**Decision: the permalink is derived from the note's vault-relative path, and
+every writer uses that derivation.** A queue key orders work; it does not name a
+note. The capture hook now writes an identity sidecar (`<key>.permalink`) beside
+each spooled capture carrying the permalink that note would get if it were
+imported, and the drain ships it under that. The mapping is implemented twice —
+`slugSegment`/`permalinkForRelPath` in `scripts/lib/memory-vault.mjs` and
+`_remote_permalink` in `capture-session.py` — because the hook is Python and must
+not grow a Node dependency; both carry a pointer to the other. A capture spooled
+before the sidecar existed still drains under its queue key, the drain says so on
+stdout, and the comparator's report names that as something it does not check.
+
+The same review closed six more honesty gaps in the reporting: a comparison that
+compared nothing (missing vault root, empty sample, nothing shared) is
+`inconclusive` rather than `parity-on-sample`; an unreadable directory is a
+counted, loud, non-zero outcome instead of a silent absence; a truncated remote
+listing makes the whole diff `inconclusive` and the warning names the column
+truncation actually poisons; `remote_folder` is slugified once and used for both
+the permalink and the `--folder` argument; the import's final line states what it
+actually verified; and an overdue review now exits non-zero with a loud line while
+the daily job runs `--fail-on-diff`, so the deadline can go red somewhere other
+than inside a markdown file nobody is obliged to open. A hand-edited review window
+in the marker is detected and ignored in favour of the standing 14 days.
+**Source:** G4 fresh review F1-F11; `tests/basic-memory-shadow.test.ts`.
+**Status:** Settled (the 2026-08-14 review date in the entry above is unchanged).

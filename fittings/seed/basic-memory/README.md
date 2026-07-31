@@ -75,6 +75,30 @@ and delete the `capture-session.py` hook entries from `~/.claude/settings.json`.
 correctly as `always`/`never`, but matches no `select` option, so the config form
 renders it blank — re-pick the value to make your choice visible.
 
+## One note, one identity
+
+A note's identity on the remote store is its **permalink**, and all three halves
+of the migration derive it the same way, from the note's path relative to the
+vault root:
+
+```
+<vault>/Memory/2026/Session Notes.md   ->   <remote_folder>/memory-2026-session-notes
+```
+
+- `scripts/import-vault.mjs` writes each existing note under that permalink.
+- The capture hook spools each new capture with an identity sidecar,
+  `<key>.permalink`, holding the same value, and `scripts/flush-spool.mjs` ships
+  it under that permalink rather than under the spool's queue key.
+- `scripts/compare-backends.mjs` lists that one folder and diffs it against the
+  same mapping.
+
+This is what makes parity **reachable**: a shadow that shipped notes under a
+queue key while the comparator looked for path-derived permalinks would report a
+constant, unchanging difference whether it was working perfectly or not working
+at all — and a signal that never changes is not a signal. A capture spooled
+before this existed still drains, under its queue key; the drain logs a line
+saying so, and such notes are outside every folder the comparator can list.
+
 ## Credentials
 
 This Fitting never reads, stores, echoes or bakes a provider key. The drain

@@ -110,18 +110,33 @@ x-garrison:
       type: string
       default: vault
       description: >-
-        Remote permalink folder the vault import and the comparator use, i.e. the `<folder>` in the
-        `<folder>/<slug>` permalink each local note maps to. One folder segment on purpose - the
-        contract lists notes one folder at a time, so a single flat namespace is what lets the
-        comparator enumerate exactly the imported set in one call.
+        Remote permalink folder that the vault import, the shadow drain AND the comparator all use -
+        the `<folder>` in the `<folder>/<slug>` permalink each local note maps to. One folder segment
+        on purpose: the contract lists notes one folder at a time, so a single flat namespace is what
+        lets the comparator enumerate exactly the imported set in one call. All three halves agree on
+        it, which is what makes parity reachable at all - a shadow that shipped notes under one
+        identity while the comparator looked for another could never show agreement however well it
+        worked. The value is slugified (lowercase, `[a-z0-9-]`) before use, so `My Vault` becomes
+        `my-vault` everywhere at once rather than in some places and not others.
     - key: compare_cron
       type: string
       default: "27 4 * * *"
-      description: Local cron schedule for the daily job that compares the local vault against the remote store and files a dated markdown diff report in the composition's data dir. Registered only while shadow_write is on, and retired when it goes off.
+      description: >-
+        Local cron schedule for the daily job that compares the local vault against the remote store
+        and files a dated markdown diff report in the composition's data dir. Registered only while
+        shadow_write is on, and retired when it goes off. The job runs with `--fail-on-diff`, so a
+        divergence between the two sides - and, separately, a review that has passed its date - makes
+        the scheduled job FAIL rather than quietly filing another report. A daily job that exits 0
+        whatever it finds is how a migration becomes furniture.
     - key: compare_sample_size
       type: integer
       default: 5
-      description: How many notes present on BOTH sides the daily comparator reads back and compares byte-for-byte. Set differences are computed over every note; CONTENT is only ever checked on this sample, and every report states the sample size next to its verdict so a clean sample is never mistaken for parity.
+      description: >-
+        How many notes present on BOTH sides the daily comparator reads back and compares
+        byte-for-byte. Set differences are computed over every comparable note; CONTENT is only ever
+        checked on this sample, and every report states the sample size next to its verdict. A sample
+        of 0 - or a run where nothing was present on both sides - is reported as `inconclusive`, never
+        as parity, because a comparison that compared nothing has found nothing.
   provides:
     - kind: memory-store
       name: basic-memory

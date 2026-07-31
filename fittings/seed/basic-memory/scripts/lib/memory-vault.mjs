@@ -142,10 +142,24 @@ export function parseJsonDocument(stdout) {
 }
 
 /**
- * ONE path segment of a permalink: lowercase, every run of characters outside
- * [a-z0-9] collapsed to a single `-`, ends trimmed. Accents are folded through
- * NFKD first so `Notas/Reunião.md` and `Notas/Reuniao.md` do not become two
- * unrelated identities.
+ * ONE path segment of a permalink: NFKD, lowercase, every run of characters
+ * outside [a-z0-9] collapsed to a single `-`, ends trimmed.
+ *
+ * What NFKD actually buys here, stated correctly: it DECOMPOSES a precomposed
+ * character into base + combining mark, so `Reunião` becomes `reunia` + U+0303
+ * + `o`, and the non-alphanumeric rule then turns that mark into a dash -
+ * `reunia-o`, NOT `reuniao`. So it does NOT fold an accented name onto its
+ * unaccented spelling; those remain two identities. It is kept because
+ * decomposing first makes the result depend only on the Unicode text and not on
+ * which of the two normalisation forms a filesystem happened to store (macOS
+ * stores NFD, Linux whatever was typed), which is the property that actually
+ * matters: the SAME file must not change permalink when the vault moves between
+ * machines.
+ *
+ * The exact same algorithm is re-implemented in capture-session.py
+ * (`_remote_permalink`) so a spooled capture lands on the identity this
+ * function derives from its vault path. Changing one without the other splits
+ * the shadow's identity from the comparator's - the G4 review's F1.
  */
 export function slugSegment(text) {
   return String(text)
@@ -153,6 +167,24 @@ export function slugSegment(text) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Normalise a configured remote folder to the ONE segment the permalink will
+ * actually use, so the `--folder` argument and the permalink prefix can never
+ * disagree (the G4 review's F4: `--folder "My Vault"` listed `My Vault` while
+ * every permalink said `my-vault`, and the import then reported a note missing
+ * that was sitting right there).
+ *
+ * Returns null when the value slugifies to nothing at all - callers refuse
+ * rather than silently substituting a default, because writing someone's vault
+ * into an unexpected namespace is worse than stopping.
+ */
+export function resolveRemoteFolder(raw) {
+  const value = String(raw ?? "").trim();
+  const folder = slugSegment(value || "vault");
+  if (!folder) return null;
+  return { folder, raw: value, normalised: value !== folder };
 }
 
 /**
@@ -190,17 +222,36 @@ export function permalinkForRelPath(relPath, folder) {
  * not `.md`, dot-files and dot-directories (`.obsidian/`, editor droppings),
  * whitespace-only files, and anything unreadable. Symlinked directories are
  * not followed (a vault with a loop must not hang a scheduled job).
+ *
+ * `rootExists` and `unreadableDirs` are part of the RESULT, not warnings on the
+ * side. A directory this process cannot read is not "zero notes" - it is an
+ * unknown number of notes, and the G4 review's F3 caught both tools swallowing
+ * exactly that and reporting success. Callers must refuse to claim completeness
+ * while either is set.
  */
 export function listVaultNotes(vaultDir, memoryDir, folder) {
   const root = path.join(vaultDir, memoryDir);
   const notes = [];
   const skipped = [];
+  const unreadableDirs = [];
+  let rootExists = true;
+  try {
+    rootExists = fs.statSync(root).isDirectory();
+  } catch {
+    rootExists = false;
+  }
 
   const walk = (dir) => {
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
+      // NOT swallowed: an unreadable directory hides an unknown number of
+      // notes, and a tool that reports "scanned 1, sent 1, complete" over a
+      // chmod-000 subtree has lied about the only thing it was asked.
+      const relPath = path.relative(vaultDir, dir) || ".";
+      unreadableDirs.push(relPath);
+      skipped.push({ relPath, reason: "unreadable-directory" });
       return;
     }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -255,10 +306,11 @@ export function listVaultNotes(vaultDir, memoryDir, folder) {
     }
   };
 
-  walk(root);
+  if (rootExists) walk(root);
   notes.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
   skipped.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
-  return { root, notes, skipped };
+  unreadableDirs.sort();
+  return { root, rootExists, notes, skipped, unreadableDirs };
 }
 
 /** permalink -> [relPath, ...] for every permalink claimed by more than one note. */
@@ -387,28 +439,65 @@ export function isoDate(when = new Date()) {
   return when.toISOString().slice(0, 10);
 }
 
-/** The review deadline derived from the marker, plus how much of it is left. */
+/**
+ * The review deadline, derived from the marker but NOT trusted from it.
+ *
+ * The marker is a plain JSON file on the user's disk, so `review_due_at` and
+ * `review_window_days` are editable in one keystroke - and a deadline you can
+ * push by editing a file is the "flag that becomes furniture" wearing a
+ * deadline's clothes (the G4 review's F10). So the standing window is
+ * recomputed from `first_dual_write_at` here, the recorded value is compared
+ * against it, and where they disagree:
+ *   - the EARLIER of the two is the effective deadline, so a hand-extension can
+ *     never hide an expiry, and
+ *   - `tampered` is set with both dates, so the report can say out loud that
+ *     the recorded window is not the standing one.
+ * A SHORTER recorded window is honoured as-is - bringing a review forward is
+ * always allowed.
+ */
 export function reviewSchedule(marker, now = new Date()) {
   const firstAt = marker && typeof marker.first_dual_write_at === "string" ? marker.first_dual_write_at : "";
   const started = firstAt ? new Date(firstAt) : null;
   if (!started || Number.isNaN(started.getTime())) {
-    return { known: false, firstDualWriteAt: "", reviewDueAt: "", daysRemaining: null };
+    return {
+      known: false,
+      firstDualWriteAt: "",
+      reviewDueAt: "",
+      daysRemaining: null,
+      overdue: false,
+      tampered: false
+    };
   }
-  const windowDays =
-    typeof marker.review_window_days === "number" && marker.review_window_days > 0
-      ? marker.review_window_days
-      : REVIEW_WINDOW_DAYS;
-  const due =
+  const standardDue = new Date(started.getTime() + REVIEW_WINDOW_DAYS * 86_400_000);
+  const recordedDue =
     typeof marker.review_due_at === "string" && !Number.isNaN(new Date(marker.review_due_at).getTime())
       ? new Date(marker.review_due_at)
-      : new Date(started.getTime() + windowDays * 86_400_000);
+      : null;
+  const recordedWindow =
+    typeof marker.review_window_days === "number" && marker.review_window_days > 0
+      ? marker.review_window_days
+      : null;
+  const due = recordedDue && recordedDue.getTime() < standardDue.getTime() ? recordedDue : standardDue;
+  const tampered = Boolean(
+    (recordedDue && recordedDue.getTime() > standardDue.getTime()) ||
+      (recordedWindow !== null && recordedWindow > REVIEW_WINDOW_DAYS)
+  );
+  // TRUNCATE toward zero, not floor: floor is conservative on the way down
+  // (11.9 days left reads as 11) but OVERSTATES lateness on the way up (6.1
+  // days past reads as -7). Truncation is the conservative answer in both
+  // directions, and a deadline report should not exaggerate in either.
+  // Overdue itself is decided on the timestamps, not on the rounded day count,
+  // so a deadline half a day away is not announced as already missed.
+  const daysRemaining = Math.trunc((due.getTime() - now.getTime()) / 86_400_000);
   return {
     known: true,
     firstDualWriteAt: started.toISOString(),
     reviewDueAt: due.toISOString(),
-    windowDays,
-    // FLOOR, not round or ceil: a deadline countdown must never read longer
-    // than it is.
-    daysRemaining: Math.floor((due.getTime() - now.getTime()) / 86_400_000)
+    windowDays: REVIEW_WINDOW_DAYS,
+    recordedDueAt: recordedDue ? recordedDue.toISOString() : "",
+    recordedWindowDays: recordedWindow,
+    tampered,
+    daysRemaining,
+    overdue: due.getTime() <= now.getTime()
   };
 }

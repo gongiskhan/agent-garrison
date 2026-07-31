@@ -316,6 +316,10 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
     # %q-quoted (like the scheduler path below): a config value carrying
     # quotes/$() must land as data in the hook command, never as shell.
     SPOOL_ENV="BASIC_MEMORY_SPOOL_ENABLED=1 REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN") "
+    # The hook needs the remote folder to compute each capture's identity
+    # sidecar - the permalink the comparator will derive from the same note's
+    # vault path. Without it the shadow ships notes the comparator cannot find.
+    SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER") "
     [ -n "$SPOOL_DIR" ] && SPOOL_ENV="${SPOOL_ENV}BASIC_MEMORY_SPOOL_DIR=$(quote "$SPOOL_DIR") "
   fi
   CAP_CMD="${SPOOL_ENV}BASIC_MEMORY_VAULT_DIR=\"$VAULT_DIR\" BASIC_MEMORY_MEMORY_DIR=\"$MEMORY_DIR\" python3 \"$HOOK_PATH\""
@@ -479,9 +483,14 @@ PY
     cmp_env="$cmp_env BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER")"
     cmp_env="$cmp_env BASIC_MEMORY_COMPARE_SAMPLE_SIZE=$(quote "$COMPARE_SAMPLE")"
     cmp_env="$cmp_env BASIC_MEMORY_COMPARE_REPORT_DIR=$(quote "$COMPOSITION_DIR/data/memory-backend-compare")"
+    # --fail-on-diff, deliberately: a shadow whose two sides disagree is a
+    # BROKEN migration, and the whole argument of this slice is that an
+    # unreviewed shadow turns into furniture. A job that exits 0 no matter what
+    # it found leaves the only signal inside a markdown file nobody has to open.
+    # (The comparator also exits non-zero on its own once the review is overdue.)
     sched register "$COMPARE_JOB_ID" "$COMPARE_CRON" \
       --description "Compare the local memory vault against the remote store and file a dated diff report" \
-      -- "$cmp_env node $(quote "$COMPARE_PATH")"
+      -- "$cmp_env node $(quote "$COMPARE_PATH") --fail-on-diff"
     log "backend comparison job registered ($COMPARE_JOB_ID: $COMPARE_CRON)"
   fi
 else
