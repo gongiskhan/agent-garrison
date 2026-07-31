@@ -206,6 +206,20 @@
     }
   },
   {
+    "id": "outpost-worker",
+    "name": "Outpost Worker",
+    "repo": "local:fittings/seed/outpost-worker",
+    "localPath": "fittings/seed/outpost-worker",
+    "summary": "The remote half of Outpost Dispatch: install it ON an outpost so that machine polls the Garrison host, claims cards placed on it, materializes the project Loadout with a vault-rendered .env, runs the card, heartbeats, and copies evidence back to the host board. Outbound-only, so a sleeping machine simply stops asking.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
     "id": "monitor-default",
     "name": "Monitor (default)",
     "repo": "local:fittings/seed/monitor-default",

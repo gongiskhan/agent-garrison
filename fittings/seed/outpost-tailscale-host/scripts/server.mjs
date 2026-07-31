@@ -319,9 +319,32 @@ async function handleProvision(req, res, opts) {
   pushLine(job, `==> Connecting over SSH (BatchMode; key auth required)…`);
 
   const target = `${sshUser}@${sshHost}`;
+  // `ssh host "bash -s"` is a NON-LOGIN, non-interactive shell: it sources no
+  // profile, so PATH is the bare /usr/bin:/bin:/usr/sbin:/sbin. Every way a Mac
+  // actually gets node is invisible there - nvm (~/.nvm/versions/node/*/bin) and
+  // Homebrew (/opt/homebrew/bin) are both added by the login profile. Verified
+  // on all three Macs: `node NOT FOUND`, so provision-outpost.sh's node check
+  // failed on every one of them and provisioning could never succeed.
+  // Wrap in a LOGIN shell so the user's real PATH is present, then hand the
+  // script to bash on stdin exactly as before. `exec` avoids an extra process
+  // in the chain, and $SHELL is honoured with a zsh fallback (macOS default).
+  //
+  // A login shell alone is NOT enough: nvm is commonly sourced from .zshrc,
+  // which a non-interactive login shell does not read. Verified - the login
+  // shell finds node on the MacBook Pro and the mini but not the Air, whose
+  // node lives only under ~/.nvm. So also probe the three places a Mac actually
+  // keeps node (Homebrew arm64, Intel/manual, and the newest nvm version, sorted
+  // -V so v22 beats v9) rather than trusting the profile. Verified on all three.
+  // Single-quoted outer string: nothing here is interpolated locally, every $ is
+  // expanded by the REMOTE shell. Keep it that way - a template literal would
+  // expand $HOME/$SHELL on the Garrison host and send the wrong paths.
+  const loginWrap =
+    'exec "${SHELL:-/bin/zsh}" -lc ' +
+    '\'export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:' +
+    '$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"; exec bash -s\'';
   const child = spawn(
     "ssh",
-    ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15", target, "bash -s"],
+    ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15", target, loginWrap],
     { stdio: ["pipe", "pipe", "pipe"] }
   );
 

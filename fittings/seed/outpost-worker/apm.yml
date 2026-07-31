@@ -12,7 +12,11 @@ x-garrison:
     this machine's pairing token, claims cards whose placement names it, and
     reports back. Never dialled by the host - a machine that is asleep simply
     stops asking, so work is never pushed into the void.
-  component_shape: cli
+  # `script`, not `cli`: this is a supervised background daemon, not a command
+  # the user invokes. It also has to be a shape the `coordination` faculty
+  # accepts (mcp/hook/script) - `cli` is not one, and that mismatch was the
+  # second reason this manifest failed to parse.
+  component_shape: script
   ui:
     views:
       - id: manage
@@ -45,9 +49,13 @@ x-garrison:
     # The pairing token is the machine's identity. Vault-scoped so it is
     # delivered to this fitting and nothing else.
     - GARRISON_DISPATCH_TOKEN
-  provides:
-    - kind: duty
-      name: outpost-worker
+  # The worker is a background poller, not a selectable duty: nothing resolves
+  # `duty:outpost-worker`, and declaring it without a matching `duties[]` spec
+  # made the whole manifest fail zod cross-field validation - which is why this
+  # fitting could never be registered in data/library.json (readLibrary throws
+  # on a present-but-invalid manifest, so registering it would have bricked every
+  # readLibrary() consumer). It provides no capability others consume.
+  provides: []
   consumes:
     - kind: vault
       cardinality: optional-one
