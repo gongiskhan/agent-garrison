@@ -86,6 +86,11 @@ x-garrison:
             enabled: true
             triage_enabled: true
             wake_enabled: true
+            # Chat must be ON before the Omi app is created: the backend FETCHES
+            # chat_tools_manifest_url at create time, and a 403 there means the
+            # app is created with silently-empty chat tools.
+            chat_enabled: true
+            notify_enabled: true
             # Omi streams realtime segments in batches, and the gap between the
             # segment carrying "Gary, create a task saying" and the one carrying
             # the title exceeded the 4s default - the window shut mid-sentence
