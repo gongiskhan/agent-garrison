@@ -545,6 +545,20 @@
     }
   },
   {
+    "id": "scroll-world",
+    "name": "Scroll World",
+    "repo": "local:fittings/seed/scroll-world",
+    "localPath": "fittings/seed/scroll-world",
+    "summary": "Scroll-scrubbed \"fly through the world\" landing-page skill: a pre-rendered camera dives into each scene and flies on to the next with no cuts, generated with the Higgsfield CLI behind spend gates and SSIM seam checks, wired by a portable vanilla-JS scrub engine. Vendored MIT from cth9191/scroll-world at a pinned commit.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4,
+      "claude_code": 4
+    }
+  },
+  {
     "id": "taste",
     "name": "Taste",
     "repo": "local:fittings/seed/taste",

@@ -38,6 +38,7 @@ dependencies:
     - path: ../../fittings/seed/roadmaps
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/scroll-world
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/snapshots-default
     - path: ../../fittings/seed/taste
@@ -247,6 +248,8 @@ x-garrison:
             bind_host: 127.0.0.1
       design:
         - id: taste
+          config: {}
+        - id: scroll-world
           config: {}
       connectors:
         - id: deepgram-voice
