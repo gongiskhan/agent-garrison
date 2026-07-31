@@ -73,6 +73,39 @@ export class BoardClient {
     return data.card ?? data;
   }
 
+  // Revise a card the wake bus already created. Two routes on purpose: while the
+  // card is still sitting on a manual list it can be edited outright, but once
+  // the engine owns it (D16) the board rejects edits with 403 - and steering is
+  // the correct semantic there anyway ("I've changed my mind, here's more").
+  // Returns how it landed so the caller can say so out loud.
+  async reviseCard(cardId, { title = null, description = null, note = null }) {
+    const base = this.base();
+    if (!base || !cardId) return { ok: false, mode: "unavailable" };
+    const patch = {};
+    if (title) patch.title = title;
+    if (description) patch.description = description;
+    if (Object.keys(patch).length > 0) {
+      const res = await this.fetchImpl(`${base}/cards/${encodeURIComponent(cardId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (res.ok) return { ok: true, mode: "patched" };
+      // 403 = engine-owned; anything else is a real failure worth reporting.
+      if (res.status !== 403) return { ok: false, mode: `http-${res.status}` };
+    }
+    const text = note || description || title;
+    if (!text) return { ok: false, mode: "nothing-to-say" };
+    const res = await this.fetchImpl(`${base}/cards/${encodeURIComponent(cardId)}/steer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(10000)
+    });
+    return res.ok ? { ok: true, mode: "steered" } : { ok: false, mode: `steer-http-${res.status}` };
+  }
+
   // Deep link for a card, tailnet-paired by the caller (lib/notify.mjs
   // boardCardUrl does the rehost); this raw form is loopback.
   async cardUrl(cardId) {

@@ -122,6 +122,62 @@ export function parseWakeReply(reply) {
   }
 }
 
+// The revision pass. The card already exists and the user has had time to look
+// at it, so the question is not "what did they want" but "did they change it".
+// Bias hard toward leaving it alone: most of what follows a command is unrelated
+// talk, and silently rewriting a card the user was happy with is worse than
+// missing a correction they can make by hand.
+export function buildRevisionPrompt({ command, title, description, conversation }) {
+  return `A task card was created from a spoken command a few minutes ago. Since then the microphone kept listening. Decide whether the user CORRECTED or ADDED TO that task, and respond as STRICT JSON only - no prose, no fence.
+
+Original spoken command: "${command}"
+
+The card as it stands:
+- title: "${title}"
+- description: "${description}"
+
+What was said afterwards (mostly unrelated talk, television, or other people -
+only some of it, if any, is about the task):
+"${conversation}"
+
+Schema:
+{ "action": "none" | "revise", "title": "corrected title", "description": "corrected description", "note": "what changed, one line, addressed to the user" }
+
+Rules:
+- "none" is the DEFAULT and the common case. Choose it unless the user clearly
+  referred back to this task.
+- "revise" only for an explicit correction ("no, make that Wednesday", "actually
+  it's for the other project") or detail plainly about this same task.
+- Never invent detail that was not said. Never fold in an unrelated new task -
+  a different request is not a revision of this one.
+- Keep the user's language (PT stays PT, EN stays EN).`;
+}
+
+export function parseRevisionReply(reply) {
+  if (typeof reply !== "string" || reply.trim() === "") return null;
+  let text = reply.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1].trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1));
+    if (typeof parsed !== "object" || parsed === null) return null;
+    // Anything that is not an explicit "revise" means leave the card alone -
+    // an unparseable or surprising answer must never rewrite a card.
+    const action = parsed.action === "revise" ? "revise" : "none";
+    return {
+      action,
+      title: typeof parsed.title === "string" ? parsed.title.trim() : "",
+      description: typeof parsed.description === "string" ? parsed.description.trim() : "",
+      note: typeof parsed.note === "string" ? parsed.note.trim() : ""
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ---- the bus ----------------------------------------------------------------
 
 export class WakeBus {
@@ -139,6 +195,7 @@ export class WakeBus {
     this.regex = wakeRegex(cfg.wakeVariants);
     this.dispatchChain = Promise.resolve();
     this.recentCards = new Map(); // dedupeKey -> created-at ms (in memory)
+    this.revisions = new Map(); // sessionId -> pending revision watch (in memory)
   }
 
   // Remember a just-created card and evict anything past the dedupe window, so
@@ -150,6 +207,74 @@ export class WakeBus {
     for (const [k, at] of this.recentCards) {
       if (now - at >= window) this.recentCards.delete(k);
     }
+  }
+
+  // Open a revision watch after a card is created: keep the mic's output for
+  // this session for a while, then ask ONCE whether the user corrected it.
+  scheduleRevision({ sessionId, cardId, command, title, description }) {
+    const after = this.cfg.wakeReviseAfterMs ?? 0;
+    if (after <= 0 || !sessionId || !cardId) return null;
+    // One watch per session: a newer card supersedes an older one rather than
+    // accumulating timers on a session that keeps issuing commands.
+    const existing = this.revisions.get(sessionId);
+    if (existing?.timer) clearTimeout(existing.timer);
+    const watch = { cardId, command, title, description, lines: [], timer: null };
+    watch.timer = setTimeout(() => {
+      this.reviseChain = (this.reviseChain ?? Promise.resolve())
+        .then(() => this.runRevision(sessionId))
+        .catch((err) => this.log.error(`[omi-channel] wake revision error: ${err?.message ?? err}`));
+    }, after);
+    if (watch.timer.unref) watch.timer.unref();
+    this.revisions.set(sessionId, watch);
+    return watch;
+  }
+
+  async runRevision(sessionId) {
+    const watch = this.revisions.get(sessionId);
+    this.revisions.delete(sessionId);
+    if (!watch) return null;
+    if (watch.timer) clearTimeout(watch.timer);
+    // Kill switch honoured here too: flipping wake off must stop the deferred
+    // pass, not just new captures.
+    if (!this.cfg.wakeEnabled || !this.runFn || !this.cfg.gatewayUrl) return null;
+    const conversation = watch.lines.join(" ").replace(/\s+/g, " ").trim();
+    if (!conversation) return null;
+    this.counters.bump("wake_revisions_checked");
+    const { reply } = await this.runFn({
+      prompt: buildRevisionPrompt({
+        command: watch.command,
+        title: watch.title,
+        description: watch.description,
+        conversation
+      })
+    });
+    const parsed = parseRevisionReply(reply);
+    if (!parsed || parsed.action !== "revise") {
+      this.counters.bump("wake_revisions_none");
+      return { action: "none" };
+    }
+    const applied = await this.board.reviseCard(watch.cardId, {
+      title: parsed.title || null,
+      description: parsed.description || null,
+      note: parsed.note || null
+    });
+    if (!applied?.ok) {
+      this.counters.bump("wake_revisions_failed");
+      return { action: "revise", applied };
+    }
+    this.counters.bump("wake_revisions_applied");
+    this.log.log(`[omi-channel] wake revision ${applied.mode} card ${watch.cardId}`);
+    // Tell the user, or a silent rewrite is indistinguishable from a bug.
+    await this.notifier
+      .send({
+        template: "wake_confirmation",
+        params: {
+          text: parsed.note || `Updated: ${parsed.title || watch.title}`,
+          cardUrl: await this.notifier.cardUrl(watch.cardId).catch(() => null)
+        }
+      })
+      .catch(() => []);
+    return { action: "revise", applied };
   }
 
   session(sessionId) {
@@ -190,9 +315,16 @@ export class WakeBus {
       this.gc();
       const s = this.session(sessionId);
       s.lastActivity = this.now();
+      const watch = this.revisions.get(sessionId);
       for (const seg of segments) {
         const text = typeof seg?.text === "string" ? seg.text : "";
         if (!text.trim()) continue;
+        // A revision watch listens to everything after its card was created,
+        // including the speech that belongs to a later wake capture - a
+        // correction is often phrased as a fresh command ("Gary, no, Wednesday").
+        if (watch && watch.lines.length < (this.cfg.wakeReviseMaxSegments ?? 0)) {
+          watch.lines.push(text.trim());
+        }
         const fingerprint = `${seg?.start ?? ""}|${seg?.end ?? ""}|${text}`;
         if (s.seen.has(fingerprint)) {
           this.counters.bump("wake_segments_deduped");
@@ -345,7 +477,7 @@ export class WakeBus {
 
     let outcome = null;
     try {
-      outcome = await this.handleCommand({ command, eventId, context, trailing });
+      outcome = await this.handleCommand({ command, eventId, context, trailing, sessionId });
     } catch (err) {
       outcome = await this.fallbackNote({
         command,
@@ -374,7 +506,7 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [], trailing = "" }) {
+  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null }) {
     if (!this.cfg.gatewayUrl || !this.runFn) {
       return this.fallbackNote({
         command,
@@ -434,6 +566,15 @@ export class WakeBus {
           });
           this.counters.bump("wake_cards_created");
           this.rememberCard(dedupeKey);
+          // Keep listening: the user sees the card within ~45s and often
+          // corrects it out loud right afterwards.
+          this.scheduleRevision({
+            sessionId,
+            cardId: card?.id ?? null,
+            command,
+            title,
+            description: parsed.description || command
+          });
           const cardUrl = await this.notifier.cardUrl(card?.id ?? null);
           return {
             confirmation: `${isEvent ? "Event card" : "Card"} created: ${title}`,

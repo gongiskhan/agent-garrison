@@ -312,6 +312,18 @@ declare module "*/omi-channel/lib/notify.mjs" {
 declare module "*/omi-channel/lib/wake.mjs" {
   export function wakeRegex(variants: string[]): RegExp | null;
   export function normalizeTitle(title: unknown): string;
+  export function buildRevisionPrompt(args: {
+    command: string;
+    title: string;
+    description: string;
+    conversation: string;
+  }): string;
+  export function parseRevisionReply(reply: string): {
+    action: "none" | "revise";
+    title: string;
+    description: string;
+    note: string;
+  } | null;
   export function buildWakePrompt(command: string, projects: string[]): string;
   export function parseWakeReply(reply: string): {
     intent: "create_task" | "create_event" | "query" | "note" | "unknown";
@@ -339,7 +351,17 @@ declare module "*/omi-channel/lib/wake.mjs" {
       command: string;
       eventId: string;
       context?: Array<{ text: string; isUser: boolean; at: number }>;
+      trailing?: string;
+      sessionId?: string | null;
     }): Promise<{ confirmation: string; cardUrl: string | null; result: Record<string, unknown> }>;
+    scheduleRevision(args: {
+      sessionId: string | null;
+      cardId: string | null;
+      command: string;
+      title: string;
+      description: string;
+    }): unknown;
+    runRevision(sessionId: string): Promise<{ action: string } | null>;
     close(sessionId: string, reason: string): Promise<unknown>;
   }
 }

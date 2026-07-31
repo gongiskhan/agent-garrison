@@ -133,6 +133,12 @@ export function loadConfig(env = process.env) {
     // run for minutes; without this split a 10-minute transcript of the TV
     // would drown the two sentences the user actually addressed to Gary.
     wakeCommandWindowMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_COMMAND_WINDOW_MS, 60000),
+    // The revision pass. The card is created fast so it can be SEEN and then
+    // corrected out loud; this window is how long we keep listening for that
+    // correction ("no, make it Wednesday", or just more detail). One model call
+    // per revised card, once, at the end - not per segment. 0 disables.
+    wakeReviseAfterMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_REVISE_AFTER_MS, 600000),
+    wakeReviseMaxSegments: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_REVISE_MAX_SEGMENTS, 50),
     // Suppress a second card whose resolved title matches one just created.
     // A spoken command takes ~25s to appear, so repeating it is the natural
     // reaction - and the repeat is different transcript text, so nothing else

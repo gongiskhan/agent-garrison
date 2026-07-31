@@ -1450,6 +1450,13 @@ async function handlePatchCard(req, res, opts, id) {
       if (isReadableFile(abs)) next.briefPath = cardBriefRel(card.id);
     }
   }
+  // Title/description are editable so a card can be CORRECTED after creation —
+  // the omi wake bus creates a card within ~45s so it can be seen, then revises
+  // it from what the user said next ("no, make that Wednesday"). The
+  // engine-owned guard above still applies, so a running card is not rewritten
+  // underneath its own run.
+  if (typeof body.title === "string" && body.title.trim()) next.title = body.title.trim();
+  if (typeof body.description === "string") next.description = body.description;
   if (typeof body.project === "string") next.project = body.project.trim() || null;
   if (typeof body.goalMode === "boolean") next.goalMode = body.goalMode;
   if (typeof body.sliceId === "string") {

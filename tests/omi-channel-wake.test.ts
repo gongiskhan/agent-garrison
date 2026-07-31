@@ -702,3 +702,93 @@ describe("wake command window vs trailing context", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+// Feature (2026-07-31, user-requested): the card is created fast (~45s) so it can
+// be SEEN, then a single deferred pass reads what was said afterwards and
+// corrects it - "I can see if the card was created correctly. I can ask to
+// adjust if it wasn't, with voice."
+describe("wake revision pass", () => {
+  function harness(home: string, revisionReply: string) {
+    const store = new OmiStore(path.join(home, "omi"));
+    const revised: Array<{ cardId: string; patch: Record<string, unknown> }> = [];
+    let call = 0;
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeReviseAfterMs: 600000,
+        wakeReviseMaxSegments: 50,
+        wakeCardDedupeMs: 0
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => {
+        call += 1;
+        return call === 1
+          ? { reply: JSON.stringify({ intent: "create_task", title: "Book car service", description: "d" }) }
+          : { reply: revisionReply };
+      },
+      board: {
+        listProjects: async () => [],
+        createCard: async () => ({ id: "card-1", url: null }),
+        reviseCard: async (cardId: string, patch: Record<string, unknown>) => {
+          revised.push({ cardId, patch });
+          return { ok: true, mode: "patched" };
+        }
+      },
+      memoryWriter: { write: async () => ({ ok: true }) },
+      notifier: { send: async () => [], cardUrl: async () => null }
+    });
+    return { wake, revised, store };
+  }
+
+  const seg = (text: string) => ({ text, speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 });
+
+  it("applies a spoken correction to the card it just created", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-"));
+    const { wake, revised, store } = harness(
+      home,
+      JSON.stringify({ action: "revise", title: "Book car service Wednesday", description: "d2", note: "Moved to Wednesday" })
+    );
+    await wake.handleCommand({ command: "create a task to book the car service", eventId: "e1", sessionId: "s1" });
+    // The correction arrives afterwards, in the same session.
+    wake.handleSegments({ sessionId: "s1", segments: [seg("no Gary, make that Wednesday not Tuesday")] });
+    await wake.runRevision("s1");
+    expect(revised).toHaveLength(1);
+    expect(revised[0].cardId).toBe("card-1");
+    expect(revised[0].patch.title).toBe("Book car service Wednesday");
+    expect(mergedCounters(store.root).wake_revisions_applied).toBe(1);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("leaves the card alone when the talk afterwards is unrelated", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-none-"));
+    const { wake, revised, store } = harness(home, JSON.stringify({ action: "none" }));
+    await wake.handleCommand({ command: "create a task to book the car service", eventId: "e1", sessionId: "s1" });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("and now the weather for the weekend")] });
+    await wake.runRevision("s1");
+    expect(revised).toHaveLength(0);
+    expect(mergedCounters(store.root).wake_revisions_none).toBe(1);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("never rewrites a card on an unparseable revision reply", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-bad-"));
+    const { wake, revised } = harness(home, "the model rambled instead of answering");
+    await wake.handleCommand({ command: "c", eventId: "e1", sessionId: "s1" });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("something")] });
+    await wake.runRevision("s1");
+    expect(revised).toHaveLength(0);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("makes no model call when nothing was said afterwards", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-quiet-"));
+    const { wake, store } = harness(home, JSON.stringify({ action: "revise", title: "x" }));
+    await wake.handleCommand({ command: "c", eventId: "e1", sessionId: "s1" });
+    await wake.runRevision("s1");
+    expect(mergedCounters(store.root).wake_revisions_checked ?? 0).toBe(0);
+    rmSync(home, { recursive: true, force: true });
+  });
+});
