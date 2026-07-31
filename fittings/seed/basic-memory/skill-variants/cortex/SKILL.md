@@ -3,10 +3,13 @@ name: Garrison Memory
 description: Operative memory backed by a remote note vault reached through the `cortex` CLI — plain markdown notes addressed by permalink, searchable from every machine that holds a user-scoped key.
 ---
 <!-- garrison-memory-backend: cortex -->
-<!-- Installed by the basic-memory Fitting when `backend: cortex`. The default
-     (local) variant is the fitting's own .apm/skills/garrison-memory/SKILL.md;
-     setup.sh restores it when the backend flips back. Edit the SOURCE variant,
-     never this installed copy. -->
+<!-- SOURCE: fittings/seed/basic-memory/skill-variants/cortex/SKILL.md, installed
+     by that Fitting when `backend: cortex`. Its default (local) variant is
+     .apm/skills/garrison-memory/SKILL.md. BOTH are listed in the Fitting's Skill
+     view - edit the one matching your backend. Do NOT edit the deployed copy
+     under <composition>/.claude/skills/: APM owns that path and re-deploys it
+     from .apm/skills on every install, so an edit there is discarded rather than
+     kept. See the Fitting's README.md. -->
 
 # Garrison Memory
 

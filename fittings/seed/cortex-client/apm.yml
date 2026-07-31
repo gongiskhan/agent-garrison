@@ -250,9 +250,13 @@ x-garrison:
     environment. Setting repo_url is therefore a trust decision about that repository,
     equivalent to running its build yourself in a shell you had sourced your secrets into.
     What this Fitting does to narrow it, and what it does not:
-      - narrowed: `npm install --ignore-scripts`, so neither the repository's install
-        lifecycle nor any transitive dependency's runs; only the declared `build` script
-        does, and without its pre/post wrappers.
+      - narrowed: `npm install --ignore-scripts` blocks preinstall/postinstall on the
+        repository AND on every transitive dependency, and a .npmrc cannot re-enable it
+        (argv wins). `prepare` STILL RUNS - npm runs it outside the ignore-scripts gate -
+        for the repository and for a workspace dependency alike, so the declared `build`
+        is not the only thing that executes. The risk delta is nil, since `build` runs by
+        design with the same environment, but the accurate statement is: install and
+        dependency lifecycles are blocked, `prepare` and `build` are not.
       - narrowed: every path written, linked or chmodded is refused if it resolves inside
         Garrison's own source tree - including package_subdir and the `bin` entry the
         repository itself declares.

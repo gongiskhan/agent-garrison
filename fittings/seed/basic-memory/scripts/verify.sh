@@ -20,23 +20,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSITION_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
-SKILL_REMOTE_MARK="garrison-memory-backend: cortex"
+SKILL_STATE_FILE="$COMPOSITION_DIR/.garrison/basic-memory-skill-backend"
+# Full-line, fixed-string. Used only to ATTEST that the deployed file is the
+# remote variant - never to decide the backend, and never as a substring match:
+# an unanchored grep would read a skill that merely quotes the marker as proof.
+SKILL_REMOTE_MARK="<!-- garrison-memory-backend: cortex -->"
 
 # Which backend to verify against. `runner.verify()` projects only the gateway
 # env into verify hooks - NOT the fitting's config (unlike setup, which gets
 # setupConfigEnv) - so BASIC_MEMORY_BACKEND is normally absent here and the
-# backend is INFERRED from the artifact setup.sh installed: the skill variant
-# carrying the remote marker. That is the right thing to key on anyway, because
-# verify's job is to attest the state actually on disk. An explicitly set
-# BASIC_MEMORY_BACKEND (a manual run, a test) wins, so intent can still be
-# asserted against reality. Unknown values read as the shipped default.
+# backend is read from the SIDECAR setup.sh wrote, not from the payload. Keying
+# on the payload would make verify's own verdict depend on the content of a file
+# APM owns and rewrites. An explicitly set BASIC_MEMORY_BACKEND (a manual run, a
+# test) wins, so intent can still be asserted against reality. Unknown values
+# read as the shipped default.
 BACKEND="$(printf '%s' "${BASIC_MEMORY_BACKEND:-}" | tr '[:upper:]' '[:lower:]')"
-if [ -z "$BACKEND" ]; then
-  if [ -f "$SKILL_DEST" ] && grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null; then
-    BACKEND="cortex"
-  else
-    BACKEND="local"
-  fi
+if [ -z "$BACKEND" ] && [ -f "$SKILL_STATE_FILE" ]; then
+  BACKEND="$(tr -d '[:space:]' < "$SKILL_STATE_FILE" | tr '[:upper:]' '[:lower:]')"
 fi
 [ "$BACKEND" = "cortex" ] || BACKEND="local"
 
@@ -81,7 +81,9 @@ else
   fi
   if [ "$(basename "$MODULES_DIR")" = "apm_modules" ]; then
     [ -f "$SKILL_DEST" ] || fail "backend=$BACKEND but $SKILL_DEST is missing"
-    grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null \
+    # -x (whole line) -F (fixed string): a skill that merely quotes the marker
+    # inline or in a fenced block is not the remote variant and must not pass.
+    grep -qxF "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null \
       || fail "backend=$BACKEND but $SKILL_DEST is not the remote skill variant"
   fi
 fi

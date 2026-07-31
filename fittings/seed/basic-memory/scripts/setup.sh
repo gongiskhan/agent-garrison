@@ -12,9 +12,21 @@
 #            keeps running (it is the spool's source), but the local MCP server
 #            is NOT registered and the operative is taught the remote memory CLI
 #            instead, via the skill variant under skill-variants/.
-# The local path must stay byte-identical to the pre-switch fitting, so every
-# cortex-only branch below is explicitly gated and every cleanup is conditional
-# on the artifact actually being there.
+# The default path has NO OBSERVABLE DELTA for stock inputs against the
+# pre-switch fitting, so every cortex-only branch below is explicitly gated and
+# every cleanup is conditional on a record THIS script wrote - never on the
+# content of a file someone else owns.
+#
+# WHO OWNS WHAT (read this before "hardening" the skill swap below):
+#   <composition>/.claude/skills/garrison-memory/SKILL.md is owned by APM, not by
+#   this fitting. `apm install --force` runs immediately before every setup hook
+#   (runner.ts up() and verify()) and UNCONDITIONALLY re-deploys that path from
+#   .apm/skills/, ignoring the recorded deployed_file_hashes. So an edit made
+#   THERE is not durable whatever this script does, and the flip-back restore
+#   below is belt-and-braces for an out-of-band setup run, not a protection we
+#   can offer. The editable sources are the fitting's own files:
+#   .apm/skills/garrison-memory/SKILL.md (local) and
+#   skill-variants/cortex/SKILL.md (remote). See this fitting's README.md.
 #
 # Safe to re-run: every step checks current state before changing it, and a
 # backend flip in either direction cleans up the other backend's artifacts.
@@ -34,7 +46,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Spool drain (composition config arrives as BASIC_MEMORY_* via
 # setupConfigEnv). With the defaults everything below is a no-op and the stock
-# local behavior stays byte-identical.
+# local path has no observable delta for stock inputs.
 SPOOL_ENABLED="${BASIC_MEMORY_SPOOL_ENABLED:-auto}"
 SPOOL_DIR="${BASIC_MEMORY_SPOOL_DIR:-}"
 FLUSH_CRON="${BASIC_MEMORY_FLUSH_INTERVAL_CRON:-*/15 * * * *}"
@@ -75,10 +87,27 @@ COMPOSITION_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 SKILL_LOCAL_SRC="$SCRIPT_DIR_PARENT/.apm/skills/garrison-memory/SKILL.md"
 SKILL_CORTEX_SRC="$SCRIPT_DIR_PARENT/skill-variants/cortex/SKILL.md"
 SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
-# Marks an installed SKILL.md as OURS (a remote-backend variant we wrote), so a
-# flip back to local restores only what this fitting put there and never a
-# hand-authored or reconciled file.
-SKILL_REMOTE_MARK="garrison-memory-backend: cortex"
+# The record of which variant WE last installed, kept in the composition's own
+# Garrison state dir - a SIDECAR, deliberately not a marker inside the payload.
+# Two reasons, both learned the hard way:
+#   1. A guard that greps the payload is content-conditional, so a hand-authored
+#      skill that merely QUOTES the marker gets overwritten by a plain
+#      `backend: local` run on a machine that never used the remote backend -
+#      a default-path write that no byte-diff of stock inputs can catch.
+#   2. The record has to survive the payload being replaced (which APM does on
+#      every install), and a marker inside the payload cannot.
+# Per-composition, not machine-global, because the artifact it tracks is
+# per-composition: two compositions may sit on different backends at once.
+SKILL_STATE_FILE="$COMPOSITION_DIR/.garrison/basic-memory-skill-backend"
+# Fingerprint of the LOCAL skill source at the last remote install, so an
+# operator who edits the memory skill through the fitting's Skill view while on
+# a remote backend is TOLD the edit is not in effect (that view edits
+# .apm/skills only) instead of losing it silently.
+SKILL_LOCAL_FINGERPRINT="$COMPOSITION_DIR/.garrison/basic-memory-skill-local.cksum"
+# A full-line, fixed-string marker the remote variant carries. Used ONLY as an
+# attestation in verify (is the deployed file really the remote variant), never
+# as the ownership guard - see above.
+SKILL_REMOTE_MARK="<!-- garrison-memory-backend: cortex -->"
 
 export PATH="$HOME/.local/bin:$PATH"
 log() { printf '[basic-memory-setup] %s\n' "$*"; }
@@ -217,11 +246,14 @@ else
 fi
 
 # 5b. Install the skill variant that matches the backend, so the operative is
-# taught the ops surface that actually exists in its session. APM already
-# installed the local variant from .apm/skills/, so the DEFAULT path writes
-# nothing at all; the remote path overwrites that copy and a flip back restores
-# it - but only when the installed file is one WE wrote (it carries the marker),
-# never a hand-edited or reconciled file.
+# taught the ops surface that actually exists in its session.
+#
+# The DEFAULT path never reads and never writes $SKILL_DEST: it looks only at
+# our own sidecar, which does not exist until a remote install writes it. APM
+# has already deployed the local variant there by the time this runs, and will
+# re-deploy it on every subsequent install regardless of what we do - so the
+# `local` branch is a courtesy for an out-of-band setup run, NOT a guarantee
+# that anything written at $SKILL_DEST survives. It does not.
 if [ "$(basename "$MODULES_DIR")" != "apm_modules" ]; then
   log "not running from an installed composition; skill variant left alone"
 elif [ "$BACKEND" != "local" ]; then
@@ -236,7 +268,26 @@ elif [ "$BACKEND" != "local" ]; then
     cp -f "$SKILL_CORTEX_SRC" "$SKILL_DEST"
     log "installed the $BACKEND skill variant -> $SKILL_DEST"
   fi
-elif [ -f "$SKILL_DEST" ] && grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/null; then
+  mkdir -p "$(dirname "$SKILL_STATE_FILE")"
+  printf '%s\n' "$BACKEND" > "$SKILL_STATE_FILE"
+
+  # The Skill view (ui.views[].entry = garrison:skill) is rooted at .apm/skills
+  # ONLY, so on a remote backend it edits the LOCAL variant - a file this branch
+  # then overwrites at $SKILL_DEST. That edit cannot take effect here. Detect it
+  # by fingerprinting the local source and say so loudly rather than discarding
+  # it in silence; the file to edit for THIS backend is $SKILL_CORTEX_SRC.
+  if [ -f "$SKILL_LOCAL_SRC" ]; then
+    local_sum="$(cksum < "$SKILL_LOCAL_SRC" | awk '{print $1 "-" $2}')"
+    if [ -f "$SKILL_LOCAL_FINGERPRINT" ] \
+      && [ "$(cat "$SKILL_LOCAL_FINGERPRINT")" != "$local_sum" ]; then
+      log "warning: the LOCAL garrison-memory skill source changed, but backend=$BACKEND installs skill-variants/cortex/SKILL.md - that edit is NOT in effect. Edit $SKILL_CORTEX_SRC for this backend."
+    fi
+    printf '%s\n' "$local_sum" > "$SKILL_LOCAL_FINGERPRINT"
+  fi
+elif [ -f "$SKILL_STATE_FILE" ]; then
+  # We previously installed a remote variant into an APM-owned path. Put the
+  # local one back (APM would have done it anyway on the next install) and drop
+  # the record, so a later local run touches nothing at all.
   if [ -f "$SKILL_LOCAL_SRC" ]; then
     cp -f "$SKILL_LOCAL_SRC" "$SKILL_DEST"
     log "backend=local: restored the local skill variant"
@@ -244,6 +295,7 @@ elif [ -f "$SKILL_DEST" ] && grep -q "$SKILL_REMOTE_MARK" "$SKILL_DEST" 2>/dev/n
     rm -f "$SKILL_DEST"
     log "backend=local: removed the stale remote skill variant (no local source to restore)"
   fi
+  rm -f "$SKILL_STATE_FILE" "$SKILL_LOCAL_FINGERPRINT"
 fi
 
 # 6. Install the capture hook to a stable location + wire it (idempotent).
@@ -356,6 +408,14 @@ else
   # our drain job if a previous enable left one behind.
   if job_registered "$FLUSH_JOB_ID"; then
     sched remove "$FLUSH_JOB_ID" >/dev/null 2>&1 || true
+  fi
+  # …and un-stage the drain script itself. Inert without a job, but leaving a
+  # remote-shipping script behind after an operator turned the remote off is the
+  # kind of residue that gets found later and assumed to be running. Conditional,
+  # so the default path still touches nothing.
+  if [ -f "$FLUSH_PATH" ]; then
+    rm -f "$FLUSH_PATH"
+    log "spool off: removed the staged drain script $FLUSH_PATH"
   fi
 fi
 

@@ -439,11 +439,102 @@ describe("basic-memory backend switch", () => {
       expect(runVerify().status).toBe(0);
     });
 
-    it("a flip back to local never rewrites a SKILL.md this fitting did not install", () => {
-      const handAuthored = "---\nname: Garrison Memory\n---\n\n# mine, not the fitting's\n";
-      fs.writeFileSync(installedSkillPath, handAuthored);
+    it("flipping back to local also un-stages the drain script, not just its job", () => {
+      const staged = path.join(claudeHome, "basic-memory", "flush-spool.mjs");
+      expect(runSetup({ BASIC_MEMORY_BACKEND: "cortex" }).status).toBe(0);
+      expect(fs.existsSync(staged)).toBe(true);
+
       expect(runSetup().status).toBe(0);
-      expect(installedSkill()).toBe(handAuthored);
+      // A remote-shipping script left behind after the remote is turned off is
+      // residue that gets found later and assumed to be running.
+      expect(fs.existsSync(staged)).toBe(false);
+      expect(drainJob()).toBeUndefined();
+    });
+
+    it("on a machine that never used a remote backend, local NEVER reads or writes the deployed skill", () => {
+      // The real guarantee, and the one finding 3 was about: the default path is
+      // gated on OUR sidecar, not on the content of the deployed file. A skill
+      // that merely QUOTES the variant's marker must survive untouched.
+      const quotesTheMarker =
+        "---\nname: Garrison Memory\n---\n\n# House memory rules\n\n" +
+        "Our remote variant is tagged `<!-- garrison-memory-backend: cortex -->`,\n" +
+        "which is how setup used to recognise it:\n\n" +
+        "```\n<!-- garrison-memory-backend: cortex -->\n```\n";
+      fs.writeFileSync(installedSkillPath, quotesTheMarker);
+      expect(runSetup().status).toBe(0);
+      expect(installedSkill()).toBe(quotesTheMarker);
+      expect(fs.existsSync(path.join(comp, ".garrison", "basic-memory-skill-backend"))).toBe(false);
+    });
+
+    it("an edit to the APM-OWNED deployed copy is not durable, and the code no longer pretends otherwise", () => {
+      // The honest statement of finding 1. `apm install --force` re-deploys
+      // <composition>/.claude/skills/** from .apm/skills on every install,
+      // ignoring deployed_file_hashes, and it runs immediately before every
+      // setup hook - so an edit there is lost whatever setup does. Pinning the
+      // real behaviour (rather than a protection we cannot offer) keeps the
+      // claim and the code in step.
+      expect(runSetup({ BASIC_MEMORY_BACKEND: "cortex" }).status).toBe(0);
+      const houseRules = `${installedSkill()}\n## House rules\n- always cite the permalink\n`;
+      fs.writeFileSync(installedSkillPath, houseRules); // marker still present
+      expect(installedSkill()).toContain("garrison-memory-backend: cortex");
+
+      expect(runSetup().status).toBe(0);
+      expect(installedSkill()).toBe(fs.readFileSync(LOCAL_SKILL_SRC, "utf8"));
+      expect(installedSkill()).not.toContain("House rules");
+
+      // …and the docs say so, in all three places an operator could look.
+      const readme = fs.readFileSync(path.join(FITTING_SRC, "README.md"), "utf8");
+      expect(readme).toContain("APM owns the deployed copy — edits there are not durable");
+      expect(fs.readFileSync(path.join(FITTING_SRC, "apm.yml"), "utf8")).toContain(
+        "owned by APM and re-deployed from .apm/skills on every install"
+      );
+      expect(fs.readFileSync(path.join(FITTING_SRC, "scripts", "setup.sh"), "utf8")).toContain(
+        "WHO OWNS WHAT"
+      );
+    });
+
+    it("warns loudly when the LOCAL skill source is edited while on a remote backend", () => {
+      // The Skill view edits .apm/skills; on cortex the deployed file comes from
+      // skill-variants/. Without this the edit is silently discarded.
+      expect(runSetup({ BASIC_MEMORY_BACKEND: "cortex" }).status).toBe(0);
+      const localSrc = path.join(fitting, ".apm", "skills", "garrison-memory", "SKILL.md");
+      fs.writeFileSync(localSrc, `${fs.readFileSync(localSrc, "utf8")}\n- an edit made in the view\n`);
+
+      const second = runSetup({ BASIC_MEMORY_BACKEND: "cortex" });
+      expect(second.status).toBe(0);
+      expect(second.stdout).toContain("that edit is NOT in effect");
+      expect(second.stdout).toContain("skill-variants/cortex/SKILL.md");
+
+      // Not nagging: an unchanged source is silent on the next run.
+      const third = runSetup({ BASIC_MEMORY_BACKEND: "cortex" });
+      expect(third.stdout).not.toContain("NOT in effect");
+    });
+  });
+
+  describe("the Skill view reaches both variants", () => {
+    it("SkillView roots at .apm/skills AND skill-variants, both matching perDoc subdir", () => {
+      const view = fs.readFileSync(
+        path.join(REPO_ROOT, "src", "components", "fitting-views", "shared", "SkillView.tsx"),
+        "utf8"
+      );
+      expect(view).toContain('{ dir: ".apm/skills", perDoc: "subdir" }');
+      expect(view).toContain('{ dir: "skill-variants", perDoc: "subdir" }');
+      // perDoc: "subdir" resolves <root>/<name>/SKILL.md — the variant must
+      // actually be laid out that way or the view lists nothing.
+      expect(fs.existsSync(path.join(FITTING_SRC, "skill-variants", "cortex", "SKILL.md"))).toBe(
+        true
+      );
+    });
+
+    it("the fitting-file API can write both roots (neither is a blocked segment)", () => {
+      // .apm is IN BLOCKED_SEGMENTS, but rejectBlockedSegments carves out
+      // `.apm/skills/**` and `.apm/prompts/**` by skipping their first two
+      // segments — so the pre-existing root is writable, and so is the new one.
+      const lib = fs.readFileSync(path.join(REPO_ROOT, "src", "lib", "fitting-files.ts"), "utf8");
+      expect(lib).toContain('const BLOCKED_SEGMENTS = new Set(["node_modules", "apm_modules", ".git", ".apm"]);');
+      expect(lib).toMatch(/segments\[0\] === "\.apm" &&/);
+      expect(lib).toMatch(/payload \? segments\.slice\(2\) : segments/);
+      expect(lib).not.toMatch(/BLOCKED_SEGMENTS[\s\S]{0,200}skill-variants/);
     });
   });
 
@@ -512,6 +603,64 @@ describe("basic-memory backend switch", () => {
     });
   });
 
+  describe("known gaps are documented rather than left to be discovered", () => {
+    const readme = () => fs.readFileSync(path.join(FITTING_SRC, "README.md"), "utf8");
+    const manifest = () => fs.readFileSync(path.join(FITTING_SRC, "apm.yml"), "utf8");
+
+    it("the deselect gap is stated with the steps to avoid it", () => {
+      // basic-memory is not in COORD_OWNERS, so deselecting the fitting strips
+      // neither the capture hook nor the drain job — and a remote backend turns
+      // the drain ON by default, so a deselect can leave a job shipping local
+      // captures off the machine.
+      const coord = fs.readFileSync(path.join(REPO_ROOT, "src", "lib", "coord-wiring.ts"), "utf8");
+      const owners = /COORD_OWNERS[^=]*=\s*([\s\S]*?)\]/.exec(coord)?.[1] ?? "";
+      expect(owners).not.toContain("basic-memory"); // the gap is real
+      expect(readme()).toContain("Known gap: deselecting the Fitting leaves its hook and its job behind");
+      expect(readme()).toContain("basic-memory-spool-flush");
+      expect(manifest()).toContain("Deselecting this fitting does NOT remove its capture hook");
+    });
+
+    it("the blank-select rendering of a legacy boolean is called out", () => {
+      // ConfigForm renders <select value={String(value)}>, so a stored boolean
+      // false matches no option and shows blank even though it resolves fine.
+      const form = fs.readFileSync(
+        path.join(REPO_ROOT, "src", "components", "fitting-views", "shared", "ConfigForm.tsx"),
+        "utf8"
+      );
+      expect(form).toContain('value={String(value ?? "")}');
+      expect(manifest()).toContain("the config form renders it BLANK");
+      expect(readme()).toContain("renders it blank");
+    });
+
+    it("no shipped prose claims byte-identical BEHAVIOUR for the default path", () => {
+      // The claim the code supports is "no observable delta for stock inputs".
+      // The default path also gained a sidecar stat, an unknown-value log line
+      // and a basename subprocess — none observable for stock inputs, but the
+      // absolute phrasing was still wrong. Artifact-scoped byte-identity claims
+      // (this exact command string, this exact vault note) are fine and stay:
+      // they are narrow, and each has a test pinning it.
+      // Pinned exhaustively: every surviving `byte-identical` in the fitting
+      // must name a specific ARTIFACT. Reintroducing a sweeping one fails here.
+      const occurrences: string[] = [];
+      for (const file of walkFiles(FITTING_SRC)) {
+        for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+          if (/byte-identical/i.test(line)) {
+            occurrences.push(`${path.basename(file)}: ${line.trim()}`);
+          }
+        }
+      }
+      expect(occurrences.sort()).toEqual([
+        // the vault write, pinned by the G2 spool tests
+        "capture-session.py: is byte-identical whether the spool is on, off, or broken.",
+        // the one hook command string, pinned by the default-path golden above
+        "setup.sh: # is off (the default) SPOOL_ENV is empty and CAP_CMD is byte-identical to"
+      ]);
+      expect(fs.readFileSync(path.join(FITTING_SRC, "scripts", "setup.sh"), "utf8")).toContain(
+        "NO OBSERVABLE DELTA for stock inputs"
+      );
+    });
+  });
+
   describe("nothing key-like is committed or installed", () => {
     it("no committed file in the fitting carries a credential or an off-allowlist URL", () => {
       const allowedHosts = new Set(["docs.astral.sh"]);
@@ -549,7 +698,11 @@ describe("basic-memory backend switch", () => {
       expect(result.stdout).not.toContain(baseUrl);
       expect(result.stderr).not.toContain(key);
 
-      const artifacts = [...walkFiles(claudeHome), ...walkFiles(path.join(comp, ".claude"))];
+      const artifacts = [
+        ...walkFiles(claudeHome),
+        ...walkFiles(path.join(comp, ".claude")),
+        ...walkFiles(path.join(comp, ".garrison"))
+      ];
       if (fs.existsSync(jobsFile)) artifacts.push(jobsFile);
       expect(artifacts.length).toBeGreaterThan(0);
       for (const file of artifacts) {

@@ -146,11 +146,11 @@ fi
 #    is something this Fitting can undo after the fact.
 # ---------------------------------------------------------------------------
 case "$REPO_URL" in
-  http://*|https://*)
+  *://*)
     _rest="${REPO_URL#*://}"
     case "${_rest%%/*}" in
       *@*)
-        die "repo_url carries credentials in the URL (user[:secret]@host). Refused: git writes the remote verbatim into <clone>/.git/config and the URL is visible in the process command line while it clones. Use an ssh remote (git@host:org/repo.git) or configure a git credential helper." ;;
+        die "repo_url carries credentials in the URL (user[:secret]@host). Refused: git writes the remote verbatim into <clone>/.git/config and the URL is visible in the process command line while it clones - both true of ANY scheme, which is why this check is not http(s)-only. Use scp-style ssh (git@host:org/repo.git, no secret in the URL) or configure a git credential helper." ;;
     esac
     ;;
 esac

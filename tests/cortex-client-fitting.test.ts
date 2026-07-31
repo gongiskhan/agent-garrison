@@ -694,17 +694,33 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
   // R6 — a credential in repo_url lands in /proc/<pid>/cmdline (world-readable)
   // and in <clone>/.git/config (persisted). Neither is undoable after the fact, so
   // the URL form is refused rather than mitigated.
-  it("R6: a repo_url carrying credentials is refused before any write", async () => {
+  // Both reasons the refusal gives - the remote is written verbatim into .git/config, and the
+  // URL is visible in /proc while git clones - are transport-independent, so the check must not
+  // be http(s)-only. The earlier version was, and its own advice ("use an ssh remote") named a
+  // spelling it let straight through: ssh://user:secret@host IS an ssh remote.
+  it.each([
+    ["https", "https://user:ghp_notarealtoken@example.invalid/private.git"],
+    ["http", "http://user:ghp_notarealtoken@example.invalid/private.git"],
+    ["ssh", "ssh://user:ghp_notarealtoken@example.invalid/private.git"],
+    ["git", "git://user:ghp_notarealtoken@example.invalid/private.git"],
+  ])("R6: a %s repo_url carrying credentials is refused before any write", async (_scheme, url) => {
+    const setup = await run("bash", [SETUP], setupEnv({ CORTEX_CLIENT_REPO_URL: url }));
+    expect(setup.exitCode).toBe(1);
+    expect(setup.stderr).toContain(".git/config");
+    expect(setup.stderr).toContain("credential helper");
+    expect(setup.stderr).not.toContain("ghp_notarealtoken");
+    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // The scp-style spelling the advice now points at carries no secret and must NOT be refused
+  // by the authority check (it fails later, on the clone, which is a different thing).
+  it("R6: scp-style ssh without a secret is not refused by the credential check", async () => {
     const setup = await run(
       "bash",
       [SETUP],
-      setupEnv({ CORTEX_CLIENT_REPO_URL: "https://user:ghp_notarealtoken@example.invalid/private.git" })
+      setupEnv({ CORTEX_CLIENT_REPO_URL: "git@example.invalid:org/repo.git" })
     );
-    expect(setup.exitCode).toBe(1);
-    expect(setup.stderr).toContain(".git/config");
-    expect(setup.stderr).toContain("ssh remote");
-    expect(setup.stderr).not.toContain("ghp_notarealtoken");
-    await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(setup.stderr).not.toContain("carries credentials in the URL");
   });
 
   it(

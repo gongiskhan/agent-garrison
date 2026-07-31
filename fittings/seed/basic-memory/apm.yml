@@ -35,6 +35,13 @@ x-garrison:
         capture spool on so captures drain off the box. Any provider implementing the capability
         contract (docs/CAPABILITY_CONTRACT.md) can fill that slot; each ships its own enum value and
         skill variant, and `cortex` is the reference implementation that ships as the default remote.
+        Each backend has its OWN editable skill source in this fitting - .apm/skills/garrison-memory
+        for `local`, skill-variants/cortex for `cortex` - and the Skill view lists both; edit the one
+        matching the backend you are on. The DEPLOYED copy under <composition>/.claude/skills/ is
+        owned by APM and re-deployed from .apm/skills on every install, so an edit made there is
+        discarded, not kept. Deselecting this fitting does NOT remove its capture hook or its drain
+        job, so on a remote backend set `backend` back to `local` and re-run before unequipping, or a
+        scheduled job keeps shipping local captures off the machine. See this fitting's README.md.
     - key: vault_dir
       type: path
       default: ~/ObsidianVault
@@ -67,9 +74,10 @@ x-garrison:
         a scheduled drain into a remote memory CLI. `auto` (the default) follows `backend`: off on
         `local`, on for a remote backend - a remote backend that never drains is a silent no-op, so
         it has to be the default there. `always` and `never` override the switch in either direction
-        (a legacy boolean `true`/`false` is read as `always`/`never`). With the defaults - `local` +
-        `auto` - nothing is spooled and no drain job is registered, and behavior is byte-identical to
-        the stock local-only capture.
+        (a legacy boolean `true`/`false` is read as `always`/`never` - correctly, but it matches no
+        option so the config form renders it BLANK; re-pick `always` or `never` to see your choice).
+        With the defaults - `local` + `auto` - nothing is spooled, no drain job is registered, and
+        there is no observable difference from the stock local-only capture.
     - key: spool_dir
       type: string
       default: ""
