@@ -13,6 +13,7 @@ x-garrison:
   # `modes` (the persona/identity role) is the only role whose shape is
   # `system-prompt`; the composition-readiness rule (D10) requires one identity.
   faculty: modes
+  category: Core
   cardinality_hint: single
   component_shape: system-prompt
   ui:

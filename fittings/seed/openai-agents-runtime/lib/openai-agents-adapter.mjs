@@ -1,4 +1,4 @@
-// openai-adapter.mjs - the OpenAI Agents RuntimeAdapter (BRIEF §"The adapter").
+// openai-agents-adapter.mjs - the OpenAI Agents RuntimeAdapter (BRIEF §"The adapter").
 //
 // Implements the RuntimeAdapter contract (packages/claude-pty/src/runtime-adapter
 // .mjs) over `@openai/agents`. NO PTY, NO xterm - the SDK returns a structured
@@ -90,6 +90,16 @@ export class OpenAiAgentsAdapter {
     return {
       config,
       alive: true,
+      // The gateway pool re-checks a warm session before reusing it, and its
+      // #alive helper reads `isAlive()` and defaults to TRUE when absent — so a
+      // session without this method is never recognised as dead and a torn-down
+      // one gets handed back out. Expose it rather than rely on that default.
+      isAlive() {
+        return this.alive === true;
+      },
+      // Stop support: the in-flight run is aborted through this controller (there
+      // is no child process to signal). Replaced per turn by _consume.
+      abort: null,
       harness,
       baseUrl,
       apiKey,
@@ -136,12 +146,16 @@ export class OpenAiAgentsAdapter {
       cwd: session.config.compositionDir,
       input,
       thread: session.thread,
-      maxTurns: session.maxTurns
+      maxTurns: session.maxTurns,
+      ...(session.abort?.signal ? { signal: session.abort.signal } : {})
     };
   }
 
   async sendTurn(session, text) {
     if (!session || !session.alive) throw new Error("OpenAiAgentsAdapter: sendTurn on a dead session");
+    // A fresh controller per turn: a cancelled turn must not poison the next one
+    // on a warm session (an already-aborted signal would abort it instantly).
+    session.abort = new AbortController();
     this._pending.set(session, this._consume(session, text));
   }
 
@@ -246,7 +260,26 @@ export class OpenAiAgentsAdapter {
     return this.spawn({ ...config, thread: config.thread ?? config.resume ?? null });
   }
 
+  // Stop the in-flight turn. Feature-detected by the gateway's registerStop paths
+  // (`typeof adapter.cancel === "function"`), so without it Stop is a no-op on
+  // this runtime. Returns true when there was something to cancel. The pending
+  // promise still settles — runOpenAiAgent maps an abort to
+  // stoppedReason:"cancelled" — so awaitResponse never hangs on a cancelled turn.
+  cancel(session) {
+    if (!session?.abort || session.abort.signal.aborted) return false;
+    session.abort.abort();
+    return true;
+  }
+
   async teardown(session) {
-    if (session) session.alive = false;
+    if (!session) return;
+    // Abort before marking dead: a torn-down session with a live request would
+    // keep billing the endpoint for a turn nobody will read.
+    try {
+      this.cancel(session);
+    } catch {
+      /* an already-settled turn is fine */
+    }
+    session.alive = false;
   }
 }

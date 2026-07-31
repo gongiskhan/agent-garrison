@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: surfaces
+  category: Interfaces
   cardinality_hint: multi
   own_port: true
   default_port: 7082

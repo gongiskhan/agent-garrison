@@ -6,7 +6,8 @@ type: skill
 includes: auto
 x-garrison:
   parked: true
-  faculty: classifier
+  faculty: orchestrator
+  category: Core
   cardinality_hint: single
   component_shape: skill
   platforms:

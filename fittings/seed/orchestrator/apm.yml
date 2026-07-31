@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: orchestrator
+  category: Core
   cardinality_hint: single
   component_shape: system-prompt
   ui:

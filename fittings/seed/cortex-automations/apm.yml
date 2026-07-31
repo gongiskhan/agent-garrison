@@ -13,6 +13,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: connectors
+  category: Connections
   # Single: one view over one remote runner. Two of these would teach the same
   # session two catalogs under one binary and one key.
   cardinality_hint: single

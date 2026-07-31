@@ -6,6 +6,7 @@ type: skill
 includes: auto
 x-garrison:
   faculty: sessions
+  category: Interfaces
   cardinality_hint: single
   component_shape: cli-skill
   ui:

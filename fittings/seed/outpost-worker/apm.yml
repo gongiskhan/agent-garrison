@@ -7,6 +7,7 @@ description: >-
 
 x-garrison:
   faculty: coordination
+  category: Connections
   summary: >-
     The remote half of Outpost Dispatch. Polls the host's /api/dispatch API with
     this machine's pairing token, claims cards whose placement names it, and

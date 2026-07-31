@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: observability
+  category: Operations
   cardinality_hint: single
   own_port: true
   default_port: 7090

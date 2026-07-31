@@ -1,0 +1,30 @@
+name: playwright-cli
+version: 0.1.0
+description: >-
+  Automate browser interactions, test web pages and work with Playwright tests.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: browser-qa
+  category: Building
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Automate browser interactions, test web pages and work with Playwright tests.
+  provides:
+    - kind: agent-skill
+      name: playwright-cli
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/playwright-cli/.apm/skills/playwright-cli/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

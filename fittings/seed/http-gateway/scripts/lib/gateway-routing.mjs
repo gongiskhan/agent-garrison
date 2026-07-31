@@ -84,6 +84,17 @@ function accountPlatformForTarget(target) {
   // CURSOR_API_KEY. There is no Cursor AccountPlatform, so a pin here would be a
   // badge with nothing behind it — refuse it explicitly rather than by fallthrough.
   if (runtime === "cursor") return null;
+  // openai-agents is an endpoint family, so the account vehicle is the PROVIDER,
+  // not the engine: `openai`/`openai-compat` authenticate with an OpenAI key,
+  // `glm` with a self-hosted GLM key, `ollama-local` with nothing at all. Naming
+  // the wrong platform here would offer a pin that injects a key the endpoint
+  // rejects, so map only the providers that have a real platform behind them.
+  if (runtime === "openai-agents") {
+    const p = String(target?.provider ?? "").trim();
+    if (p === "openai" || p === "openai-compat") return "openai";
+    if (p === "glm") return "glm";
+    return null; // ollama-local (keyless) / unset → no account vehicle
+  }
   return null; // ollama-native, workflow, unknown → no account vehicle
 }
 
@@ -97,6 +108,10 @@ function accountPlatformForTarget(target) {
 export function effortControllable(target) {
   const runtime = target?.runtime ?? null;
   if (runtime === "gemini" || runtime === "cursor" || runtime === "ollama-native") return false;
+  // openai-agents: every provider entry in its table declares `effort: false` —
+  // plain chat_completions carries no reasoning-effort parameter, so the adapter
+  // records the request and reports it unapplied. Never claim the control.
+  if (runtime === "openai-agents") return false;
   if (runtime === "agent-sdk") return isAnthropicProviderId(target?.provider);
   return true;
 }
@@ -336,7 +351,10 @@ export function resolveAgentSdkDir(compositionDir) {
 export function resolveSecondaryDir(compositionDir, runtime) {
   const fitting = `${runtime}-runtime`;
   const candidates = [
-    process.env[`GARRISON_${runtime.toUpperCase()}_DIR`],
+    // A hyphenated engine name ("openai-agents") must not produce
+    // GARRISON_OPENAI-AGENTS_DIR — that is not a legal shell identifier, so the
+    // override could never be set and the escape hatch was silently dead.
+    process.env[`GARRISON_${runtime.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}_DIR`],
     compositionDir && path.join(compositionDir, "apm_modules", "_local", fitting),
     path.resolve(HERE, "..", "..", "..", fitting),
   ].filter(Boolean);
@@ -1107,20 +1125,20 @@ export class RoutedGateway {
     return Object.keys(s).length ? s : null;
   }
 
-  // True when the resolved route runs on an EXEC runtime (codex/gpt, gemini,
-  // opencode, cursor) the gateway executes directly via its adapter (one-shot
-  // CLI exec). Reads EXEC_ADAPTER_CLASS — the same registry the primary warm seam
-  // uses — so the two lanes cannot disagree about which engines exist. NOTE: that
-  // unification also admits `opencode`, which the previous hand-written
-  // `codex || gemini` test excluded even though opencode is a first-class exec
-  // runtime with a full adapter; an opencode secondary target used to miss this
-  // lane and fall through to the Claude path. Same agnosticism gap the primary
-  // seam already documents, closed on the same terms.
+  // True when the resolved route runs on a runtime the gateway executes directly
+  // via its adapter — an EXEC engine (codex/gpt, gemini, opencode, cursor) or an
+  // in-process HTTP engine (openai-agents). Reads ROUTABLE_RUNTIMES, the same
+  // registry the primary warm seam uses, so the two lanes cannot disagree about
+  // which engines exist. NOTE: that unification also admits `opencode`, which the
+  // previous hand-written `codex || gemini` test excluded even though opencode is a
+  // first-class exec runtime with a full adapter; an opencode secondary target used
+  // to miss this lane and fall through to the Claude path. Same agnosticism gap the
+  // primary seam already documents, closed on the same terms.
   isSecondaryTarget(route) {
     const t = route?.target;
     // `type: secondary` is legacy metadata, not sufficient runtime identity: a
     // Claude-bound target under a Codex primary must take the real Claude lane.
-    return !!t && EXEC_RUNTIMES.has(t.runtime);
+    return !!t && ROUTABLE_RUNTIMES.has(t.runtime);
   }
 
   isClaudeDelegateTarget(route) {
@@ -1257,8 +1275,8 @@ export class RoutedGateway {
     // One source of truth for engine → adapter class: the same map the PRIMARY
     // warm seam uses, so a runtime can never be executable as primary but not as
     // secondary (or vice versa) because two lists drifted apart.
-    const cls = EXEC_ADAPTER_CLASS[runtime];
-    if (!cls) throw new Error(`gateway-routing: no exec adapter class registered for runtime "${runtime}"`);
+    const cls = Object.hasOwn(SECONDARY_ADAPTER_CLASS, runtime) ? SECONDARY_ADAPTER_CLASS[runtime] : undefined;
+    if (!cls) throw new Error(`gateway-routing: no adapter class registered for runtime "${runtime}"`);
     const mod = await import(pathToFileURL(path.join(dir, "lib", `${runtime}-adapter.mjs`)).href);
     const adapter = new mod[cls]();
     this._secondaryAdapters.set(runtime, adapter);
@@ -1287,7 +1305,28 @@ export class RoutedGateway {
     const spawnModel = model;
     // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
     const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
-    const session = await adapter.spawn({ compositionDir: cwd, model: spawnModel, effort, env });
+    const session = await adapter.spawn({
+      compositionDir: cwd,
+      model: spawnModel,
+      effort,
+      env,
+      // An in-process HTTP engine resolves its ENDPOINT from the spawn config, not
+      // from a CLI's own login state: without provider (and the vault secrets that
+      // back its key) it cannot resolve a base URL at all and throws
+      // `unknown openai-agents provider "undefined"` on the first turn. The exec
+      // engines ignore these keys, so this is unconditional rather than branched.
+      ...(Object.hasOwn(HTTP_ADAPTER_CLASS, rt)
+        ? {
+            provider,
+            ...(route.target.baseUrl ? { baseUrl: route.target.baseUrl } : {}),
+            ...(route.target.apiKeyEnv ? { apiKeyEnv: route.target.apiKeyEnv } : {}),
+            ...(route.target.keyless != null ? { keyless: !!route.target.keyless } : {}),
+            ...(route.target.promptMode ? { promptMode: route.target.promptMode } : {}),
+            ...(Number(route.target.maxTurns) > 0 ? { maxTurns: Number(route.target.maxTurns) } : {}),
+            secrets: this.resolveSecrets()
+          }
+        : {})
+    });
     this.logFn({ kind: "runtime-turn", runtime: rt, provider, model, effort, target: route.targetId });
     // §9: the exec child used to be unreachable from here (a local const inside the
     // adapter), so Stop could not touch a codex/gemini turn. adapter.cancel SIGTERMs
@@ -1327,6 +1366,33 @@ export class RoutedGateway {
       // that cannot apply effort simply never sets the flag.
       effortApplied: effort == null ? null : session.effortApplied === true
     };
+  }
+
+  // A target naming a runtime nothing can execute used to reach applySwitch and
+  // run on the PRIMARY session, reporting itself as the primary's runtime — so a
+  // mis-wired `openrouter` / `huggingface` / typo'd target looked like a working
+  // delegation while every turn actually ran on Claude. Log it loudly instead of
+  // letting it pass as success. Deliberately a WARNING, not a throw: the
+  // legitimately-non-session runtimes below reach this path by design, and a
+  // hand-edited composition should degrade visibly rather than refuse to serve.
+  #warnIfUnroutable(route) {
+    const rt = route?.target?.runtime;
+    if (!rt || rt === this.primaryEngine) return;
+    // Runtimes that legitimately land on the primary-adjust path: the Claude PTY
+    // lanes, and the single-shot dispatch/vision targets that are not session
+    // engines at all (garrison-call declares no `provides` on purpose).
+    if (PRIMARY_ADJUST_RUNTIMES.has(rt)) return;
+    if (ROUTABLE_RUNTIMES.has(rt)) return; // has its own lane; never gets here
+    this.logFn({
+      kind: "route-unroutable",
+      runtime: rt,
+      target: route.targetId,
+      reason:
+        `target ${route.targetId} names runtime "${rt}", which no execution lane serves ` +
+        `(routable: ${[...ROUTABLE_RUNTIMES].sort().join(", ")}). The turn is running on the ` +
+        `"${this.primaryEngine}" primary instead — fix the target's runtime in the policy, or ` +
+        `station a fitting that provides "${rt}" and register it in the adapter registry.`
+    });
   }
 
   #alive(rec) {
@@ -2083,6 +2149,7 @@ export class RoutedGateway {
 
   // Stage B: move the live operative onto the resolved target.
   async applySwitch(route) {
+    this.#warnIfUnroutable(route);
     const plan = this.core.planSwitch(this.currentTarget, route.target, {
       slashInjectWorks: this.slashInjectWorks,
     });
@@ -2295,7 +2362,15 @@ export class RoutedGateway {
 // GARRISON_PRIMARY_ENGINE; tests may pass opts.primaryEngine directly. A
 // missing fitting or a failed CLI probe at warm time is a LOUD startup error
 // naming the fix — never a silent fall back to claude-code.
-const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode", "cursor"];
+const KNOWN_PRIMARY_ENGINES = [
+  "claude-code",
+  "agent-sdk",
+  "codex",
+  "gemini",
+  "opencode",
+  "cursor",
+  "openai-agents"
+];
 
 // Exec-style runtimes (a stateless `run`/`exec` subprocess per turn) that can ALSO
 // host the PRIMARY: same resolveSecondaryDir + bridge-probe warm shape, only the
@@ -2304,10 +2379,6 @@ const KNOWN_PRIMARY_ENGINES = ["claude-code", "agent-sdk", "codex", "gemini", "o
 // lets a non-Claude primary boot identically regardless of which exec engine it is,
 // so leaving opencode out of this map (while it is a first-class runtime fitting)
 // was an agnosticism gap, not a design choice. cursor joined on the same terms.
-//
-// This is the ONE registry: the secondary lane (getSecondaryAdapter /
-// isSecondaryTarget) reads it too, so an engine is never executable on one lane
-// and invisible on the other.
 const EXEC_ADAPTER_CLASS = {
   codex: "CodexAdapter",
   gemini: "GeminiAdapter",
@@ -2316,15 +2387,42 @@ const EXEC_ADAPTER_CLASS = {
 };
 const EXEC_RUNTIMES = new Set(Object.keys(EXEC_ADAPTER_CLASS));
 
-// The provider identity + fallback model each exec engine runs under when the
-// routing target names none. Kept beside the adapter registry so adding an engine
-// is one edit, not a chain of ternaries scattered through the turn path.
+// IN-PROCESS HTTP runtimes: they satisfy the same RuntimeAdapter contract and load
+// through the same resolveSecondaryDir path, but there is NO CLI — the "session" is
+// an HTTP client, so (a) there is no PATH to probe and (b) the endpoint, its key and
+// the harness mode must be threaded onto spawnConfig or the adapter cannot resolve
+// its provider at all. That is why they are a separate map from EXEC rather than
+// four more keys in it: the exec spawn path forwards only `model`.
+const HTTP_ADAPTER_CLASS = {
+  "openai-agents": "OpenAiAgentsAdapter"
+};
+
+// The union is what "is this engine routable at all" means. Both lanes read it, so
+// an engine is never executable as primary but invisible as a secondary target (or
+// vice versa) because two lists drifted apart.
+const SECONDARY_ADAPTER_CLASS = { ...EXEC_ADAPTER_CLASS, ...HTTP_ADAPTER_CLASS };
+const ROUTABLE_RUNTIMES = new Set(Object.keys(SECONDARY_ADAPTER_CLASS));
+
+// Target runtimes that legitimately reach applySwitch (the primary-session adjust
+// path) instead of an execution lane of their own: the Claude PTY lanes, plus the
+// single-shot dispatch / local-vision targets that are not session engines at all
+// (`garrison-call` deliberately declares no `provides`). Anything ELSE arriving
+// there is a mis-wired target — see #warnIfUnroutable.
+const PRIMARY_ADJUST_RUNTIMES = new Set(["claude-code", "agent-sdk", "garrison-call", "ollama-native"]);
+
+// The provider identity + fallback model each engine runs under when the routing
+// target names none. Kept beside the adapter registry so adding an engine is one
+// edit, not a chain of ternaries scattered through the turn path.
 const EXEC_ENGINE_DEFAULTS = {
   codex: { provider: "openai", model: "gpt-5-codex" },
   gemini: { provider: "google", model: "gemini-2.5-flash" },
   opencode: { provider: "opencode", model: null },
   // `auto` lets Cursor pick from the signed-in account's catalog.
-  cursor: { provider: "cursor", model: "auto" }
+  cursor: { provider: "cursor", model: "auto" },
+  // openai-agents has no single natural home — it is an endpoint family, not a
+  // vendor. Default to the free local one so an unconfigured target cannot
+  // accidentally bill a paid endpoint; a real composition names its provider.
+  "openai-agents": { provider: "ollama-local", model: null }
 };
 
 // Probe an exec-engine's CLI via the fitting's own bridge (`--probe` prints
@@ -2432,6 +2530,63 @@ export async function resolvePrimaryAdapter(engine, ctx) {
         env: process.env,
         ...(Number(operativeSpawnConfig.maxTurns) > 0 ? { maxTurns: Number(operativeSpawnConfig.maxTurns) } : {}),
         ...(operativeSpawnConfig.baseUrl ? { baseUrl: operativeSpawnConfig.baseUrl } : {}),
+        ...(operativeSpawnConfig.leanPrompt ? { leanPrompt: operativeSpawnConfig.leanPrompt } : {}),
+        ...(operativeSpawnConfig.secrets ? { secrets: operativeSpawnConfig.secrets } : {}),
+        ...(appendSystemPrompt ? { appendSystemPrompt } : {})
+      },
+      claude: false
+    };
+  }
+  // In-process HTTP primaries (openai-agents). Shaped like the agent-sdk branch,
+  // NOT like the exec branch: the endpoint, its by-name key, the harness mode and
+  // the assembled system prompt all have to be threaded, because there is no CLI
+  // holding any of that in its own config. The exec branch forwards `model` alone,
+  // so an HTTP engine routed through it resolves no provider and dies on turn one.
+  const httpCls = Object.hasOwn(HTTP_ADAPTER_CLASS, engine) ? HTTP_ADAPTER_CLASS[engine] : undefined;
+  if (httpCls) {
+    let adapter = opts.secondaryAdapters?.get?.(engine) ?? null;
+    if (!adapter) {
+      const dir = resolveSecondaryDir(compositionDir, engine);
+      if (!dir) {
+        throw new Error(
+          `primaryRuntime names the ${engine} engine but the ${engine}-runtime fitting is not installed — compose it under the runtimes faculty (apm install), or switch primaryRuntime back to claude-code-runtime`
+        );
+      }
+      const mod = await import(pathToFileURL(path.join(dir, "lib", `${engine}-adapter.mjs`)).href);
+      adapter = new mod[httpCls]();
+      // The bridge probe here proves the MODULE loads and its deps are installed
+      // (`npm install` ran). It is not a network reachability check — the endpoint
+      // is per-provider and may legitimately be unreachable until the vault is
+      // unlocked, which must not block startup.
+      if (opts.probeExecPrimaries !== false) await probeRuntimeBridge(dir, engine);
+    }
+    // This adapter consumes the prompt as an in-memory STRING (it becomes the
+    // agent's `instructions`), like the SDK and unlike the CLI engines that read a
+    // projected context file.
+    let appendSystemPrompt;
+    const promptFile = operativeSpawnConfig.appendSystemPromptFile;
+    if (promptFile) {
+      try {
+        appendSystemPrompt = fs.readFileSync(promptFile, "utf8");
+      } catch (err) {
+        throw new Error(
+          `${engine} primary: assembled system prompt unreadable at ${promptFile}: ${String(err?.message || err)}`
+        );
+      }
+    }
+    const defaults = EXEC_ENGINE_DEFAULTS[engine] ?? {};
+    return {
+      adapter,
+      spawnConfig: {
+        compositionDir,
+        env: process.env,
+        provider: operativeSpawnConfig.provider ?? defaults.provider,
+        model: operativeSpawnConfig.model ?? defaults.model,
+        promptMode: operativeSpawnConfig.promptMode ?? "full",
+        ...(operativeSpawnConfig.baseUrl ? { baseUrl: operativeSpawnConfig.baseUrl } : {}),
+        ...(operativeSpawnConfig.apiKeyEnv ? { apiKeyEnv: operativeSpawnConfig.apiKeyEnv } : {}),
+        ...(operativeSpawnConfig.keyless != null ? { keyless: !!operativeSpawnConfig.keyless } : {}),
+        ...(Number(operativeSpawnConfig.maxTurns) > 0 ? { maxTurns: Number(operativeSpawnConfig.maxTurns) } : {}),
         ...(operativeSpawnConfig.leanPrompt ? { leanPrompt: operativeSpawnConfig.leanPrompt } : {}),
         ...(operativeSpawnConfig.secrets ? { secrets: operativeSpawnConfig.secrets } : {}),
         ...(appendSystemPrompt ? { appendSystemPrompt } : {})

@@ -10,6 +10,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: building
+  category: Building
   own_port: true
   default_port: 7096
   component_shape: plugin

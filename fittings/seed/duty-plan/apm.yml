@@ -11,6 +11,7 @@ x-garrison:
   # skill that executes it. `building` (Software Building) is the home — it
   # accepts the `skill` shape and is multi, so the duty Fittings coexist.
   faculty: building
+  category: Building
   cardinality_hint: single
   component_shape: skill
   ui:

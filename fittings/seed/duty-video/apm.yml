@@ -14,6 +14,7 @@ x-garrison:
   # the `skill` shape. The duty provides kind:duty (name:video), discovered by the
   # Resolver regardless of role (readiness keys on the duty id, not the faculty).
   faculty: research
+  category: Knowledge
   cardinality_hint: single
   component_shape: skill
   ui:

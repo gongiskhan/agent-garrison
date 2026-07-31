@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: channels
+  category: Interfaces
   cardinality_hint: multi
   component_shape: script
   own_port: true

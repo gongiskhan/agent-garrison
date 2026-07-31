@@ -5,7 +5,8 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
-  faculty: skills
+  faculty: building
+  category: Building
   cardinality_hint: multi
   component_shape: script
   ui:

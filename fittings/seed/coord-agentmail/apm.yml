@@ -12,6 +12,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: memory
+  category: Core
   cardinality_hint: single
   own_port: true
   default_port: 28765

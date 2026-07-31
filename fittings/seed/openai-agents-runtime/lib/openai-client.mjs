@@ -97,7 +97,7 @@ function sumUsage(res) {
 // Run ONE turn through the OpenAI agentic loop and normalize the result. Returns
 // { finalOutput, newItems, history, stoppedReason, usedTokens }. A maxTurns
 // overrun is caught and reported as stoppedReason:"max_turns" (never thrown out).
-export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, toolsEnabled, cwd, input, thread, maxTurns }) {
+export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, toolsEnabled, cwd, input, thread, maxTurns, signal }) {
   if (!model) throw new Error("openai-agents: no model specified for the turn");
   const client = new OpenAI({ baseURL: baseUrl || undefined, apiKey: apiKey || "unused" });
   const modelInstance = new OpenAIChatCompletionsModel(client, model);
@@ -110,7 +110,10 @@ export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, too
   const runInput = Array.isArray(thread) && thread.length ? thread.concat([{ role: "user", content: input }]) : input;
 
   try {
-    const res = await runner.run(agent, runInput, { maxTurns: maxTurns ?? 12 });
+    // `signal` is the Stop primitive for this runtime: there is no child process to
+    // SIGTERM, so aborting the in-flight run IS the cancel (agents-core run.d.ts
+    // accepts it). Without it a routed turn on this engine would be un-stoppable.
+    const res = await runner.run(agent, runInput, { maxTurns: maxTurns ?? 12, ...(signal ? { signal } : {}) });
     return {
       finalOutput: res.finalOutput ?? "",
       newItems: res.newItems ?? [],
@@ -121,6 +124,11 @@ export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, too
   } catch (err) {
     if (err instanceof MaxTurnsExceededError || err?.name === "MaxTurnsExceededError") {
       return { finalOutput: "", newItems: [], history: Array.isArray(thread) ? thread : null, stoppedReason: "max_turns", usedTokens: 0 };
+    }
+    // A cancelled run settles as a partial turn, not a thrown error - the same
+    // contract the exec adapters' cancel() gives (stop yields what was produced).
+    if (err?.name === "AbortError" || signal?.aborted) {
+      return { finalOutput: "", newItems: [], history: Array.isArray(thread) ? thread : null, stoppedReason: "cancelled", usedTokens: 0 };
     }
     throw err;
   }

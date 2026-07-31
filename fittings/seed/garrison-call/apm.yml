@@ -11,6 +11,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   cardinality_hint: single
   # Exposed as a SCRIPT consumed by NAME, not a capability provision. None of the
   # existing capabilityKinds fits: `runtime` (the closest) hosts an agent loop,

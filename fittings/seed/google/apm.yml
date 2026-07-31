@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: connectors
+  category: Connections
   cardinality_hint: multi
   component_shape: cli
   ui:

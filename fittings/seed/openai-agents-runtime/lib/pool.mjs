@@ -8,7 +8,7 @@
 // includes promptMode - along with provider + model. One stateless
 // OpenAiAgentsAdapter instance can back many pools (per-session state lives on the
 // session object + a per-session WeakMap), so callers may share an adapter.
-import { OpenAiAgentsAdapter } from "./openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "./openai-agents-adapter.mjs";
 
 // The pool key for an openai-agents target. Distinct per {provider, model,
 // promptMode} so the pool warms a separate pool per non-interchangeable session.

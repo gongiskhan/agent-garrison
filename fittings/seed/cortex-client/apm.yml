@@ -16,6 +16,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: connectors
+  category: Connections
   # One binary name in one bin dir: two of these would fight over the same link.
   cardinality_hint: single
   component_shape: cli

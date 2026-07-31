@@ -19,6 +19,7 @@ x-garrison:
   # and is multi, so it coexists with http-gateway. `modes` was rejected: it is
   # single/system-prompt (no `script`) and is being retired this run.
   faculty: gateway
+  category: Core
   cardinality_hint: single
   component_shape: script
   ui:

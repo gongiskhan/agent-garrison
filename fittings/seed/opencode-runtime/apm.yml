@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): OpenCode native login.
   login:
     command: opencode auth login

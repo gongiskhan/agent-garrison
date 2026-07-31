@@ -26,6 +26,24 @@ const VISION_TOOLS = { text: true, toolUse: true, image: true, document: false, 
 // manifest's secret_scope; the runner materializes it into the server-side env.
 export const DEFAULT_API_KEY_ENV = "OPENAI_API_KEY";
 
+// The canonical env var naming the TRUSTED base URL of a configurable provider.
+// A provider entry may override it with `baseUrlEnv` so a second self-hosted
+// endpoint gets its own key/URL pair instead of contending for this one: two
+// endpoints sharing OPENAI_API_KEY + OPENAI_BASE_URL cannot both be configured
+// in the same composition, and whichever one lost would silently egress the
+// other's key (or, per the fence below, silently drop to keyless).
+export const DEFAULT_BASE_URL_ENV = "OPENAI_BASE_URL";
+
+/** The env var holding the trusted base URL for a provider entry. */
+export function baseUrlEnvFor(spec) {
+  return spec?.baseUrlEnv || DEFAULT_BASE_URL_ENV;
+}
+
+/** A locked vault reads as `null` secrets, distinct from an unlocked-but-empty `{}`. */
+function vaultLockedFor(secrets) {
+  return secrets === null || secrets === undefined;
+}
+
 export const OPENAI_PROVIDERS = {
   // OpenAI cloud. Base URL is the SDK default (https://api.openai.com/v1) - left
   // null so the client uses its own default. Needs OPENAI_API_KEY from the Vault.
@@ -59,6 +77,30 @@ export const OPENAI_PROVIDERS = {
     configurable: true,
     needsKey: true,
     apiKeyEnv: "OPENAI_API_KEY",
+    authMode: "api-key",
+    effort: false,
+    capabilities: TEXT_TOOLS
+  },
+  // A self-hosted GLM deployment behind an OpenAI-compatible server (vLLM /
+  // SGLang / a uvicorn wrapper). Mechanically identical to `openai-compat` - the
+  // difference is the env PAIR it reads: GLM_BASE_URL + GLM_API_KEY. That
+  // separation is the whole point of the entry: `openai-compat` is already
+  // spoken for by OPENAI_API_KEY, so a composition that wants BOTH a real OpenAI
+  // key and a self-hosted endpoint needs two independent slots. The base URL is
+  // per-composition (the runtime fitting's `baseUrl` config, projected into
+  // GLM_BASE_URL) because a self-hosted host:port is not a stable constant worth
+  // pinning in code - the deployment moves and the key follows it.
+  //
+  // Capabilities: text + function tools only. GLM served over plain
+  // chat_completions carries no hosted web-search, no MCP, no document blocks;
+  // image support depends on the served checkpoint, so it is NOT claimed here
+  // (set `capabilities` per-target for a vision-capable deployment).
+  glm: {
+    baseUrl: null,
+    configurable: true,
+    baseUrlEnv: "GLM_BASE_URL",
+    needsKey: true,
+    apiKeyEnv: "GLM_API_KEY",
     authMode: "api-key",
     effort: false,
     capabilities: TEXT_TOOLS
@@ -114,12 +156,18 @@ export function resolveBaseUrl(target = {}, opts = {}) {
   const spec = OPENAI_PROVIDERS[target.provider];
   if (!spec) throw new Error(`unknown openai-agents provider "${target.provider}"`);
   const env = opts.env ?? {};
+  const secrets = opts.secrets ?? null;
   let baseUrl;
   if (spec.configurable) {
-    baseUrl = target.baseUrl ?? env.OPENAI_BASE_URL ?? null;
+    const urlEnv = baseUrlEnvFor(spec);
+    // env first (the runner's projection of the fitting config), then the
+    // materialized Vault — so naming the endpoint as a plain vault value works too.
+    // Keep this fallback order identical to the fence in resolveEndpoint, or a
+    // vault-only setup resolves a URL here and then silently loses its key there.
+    baseUrl = target.baseUrl ?? env[urlEnv] ?? (secrets ? secrets[urlEnv] : undefined) ?? null;
     if (!baseUrl) {
       throw new Error(
-        `openai-agents provider "${target.provider}" requires an explicit target.baseUrl (or OPENAI_BASE_URL in the env)`
+        `openai-agents provider "${target.provider}" requires an explicit target.baseUrl (or ${urlEnv} in the env / vault)`
       );
     }
   } else {
@@ -158,16 +206,29 @@ export function resolveEndpoint(target = {}, opts = {}) {
     return { baseUrl, apiKey: spec.dummyToken || "unused", apiKeyEnv: null };
   }
 
-  // Defense-in-depth key-egress fence (codex checkpoint finding): for the
-  // CONFIGURABLE provider (openai-compat), the vault key must only be attached to
-  // a TRUSTED base URL — the server-side env (OPENAI_BASE_URL), never an explicit
-  // target.baseUrl that diverges from it (which could be attacker/spec-authored).
-  // The bridge already strips an untrusted spec.baseUrl for keyed calls (S2a);
-  // this closes the direct-call path too: a keyed configurable target whose
-  // baseUrl is NOT the trusted env value drops to keyless rather than shipping
-  // the key to that host.
+  // Defense-in-depth key-egress fence (codex checkpoint finding): for a
+  // CONFIGURABLE provider (openai-compat / glm), the vault key must only be
+  // attached to a TRUSTED base URL — the server-side env (the provider's own
+  // baseUrlEnv), never an explicit target.baseUrl that diverges from it (which
+  // could be attacker/spec-authored). The bridge already strips an untrusted
+  // spec.baseUrl for keyed calls (S2a); this closes the direct-call path too: a
+  // keyed configurable target whose baseUrl is NOT the trusted env value drops to
+  // keyless rather than shipping the key to that host.
+  //
+  // Consequence worth stating plainly, because it is the failure mode a new
+  // self-hosted endpoint hits first: with the trusted env var UNSET, every keyed
+  // configurable target is keyless and the endpoint answers 401. That is why the
+  // runner projects the fitting's `baseUrl` config into this env var
+  // (provider_mechanism.base_url_env) — the user set it in the UI, so it is a
+  // trusted source, unlike a routing target an LLM may have authored.
   if (spec.configurable) {
-    const trustedBase = env.OPENAI_BASE_URL ? normalizeBaseUrl(env.OPENAI_BASE_URL) : null;
+    const urlEnv = baseUrlEnvFor(spec);
+    // Both sources are user-set and server-side, so both are trusted: the env
+    // (projected from the runtime fitting's own `baseUrl` config by the runner) and
+    // the materialized Vault. Only a routing target — which an LLM may have
+    // authored — is untrusted, and that is exactly what this compares against.
+    const declared = env[urlEnv] ?? (vaultLockedFor(secrets) ? undefined : secrets[urlEnv]);
+    const trustedBase = declared ? normalizeBaseUrl(declared) : null;
     if (!trustedBase || normalizeBaseUrl(baseUrl) !== trustedBase) {
       return { baseUrl, apiKey: spec.dummyToken || "unused", apiKeyEnv: null };
     }

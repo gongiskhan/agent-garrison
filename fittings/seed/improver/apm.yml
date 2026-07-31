@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: observability
+  category: Operations
   cardinality_hint: single
   component_shape: script
   own_port: true

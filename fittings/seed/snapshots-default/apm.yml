@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: sessions
+  category: Interfaces
   cardinality_hint: single
   component_shape: script
   platforms:

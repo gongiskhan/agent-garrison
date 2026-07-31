@@ -52,6 +52,52 @@ export const facultyIds = [
 
 export type FacultyId = (typeof facultyIds)[number];
 
+/**
+ * Fitting **categories** — the browsing axis for the Fittings views, kept
+ * deliberately separate from `faculty`.
+ *
+ * `faculty` is the CONTRACT: which role slot a Fitting fills, what it
+ * provides/consumes, its cardinality, which modes activate it. Seventeen slots
+ * make a precise type system and an unusable menu, so faculty is no longer the
+ * grouping axis — it survives as a per-Fitting label rendered on the card.
+ *
+ * `category` is presentation ONLY. Nothing in composition, routing, or the
+ * provides/consumes graph may branch on it. Each Fitting's default is derived
+ * from its faculty (CATEGORY_BY_FACULTY); a Fitting may override it in
+ * `x-garrison.category` when the derived home reads wrong to a human.
+ */
+export const fittingCategories = [
+  "Core",
+  "Interfaces",
+  "Building",
+  "Knowledge",
+  "Connections",
+  "Operations",
+] as const;
+
+export type FittingCategory = (typeof fittingCategories)[number];
+
+/** Default category per faculty. Presentation-only mapping. */
+export const CATEGORY_BY_FACULTY: Record<FacultyId, FittingCategory> = {
+  orchestrator: "Core",
+  gateway: "Core",
+  modes: "Core",
+  memory: "Core",
+  channels: "Interfaces",
+  surfaces: "Interfaces",
+  sessions: "Interfaces",
+  building: "Building",
+  "code-intelligence": "Building",
+  "browser-qa": "Building",
+  design: "Building",
+  knowledge: "Knowledge",
+  research: "Knowledge",
+  connectors: "Connections",
+  coordination: "Connections",
+  observability: "Operations",
+  runtimes: "Operations",
+};
+
 export type Cardinality = "single" | "multi";
 
 export const fittingShapes = [
@@ -349,6 +395,12 @@ export interface DutySpec {
 export interface GarrisonMetadata {
   faculty: FacultyId;
   cardinality_hint: Cardinality;
+  /**
+   * Station this Fitting in every composition unless explicitly unfitted. Only
+   * for Fittings whose verify hook passes on a bare box — see the schema comment
+   * in metadata.ts for why membership is not free.
+   */
+  default_fit?: boolean;
   component_shape: FittingShape;
   platforms: PlatformId[];
   summary?: string;
@@ -430,6 +482,13 @@ export type ProviderMechanism =
       auth_env?: string;
       model_arg?: string;
       model_env?: string;
+      /**
+       * Per-provider-slot overrides of the env pair above, keyed by the provider
+       * id the fitting's own table uses. An engine fronting several endpoint
+       * families needs one pair per family, so a self-hosted endpoint's key never
+       * contends with the vendor cloud's.
+       */
+      provider_env?: Record<string, { base_url_env?: string; auth_env?: string }>;
       notes?: string;
     }
   | {
@@ -557,6 +616,13 @@ export interface Composition {
   directory: string;
   manifestPath: string;
   selections: FittingSelectionMap;
+  /**
+   * Fittings the user has explicitly UNFITTED. Only meaningful for `default_fit`
+   * Fittings: membership is otherwise presence-based, so an absent id already
+   * means "not stationed". This list is what makes removing an auto-fitted
+   * Fitting stick across a read (which would otherwise union it straight back).
+   */
+  unfitted: string[];
   globalConfig: GlobalConfig;
   derivedTasks?: DerivedTasks;
   capabilityIssues: CapabilityIssue[];

@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: observability
+  category: Operations
   cardinality_hint: single
   component_shape: script
   # Own-port board UI (the kanban-board-ui slice). Garrison surfaces it at

@@ -1,0 +1,30 @@
+name: claude-docs-consultant
+version: 0.1.0
+description: >-
+  Consult official Claude Code documentation from code.claude.com using selective fetching. Use when working on hooks, skills, subagents, plugins, agent teams, MCP servers, permissions, settings, CI/CD (GitHub Actions, GitLab), IDE extensions (VS Code, JetBrains), desktop/web app features, scheduling, memory/CLAUDE.md, deployment (Bedrock, Vertex, Foundry), sandboxing, monitoring, or any Claude Code
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: research
+  category: Knowledge
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Consult official Claude Code documentation from code.claude.com using selective fetching. Use when working on hooks, skills, subagents, plugins, agent teams, MCP servers, permissions, settings, CI/CD (GitHub Actions, GitLab), IDE extensions (VS Code, JetBrains), desktop/web app features, scheduling, memory/CLAUDE.md, deployment (Bedrock, Vertex, Foundry), sandboxing, monitoring, or any Claude Code feature requiring official docs. Fetches only the specific docs needed per task.
+  provides:
+    - kind: agent-skill
+      name: claude-docs-consultant
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/claude-docs-consultant/.apm/skills/claude-docs-consultant/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

@@ -19,7 +19,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import os from "node:os";
 import { delegate, parseTaskSpec } from "@garrison/claude-pty";
-import { OpenAiAgentsAdapter } from "../lib/openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "../lib/openai-agents-adapter.mjs";
 import { buildHarness } from "../lib/harness.mjs";
 import { OPENAI_PROVIDERS, capabilityRecord, resolveEndpoint, DEFAULT_API_KEY_ENV } from "../lib/providers.mjs";
 

@@ -1,0 +1,30 @@
+name: walkthrough
+version: 0.1.0
+description: >-
+  Record a short, narrated, captioned video walkthrough that proves a finished coding task and shows how it behaves, then self-verify the video via vision on extracted frames and publish it as one scrubbable Tailscale link. Use after completing a change/fix/feature on a web project (Next.js/React etc.) when the user wants visual proof of work, a demo of a user flow, or to avoid manually retesting an
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: building
+  category: Building
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Record a short, narrated, captioned video walkthrough that proves a finished coding task and shows how it behaves, then self-verify the video via vision on extracted frames and publish it as one scrubbable Tailscale link. Use after completing a change/fix/feature on a web project (Next.js/React etc.) when the user wants visual proof of work, a demo of a user flow, or to avoid manually retesting and watching a long raw screen recording. Triggers on requests like "record a walkthrough", "show me it working", "make a demo video of this", "prove the feature", or finishing a UI/route/form/API change worth demonstrating. Not for walking through a full from-scratch project build.
+  provides:
+    - kind: agent-skill
+      name: walkthrough
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/walkthrough/.apm/skills/walkthrough/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

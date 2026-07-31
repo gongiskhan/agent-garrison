@@ -1,0 +1,30 @@
+name: pdf
+version: 0.1.0
+description: >-
+  Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: knowledge
+  category: Knowledge
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
+  provides:
+    - kind: agent-skill
+      name: pdf
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/pdf/.apm/skills/pdf/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

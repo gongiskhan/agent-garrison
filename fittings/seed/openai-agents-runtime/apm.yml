@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   cardinality_hint: multi
   component_shape: cli-skill
   ui:
@@ -32,7 +33,7 @@ x-garrison:
     - key: provider
       type: string
       default: ollama-local
-      description: One of openai | ollama-local | openai-compat. `openai` is OpenAI cloud (needs OPENAI_API_KEY); `ollama-local` is a free local Ollama endpoint; `openai-compat` is any OpenAI-compatible base URL (set baseUrl).
+      description: One of openai | ollama-local | openai-compat | glm. `openai` is OpenAI cloud (needs OPENAI_API_KEY); `ollama-local` is a free local Ollama endpoint; `openai-compat` is any OpenAI-compatible base URL (set baseUrl, key OPENAI_API_KEY); `glm` is a self-hosted GLM deployment behind an OpenAI-compatible server (set baseUrl, key GLM_API_KEY) - a separate slot so a real OpenAI key and a self-hosted endpoint can coexist in one composition.
     - key: model
       type: string
       default: ""
@@ -40,7 +41,7 @@ x-garrison:
     - key: baseUrl
       type: string
       default: ""
-      description: For provider `openai-compat`, the OpenAI-compatible base URL (must be http(s), ending in /v1). Ignored for `openai` (SDK default) and `ollama-local` (fixed local endpoint).
+      description: For provider `openai-compat` or `glm`, the OpenAI-compatible base URL (must be http(s), ending in /v1). Ignored for `openai` (SDK default) and `ollama-local` (fixed local endpoint). This value is the TRUSTED endpoint - the runner projects it into the provider's base-URL env var, and the API key is attached only to a request that actually goes there.
     - key: promptMode
       type: string
       default: full
@@ -57,19 +58,28 @@ x-garrison:
       cardinality: optional-one
   # The API key is resolved BY NAME from the Vault; the runner materializes it into
   # the server-side env under this exact key (secret_scope). It never reaches a
-  # browser and never enters argv.
+  # browser and never enters argv. One name per provider slot: sharing one key
+  # between OpenAI cloud and a self-hosted box would ship whichever key is present
+  # to whichever endpoint is configured.
   secret_scope:
     - OPENAI_API_KEY
+    - GLM_API_KEY
   # The OpenAI Agents engine takes provider overrides through the OpenAI-compatible
-  # env contract: the base URL, the API key, and the model. The bridge/adapter read
-  # OPENAI_API_KEY + OPENAI_BASE_URL from the server-side env (primary path), or the
-  # base URL from the composition config (secondary path). This descriptor is what
-  # the gateway's primary-runtime wiring consumes.
+  # env contract: the base URL, the API key, and the model. `base_url_env` is the
+  # DEFAULT slot (provider `openai-compat`); the `glm` provider declares its own
+  # pair (GLM_BASE_URL / GLM_API_KEY) in lib/providers.mjs. The runner projects the
+  # fitting's `baseUrl` config into the selected provider's base-URL env var - that
+  # projection is what makes a keyed configurable endpoint reachable at all, since
+  # the adapter attaches the key only to the trusted (env/vault-declared) URL.
   provider_mechanism:
     type: env
     base_url_env: OPENAI_BASE_URL
     auth_env: OPENAI_API_KEY
     model_env: GARRISON_MODEL
+    provider_env:
+      glm:
+        base_url_env: GLM_BASE_URL
+        auth_env: GLM_API_KEY
   setup:
     command: npm install --no-audit --no-fund
     idempotent: true
