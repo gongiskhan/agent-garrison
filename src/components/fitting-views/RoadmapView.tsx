@@ -981,11 +981,14 @@ const selectStyle: React.CSSProperties = {
   minWidth: 220
 };
 
+// Barlow's space at 12px/600 measures ~2px, which is too tight for a label
+// whose second word is a filename ("Create roadmap.json" read as one token in
+// review). A touch of word-spacing separates them without changing the type.
 const primaryButtonClass =
-  "min-h-10 rounded-[4px] border border-[var(--sage)] bg-[var(--sage)] px-4 text-xs font-semibold text-[var(--paper)] transition hover:brightness-90 active:translate-y-px active:scale-[0.99] disabled:opacity-50";
+  "min-h-10 rounded-[4px] border border-[var(--sage)] bg-[var(--sage)] px-4 text-xs font-semibold [word-spacing:0.16em] text-[var(--paper)] transition hover:brightness-90 active:translate-y-px active:scale-[0.99] disabled:opacity-50";
 
 const secondaryButtonClass =
-  "min-h-10 rounded-[4px] border border-[var(--rule-2)] bg-[var(--surface)] px-4 text-xs font-semibold text-[var(--ink)] transition hover:border-[var(--brass)] hover:bg-[var(--paper-2)] active:translate-y-px active:scale-[0.99] disabled:opacity-50";
+  "min-h-10 rounded-[4px] border border-[var(--rule-2)] bg-[var(--surface)] px-4 text-xs font-semibold [word-spacing:0.16em] text-[var(--ink)] transition hover:border-[var(--brass)] hover:bg-[var(--paper-2)] active:translate-y-px active:scale-[0.99] disabled:opacity-50";
 
 const sendActionClass =
   "-mx-1 rounded-[3px] px-1 py-0.5 font-mono text-[10.5px] text-[var(--mute)] transition hover:text-[var(--brass)] hover:underline focus-visible:text-[var(--brass)] active:translate-y-px disabled:opacity-50";
