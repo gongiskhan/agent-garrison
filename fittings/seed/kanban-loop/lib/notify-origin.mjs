@@ -427,6 +427,14 @@ export function deliverScheduleReminder(root, card, { started = false } = {}) {
     // Start button ride along; transports that cannot render buttons append the
     // link as text instead.
     const ref = cardShortRef(card.id);
+    // The chain below already reaches ONE channel: the origin thread's fitting
+    // when the card has one, else the omi relay thread. Skip that fitting in
+    // the fan-out or the user gets the same reminder twice on that surface.
+    const chainFittingId = card.originChannel?.channel
+      ? CHANNEL_FITTINGS[String(card.originChannel.channel).toLowerCase()]
+      : statusFileUrl(CHANNEL_FITTINGS.omi)
+        ? CHANNEL_FITTINGS.omi
+        : null;
     void fanOutNotification(
       {
         title: started ? "Scheduled card started" : "Card due",
@@ -435,9 +443,7 @@ export function deliverScheduleReminder(root, card, { started = false } = {}) {
         tag: `card-${card.id}`,
         actions: started ? [] : [{ label: "Open card", url: boardCardUrl(card.id) }]
       },
-      // The origin channel is served by the chain below; without this skip the
-      // user gets the same reminder twice on their favourite surface.
-      { skipFittingIds: [CHANNEL_FITTINGS[String(card.originChannel?.channel || "").toLowerCase()]] }
+      { skipFittingIds: [chainFittingId] }
     );
     if (card.originChannel?.channel && card.originChannel?.threadId) {
       routeOriginEvent(root, null, card, {
