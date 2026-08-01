@@ -41,6 +41,8 @@ import {
 } from "./threads.mjs";
 import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
+import { sendPush } from "../lib/webpush.mjs";
+import { readSubscriptions, saveSubscription, removeSubscription, vapidFromEnv } from "../lib/push-store.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -1407,6 +1409,91 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   }
   const liveOpts = { ...opts, scheme: tls ? "https" : "http" };
 
+
+// ---- notifications: in-app + Web Push -------------------------------------
+// Web Push is the only way to reach a phone in the background without shipping
+// through the App Store or Play. iOS 16.4+ supports it for web apps ADDED TO
+// THE HOME SCREEN; a plain Safari tab cannot even ask for permission.
+
+// The browser needs the VAPID PUBLIC key to subscribe. Public by definition -
+// it is embedded in the resulting endpoint - so this is not a secret leak.
+function handlePushKey(res) {
+  const vapid = vapidFromEnv();
+  if (!vapid) return jsonRes(res, 503, { error: "push not configured", reason: "no VAPID keys in env" });
+  return jsonRes(res, 200, { publicKey: vapid.publicKey });
+}
+
+async function handlePushSubscribe(req, res) {
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body?.subscription) return jsonRes(res, 400, { error: "subscription required" });
+  try {
+    const rows = saveSubscription(body.subscription, process.env, { label: body.label ?? null });
+    return jsonRes(res, 200, { ok: true, subscriptions: rows.length });
+  } catch (err) {
+    return jsonRes(res, 400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handlePushUnsubscribe(req, res) {
+  const body = await readJsonBody(req).catch(() => null);
+  const endpoint = typeof body?.endpoint === "string" ? body.endpoint : "";
+  if (!endpoint) return jsonRes(res, 400, { error: "endpoint required" });
+  return jsonRes(res, 200, { ok: true, removed: removeSubscription(endpoint) });
+}
+
+/**
+ * The channel notify contract: POST /notify {title, text, actions[], link}.
+ * Every channel Fitting is meant to expose this shape so one fan-out can reach
+ * all of them without a hardcoded transport map.
+ *
+ * Delivers twice on purpose, because they cover different states:
+ *  - Web Push reaches a phone whose screen is off (the point of the exercise);
+ *  - the in-app SSE event decorates the UI when it is already open, where a
+ *    system notification would be redundant and is often suppressed anyway.
+ */
+async function handleNotify(req, res, opts) {
+  const body = await readJsonBody(req).catch(() => null);
+  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : "Garrison";
+  if (!text) return jsonRes(res, 400, { error: "text required" });
+  // Actions render as real buttons where the transport supports them; the
+  // service worker caps at two, which is a browser limit, not ours.
+  const actions = Array.isArray(body?.actions)
+    ? body.actions
+        .filter((a) => a && typeof a.label === "string")
+        .slice(0, 2)
+        .map((a) => ({ action: String(a.action || a.url || a.label), title: a.label, url: a.url ?? null }))
+    : [];
+  const link = typeof body?.link === "string" ? body.link : null;
+  const payload = JSON.stringify({ title, body: text, actions, link, tag: body?.tag ?? null });
+
+  // In-app rendering is NOT a second server path: the push is delivered to the
+  // service worker, which shows the notification AND postMessage()s any open
+  // page so the UI can render a toast. One delivery, two presentations.
+  const vapid = vapidFromEnv();
+  const subs = readSubscriptions();
+  if (!vapid || subs.length === 0) {
+    return jsonRes(res, 200, {
+      ok: true,
+      pushed: 0,
+      reason: !vapid ? "no VAPID keys" : "no push subscriptions"
+    });
+  }
+
+  let pushed = 0;
+  let pruned = 0;
+  for (const subscription of subs) {
+    try {
+      const out = await sendPush({ subscription, payload, vapid });
+      if (out.ok) pushed += 1;
+      // A push service that says 404/410 will never accept this endpoint again;
+      // keeping it means retrying a dead device forever.
+      else if (out.gone) { removeSubscription(subscription.endpoint); pruned += 1; }
+    } catch {}
+  }
+  return jsonRes(res, 200, { ok: true, pushed, pruned, subscriptions: subs.length });
+}
+
   const requestHandler = async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
@@ -1415,6 +1502,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
       // Host-aware URL/file rendering + rich transcript (issues #1/#3/#4). Root
       // paths (not /api/*) so they inherit this origin's tailscale serve mapping.
+      if (pathname === "/api/push/key" && method === "GET") return handlePushKey(res);
+      if (pathname === "/api/push/subscribe" && method === "POST") return handlePushSubscribe(req, res);
+      if (pathname === "/api/push/subscribe" && method === "DELETE") return handlePushUnsubscribe(req, res);
+      if ((pathname === "/notify" || pathname === "/api/notify") && method === "POST") return handleNotify(req, res, liveOpts);
       if (pathname === "/host-map" && method === "GET") return handleHostMap(res);
       if (pathname === "/file" && method === "GET") return handleFile(req, res);
       if (pathname === "/api/session-stream" && method === "GET") return handleSessionStream(req, res);

@@ -50,3 +50,57 @@ declare module "*/web-channel-default/ui/pwa-assets.mjs" {
   export function emitPwaAssets(opts: { srcDir: string; distDir: string }): Promise<string[]>;
   export const PWA_DIST_ASSETS: string[];
 }
+
+declare module "*/web-channel-default/lib/webpush.mjs" {
+  export function b64url(buf: Uint8Array | Buffer): string;
+  export function unb64url(str: string): Buffer;
+  export function generateVapidKeys(): { publicKey: string; privateKey: string };
+  export function vapidAuthorization(args: {
+    audience: string;
+    subject: string;
+    publicKey: string;
+    privateKey: string;
+    expirySeconds?: number;
+    now?: () => number;
+  }): string;
+  export function encryptPayload(args: {
+    payload: string;
+    p256dh: string;
+    auth: string;
+    salt?: Buffer;
+    senderKeys?: { privateKey: string } | null;
+  }): Buffer;
+  export function decryptPayload(args: {
+    body: Buffer;
+    uaPrivateKey: string;
+    uaPublicKey: string;
+    auth: string;
+  }): string;
+  export function sendPush(args: {
+    subscription: { endpoint: string; keys?: { p256dh?: string; auth?: string } };
+    payload: string;
+    vapid: { subject: string; publicKey: string; privateKey: string };
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  }): Promise<{ ok: boolean; status: number; gone: boolean; error?: string }>;
+}
+
+declare module "*/web-channel-default/lib/push-store.mjs" {
+  interface PushSubscriptionRow {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    label: string | null;
+    createdAt: string;
+  }
+  export function subscriptionsFile(env?: Record<string, string | undefined>): string;
+  export function readSubscriptions(env?: Record<string, string | undefined>): PushSubscriptionRow[];
+  export function saveSubscription(
+    subscription: { endpoint?: string; keys?: { p256dh?: string; auth?: string } },
+    env?: Record<string, string | undefined>,
+    opts?: { label?: string | null; at?: string }
+  ): PushSubscriptionRow[];
+  export function removeSubscription(endpoint: string, env?: Record<string, string | undefined>): number;
+  export function vapidFromEnv(
+    env?: Record<string, string | undefined>
+  ): { publicKey: string; privateKey: string; subject: string } | null;
+}

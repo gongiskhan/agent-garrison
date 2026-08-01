@@ -31,6 +31,7 @@ import {
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
+import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
 // rendered into ClaudeChat's composer via the function-form adornment so it can
@@ -848,6 +849,79 @@ function ThreadedApp({ url }: { url: UrlState }) {
 const url = readUrl();
 const threaded = !url.console;
 
+
+/**
+ * Notification enrolment. Deliberately a floating pill rather than a settings
+ * page: the permission request MUST come from a user gesture, so it needs a
+ * tappable thing, and on iOS it must be tapped inside the installed PWA.
+ *
+ * States are distinct on purpose - "needs-install" is the iOS case where the
+ * browser has no Push API at all until the app is on the Home Screen, and
+ * showing "unsupported" there would be wrong and unactionable.
+ */
+function PushEnroller() {
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    void registerServiceWorker().then(() => pushState().then(setState));
+    // Render pushes that arrive while the app is focused: the OS usually
+    // suppresses the system banner in that case, so without this an incoming
+    // notification is invisible exactly when you are looking at the app.
+    return onNotification((payload) => {
+      setToast(`${payload.title ?? "Garrison"}: ${payload.body ?? ""}`.trim());
+      window.setTimeout(() => setToast(null), 8000);
+    });
+  }, []);
+
+  const onEnable = async () => {
+    setBusy(true);
+    const res = await enablePush();
+    setBusy(false);
+    setToast(res.ok ? "Notifications enabled on this device." : res.reason ?? "Could not enable notifications.");
+    window.setTimeout(() => setToast(null), 8000);
+    setState(await pushState());
+  };
+
+  const pill = (text: string, onClick?: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy || !onClick}
+      style={{
+        position: "fixed", left: 12, bottom: 12, zIndex: 40,
+        padding: "8px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.18)",
+        background: "rgba(20,24,28,0.92)", color: "#d7dde3", font: "500 12px/1.2 system-ui, sans-serif",
+        cursor: onClick ? "pointer" : "default"
+      }}
+    >
+      {busy ? "Enabling…" : text}
+    </button>
+  );
+
+  return (
+    <>
+      {state === "prompt" && pill("Enable notifications", onEnable)}
+      {state === "needs-install" && pill("Add to Home Screen to enable notifications")}
+      {state === "denied" && pill("Notifications blocked — enable them in browser settings")}
+      {toast && (
+        <div
+          role="status"
+          style={{
+            position: "fixed", left: 12, right: 12, bottom: 56, zIndex: 41,
+            padding: "10px 12px", borderRadius: 10, background: "rgba(20,24,28,0.96)",
+            border: "1px solid rgba(255,255,255,0.18)", color: "#d7dde3",
+            font: "500 13px/1.35 system-ui, sans-serif"
+          }}
+        >
+          {toast}
+        </div>
+      )}
+    </>
+  );
+}
+
 function App() {
   // Presence heartbeat (GARRISON-UNIFY-V1 S14, D34): POST /power-heartbeat
   // (same-origin relay to the Power fitting) every 60s, ONLY while visible AND
@@ -935,9 +1009,14 @@ function App() {
     };
   }, []);
 
-  if (threaded) return <ThreadedApp url={url} />;
+  if (threaded) return (<><ThreadedApp url={url} /><PushEnroller /></>);
   // Explicit ?console=1: the rich operative console (live PTY surface).
-  return <ClaudeChat transport={createHttpTransport("/api", { uploads: true })} title="Operative" composerAdornment={voiceAdornment} />;
+  return (
+    <>
+      <ClaudeChat transport={createHttpTransport("/api", { uploads: true })} title="Operative" composerAdornment={voiceAdornment} />
+      <PushEnroller />
+    </>
+  );
 }
 
 const root = createRoot(document.getElementById("root")!);
