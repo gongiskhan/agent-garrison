@@ -5,6 +5,9 @@
 // chain is round-tripped, and the VAPID JWT is verified with a real public key.
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   b64url,
   unb64url,
@@ -170,5 +173,90 @@ describe("push delivery outcomes", () => {
     });
     expect(res.gone).toBe(false);
     expect(res.ok).toBe(false);
+  });
+});
+
+// The fan-out (kanban-loop): a reminder must reach EVERY notify-capable channel,
+// not just the first match. Discovery is by probing running fittings rather than
+// a hardcoded transport map - that map is why slack-channel, which has existed
+// and can post, was invisible to notifications.
+describe("multi-channel notification fan-out", () => {
+  it("delivers to every fitting that accepts /notify and skips those that 404", async () => {
+    const { fanOutNotification } = await import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
+    const home = mkdtempSync(path.join(os.tmpdir(), "fanout-"));
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    for (const [id, port] of [["web-channel-default", 1], ["omi-channel", 2], ["drill", 3]]) {
+      writeFileSync(
+        path.join(home, "ui-fittings", `${id}.json`),
+        JSON.stringify({ fittingId: id, url: `http://127.0.0.1:${port}` })
+      );
+    }
+    const prev = process.env.GARRISON_HOME;
+    process.env.GARRISON_HOME = home;
+
+    const hits: string[] = [];
+    const res = await fanOutNotification(
+      { title: "Card due", text: "hello" },
+      {
+        fetchImpl: (async (url: string) => {
+          hits.push(url);
+          // drill is not a channel: it has no /notify route.
+          return url.includes(":3/") ? { ok: false, status: 404 } : { ok: true, status: 200 };
+        }) as unknown as typeof fetch
+      }
+    );
+
+    if (prev === undefined) delete process.env.GARRISON_HOME;
+    else process.env.GARRISON_HOME = prev;
+    rmSync(home, { recursive: true, force: true });
+
+    expect(hits).toHaveLength(3); // probed all three
+    expect(res.map((r: { id: string }) => r.id).sort()).toEqual(["omi-channel", "web-channel-default"]);
+  });
+
+  it("skips the origin channel so the favourite surface is not notified twice", async () => {
+    const { fanOutNotification } = await import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
+    const home = mkdtempSync(path.join(os.tmpdir(), "fanout-skip-"));
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    for (const id of ["web-channel-default", "omi-channel"]) {
+      writeFileSync(path.join(home, "ui-fittings", `${id}.json`), JSON.stringify({ fittingId: id, url: "http://127.0.0.1:1" }));
+    }
+    const prev = process.env.GARRISON_HOME;
+    process.env.GARRISON_HOME = home;
+    const res = await fanOutNotification(
+      { title: "t", text: "x" },
+      {
+        skipFittingIds: ["omi-channel"],
+        fetchImpl: (async () => ({ ok: true, status: 200 })) as unknown as typeof fetch
+      }
+    );
+    if (prev === undefined) delete process.env.GARRISON_HOME;
+    else process.env.GARRISON_HOME = prev;
+    rmSync(home, { recursive: true, force: true });
+    expect(res.map((r: { id: string }) => r.id)).toEqual(["web-channel-default"]);
+  });
+
+  it("one wedged channel does not stop the others", async () => {
+    const { fanOutNotification } = await import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
+    const home = mkdtempSync(path.join(os.tmpdir(), "fanout-wedged-"));
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    for (const [id, port] of [["web-channel-default", 1], ["omi-channel", 2]]) {
+      writeFileSync(path.join(home, "ui-fittings", `${id}.json`), JSON.stringify({ fittingId: id, url: `http://127.0.0.1:${port}` }));
+    }
+    const prev = process.env.GARRISON_HOME;
+    process.env.GARRISON_HOME = home;
+    const res = await fanOutNotification(
+      { title: "t", text: "x" },
+      {
+        fetchImpl: (async (url: string) => {
+          if (url.includes(":2/")) throw new Error("connection refused");
+          return { ok: true, status: 200 };
+        }) as unknown as typeof fetch
+      }
+    );
+    if (prev === undefined) delete process.env.GARRISON_HOME;
+    else process.env.GARRISON_HOME = prev;
+    rmSync(home, { recursive: true, force: true });
+    expect(res.map((r: { id: string }) => r.id)).toEqual(["web-channel-default"]);
   });
 });

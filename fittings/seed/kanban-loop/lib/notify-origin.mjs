@@ -16,7 +16,7 @@
 //     card do not spam the thread.
 //   - Quick cards are excluded: their outcome was the inline channel reply.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { deriveOriginId, parseOriginId, ensureOriginRecord, appendOriginEvent } from "./origins.mjs";
@@ -43,6 +43,72 @@ function statusFileUrl(fittingId) {
 // thread); a card only carries the omi transport when the omi-channel fitting
 // created it, so with that fitting absent or off this entry is inert.
 const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel" };
+
+
+// ---- multi-channel fan-out -------------------------------------------------
+// The chain above delivers a reminder to exactly ONE place (origin thread, else
+// omi, else the board notice). That is right for a conversational reply, but
+// wrong for a reminder: the user wants it on every surface they might be
+// looking at, so they can decide which one works and ignore the rest.
+//
+// Discovery is deliberately NOT a hardcoded transport map. Such a map is why
+// slack-channel - which has existed and can post - was invisible to
+// notifications: nobody remembered to add it. Instead we ask every RUNNING
+// own-port fitting whether it accepts the channel notify contract; the ones
+// that do not simply 404 and are skipped. A new channel Fitting is reachable
+// the moment it implements POST /notify, with no change here.
+//
+// Cost: a handful of 404s per reminder against non-channel fittings. That is
+// cheaper than the failure mode it replaces (a channel silently never used).
+function runningFittingBases() {
+  try {
+    const home = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+    const dir = path.join(home, "ui-fittings");
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => {
+        const id = f.replace(/\.json$/, "");
+        return { id, base: statusFileUrl(id) };
+      })
+      .filter((e) => Boolean(e.base));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * POST the channel notify contract to every running fitting that accepts it.
+ * `skipFittingIds` avoids double-delivering to a channel the caller already
+ * reached through the origin chain.
+ */
+export async function fanOutNotification(
+  { title, text, actions = [], link = null, tag = null },
+  { skipFittingIds = [], fetchImpl = fetch } = {}
+) {
+  const skip = new Set(skipFittingIds.filter(Boolean));
+  const results = [];
+  await Promise.all(
+    runningFittingBases()
+      .filter((e) => !skip.has(e.id))
+      .map(async ({ id, base }) => {
+        try {
+          const res = await fetchImpl(`${base}/notify`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title, text, actions, link, tag }),
+            signal: AbortSignal.timeout(8000)
+          });
+          // 404 = not a notify-capable channel. Anything else is a real outcome.
+          if (res.status !== 404) results.push({ id, status: res.status, ok: res.ok });
+        } catch {
+          // A fitting that is starting or wedged must never block a reminder
+          // reaching the other channels.
+        }
+      })
+  );
+  return results;
+}
 
 function boardCardUrl(cardId) {
   const base = statusFileUrl("kanban-loop");
@@ -355,6 +421,24 @@ const OMI_REMINDER_THREAD = "omi-reports";
 export function deliverScheduleReminder(root, card, { started = false } = {}) {
   try {
     const text = scheduleReminderMessage(card, { started });
+    // Fan out to every notify-capable channel IN ADDITION to the origin chain
+    // below. A reminder is not a reply: the user asked for it on every surface
+    // so they can find out which one actually works for them. Deep link and a
+    // Start button ride along; transports that cannot render buttons append the
+    // link as text instead.
+    const ref = cardShortRef(card.id);
+    void fanOutNotification(
+      {
+        title: started ? "Scheduled card started" : "Card due",
+        text,
+        link: boardCardUrl(card.id),
+        tag: `card-${card.id}`,
+        actions: started ? [] : [{ label: "Open card", url: boardCardUrl(card.id) }]
+      },
+      // The origin channel is served by the chain below; without this skip the
+      // user gets the same reminder twice on their favourite surface.
+      { skipFittingIds: [CHANNEL_FITTINGS[String(card.originChannel?.channel || "").toLowerCase()]] }
+    );
     if (card.originChannel?.channel && card.originChannel?.threadId) {
       routeOriginEvent(root, null, card, {
         kind: "schedule-due",
