@@ -40,7 +40,13 @@ import {
   cardBriefRel,
   normalisePlacement,
   sanitiseCardRouting,
-  atomicWriteJSON
+  atomicWriteJSON,
+  normaliseScheduledFor,
+  normaliseScheduleAction,
+  normaliseChecklist,
+  cardPosition,
+  cardAttachmentsDir,
+  listCardAttachments
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
@@ -71,7 +77,7 @@ import {
   resolveCardSequence,
   executionRouteFor
 } from "../lib/resolved-model.mjs";
-import { batchGatewayRunFn } from "./kanban.mjs";
+import { batchGatewayRunFn, reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
 import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
@@ -186,11 +192,14 @@ export function buildBoardView(board, cards) {
   const byId = new Map(cards.map((c) => [c.id, c]));
   const lists = (board.lists || [])
     .slice()
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    // userOrder is the OPERATOR-owned column order (drag-reorder writes it;
+    // reconcile preserves it because it is not engine-owned). Falls back to
+    // the engine's spine order for untouched boards and freshly added lists.
+    .sort((a, b) => (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0))
     .map((list) => ({
       id: list.id,
       title: list.title,
-      order: list.order ?? 0,
+      order: list.userOrder ?? list.order ?? 0,
       kind: list.kind || "manual",
       trigger: triggerFor(list),
       interactive: Boolean(isInteractive(list)),
@@ -202,6 +211,9 @@ export function buildBoardView(board, cards) {
       cards: (membership[list.id] || [])
         .map((id) => byId.get(id))
         .filter(Boolean)
+        // Within-list order: explicit position (drag-reorder) or created
+        // instant — one comparator, ties broken by id so the order is total.
+        .sort((a, b) => cardPosition(a) - cardPosition(b) || (a.id < b.id ? -1 : 1))
         .map(cardSummary)
     }));
   return { version: board.version ?? 2, lists, cards: cards.map(cardSummary) };
@@ -385,6 +397,20 @@ export function cardSummary(card) {
     // Project-inference state for a no-project card: running | done | none | skipped |
     // failed | null (never attempted). The UI shows "inferring project…" while running.
     inferState: card.inferState ?? null,
+    // Card scheduling: when the card is held until / what happens at the due
+    // instant (notify | run) / whether the reminder already fired. The card
+    // front shows a clock chip; the detail exposes the picker.
+    scheduledFor: card.scheduledFor ?? null,
+    scheduleAction: card.scheduleAction ?? null,
+    scheduleNotifiedAt: card.scheduleNotifiedAt ?? null,
+    // Within-list ordering (drag-reorder writes position; null = created order).
+    position: typeof card.position === "number" && Number.isFinite(card.position) ? card.position : null,
+    // Checklist progress for the card-front chip; the full items ride the detail.
+    checklistTotal: Array.isArray(card.checklist) ? card.checklist.length : 0,
+    checklistDone: Array.isArray(card.checklist) ? card.checklist.filter((i) => i && i.done === true).length : 0,
+    // `created` crosses so the drag layer can compute effective positions with
+    // the EXACT value the server sorts by (cardPosition falls back to it).
+    created: card.created ?? null,
     updated: card.updated ?? null
   };
 }
@@ -1032,15 +1058,26 @@ async function handleGetCard(req, res, opts, id) {
   const links = resolveCardLinks(card, { root, cwd: opts.cwd });
   jsonRes(res, 200, {
     card: cardSummary(card),
+    // The full checklist items (the summary carries only the counts).
+    checklist: Array.isArray(card.checklist) ? card.checklist : [],
     links,
-    // Files the user attached via ClaudeChat (parsed from the description, issue
-    // #2). Derived, not stored; each carries a same-origin serve URL.
-    attachments: parseAttachments(card.description).map((a) => ({
-      i: a.i,
-      name: a.name,
-      image: a.image,
-      url: `/cards/${encodeURIComponent(id)}/attachment?i=${a.i}`
-    })),
+    // Two attachment sources, one list: card-owned uploads (cards/<id>/
+    // attachments/, served by opaque artifact ref, deletable) and the legacy
+    // ClaudeChat description block (derived, read-only).
+    attachments: [
+      ...listCardAttachments(root, id).map((a) => ({
+        name: a.name,
+        image: /\.(png|jpe?g|gif|webp|svg)$/i.test(a.name),
+        url: `/cards/${encodeURIComponent(id)}/artifact?ref=${encodeURIComponent(`attachment:${a.name}`)}`,
+        uploaded: true
+      })),
+      ...parseAttachments(card.description).map((a) => ({
+        i: a.i,
+        name: a.name,
+        image: a.image,
+        url: `/cards/${encodeURIComponent(id)}/attachment?i=${a.i}`
+      }))
+    ],
     decisionLog: card.decisionLog ?? card.runs ?? [],
     // The FULL execution timeline (the detail's Activity feed). Newest first so the
     // UI renders most-recent-at-top without re-sorting.
@@ -1152,6 +1189,11 @@ async function handleCreateCard(req, res, opts) {
   if (!title) return jsonRes(res, 400, { error: "give the card a title or a description to infer one from" });
   const suppliedProject = typeof body.project === "string" && body.project.trim() ? body.project.trim() : null;
   const explicitWorkspace = suppliedProject ? null : explicitWorkspaceFromCard({ title, description });
+  // A supplied schedule must parse NOW - storing an unparseable instant would
+  // hold the card forever (the engine's fail-closed rule) over a typo.
+  if (body.scheduledFor != null && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))) {
+    return jsonRes(res, 400, { error: "scheduledFor must be a parseable ISO date-time string" });
+  }
   const card = await createCard(opts.root, {
     title,
     description,
@@ -1214,7 +1256,14 @@ async function handleCreateCard(req, res, opts) {
     // backlog (title/project inference); the clarity is stamped now, but the card only
     // REACHES Discuss when its creator moves it there (the gateway carding does this via
     // targetList "discuss"; a bare API client must issue the follow-up move itself).
-    clarity: typeof body.clarity === "string" ? body.clarity : null
+    clarity: typeof body.clarity === "string" ? body.clarity : null,
+    // Card scheduling: hold until this instant, then notify (default) or run.
+    // A supplied-but-unparseable instant is a caller mistake worth failing fast
+    // on at the API door (the engine's hold is fail-closed for on-disk values).
+    scheduledFor: body.scheduledFor ?? null,
+    scheduleAction: body.scheduleAction ?? null,
+    // The in-card checklist (normalised by createCard).
+    checklist: body.checklist ?? null
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
@@ -1401,7 +1450,14 @@ async function handlePatchCard(req, res, opts, id) {
   // D16 lock: a card on an autonomous list is engine-owned — manual moves and
   // edits are rejected in the API (the UI hides the controls too). The engine
   // and the gateway's registration flow pass x-garrison-engine.
-  if (isEngineOwned(board, card) && !isEngineRequest(req)) {
+  //
+  // Carve-out: a patch touching ONLY the human-side annotations (schedule,
+  // within-list position, checklist) never rewrites what the engine is
+  // executing, so it is allowed even on an engine-owned card — snoozing a
+  // queued agent-list card is precisely the point of the schedule.
+  const BENIGN_PATCH_KEYS = new Set(["rev", "scheduledFor", "scheduleAction", "position", "checklist"]);
+  const benignPatch = Object.keys(body).length > 0 && Object.keys(body).every((k) => BENIGN_PATCH_KEYS.has(k));
+  if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch) {
     return jsonRes(res, 403, {
       error: "engine-owned",
       message: `Card is on the autonomous list "${card.list}" — it is engine-owned (D16). Wait for the run, or resolve it from needs-attention if it parks.`
@@ -1519,6 +1575,49 @@ async function handlePatchCard(req, res, opts, id) {
     } else {
       return jsonRes(res, 400, { error: "bad-outpost", message: "outpost must be a non-empty string or null" });
     }
+  }
+  // Card scheduling: set/clear the hold-until instant + what happens when it
+  // arrives. Refused while the card is RUNNING (there is nothing left to hold);
+  // a reschedule re-arms the reminder by clearing scheduleNotifiedAt.
+  if (body.scheduledFor !== undefined) {
+    if (card.status === "running") {
+      return jsonRes(res, 409, { error: "running", message: "the card is running — a schedule can only hold a card that has not started" });
+    }
+    if (body.scheduledFor === null || body.scheduledFor === "") {
+      next.scheduledFor = null;
+      next.scheduleAction = null;
+      next.scheduleNotifiedAt = null;
+      if (card.scheduledFor) {
+        next.events = withEvent(next, { at: new Date().toISOString(), kind: "moved", message: "Schedule cleared" });
+      }
+    } else if (typeof body.scheduledFor === "string" && Number.isFinite(Date.parse(body.scheduledFor))) {
+      next.scheduledFor = normaliseScheduledFor(body.scheduledFor);
+      next.scheduleAction = normaliseScheduleAction(body.scheduleAction ?? card.scheduleAction);
+      next.scheduleNotifiedAt = null;
+      if (next.scheduledFor !== card.scheduledFor) {
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "moved",
+          message: `Scheduled for ${next.scheduledFor} (${next.scheduleAction === "run" ? "auto-run" : "notify"})`
+        });
+      }
+    } else {
+      return jsonRes(res, 400, { error: "scheduledFor must be a parseable ISO date-time string, or null to clear" });
+    }
+  } else if (body.scheduleAction !== undefined && card.scheduledFor) {
+    next.scheduleAction = normaliseScheduleAction(body.scheduleAction);
+  }
+  // Within-list ordering: the drag-reorder writes ONE card's position (a float
+  // midpoint between its new neighbours). Null resets to created order.
+  if (body.position !== undefined) {
+    if (body.position === null) next.position = null;
+    else if (typeof body.position === "number" && Number.isFinite(body.position)) next.position = body.position;
+    else return jsonRes(res, 400, { error: "position must be a finite number or null" });
+  }
+  // Checklist: whole-array replace (items are tiny and human-edited); the
+  // normaliser drops malformed items and stamps doneAt.
+  if (body.checklist !== undefined) {
+    next.checklist = body.checklist === null ? null : normaliseChecklist(body.checklist);
   }
   // The dispatch record is ENGINE-ONLY: it is the claim ledger (who holds this
   // card, and when they last checked in). A hand-edited claim would let any
@@ -2002,6 +2101,154 @@ async function handleBriefCard(req, res, opts, id) {
 // AGENT list, Start dispatches the card through the engine (processCard) using
 // the live gateway, exactly as --tick would. An interactive list (Discuss) is
 // never auto-dispatched.
+// POST /cards/:id/snooze - the human/Gary verb for "push the schedule out".
+// Accepts { minutes } (relative) or { until } (ISO), optional { action }.
+// Works on a card with no schedule too (snooze = schedule from now).
+async function handleSnoozeCard(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin snooze rejected" });
+  const body = (await readBody(req)) || {};
+  const root = opts.root;
+  let card;
+  try { card = await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  card.id = id;
+  if (card.status === "running") {
+    return jsonRes(res, 409, { error: "running", message: "the card is running - snooze can only hold a card that has not started" });
+  }
+  let untilIso = null;
+  if (typeof body.until === "string" && Number.isFinite(Date.parse(body.until))) {
+    untilIso = new Date(Date.parse(body.until)).toISOString();
+  } else if (Number.isFinite(Number(body.minutes)) && Number(body.minutes) > 0) {
+    // Cap a relative snooze at one year - a typo'd "200000 minutes" should not
+    // quietly bury a card into 2027.
+    untilIso = new Date(Date.now() + Math.min(Number(body.minutes), 60 * 24 * 366) * 60000).toISOString();
+  }
+  if (!untilIso) return jsonRes(res, 400, { error: "pass minutes (a positive number) or until (a parseable ISO date-time)" });
+  const action = normaliseScheduleAction(body.action ?? card.scheduleAction);
+  const updated = await updateCard(root, id, (c) => ({
+    ...c,
+    scheduledFor: untilIso,
+    scheduleAction: action,
+    scheduleNotifiedAt: null,
+    events: withEvent(c, {
+      at: new Date().toISOString(),
+      kind: "moved",
+      message: `Snoozed until ${untilIso} (${action === "run" ? "auto-run" : "notify"})`
+    })
+  }));
+  if (!updated) return jsonRes(res, 409, { error: "card changed under you" });
+  return jsonRes(res, 200, { card: cardSummary(updated) });
+}
+
+// POST /cards/:id/attachments { filename, content_base64 } - card-owned upload
+// into cards/<id>/attachments/. Same JSON-base64 wire shape as the gateway's
+// /attachments; 10 MB decoded cap; plain filenames only. The listing is derived
+// by readdir (never stored on the card), the serve side is the opaque
+// `attachment:<name>` artifact ref, and the engine folds the absolute paths
+// into the dispatch prompt.
+const MAX_CARD_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+async function handleAttachmentUpload(req, res, opts, id) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin upload rejected" });
+  const root = opts.root;
+  try { await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  const body = (await readBody(req)) || {};
+  const rawName = typeof body.filename === "string" ? path.basename(body.filename.trim()) : "";
+  const name = rawName.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "");
+  if (!name || !isSafeEvidenceName(name)) return jsonRes(res, 400, { error: "filename must reduce to a plain file name" });
+  if (typeof body.content_base64 !== "string" || !body.content_base64) {
+    return jsonRes(res, 400, { error: "content_base64 required" });
+  }
+  const bytes = Buffer.from(body.content_base64, "base64");
+  if (!bytes.length) return jsonRes(res, 400, { error: "empty file" });
+  if (bytes.length > MAX_CARD_ATTACHMENT_BYTES) return jsonRes(res, 413, { error: "attachment exceeds the 10 MB cap" });
+  const dir = cardAttachmentsDir(root, id);
+  await mkdir(dir, { recursive: true });
+  // Never overwrite silently: an existing name gains a numeric suffix.
+  let finalName = name;
+  for (let n = 2; existsSync(path.join(dir, finalName)); n++) {
+    const ext = path.extname(name);
+    finalName = `${path.basename(name, ext)}-${n}${ext}`;
+  }
+  const abs = path.join(dir, finalName);
+  await writeFile(abs, bytes);
+  return jsonRes(res, 200, {
+    name: finalName,
+    bytes: bytes.length,
+    path: abs,
+    url: `/cards/${encodeURIComponent(id)}/artifact?ref=${encodeURIComponent(`attachment:${finalName}`)}`
+  });
+}
+
+// DELETE /cards/:id/attachments?name=<file> - remove ONE card-owned upload.
+// Only the card's own attachments dir; the legacy description-block paths are
+// not files the board owns, so they cannot be deleted here.
+async function handleAttachmentRemove(req, res, opts, id, name) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin attachment delete rejected" });
+  const root = opts.root;
+  try { await loadCard(root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  const n = typeof name === "string" ? name : "";
+  if (!isSafeEvidenceName(n)) return jsonRes(res, 400, { error: "bad attachment name" });
+  const abs = path.join(cardAttachmentsDir(root, id), n);
+  if (!existsSync(abs)) return jsonRes(res, 404, { error: "no such attachment" });
+  await unlink(abs);
+  return jsonRes(res, 200, { ok: true, removed: n });
+}
+
+// GET /cards/resolve?ref=<token> - resolve a human/spoken card handle to a
+// card. Accepts a full ULID, a ULID suffix (>= 3 chars - the notification's
+// short ref), or a case-insensitive title fragment. Ambiguity is an answer
+// (409 with candidates), never a guess - this is what the wake bus and the
+// operative's card tools call before acting on "run card 7Q2M".
+async function handleResolveCard(req, res, opts, query) {
+  const raw = typeof query?.ref === "string" ? query.ref.trim() : "";
+  if (!raw) return jsonRes(res, 400, { error: "pass ?ref=<card id, id suffix, or title fragment>" });
+  const cards = await loadAllCards(opts.root);
+  const upper = raw.toUpperCase();
+  let matches = [];
+  if (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(upper)) matches = cards.filter((c) => c.id === upper);
+  if (!matches.length && /^[0-9A-HJKMNP-TV-Z]{3,25}$/.test(upper)) matches = cards.filter((c) => c.id.endsWith(upper));
+  if (!matches.length) {
+    const needle = raw.toLowerCase();
+    matches = cards.filter((c) => String(c.title || "").toLowerCase().includes(needle));
+  }
+  // Prefer live cards when the ref is ambiguous only because of done ones.
+  if (matches.length > 1) {
+    const live = matches.filter((c) => c.list !== "done");
+    if (live.length) matches = live;
+  }
+  if (!matches.length) return jsonRes(res, 404, { error: `no card matches "${raw}"` });
+  if (matches.length > 1) {
+    return jsonRes(res, 409, {
+      error: `"${raw}" is ambiguous`,
+      candidates: matches.slice(0, 8).map((c) => ({ id: c.id, title: c.title, list: c.list }))
+    });
+  }
+  return jsonRes(res, 200, { card: cardSummary(matches[0]) });
+}
+
+// POST /reconcile - live board reconcile against the CURRENT resolved model
+// (model.json): the same add/drop/refresh the setup hook performs, callable by
+// the shell right after a duty create/remove so a new list appears without an
+// operative restart. Stranded cards are parked; scheduler beats re-sync.
+async function handleReconcile(req, res, opts) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin reconcile rejected" });
+  const root = opts.root;
+  const model = loadResolvedModel(root);
+  if (!model) return jsonRes(res, 409, { error: "no resolved model on disk (run a composition up first)" });
+  const existing = await loadBoard(root).catch(() => null);
+  if (!existing) return jsonRes(res, 409, { error: "no board on disk" });
+  const { board, removed, added, updated } = reconcileExistingBoard(existing, model);
+  let moved = [];
+  if (removed.length || added.length || updated.length) {
+    await atomicWriteJSON(path.join(root, "board.json"), board);
+    moved = await relocateStrandedCards(root, board, removed);
+    try { await registerSchedulerBeats(); } catch { /* beat sync is best-effort here */ }
+  }
+  return jsonRes(res, 200, { ok: true, added, removed, updated, movedToAttention: moved });
+}
+
 async function handleStartCard(req, res, opts, id) {
   const root = opts.root;
   let card;
@@ -2029,6 +2276,23 @@ async function handleStartCard(req, res, opts, id) {
       })
     }) : null));
     if (cleared) { card = cleared; card.id = id; }
+  }
+
+  // An explicit Start IS the "run it now" override for a scheduled card: clear
+  // the hold first, or the engine's schedule guard would refuse the dispatch.
+  if (card.scheduledFor) {
+    const released = await updateCard(root, id, (c) => (c.scheduledFor ? ({
+      ...c,
+      scheduledFor: null,
+      scheduleAction: null,
+      scheduleNotifiedAt: null,
+      events: withEvent(c, {
+        at: new Date().toISOString(),
+        kind: "moved",
+        message: `Schedule cleared by manual start (was scheduled for ${c.scheduledFor})`
+      })
+    }) : null));
+    if (released) { card = released; card.id = id; }
   }
 
   // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
@@ -2933,6 +3197,58 @@ export function makeRequestHandler(opts, distDir) {
         return await handlePatchList(req, res, opts, listId);
       }
 
+      // POST /lists { title, id?, description?, target?, effort? } - create a
+      // new column = create a composition-local DUTY. The board never writes
+      // apm.yml itself: it proxies to the shell (the single composition
+      // writer), which appends the duty + selection, reprojects model.json,
+      // and calls back POST /reconcile so the column appears live.
+      // DELETE /lists/:id - the inverse (deselect + delete the duty definition);
+      // the shell's reconcile callback parks any cards stranded on the list.
+      if (pathname === "/lists" && method === "POST") {
+        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list create rejected" });
+        const appUrl = (process.env.GARRISON_APP_URL || "").trim();
+        if (!appUrl) return jsonRes(res, 503, { error: "no GARRISON_APP_URL in this fitting's env - re-up the composition so the runner projects it" });
+        const body = (await readBody(req)) || {};
+        try {
+          const r = await fetch(`${appUrl}/api/muster/duty`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "create",
+              dutyId: body.id,
+              title: body.title,
+              description: body.description,
+              target: body.target,
+              effort: body.effort
+            }),
+            signal: AbortSignal.timeout(20000)
+          });
+          const doc = await r.json().catch(() => ({}));
+          return jsonRes(res, r.status, doc);
+        } catch (e) {
+          return jsonRes(res, 502, { error: `shell unreachable for duty create: ${e?.message || e}` });
+        }
+      }
+      if (listMatch && method === "DELETE") {
+        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list delete rejected" });
+        const listId = decodeURIComponent(listMatch[1]);
+        if (!isValidListId(listId)) return jsonRes(res, 400, { error: "invalid list id" });
+        const appUrl = (process.env.GARRISON_APP_URL || "").trim();
+        if (!appUrl) return jsonRes(res, 503, { error: "no GARRISON_APP_URL in this fitting's env - re-up the composition so the runner projects it" });
+        try {
+          const r = await fetch(`${appUrl}/api/muster/duty`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "delete", dutyId: listId }),
+            signal: AbortSignal.timeout(20000)
+          });
+          const doc = await r.json().catch(() => ({}));
+          return jsonRes(res, r.status, doc);
+        } catch (e) {
+          return jsonRes(res, 502, { error: `shell unreachable for duty delete: ${e?.message || e}` });
+        }
+      }
+
       // GET /origins/:originId[/events] (S3e) - the durable per-origin event log +
       // record, for PULL delivery (skill/terminal sessions poll_origin_events). The id
       // is sanitised by safeOriginId before it touches the store (no traversal).
@@ -2943,14 +3259,60 @@ export function makeRequestHandler(opts, distDir) {
         return await handleGetOrigin(req, res, opts, originId);
       }
 
+      // GET /cards/resolve - the spoken/short-ref card resolver. MUST precede
+      // the /cards/:id match ("resolve" is not a ULID).
+      if (pathname === "/cards/resolve" && method === "GET") {
+        return await handleResolveCard(req, res, opts, parsed.query);
+      }
+
+      // POST /reconcile - live board reconcile from model.json (the shell calls
+      // this right after a duty create/remove).
+      if (pathname === "/reconcile" && method === "POST") {
+        return await handleReconcile(req, res, opts);
+      }
+
+      // POST /lists/reorder { order: [listIds], rev } - persist a column drag
+      // as the operator-owned userOrder (survives the duty reconcile, which
+      // only rewrites engine-owned fields). Ids not named keep their place at
+      // the tail in current order.
+      if (pathname === "/lists/reorder" && method === "POST") {
+        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin reorder rejected" });
+        const body = (await readBody(req)) || {};
+        const order = Array.isArray(body.order) ? body.order.filter((x) => typeof x === "string") : null;
+        if (!order || !order.length) return jsonRes(res, 400, { error: "pass order: [listId, ...]" });
+        const expectedRev = Number.isInteger(body.rev) ? body.rev : null;
+        const root = opts.root;
+        const board = await loadBoard(root);
+        if (expectedRev !== null && (board.rev ?? 0) !== expectedRev) {
+          return jsonRes(res, 409, { error: "board changed under you" });
+        }
+        const rank = new Map(order.map((id, i) => [id, i]));
+        const current = (board.lists || [])
+          .slice()
+          .sort((a, b) => (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0));
+        // Unnamed lists keep their relative order after the named ones.
+        let tail = order.length;
+        for (const list of current) {
+          if (!rank.has(list.id)) rank.set(list.id, tail++);
+        }
+        const saved = await saveBoardCAS(root, board.rev ?? 0, (b) => ({
+          board: { ...b, lists: (b.lists || []).map((l) => ({ ...l, userOrder: rank.get(l.id) ?? 0 })) }
+        }));
+        if (!saved.ok) return jsonRes(res, 409, { error: saved.error || "board changed under you" });
+        return jsonRes(res, 200, { ok: true, order: [...rank.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id) });
+      }
+
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachment|\/session-stream|\/start|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachments|\/attachment|\/session-stream|\/start|\/snooze|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
         if (!isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
+        if (sub === "/snooze" && method === "POST") return await handleSnoozeCard(req, res, opts, id);
+        if (sub === "/attachments" && method === "POST") return await handleAttachmentUpload(req, res, opts, id);
+        if (sub === "/attachments" && method === "DELETE") return await handleAttachmentRemove(req, res, opts, id, parsed.query.name);
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
         if (sub === "/artifact" && method === "PUT") return await handleArtifactWrite(req, res, opts, id, parsed.query.ref);
         if (sub === "/attachment" && method === "GET") return await handleAttachment(req, res, opts, id, parsed.query.i);

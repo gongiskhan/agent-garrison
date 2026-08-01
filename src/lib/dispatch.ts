@@ -112,6 +112,9 @@ export interface ClaimableCard {
   acceptance: string | null;
   duty: string | null;
   goalMode: boolean;
+  // Card scheduling: hold the card (locally AND from remote claims) until this
+  // instant. Optional — pre-scheduling cards read it as undefined.
+  scheduledFor?: string | null;
 }
 
 export function kanbanBoardDir(): string {
@@ -168,7 +171,8 @@ function parseCard(raw: unknown): ClaimableCard | null {
     description: typeof card.description === "string" ? card.description : null,
     acceptance: typeof card.acceptance === "string" ? card.acceptance : null,
     duty: typeof card.duty === "string" ? card.duty : null,
-    goalMode: card.goalMode === true
+    goalMode: card.goalMode === true,
+    scheduledFor: typeof (card as { scheduledFor?: unknown }).scheduledFor === "string" ? (card as { scheduledFor?: string }).scheduledFor : null
   };
 }
 
@@ -239,6 +243,15 @@ export function claimability(
       return { claimable: false, reason: "not_before is unparseable" };
     }
     if (now < at) return { claimable: false, reason: `not before ${card.placement.not_before}` };
+  }
+  // Card scheduling: the user-facing scheduledFor holds remote claims exactly
+  // as it holds the local tick. Same fail-closed rule as not_before.
+  if (card.scheduledFor) {
+    const at = Date.parse(card.scheduledFor);
+    if (!Number.isFinite(at)) {
+      return { claimable: false, reason: "scheduledFor is unparseable" };
+    }
+    if (now < at) return { claimable: false, reason: `scheduled for ${card.scheduledFor}` };
   }
   if (card.dispatch && card.dispatch.state !== "failed" && card.dispatch.state !== "done") {
     if (!isLeaseExpired(card.dispatch, now, leaseSeconds)) {

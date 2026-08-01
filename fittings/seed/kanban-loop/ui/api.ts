@@ -187,7 +187,26 @@ export interface CardSummary {
   // / non-duty card). The Feedback sheet offers these as the phases to send a card
   // back to; without one it falls back to the board's agent lists.
   sequence?: string[] | null;
+  // Card scheduling: held until this instant; what happens when it arrives
+  // (notify | run); whether the due reminder already fired.
+  scheduledFor?: string | null;
+  scheduleAction?: "notify" | "run" | null;
+  scheduleNotifiedAt?: string | null;
+  // Within-list ordering: explicit position (drag-reorder) or null = created order.
+  position?: number | null;
+  // Checklist progress for the card-front chip (full items on the detail).
+  checklistTotal?: number;
+  checklistDone?: number;
+  created?: string | null;
   updated: string | null;
+}
+
+// One checklist item on a card. Whole-array replace on PATCH.
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  doneAt?: string | null;
 }
 
 // GET /board/runtime — channel discovery + gateway status for the board UI.
@@ -368,9 +387,12 @@ export interface CardDetail {
   decisionLog: DecisionRun[];
   // The full execution timeline, newest-first (the Activity feed).
   events?: CardEvent[];
-  // Files the user attached via ClaudeChat (parsed from the description, issue #2).
-  // Derived server-side; each carries a same-origin serve URL.
-  attachments?: { i: number; name: string; image: boolean; url: string }[];
+  // Card attachments, two sources in one list: card-owned uploads
+  // (uploaded: true, deletable, served by artifact ref) and the legacy
+  // ClaudeChat description-block files (derived, read-only).
+  attachments?: { i?: number; name: string; image: boolean; url: string; uploaded?: boolean }[];
+  // The full checklist items (the summary carries only the counts).
+  checklist?: ChecklistItem[];
 }
 
 async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -423,8 +445,48 @@ export const api = {
   // `placement` (brief D6) is WHERE the card runs: { target: "host" } (the
   // default) or a paired machine name. Absent means host, so an untouched picker
   // sends nothing at all.
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string } }) =>
+  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
+  // Card scheduling: push the schedule out (or set one from now). The server
+  // re-arms the due reminder; action defaults to the card's current one.
+  snooze: (id: string, body: { minutes?: number; until?: string; action?: "notify" | "run" }) =>
+    jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}/snooze`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  // Card-owned attachment upload (JSON base64, 10 MB cap). The file lands under
+  // cards/<id>/attachments/ and is folded into the operative's dispatch prompt.
+  uploadAttachment: (id: string, filename: string, contentBase64: string) =>
+    jfetch<{ name: string; bytes: number; url: string }>(`/cards/${encodeURIComponent(id)}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({ filename, content_base64: contentBase64 })
+    }),
+  deleteAttachment: (id: string, name: string) =>
+    jfetch<{ ok: boolean; removed: string }>(
+      `/cards/${encodeURIComponent(id)}/attachments?name=${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    ),
+  // Column drag: persist the full column order (operator-owned, survives the
+  // duty reconcile). `rev` is the board-level CAS token from GET /lists.
+  reorderLists: (order: string[], rev?: number) =>
+    jfetch<{ ok: boolean; order: string[] }>("/lists/reorder", {
+      method: "POST",
+      body: JSON.stringify({ order, ...(Number.isInteger(rev) ? { rev } : {}) })
+    }),
+  // Create a new column = create a composition-local duty (proxied to the
+  // shell, which writes apm.yml, reprojects, and reconciles the board live).
+  createList: (body: { title: string; id?: string; description?: string; target?: string; effort?: string }) =>
+    jfetch<{ ok: boolean; dutyId?: string; reconciled?: boolean; error?: string }>("/lists", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  // Remove a column = deselect (and, when composition-local and unreferenced,
+  // delete) its duty. Cards on the list are parked to Needs attention.
+  deleteList: (id: string) =>
+    jfetch<{ ok: boolean; dutyId?: string; reconciled?: boolean; reconcile?: { movedToAttention?: string[] } }>(
+      `/lists/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    ),
   // GET /machines — the placement picker's vocabulary: the host plus every paired
   // outpost and whether it is connected right now. Degrades to host-only with a
   // `reason` when the outpost daemon is unreachable, so the picker is never an

@@ -40,9 +40,57 @@ export function normalizeTitle(title) {
     .trim();
 }
 
+// The spoken card reference: the last 4 chars of the ULID, uppercased - the
+// exact form a scheduled card's notification quotes back to the wearer.
+export function shortRef(id) {
+  return String(id ?? "").slice(-4).toUpperCase();
+}
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "Sat 09:00" within the coming week, "Thu 20 Aug 09:00" beyond it - a spoken
+// confirmation needs a glanceable local time, not an ISO string.
+export function humanTime(iso, now = new Date()) {
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const withinWeek = Math.abs(d.getTime() - now.getTime()) < 7 * 24 * 60 * 60 * 1000;
+  return withinWeek
+    ? `${DAY_NAMES[d.getDay()]} ${hm}`
+    : `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${hm}`;
+}
+
+// Local wall-clock time with the UTC offset, for the classifier prompt: the
+// model cannot resolve "tomorrow at 9" without knowing what time it is here.
+function localIsoWithOffset(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? "+" : "-";
+  const abs = Math.abs(off);
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}` +
+    `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
+  );
+}
+
+const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function timeContextLine(now) {
+  let tz = "";
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  } catch {
+    tz = "";
+  }
+  return `Current local time: ${WEEKDAYS_LONG[now.getDay()]} ${localIsoWithOffset(now)}${tz ? ` (timezone ${tz})` : ""}. Resolve every relative time ("tomorrow at 9", "in two hours", "tomorrow morning") against this clock, and output absolute ISO 8601 times WITH this UTC offset.`;
+}
+
 // ---- dispatch prompt + reply ------------------------------------------------
 
-export function buildWakePrompt(command, projects, context = [], trailing = "") {
+export function buildWakePrompt(command, projects, context = [], trailing = "", now = new Date()) {
   const projectList = projects.length > 0 ? projects.join(", ") : "(none known)";
   // The transcript is fragmented and speakers are often mis-attributed, so the
   // words that give a command its meaning frequently sit in a NEARBY segment
@@ -71,19 +119,40 @@ command clearly refers to, and ignore it entirely otherwise):
 `
     : ""
 }
+${timeContextLine(now)}
+
 Schema:
 {
-  "intent": "create_task" | "create_event" | "query" | "note" | "unknown",
+  "intent": "create_task" | "create_event" | "card_command" | "query" | "note" | "unknown",
   "title": "short title (create_task/create_event/note)",
   "description": "one-paragraph body in your own words (create_task/create_event)",
   "project": null,
+  "scheduled_for": "absolute ISO 8601 time (create_task only, OPTIONAL - only when the user spoke a time)",
+  "schedule_action": "notify" | "run" (only alongside scheduled_for),
+  "action": "run" | "snooze" (card_command only),
+  "card_ref": "the spoken card reference, VERBATIM letters and digits (card_command only)",
+  "minutes": 120 (card_command snooze with a relative delay - whole minutes),
+  "until": "absolute ISO 8601 time (card_command snooze with an absolute time)",
   "answer": "direct answer to the user (query only; concise, no preamble)",
   "note_content": "the fact to remember, in your own words (note/unknown)"
 }
 
 Rules:
-- create_task: the user wants something done later (a task for the board).
-- create_event: a calendar-shaped ask (a meeting, appointment, reminder at a time).
+- create_task: the user wants something done later (a task for the board). When
+  they speak a time ("remind me tomorrow at 9 to call the bank"), also set
+  "scheduled_for" to the absolute ISO 8601 time and "schedule_action" to
+  "notify" - use "run" ONLY when they clearly ask the task to run ITSELF at
+  that time. No spoken time = omit both fields.
+- create_event: a calendar-shaped ask (a meeting, an appointment). A reminder
+  at a time is a create_task with "scheduled_for", not an event.
+- card_command: the user addresses an EXISTING card by its reference - "run
+  card 7Q2M", "start card 7Q2M", "snooze card 7Q2M for two hours", "snooze
+  card 7Q2M until tomorrow morning". "action" is "run" for run/start and
+  "snooze" for snooze/postpone/delay. "card_ref" is the spoken reference
+  VERBATIM as letters and digits (join spelled-out characters: "7 Q 2 M" ->
+  "7Q2M"); never invent, complete or translate it. A relative snooze gives
+  "minutes"; an absolute one gives "until" computed from the current local
+  time above. Never emit both.
 - query: the user asks a question - answer it yourself from what you know (your memories, the board, todays context). Put the full answer in "answer".
 - note: the user states a fact/preference to remember.
 - unknown: none of the above fits.
@@ -108,12 +177,26 @@ export function parseWakeReply(reply) {
   try {
     const parsed = JSON.parse(text.slice(start, end + 1));
     if (typeof parsed !== "object" || parsed === null) return null;
-    const intents = ["create_task", "create_event", "query", "note", "unknown"];
+    const intents = ["create_task", "create_event", "card_command", "query", "note", "unknown"];
+    // Minutes may come back as a number or a numeric string; anything else is
+    // dropped here so the handler only ever sees a usable number or null.
+    const minutes =
+      typeof parsed.minutes === "number" && Number.isFinite(parsed.minutes)
+        ? parsed.minutes
+        : typeof parsed.minutes === "string" && parsed.minutes.trim() !== "" && Number.isFinite(Number(parsed.minutes))
+          ? Number(parsed.minutes)
+          : null;
     return {
       intent: intents.includes(parsed.intent) ? parsed.intent : "unknown",
       title: typeof parsed.title === "string" ? parsed.title.trim() : "",
       description: typeof parsed.description === "string" ? parsed.description.trim() : "",
       project: typeof parsed.project === "string" ? parsed.project.trim() : null,
+      scheduled_for: typeof parsed.scheduled_for === "string" ? parsed.scheduled_for.trim() : "",
+      schedule_action: parsed.schedule_action === "run" ? "run" : "notify",
+      action: parsed.action === "run" || parsed.action === "snooze" ? parsed.action : null,
+      card_ref: typeof parsed.card_ref === "string" ? parsed.card_ref.trim() : "",
+      minutes,
+      until: typeof parsed.until === "string" ? parsed.until.trim() : "",
       answer: typeof parsed.answer === "string" ? parsed.answer.trim() : "",
       note_content: typeof parsed.note_content === "string" ? parsed.note_content.trim() : ""
     };
@@ -516,7 +599,9 @@ export class WakeBus {
       });
     }
     const projects = await this.board.listProjects().catch(() => []);
-    const { reply } = await this.runFn({ prompt: buildWakePrompt(command, projects, context, trailing) });
+    const { reply } = await this.runFn({
+      prompt: buildWakePrompt(command, projects, context, trailing, new Date(this.now()))
+    });
     const parsed = parseWakeReply(reply);
     if (!parsed) {
       return this.fallbackNote({
@@ -550,9 +635,27 @@ export class WakeBus {
             result: { intent: parsed.intent, cardId: null, title, suppressed: "duplicate" }
           };
         }
+        // Spoken schedule: the model's ISO is untrusted output, so it is
+        // validated HERE - a bad timestamp must never abort the card creation,
+        // it is dropped with an honest confirmation instead.
+        let schedule = null;
+        let scheduleNote = "";
+        if (parsed.scheduled_for) {
+          const scheduledMs = Date.parse(parsed.scheduled_for);
+          if (Number.isNaN(scheduledMs)) {
+            this.counters.bump("wake_schedule_dropped");
+            scheduleNote = " (I couldn't make out the time, so it is not scheduled)";
+          } else {
+            schedule = {
+              scheduledFor: new Date(scheduledMs).toISOString(),
+              scheduleAction: parsed.schedule_action === "run" ? "run" : "notify"
+            };
+          }
+        }
         try {
           const card = await this.board.createCard({
             title: isEvent ? `Event: ${title}` : title,
+            ...(schedule ?? {}),
             description: [
               parsed.description || command,
               "",
@@ -575,11 +678,21 @@ export class WakeBus {
             title,
             description: parsed.description || command
           });
+          if (schedule) this.counters.bump("wake_cards_scheduled");
           const cardUrl = await this.notifier.cardUrl(card?.id ?? null);
+          const scheduledText = schedule
+            ? `, scheduled for ${humanTime(schedule.scheduledFor, new Date(this.now()))}`
+            : "";
           return {
-            confirmation: `${isEvent ? "Event card" : "Card"} created: ${title}`,
+            confirmation: `${isEvent ? "Event card" : "Card"} created: ${title}${scheduledText}${scheduleNote}`,
             cardUrl,
-            result: { intent: parsed.intent, cardId: card?.id ?? null, title }
+            result: {
+              intent: parsed.intent,
+              cardId: card?.id ?? null,
+              title,
+              ...(schedule ?? {}),
+              ...(scheduleNote ? { scheduleDropped: true } : {})
+            }
           };
         } catch (err) {
           return this.fallbackNote({
@@ -590,6 +703,8 @@ export class WakeBus {
           });
         }
       }
+      case "card_command":
+        return this.handleCardCommand({ parsed });
       case "query": {
         const answer = parsed.answer || "I don't have an answer for that right now.";
         this.counters.bump("wake_queries_answered");
@@ -620,6 +735,142 @@ export class WakeBus {
           reason: "unknown intent"
         });
     }
+  }
+
+  // A spoken command addressed to an EXISTING card ("run card 7Q2M", "snooze
+  // card 7Q2M for two hours") - the reply half of the scheduled-card
+  // notification, which quotes the card's 4-char ULID suffix at the wearer.
+  // The board resolves the reference; ambiguity is read back as a short list
+  // of candidates and NEVER guessed among. Failures here answer with an honest
+  // notification, not a note fallback - a note cannot start or snooze a card.
+  async handleCardCommand({ parsed }) {
+    this.counters.bump("wake_card_commands");
+    const ref = parsed.card_ref;
+    if (!parsed.action || !ref) {
+      return {
+        confirmation: 'I couldn\'t tell which card or what to do with it - say e.g. "run card 7Q2M".',
+        result: { intent: "card_command", ok: false, reason: "missing action or card_ref" }
+      };
+    }
+    let resolved;
+    try {
+      resolved = await this.board.resolveCard(ref);
+    } catch (err) {
+      resolved = { status: 0, error: err?.message ?? String(err) };
+    }
+    if (resolved?.status === 404) {
+      this.counters.bump("wake_card_command_no_match");
+      return {
+        confirmation: `No card matches ${ref}.`,
+        result: { intent: "card_command", action: parsed.action, ok: false, reason: "no-match", ref }
+      };
+    }
+    if (resolved?.status === 409) {
+      this.counters.bump("wake_card_command_ambiguous");
+      const candidates = (Array.isArray(resolved.candidates) ? resolved.candidates : []).slice(0, 3);
+      const listed = candidates
+        .map((c) => `${shortRef(c?.id)} "${c?.title ?? "(untitled)"}"${c?.list ? ` (${c.list})` : ""}`)
+        .join(", ");
+      return {
+        confirmation: `More than one card matches ${ref}: ${listed || "(candidates unavailable)"}. Say the 4-character ref of the one you mean.`,
+        result: {
+          intent: "card_command",
+          action: parsed.action,
+          ok: false,
+          reason: "ambiguous",
+          ref,
+          candidates: candidates.map((c) => c?.id ?? null)
+        }
+      };
+    }
+    if (resolved?.status !== 200 || !resolved.card) {
+      return {
+        confirmation: `The board is unreachable right now - couldn't ${parsed.action} card ${ref}.`,
+        result: {
+          intent: "card_command",
+          action: parsed.action,
+          ok: false,
+          reason: resolved?.error ?? `status ${resolved?.status}`,
+          ref
+        }
+      };
+    }
+
+    const card = resolved.card;
+    const refOut = shortRef(card.id) || ref;
+    const title = card.title ?? "(untitled)";
+    const cardUrl = await this.notifier.cardUrl(card.id ?? null).catch(() => null);
+
+    if (parsed.action === "run") {
+      try {
+        await this.board.startCard(card.id);
+      } catch (err) {
+        return {
+          confirmation: `Couldn't start "${title}" (card ${refOut}) - the board refused.`,
+          cardUrl,
+          result: {
+            intent: "card_command",
+            action: "run",
+            cardId: card.id ?? null,
+            ok: false,
+            reason: `start failed: ${err?.message ?? err}`
+          }
+        };
+      }
+      this.counters.bump("wake_card_commands_run");
+      return {
+        confirmation: `Started "${title}" (card ${refOut})`,
+        cardUrl,
+        result: { intent: "card_command", action: "run", cardId: card.id ?? null, ok: true }
+      };
+    }
+
+    // snooze - exactly one of minutes/until, both validated HERE because the
+    // model's numbers and timestamps are untrusted output. An unusable time
+    // refuses to act rather than snoozing to a default the user never asked for.
+    const minutes = Number.isFinite(parsed.minutes) && parsed.minutes > 0 ? Math.round(parsed.minutes) : null;
+    const untilMs = parsed.until ? Date.parse(parsed.until) : NaN;
+    const until = Number.isNaN(untilMs) ? null : new Date(untilMs).toISOString();
+    if (!minutes && !until) {
+      return {
+        confirmation: `I couldn't make out the snooze time for card ${refOut} - try "snooze card ${refOut} for 2 hours".`,
+        cardUrl,
+        result: {
+          intent: "card_command",
+          action: "snooze",
+          cardId: card.id ?? null,
+          ok: false,
+          reason: "unusable snooze time"
+        }
+      };
+    }
+    let snoozed = null;
+    try {
+      snoozed = await this.board.snoozeCard(card.id, minutes ? { minutes } : { until });
+    } catch (err) {
+      return {
+        confirmation: `Couldn't snooze "${title}" (card ${refOut}) - the board refused.`,
+        cardUrl,
+        result: {
+          intent: "card_command",
+          action: "snooze",
+          cardId: card.id ?? null,
+          ok: false,
+          reason: `snooze failed: ${err?.message ?? err}`
+        }
+      };
+    }
+    this.counters.bump("wake_card_commands_snoozed");
+    const nowDate = new Date(this.now());
+    const effectiveUntil =
+      (typeof snoozed?.scheduledFor === "string" && snoozed.scheduledFor) ||
+      until ||
+      new Date(this.now() + minutes * 60_000).toISOString();
+    return {
+      confirmation: `Snoozed "${title}" until ${humanTime(effectiveUntil, nowDate)} (card ${refOut})`,
+      cardUrl,
+      result: { intent: "card_command", action: "snooze", cardId: card.id ?? null, ok: true, until: effectiveUntil }
+    };
   }
 
   fallbackNote({ command, eventId, confirmation, reason }) {

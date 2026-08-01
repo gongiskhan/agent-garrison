@@ -19,10 +19,14 @@ export type PushState =
   | "denied"
   | "unconfigured";
 
-function urlBase64ToUint8Array(base64: string): Uint8Array {
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padded = base64.replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  // An explicit ArrayBuffer-backed view: PushManager.subscribe's BufferSource
+  // type refuses the default Uint8Array<ArrayBufferLike> under newer TS libs.
+  const out = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
 }
 
 // An installed PWA reports standalone; iOS uses a non-standard navigator flag.

@@ -72,6 +72,25 @@ const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
 
+// Card-owned attachments: uploaded files under cards/<id>/attachments/. The
+// LISTING is derived by readdir (like list membership — never stored on the
+// card, so a stray file delete can't desync a manifest). The engine folds the
+// absolute paths into the dispatch prompt; the operative Reads them itself.
+export const cardAttachmentsDir = (root, id) => path.join(root, "cards", id, "attachments");
+export function listCardAttachments(root, id) {
+  const dir = cardAttachmentsDir(root, id);
+  let names;
+  try {
+    names = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return names
+    .filter((e) => e.isFile() && !e.name.startsWith("."))
+    .map((e) => ({ name: e.name, path: path.join(dir, e.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Outpost Dispatch placement — WHERE a card runs.
 //
 // `host` (the default) means the local operative runs it, exactly as every card
@@ -91,6 +110,65 @@ export function normalisePlacement(raw) {
     target: target || HOST_PLACEMENT_TARGET,
     ...(notBefore ? { not_before: notBefore } : {})
   };
+}
+
+// ── Card scheduling ────────────────────────────────────────────────────────
+// `scheduledFor` (ISO instant) holds the card OUT of every dispatch path until
+// the instant passes; the tick's due-sweep then either notifies ("notify", the
+// default — the reminder carries the tell-Gary phrases) or auto-starts ("run").
+// An unparseable value HOLDS the card (same fail-closed rule as placement
+// not_before in claimability): a scheduled card that runs early is worse than
+// one that waits for a human.
+export const SCHEDULE_ACTIONS = ["notify", "run"];
+export function normaliseScheduleAction(raw) {
+  return SCHEDULE_ACTIONS.includes(raw) ? raw : "notify";
+}
+export function normaliseScheduledFor(raw) {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  return s || null;
+}
+// True when the card is held by a future (or unparseable — fail closed)
+// schedule. Every dispatch seam funnels through this one predicate.
+export function scheduleHolds(card, now = Date.now()) {
+  const at = card?.scheduledFor;
+  if (!at) return false;
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return true; // unparseable holds, never releases early
+  return t > now;
+}
+
+// ── Checklist ──────────────────────────────────────────────────────────────
+// Human-first task list inside a card ({id, text, done, doneAt}); the engine
+// folds open items into the dispatch prompt so the operative sees them too.
+// Whole-array replace on PATCH — items are tiny and human-edited.
+export function normaliseChecklist(raw) {
+  if (!Array.isArray(raw)) return null;
+  const items = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const text = typeof it.text === "string" ? it.text.trim() : "";
+    if (!text) continue;
+    const done = it.done === true;
+    items.push({
+      id: typeof it.id === "string" && /^[0-9A-Za-z_-]{1,32}$/.test(it.id) ? it.id : ulid().slice(-10),
+      text: text.slice(0, 500),
+      done,
+      doneAt: done && typeof it.doneAt === "string" ? it.doneAt : done ? new Date().toISOString() : null
+    });
+    if (items.length >= 100) break;
+  }
+  return items.length ? items : [];
+}
+
+// Within-list ordering: a card's effective position is its explicit `position`
+// (set by drag-reorder) or its creation instant in ms — so legacy cards keep
+// their historical created order and a drag only has to write ONE card.
+export function cardPosition(card) {
+  const p = card?.position;
+  if (typeof p === "number" && Number.isFinite(p)) return p;
+  const t = Date.parse(card?.created ?? "");
+  return Number.isFinite(t) ? t : 0;
 }
 
 /**
@@ -127,7 +205,7 @@ export function sanitiseCardRouting(raw) {
   return Object.keys(out).length ? out : null;
 }
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, scheduledFor = null, scheduleAction = null, checklist = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
@@ -212,6 +290,18 @@ export async function createCard(root, { title, description = "", project = null
     // written only by the dispatch API — never by a human edit.
     placement: normalisePlacement(placement),
     dispatch: null,
+    // ── scheduling (see scheduleHolds above) ──────────────────────────────
+    // scheduledFor holds dispatch until the instant passes; scheduleAction
+    // decides what the due-sweep does (notify = reminder with tell-Gary
+    // phrases, run = auto-start); scheduleNotifiedAt makes the reminder
+    // fire once (cleared by snooze/reschedule). position orders the card
+    // within its list (null = created order); checklist is the in-card
+    // task list. All new keys — pre-existing cards read them as undefined.
+    scheduledFor: normaliseScheduledFor(scheduledFor),
+    scheduleAction: scheduledFor ? normaliseScheduleAction(scheduleAction) : null,
+    scheduleNotifiedAt: null,
+    position: null,
+    checklist: normaliseChecklist(checklist),
     // A literal command for a stub/no-model dispatched run. Present so the
     // transport can be proven end-to-end without spending model tokens; a
     // duty-driven remote run replaces it rather than extending it.

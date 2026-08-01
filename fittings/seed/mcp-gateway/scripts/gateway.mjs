@@ -36,7 +36,10 @@ import {
   kanbanAvailable,
   callFetchEvidence,
   callCreateContinuation,
-  callPollOriginEvents
+  callPollOriginEvents,
+  callScheduleCard,
+  callRunCard,
+  callListScheduledCards
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -138,6 +141,43 @@ async function discoverTools() {
           },
           required: ["origin_id"]
         }
+      },
+      // Card scheduling (Omi reminder round-trip): the board's reminders say
+      // exactly "run card <REF>" / "snooze card <REF> for 2 hours" - these
+      // tools make those phrases executable from any session.
+      {
+        name: "schedule_card",
+        description:
+          "Schedule, snooze, or un-schedule a kanban card by spoken ref - the executable form of 'snooze card 7Q2M for 2 hours'. Resolves the ref (full ULID, ULID suffix >= 3 chars such as the 4-char short ref in a reminder, or a title fragment), then sets scheduledFor via until or in_minutes (exactly one) and re-arms the reminder; clear=true removes the schedule instead. An ambiguous ref returns the candidate list - relay it and ask the user, never guess.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card: { type: "string", description: "Card ref: full ULID, ULID suffix (>= 3 chars, e.g. the short ref '7Q2M' from a reminder), or a title fragment." },
+            until: { type: "string", description: "ISO date-time to schedule for (pass exactly one of until / in_minutes)." },
+            in_minutes: { type: "number", description: "Relative schedule: minutes from now (pass exactly one of until / in_minutes)." },
+            action: { type: "string", enum: ["notify", "run"], description: "What happens at the scheduled instant: notify the user (default) or auto-run the card." },
+            clear: { type: "boolean", description: "true = clear the card's schedule instead of setting one (until/in_minutes are ignored)." }
+          },
+          required: ["card"]
+        }
+      },
+      {
+        name: "run_card",
+        description:
+          "Start or advance a kanban card NOW by spoken ref - the executable form of 'run card 7Q2M'. Resolves the ref, then starts the card (a manual-list card advances to its next list; an agent-list card dispatches through the engine); any schedule on the card is cleared by the start itself. An ambiguous ref returns the candidate list - relay it and ask the user, never guess.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card: { type: "string", description: "Card ref: full ULID, ULID suffix (>= 3 chars, e.g. the short ref '7Q2M' from a reminder), or a title fragment." }
+          },
+          required: ["card"]
+        }
+      },
+      {
+        name: "list_scheduled_cards",
+        description:
+          "List every kanban card holding a schedule as a compact table: short ref (last 4 of the id - the ref reminders speak), title, scheduled instant, action (notify|run), list. Use to answer 'what is scheduled?' before schedule_card / run_card.",
+        inputSchema: { type: "object", properties: {} }
       }
     );
   }
@@ -241,6 +281,9 @@ async function dispatchTool(name, input) {
   if (name === "fetch_evidence") return callFetchEvidence(input);
   if (name === "create_continuation") return callCreateContinuation(input);
   if (name === "poll_origin_events") return callPollOriginEvents(input);
+  if (name === "schedule_card") return callScheduleCard(input);
+  if (name === "run_card") return callRunCard(input);
+  if (name === "list_scheduled_cards") return callListScheduledCards(input);
   if (name === "talk_to") return callTalkTo(input);
   if (name === "wait_for") return callWaitFor(input);
   if (name === "list_active_sessions") return callListActiveSessions(input);

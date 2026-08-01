@@ -92,6 +92,10 @@ declare module "*/mcp-gateway/scripts/lib/tools.mjs" {
   export function automationsAvailable(): boolean;
   export function callListAutomations(): Promise<any[]>;
   export function callRunAutomation(input: { id: string; inputs?: Record<string, unknown> }): Promise<any>;
+  export function kanbanAvailable(): boolean;
+  export function callScheduleCard(input: { card: string; until?: string; in_minutes?: number; action?: string; clear?: boolean }): Promise<any>;
+  export function callRunCard(input: { card: string }): Promise<any>;
+  export function callListScheduledCards(input?: Record<string, unknown>): Promise<any>;
 }
 declare module "*/automations/lib/planner.mjs" {
   export function planFromBrief(opts: any): Promise<any>;

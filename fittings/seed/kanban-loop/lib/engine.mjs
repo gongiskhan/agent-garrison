@@ -25,7 +25,7 @@ import path from "node:path";
 import { hostname } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive } from "./board.mjs";
+import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -85,7 +85,7 @@ import {
   resolveExecutionStep
 } from "./resolved-model.mjs";
 import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mjs";
-import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief } from "./notify-origin.mjs";
+import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, deliverScheduleReminder } from "./notify-origin.mjs";
 import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
 
 // Exact v4 identity carried over the gateway wire. A legacy card (or v1 model)
@@ -596,7 +596,7 @@ export function parseNextList(routerOutput, validNext) {
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
-export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false, briefPath = null }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false, briefPath = null, attachments = null }) {
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
@@ -621,6 +621,19 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   );
   if (card.description && card.description.trim()) {
     parts.push("", card.description.trim());
+  }
+  // Card-owned attachments (cards/<id>/attachments/): context the human attached
+  // for THIS work item. Absolute paths only — the operative Reads them itself,
+  // exactly like the ClaudeChat "Attached files:" description block.
+  if (Array.isArray(attachments) && attachments.length) {
+    parts.push("", "## Attached files (context for this card — read them with the Read tool)", "");
+    for (const a of attachments) parts.push(`- ${a.path}`);
+  }
+  // The card's checklist: human-authored sub-items. Open items are work the
+  // card's owner expects addressed; checked items are already done.
+  if (Array.isArray(card.checklist) && card.checklist.length) {
+    parts.push("", "## Checklist ([x] done, [ ] still open — address the open items that fall inside this phase)", "");
+    for (const item of card.checklist) parts.push(`- [${item.done ? "x" : " "}] ${item.text}`);
   }
   // The Discuss step's RESULT (the brief James wrote) — the agreed direction the
   // downstream phases must build from. Injected verbatim so plan/implement/review have
@@ -1113,6 +1126,13 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (card.waitingOn) {
     return { card, outcome: { status: "waiting", reason: "waiting-on", waitingOn: card.waitingOn } };
   }
+  // Card scheduling hold: a future (or unparseable — fail closed) scheduledFor
+  // keeps the card OUT of every dispatch path — tick, processChain, the PATCH
+  // auto-dispatch. Human Start / run_card clear the schedule BEFORE dispatching,
+  // so an explicit "run it now" is never refused here.
+  if (scheduleHolds(card)) {
+    return { card, outcome: { status: "skipped", reason: "scheduled", scheduledFor: card.scheduledFor } };
+  }
   // S3c pre-dispatch steering guard: a pending revisit directive re-stages the card
   // to its earlier phase BEFORE dispatching the current one (duty-boundary only;
   // processChain re-enters here per hop, so this covers the between-hop boundary too).
@@ -1427,7 +1447,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // S3d: the absolute path the DISCUSS duty writes its brief to - the SAME card-owned
   // location readCardBrief reads (so the brief becomes the card's downstream context).
   const briefPath = path.join(root, "cards", runningCard.id, "brief.md");
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive, briefPath });
+  // Card-owned attachments, read fresh per dispatch (like the brief) so a file
+  // attached between iterations reaches the next run.
+  const attachments = listCardAttachments(root, runningCard.id);
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive, briefPath, attachments });
   // Explicit policy-derived classification (phase = taskType, card tier). A
   // missing/unreadable policy degrades to classifier routing (null) — never
   // blocks a card.
@@ -2267,6 +2290,93 @@ export async function sweepOrphanedRuns(root, { now = () => new Date().toISOStri
   return swept;
 }
 
+// ── Card scheduling: the due-sweep ──────────────────────────────────────────
+//
+// Runs at the top of every tick (2-min cadence = the schedule's resolution).
+// A card whose scheduledFor instant has PASSED gets exactly one action:
+//   - scheduleAction "notify" (default): stamp scheduleNotifiedAt + emit a
+//     schedule-due event + push the reminder (with the tell-Gary phrases)
+//     through the origin/omi/web chain. The hold has expired, so an
+//     agent-list card resumes normal dispatch on this same tick; a manual-
+//     list card waits for the human (or a "run card X" told to Gary).
+//   - scheduleAction "run": clear the schedule and, on a manual list, advance
+//     into the card's rail (sequence head, else the first non-interactive
+//     agent exit) exactly like a human Start - the tick's dispatch loop then
+//     picks it up. A card with no agent exit (a manual-only rail) degrades to
+//     the notify behaviour: there is nothing to run.
+// Unparseable scheduledFor values are left alone - scheduleHolds() already
+// holds them (fail closed), and rewriting a value the human typed would hide
+// the mistake instead of surfacing it in the UI.
+export async function sweepDueSchedules(root, board, { now = () => new Date().toISOString(), at = () => Date.now() } = {}) {
+  const cards = await loadAllCards(root);
+  const swept = [];
+  for (const card of cards) {
+    if (!card.scheduledFor) continue;
+    const t = Date.parse(card.scheduledFor);
+    if (!Number.isFinite(t) || t > at()) continue; // future or unparseable: still held
+    if (card.status === "running") continue;
+    const wantRun = card.scheduleAction === "run";
+    const list = getList(board, card.list);
+    // The run target for a manual-list card: its resolved rail's first phase,
+    // else the first non-interactive agent exit of the current list.
+    let runTarget = null;
+    if (wantRun && list && list.kind !== AGENT_KIND) {
+      const seqHead = Array.isArray(card.sequence) && card.sequence.length ? card.sequence[0] : null;
+      if (seqHead && getList(board, seqHead)) runTarget = seqHead;
+      else {
+        runTarget = (validNextFor(board, card.list) || []).find((id) => {
+          const l = getList(board, id);
+          return l && l.kind === AGENT_KIND && !isInteractive(l);
+        }) ?? null;
+      }
+    }
+    const runnable = wantRun && (runTarget !== null || (list && list.kind === AGENT_KIND && !isInteractive(list)));
+    // updateCardCAS returns the CURRENT card (truthy) when the mutator opts
+    // out, so "did we act" needs its own flag - reset on EVERY invocation
+    // (the mutator re-runs on a CAS retry against a fresh read).
+    let acted = false;
+    const res = await updateCardCAS(root, card.id, (c) => {
+      acted = false;
+      // Re-check under the lock: a snooze/edit/run since the read wins.
+      if (!c.scheduledFor || c.scheduledFor !== card.scheduledFor || c.status === "running") return null;
+      if (!runnable && c.scheduleNotifiedAt) return null; // reminder already sent
+      acted = true;
+      const stamp = now();
+      if (runnable) {
+        const moved = runTarget && c.list === card.list;
+        return {
+          ...c,
+          scheduledFor: null,
+          scheduleAction: null,
+          scheduleNotifiedAt: null,
+          ...(moved ? { list: runTarget, status: "ok" } : {}),
+          events: withEvent(c, {
+            at: stamp,
+            kind: "moved",
+            message: moved
+              ? `Scheduled time reached - advanced ${card.list} to ${runTarget} to run`
+              : "Scheduled time reached - released for dispatch"
+          })
+        };
+      }
+      return {
+        ...c,
+        scheduleNotifiedAt: stamp,
+        events: withEvent(c, {
+          at: stamp,
+          kind: "moved",
+          message: "Scheduled time reached - reminder sent (tell Gary to run or snooze it)"
+        })
+      };
+    });
+    if (res && acted) {
+      swept.push({ id: card.id, action: runnable ? "run" : "notify" });
+      deliverScheduleReminder(root, res, { started: runnable });
+    }
+  }
+  return swept;
+}
+
 // Reclaim cards whose remote worker went silent (Outpost Dispatch).
 //
 // The sibling of sweepOrphanedRuns, for the cross-machine case. A machine that
@@ -2705,6 +2815,7 @@ export function groupCardsByProject(cards, listId) {
     if (c.list !== listId) continue;
     if (c.status === "running" || c.status === "needs-attention") continue;
     if (c.waitingOn) continue; // deferred behind an overlapping run (coordination)
+    if (scheduleHolds(c)) continue; // held until its scheduled instant
     const key = c.project || "(no-project)";
     (byProject[key] ??= []).push(c);
   }

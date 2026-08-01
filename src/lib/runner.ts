@@ -764,6 +764,10 @@ export async function startOperativeBoundFittings(
       // composition's .garrison/routing.json — a config split-brain.
       GARRISON_COMPOSITION_DIR: composition.directory,
       GARRISON_BASE_URL: garrisonSelfBaseUrl(),
+      // The same shell-app base URL under the name the board's list-management
+      // proxy reads (kanban-loop POST /lists -> ${GARRISON_APP_URL}/api/muster/
+      // duty). GARRISON_BASE_URL predates it; both are this instance's app.
+      GARRISON_APP_URL: garrisonSelfBaseUrl(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
     envByFitting.set(entry.id, extraEnv);
@@ -821,6 +825,9 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
       // routing.json off the composition, not ~/.garrison/orchestrator.
       GARRISON_COMPOSITION_DIR: composition.directory,
       GARRISON_BASE_URL: garrisonSelfBaseUrl(),
+      // Same alias as the up() path (see startOperativeBoundFittings) so a
+      // manual Views start/restart projects the identical env fingerprint.
+      GARRISON_APP_URL: garrisonSelfBaseUrl(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
   }

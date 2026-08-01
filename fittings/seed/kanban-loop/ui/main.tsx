@@ -8,8 +8,25 @@
 // interactive list (Discuss), or shows the linked static logs when nothing is
 // live — it never tmux-attaches (the pooled gateway operative is raw node-pty).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  closestCorners,
+  pointerWithin,
+  type CollisionDetection,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy, horizontalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS as DndCSS } from "@dnd-kit/utilities";
 import {
   api,
   type BoardView,
@@ -17,6 +34,7 @@ import {
   type CardSummary,
   type CardDetail,
   type CardEvent,
+  type ChecklistItem,
   type RouteStamp,
   type ListView,
   type ListConfig,
@@ -45,6 +63,7 @@ import {
   WrenchIcon,
   DrillIcon,
   MailIcon,
+  ClockIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
@@ -179,6 +198,82 @@ function fmtCardDate(id: string | null | undefined): string | null {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
+// Decode a ULID's millisecond timestamp (the card's mint instant) - the drag
+// layer's fallback ordering value when a card has no explicit position.
+function ulidTime(id: string | null | undefined): number {
+  if (!id || id.length < 10) return 0;
+  let ts = 0;
+  for (const c of id.slice(0, 10).toUpperCase()) {
+    const v = ULID_B32.indexOf(c);
+    if (v < 0) return 0;
+    ts = ts * 32 + v;
+  }
+  return ts;
+}
+
+// A card's effective within-list position - EXACTLY the server's cardPosition
+// rule (explicit position, else the created instant) so drag midpoints land
+// where the next poll will keep them.
+function effPos(card: CardSummary): number {
+  if (typeof card.position === "number" && Number.isFinite(card.position)) return card.position;
+  const t = Date.parse(card.created ?? "");
+  if (Number.isFinite(t)) return t;
+  return ulidTime(card.id);
+}
+
+// Compact schedule label for the card chip: "today 14:30" / "Aug 2 09:00".
+function fmtSchedule(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "unparseable";
+  const d = new Date(t);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  if (sameDay) return `today ${time}`;
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+}
+
+// Is the card's schedule instant already past (due)? Unparseable counts as due
+// so the amber chip surfaces the mistake instead of hiding it.
+function scheduleDue(card: CardSummary): boolean {
+  if (!card.scheduledFor) return false;
+  const t = Date.parse(card.scheduledFor);
+  return !Number.isFinite(t) || t <= Date.now();
+}
+
+// ISO from a datetime-local input value (local wall time -> instant).
+function isoFromLocalInput(value: string): string | null {
+  if (!value) return null;
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+// datetime-local input value from an ISO instant (for pre-filling the picker).
+function localInputFromIso(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// File -> base64 payload for the JSON-base64 upload wire (same shape as the
+// gateway's /attachments).
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("could not read the file"));
+    r.onload = () => {
+      const s = String(r.result || "");
+      const comma = s.indexOf(",");
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    r.readAsDataURL(file);
+  });
 }
 
 // A compact "3m ago" / "just now" relative time for timeline + last-activity lines.
@@ -453,6 +548,26 @@ function Card({
           <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
+        {card.scheduledFor && (
+          <span
+            className={`chip sched${scheduleDue(card) ? " due" : ""}`}
+            title={
+              scheduleDue(card)
+                ? `scheduled for ${card.scheduledFor} - due${card.scheduleNotifiedAt ? ", reminder sent" : ""}`
+                : `held until ${card.scheduledFor} (${card.scheduleAction === "run" ? "runs automatically" : "notifies"})`
+            }
+          >
+            <ClockIcon /> {fmtSchedule(card.scheduledFor)}{card.scheduleAction === "run" ? " · auto" : ""}
+          </span>
+        )}
+        {(card.checklistTotal ?? 0) > 0 && (
+          <span
+            className={`chip check${(card.checklistDone ?? 0) === card.checklistTotal ? " all-done" : ""}`}
+            title={`checklist: ${card.checklistDone}/${card.checklistTotal} done`}
+          >
+            {card.checklistDone}/{card.checklistTotal}
+          </span>
+        )}
         {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {card.fences?.sha && (
@@ -857,6 +972,13 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   // pinning a card to a sleeping Mac just parks it in needs-attention.
   const [machines, setMachines] = useState<MachinesView | null>(null);
   const [placement, setPlacement] = useState("");
+  // Card scheduling: hold the card until this local wall time, then notify
+  // (default) or run automatically.
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [scheduleAction, setScheduleAction] = useState<"notify" | "run">("notify");
+  // Files attached at creation: uploaded right AFTER the card exists (the
+  // upload endpoint is card-scoped), before the sheet closes.
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -892,8 +1014,14 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const routing = Object.fromEntries(
       Object.entries(spec).filter(([, v]) => v !== null && v !== undefined && v !== "")
     ) as CardRouting;
+    const scheduledFor = scheduleAt ? isoFromLocalInput(scheduleAt) : null;
+    if (scheduleAt && !scheduledFor) {
+      setErr("The schedule time did not parse - pick it again.");
+      setSaving(false);
+      return;
+    }
     try {
-      await api.create({
+      const created = await api.create({
         title: title.trim() || undefined,
         project: proj,
         description,
@@ -901,8 +1029,28 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         ...(Object.keys(routing).length ? { routing } : {}),
         // Absent placement IS "host" on the wire — never send { target: "host" },
         // or every card carries a pin it did not ask for.
-        ...(placement ? { placement: { target: placement } } : {})
+        ...(placement ? { placement: { target: placement } } : {}),
+        ...(scheduledFor ? { scheduledFor, scheduleAction } : {})
       });
+      // Upload any files picked at creation. Best-effort per file: a failed
+      // upload names the file (the card itself is already created) and keeps
+      // the sheet open so the failure is seen, not swallowed.
+      const failed: string[] = [];
+      for (const f of pendingFiles) {
+        try {
+          const b64 = await fileToBase64(f);
+          await api.uploadAttachment(created.card.id, f.name, b64);
+        } catch {
+          failed.push(f.name);
+        }
+      }
+      if (failed.length) {
+        setErr(`Card created, but attachment upload failed for: ${failed.join(", ")}. Attach them again from the card's Open sheet.`);
+        setSaving(false);
+        setPendingFiles([]);
+        onCreated();
+        return;
+      }
       onCreated();
       onClose();
     } catch (e) {
@@ -966,6 +1114,35 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
             onChange={(e) => setGoalMode(e.target.checked)} />
           goalMode (attach acceptance + bounded iterations)
         </label>
+      </div>
+      <div className="field">
+        <label htmlFor="nc-sched">Schedule <span className="muted" style={{ fontWeight: 400 }}>(optional - holds the card until then)</span></label>
+        <div className="sched-inline">
+          <input id="nc-sched" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+          <select value={scheduleAction} disabled={!scheduleAt} onChange={(e) => setScheduleAction(e.target.value === "run" ? "run" : "notify")}>
+            <option value="notify">notify me (tell Gary to run/snooze)</option>
+            <option value="run">run automatically</option>
+          </select>
+          {scheduleAt && (
+            <button className="btn small" type="button" title="clear the schedule" onClick={() => setScheduleAt("")}>
+              <CloseIcon />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="nc-files">Attachments <span className="muted" style={{ fontWeight: 400 }}>(optional - context files the operative reads)</span></label>
+        <input
+          id="nc-files"
+          type="file"
+          multiple
+          onChange={(e) => setPendingFiles(Array.from(e.target.files ?? []))}
+        />
+        {pendingFiles.length > 0 && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            {pendingFiles.map((f) => f.name).join(", ")}
+          </div>
+        )}
       </div>
       <RunSpec spec={spec} setSpec={setSpec} options={options} optionsError={optionsError} />
       {/* WHERE the card runs (brief D6). Deliberately OUTSIDE <RunSpec>: routing
@@ -1434,7 +1611,7 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
   );
 }
 
-function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { cardId: string; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void }) {
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1447,6 +1624,17 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [projectDraft, setProjectDraft] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
+  // Trello-style in-place editing: title + description drafts (null = not
+  // editing), the checklist add-input, the schedule picker drafts, and the
+  // attachment upload state.
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [descDraft, setDescDraft] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [checkText, setCheckText] = useState("");
+  const [schedDraft, setSchedDraft] = useState<string | null>(null);
+  const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
+  const [savingSched, setSavingSched] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
@@ -1491,6 +1679,95 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setDeleting(false);
+    }
+  }
+
+  // One CAS-carrying patch helper for the in-place edits: sends the freshest
+  // rev, folds the result back into the open detail, and surfaces a 409 as an
+  // actionable message (the 3s poll rebases the editor state).
+  async function patchCard(body: Record<string, unknown>) {
+    if (!detail) return false;
+    setActionErr(null);
+    try {
+      const next = await api.patch(detail.card.id, { ...body, rev: detail.card.rev });
+      setDetail((d) => (d ? { ...d, card: next.card } : d));
+      onChanged();
+      return true;
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      return false;
+    }
+  }
+
+  async function saveTitle() {
+    const t = (titleDraft ?? "").trim();
+    if (!t || !detail || t === detail.card.title) { setTitleDraft(null); return; }
+    setSavingEdit(true);
+    if (await patchCard({ title: t })) setTitleDraft(null);
+    setSavingEdit(false);
+  }
+
+  async function saveDescription() {
+    if (descDraft === null || !detail) return;
+    setSavingEdit(true);
+    if (await patchCard({ description: descDraft })) setDescDraft(null);
+    setSavingEdit(false);
+  }
+
+  // Checklist writes are whole-array replaces (tiny, human-edited) and are
+  // BENIGN patches - allowed even on an engine-owned card.
+  async function saveChecklist(items: ChecklistItem[]) {
+    if (!detail) return;
+    // Optimistic: the checkbox flips instantly; a 409 re-pulls.
+    setDetail((d) => (d ? { ...d, checklist: items } : d));
+    await patchCard({ checklist: items });
+  }
+
+  function addCheckItem() {
+    const text = checkText.trim();
+    if (!text || !detail) return;
+    const id = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`).replace(/-/g, "").slice(0, 10);
+    setCheckText("");
+    void saveChecklist([...(detail.checklist ?? []), { id, text, done: false }]);
+  }
+
+  async function setSchedule(iso: string | null, action: "notify" | "run") {
+    setSavingSched(true);
+    await patchCard(iso ? { scheduledFor: iso, scheduleAction: action } : { scheduledFor: null });
+    setSavingSched(false);
+    setSchedDraft(null);
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (!detail || !files.length) return;
+    setUploading(true);
+    setActionErr(null);
+    const failed: string[] = [];
+    for (const f of files) {
+      try {
+        const b64 = await fileToBase64(f);
+        await api.uploadAttachment(detail.card.id, f.name, b64);
+      } catch {
+        failed.push(f.name);
+      }
+    }
+    if (failed.length) setActionErr(`Upload failed for: ${failed.join(", ")}`);
+    await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+    onChanged();
+    setUploading(false);
+  }
+
+  async function removeAttachment(name: string) {
+    if (!detail) return;
+    if (!window.confirm(`Remove the attachment "${name}"?`)) return;
+    setActionErr(null);
+    try {
+      await api.deleteAttachment(detail.card.id, name);
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -1554,8 +1831,14 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   const { card, links, decisionLog } = detail;
   const events = detail.events ?? [];
   const attachments = detail.attachments ?? [];
+  const checklist = detail.checklist ?? [];
   const running = card.status === "running";
   const parked = card.status === "needs-attention";
+  // D16: title/description edits are refused on an engine-owned card (the
+  // server enforces it; the UI says so instead of offering a doomed control).
+  // Schedule / checklist / attachments are benign and stay editable.
+  const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
+  const lockedCard = Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
   // Evidence is expected from Walkthrough onward — so at those stages we show the
   // Evidence section even when empty, surfacing the GAP (the user looks here for proof).
   const evidence = links.evidence ?? [];
@@ -1565,6 +1848,23 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   const descBody = card.description ? stripAttachmentBlock(card.description) : "";
   return (
     <Sheet title={card.title} onClose={onClose} size="mid">
+      {/* In-place title edit (Trello-style). Locked on an engine-owned card. */}
+      {titleDraft !== null && (
+        <div className="detail-desc">
+          <div className="row" style={{ gap: 8 }}>
+            <input
+              aria-label="Card title"
+              value={titleDraft}
+              autoFocus
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void saveTitle(); if (e.key === "Escape") setTitleDraft(null); }}
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            <button className="btn small primary" disabled={savingEdit || !titleDraft.trim()} onClick={() => void saveTitle()}>Save</button>
+            <button className="btn small" onClick={() => setTitleDraft(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div className="detail-meta">
         {card.project
           ? <span className="chip">proj: {card.project}</span>
@@ -1578,6 +1878,16 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
 
       {/* Header actions: open the rich Log (Watch) or an interactive Terminal. */}
       <div className="detail-actions">
+        {titleDraft === null && (
+          <button
+            className="btn small"
+            disabled={lockedCard}
+            title={lockedCard ? "engine-owned - the title is editable when the card is not on an autonomous list" : "rename this card"}
+            onClick={() => setTitleDraft(card.title)}
+          >
+            <WrenchIcon /> Rename
+          </button>
+        )}
         <button className="btn small" onClick={() => onWatch?.(card)}>
           <WatchIcon /> Watch (Log)
         </button>
@@ -1684,38 +1994,188 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
         </div>
       )}
 
-      {descBody.trim() && (
+      {/* SCHEDULE - hold the card until an instant, then notify (tell Gary to
+          run/snooze) or run automatically. Benign patch: editable even on an
+          engine-owned card; refused only while running. */}
+      <div className="detail-desc sched-block">
+        <div className="dd-title">Schedule</div>
+        {card.scheduledFor && schedDraft === null && (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span className={`chip sched${scheduleDue(card) ? " due" : ""}`}>
+              <ClockIcon /> {fmtSchedule(card.scheduledFor)}{card.scheduleAction === "run" ? " · auto-run" : " · notify"}
+            </span>
+            {card.scheduleNotifiedAt && <span className="chip muted" title={card.scheduleNotifiedAt}>reminder sent</span>}
+            <button className="btn small" disabled={running || savingSched} onClick={() => { setSchedDraft(localInputFromIso(card.scheduledFor)); setSchedActionDraft(card.scheduleAction === "run" ? "run" : "notify"); }}>
+              Change
+            </button>
+            <button className="btn small" disabled={running || savingSched} title="push the schedule out one hour" onClick={() => void setSchedule(new Date(Date.now() + 3600_000).toISOString(), card.scheduleAction === "run" ? "run" : "notify")}>
+              +1h
+            </button>
+            <button className="btn small" disabled={running || savingSched} title="snooze until tomorrow 09:00" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); void setSchedule(d.toISOString(), card.scheduleAction === "run" ? "run" : "notify"); }}>
+              Tomorrow 9
+            </button>
+            <button className="btn small" disabled={running || savingSched} onClick={() => void setSchedule(null, "notify")}>
+              Clear
+            </button>
+          </div>
+        )}
+        {!card.scheduledFor && schedDraft === null && (
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn small" disabled={running} title={running ? "the card is running" : "hold this card until a date/time"} onClick={() => { setSchedDraft(""); setSchedActionDraft("notify"); }}>
+              <ClockIcon /> Set a schedule
+            </button>
+          </div>
+        )}
+        {schedDraft !== null && (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <input type="datetime-local" value={schedDraft} onChange={(e) => setSchedDraft(e.target.value)} />
+            <select value={schedActionDraft} onChange={(e) => setSchedActionDraft(e.target.value === "run" ? "run" : "notify")}>
+              <option value="notify">notify me (tell Gary to run/snooze)</option>
+              <option value="run">run automatically</option>
+            </select>
+            <button
+              className="btn small primary"
+              disabled={savingSched || !schedDraft || !isoFromLocalInput(schedDraft)}
+              onClick={() => { const iso = isoFromLocalInput(schedDraft); if (iso) void setSchedule(iso, schedActionDraft); }}
+            >
+              {savingSched ? "Saving…" : "Set"}
+            </button>
+            <button className="btn small" onClick={() => setSchedDraft(null)}>Cancel</button>
+          </div>
+        )}
+      </div>
+
+      {(descBody.trim() || descDraft !== null || !lockedCard) && (
         <div className="detail-desc">
-          <div className="dd-title">Description</div>
-          {/* pre-wrap: multi-line bodies (drill fix cards list one finding
-              per line with indented evidence links) keep their line structure
-              in the plain-text render. */}
-          <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(descBody)}</p>
+          <div className="dd-title">
+            Description
+            {descDraft === null && !lockedCard && (
+              <button className="btn tiny" title="edit the description" onClick={() => setDescDraft(stripAttachmentBlock(card.description ?? ""))}>
+                edit
+              </button>
+            )}
+          </div>
+          {descDraft !== null ? (
+            <div>
+              <textarea
+                value={descDraft}
+                rows={Math.min(14, Math.max(4, descDraft.split("\n").length + 1))}
+                autoFocus
+                onChange={(e) => setDescDraft(e.target.value)}
+                onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void saveDescription(); if (e.key === "Escape") setDescDraft(null); }}
+                style={{ width: "100%" }}
+              />
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <button className="btn small primary" disabled={savingEdit} onClick={() => void saveDescription()}>Save</button>
+                <button className="btn small" onClick={() => setDescDraft(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : descBody.trim() ? (
+            /* pre-wrap: multi-line bodies (drill fix cards list one finding
+               per line with indented evidence links) keep their line structure
+               in the plain-text render. */
+            <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(descBody)}</p>
+          ) : (
+            <p className="muted" style={{ fontSize: 12 }}>No description yet.</p>
+          )}
         </div>
       )}
 
-      {/* ATTACHMENTS (issue #2) — files the user attached via ClaudeChat, parsed
-          out of the description. Images render inline (click to enlarge); other
-          files link out. Same-origin serve URLs. */}
-      {attachments.length > 0 && (
-        <div className="evidence">
-          <div className="dd-title">Attachments</div>
+      {/* CHECKLIST - human-first sub-items; open items are folded into the
+          operative's dispatch prompt. Benign patch, editable everywhere. */}
+      <div className="detail-desc checklist">
+        <div className="dd-title">
+          Checklist
+          {checklist.length > 0 && (
+            <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>
+              {checklist.filter((i) => i.done).length}/{checklist.length}
+            </span>
+          )}
+        </div>
+        {checklist.length > 0 && (
+          <ul className="cl-items">
+            {checklist.map((item) => (
+              <li key={item.id} className={item.done ? "done" : ""}>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={item.done}
+                  className={`cl-box${item.done ? " checked" : ""}`}
+                  title={item.done ? "mark as not done" : "mark as done"}
+                  onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
+                />
+                <span className="cl-text">{item.text}</span>
+                <button
+                  type="button"
+                  className="cl-del"
+                  title="remove this item"
+                  aria-label={`remove "${item.text}"`}
+                  onClick={() => void saveChecklist(checklist.filter((i) => i.id !== item.id))}
+                >
+                  <CloseIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="row" style={{ gap: 8 }}>
+          <input
+            aria-label="New checklist item"
+            value={checkText}
+            placeholder="add an item…"
+            onChange={(e) => setCheckText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addCheckItem(); }}
+            style={{ flex: 1, minWidth: 0 }}
+          />
+          <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
+            <PlusIcon /> Add
+          </button>
+        </div>
+      </div>
+
+      {/* ATTACHMENTS - card-owned uploads (deletable, folded into the dispatch
+          prompt as context) plus the legacy ClaudeChat description-block files.
+          Images render inline (click to enlarge); other files link out. */}
+      <div className="evidence">
+        <div className="dd-title">
+          Attachments
+          <label className={`btn tiny${uploading ? " disabled" : ""}`} title="attach a file - the operative reads it as context when the card runs">
+            {uploading ? "uploading…" : "attach"}
+            <input
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              disabled={uploading}
+              onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
+            />
+          </label>
+        </div>
+        {attachments.length > 0 ? (
           <div className="ev-grid">
             {attachments.map((a) => (
-              a.image ? (
-                <button key={a.i} type="button" className="ev-shot" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, image: true })} title={a.name}>
-                  <img src={a.url} alt={a.name} loading="lazy" />
-                  <span className="ev-name">{a.name}</span>
-                </button>
-              ) : (
-                <a key={a.i} className="ev-file" href={a.url} target="_blank" rel="noreferrer" title={a.name}>
-                  <LinkIcon /> {a.name}
-                </a>
-              )
+              <div key={`${a.uploaded ? "u" : "d"}:${a.name}:${a.i ?? ""}`} className="ev-item">
+                {a.image ? (
+                  <button type="button" className="ev-shot" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, image: true })} title={a.name}>
+                    <img src={a.url} alt={a.name} loading="lazy" />
+                    <span className="ev-name">{a.name}</span>
+                  </button>
+                ) : (
+                  <a className="ev-file" href={a.url} target="_blank" rel="noreferrer" title={a.name}>
+                    <LinkIcon /> {a.name}
+                  </a>
+                )}
+                {a.uploaded && (
+                  <button type="button" className="ev-del" title={`remove ${a.name}`} aria-label={`remove ${a.name}`} onClick={() => void removeAttachment(a.name)}>
+                    <CloseIcon />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>No attachments. Attached files are read by the operative as context for this card.</p>
+        )}
+      </div>
 
       {card.lastReply && (
         <div className="detail-desc">
@@ -2304,6 +2764,8 @@ function ListConfigSheet({
   const [rev, setRev] = useState<number | null>(null); // board-level CAS token from GET /lists
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   // Load the full list config (prompt bodies included). The board only carries
   // the lists' metadata, not the execute/router prompt text. Capture the board
@@ -2463,12 +2925,52 @@ function ListConfigSheet({
       <button className="btn primary" disabled={saving} onClick={() => void save()}>
         {saving ? "Saving…" : "Save list config"}
       </button>
+
+      {/* Remove list - only the derived duty columns; the fixed human head/tail
+          (backlog, todo, discuss, done, needs-attention) is structural. Removing
+          the list removes its DUTY from the composition; cards sitting here are
+          parked to Needs attention by the reconcile. */}
+      {cfg.kind === "agent" && !cfg.interactive && !["backlog", "todo", "discuss", "done", "needs-attention"].includes(cfg.id) && (
+        <div className="danger-zone" style={{ marginTop: 16 }}>
+          <div className="dd-title">Remove list</div>
+          {!confirmRemove ? (
+            <button className="btn danger small" disabled={removing} onClick={() => setConfirmRemove(true)}>
+              Remove list…
+            </button>
+          ) : (
+            <div>
+              <p className="muted" style={{ fontSize: 12 }}>
+                This removes the <strong>{cfg.id}</strong> duty from the composition as
+                well - the operative will no longer route work through this phase. Cards
+                currently on this list will be moved to Needs attention. Cards whose
+                journey includes it will re-route past it.
+              </p>
+              <div className="row" style={{ gap: 8 }}>
+                <button
+                  className="btn danger small"
+                  disabled={removing}
+                  onClick={() => {
+                    setRemoving(true);
+                    setErr(null);
+                    api.deleteList(cfg.id)
+                      .then(() => { onSaved(); onClose(); })
+                      .catch((e) => { setErr(e instanceof Error ? e.message : String(e)); setRemoving(false); });
+                  }}
+                >
+                  {removing ? "Removing…" : "Yes, remove list + duty"}
+                </button>
+                <button className="btn small" disabled={removing} onClick={() => setConfirmRemove(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Sheet>
   );
 }
 
 // ── generic modal sheet ─────────────────────────────────────────────────────
-function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: React.ReactNode; size?: "default" | "mid" | "wide" }) {
+function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -2496,7 +2998,106 @@ type Overlay =
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
   | { kind: "feedback"; card: CardSummary }
+  | { kind: "addlist" }
   | null;
+
+// ── add-list sheet ──────────────────────────────────────────────────────────
+// A new column IS a new composition-local duty: the sheet says so plainly and
+// the shell (via the board's /lists proxy) owns the apm.yml write + live
+// reconcile. Target/effort are optional - the shell picks sane defaults.
+function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function submit() {
+    if (!title.trim()) { setErr("give the list a name"); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api.createList({ title: title.trim(), description: description.trim() || undefined });
+      onCreated();
+      onClose();
+      void res;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+  return (
+    <Sheet title="Add list" onClose={onClose}>
+      <div className="field">
+        <label htmlFor="al-name">Name</label>
+        <input id="al-name" autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Research" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
+      </div>
+      <div className="field">
+        <label htmlFor="al-desc">When should the operative pick this list? <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+        <textarea id="al-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="describes the new duty so the Dispatcher can route work to it" />
+      </div>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
+        Creating a list creates a matching duty in the composition (a new agent
+        phase with sensible defaults). Tune its prompts, model and schedule
+        afterwards from the list's gear menu. Removing the list later removes
+        the duty too.
+      </div>
+      {err && <div className="banner">{err}</div>}
+      <button className="btn primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
+        {busy ? "Creating…" : "Create list"}
+      </button>
+    </Sheet>
+  );
+}
+
+// ── drag-and-drop wrappers (Trello-style) ───────────────────────────────────
+// Cards sort within a column and move across columns; columns reorder by
+// dragging their header. The sortable transform provides the slot gap; the
+// floating copy rides DragOverlay. Engine-owned cards may reorder inside their
+// own column (position is a benign patch) but never change column by drag.
+
+function SortableCardWrap({ card, listId, children }: { card: CardSummary; listId: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    data: { type: "card", card, listId }
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: DndCSS.Transform.toString(transform), transition }}
+      className={`sortable-card${isDragging ? " drag-source" : ""}`}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  );
+}
+
+// The column body is itself a drop target so a card can land in an EMPTY list.
+function ListBodyDroppable({ listId, children }: { listId: string; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `body:${listId}`, data: { type: "body", listId } });
+  return (
+    <div ref={setNodeRef} className={`lbody${isOver ? " drop-over" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+// A column: sortable by its HEADER (the handle), so card drags inside the body
+// never fight the column drag.
+function SortableColumn({ list, className, header, children }: { list: ListView; className: string; header: ReactNode; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `col:${list.id}`,
+    data: { type: "column", listId: list.id }
+  });
+  return (
+    <section ref={setNodeRef} style={{ transform: DndCSS.Transform.toString(transform), transition }} className={`${className}${isDragging ? " drag-source" : ""}`}>
+      <div className="col-drag-handle" {...attributes} {...listeners}>
+        {header}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 function App() {
   const [board, setBoard] = useState<BoardView | null>(null);
@@ -2505,6 +3106,19 @@ function App() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // ── drag state ────────────────────────────────────────────────────────────
+  // During a drag the board renders from these overrides (membership order per
+  // list / column order) so items shift live; the poll is paused (a reload
+  // mid-drag would rip the dragged node out of the DOM). Cleared after the
+  // post-drop reload lands.
+  const [cardOrderOverride, setCardOrderOverride] = useState<Record<string, string[]> | null>(null);
+  const [colOrderOverride, setColOrderOverride] = useState<string[] | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{ type: "card"; card: CardSummary } | { type: "column"; listId: string } | null>(null);
+  const dragActiveRef = useRef(false);
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } })
+  );
   // Re-render when the /host-map lands so linkifyText upgrades loopback URLs to
   // their exact serve form (serveMapRev is read only to force the dependency).
   const [, setServeRev] = useState(serveMapRev);
@@ -2516,8 +3130,12 @@ function App() {
   }, []);
 
   const load = useCallback(async () => {
+    // Never reload mid-drag: replacing the lists would rip the dragged node
+    // out of the DOM under the pointer.
+    if (dragActiveRef.current) return;
     try {
       const b = await api.board();
+      if (dragActiveRef.current) return;
       setBoard(b);
       setErr(null);
     } catch (e) {
@@ -2671,6 +3289,176 @@ function App() {
     }
   }
 
+  // ── drag-and-drop wiring ──────────────────────────────────────────────────
+  // The board renders from displayLists: the polled board plus any in-drag
+  // overrides. cardById spans the whole board so a card mid-move renders from
+  // whichever column the override says it is in.
+  const cardById = useMemo(() => {
+    const m = new Map<string, CardSummary>();
+    for (const c of board?.cards ?? []) m.set(c.id, c);
+    return m;
+  }, [board]);
+
+  const displayLists = useMemo(() => {
+    if (!board) return [] as ListView[];
+    let lists = board.lists;
+    if (colOrderOverride) {
+      const rank = new Map(colOrderOverride.map((id, i) => [id, i]));
+      lists = [...lists].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999));
+    }
+    if (cardOrderOverride) {
+      lists = lists.map((l) => {
+        const ids = cardOrderOverride[l.id];
+        if (!ids) return l;
+        return { ...l, cards: ids.map((id) => cardById.get(id)).filter(Boolean) as CardSummary[] };
+      });
+    }
+    return lists;
+  }, [board, colOrderOverride, cardOrderOverride, cardById]);
+
+  // A card on an autonomous agent list is engine-owned: it may REORDER inside
+  // its own column (position is a benign patch) but never change column by drag.
+  const dragLocked = useCallback((card: CardSummary): boolean => {
+    const l = board?.lists.find((x) => x.id === card.list);
+    return Boolean(l && l.kind === "agent" && !l.interactive && !card.quick);
+  }, [board]);
+
+  const containerOf = (over: DragOverEvent["over"]): string | null => {
+    if (!over) return null;
+    const data = over.data.current as { type?: string; listId?: string } | undefined;
+    if (data?.type === "card") return data.listId ?? null;
+    if (data?.type === "body" || data?.type === "column") return data.listId ?? null;
+    return null;
+  };
+
+  function onDragStart(ev: DragStartEvent) {
+    const data = ev.active.data.current as { type?: string; card?: CardSummary; listId?: string } | undefined;
+    dragActiveRef.current = true;
+    if (data?.type === "card" && data.card) {
+      setActiveDrag({ type: "card", card: data.card });
+      // Snapshot the current per-list order as the working membership.
+      const snap: Record<string, string[]> = {};
+      for (const l of displayLists) snap[l.id] = l.cards.map((c) => c.id);
+      setCardOrderOverride(snap);
+    } else if (data?.type === "column" && data.listId) {
+      setActiveDrag({ type: "column", listId: data.listId });
+      setColOrderOverride(displayLists.map((l) => l.id));
+    }
+  }
+
+  // Collision strategy for a kanban: closestCorners alone lets a SMALL card in
+  // the next column beat a LARGE empty column body (corner-average distance),
+  // so a card could never be dropped into an empty list. Prefer what the
+  // pointer is actually INSIDE, ranked by drag kind - cards first on a card
+  // drag (precise insertion), columns first on a column drag - then fall back
+  // to closestCorners when the pointer is outside every droppable.
+  const boardCollisions = useCallback<CollisionDetection>((args) => {
+    const isColumnDrag = String(args.active?.id ?? "").startsWith("col:");
+    const within = pointerWithin(args);
+    const pool = within.length ? within : closestCorners(args);
+    const of = (prefix: string) => pool.filter((c) => String(c.id).startsWith(prefix));
+    if (isColumnDrag) {
+      const cols = of("col:");
+      return cols.length ? cols : pool;
+    }
+    const cards = pool.filter((c) => !String(c.id).startsWith("col:") && !String(c.id).startsWith("body:"));
+    if (cards.length) return cards;
+    const bodies = of("body:");
+    return bodies.length ? bodies : pool;
+  }, []);
+
+  function onDragOver(ev: DragOverEvent) {
+    if (activeDrag?.type !== "card" || !cardOrderOverride) return;
+    const card = activeDrag.card;
+    const overContainer = containerOf(ev.over);
+    if (!overContainer) return;
+    const fromContainer = Object.keys(cardOrderOverride).find((k) => cardOrderOverride[k].includes(card.id));
+    if (!fromContainer) return;
+    const overData = ev.over?.data.current as { type?: string; card?: CardSummary } | undefined;
+    if (fromContainer === overContainer) {
+      // Same-column reorder: shift the dragged id to the hovered card's slot
+      // so the gap (the slot indicator) tracks the pointer.
+      if (overData?.type === "card" && overData.card && overData.card.id !== card.id) {
+        setCardOrderOverride((prev) => {
+          if (!prev) return prev;
+          const arr = prev[fromContainer];
+          const from = arr.indexOf(card.id);
+          const to = arr.indexOf(overData.card!.id);
+          if (from < 0 || to < 0 || from === to) return prev;
+          return { ...prev, [fromContainer]: arrayMove(arr, from, to) };
+        });
+      }
+      return;
+    }
+    if (dragLocked(card)) return; // engine-owned: same-column reorder only
+    setCardOrderOverride((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, [fromContainer]: prev[fromContainer].filter((id) => id !== card.id) };
+      const target = [...(prev[overContainer] ?? [])];
+      const at = overData?.type === "card" && overData.card ? target.indexOf(overData.card.id) : target.length;
+      target.splice(at < 0 ? target.length : at, 0, card.id);
+      return { ...next, [overContainer]: target };
+    });
+  }
+
+  async function onDragEnd(ev: DragEndEvent) {
+    const drag = activeDrag;
+    setActiveDrag(null);
+    try {
+      if (drag?.type === "column" && colOrderOverride) {
+        const overContainer = containerOf(ev.over);
+        let order = colOrderOverride;
+        if (overContainer && overContainer !== drag.listId) {
+          const from = order.indexOf(drag.listId);
+          const to = order.indexOf(overContainer);
+          if (from >= 0 && to >= 0) order = arrayMove(order, from, to);
+        }
+        setColOrderOverride(order);
+        await api.reorderLists(order);
+      } else if (drag?.type === "card" && cardOrderOverride) {
+        const card = drag.card;
+        const container = Object.keys(cardOrderOverride).find((k) => cardOrderOverride[k].includes(card.id));
+        if (container) {
+          const ids = cardOrderOverride[container];
+          const idx = ids.indexOf(card.id);
+          // Reorder inside the working membership relative to the neighbours'
+          // effective positions (midpoint), the exact rule the server sorts by.
+          const neighbour = (i: number): number | null => {
+            const c = i >= 0 && i < ids.length ? cardById.get(ids[i]) : undefined;
+            return c && c.id !== card.id ? effPos(c) : null;
+          };
+          const before = neighbour(idx - 1);
+          const after = neighbour(idx + 1);
+          let position: number | null = null;
+          if (before !== null && after !== null) position = (before + after) / 2;
+          else if (before !== null) position = before + 60_000;
+          else if (after !== null) position = after - 60_000;
+          const moved = container !== card.list;
+          if (moved || position !== null) {
+            const body: Record<string, unknown> = { rev: card.rev };
+            if (moved) body.list = container;
+            if (position !== null) body.position = position;
+            await api.patch(card.id, body);
+          }
+        }
+      }
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      dragActiveRef.current = false;
+      await load();
+      setCardOrderOverride(null);
+      setColOrderOverride(null);
+    }
+  }
+
+  function onDragCancel() {
+    dragActiveRef.current = false;
+    setActiveDrag(null);
+    setCardOrderOverride(null);
+    setColOrderOverride(null);
+  }
+
   if (err && !board) {
     return (
       <>
@@ -2690,92 +3478,137 @@ function App() {
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
       <div className="board-scroll">
-        <div className="board">
-          {board?.lists.map((list) => (
-            <section key={list.id} className={listClass(list)}>
-              <div className="lh">
-                <div className="lname">
-                  <span className="lname-text">{list.title}</span>
-                  <span className="count">{list.cards.length}</span>
-                  <button
-                    className="gear"
-                    title={`Configure ${list.title}`}
-                    aria-label={`Configure ${list.title}`}
-                    onClick={() => setOverlay({ kind: "config", listId: list.id })}
-                  >
-                    <GearIcon />
-                  </button>
-                </div>
-                <div className="lkind">
-                  {list.kind === "agent" && !list.interactive ? (
-                    <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
-                      phase: {list.phase ?? list.id}
-                    </span>
-                  ) : list.interactive ? (
-                    "interactive · web chat"
-                  ) : (
-                    `${list.kind} · ${list.trigger}`
-                  )}
-                </div>
-              </div>
-              <div className="lbody">
-                {/* Backlog leads with the inline quick-add affordance (its own empty
-                    state), so it never shows the bare "empty" label. */}
-                {list.id === "backlog" && <BacklogAddCard onCreated={() => void load()} />}
-                {list.cards.length === 0 && list.id !== "backlog" && <div className="lempty">empty</div>}
-                {(() => {
-                  const renderCard = (card: CardSummary) => (
-                    <Card
-                      key={card.id}
-                      card={card}
-                      list={list}
-                      busy={busyCard === card.id}
-                      onStart={onStart}
-                      onInfer={onInfer}
-                      onDiscuss={onDiscuss}
-                      onRevert={onRevert}
-                      onMove={(c) => {
-                        // One valid next list → just move (the server auto-dispatches if
-                        // it's an immediate agent list); only ASK when there's a choice.
-                        const tgts = list.validNext;
-                        if (tgts.length === 1) {
-                          void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch(() => load());
-                        } else {
-                          setOverlay({ kind: "move", card: c });
-                        }
-                      }}
-                      onWatch={(c) => setOverlay({ kind: "watch", card: c })}
-                      onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
-                      onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
-                      onContinue={onContinue}
-                      onDrill={onDrill}
-                      onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
-                    />
-                  );
-                  // D19: the Done column groups quick cards (trivial-plan inline tasks)
-                  // under a collapsed "quick tasks" strip so the real runs stay legible.
-                  if (list.id !== "done") return list.cards.map(renderCard);
-                  const quickCards = list.cards.filter((c) => c.quick);
-                  const mainCards = list.cards.filter((c) => !c.quick);
-                  return (
-                    <>
-                      {mainCards.map(renderCard)}
-                      {quickCards.length > 0 && (
-                        <details className="quick-strip">
-                          <summary className="quick-strip-head">
-                            <span className="quick-strip-title">quick tasks</span>
-                            <span className="count">{quickCards.length}</span>
-                          </summary>
-                          <div className="quick-strip-body">{quickCards.map(renderCard)}</div>
-                        </details>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={boardCollisions}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={(e) => void onDragEnd(e)}
+          onDragCancel={onDragCancel}
+        >
+          <div className="board">
+            <SortableContext items={displayLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
+              {displayLists.map((list) => (
+                <SortableColumn
+                  key={list.id}
+                  list={list}
+                  className={listClass(list)}
+                  header={
+                    <div className="lh">
+                      <div className="lname">
+                        <span className="lname-text">{list.title}</span>
+                        <span className="count">{list.cards.length}</span>
+                        <button
+                          className="gear"
+                          title={`Configure ${list.title}`}
+                          aria-label={`Configure ${list.title}`}
+                          onClick={() => setOverlay({ kind: "config", listId: list.id })}
+                        >
+                          <GearIcon />
+                        </button>
+                      </div>
+                      <div className="lkind">
+                        {list.kind === "agent" && !list.interactive ? (
+                          <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
+                            phase: {list.phase ?? list.id}
+                          </span>
+                        ) : list.interactive ? (
+                          "interactive · web chat"
+                        ) : (
+                          `${list.kind} · ${list.trigger}`
+                        )}
+                      </div>
+                    </div>
+                  }
+                >
+                  <ListBodyDroppable listId={list.id}>
+                    {/* Backlog leads with the inline quick-add affordance (its own empty
+                        state), so it never shows the bare "empty" label. */}
+                    {list.id === "backlog" && <BacklogAddCard onCreated={() => void load()} />}
+                    {list.cards.length === 0 && list.id !== "backlog" && <div className="lempty">empty</div>}
+                    {(() => {
+                      const renderCard = (card: CardSummary, sortable = true) => {
+                        const inner = (
+                          <Card
+                            key={sortable ? undefined : card.id}
+                            card={card}
+                            list={list}
+                            busy={busyCard === card.id}
+                            onStart={onStart}
+                            onInfer={onInfer}
+                            onDiscuss={onDiscuss}
+                            onRevert={onRevert}
+                            onMove={(c) => {
+                              // One valid next list → just move (the server auto-dispatches if
+                              // it's an immediate agent list); only ASK when there's a choice.
+                              const tgts = list.validNext;
+                              if (tgts.length === 1) {
+                                void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch(() => load());
+                              } else {
+                                setOverlay({ kind: "move", card: c });
+                              }
+                            }}
+                            onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                            onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+                            onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                            onContinue={onContinue}
+                            onDrill={onDrill}
+                            onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                          />
+                        );
+                        return sortable ? (
+                          <SortableCardWrap key={card.id} card={card} listId={list.id}>
+                            {inner}
+                          </SortableCardWrap>
+                        ) : inner;
+                      };
+                      // D19: the Done column groups quick cards (trivial-plan inline tasks)
+                      // under a collapsed "quick tasks" strip so the real runs stay legible.
+                      // Quick cards are not drag-sortable (they are archive, not queue).
+                      const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
+                      const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
+                      return (
+                        <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                          {mainCards.map((c) => renderCard(c))}
+                          {quickCards.length > 0 && (
+                            <details className="quick-strip">
+                              <summary className="quick-strip-head">
+                                <span className="quick-strip-title">quick tasks</span>
+                                <span className="count">{quickCards.length}</span>
+                              </summary>
+                              <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
+                            </details>
+                          )}
+                        </SortableContext>
+                      );
+                    })()}
+                  </ListBodyDroppable>
+                </SortableColumn>
+              ))}
+            </SortableContext>
+            {/* Trello-style "+ Add list": a new column IS a new composition-local
+                duty; the sheet says so and the shell owns the write. */}
+            <section className="list add-list">
+              <button className="add-list-btn" onClick={() => setOverlay({ kind: "addlist" })}>
+                <PlusIcon /> Add list
+              </button>
             </section>
-          ))}
-        </div>
+          </div>
+          <DragOverlay>
+            {activeDrag?.type === "card" ? (
+              <div className="card drag-ghost">
+                <div className="ct">
+                  <span className="title">{activeDrag.card.title}</span>
+                </div>
+                {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
+              </div>
+            ) : activeDrag?.type === "column" ? (
+              <div className="list drag-ghost-col">
+                <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {overlay?.kind === "new" && (
@@ -2787,6 +3620,7 @@ function App() {
       {overlay?.kind === "detail" && (
         <DetailSheet
           cardId={overlay.cardId}
+          board={board}
           onClose={() => setOverlay(null)}
           onChanged={() => void load()}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
@@ -2807,6 +3641,9 @@ function App() {
       )}
       {overlay?.kind === "feedback" && board && (
         <FeedbackSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onSent={() => void load()} />
+      )}
+      {overlay?.kind === "addlist" && (
+        <AddListSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
       )}
     </>
   );

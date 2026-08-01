@@ -81,6 +81,12 @@ export function resolveArtifactRef(card, ref, { root = kanbanRoot(), cwd = links
     const n = Number(lm[1]);
     return n >= 1 && n <= (card.iterations ?? 0) ? path.join(root, "cards", card.id, `log-${n}.md`) : null;
   }
+  // Card-owned uploaded attachment (cards/<id>/attachments/<name>): the same
+  // plain-filename rule as evidence names; confinePath re-checks the result.
+  const am = ref.match(/^attachment:(.+)$/);
+  if (am) {
+    return isSafeEvidenceName(am[1]) ? path.join(root, "cards", card.id, "attachments", am[1]) : null;
+  }
   return null;
 }
 
@@ -99,6 +105,8 @@ function oneLinerFor(ref, card) {
   }
   const lm = ref.match(/^log:(\d+)$/);
   if (lm) return `log-${lm[1]}.md - iteration ${lm[1]} operative log`;
+  const am = ref.match(/^attachment:(.+)$/);
+  if (am) return `${am[1]} - a file attached to the card`;
   return ref;
 }
 
@@ -134,6 +142,20 @@ export function enumerateArtifactRefs(card, { root = kanbanRoot(), cwd = linksPr
   const sids = Array.isArray(card.sessionIds) ? card.sessionIds : [];
   sids.forEach((_sid, i) => push(`session:${i}`));
   for (let n = 1; n <= (card.iterations ?? 0); n++) push(`log:${n}`);
+  // Card-owned uploads: the successor can pull the human-attached context too.
+  const attDir = path.join(root, "cards", card.id, "attachments");
+  if (existsSync(attDir)) {
+    let names = [];
+    try {
+      names = readdirSync(attDir, { withFileTypes: true })
+        .filter((d) => d.isFile() && isSafeEvidenceName(d.name))
+        .map((d) => d.name)
+        .sort();
+    } catch {
+      names = [];
+    }
+    for (const name of names) push(`attachment:${name}`);
+  }
   return out;
 }
 

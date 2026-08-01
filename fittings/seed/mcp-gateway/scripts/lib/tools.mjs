@@ -181,6 +181,151 @@ export async function callPollOriginEvents(input) {
   };
 }
 
+// ── Card scheduling tools (Omi reminder round-trip) ─────────────────────────
+// The board's reminders tell the user exactly "run card <REF>" / "snooze card
+// <REF> for 2 hours"; these tools make those phrases executable from ANY
+// session. A spoken ref resolves via the board's GET /cards/resolve (full
+// ULID, ULID suffix >= 3 chars - the notification short ref is the last 4 -
+// or a title fragment). Ambiguity is an ANSWER, never a guess: the 409
+// candidate list comes back as text so the model can ask the user.
+
+function shortCardRef(id) {
+  return String(id || "").slice(-4).toUpperCase();
+}
+
+// GET <board>/cards/resolve?ref=... -> { card } | { ambiguous, candidates, result }.
+// The ambiguous shape is a tool RESULT (not a thrown error) so the model relays
+// the candidates instead of retrying blind.
+async function resolveCardRef(base, ref, toolName) {
+  if (typeof ref !== "string" || !ref.trim()) {
+    throw new Error(`${toolName} requires card (a card id, id suffix, or title fragment)`);
+  }
+  const res = await fetch(`${base}/cards/resolve?ref=${encodeURIComponent(ref.trim())}`);
+  if (res.status === 409) {
+    const doc = await res.json().catch(() => ({}));
+    const candidates = Array.isArray(doc.candidates) ? doc.candidates : [];
+    const lines = candidates.map((c) => `  ${shortCardRef(c.id)} = ${c.id} [${c.list}] ${c.title ?? "(untitled)"}`);
+    return {
+      ambiguous: true,
+      candidates,
+      result: `"${ref.trim()}" is ambiguous - ask the user which card they meant:\n${lines.join("\n")}`
+    };
+  }
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`${toolName} resolve ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  if (!doc?.card?.id) throw new Error(`${toolName} resolve: board returned no card`);
+  return { card: doc.card };
+}
+
+// schedule_card - set, move, or clear a card's schedule. clear=true PATCHes
+// scheduledFor null (with the resolved card's rev); otherwise POST /snooze with
+// exactly one of until (ISO) / in_minutes (relative). The board re-arms the
+// reminder itself (scheduleNotifiedAt resets on snooze).
+export async function callScheduleCard(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const resolved = await resolveCardRef(base, input?.card, "schedule_card");
+  if (resolved.ambiguous) return resolved;
+  const card = resolved.card;
+  const label = `"${card.title ?? "(untitled)"}" (${card.id})`;
+
+  if (input?.clear === true) {
+    const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scheduledFor: null, rev: card.rev ?? 0 })
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`schedule_card clear ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const was = card.scheduledFor ? ` (was ${card.scheduledFor})` : " (it had no schedule)";
+    return { card_id: card.id, cleared: true, result: `Cleared the schedule on ${label}${was}` };
+  }
+
+  const hasUntil = typeof input?.until === "string" && input.until.trim() !== "";
+  const hasMinutes = input?.in_minutes != null;
+  if (hasUntil === hasMinutes) {
+    throw new Error("schedule_card requires exactly one of until (ISO date-time) or in_minutes (positive number) - or clear=true");
+  }
+  const payload = hasUntil ? { until: input.until.trim() } : { minutes: Number(input.in_minutes) };
+  if (input?.action != null) payload.action = input.action;
+  const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}/snooze`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`schedule_card snooze ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  const scheduledFor = doc.card?.scheduledFor ?? null;
+  const action = doc.card?.scheduleAction ?? "notify";
+  return {
+    card_id: card.id,
+    scheduled_for: scheduledFor,
+    action,
+    result: `Scheduled ${label} for ${scheduledFor} (${action === "run" ? "auto-run" : "notify"})`
+  };
+}
+
+// run_card - start/advance a card NOW. POST /cards/:id/start clears any
+// schedule itself (the start IS the run-it-now override), then either advances
+// a manual-list card to its next list or dispatches an agent-list card.
+export async function callRunCard(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const resolved = await resolveCardRef(base, input?.card, "run_card");
+  if (resolved.ambiguous) return resolved;
+  const card = resolved.card;
+  const label = `"${card.title ?? "(untitled)"}" (${card.id})`;
+  const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}/start`, { method: "POST" });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`run_card start ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  const after = doc.card ?? {};
+  let what;
+  if (doc.advanced) what = `advanced to ${doc.advanced}`;
+  else if (doc.dispatched) what = doc.batched ? "dispatched (batched with its project group)" : "dispatched to the engine (running)";
+  else what = `started (now on ${after.list ?? card.list})`;
+  const clearedNote = card.scheduledFor ? " - its schedule was cleared" : "";
+  return {
+    card_id: card.id,
+    list: after.list ?? card.list,
+    advanced: doc.advanced ?? null,
+    dispatched: doc.dispatched ?? false,
+    result: `Started ${label}: ${what}${clearedNote}`
+  };
+}
+
+// list_scheduled_cards - GET /cards filtered to scheduledFor != null, rendered
+// as a compact text table (short ref = last 4 of the ULID, the same ref the
+// reminder speaks).
+export async function callListScheduledCards() {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const res = await fetch(`${base}/cards`);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`list_scheduled_cards ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  const cards = (Array.isArray(doc.cards) ? doc.cards : []).filter((c) => c?.scheduledFor != null);
+  if (!cards.length) return { count: 0, result: "no scheduled cards" };
+  cards.sort((a, b) => String(a.scheduledFor).localeCompare(String(b.scheduledFor)));
+  const rows = cards.map((c) => {
+    const notified = c.scheduleNotifiedAt ? " (reminder sent)" : "";
+    return `${shortCardRef(c.id)}  ${c.title ?? "(untitled)"}  ${c.scheduledFor}  ${c.scheduleAction ?? "notify"}${notified}  [${c.list}]`;
+  });
+  return { count: cards.length, result: `ref  title  scheduledFor  action  list\n${rows.join("\n")}` };
+}
+
 function resolveScript(fittingId, scriptName) {
   return path.join(COMPOSITION_DIR, "apm_modules", "_local", fittingId, "scripts", scriptName);
 }

@@ -106,6 +106,63 @@ export class BoardClient {
     return res.ok ? { ok: true, mode: "steered" } : { ok: false, mode: `steer-http-${res.status}` };
   }
 
+  // Resolve a spoken/short reference to a card. The board owns the matching
+  // (full ULID, ULID suffix of >= 3 chars, or a title fragment); this client
+  // only maps the three documented outcomes: 200 one card, 404 none, 409
+  // several candidates. Ambiguity is surfaced to the caller, never guessed at.
+  async resolveCard(ref) {
+    const base = this.base();
+    if (!base) return { status: 0, error: "board unavailable" };
+    const res = await this.fetchImpl(`${base}/cards/resolve?ref=${encodeURIComponent(ref)}`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 200) return { status: 200, card: data?.card ?? data ?? null };
+    if (res.status === 409) {
+      return {
+        status: 409,
+        error: data?.error ?? "ambiguous reference",
+        candidates: Array.isArray(data?.candidates) ? data.candidates : []
+      };
+    }
+    return { status: res.status, error: data?.error ?? `HTTP ${res.status}` };
+  }
+
+  // Start (or advance) a card - the spoken "run card <REF>".
+  async startCard(cardId) {
+    const base = this.base();
+    if (!base || !cardId) throw new Error("board unavailable");
+    const res = await this.fetchImpl(`${base}/cards/${encodeURIComponent(cardId)}/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!res.ok) throw new Error(`card start failed: HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    return data?.card ?? data ?? null;
+  }
+
+  // Push a card's due time out - the spoken "snooze card <REF> ...". Exactly
+  // one of minutes/until is expected by the caller; the optional action rides
+  // along untouched.
+  async snoozeCard(cardId, { minutes = null, until = null, action = null } = {}) {
+    const base = this.base();
+    if (!base || !cardId) throw new Error("board unavailable");
+    const body = {};
+    if (minutes != null) body.minutes = minutes;
+    if (until != null) body.until = until;
+    if (action != null) body.action = action;
+    const res = await this.fetchImpl(`${base}/cards/${encodeURIComponent(cardId)}/snooze`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!res.ok) throw new Error(`card snooze failed: HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    return data?.card ?? data ?? null;
+  }
+
   // Deep link for a card, tailnet-paired by the caller (lib/notify.mjs
   // boardCardUrl does the rehost); this raw form is loopback.
   async cardUrl(cardId) {

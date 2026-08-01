@@ -14,7 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims } from "../lib/engine.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
@@ -272,7 +272,7 @@ function schedulerCli() {
 // Register a scheduler beat for EVERY scheduler-beat list, each on its own `beatCron`
 // (the Test list seeds one; the user can add/edit a beat per list in the list config).
 // Delegates to the shared lib so --setup and PATCH /lists register beats identically.
-async function registerSchedulerBeats() {
+export async function registerSchedulerBeats() {
   const board = await loadBoard().catch(() => seedBoard());
   await syncAllBeats(board);
 }
@@ -567,6 +567,10 @@ async function tick() {
   // are seen on their new list this same tick.
   const cards0 = await loadAllCards(root);
   await reevaluateWaiting({ root, board, cards: cards0 }).catch(() => {});
+  // Card scheduling: fire due reminders / auto-starts BEFORE the dispatch scan,
+  // then reload so a schedule-released card dispatches on this same tick.
+  const due = await sweepDueSchedules(root, board).catch(() => []);
+  for (const d of due) console.log(`kanban-loop: scheduled card ${d.id} came due → ${d.action}`);
   const cards = await loadAllCards(root);
   const coordCfg = coordinationConfig(loadPolicy());
   const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;

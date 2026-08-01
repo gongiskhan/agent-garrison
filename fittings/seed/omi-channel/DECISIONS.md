@@ -88,3 +88,25 @@ One line per deviation, with the reason. Details in
   quiet moment truncated commands mid-sentence, because Omi's transcript
   arrives in bursts with real gaps inside one utterance. Costs ~15s of
   latency per spoken command on top of the orchestrator turn.
+- **Spoken card commands + spoken scheduling (2026-08-01).** The wake
+  classifier gains a `card_command` intent ("run card 7Q2M", "snooze card
+  7Q2M for two hours") and `create_task` gains an optional
+  `scheduled_for`/`schedule_action` pair - both ride the SAME single
+  classify-and-handle call (I3 intact, no second inference). The prompt
+  previously carried no clock, so it now states the current local time,
+  weekday and timezone; the model resolves relative times against it and
+  answers absolute ISO. All model-emitted times and numbers are validated
+  fitting-side: a bad `scheduled_for` DROPS the schedule and says so in the
+  confirmation rather than failing the card; a bad snooze time refuses to
+  act rather than snoozing to a default. Card resolution goes through the
+  board's `GET /cards/resolve`; a 409 is read back as up to 3 candidates
+  with their 4-char refs and never guessed among. Card-command failures
+  answer with an honest notification, NOT the note fallback - a saved note
+  cannot start or snooze a card, so pretending it helped would be dishonest.
+  A reminder spoken WITH a time is now `create_task` + `scheduled_for`, no
+  longer `create_event` (events stay meetings/appointments); the board owns
+  the notify/run follow-through. Not done here: the shared test shim
+  `tests/omi-channel-mjs.d.ts` was outside this change's allowed scope, so
+  the new wake exports (`shortRef`, `humanTime`, extended parse fields) are
+  bridged with casts in `tests/omi-wake-card-commands.test.ts` - extending
+  the shim is a small follow-up.

@@ -118,7 +118,7 @@ export function notifyOriginTransition(prev, next) {
 // only for now). Failure isolation identical to notifyOriginTransition: fire-and-
 // forget, never throws, never blocks a save.
 
-export const ORIGIN_EVENT_KINDS = ["created", "needs-input", "blocked", "failed", "finished", "duty-summary", "steering"];
+export const ORIGIN_EVENT_KINDS = ["created", "needs-input", "blocked", "failed", "finished", "duty-summary", "steering", "schedule-due"];
 
 function titleCaseWord(s) {
   const w = String(s || "").trim();
@@ -311,6 +311,72 @@ export function routeTerminalTransition(root, prev, next) {
     routeOriginEvent(root, prev, next, { kind, message: outcomeMessage(next) });
   } catch {
     /* never let the router break a save */
+  }
+}
+
+// ─────────────────────────── Card scheduling reminders
+//
+// Omi notifications are PLAIN TEXT (two query params, no buttons - verified
+// against the integration OpenAPI). So the "snooze / run" actions are a text
+// protocol: the reminder carries the exact phrases the wearer can say aloud
+// (wake word) or type to the ask_gary chat, plus the card deep link. The
+// operative holds the matching tools (run_card / schedule_card), so the
+// phrases are executable, not aspirational.
+
+// A speakable handle for a card: the last 4 chars of its ULID. Resolved back
+// by the board's /cards/resolve endpoint (unique-suffix match, fail-ambiguous).
+export function cardShortRef(cardId) {
+  return String(cardId || "").slice(-4).toUpperCase();
+}
+
+export function scheduleReminderMessage(card, { started = false } = {}) {
+  const title = (card.title || "(untitled)").trim();
+  const ref = cardShortRef(card.id);
+  const url = boardCardUrl(card.id);
+  const lines = [];
+  if (started) {
+    lines.push(`Scheduled card started - "${title}" (card ${ref}).`);
+  } else {
+    lines.push(`Scheduled: "${title}" is due (card ${ref}).`);
+    if (card.project) lines.push(`Project: ${card.project}`);
+    lines.push(`Tell Gary: "run card ${ref}" to start it, or "snooze card ${ref} for 2 hours" - say it aloud (wake word) or type it in this chat.`);
+  }
+  if (url) lines.push(`Card: ${url}`);
+  return lines.join("\n\n");
+}
+
+// The board-created-card fallback thread on the omi channel: schedule
+// reminders for cards with NO originating thread still reach the wearer via
+// the omi fitting's relay (which pushes an Omi notification and degrades to
+// the web channel by itself). With the omi fitting absent, fall back to the
+// web board-notice thread so the reminder is never silently dropped.
+const OMI_REMINDER_THREAD = "omi-reports";
+
+export function deliverScheduleReminder(root, card, { started = false } = {}) {
+  try {
+    const text = scheduleReminderMessage(card, { started });
+    if (card.originChannel?.channel && card.originChannel?.threadId) {
+      routeOriginEvent(root, null, card, {
+        kind: "schedule-due",
+        message: text,
+        detail: { scheduledFor: card.scheduledFor ?? null, started }
+      });
+      return;
+    }
+    // No originating thread (board-created card): record the event, then push
+    // through omi when its fitting is up, else the web board-notice thread.
+    routeOriginEvent(root, null, card, {
+      kind: "schedule-due",
+      message: null,
+      detail: { scheduledFor: card.scheduledFor ?? null, started }
+    });
+    if (statusFileUrl(CHANNEL_FITTINGS.omi)) {
+      deliverChannelMessage("omi", OMI_REMINDER_THREAD, text);
+    } else {
+      void deliverBoardNotice("Scheduled cards", text);
+    }
+  } catch {
+    /* reminders are best-effort - never break the tick */
   }
 }
 
