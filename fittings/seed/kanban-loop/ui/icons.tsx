@@ -79,6 +79,20 @@ export function DrillIcon(): JSX.Element {
 export function MailIcon(): JSX.Element {
   return <svg {...base}><rect x="3" y="5" width="18" height="14" rx="2" /><polyline points="3 7 12 13 21 7" /></svg>;
 }
+// A check mark — "Mark done": a one-click way to send a human-held card to Done
+// without dragging it through the pipeline.
+export function CheckIcon(): JSX.Element {
+  return <svg {...base}><polyline points="4 12 9 17 20 6" /></svg>;
+}
+// An archive box — move a finished/parked card into the Archived column to get it
+// out of the way.
+export function ArchiveIcon(): JSX.Element {
+  return <svg {...base}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><line x1="10" y1="12" x2="14" y2="12" /></svg>;
+}
+// An archive box with an up-arrow — restore an archived card back to the board.
+export function UnarchiveIcon(): JSX.Element {
+  return <svg {...base}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><polyline points="9 14 12 11 15 14" /><line x1="12" y1="11" x2="12" y2="17" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

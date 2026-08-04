@@ -29,7 +29,11 @@ import { isDeepStrictEqual } from "node:util";
 // The four fixed human columns (D15). Discuss is NOT a fixed human column — it
 // only exists as a phase list when the composition declares a discuss duty.
 export const HUMAN_HEAD = ["backlog", "todo"];
-export const HUMAN_TAIL = ["done", "needs-attention"];
+// `archived` is a fixed human tail column (added 2026-08-04): a terminal parking
+// place for finished/abandoned cards so the Done column stays legible. It is
+// terminal (like Done) so it never counts a card as live, and carries no forward
+// edges — a card leaves it only by an explicit human Move/Unarchive.
+export const HUMAN_TAIL = ["done", "needs-attention", "archived"];
 
 // The phases whose FAIL edge loops a card back to implement (they can send work
 // backwards). This is phase SEMANTICS — which phases are gates — not a pipeline
@@ -413,8 +417,11 @@ export function buildBoard(model, opts = {}) {
     // (a re-run entry point) when the pipeline has one.
     validNext: [...new Set(hasImplement ? ["todo", first, "implement"] : ["todo", first])]
   });
+  // The Archived tail: a terminal parking column. No forward edges — a card leaves
+  // it only by an explicit human Move/Unarchive back onto the board.
+  push({ id: "archived", title: "Archived", kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] });
 
-  return { version: 3, lists, projects: {} };
+  return { version: 4, lists, projects: {} };
 }
 
 // Reconcile an EXISTING board's phase-list SET to the current resolved model

@@ -77,7 +77,7 @@ export { migrateBoard } from "../lib/board.mjs";
 
 export function seedBoard() {
   return {
-    version: 3,
+    version: 4,
     lists: [
       {
         id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual",
@@ -185,7 +185,10 @@ export function seedBoard() {
         // touchpoint on the autonomous side (D16): edit, resolve, re-enter the pipeline.
         notifyOnEntry: true,
         validNext: ["todo", "plan", "implement"]
-      }
+      },
+      // A terminal parking column for finished/abandoned cards, so the Done column
+      // stays legible. No forward edges — a card leaves it only by a human Move/Unarchive.
+      { id: "archived", title: "Archived", order: 13, kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] }
     ],
     projects: {}
   };

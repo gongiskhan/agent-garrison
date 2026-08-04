@@ -31,26 +31,43 @@ async function readJSON(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
-// One-shot board migration (D15): v2 boards carried per-list skill/taskType/
-// tier/mode pins — the dead config GARRISON-UNIFY-V1 deletes. Strip them,
-// stamp each agent list's phase (its id), bump to v3. Idempotent; unknown
-// fields survive.
+// The current on-disk board schema version. Bumped whenever a migration below
+// must run once on load for EVERY existing board (not just model-driven ones).
+export const BOARD_VERSION = 4;
+
+// One-shot board migration. Idempotent; unknown fields survive.
+//   v2→v3 (D15): strip dead per-list skill/taskType/tier/mode pins and stamp each
+//     agent list's phase (its id).
+//   v3→v4 (2026-08-04): ensure the fixed `archived` tail column exists. This runs
+//     for boards that predate the resolved-model reconcile too (a composition with
+//     no model.json is otherwise never rebuilt), so every live board picks up the
+//     Archived column on the next load regardless of how it was seeded.
 export function migrateBoard(board) {
   if (!board || typeof board !== "object") return board;
-  if ((board.version || 0) >= 3) return board;
-  const lists = (board.lists || []).map((l) => {
-    const { skill, taskType, tier, mode, ...rest } = l;
-    if (rest.kind === "agent" && !rest.phase) rest.phase = rest.id;
-    return rest;
-  });
-  return { ...board, version: 3, lists };
+  if ((board.version || 0) >= BOARD_VERSION) return board;
+  let lists = board.lists || [];
+  if ((board.version || 0) < 3) {
+    lists = lists.map((l) => {
+      const { skill, taskType, tier, mode, ...rest } = l;
+      if (rest.kind === "agent" && !rest.phase) rest.phase = rest.id;
+      return rest;
+    });
+  }
+  if (!lists.some((l) => l.id === "archived")) {
+    const maxOrder = lists.reduce((m, l) => Math.max(m, Number.isFinite(l.order) ? l.order : 0), 0);
+    lists = [
+      ...lists,
+      { id: "archived", title: "Archived", order: maxOrder + 1, kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] }
+    ];
+  }
+  return { ...board, version: BOARD_VERSION, lists };
 }
 
 export async function loadBoard(root = kanbanRoot()) {
   const board = await readJSON(path.join(root, "board.json"));
-  // v2→v3 migration on read, persisted back so it runs once; a fresh board is
-  // already v3.
-  if (board && (board.version || 0) < 3) {
+  // Migration on read, persisted back so it runs once; a fresh board is already at
+  // BOARD_VERSION.
+  if (board && (board.version || 0) < BOARD_VERSION) {
     const migrated = migrateBoard(board);
     await saveBoard(migrated, root);
     return migrated;

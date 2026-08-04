@@ -181,6 +181,10 @@ body {
   background: var(--ink);
 }
 .btn.small.primary:hover:not(:disabled) { background: var(--ink-2); }
+/* "Mark done": a sage-tinted affirmative, distinct from the neutral small buttons
+   without shouting like .primary. */
+.btn.small.ok { border-color: rgba(61,98,73,0.45); color: var(--sage); background: var(--sage-soft); }
+.btn.small.ok:hover:not(:disabled) { border-color: var(--sage); background: var(--sage-soft); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn svg { width: 13px; height: 13px; flex: 0 0 auto; }
 
@@ -219,6 +223,10 @@ body {
 .list.manual { border-left-color: var(--rule-2); }
 .list.interactive { border-left-color: var(--sage); border-left-style: dashed; }
 .list.attn { border-left-color: var(--alarm); }
+/* Archived: a quiet parking column — de-emphasised so it recedes at the board's
+   right edge without hiding what it holds. */
+.list.archived { border-left-color: var(--rule-2); opacity: 0.72; }
+.list.archived:hover, .list.archived:focus-within { opacity: 1; }
 
 .list .lh {
   padding: 11px 12px 9px;

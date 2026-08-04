@@ -64,6 +64,9 @@ import {
   DrillIcon,
   MailIcon,
   ClockIcon,
+  CheckIcon,
+  ArchiveIcon,
+  UnarchiveIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
@@ -169,6 +172,7 @@ function stripAttachmentBlock(description: string): string {
 }
 
 function listClass(list: ListView): string {
+  if (list.id === "archived") return "list manual archived";
   if (list.id === "needs-attention") return "list attn";
   if (list.interactive) return "list interactive";
   if (list.phase && list.phase.includes("adversarial")) return "list codex";
@@ -472,6 +476,7 @@ function Card({
   list,
   onStart,
   onMove,
+  onQuickMove,
   onWatch,
   onTerminal,
   onOpen,
@@ -487,6 +492,9 @@ function Card({
   list: ListView;
   onStart: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
+  // Direct one-click move to a named list (Mark done → done, Archive → archived,
+  // Unarchive → todo). Distinct from onMove, which asks when there is a choice.
+  onQuickMove: (c: CardSummary, listId: string) => void;
   onWatch: (c: CardSummary) => void;
   onTerminal: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
@@ -508,6 +516,16 @@ function Card({
   // (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
   const canAdvance = list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0;
   const startLabel = "Advance";
+  // Archived is a terminal parking column: cards land there via Archive and leave
+  // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
+  const archived = list.id === "archived";
+  // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
+  // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
+  // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
+  const canMarkDone = !engineOwned && !list.terminal;
+  // "Archive": get a finished (Done) or given-up (needs-attention) card out of the
+  // way. Both are manual columns, so this never hits an engine-owned card.
+  const canArchive = list.id === "done" || list.id === "needs-attention";
   // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
   // inline reason, so a failed dispatch shows on the CARD.
   const dispatchErr = card.lastDispatchError;
@@ -672,6 +690,13 @@ function Card({
       )}
 
       <div className="btns">
+        {/* Mark done: skip the pipeline and call a human-held card finished in one
+            click — the "just a button on the card" path. */}
+        {canMarkDone && (
+          <button className="btn small ok" disabled={busy} title="mark this card done" onClick={() => onQuickMove(card, "done")}>
+            <CheckIcon /> Done
+          </button>
+        )}
         {canAdvance && (
           <button className="btn primary small" disabled={busy} onClick={() => onStart(card)}>
             <PlayIcon /> {startLabel}
@@ -722,22 +747,35 @@ function Card({
             same context (runDir + prior logs preserved). The "it reached the end but
             forgot part of the feature — send it back to fix it" path. Shown once a card
             has stopped: on Done (terminal) or parked in needs-attention. */}
-        {(list.terminal || parked) && (
+        {((list.terminal && !archived) || parked) && (
           <button className="btn small" disabled={busy} title="write feedback and send this card back through the pipeline with the same context" onClick={() => onFeedback(card)}>
             <MailIcon /> Feedback
           </button>
         )}
         {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
             seeded from this card's handoff packet. */}
-        {list.terminal && (
+        {list.terminal && !archived && (
           <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => onContinue(card)}>
             <PlayIcon /> Continue
+          </button>
+        )}
+        {/* Archive: park a finished (Done) or given-up (needs-attention) card in the
+            Archived column so the board stays legible. */}
+        {canArchive && (
+          <button className="btn small" disabled={busy} title="move this card to the Archived column" onClick={() => onQuickMove(card, "archived")}>
+            <ArchiveIcon /> Archive
+          </button>
+        )}
+        {/* Unarchive: bring an archived card back onto the board (To Do). */}
+        {archived && (
+          <button className="btn small" disabled={busy} title="move this card back to To Do" onClick={() => onQuickMove(card, "todo")}>
+            <UnarchiveIcon /> Unarchive
           </button>
         )}
         {/* Send to Drill: plan the checks for THIS card's change, run them, and
             notify when the verdict lands. Only on done (there is no landed change
             to test before that) and only with a project (nothing to test in). */}
-        {list.terminal && card.project && (
+        {list.terminal && !archived && card.project && (
           <button
             className="btn small"
             disabled={busy || card.drill?.state === "planning" || card.drill?.state === "running"}
@@ -3179,6 +3217,25 @@ function App() {
     }
   }
 
+  // One-click move to a named list (Mark done → done, Archive → archived,
+  // Unarchive → todo). A manual move: the server clears any parked status and
+  // records the move on the card's timeline; CAS on the card's rev keeps it from
+  // stepping on a concurrent tick.
+  async function onQuickMove(card: CardSummary, listId: string) {
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      await api.patch(card.id, { list: listId, rev: card.rev });
+      await load();
+      const title = board?.lists.find((l) => l.id === listId)?.title ?? listId;
+      setNotice(`Moved to ${title}`);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
   // WS2 (D7): continue a DONE card's work in one click — create a successor card
   // (continues=<id>, its prompt seeded from the predecessor's handoff packet) and
   // move it to plan so the run dispatches. A fresh backlog card is not engine-owned,
@@ -3548,6 +3605,7 @@ function App() {
                                 setOverlay({ kind: "move", card: c });
                               }
                             }}
+                            onQuickMove={onQuickMove}
                             onWatch={(c) => setOverlay({ kind: "watch", card: c })}
                             onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
                             onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
