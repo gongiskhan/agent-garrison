@@ -188,7 +188,7 @@ export class AgentSdkAdapter {
   }
 
   // `hooks` is OPTIONAL liveness plumbing (2026-07-25 web-channel run-context §12):
-  //   onText(accumulatedText)  - per assistant text block
+  //   onText(accumulatedText)  - per assistant envelope that contains text
   //   onTool({name, id})       - per tool_use block
   //   onThinking(text)         - per extended-thinking block (the DELTA, not the
   //                              accumulation: thinking is long and a channel
@@ -246,6 +246,8 @@ export class AgentSdkAdapter {
     // run-context decision calls out) meant Stop had nothing to act on.
     session.client = client;
     let textOut = "";
+    let lastTextEnvelope = "";
+    let resultText = "";
     const toolUses = [];
     let stoppedReason = null;
     let sessionId = session.sessionId;
@@ -279,19 +281,38 @@ export class AgentSdkAdapter {
             }
           }
         } else if (type === "assistant") {
-          for (const block of msg.message?.content ?? []) {
-            if (block.type === "text") {
-              textOut += block.text;
-              // Liveness: hand the caller the reply accumulated SO FAR (not the
-              // delta) so a channel can repaint one growing bubble. A throwing
-              // consumer must never kill the turn.
-              if (onText) {
-                try {
-                  onText(textOut);
-                } catch {
-                  /* streaming consumer error must not kill the turn */
-                }
+          const content = msg.message?.content ?? [];
+          // One SDK `assistant` envelope is one presentable interim message. Text
+          // blocks INSIDE that envelope are fragments of the same message and stay
+          // adjacent; a later assistant envelope arrives after a reasoning/tool
+          // beat and needs a paragraph boundary. Without this distinction the
+          // final reply became `I'll inspect…Now I'll test…Done` while the web
+          // channel correctly kept repainting one growing bubble.
+          const envelopeText = content
+            .filter((block) => block?.type === "text" && typeof block.text === "string")
+            .map((block) => block.text)
+            .join("");
+          if (envelopeText) {
+            lastTextEnvelope = envelopeText;
+            if (textOut && !textOut.endsWith("\n") && !envelopeText.startsWith("\n")) {
+              textOut = `${textOut.replace(/[ \t]+$/, "")}\n\n${envelopeText.replace(/^[ \t]+/, "")}`;
+            } else {
+              textOut += envelopeText;
+            }
+            // Liveness: hand the caller the reply accumulated SO FAR (not the
+            // delta) so a channel can repaint one growing bubble. A throwing
+            // consumer must never kill the turn.
+            if (onText) {
+              try {
+                onText(textOut);
+              } catch {
+                /* streaming consumer error must not kill the turn */
               }
+            }
+          }
+          for (const block of content) {
+            if (block.type === "text") {
+              continue;
             } else if (block.type === "thinking" || block.type === "redacted_thinking") {
               // Extended thinking. Redacted blocks carry no readable text, so
               // they surface as a bare "thinking" beat rather than nothing - the
@@ -322,7 +343,13 @@ export class AgentSdkAdapter {
           else if (typeof msg.subtype === "string" && msg.subtype.startsWith("error")) {
             stoppedReason = stoppedReason ?? msg.subtype;
           }
-          if (!textOut && typeof msg.result === "string") textOut = msg.result;
+          // `result.result` is the SDK's canonical final answer. Keep it separate
+          // from textOut: that accumulator intentionally contains every interim
+          // assistant envelope for the live growing bubble, while persistence and
+          // the settled chat must show only the final response. Older SDK/error
+          // shapes can omit result, in which case the last textual assistant
+          // envelope is the best final answer (or partial answer after Stop).
+          if (typeof msg.result === "string" && msg.result.trim()) resultText = msg.result;
           const resultSessionId = validatedSessionId(msg.session_id);
           if (resultSessionId) sessionId = resultSessionId;
         }
@@ -361,7 +388,13 @@ export class AgentSdkAdapter {
     if (!session.cancelRequested) await this._maybeRebuild(session);
     // Cumulative token usage across this session's turns (additive telemetry, S1a),
     // read AFTER any rebuild - a freshly rebuilt session reports 0.
-    return { text: textOut, artifacts: [], toolUses, stoppedReason, usedTokens: session.usedTokens };
+    return {
+      text: resultText || lastTextEnvelope || textOut,
+      artifacts: [],
+      toolUses,
+      stoppedReason,
+      usedTokens: session.usedTokens
+    };
   }
 
   // S1b summarize-and-rebuild: when cumulative usage crosses the configured

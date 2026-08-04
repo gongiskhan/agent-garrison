@@ -1179,6 +1179,36 @@ body {
 /* Loading placeholder on the stone-50 chat pane (was #7d8077 at 3.5:1). */
 .wc-loading { color: var(--wc-olive-700); }
 
+/* Push permission notices are informational once the browser has denied or
+   withheld the API. Keep a separate close target so dismissal never retries or
+   mutates browser permission state. */
+.wc-push-notice,
+.wc-push-toast {
+  position: fixed; left: 12px; z-index: 41; display: flex; align-items: center; gap: 10px;
+  padding: 8px 9px 8px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
+  background: rgba(20,24,28,.94); color: #d7dde3; font: 500 12px/1.25 system-ui, sans-serif;
+  box-shadow: 0 8px 26px rgba(0,0,0,.22);
+}
+.wc-push-notice { bottom: 12px; }
+.wc-push-toast { right: 12px; bottom: 56px; border-radius: 10px; font-size: 13px; }
+.wc-push-notice > span,
+.wc-push-toast > span { min-width: 0; }
+.wc-push-notice > button,
+.wc-push-toast > button {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; font: 18px/1 system-ui, sans-serif; cursor: pointer;
+}
+.wc-push-notice > button:hover,
+.wc-push-notice > button:focus-visible,
+.wc-push-toast > button:hover,
+.wc-push-toast > button:focus-visible { background: rgba(255,255,255,.12); outline: none; }
+@media (pointer: coarse) {
+  .wc-push-notice > button,
+  .wc-push-toast > button {
+    width: 44px; height: 44px; margin: -10px -6px -10px 0;
+  }
+}
+
 /* ── Scrollbars — near-invisible, still scrollable ────────────────────────
    Dark ink thumb by default (the app's scrollable panes are warm stone); the
    light variant is re-declared on the olive sidebar and the ink code cards. */

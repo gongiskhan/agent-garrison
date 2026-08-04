@@ -74,7 +74,12 @@ import { TerminalPane } from "./terminal-pane";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
 import { deriveMoveTargets, isManualImportTarget } from "./move-targets";
-import { shouldOpenCard } from "./card-click";
+import {
+  canAddCardDirectly,
+  cardTitleEditAction,
+  shouldCommitCardTitleOnBlur,
+  shouldOpenCard
+} from "./card-click";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
 // the card as an OPAQUE context blob; James (the operative) reads it.
@@ -486,6 +491,7 @@ function Card({
   onWatch,
   onTerminal,
   onOpen,
+  onRenamed,
   onInfer,
   onDiscuss,
   onRevert,
@@ -505,6 +511,7 @@ function Card({
   onWatch: (c: CardSummary) => void;
   onTerminal: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
+  onRenamed: () => Promise<void>;
   onInfer: (c: CardSummary) => void;
   onDiscuss: (c: CardSummary) => void;
   onRevert: (c: CardSummary) => void;
@@ -516,11 +523,58 @@ function Card({
   dragJustEnded: MutableRefObject<boolean>;
   busy: boolean;
 }) {
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const titleEditRevision = useRef<number | null>(null);
+  const titleEditJustEnded = useRef(false);
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
   // manual Move/edit on it (the API rejects them too). needs-attention is the one
   // human touchpoint on the autonomous side; interactive + manual lists stay
   // fully editable.
   const engineOwned = list.kind === "agent" && !list.interactive;
+
+  function markTitleEditEnded() {
+    titleEditJustEnded.current = true;
+    setTimeout(() => { titleEditJustEnded.current = false; }, 0);
+  }
+
+  function cancelTitleEdit() {
+    if (savingTitle) return;
+    markTitleEditEnded();
+    titleEditRevision.current = null;
+    setTitleDraft(null);
+    setTitleError(null);
+  }
+
+  async function saveCardTitle() {
+    if (savingTitle || titleDraft === null || engineOwned) return;
+    const title = titleDraft.trim();
+    if (!title) {
+      setTitleError("Give the card a title.");
+      return;
+    }
+    if (title === card.title) {
+      cancelTitleEdit();
+      return;
+    }
+    setSavingTitle(true);
+    setTitleError(null);
+    try {
+      // Polling can refresh `card.rev` while the editor stays open. The revision
+      // captured when editing began is the CAS token; using the newer prop here
+      // would let a stale draft overwrite an intervening rename.
+      await api.patch(card.id, { title, rev: titleEditRevision.current ?? card.rev });
+      await onRenamed();
+      markTitleEditEnded();
+      titleEditRevision.current = null;
+      setTitleDraft(null);
+    } catch (e) {
+      setTitleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingTitle(false);
+    }
+  }
   // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a card
   // ENTERS the automated flow (To Do → Plan) or is re-sent after parking. Discuss
   // (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
@@ -562,14 +616,98 @@ function Card({
       // a drag synthesises. Placed on the card ROOT — not the sortable wrapper — so
       // the Done-column quick-strip cards (rendered without the wrapper) open too.
       onClick={(e) => {
+        if (titleDraft !== null || titleEditJustEnded.current) return;
         if (shouldOpenCard(e.target as EventTarget, dragJustEnded.current)) onOpen(card);
       }}
     >
       <div className="ct">
         <span className={dotClass(card)} aria-hidden />
-        <button className="title card-title-open" onClick={() => onOpen(card)}>{card.title}</button>
-        {fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
+        {titleDraft === null ? (
+          <button
+            className="title card-title-edit"
+            data-title-locked={engineOwned || busy ? "true" : undefined}
+            title={engineOwned ? "Open card details (the title is locked while this autonomous phase runs)" : busy ? "Open card details" : "Edit card title"}
+            aria-label={engineOwned || busy ? `Open card details: ${card.title}` : `Edit card title: ${card.title}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            // The button's native Enter/Space activation should open the
+            // editor/details, not also reach the sortable wrapper's keyboard
+            // sensor and initiate a drag.
+            onKeyDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (engineOwned || busy) {
+                onOpen(card);
+                return;
+              }
+              setTitleError(null);
+              titleEditRevision.current = card.rev;
+              setTitleDraft(card.title);
+            }}
+          >
+            {card.title}
+          </button>
+        ) : (
+          <div
+            className="card-title-editor"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            // The whole card is dnd-kit's keyboard activator. Keep ordinary
+            // editing keys (especially Space) and button activation inside the
+            // editor instead of bubbling into SortableCardWrap and starting a
+            // keyboard drag. Do not preventDefault: inputs/buttons retain their
+            // native editing and activation behavior.
+            onKeyDown={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const staysInside = e.relatedTarget != null && e.currentTarget.contains(e.relatedTarget as Node);
+              if (shouldCommitCardTitleOnBlur(staysInside) && !titleEditJustEnded.current) {
+                void saveCardTitle();
+              }
+            }}
+          >
+            <input
+              className="card-title-input"
+              aria-label={`Edit title for ${card.title}`}
+              aria-invalid={Boolean(titleError)}
+              value={titleDraft}
+              autoFocus
+              disabled={savingTitle}
+              onChange={(e) => {
+                setTitleDraft(e.target.value);
+                if (titleError) setTitleError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                const action = cardTitleEditAction(e.key);
+                if (!action) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (action === "save") void saveCardTitle();
+                else cancelTitleEdit();
+              }}
+            />
+            <button
+              type="button"
+              className="card-title-action save"
+              aria-label="Save card title"
+              disabled={savingTitle || !titleDraft.trim()}
+              onClick={() => void saveCardTitle()}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className="card-title-action"
+              aria-label="Cancel title editing"
+              disabled={savingTitle}
+              onClick={cancelTitleEdit}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+        {titleDraft === null && fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
       </div>
+      {titleError && <div className="card-title-error" role="alert">{titleError}</div>}
       <div className="cmeta">
         {card.project
           ? <span className="chip" title="project">{card.project}</span>
@@ -1230,11 +1368,11 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   );
 }
 
-// ── inline Backlog quick-add (touch-first per-column affordance) ─────────────
-// A per-column "Add card" at the head of the Backlog list: tap the trigger to
+// ── inline manual-list quick-add (touch-first per-column affordance) ─────────
+// A per-column "Add card" at the head of Backlog and To Do: tap the trigger to
 // reveal a compact inline form (title required, description + project optional)
-// that POSTs straight to /cards — which always lands the card in Backlog — and
-// refreshes the board in place, no reload. Distinct from the top-bar "New card"
+// that POSTs straight to the selected list and refreshes the board in place, no
+// reload. Distinct from the top-bar "New card"
 // sheet, which carries goalMode and the full Run spec: this is the fast capture
 // path, sized for touch (≥44px controls, usable at 390px). Reuses PROJECT_CUSTOM +
 // the project-picker semantics of the New Card sheet so the two entry points behave
@@ -1246,7 +1384,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
 // fully automatic, which is the default anyway — and the spec stays editable on the
 // card afterwards (PATCH accepts `routing`). The form says so, so "no controls here"
 // reads as a decision rather than an omission.
-function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
+function ListAddCard({ listId, listTitle, onCreated }: { listId: string; listTitle: string; onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1286,7 +1424,12 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
     setErr(null);
     const proj = projectMode === "auto" ? undefined : (project.trim() || undefined);
     try {
-      await api.create({ title: t, description: description.trim() || undefined, project: proj });
+      await api.create({
+        title: t,
+        description: description.trim() || undefined,
+        project: proj,
+        targetList: listId
+      });
       reset();
       setOpen(false);
       onCreated();
@@ -1300,14 +1443,19 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
 
   if (!open) {
     return (
-      <button type="button" className="backlog-add-trigger" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="list-add-trigger"
+        aria-label={`Add a card to ${listTitle}`}
+        onClick={() => setOpen(true)}
+      >
         <PlusIcon /> Add card
       </button>
     );
   }
 
   return (
-    <div className="backlog-add" role="group" aria-label="Add a card to Backlog">
+    <div className="list-add" role="group" aria-label={`Add a card to ${listTitle}`}>
       <input
         ref={titleRef}
         className="ba-input"
@@ -3812,10 +3960,18 @@ function App() {
                   }
                 >
                   <ListBodyDroppable listId={list.id}>
-                    {/* Backlog leads with the inline quick-add affordance (its own empty
-                        state), so it never shows the bare "empty" label. */}
-                    {list.id === "backlog" && <BacklogAddCard onCreated={() => void load()} />}
-                    {list.cards.length === 0 && list.id !== "backlog" && <div className="lempty">empty</div>}
+                    {/* Backlog and To Do lead with direct-create affordances. The
+                        server inserts into that list under the same top-order lock,
+                        so there is no transient Backlog card or create-then-move
+                        activity. These controls replace the bare empty state. */}
+                    {canAddCardDirectly(list.id) && (
+                      <ListAddCard
+                        listId={list.id}
+                        listTitle={list.title}
+                        onCreated={() => void load()}
+                      />
+                    )}
+                    {list.cards.length === 0 && !canAddCardDirectly(list.id) && <div className="lempty">empty</div>}
                     {(() => {
                       const renderCard = (card: CardSummary, sortable = true) => {
                         const inner = (
@@ -3839,6 +3995,7 @@ function App() {
                             onWatch={(c) => setOverlay({ kind: "watch", card: c })}
                             onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
                             onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                            onRenamed={load}
                             onContinue={onContinue}
                             onDrill={onDrill}
                             onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}

@@ -284,6 +284,33 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.sessionId).toBe("sess-1");
   });
 
+  it("keeps assistant envelopes in one growing reply with readable paragraph boundaries", async () => {
+    const adapter = adapterYielding([
+      {
+        type: "assistant",
+        // Multiple text blocks in ONE envelope are fragments of one message.
+        message: { content: [{ type: "text", text: "I'll inspect" }, { type: "text", text: " the files." }] }
+      },
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "read-1", name: "Read", input: {} }] } },
+      { type: "assistant", message: { content: [{ type: "text", text: "Now I'll check the web." }] } },
+      { type: "assistant", message: { content: [{ type: "thinking", thinking: "Comparing the results" }] } },
+      { type: "assistant", message: { content: [{ type: "text", text: "Done — both worked." }] } },
+      { type: "result", subtype: "success", result: "Done — both worked.", usage: { output_tokens: 8 } }
+    ]);
+    const session = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
+    const growing: string[] = [];
+    await adapter.sendTurn(session, "inspect things", { onText: (text: string) => growing.push(text) });
+
+    await expect(adapter.awaitResponse(session)).resolves.toMatchObject({
+      text: "Done — both worked."
+    });
+    expect(growing).toEqual([
+      "I'll inspect the files.",
+      "I'll inspect the files.\n\nNow I'll check the web.",
+      "I'll inspect the files.\n\nNow I'll check the web.\n\nDone — both worked."
+    ]);
+  });
+
   it("announces a fresh validated session on the SDK system frame, before later activity", async () => {
     const adapter = adapterYielding([
       { type: "system", session_id: "../not-a-session" },

@@ -41,6 +41,30 @@ export interface SessionEvent {
   blocks: SessionBlock[];
 }
 
+/** One user prompt and every assistant journal envelope that follows it. The
+ * transcript producer writes an assistant row for each interim message/tool
+ * beat; the UI presents those rows as one conversational turn. */
+export interface SessionTurn {
+  key: string;
+  userEvents: SessionEvent[];
+  assistantEvents: SessionEvent[];
+}
+
+export interface SessionTurnPresentation {
+  /** While live, every text envelope accumulated with paragraph boundaries;
+   * once settled, only the final assistant envelope. */
+  primaryText: string;
+  /** Text from earlier assistant envelopes, retained behind the settled turn's
+   * expandable interim-activity disclosure. */
+  interimText: string[];
+  /** Index in assistantEvents whose text is the final response. */
+  finalTextEventIndex: number | null;
+}
+
+export type SessionActivityBeat =
+  | { type: "text"; eventIndex: number; blockIndex: number; text: string }
+  | { type: "thinking" | "tool_use"; eventIndex: number; blockIndex: number; block: SessionBlock };
+
 export interface RelatedTask {
   key: string;
   toolUseId: string | null;
@@ -54,6 +78,95 @@ export interface RelatedTask {
 
 type JsonRecord = Record<string, unknown>;
 const FANOUT_TOOL_NAMES = new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
+
+/** Text blocks inside one assistant envelope are fragments of the same message. */
+export function sessionEventText(event: SessionEvent): string {
+  return (event.blocks ?? [])
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text ?? "")
+    .join("");
+}
+
+/**
+ * Flatten assistant journal envelopes into display beats without losing their
+ * chronology. Adjacent text blocks inside one SDK envelope are fragments of the
+ * same message and coalesce; thinking and tool-use blocks remain in-place between
+ * prose beats instead of being hoisted below all live text.
+ */
+export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBeat[] {
+  const beats: SessionActivityBeat[] = [];
+  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+    const event = events[eventIndex];
+    for (let blockIndex = 0; blockIndex < event.blocks.length; blockIndex += 1) {
+      const block = event.blocks[blockIndex];
+      if (block.type === "text" && typeof block.text === "string") {
+        const previous = beats[beats.length - 1];
+        if (previous?.type === "text" && previous.eventIndex === eventIndex) {
+          previous.text += block.text;
+        } else {
+          beats.push({ type: "text", eventIndex, blockIndex, text: block.text });
+        }
+      } else if (block.type === "thinking" || block.type === "tool_use") {
+        beats.push({ type: block.type, eventIndex, blockIndex, block });
+      }
+    }
+  }
+  return beats;
+}
+
+/**
+ * Group the flat Claude/Agent SDK journal into conversational turns. A real user
+ * message starts a turn; user-shaped tool-result rows remain attached to the
+ * preceding assistant tool and never open a new visual message. Assistant-only
+ * journals (for example a recovered kickoff) receive one stable synthetic turn.
+ */
+export function groupSessionTurns(events: SessionEvent[]): SessionTurn[] {
+  const turns: SessionTurn[] = [];
+  let current: SessionTurn | null = null;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (event.role === "user" && !event.toolResultsOnly) {
+      current = {
+        key: event.id || `user-turn-${index}`,
+        userEvents: [event],
+        assistantEvents: [],
+      };
+      turns.push(current);
+      continue;
+    }
+    if (event.role !== "assistant") continue;
+    if (!current) {
+      current = {
+        key: event.id ? `assistant-turn-${event.id}` : `assistant-turn-${index}`,
+        userEvents: [],
+        assistantEvents: [],
+      };
+      turns.push(current);
+    }
+    current.assistantEvents.push(event);
+  }
+  return turns;
+}
+
+/** Select the one text surface a visual assistant turn should show. */
+export function presentSessionTurn(turn: SessionTurn, live: boolean): SessionTurnPresentation {
+  const textual = turn.assistantEvents
+    .map((event, eventIndex) => ({ eventIndex, text: sessionEventText(event) }))
+    .filter((entry) => entry.text.trim() !== "");
+  if (live) {
+    return {
+      primaryText: textual.map((entry) => entry.text).join("\n\n"),
+      interimText: [],
+      finalTextEventIndex: null,
+    };
+  }
+  const final = textual[textual.length - 1] ?? null;
+  return {
+    primaryText: final?.text ?? "",
+    interimText: final ? textual.slice(0, -1).map((entry) => entry.text) : [],
+    finalTextEventIndex: final?.eventIndex ?? null,
+  };
+}
 
 export function parseToolInput(input: string | undefined): JsonRecord | null {
   if (!input) return null;

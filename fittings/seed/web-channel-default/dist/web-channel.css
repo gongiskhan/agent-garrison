@@ -742,13 +742,18 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   animation: cc-session-pulse 1.35s ease-in-out infinite;
 }
 @keyframes cc-session-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-.cc-session-scroll { display: flex; flex-direction: column; gap: 12px; padding: 0 2px 4px; }
+.cc-session-scroll { display: flex; flex-direction: column; gap: 18px; padding: 0 2px 4px; }
 .cc-session-empty { color: var(--cc-fg-dim); padding: 24px 8px; text-align: center; }
 .cc-session-turn {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
-  border: 1px solid var(--cc-border); border-radius: 10px; background: var(--cc-bg-elev);
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
 }
-.cc-session-turn.user { background: transparent; }
+.cc-session-turn.user { align-items: flex-end; }
+.cc-session-turn.user .cc-session-role { align-self: flex-end; }
+.cc-session-turn.user > .cc-session-md,
+.cc-session-turn.user > .cc-session-longtext {
+  width: fit-content; max-width: 86%; padding: 8px 11px; border-radius: 4px 4px 4px 11px;
+  background: color-mix(in srgb, var(--cc-accent) 10%, var(--cc-bg-elev));
+}
 .cc-session-role { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--cc-fg-faint); }
 .cc-session-md { font-size: 14px; line-height: 1.55; }
 .cc-session-md > :first-child { margin-top: 0; }
@@ -772,6 +777,19 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-session-thinking-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cc-fg-faint); font-style: italic; }
 .cc-session-thinking > .cc-session-pre { margin-top: 8px; }
+.cc-session-activity { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cc-session-interim {
+  margin-top: 2px; padding-left: 9px; border-left: 2px solid var(--cc-border);
+  color: var(--cc-fg-dim);
+}
+.cc-session-interim > summary {
+  cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 3px 0;
+  color: var(--cc-fg-dim); font-size: 12px;
+}
+.cc-session-interim-count { margin-left: auto; color: var(--cc-fg-faint); font-size: 10px; }
+.cc-session-interim > .cc-session-activity { margin-top: 8px; }
+.cc-session-interim-text { padding: 2px 0 5px; color: var(--cc-fg-dim); }
+.cc-session-activity.is-live > .cc-session-interim-text { color: var(--cc-fg); }
 .cc-session-toolwrap { display: flex; flex-direction: column; gap: 7px; }
 .cc-session-tool { border: 1px solid var(--cc-border); border-radius: 8px; background: var(--cc-bg-sunk); }
 .cc-session-tool.is-live { border-color: var(--cc-border-strong); }
@@ -829,7 +847,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-related-view-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 7px; background: var(--cc-bg); }
 
 @media (max-width: 600px) {
-  .cc-session-turn { padding: 9px; }
+  .cc-session-turn.user > .cc-session-md,
+  .cc-session-turn.user > .cc-session-longtext { max-width: 94%; }
   .cc-session-tool > summary { flex-wrap: wrap; }
   .cc-session-tool-hint { order: 3; flex-basis: calc(100% - 16px); margin-left: 14px; }
   .cc-session-state { margin-left: auto; }
@@ -2201,6 +2220,36 @@ body {
 
 /* Loading placeholder on the stone-50 chat pane (was #7d8077 at 3.5:1). */
 .wc-loading { color: var(--wc-olive-700); }
+
+/* Push permission notices are informational once the browser has denied or
+   withheld the API. Keep a separate close target so dismissal never retries or
+   mutates browser permission state. */
+.wc-push-notice,
+.wc-push-toast {
+  position: fixed; left: 12px; z-index: 41; display: flex; align-items: center; gap: 10px;
+  padding: 8px 9px 8px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
+  background: rgba(20,24,28,.94); color: #d7dde3; font: 500 12px/1.25 system-ui, sans-serif;
+  box-shadow: 0 8px 26px rgba(0,0,0,.22);
+}
+.wc-push-notice { bottom: 12px; }
+.wc-push-toast { right: 12px; bottom: 56px; border-radius: 10px; font-size: 13px; }
+.wc-push-notice > span,
+.wc-push-toast > span { min-width: 0; }
+.wc-push-notice > button,
+.wc-push-toast > button {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; font: 18px/1 system-ui, sans-serif; cursor: pointer;
+}
+.wc-push-notice > button:hover,
+.wc-push-notice > button:focus-visible,
+.wc-push-toast > button:hover,
+.wc-push-toast > button:focus-visible { background: rgba(255,255,255,.12); outline: none; }
+@media (pointer: coarse) {
+  .wc-push-notice > button,
+  .wc-push-toast > button {
+    width: 44px; height: 44px; margin: -10px -6px -10px 0;
+  }
+}
 
 /* ── Scrollbars — near-invisible, still scrollable ────────────────────────
    Dark ink thumb by default (the app's scrollable panes are warm stone); the

@@ -305,11 +305,11 @@ body {
   padding: 6px 2px;
 }
 
-/* ── inline Backlog quick-add (touch-first per-column affordance) ──
+/* ── inline Backlog / To Do quick-add (touch-first per-column affordance) ──
    All controls hold a ≥44px hit area so the capture flow works under a thumb at
    390px. The collapsed trigger reads as a dashed "add" tile; expanded, it is a
    compact card-sized form matching the .field input styling. */
-.backlog-add-trigger {
+.list-add-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -325,11 +325,11 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.backlog-add-trigger:hover { border-color: var(--ink); background: var(--paper-3); color: var(--ink); }
-.backlog-add-trigger:active { transform: translateY(1px); }
-.backlog-add-trigger svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.list-add-trigger:hover { border-color: var(--ink); background: var(--paper-3); color: var(--ink); }
+.list-add-trigger:active { transform: translateY(1px); }
+.list-add-trigger svg { width: 13px; height: 13px; flex: 0 0 auto; }
 
-.backlog-add {
+.list-add {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -338,8 +338,8 @@ body {
   border: 1px solid var(--rule);
   border-left: 3px solid var(--rule-2);
 }
-.backlog-add .ba-input,
-.backlog-add .ba-select {
+.list-add .ba-input,
+.list-add .ba-select {
   width: 100%;
   font-family: inherit;
   line-height: inherit;
@@ -350,7 +350,7 @@ body {
   background: white;
   color: var(--ink);
 }
-.backlog-add .ba-textarea {
+.list-add .ba-textarea {
   width: 100%;
   font: inherit;
   font-size: 13.5px;
@@ -362,11 +362,11 @@ body {
   background: white;
   color: var(--ink);
 }
-.backlog-add .ba-input:focus,
-.backlog-add .ba-textarea:focus,
-.backlog-add .ba-select:focus { outline: none; border-color: var(--ink); }
-.backlog-add .ba-actions { display: flex; gap: 8px; }
-.backlog-add .ba-btn {
+.list-add .ba-input:focus,
+.list-add .ba-textarea:focus,
+.list-add .ba-select:focus { outline: none; border-color: var(--ink); }
+.list-add .ba-actions { display: flex; gap: 8px; }
+.list-add .ba-btn {
   flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
@@ -381,20 +381,20 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.backlog-add .ba-btn:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
-.backlog-add .ba-btn:active:not(:disabled) { transform: translateY(1px); }
-.backlog-add .ba-btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.backlog-add .ba-btn.primary:hover:not(:disabled) { background: var(--ink-2); }
-.backlog-add .ba-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.list-add .ba-btn:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
+.list-add .ba-btn:active:not(:disabled) { transform: translateY(1px); }
+.list-add .ba-btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.list-add .ba-btn.primary:hover:not(:disabled) { background: var(--ink-2); }
+.list-add .ba-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 /* The quick-add path has no Run spec controls on purpose (RUN-SPEC-V1). Say it,
    so their absence reads as a decision rather than a missing feature. */
-.backlog-add .ba-note {
+.list-add .ba-note {
   font-family: var(--sans);
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--mute);
 }
-.backlog-add .ba-err {
+.list-add .ba-err {
   font-family: var(--sans);
   font-size: 12px;
   color: var(--alarm);
@@ -433,7 +433,7 @@ body {
   font-size: 13px;
   color: var(--ink);
 }
-.card .ct .card-title-open {
+.card .ct .card-title-edit {
   border: 0;
   padding: 0;
   margin: 0;
@@ -442,7 +442,43 @@ body {
   font: inherit;
   cursor: pointer;
 }
-.card .ct .card-title-open:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+.card .ct .card-title-edit:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+.card .ct .card-title-edit[data-title-locked="true"] { cursor: pointer; opacity: 1; }
+.card .ct .card-title-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.card .ct .card-title-input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--sage);
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 5px;
+}
+.card .ct .card-title-input:focus { outline: 2px solid color-mix(in srgb, var(--sage) 35%, transparent); }
+.card .ct .card-title-action {
+  min-height: 30px;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--ink-2);
+  font: 500 10px var(--sans);
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.card .ct .card-title-action.save { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.card .ct .card-title-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.card .card-title-error {
+  color: var(--alarm);
+  font-size: 11px;
+  line-height: 1.35;
+  margin: -1px 0 2px 16px;
+}
 .card .ct .ct-date {
   flex: none;
   font-size: 10px;

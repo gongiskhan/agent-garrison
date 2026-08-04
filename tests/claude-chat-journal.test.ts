@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   collectRelatedTasks,
+  groupSessionTurns,
   latestBlocksByToolUse,
   mergeSessionEvents,
+  presentSessionTurn,
+  sessionActivityBeats,
   sessionThinkingSummary,
   sessionToolSummary,
   type SessionEvent,
@@ -135,5 +138,79 @@ describe("claude-chat activity journal", () => {
   it("turns a long thinking block into a compact completed summary", () => {
     expect(sessionThinkingSummary("I should trace the persistence boundary before changing the renderer. More follows."))
       .toBe("I should trace the persistence boundary before changing the renderer");
+  });
+
+  it("groups interim assistant envelopes into one growing visual turn", () => {
+    const events: SessionEvent[] = [
+      { id: "user-1", role: "user", ts: null, blocks: [{ type: "text", text: "check both" }] },
+      event("intro", [{ type: "text", text: "I'll inspect the files." }]),
+      event("read", [{ type: "tool_use", name: "Read", toolUseId: "read-1", input: "{}" }]),
+      // Tool results are user-shaped in Claude JSONL but must not split the turn.
+      { id: "read-result", role: "user", ts: null, toolResultsOnly: true, blocks: [{ type: "tool_result", toolUseId: "read-1", text: "ok" }] },
+      event("next", [{ type: "text", text: "Now I'll check the web." }]),
+      event("final", [{ type: "text", text: "Done — both worked." }]),
+    ];
+
+    const turns = groupSessionTurns(events);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].assistantEvents.map((entry) => entry.id)).toEqual(["intro", "read", "next", "final"]);
+    expect(presentSessionTurn(turns[0], true)).toEqual({
+      primaryText: "I'll inspect the files.\n\nNow I'll check the web.\n\nDone — both worked.",
+      interimText: [],
+      finalTextEventIndex: null,
+    });
+  });
+
+  it("keeps only the final response primary after settle and retains interim text", () => {
+    const turns = groupSessionTurns([
+      { id: "user-1", role: "user", ts: null, blocks: [{ type: "text", text: "check both" }] },
+      event("intro", [{ type: "text", text: "I'll inspect the files." }]),
+      event("thinking", [{ type: "thinking", text: "Choosing what to inspect" }]),
+      event("next", [{ type: "text", text: "Now I'll check the web." }]),
+      event("final", [{ type: "text", text: "Done — both worked." }]),
+    ]);
+
+    expect(presentSessionTurn(turns[0], false)).toEqual({
+      primaryText: "Done — both worked.",
+      interimText: ["I'll inspect the files.", "Now I'll check the web."],
+      finalTextEventIndex: 3,
+    });
+  });
+
+  it("keeps historical turns settled while only the last conversational turn grows live", () => {
+    const turns = groupSessionTurns([
+      { id: "user-1", role: "user", ts: null, blocks: [{ type: "text", text: "first" }] },
+      event("first-interim", [{ type: "text", text: "Working on the first." }]),
+      event("first-final", [{ type: "text", text: "First complete." }]),
+      { id: "user-2", role: "user", ts: null, blocks: [{ type: "text", text: "second" }] },
+      event("second-interim", [{ type: "text", text: "Working on the second." }]),
+      event("second-tool", [{ type: "tool_use", name: "Read", toolUseId: "read-2" }]),
+      event("second-latest", [{ type: "text", text: "Still checking." }]),
+    ]);
+
+    expect(turns).toHaveLength(2);
+    expect(presentSessionTurn(turns[0], false)).toMatchObject({
+      primaryText: "First complete.",
+      interimText: ["Working on the first."],
+    });
+    expect(presentSessionTurn(turns[1], true)).toMatchObject({
+      primaryText: "Working on the second.\n\nStill checking.",
+      interimText: [],
+    });
+  });
+
+  it("keeps live prose, tool calls, and later prose in journal order", () => {
+    const beats = sessionActivityBeats([
+      event("live", [
+        { type: "text", text: "I'll read" },
+        { type: "text", text: " the file." },
+        { type: "tool_use", name: "Read", toolUseId: "read-1" },
+      ]),
+      event("after-tool", [{ type: "text", text: "Now I'll inspect the result." }]),
+    ]);
+
+    expect(beats.map((beat) => beat.type)).toEqual(["text", "tool_use", "text"]);
+    expect(beats[0]).toMatchObject({ type: "text", text: "I'll read the file." });
+    expect(beats[2]).toMatchObject({ type: "text", text: "Now I'll inspect the result." });
   });
 });

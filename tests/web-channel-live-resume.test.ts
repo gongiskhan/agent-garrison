@@ -253,4 +253,51 @@ describe("web-channel Agent SDK journal normalization", () => {
     });
     expect(JSON.stringify(events)).not.toContain("internal-agent-42");
   });
+
+  it("keeps task-completion metadata out of user turns while retaining related-task status", () => {
+    const notification = [
+      "<task-notification>",
+      "<tool-use-id>toolu_agent_done</tool-use-id>",
+      "<status>completed</status>",
+      "<summary>Inspection finished</summary>",
+      "</task-notification>",
+    ].join("\n");
+    const lines = [
+      JSON.stringify({
+        type: "assistant",
+        uuid: "agent-launch",
+        timestamp: "2026-08-04T08:02:00.000Z",
+        message: { content: [{
+          type: "tool_use",
+          id: "toolu_agent_done",
+          name: "Agent",
+          input: { description: "Inspect fan-out" },
+        }] },
+      }),
+      JSON.stringify({
+        type: "user",
+        uuid: "internal-completion",
+        timestamp: "2026-08-04T08:02:01.000Z",
+        message: { content: [{ type: "text", text: notification }] },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        uuid: "final-answer",
+        timestamp: "2026-08-04T08:02:02.000Z",
+        message: { content: [{ type: "text", text: "Final answer" }] },
+      }),
+    ];
+
+    const parsed: any = transcript.parseTranscriptLines(lines);
+    expect(parsed.events.map((event: any) => event.id)).toEqual(["agent-launch", "final-answer"]);
+    expect(JSON.stringify(parsed.events)).not.toContain("task-notification");
+
+    const related: any[] = transcript.relatedTaskEvents(lines);
+    expect(related).toHaveLength(1);
+    expect(related[0].blocks[0]).toMatchObject({
+      toolUseId: "toolu_agent_done",
+      status: "completed",
+      text: "Inspection finished",
+    });
+  });
 });

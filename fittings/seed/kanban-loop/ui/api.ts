@@ -487,7 +487,7 @@ export const api = {
   // `placement` (brief D6) is WHERE the card runs: { target: "host" } (the
   // default) or a paired machine name. Absent means host, so an untouched picker
   // sends nothing at all.
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
+  create: (body: { title?: string; description?: string; project?: string; targetList?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   // Card scheduling: push the schedule out (or set one from now). The server
   // re-arms the due reminder; action defaults to the card's current one.

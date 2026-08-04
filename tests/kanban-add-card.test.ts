@@ -1,8 +1,9 @@
-// S1a — the SERVER contract behind the Backlog inline quick-add UI. Boots the REAL
+// S1a — the SERVER contract behind the Backlog / To Do inline quick-add UI. Boots the REAL
 // own-port board server (makeRequestHandler over an ephemeral port) against a
 // sandboxed, freshly-seeded board and exercises POST /cards exactly the way the
-// board UI's BacklogAddCard does: { title, description?, project? } → a card that
-// lands in Backlog and shows up on GET /board without any other action. Also pins
+// board UI's ListAddCard does: { title, description?, project?, targetList? } → a card
+// that lands directly in that manual list and shows up on GET /board without a
+// create-then-move transition. Also pins
 // the two contract edges the UI leans on: title inference from the description, and
 // the empty-input rejection.
 //
@@ -87,7 +88,7 @@ async function jsend(method: string, path: string, body?: unknown) {
   return { status: r.status, body: (await r.json()) as any };
 }
 
-describe("POST /cards — the Backlog quick-add contract", () => {
+describe("POST /cards — the direct manual-list quick-add contract", () => {
   it("creates a card in Backlog from title + description + project, and it shows on the board", async () => {
     const create = await jsend("POST", "/cards", {
       title: "Wire the export button",
@@ -117,6 +118,72 @@ describe("POST /cards — the Backlog quick-add contract", () => {
     expect(create.status).toBe(201);
     expect(create.body.card.title).toBe("Just a title");
     expect(create.body.card.list).toBe("backlog");
+  });
+
+  it("creates directly at the TOP of To Do without a transient Backlog card", async () => {
+    const older = await jsend("POST", "/cards", {
+      title: "Older direct To Do card",
+      project: "garrison",
+      targetList: "todo"
+    });
+    const newer = await jsend("POST", "/cards", {
+      title: "Newer direct To Do card",
+      project: "garrison",
+      targetList: "todo"
+    });
+    expect(older.status).toBe(201);
+    expect(newer.status).toBe(201);
+    expect(older.body.card.list).toBe("todo");
+    expect(newer.body.card.list).toBe("todo");
+
+    const board = await jget("/board");
+    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
+    const todo = board.body.lists.find((l: any) => l.id === "todo");
+    expect(backlog.cards.map((c: any) => c.id)).not.toContain(older.body.card.id);
+    expect(backlog.cards.map((c: any) => c.id)).not.toContain(newer.body.card.id);
+    expect(todo.cards[0].id).toBe(newer.body.card.id);
+    expect(todo.cards.findIndex((c: any) => c.id === newer.body.card.id))
+      .toBeLessThan(todo.cards.findIndex((c: any) => c.id === older.body.card.id));
+    expect(newer.body.card.position).toBeLessThan(older.body.card.position);
+    const detail = await jget(`/cards/${newer.body.card.id}`);
+    expect(detail.body.events?.some((event: any) => event.kind === "moved")).toBe(false);
+  });
+
+  it("refuses unknown, autonomous, interactive, and terminal direct-create targets", async () => {
+    for (const targetList of ["missing", "plan", "discuss", "done", "archived"]) {
+      const create = await jsend("POST", "/cards", {
+        title: `Unsafe target ${targetList}`,
+        project: "garrison",
+        targetList
+      });
+      expect(create.status).toBe(400);
+    }
+  });
+
+  it("renames a human-held card through the revision-checked PATCH used by inline editing", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Title before inline edit",
+      project: "garrison",
+      targetList: "todo"
+    });
+    expect(create.status).toBe(201);
+    const renamed = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      title: "Title after inline edit",
+      rev: create.body.card.rev
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.card.title).toBe("Title after inline edit");
+
+    const stale = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      title: "Stale title must not win",
+      rev: create.body.card.rev
+    });
+    expect(stale.status).toBe(409);
+
+    const board = await jget("/board");
+    const todo = board.body.lists.find((l: any) => l.id === "todo");
+    expect(todo.cards.find((c: any) => c.id === create.body.card.id)?.title)
+      .toBe("Title after inline edit");
   });
 
   it("stamps an http(s) videoUrl at create (Drill Evidence) and rejects other schemes", async () => {

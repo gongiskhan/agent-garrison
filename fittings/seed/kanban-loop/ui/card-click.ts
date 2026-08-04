@@ -1,4 +1,4 @@
-// ── Click-to-open a card (Item 5) ────────────────────────────────────────────
+// ── Card-surface interactions ────────────────────────────────────────────────
 //
 // Clicking a card's body opens its detail sheet — the dedicated Open button is gone.
 // Two clicks must NOT open the card:
@@ -37,4 +37,23 @@ export function shouldOpenCard(target: EventTarget | ClosestTarget | null, dragJ
     return true;
   }
   return (target as ClosestTarget).closest(INTERACTIVE_ANCESTORS) == null;
+}
+
+/** Lists with the lightweight, direct-create affordance at the top. */
+export function canAddCardDirectly(listId: string): boolean {
+  return listId === "backlog" || listId === "todo";
+}
+
+export type CardTitleEditAction = "save" | "cancel" | null;
+
+/** Map title-editor keys to explicit actions; all other keys keep editing. */
+export function cardTitleEditAction(key: string): CardTitleEditAction {
+  if (key === "Enter") return "save";
+  if (key === "Escape") return "cancel";
+  return null;
+}
+
+/** Leaving the whole editor commits; moving focus to Save/Cancel does not. */
+export function shouldCommitCardTitleOnBlur(focusRemainsInsideEditor: boolean): boolean {
+  return !focusRemainsInsideEditor;
 }

@@ -312,7 +312,7 @@ describe("agent-sdk adapter cancel (run-context §9)", () => {
     expect(s.cancelRequested).toBe(false);
   });
 
-  it("streams onText (accumulated) and onTool per block without changing the returned reply", async () => {
+  it("streams one accumulated live bubble while returning only the final assistant envelope", async () => {
     const seenText: string[] = [];
     const seenTools: any[] = [];
     const adapter = new AgentSdkAdapter({
@@ -335,10 +335,10 @@ describe("agent-sdk adapter cancel (run-context §9)", () => {
     });
     const r = await adapter.awaitResponse(s);
     // onText carries the reply accumulated SO FAR (a channel repaints one bubble).
-    expect(seenText).toEqual(["Reading ", "Reading done."]);
+    expect(seenText).toEqual(["Reading ", "Reading\n\ndone."]);
     expect(seenTools).toEqual([{ name: "Edit", id: "t1" }]);
-    // accumulate-and-return is unchanged for callers that pass no callbacks.
-    expect(r).toMatchObject({ text: "Reading done.", toolUses: [{ name: "Edit", id: "t1" }] });
+    // Settled callers receive the final response, not the interim narration.
+    expect(r).toMatchObject({ text: "done.", toolUses: [{ name: "Edit", id: "t1" }] });
     expect(r.stoppedReason ?? null).toBeNull();
   });
 

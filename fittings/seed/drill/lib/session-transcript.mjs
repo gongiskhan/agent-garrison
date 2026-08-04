@@ -99,6 +99,18 @@ function entryTimestamp(entry) {
   return Number.isFinite(ts) ? ts : null;
 }
 
+function isTaskNotification(content) {
+  const text = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content
+        .filter((item) => item && typeof item === "object" && item.type === "text" && typeof item.text === "string")
+        .map((item) => item.text)
+        .join("\n")
+      : "";
+  return /^<task-notification>[\s\S]*<\/task-notification>$/.test(text.trim());
+}
+
 // Map raw transcript jsonl lines to viewer events:
 //   { id, role: "user"|"assistant", ts, blocks: [...] }
 // A user entry that carries ONLY tool_result blocks keeps role "user" but is
@@ -121,6 +133,10 @@ export function parseTranscriptLines(lines) {
     }
     if (entry?.type !== "user" && entry?.type !== "assistant") continue;
     const message = entry.message ?? {};
+    // Agent/Task completion notifications are internal runtime metadata even
+    // though Claude journals them as user rows. Never render their XML as a
+    // human prompt or let them split the surrounding assistant turn.
+    if (entry.type === "user" && isTaskNotification(message.content)) continue;
     const rawContent = Array.isArray(message.content)
       ? message.content
       : typeof message.content === "string"

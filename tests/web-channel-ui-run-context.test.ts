@@ -45,8 +45,32 @@ afterEach(() => {
 // of its own. A global satisfies the emitted calls without touching the source.
 const reactMod = await import("react");
 (globalThis as any).React = (reactMod as any).default ?? reactMod;
+const { renderToStaticMarkup } = await import("react-dom/server");
 
 const ui = await import("../fittings/seed/web-channel-default/ui/main");
+
+describe("web-channel push notices", () => {
+  it("gives blocked/install notices and transient notifications a separate accessible close", () => {
+    const dismissed = vi.fn();
+    const noticeElement = (globalThis as any).React.createElement(ui.PushNotice, {
+      text: "Notifications blocked",
+      onDismiss: dismissed,
+    });
+    const notice = renderToStaticMarkup(noticeElement);
+    const toast = renderToStaticMarkup(
+      (globalThis as any).React.createElement(ui.PushNotice, { kind: "toast", text: "Task complete", onDismiss: () => {} })
+    );
+    expect(notice).toContain("wc-push-notice");
+    expect(notice).toContain('aria-label="Dismiss notification notice"');
+    expect(toast).toContain("wc-push-toast");
+    expect(toast).toContain('aria-label="Dismiss notification"');
+    // PushNotice owns no enrolment behavior: its close control performs only the
+    // dismissal callback supplied by PushEnroller.
+    const renderedNotice = ui.PushNotice(noticeElement.props);
+    renderedNotice.props.children[1].props.onClick();
+    expect(dismissed).toHaveBeenCalledOnce();
+  });
+});
 
 describe("web-channel toHistory: run context survives a reload (contract §10)", () => {
   it("carries the assistant message's route and the user message's overrides onto the pair", () => {

@@ -113,6 +113,11 @@ function contentText(content) {
     .join("\n");
 }
 
+function taskNotificationText(content) {
+  const text = contentText(content).trim();
+  return /^<task-notification>[\s\S]*<\/task-notification>$/.test(text) ? text : null;
+}
+
 function normaliseTaskStatus(value) {
   const status = String(value ?? "").trim().toLowerCase();
   if (["completed", "complete", "done", "success", "succeeded"].includes(status)) return "completed";
@@ -202,8 +207,8 @@ export function extractRelatedTaskRecords(lines) {
 
     const notification = entry?.type === "queue-operation"
       ? entry.content
-      : entry?.type === "user" && typeof entry.message?.content === "string"
-        ? entry.message.content
+      : entry?.type === "user"
+        ? taskNotificationText(entry.message?.content)
         : null;
     if (typeof notification === "string" && notification.includes("<task-notification>")) {
       const task = ensure(xmlTag(notification, "tool-use-id"));
@@ -291,6 +296,12 @@ export function parseTranscriptLines(lines) {
     }
     if (entry?.type !== "user" && entry?.type !== "assistant") continue;
     const message = entry.message ?? {};
+    // Claude records Agent/Task completion notifications as user-shaped rows,
+    // in both string and text-block-array forms. They are runtime metadata, not
+    // a human prompt: rendering one would expose the XML and split the final
+    // answer into a fake new conversational turn. relatedTaskEvents consumes
+    // the same row above, so dropping it here loses no visible activity.
+    if (entry.type === "user" && taskNotificationText(message.content)) continue;
     const rawContent = Array.isArray(message.content)
       ? message.content
       : typeof message.content === "string"

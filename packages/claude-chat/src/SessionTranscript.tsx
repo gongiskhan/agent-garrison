@@ -4,8 +4,12 @@ import { Marked } from "marked";
 import { filePathMarkedExtension } from "./host-rewrite";
 import {
   collectRelatedTasks,
+  groupSessionTurns,
   latestBlocksByToolUse,
   mergeSessionEvents,
+  presentSessionTurn,
+  sessionActivityBeats,
+  sessionEventText,
   sessionThinkingSummary,
   sessionToolSummary,
   type RelatedTask,
@@ -197,6 +201,70 @@ function ThinkingBlock({ block, active }: { block: SessionBlock; active: boolean
   );
 }
 
+function ActivityTimeline({
+  events,
+  includeText,
+  omittedTextEventIndex,
+  live,
+  activeThinkingBlock,
+  resultsByToolUse,
+  progressByToolUse,
+  onImage,
+}: {
+  events: SessionEvent[];
+  includeText: boolean;
+  omittedTextEventIndex: number | null;
+  live: boolean;
+  activeThinkingBlock: SessionBlock | null;
+  resultsByToolUse: Map<string, SessionBlock>;
+  progressByToolUse: Map<string, SessionBlock>;
+  onImage: (image: SessionImage, label: string) => void;
+}) {
+  const beats = sessionActivityBeats(events);
+  return (
+    <div className={`cc-session-activity${live ? " is-live" : ""}`}>
+      {beats.map((beat) => {
+        const key = `${beat.eventIndex}:${beat.blockIndex}:${beat.type}`;
+        if (beat.type === "text") {
+          if (!includeText || beat.eventIndex === omittedTextEventIndex || !beat.text.trim()) return null;
+          return (
+            <div key={key} className="cc-session-interim-text">
+              <TextBlock text={beat.text} role="assistant" />
+            </div>
+          );
+        }
+        const block = beat.block;
+        if (beat.type === "thinking") {
+          return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
+        }
+        return (
+          <ToolBlock
+            key={key}
+            block={block}
+            result={block.toolUseId ? resultsByToolUse.get(block.toolUseId) : undefined}
+            progress={block.toolUseId ? progressByToolUse.get(block.toolUseId) : undefined}
+            live={live}
+            onImage={onImage}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function InterimDetails({ count, openByDefault, children }: { count: number; openByDefault: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(openByDefault);
+  return (
+    <details className="cc-session-interim" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        <span>Interim activity</span>
+        <span className="cc-session-interim-count">{count} {count === 1 ? "item" : "items"}</span>
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 function RelatedTasks({ tasks, onOpen }: { tasks: RelatedTask[]; onOpen: (task: RelatedTask) => void }) {
   const running = tasks.filter((task) => task.status === "running").length;
   if (!tasks.length) return null;
@@ -338,20 +406,19 @@ export function SessionStream({ url, live = false, title: titleProp }: SessionSt
     () => events.filter((event) => !event.toolResultsOnly && event.blocks.some((block) => ["text", "thinking", "tool_use"].includes(block.type))),
     [events]
   );
-  const activeThinkingKey = useMemo(() => {
+  const turns = useMemo(() => groupSessionTurns(visibleEvents), [visibleEvents]);
+  const activeThinkingBlock = useMemo(() => {
     if (!streamLive) return null;
-    let last: { key: string; type: string } | null = null;
-    for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
-      const event = events[eventIndex];
-      for (let blockIndex = 0; blockIndex < event.blocks.length; blockIndex += 1) {
-        const block = event.blocks[blockIndex];
+    let last: SessionBlock | null = null;
+    for (const event of events) {
+      for (const block of event.blocks) {
         // Snapshot metadata belongs in the fan-out panel; it is not a new
         // chronological beat that should collapse a currently active thought.
         if (block.type === "related_task") continue;
-        last = { key: `${event.id ?? eventIndex}:${blockIndex}`, type: block.type };
+        last = block;
       }
     }
-    return last?.type === "thinking" ? last.key : null;
+    return last?.type === "thinking" ? last : null;
   }, [events, streamLive]);
 
   return (
@@ -376,29 +443,61 @@ export function SessionStream({ url, live = false, title: titleProp }: SessionSt
                   : "No journal activity."}
           </div>
         )}
-        {visibleEvents.map((event, index) => (
-          <div key={event.id ?? `event-${index}`} className={`cc-session-turn ${event.role === "user" ? "user" : "assistant"}`}>
-            <span className="cc-session-role">{event.role === "user" ? "You" : "Assistant"}</span>
-            {event.blocks.map((block, blockIndex) => {
-              const blockKey = `${event.id ?? index}:${blockIndex}`;
-              if (block.type === "text") return <TextBlock key={blockIndex} text={block.text ?? ""} role={event.role} />;
-              if (block.type === "thinking") return <ThinkingBlock key={blockIndex} block={block} active={activeThinkingKey === blockKey} />;
-              if (block.type === "tool_use") {
-                return (
-                  <ToolBlock
-                    key={blockIndex}
-                    block={block}
-                    result={block.toolUseId ? resultsByToolUse.get(block.toolUseId) : undefined}
-                    progress={block.toolUseId ? progressByToolUse.get(block.toolUseId) : undefined}
-                    live={streamLive}
-                    onImage={(image, label) => setModalImage({ image, label })}
-                  />
-                );
-              }
-              return null;
-            })}
-          </div>
-        ))}
+        {turns.map((turn, turnIndex) => {
+          const turnLive = streamLive && turnIndex === turns.length - 1;
+          const presentation = presentSessionTurn(turn, turnLive);
+          const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
+          const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
+            const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
+            const activityCount = event.blocks.filter((block) => block.type === "thinking" || block.type === "tool_use").length;
+            return count + textCount + activityCount;
+          }, 0);
+          return (
+            <React.Fragment key={turn.key}>
+              {userText && (
+                <div className="cc-session-turn user">
+                  <span className="cc-session-role">You</span>
+                  <TextBlock text={userText} role="user" />
+                </div>
+              )}
+              {(turn.assistantEvents.length > 0 || turnLive) && (
+                <div className="cc-session-turn assistant">
+                  <span className="cc-session-role">Assistant</span>
+                  {!turnLive && presentation.primaryText && <TextBlock text={presentation.primaryText} role="assistant" />}
+                  {turnLive && (
+                    <ActivityTimeline
+                      events={turn.assistantEvents}
+                      includeText
+                      omittedTextEventIndex={null}
+                      live
+                      activeThinkingBlock={activeThinkingBlock}
+                      resultsByToolUse={resultsByToolUse}
+                      progressByToolUse={progressByToolUse}
+                      onImage={(image, label) => setModalImage({ image, label })}
+                    />
+                  )}
+                  {turnLive && !presentation.primaryText && interimCount === 0 && (
+                    <div className="cc-session-awaiting" role="status">Working…</div>
+                  )}
+                  {!turnLive && interimCount > 0 && (
+                    <InterimDetails count={interimCount} openByDefault={!presentation.primaryText}>
+                      <ActivityTimeline
+                        events={turn.assistantEvents}
+                        includeText
+                        omittedTextEventIndex={presentation.finalTextEventIndex}
+                        live={false}
+                        activeThinkingBlock={null}
+                        resultsByToolUse={resultsByToolUse}
+                        progressByToolUse={progressByToolUse}
+                        onImage={(image, label) => setModalImage({ image, label })}
+                      />
+                    </InterimDetails>
+                  )}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
       {modalImage && <ImageModal image={modalImage.image} label={modalImage.label} onClose={() => setModalImage(null)} />}
       {relatedView?.streamUrl && relatedView.streamUrl !== url && (

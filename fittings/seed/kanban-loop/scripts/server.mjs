@@ -1409,11 +1409,15 @@ async function collisionFreePosition(root, list, cardId, requested) {
   return position;
 }
 
-// POST /cards — create a card in Backlog. Body: { title?, description?, project?,
-// goalMode?, acceptance? }. Title is OPTIONAL: a blank title is inferred from the
-// description's first line (only when BOTH are blank is there nothing to name it by).
-// A card created WITHOUT a project kicks a visible, fire-and-forget project inference
-// (so the attempt shows on the card instead of nothing).
+// POST /cards — create a card in Backlog by default, or directly in an active
+// manual list via `targetList` (the board UI uses this for To Do). Agent,
+// interactive and terminal destinations are refused so simple capture can never
+// start a run or silently mark work complete. Body: { title?, description?,
+// project?, goalMode?, acceptance?, targetList? }. Title is OPTIONAL: a blank
+// title is inferred from the description's first line (only when BOTH are blank
+// is there nothing to name it by). A card created WITHOUT a project kicks a
+// visible, fire-and-forget project inference (so the attempt shows on the card
+// instead of nothing).
 async function handleCreateCard(req, res, opts) {
   const body = (await readBody(req)) || {};
   const checklistError = checklistValidationError(body.checklist);
@@ -1422,6 +1426,19 @@ async function handleCreateCard(req, res, opts) {
   const rawTitle = typeof body.title === "string" ? body.title.trim() : "";
   const title = rawTitle || deriveTitle(description);
   if (!title) return jsonRes(res, 400, { error: "give the card a title or a description to infer one from" });
+  if (body.targetList != null && (typeof body.targetList !== "string" || !body.targetList.trim())) {
+    return jsonRes(res, 400, { error: "targetList must be a non-empty list id" });
+  }
+  const targetListId = typeof body.targetList === "string" ? body.targetList.trim() : "backlog";
+  if (!isValidListId(targetListId)) return jsonRes(res, 400, { error: "invalid target list id" });
+  const board = await loadBoard(opts.root);
+  const targetList = getList(board, targetListId);
+  if (!targetList) return jsonRes(res, 400, { error: `unknown list: ${targetListId}` });
+  if (targetList.kind !== "manual" || targetList.terminal) {
+    return jsonRes(res, 400, {
+      error: `cards can only be created directly in an active manual list: ${targetListId}`
+    });
+  }
   const suppliedProject = typeof body.project === "string" && body.project.trim() ? body.project.trim() : null;
   const explicitWorkspace = suppliedProject ? null : explicitWorkspaceFromCard({ title, description });
   // A supplied schedule must parse NOW - storing an unparseable instant would
@@ -1429,22 +1446,22 @@ async function handleCreateCard(req, res, opts) {
   if (body.scheduledFor != null && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))) {
     return jsonRes(res, 400, { error: "scheduledFor must be a parseable ISO date-time string" });
   }
-  // Item 1: a new card lands at the TOP of its list, not the bottom. The single
-  // creation door always lands in backlog, so compute a float position just below
-  // the current top of backlog and thread it through createCard (stamping it at
-  // create time avoids a rev-churning stamp-after-create write, and 44509022's
+  // Item 1: a new card lands at the TOP of its list, not the bottom. Compute a
+  // float position just below the current top of the selected manual list and
+  // thread it through createCard (stamping it at create time avoids a
+  // rev-churning stamp-after-create write, and 44509022's
   // provisional-coordination event already bumps rev right after create). Gateway/
   // Continue cards are created in backlog then engine-PATCHed to their target list;
   // handlePatchCard allocates that destination's top unless an explicit drag
   // midpoint is supplied. Positions trend negative over time; the sort is
   // float-based and the server 400s non-finite values. Empty list starts at zero.
   const card = await withCardOrderLock(opts.root, async () => {
-    const topPosition = await topOfListPosition(opts.root, "backlog");
+    const topPosition = await topOfListPosition(opts.root, targetListId);
     return createCard(opts.root, {
     title,
     description,
     project: suppliedProject || explicitWorkspace,
-    list: "backlog",
+    list: targetListId,
     goalMode: body.goalMode === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
     // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
@@ -1499,9 +1516,10 @@ async function handleCreateCard(req, res, opts) {
     // S3d (D9b): a board/API/gateway caller can pass the clarity verdict; a
     // needs-discuss card is dispatched through the Discuss duty first. createCard
     // normalises anything but "needs-discuss" to null. NOTE: a card is CREATED on
-    // backlog (title/project inference); the clarity is stamped now, but the card only
-    // REACHES Discuss when its creator moves it there (the gateway carding does this via
-    // targetList "discuss"; a bare API client must issue the follow-up move itself).
+    // its selected capture list (Backlog by default); the clarity is stamped now,
+    // but the card only REACHES Discuss when its creator moves it there (gateway carding via
+    // targetList "discuss"; this create target deliberately accepts manual lists
+    // only, so a gateway still uses its engine-authorised follow-up move).
     clarity: typeof body.clarity === "string" ? body.clarity : null,
     // Card scheduling: hold until this instant, then notify (default) or run.
     // A supplied-but-unparseable instant is a caller mistake worth failing fast
@@ -1510,7 +1528,7 @@ async function handleCreateCard(req, res, opts) {
     scheduleAction: body.scheduleAction ?? null,
     // The in-card checklist (normalised by createCard).
     checklist: body.checklist ?? null,
-    // Item 1: land at the top of backlog (zero when the list is empty).
+    // Item 1: land at the top of the chosen list (zero when it is empty).
       position: topPosition
     });
   });

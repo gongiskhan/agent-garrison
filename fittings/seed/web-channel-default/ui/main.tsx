@@ -884,10 +884,34 @@ const threaded = !url.console;
  * browser has no Push API at all until the app is on the Home Screen, and
  * showing "unsupported" there would be wrong and unactionable.
  */
+export function PushNotice({
+  text,
+  kind = "notice",
+  onDismiss,
+}: {
+  text: string;
+  kind?: "notice" | "toast";
+  onDismiss: () => void;
+}) {
+  return (
+    <div className={kind === "toast" ? "wc-push-toast" : "wc-push-notice"} role="status">
+      <span>{text}</span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label={kind === "toast" ? "Dismiss notification" : "Dismiss notification notice"}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 function PushEnroller() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
 
   useEffect(() => {
     void registerServiceWorker().then(() => pushState().then(setState));
@@ -928,20 +952,14 @@ function PushEnroller() {
   return (
     <>
       {state === "prompt" && pill("Enable notifications", onEnable)}
-      {state === "needs-install" && pill("Add to Home Screen to enable notifications")}
-      {state === "denied" && pill("Notifications blocked — enable them in browser settings")}
+      {!noticeDismissed && state === "needs-install" && (
+        <PushNotice text="Add to Home Screen to enable notifications" onDismiss={() => setNoticeDismissed(true)} />
+      )}
+      {!noticeDismissed && state === "denied" && (
+        <PushNotice text="Notifications blocked — enable them in browser settings" onDismiss={() => setNoticeDismissed(true)} />
+      )}
       {toast && (
-        <div
-          role="status"
-          style={{
-            position: "fixed", left: 12, right: 12, bottom: 56, zIndex: 41,
-            padding: "10px 12px", borderRadius: 10, background: "rgba(20,24,28,0.96)",
-            border: "1px solid rgba(255,255,255,0.18)", color: "#d7dde3",
-            font: "500 13px/1.35 system-ui, sans-serif"
-          }}
-        >
-          {toast}
-        </div>
+        <PushNotice kind="toast" text={toast} onDismiss={() => setToast(null)} />
       )}
     </>
   );

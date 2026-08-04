@@ -3,7 +3,14 @@
 // control inside the card (its buttons / links / fields, whose clicks bubble to the
 // card root), or (2) a drag just ended (its trailing synthesised click). Pure module.
 import { describe, it, expect } from "vitest";
-import { shouldOpenCard, INTERACTIVE_ANCESTORS } from "../fittings/seed/kanban-loop/ui/card-click";
+import { readFileSync } from "node:fs";
+import {
+  canAddCardDirectly,
+  cardTitleEditAction,
+  shouldCommitCardTitleOnBlur,
+  shouldOpenCard,
+  INTERACTIVE_ANCESTORS
+} from "../fittings/seed/kanban-loop/ui/card-click";
 
 // A minimal element-like stub: `closest(sel)` returns a truthy match when `sel`
 // contains any of the element's declared interactive-ancestor tags.
@@ -45,5 +52,44 @@ describe("shouldOpenCard — click the card body to open it", () => {
 
   it("opens for a target without .closest (non-element node)", () => {
     expect(shouldOpenCard({} as any, false)).toBe(true);
+  });
+});
+
+describe("direct card interactions", () => {
+  it("offers direct creation in Backlog and To Do only", () => {
+    expect(canAddCardDirectly("backlog")).toBe(true);
+    expect(canAddCardDirectly("todo")).toBe(true);
+    expect(canAddCardDirectly("discuss")).toBe(false);
+    expect(canAddCardDirectly("plan")).toBe(false);
+    expect(canAddCardDirectly("done")).toBe(false);
+  });
+
+  it("maps accessible title-editor keyboard controls", () => {
+    expect(cardTitleEditAction("Enter")).toBe("save");
+    expect(cardTitleEditAction("Escape")).toBe("cancel");
+    expect(cardTitleEditAction("Tab")).toBeNull();
+    expect(cardTitleEditAction("a")).toBeNull();
+  });
+
+  it("commits on focus leaving the editor, but not between its controls", () => {
+    expect(shouldCommitCardTitleOnBlur(false)).toBe(true);
+    expect(shouldCommitCardTitleOnBlur(true)).toBe(false);
+  });
+
+  it("isolates title-editor keys from the sortable card keyboard sensor", () => {
+    const source = readFileSync(
+      new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url),
+      "utf8"
+    );
+    const editorStart = source.indexOf('className="card-title-editor"');
+    expect(editorStart).toBeGreaterThan(-1);
+    const editorOpening = source.slice(editorStart, editorStart + 900);
+    expect(editorOpening).toContain("onKeyDown={(e) => e.stopPropagation()}");
+    expect(editorOpening).not.toContain("onKeyDown={(e) => { e.preventDefault()");
+
+    const titleButtonStart = source.indexOf('className="title card-title-edit"');
+    expect(titleButtonStart).toBeGreaterThan(-1);
+    const titleButtonOpening = source.slice(titleButtonStart, titleButtonStart + 1_000);
+    expect(titleButtonOpening).toContain("onKeyDown={(e) => e.stopPropagation()}");
   });
 });
