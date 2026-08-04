@@ -22,6 +22,16 @@ to other machines and to personal-assistant use cases.
 > session view" / "start a session". Dated "we shipped worktrees" entries in
 > the history and decision-log sections are kept verbatim as history.
 
+> **Implementation status update 2026-08-03:** later work has overtaken several
+> of this roadmap's sequencing labels. Omi, scheduling/Trello, Slack heartbeat,
+> morning briefing, Outpost dispatch, and related Personal Assistant substrate
+> are implemented to varying degrees even where older sections below still say
+> “deferred.” Treat those sections as planning history, not a current feature
+> inventory. Current continuation and verification gaps are recorded in
+> [`REMOTE_MAC_WORKFLOW.md`](./REMOTE_MAC_WORKFLOW.md) and
+> [`CODEX_MEMORY_WORKFLOW.md`](./CODEX_MEMORY_WORKFLOW.md); repository and live
+> VM state remain authoritative.
+
 -----
 
 ## North star

@@ -157,3 +157,14 @@ composition working tree can be up under only one instance at a time -
 `.garrison/owner.json` enforces it. Prod normally owns `default`; a dev
 operative must use a different composition. Starting the dev APP alongside
 prod is always safe - the isolation is per composition tree, not per server.
+
+## Mac editing with VM-only execution
+
+When the source is edited on a Mac but the project runtime remains on
+`dev-madrid`, use the temporary Git snapshot workflow in
+[`REMOTE_MAC_WORKFLOW.md`](./REMOTE_MAC_WORKFLOW.md). `make remote-check`,
+`make remote-build`, and `make remote-preview` run with an ephemeral home;
+build and preview use the codex profile. None modifies this checkout or either
+running service.
+Never rsync an in-progress Mac worktree into the canonical VM directory: both
+`garrison-prod.service` and `garrison-dev.service` execute from it.

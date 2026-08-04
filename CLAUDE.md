@@ -49,12 +49,25 @@ npm run check:integration                              # live SDK + composition 
 npm run test:integration                               # GARRISON_INTEGRATION=1 vitest run on orchestrator-integration
 npm run refresh:prompts                                # regenerate default Orchestrator/Soul prompts
 tsx scripts/validate-fitting.ts fittings/seed/<id>     # four-check validation pipeline
+make remote-doctor                                     # Mac: verify guarded dev-madrid workflow
+make remote-check                                      # Mac: snapshot locally edited code, validate on VM
+make remote-preview                                    # Mac: isolated VM preview over loopback SSH tunnel
 ```
 
 The validation pipeline is four checks: **architecture** (real),
 **security** (placeholder pattern scanner), **prompt-injection**
 (placeholder pattern scanner), **quality** (real). AI-driven
 validators land in the runtime SDK milestone.
+
+Mac editing with all project execution on `dev-madrid` is documented in
+[`docs/REMOTE_MAC_WORKFLOW.md`](./docs/REMOTE_MAC_WORKFLOW.md). Its temporary
+snapshot workflow must not be replaced with a sync into the live prod/dev
+checkout.
+
+**On macOS, never run this project's `npm`, `node`, test, build, preview, or
+deployment commands locally.** Use the `make remote-*` targets; the Mac is an
+editing and Git client only. The ordinary npm commands above are for a Linux
+Garrison host.
 
 ## Terminology — don't drift
 
