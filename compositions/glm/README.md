@@ -34,25 +34,21 @@ profile offset (8083 on prod).
    moves, change it here (or in the runtime's config in the UI); do not put it on
    a target.
 
-3. **Install the GLM-only routing policy.** `.garrison/routing.json` is
-   machine-local (gitignored), so it seeds from the orchestrator Fitting's
-   default — which names `claude-code-runtime` as primary and carries the stock
-   Claude/Codex/Gemini/ollama targets. Copy the committed GLM-only policy over it
-   before the first `up`:
+3. **Confirm the GLM-only routing policy.** On the first `up` (or an explicit
+   policy edit), Garrison atomically seeds the absent machine-local
+   `.garrison/routing.json` from the committed `routing.glm-only.json`. It never
+   overwrites an existing local policy, so changes made in Muster remain yours.
+   Read-only screens preview the committed seed without modifying the checkout.
 
-   ```bash
-   mkdir -p compositions/glm/.garrison
-   cp compositions/glm/routing.glm-only.json compositions/glm/.garrison/routing.json
-   ```
-
-   That file carries `primaryRuntime: openai-agents-runtime`, the `glm` provider
+   The committed seed carries `primaryRuntime: openai-agents-runtime`, the `glm` provider
    entry (kind `cloud-oss`, with the endpoint and `vaultKey: GLM_API_KEY`), and
    four GLM targets with every matrix row, exception and continuation remapped
    onto them. It was written through the real validate path, not hand-edited.
 
-   Without step 3 the composition still *routes* to GLM (the duty cells in
-   `apm.yml` name only `glm-*` targets, and those are merged in at compile time),
-   but the primary would be Claude Code — so it would no longer be "only GLM".
+   If an older machine already has a local policy, Garrison deliberately leaves
+   it alone. Check that its `primaryRuntime` is `openai-agents-runtime`; remove or
+   replace that local file manually only when you intentionally want to reset it
+   from the committed GLM seed.
 
 4. `up` the composition. Ports follow the usual profile offsets (gateway 4777 on
    dev, 5777 on prod).

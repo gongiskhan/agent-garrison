@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
-import { platformForRuntime } from "@/components/accounts/shared";
+import { runtimeAccountContract } from "@/components/accounts/shared";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
@@ -784,13 +784,30 @@ function ConfigInput({
   // guided login flow instead of a free-text input (options are the registry,
   // which is dynamic — a static config_schema select cannot express it).
   if (field.key === "account") {
+    const accountContract = runtimeAccountContract(fittingId, undefined, provider);
+    if (!accountContract) {
+      return (
+        <div className="field">
+          <label>{field.key}</label>
+          <div className="hint">
+            This provider is keyless or has no declared named-account mapping.
+          </div>
+          {String(value) ? (
+            <button type="button" className="btn small" onClick={() => onChange("")}>
+              Clear incompatible account “{String(value)}”
+            </button>
+          ) : null}
+          {field.description ? <div className="hint">{field.description}</div> : null}
+        </div>
+      );
+    }
     return (
       <div className="field">
         <label>{field.key}</label>
         <AccountField
           value={String(value)}
           onChange={(next) => onChange(next)}
-          platform={platformForRuntime(fittingId, undefined, provider)}
+          contract={accountContract}
         />
         {field.description ? <div className="hint">{field.description}</div> : null}
       </div>

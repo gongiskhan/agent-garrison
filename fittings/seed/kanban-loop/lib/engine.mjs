@@ -25,7 +25,7 @@ import path from "node:path";
 import { hostname } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
+import { saveCard, saveCardCAS, saveCardCASWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -33,13 +33,12 @@ import {
   applyPlanCompletionCoordination,
   applyBlockerWrite,
   stabilityFields,
-  removeCardIntents,
   repoPathForProject,
   readTouchSet,
   liveSameProjectCards,
   acquireLeases,
   renewLeases,
-  releaseLeases,
+  cleanupCardCoordination,
   reregisterTouchSetIfGrown,
   claimCovers
 } from "./coordination.mjs";
@@ -561,6 +560,41 @@ export function parkFields(card, fromList, reason, eventKind = "blocked") {
   };
 }
 
+// An explicit human Start consumes a coordination wait and/or schedule, but only
+// in the SAME CAS that acquires the run. Keeping this pure lets the server's
+// manual-list advance use the identical event contract while processCard and
+// processBatch defer consumption until status:"running" actually commits.
+export function consumeStartOverrides(card, at = new Date().toISOString()) {
+  let next = { ...card };
+  if (card.waitingOn) {
+    const w = card.waitingOn;
+    next = {
+      ...next,
+      waitingOn: null,
+      events: withEvent(next, {
+        at,
+        kind: "coordination",
+        message: `Wait overridden manually (was waiting on ${w.cardTitle || w.cardId})`,
+        detail: w.reason || null
+      })
+    };
+  }
+  if (card.scheduledFor) {
+    next = {
+      ...next,
+      scheduledFor: null,
+      scheduleAction: null,
+      scheduleNotifiedAt: null,
+      events: withEvent(next, {
+        at,
+        kind: "moved",
+        message: `Schedule cleared by manual start (was scheduled for ${card.scheduledFor})`
+      })
+    };
+  }
+  return next;
+}
+
 // Parse the router's chosen next list. Takes the last non-empty line (the
 // router-prompt convention is to end with the verdict) and EXACT-matches it against
 // the valid next list ids. No match → null (→ needs-attention).
@@ -1025,13 +1059,13 @@ async function releaseIfStillRunning(root, base, now, why) {
   }).catch(() => null);
 }
 
-async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5 }) {
+async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5, afterWrite = undefined }) {
   // The run is over, so its owner stamp is stale by definition — clear it here
   // (the one terminal write) rather than in each of the ~29 places that build a
   // terminal card, so a finished card can never look orphan-sweepable.
   const target = { ...rawTarget, runOwner: null };
-  let res = await saveCardCAS(root, target, runRev, now());
-  if (res.ok) return { ok: true, card: res.card, takenOver: false };
+  let res = await saveCardCASWithHooks(root, target, runRev, now(), { afterWrite });
+  if (res.ok) return { ok: true, card: res.card, takenOver: false, postCommitError: res.postCommitError || null };
   // The card was DELETED mid-run. There is nothing to write, nothing to rebase and
   // nothing to release — and retrying would only re-attempt a write the store now
   // (correctly) refuses. Stop cleanly: the user threw the work away on purpose.
@@ -1052,8 +1086,8 @@ async function commitRunResult(root, { base, target: rawTarget, runRev, dispatch
       return { ok: false, card: released ?? fresh, takenOver: true };
     }
     const rebased = rebaseTerminalWrite(base, target, fresh);
-    res = await saveCardCAS(root, rebased, fresh.rev ?? 0, now());
-    if (res.ok) return { ok: true, card: res.card, takenOver: false };
+    res = await saveCardCASWithHooks(root, rebased, fresh.rev ?? 0, now(), { afterWrite });
+    if (res.ok) return { ok: true, card: res.card, takenOver: false, postCommitError: res.postCommitError || null };
   }
   // Rebase exhausted (a writer is hammering this card). Still never leave it running.
   const released = await releaseIfStillRunning(root, base, now, `the terminal write lost the compare-and-swap ${tries} times running`);
@@ -1094,7 +1128,7 @@ export async function settleProjectInference(root, card, baseRev, opts = {}) {
 // Run ONE transition for a card on an agent list. runFn dispatches the prompt
 // through the orchestrator (preRoute) and returns { reply }. Returns the updated
 // card + an outcome ({status: moved|needs-attention|skipped, ...}).
-export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined, settle = {} }) {
+export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined, settle = {}, manualStart = false }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
   // S3d (D9b): a clarity-gated discuss card is dispatched THROUGH the interactive
@@ -1123,14 +1157,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // dispatched until reevaluateWaiting releases it (or a human Start override
   // clears the wait). Belt-and-suspenders here in addition to the tick/dispatch
   // skips, so no path re-dispatches a waiting card.
-  if (card.waitingOn) {
+  if (card.waitingOn && !manualStart) {
     return { card, outcome: { status: "waiting", reason: "waiting-on", waitingOn: card.waitingOn } };
   }
   // Card scheduling hold: a future (or unparseable — fail closed) scheduledFor
   // keeps the card OUT of every dispatch path — tick, processChain, the PATCH
-  // auto-dispatch. Human Start / run_card clear the schedule BEFORE dispatching,
-  // so an explicit "run it now" is never refused here.
-  if (scheduleHolds(card)) {
+  // auto-dispatch. Human Start / run_card authorizes an override that is consumed
+  // atomically by the eventual running-state acquire below.
+  if (scheduleHolds(card) && !manualStart) {
     return { card, outcome: { status: "skipped", reason: "scheduled", scheduledFor: card.scheduledFor } };
   }
   // S3c pre-dispatch steering guard: a pending revisit directive re-stages the card
@@ -1228,59 +1262,43 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
       return { card: res.card, outcome: { status: "needs-attention", reason: "no-evidence", phasesOff: skipped } };
     }
-    const res = await saveCardCAS(
+    const landedTerminal = fwd === "done" || Boolean(getList(board, fwd)?.terminal);
+    const repoPath = repoPathForProject(card.project, board);
+    const res = await saveCardCASWithHooks(
       root,
-      { ...card, list: fwd, events },
+      {
+        ...card,
+        list: fwd,
+        ...(phase === "implement" || landedTerminal ? { leaseOwnerToken: null } : {}),
+        events
+      },
       baseRev,
-      now()
+      now(),
+      {
+        // Rail fast-forward is a real lifecycle edge too. Do not release the
+        // Implement lease (or terminal intent) before the move commits, and keep
+        // cleanup under the same card lock so a reopen cannot race it.
+        afterWrite: landedTerminal || phase === "implement"
+          ? () => {
+              cleanupCardCoordination({
+                root,
+                cardId: card.id,
+                repoPaths: [repoPath].filter(Boolean),
+                removeIntents: landedTerminal,
+                ownerToken: landedTerminal ? null : (card.leaseOwnerToken || null)
+              });
+            }
+          : undefined
+      }
     );
     if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
     return { card: res.card, outcome: { status: "moved", from: card.list, to: fwd, phasesOff: skipped } };
   }
-  // Exclusive-lease gate (D6): before dispatching IMPLEMENT for a card whose
-  // touch-set declares `exclusive` paths, take the local leases. Held by another
-  // live card -> the card WAITS (until:"lease", re-dispatches in place on release)
-  // WITHOUT consuming an iteration or dispatching. Checked before the acquire so a
-  // blocked card never burns a run.
-  if (coordActive && phase === "implement" && card.runDir) {
-    const ts = readTouchSet(card.runDir);
-    const excl = [...(ts?.exclusive || [])];
-    // D6: union in the policy's always-exclusive list for every path this
-    // card's claims COVER - a lockfile under a claimed dir is exclusive even
-    // when the prediction forgot to mark it.
-    for (const p of coordCfg.exclusiveLeases || []) {
-      if (!excl.includes(p) && ts && claimCovers(ts, p)) excl.push(p);
-    }
-    if (excl.length) {
-      const repoPath = repoPathForProject(card.project, board);
-      if (repoPath) {
-        const lease = acquireLeases({ repoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
-        if (!lease.ok) {
-          // Resolve the holder's title so the UI shows a name, not a bare id tail.
-          let holderTitle = null;
-          if (lease.heldBy) { try { holderTitle = (await loadCard(root, lease.heldBy))?.title || null; } catch { /* best-effort */ } }
-          const reason = `exclusive lease held by ${holderTitle ? `${holderTitle} (${String(lease.heldBy).slice(-6)})` : lease.heldBy || "another run"} on ${excl.join(", ")}`;
-          const waitingOn = {
-            cardId: lease.heldBy || null,
-            cardTitle: holderTitle,
-            grade: "lease",
-            reason,
-            until: "lease",
-            thenTo: card.list,
-            rerun: true,
-            since: now()
-          };
-          const res = await saveCardCAS(root, {
-            ...card,
-            waitingOn,
-            events: withEvent(card, { at: now(), kind: "coordination", message: `Waiting on exclusive lease before Implement: ${excl.join(", ")}`, detail: reason })
-          }, baseRev, now());
-          if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-          return { card: res.card, outcome: { status: "waiting", reason: "lease", waitingOn } };
-        }
-      }
-    }
-  }
+  // Exclusive-lease gate (D6): acquire only in the running-state CAS hook below.
+  // The actual repo/path calculation happens after project inference settles and
+  // reloads the card; calculating from this earlier snapshot can miss contention
+  // when inference supplies the project just before the acquire.
+  let implementLease = null;
   // OUTPOST DISPATCH (pull-based): a card placed on another machine is NOT this
   // engine's to run. Leave it exactly where it is, untouched, for that machine's
   // worker to claim through the host dispatch API.
@@ -1386,6 +1404,20 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // inference to SETTLE first — it is bounded and short — then re-read the card so
   // the acquire CAS uses the post-inference rev.
   ({ card, baseRev } = await settleProjectInference(root, card, baseRev, settle));
+  if (coordActive && phase === "implement" && card.runDir) {
+    const ts = readTouchSet(card.runDir);
+    const excl = [...(ts?.exclusive || [])];
+    // D6: union in the policy's always-exclusive list for every path this
+    // card's claims COVER - a lockfile under a claimed dir is exclusive even
+    // when the prediction forgot to mark it.
+    for (const p of coordCfg.exclusiveLeases || []) {
+      if (!excl.includes(p) && ts && claimCovers(ts, p)) excl.push(p);
+    }
+    if (excl.length) {
+      const repoPath = repoPathForProject(card.project, board);
+      if (repoPath) implementLease = { repoPath, paths: excl };
+    }
+  }
   const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
   // `iterations` is the resettable convergence-cap counter. Log ordinals are a
   // separate monotonic sequence so recovery can reset the cap without reusing
@@ -1401,10 +1433,15 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     message: `Dispatched to the operative on ${listTitle}${skill ? ` (${skill})` : ""} — run ${iteration}`,
     detail: card.project ? null : "No project assigned — the operative is asked to infer it from the description."
   };
-  const acq = await saveCardCAS(
+  // A manual Start is an escape hatch, but its holds are not consumed by an
+  // earlier standalone save. Fold them into this acquire so every refusal above
+  // (placement, cap, lease, outpost, steering) and every losing CAS preserves the
+  // exact waitingOn/schedule state the human started from.
+  const acquireBase = manualStart ? consumeStartOverrides(card, dispatchAt) : card;
+  const acq = await saveCardCASWithHooks(
     root,
     {
-      ...card,
+      ...acquireBase,
       ...(minted || {}),
       status: "running",
       iterations: iteration,
@@ -1422,11 +1459,68 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       // is what lets commitRunResult tell "my run" from "a previous generation of my
       // run that came back late" — see runStillOwns.
       runSeq: (card.runSeq ?? 0) + 1,
-      events: withEvent(card, dispatchEvent)
+      events: withEvent(acquireBase, dispatchEvent)
     },
     baseRev,
-    now()
+    now(),
+    {
+      beforeWrite: implementLease
+        ? ({ next }) => {
+            const lease = acquireLeases({
+              repoPath: implementLease.repoPath,
+              card: next,
+              paths: implementLease.paths,
+              ttlMinutes: coordCfg.leaseTtlMinutes,
+              now
+            });
+            if (lease.ok && lease.ownerToken) next.leaseOwnerToken = lease.ownerToken;
+            if (lease.ok) return { ok: true, lease };
+            return lease.unavailable
+              ? { ok: false, code: "lease-unavailable", ...lease }
+              : { ok: false, code: "lease-held", ...lease };
+          }
+        : undefined
+    }
   );
+  if (acq.precondition && acq.detail?.code === "lease-unavailable") {
+    return {
+      card: acq.card,
+      outcome: {
+        status: "skipped",
+        reason: "lease-unavailable",
+        retryable: true,
+        paths: implementLease?.paths || []
+      }
+    };
+  }
+  if (acq.precondition && acq.detail?.code === "lease-held") {
+    const heldBy = acq.detail.heldBy || null;
+    let holderTitle = null;
+    if (heldBy) { try { holderTitle = (await loadCard(root, heldBy))?.title || null; } catch { /* best-effort */ } }
+    const reason = `exclusive lease held by ${holderTitle ? `${holderTitle} (${String(heldBy).slice(-6)})` : heldBy || "another run"} on ${implementLease.paths.join(", ")}`;
+    const waitingOn = {
+      cardId: heldBy,
+      cardTitle: holderTitle,
+      grade: "lease",
+      reason,
+      until: "lease",
+      thenTo: acq.card.list,
+      rerun: true,
+      since: now()
+    };
+    const waiting = await saveCardCAS(root, {
+      ...acq.card,
+      waitingOn,
+      events: withEvent(acq.card, {
+        at: now(),
+        kind: "coordination",
+        message: `Waiting on exclusive lease before Implement: ${implementLease.paths.join(", ")}`,
+        detail: reason
+      })
+    }, acq.card.rev ?? baseRev, now());
+    if (!waiting.ok) return { card: waiting.card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: waiting.card, outcome: { status: "waiting", reason: "lease", waitingOn } };
+  }
   if (!acq.ok) return { card: acq.card, outcome: { status: "skipped", reason: "conflict" } };
   let runningCard = acq.card;
   const runRev = runningCard.rev;
@@ -1552,6 +1646,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         status: card.status ?? "ok",
         iterations: card.iterations || 0,
         runningSince: null,
+        // A transport failure means the requested Start never obtained a usable
+        // runtime turn. Restore the human's holds so a failed escape hatch cannot
+        // silently turn into an unscheduled, uncoordinated retry on the next tick.
+        ...(manualStart ? {
+          waitingOn: card.waitingOn ?? null,
+          scheduledFor: card.scheduledFor ?? null,
+          scheduleAction: card.scheduleAction ?? null,
+          scheduleNotifiedAt: card.scheduleNotifiedAt ?? null
+        } : {}),
+        ...(manualStart && implementLease ? { leaseOwnerToken: null } : {}),
         lastDispatchError: {
           at: now(),
           reason: "gateway-unavailable",
@@ -1567,7 +1671,22 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       };
       // Same rebase discipline as the success path: a benign concurrent write must
       // not turn "the gateway was down, retry later" into a card stranded running.
-      const res = await commitRunResult(root, { base: runningCard, target: reverted, runRev, dispatchedFrom: card.list, now });
+      const res = await commitRunResult(root, {
+        base: runningCard,
+        target: reverted,
+        runRev,
+        dispatchedFrom: card.list,
+        now,
+        afterWrite: manualStart && implementLease
+          ? () => cleanupCardCoordination({
+              root,
+              cardId: card.id,
+              repoPaths: [implementLease.repoPath],
+              removeIntents: false,
+              ownerToken: runningCard.leaseOwnerToken || null
+            })
+          : undefined
+      });
       return { card: res.card ?? runningCard, outcome: { status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err) } };
     }
     await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
@@ -1798,6 +1917,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // doesn't leave orphaned blocker/mail state.
   let blockerWrites = [];
   let terminalIntentRemoval = null;
+  let leaseMaintenance = null;
   let mails = []; // [{ toCardId, subject, body }] sent via coord-mail after save
   let coordAllCards = null;
   let coordRepoPath = null;
@@ -1964,8 +2084,11 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         fenceEvents = f.events || [];
         const excl = myTouchSet?.exclusive || [];
         if (coordRepoPath && excl.length) {
-          if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) releaseLeases({ repoPath: coordRepoPath, cardId: runningCard.id });
-          else if (phase === "implement") renewLeases({ repoPath: coordRepoPath, card: runningCard, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+          if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) {
+            leaseMaintenance = { kind: "release", args: { repoPath: coordRepoPath, cardId: runningCard.id, ownerToken: runningCard.leaseOwnerToken || null } };
+          } else if (phase === "implement") {
+            leaseMaintenance = { kind: "renew", args: { repoPath: coordRepoPath, card: runningCard, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now } };
+          }
         }
       }
       // Touch-set growth (Q5): if the operative widened its touch-set during
@@ -2000,13 +2123,17 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
         ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
         ...(coordActive ? { fences } : {}),
+        ...(leaseMaintenance?.kind === "release" || landedTerminal ? { leaseOwnerToken: null } : {}),
         events
       };
       outcome = { status: "moved", from: card.list, to: effectiveNext, nudged };
       // Terminal cleanup (Q1): a card reaching a terminal list drops its ledger
       // intents + leases so external sessions stop seeing its claims. After save.
-      if (coordActive && landedTerminal) {
-        terminalIntentRemoval = { repoPath: coordRepoPath, cardId: runningCard.id };
+      if (landedTerminal) {
+        terminalIntentRemoval = {
+          repoPath: coordRepoPath || repoPathForProject(runningCard.project, board),
+          cardId: runningCard.id
+        };
       }
     }
   } else if (gateEvidenceStale) {
@@ -2123,7 +2250,37 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // inference, steering, a coordination event) instead of abandoning the card in
   // `running`. Only a real takeover refuses it — and a takeover has already
   // cleared the running state itself.
-  const res = await commitRunResult(root, { base: runningCard, target, runRev, dispatchedFrom: card.list, now });
+  const afterLifecycleWrite = terminalIntentRemoval || leaseMaintenance
+    ? () => {
+        if (terminalIntentRemoval) {
+          cleanupCardCoordination({
+            root,
+            cardId: terminalIntentRemoval.cardId,
+            repoPaths: [terminalIntentRemoval.repoPath].filter(Boolean),
+            removeIntents: true,
+            ownerToken: null
+          });
+        } else if (leaseMaintenance?.kind === "release") {
+          cleanupCardCoordination({
+            root,
+            cardId: leaseMaintenance.args.cardId,
+            repoPaths: [leaseMaintenance.args.repoPath].filter(Boolean),
+            removeIntents: false,
+            ownerToken: leaseMaintenance.args.ownerToken || null
+          });
+        } else if (leaseMaintenance?.kind === "renew") {
+          renewLeases(leaseMaintenance.args);
+        }
+      }
+    : undefined;
+  const res = await commitRunResult(root, {
+    base: runningCard,
+    target,
+    runRev,
+    dispatchedFrom: card.list,
+    now,
+    afterWrite: afterLifecycleWrite
+  });
   if (!res.ok) {
     return {
       card: res.card ?? runningCard,
@@ -2134,6 +2291,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
           : { status: "needs-attention", reason: "conflict-during-run" }
     };
   }
+  if (res.postCommitError) outcome = { ...outcome, coordinationCleanupPending: true };
   // WS2 duty summary (D6): on a genuine advance the engine writes its own per-duty
   // rollup under the run dir (best-effort; skips when runDir is null).
   if (outcome?.status === "moved") {
@@ -2170,10 +2328,6 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // Cross-card coordination side-writes, only after our own save committed.
   for (const bw of blockerWrites) {
     await applyBlockerWrite(root, bw, now);
-  }
-  if (terminalIntentRemoval) {
-    try { removeCardIntents(terminalIntentRemoval); } catch { /* ledger cleanup best-effort */ }
-    if (terminalIntentRemoval.repoPath) { try { releaseLeases(terminalIntentRemoval); } catch { /* best-effort */ } }
   }
   // Mail (Q9) after save, so a mail event write can't conflict with our own CAS.
   if (coordActive && mails.length && coordAllCards) {
@@ -2465,7 +2619,7 @@ export async function recoverInterruptedRuns(root, now = () => new Date().toISOS
   return recovered;
 }
 
-export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), onDutyBoundary = undefined }) {
+export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), onDutyBoundary = undefined, manualStart = false }) {
   let current = card;
   let lastOutcome = { status: "skipped", reason: "noop" };
   for (let hops = 0; hops < 50; hops++) {
@@ -2473,7 +2627,19 @@ export async function processChain({ root, board, card, runFn, cap = 10, now = (
     // genuine advance — so every processChain hop already covers the duty boundary
     // (no separate between-hop call needed; the controller's cooldown would skip a
     // duplicate anyway).
-    const { card: c, outcome } = await processCard({ root, board, card: current, runFn, cap, now, cwd, onDutyBoundary });
+    const { card: c, outcome } = await processCard({
+      root,
+      board,
+      card: current,
+      runFn,
+      cap,
+      now,
+      cwd,
+      onDutyBoundary,
+      // The override authorizes only the list the human explicitly started. A
+      // successful move to the next duty returns to ordinary automatic guards.
+      manualStart: manualStart && hops === 0
+    });
     current = c;
     lastOutcome = outcome;
     if (outcome.status !== "moved") break; // parked, skipped, deferred, conflict → stop
@@ -2654,6 +2820,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   let target;
   let outcome;
   let terminalIntentRemoval = null;
+  let leaseMaintenance = null;
   if (coord && coord.kind === "park") {
     target = {
       ...card,
@@ -2704,8 +2871,11 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       fenceEvents = f.events || [];
       const excl = myTouchSet?.exclusive || [];
       if (coordRepoPath && excl.length) {
-        if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) releaseLeases({ repoPath: coordRepoPath, cardId: card.id });
-        else if (phase === "implement") renewLeases({ repoPath: coordRepoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+        if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) {
+          leaseMaintenance = { kind: "release", args: { repoPath: coordRepoPath, cardId: card.id, ownerToken: card.leaseOwnerToken || null } };
+        } else if (phase === "implement") {
+          leaseMaintenance = { kind: "renew", args: { repoPath: coordRepoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now } };
+        }
       }
     }
     if (coordActive && phase === "implement" && myTouchSet && coordRepoPath) {
@@ -2729,15 +2899,44 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
       ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
       ...(coordActive ? { fences } : {}),
+      ...(leaseMaintenance?.kind === "release" || landedTerminal ? { leaseOwnerToken: null } : {}),
       events
     };
     outcome = { status: "moved", from: card.list, to: effectiveNext };
-    if (coordActive && landedTerminal) {
-      terminalIntentRemoval = { repoPath: coordRepoPath, cardId: card.id };
+    if (landedTerminal) {
+      terminalIntentRemoval = {
+        repoPath: coordRepoPath || repoPathForProject(card.project, board),
+        cardId: card.id
+      };
     }
   }
-  const res = await saveCardCAS(root, target, card.rev ?? 0, now());
+  const res = await saveCardCASWithHooks(root, target, card.rev ?? 0, now(), {
+    afterWrite: terminalIntentRemoval || leaseMaintenance
+      ? () => {
+          if (terminalIntentRemoval) {
+            cleanupCardCoordination({
+              root,
+              cardId: terminalIntentRemoval.cardId,
+              repoPaths: [terminalIntentRemoval.repoPath].filter(Boolean),
+              removeIntents: true,
+              ownerToken: null
+            });
+          } else if (leaseMaintenance?.kind === "release") {
+            cleanupCardCoordination({
+              root,
+              cardId: leaseMaintenance.args.cardId,
+              repoPaths: [leaseMaintenance.args.repoPath].filter(Boolean),
+              removeIntents: false,
+              ownerToken: leaseMaintenance.args.ownerToken || null
+            });
+          } else if (leaseMaintenance?.kind === "renew") {
+            renewLeases(leaseMaintenance.args);
+          }
+        }
+      : undefined
+  });
   if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+  if (res.postCommitError) outcome = { ...outcome, coordinationCleanupPending: true };
   // WS2 duty summary parity: the in-session driver has no fresh reply/context, so the
   // summary falls back to the card's lastReply and the log ref to its last iteration.
   if (outcome?.status === "moved") {
@@ -2766,10 +2965,6 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   await fireDutyBoundary(onDutyBoundary, res.card ?? card, phase, outcome);
   for (const bw of blockerWrites) {
     await applyBlockerWrite(root, bw, now);
-  }
-  if (terminalIntentRemoval) {
-    try { removeCardIntents(terminalIntentRemoval); } catch { /* best-effort */ }
-    if (terminalIntentRemoval.repoPath) { try { releaseLeases(terminalIntentRemoval); } catch { /* best-effort */ } }
   }
   if (coordActive && mails.length && coordAllCards) {
     const byId = new Map(coordAllCards.map((c) => [c.id, c]));
@@ -2809,13 +3004,16 @@ export function resolveBacklogInference(card, inference, threshold = PROJECT_CON
 
 // Group a list's eligible cards by project. A null/empty project groups under the
 // literal "(no-project)" bucket so an unclassified card is still batched (with itself).
-export function groupCardsByProject(cards, listId) {
+export function groupCardsByProject(cards, listId, { manualStartIds = new Set() } = {}) {
+  const overrides = manualStartIds instanceof Set ? manualStartIds : new Set(manualStartIds || []);
   const byProject = {};
   for (const c of cards) {
     if (c.list !== listId) continue;
     if (c.status === "running" || c.status === "needs-attention") continue;
-    if (c.waitingOn) continue; // deferred behind an overlapping run (coordination)
-    if (scheduleHolds(c)) continue; // held until its scheduled instant
+    // A selected manual-Start card stays eligible without first clearing its
+    // holds on disk; processBatch consumes them only in that card's acquire CAS.
+    if (c.waitingOn && !overrides.has(c.id)) continue;
+    if (scheduleHolds(c) && !overrides.has(c.id)) continue;
     const key = c.project || "(no-project)";
     (byProject[key] ??= []).push(c);
   }
@@ -2877,7 +3075,7 @@ export function parseBatchVerdicts(reply, cards, board, model = null) {
 // is the card's first agent-list entry): a valid verdict moves it forward; a missing /
 // non-matching verdict, or an iteration-cap breach, loops it to `implement` (the fail
 // edge) or parks it in needs-attention if implement is not a valid next.
-export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined }) {
+export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, manualStartIds = [] }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, listId);
   if (!list || list.kind !== AGENT_KIND) {
@@ -2892,7 +3090,8 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
   const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextFor(board, listId);
   const batchPhase = phaseForList(list);
-  const projectGroups = groupCardsByProject(cards, listId);
+  const manualStarts = manualStartIds instanceof Set ? manualStartIds : new Set(manualStartIds || []);
+  const projectGroups = groupCardsByProject(cards, listId, { manualStartIds: manualStarts });
   // A batch is one runtime session, so v4 cards may share it only when their
   // current leaf resolves to the same exact target/cell settings. Preserve the
   // historical one-batch-per-project behavior for all legacy cards.
@@ -2950,19 +3149,22 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
       const iteration = (card.iterations || 0) + 1;
       const logIndex = latestCardLogNumber(root, card) + 1;
+      const dispatchAt = now();
+      const manualStart = manualStarts.has(card.id);
+      const acquireBase = manualStart ? consumeStartOverrides(card, dispatchAt) : card;
       const acq = await saveCardCAS(root, {
-        ...card,
+        ...acquireBase,
         ...(minted || {}),
         status: "running",
         iterations: iteration,
         logIndex,
-        runningSince: now(),
+        runningSince: dispatchAt,
         // Same owner + generation stamp as the single-card acquire, so a batched run
         // is equally sweepable when its driver dies and equally unable to clobber a
         // later generation of itself.
-        runOwner: { pid: process.pid, host: hostname(), at: now() },
+        runOwner: { pid: process.pid, host: hostname(), at: dispatchAt },
         runSeq: (card.runSeq ?? 0) + 1,
-        events: withEvent(card, { at: now(), kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
+        events: withEvent(acquireBase, { at: dispatchAt, kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
       }, baseRev, now());
       if (!acq.ok) { outcomes.push({ id: card.id, status: "skipped", reason: "conflict", project }); continue; }
       const gateBaseline = acq.card.runDir && batchPhase
@@ -2973,6 +3175,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         running: acq.card,
         iteration,
         logIndex,
+        manualStart,
         gateFreshness: gateBaseline ? { baseline: gateBaseline } : null
       });
     }
@@ -3020,6 +3223,12 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
             status: a.original.status ?? "ok",
             iterations: a.original.iterations || 0,
             runningSince: null,
+            ...(a.manualStart ? {
+              waitingOn: a.original.waitingOn ?? null,
+              scheduledFor: a.original.scheduledFor ?? null,
+              scheduleAction: a.original.scheduleAction ?? null,
+              scheduleNotifiedAt: a.original.scheduleNotifiedAt ?? null
+            } : {}),
             lastDispatchError: {
               at: now(),
               reason: "gateway-unavailable",
@@ -3349,7 +3558,26 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // Same rebase discipline as the single-card path: the Test list is BATCHED, so a
       // concurrent write during a batch turn used to strand EVERY card in the group in
       // "running", exactly the way the incident card was stranded.
-      const res = await commitRunResult(root, { base: a.running, target, runRev: a.running.rev, dispatchedFrom: listId, now });
+      const landedTerminal = target.list === "done" || Boolean(getList(board, target.list)?.terminal);
+      const terminalHold = landedTerminal
+        ? { repoPath: repoPathForProject(a.running.project, board), cardId: a.running.id }
+        : null;
+      const res = await commitRunResult(root, {
+        base: a.running,
+        target,
+        runRev: a.running.rev,
+        dispatchedFrom: listId,
+        now,
+        afterWrite: terminalHold
+          ? () => cleanupCardCoordination({
+              root,
+              cardId: terminalHold.cardId,
+              repoPaths: [terminalHold.repoPath].filter(Boolean),
+              removeIntents: true,
+              ownerToken: null
+            })
+          : undefined
+      });
       if (!res.ok) {
         outcomes.push(res.takenOver
           ? { id: a.original.id, status: "skipped", reason: "taken-over-during-run", project }
@@ -3371,7 +3599,14 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       if (evidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-evidence", project }); continue; }
       if (batchInterferenceWait) { outcomes.push({ id: a.original.id, status: "waiting", reason: "interference", project }); continue; }
       if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: reply.trim() ? "no-exact-match" : "empty-reply", project }); continue; }
-      outcomes.push({ id: a.original.id, status: "moved", from: listId, to: target.list, project });
+      outcomes.push({
+        id: a.original.id,
+        status: "moved",
+        from: listId,
+        to: target.list,
+        project,
+        ...(res.postCommitError ? { coordinationCleanupPending: true } : {})
+      });
     }
   }
   return { outcomes };

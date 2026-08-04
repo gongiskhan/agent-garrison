@@ -51,7 +51,7 @@ beforeAll(async () => {
       // (and contain the pre-dedupe duplicate Implement edge).
       { id: "needs-attention", title: "Needs attention", order: 4, kind: "manual", trigger: "manual", validNext: ["todo", "implement", "implement"] }
     ],
-    projects: {}
+    projects: { demo: { path: root } }
   }, root);
 
   gateway = http.createServer((req, res) => {
@@ -105,6 +105,16 @@ describe("POST /cards/:id/start — needs-attention retry", () => {
         { at: failedAt, kind: "failed", message: "Run errored on Plan", detail: "turn cap" }
       ]
     });
+    writeFileSync(path.join(runDir, "touch-set.json"), JSON.stringify({
+      version: 1,
+      cardId: parked.id,
+      runId,
+      project: "demo",
+      files: [],
+      dirs: [],
+      surfaces: [],
+      exclusive: []
+    }), "utf8");
     // This is deliberately a legacy/current run-failure card with no logIndex:
     // recovery resets iterations to 0, but the prior log must remain immutable.
     const priorLog = "# iteration 1\nrun failed: turn cap\n";

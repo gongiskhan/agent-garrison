@@ -483,5 +483,14 @@ export function accountHomeEnv(
 ): Record<string, string> {
   const spec = PLATFORM_SPECS[platform].authFile;
   if (!spec) return { GARRISON_ACCOUNT: name };
-  return { GARRISON_ACCOUNT: name, [spec.homeEnvKey]: homeDir };
+  const env: Record<string, string> = {
+    GARRISON_ACCOUNT: name,
+    [spec.homeEnvKey]: homeDir
+  };
+  // An auth-file selection is an exclusive credential source. Explicitly empty
+  // every token rail for the platform so a launcher/global API key cannot take
+  // precedence over the materialized subscription login.
+  for (const key of PLATFORM_SPECS[platform].envKeys) env[key] = "";
+  for (const key of PLATFORM_SPECS[platform].clearKeys) env[key] = "";
+  return env;
 }

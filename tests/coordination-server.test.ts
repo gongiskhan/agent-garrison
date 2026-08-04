@@ -92,6 +92,15 @@ async function jsend(method: string, path: string, body?: unknown) {
   return { status: r.status, body: await r.json() as any };
 }
 
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for accepted dispatch state");
+}
+
 describe("(a) cardSummary carries the coordination fields", () => {
   it("waitingOn / stabilityAt / planCompletedAt / blocking survive the projection", () => {
     const waitingOn = { cardId: "01BLOCKER00000000000000000", cardTitle: "earlier run", grade: "medium", reason: "medium overlap on files [src/a.ts]", until: "stability", thenTo: "implement", rerun: false, since: "2026-07-10T00:00:00.000Z" };
@@ -159,9 +168,9 @@ describe("(c) manual Start on a waiting card overrides the wait and dispatches",
     expect(res.body.card.lastEvent.kind).toBe("coordination");
     expect(res.body.card.lastEvent.message).toMatch(/overridden manually/i);
 
-    // On disk the wait stays cleared (the override write landed before dispatch).
-    const disk = await loadCard(KANBAN_DIR, card.id);
-    expect(disk.waitingOn ?? null).toBeNull();
+    // The response is an accepted-dispatch projection. The durable override lands
+    // only in the engine's acquire CAS, so an acquire refusal cannot erase the hold.
+    await waitFor(async () => (await loadCard(KANBAN_DIR, card.id)).waitingOn == null);
   });
 });
 

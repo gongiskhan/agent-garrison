@@ -24,6 +24,7 @@ import { openAiPoolKey, openAiPoolEntries } from "../fittings/seed/openai-agents
 import { delegate, validateDelegationResult, runAdapterConformance, MultiRuntimePool } from "../packages/claude-pty/src/index.mjs";
 import { parseGarrisonMetadata } from "@/lib/metadata";
 import { readYamlFile } from "@/lib/yaml";
+import { runtimeBindings } from "@/components/accounts/AccountsManager";
 
 const REPO = path.resolve(__dirname, "..");
 const FIT = path.join(REPO, "fittings/seed/openai-agents-runtime");
@@ -413,11 +414,58 @@ describe("openai-agents-runtime seed manifest (openai-manifest-ok)", () => {
     expect((metadata.for_consumers ?? "").toUpperCase()).toContain("PRIMARY");
   });
 
-  it("declares config keys provider / model / baseUrl / promptMode / maxTurns", async () => {
+  it("declares config keys provider / model / baseUrl / promptMode / maxTurns / account", async () => {
     const manifest = await readYamlFile<{ "x-garrison"?: unknown }>(path.join(FIT, "apm.yml"));
     const metadata = parseGarrisonMetadata(manifest!["x-garrison"]);
     const keys = (metadata.config_schema ?? []).map((c: any) => c.key);
-    expect(keys).toEqual(expect.arrayContaining(["provider", "model", "baseUrl", "promptMode", "maxTurns"]));
+    expect(keys).toEqual(expect.arrayContaining(["provider", "model", "baseUrl", "promptMode", "maxTurns", "account"]));
+  });
+
+  it("binds keyed providers and preserves stale keyless selections for correction", () => {
+    const standing = (provider: string, account = "provider-account") => ({
+      slots: [
+        {
+          faculty: "runtimes",
+          fittings: [
+            {
+              id: "openai-agents-runtime",
+              name: "OpenAI Agents Runtime",
+              providesRuntime: true,
+              isPrimaryRuntime: true,
+              configSchema: [{ key: "account" }],
+              config: { provider, account }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(runtimeBindings(standing("glm"))[0].contract).toMatchObject({
+      platform: "glm",
+      allowAuthFile: false,
+      emptyMode: "default-key"
+    });
+    expect(runtimeBindings(standing("openai"))[0].contract).toMatchObject({
+      platform: "openai",
+      allowAuthFile: false,
+      emptyMode: "default-key"
+    });
+    expect(runtimeBindings(standing("openai-compat"))[0].contract).toMatchObject({
+      platform: "openai",
+      allowAuthFile: false,
+      emptyMode: "default-key"
+    });
+    expect(runtimeBindings(standing("ollama-local", ""))).toEqual([]);
+    expect(runtimeBindings(standing("unknown-provider", ""))).toEqual([]);
+
+    expect(runtimeBindings(standing("ollama-local"))[0]).toMatchObject({
+      account: "provider-account",
+      contract: null
+    });
+    expect(runtimeBindings(standing("unknown-provider"))[0]).toMatchObject({
+      account: "provider-account",
+      contract: null
+    });
   });
 });
 

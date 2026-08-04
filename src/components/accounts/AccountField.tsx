@@ -5,7 +5,7 @@
 // mode; managing the accounts themselves lives on the dedicated /accounts
 // surface (AccountsManager). Modes, per platform:
 //
-//   Machine login (value "")   — run under this box's own native login.
+//   Machine login/default key (value "") — use the platform's unpinned source.
 //   Auto (value "auto")        — ANTHROPIC ONLY: rotate registered accounts by usage.
 //   Pin an account (value <n>) — pin every session to one named account.
 //
@@ -20,13 +20,16 @@ import {
   PLATFORM_SPECS,
   accountOptionLabel,
   accountStatusChip,
+  compatibleRuntimeAccounts,
   eligibleRotationCount,
   formatCountdown,
   machineStatusChip,
+  runtimeAccountSelectionIssue,
   type AccountInfo,
   type AccountPlatform,
   type PaymasterPayload,
-  type PlatformLogin
+  type PlatformLogin,
+  type RuntimeAccountContract
 } from "./shared";
 
 // Re-exported for the two call sites that import it alongside AccountField.
@@ -35,7 +38,7 @@ export { GenericLoginPanel } from "./LoginDialog";
 type Mode = "machine" | "auto" | "pin";
 
 function modeOf(value: string, platform: AccountPlatform): Mode {
-  if (value === "auto") return platform === "anthropic" ? "auto" : "machine";
+  if (value === "auto") return platform === "anthropic" ? "auto" : "pin";
   if (value === "") return "machine";
   return "pin";
 }
@@ -77,12 +80,13 @@ function ModeButton({
 export function AccountField({
   value,
   onChange,
-  platform = "anthropic"
+  contract
 }: {
   value: string;
   onChange: (value: string) => void;
-  platform?: AccountPlatform;
+  contract: RuntimeAccountContract;
 }) {
+  const { platform, emptyMode } = contract;
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [machine, setMachine] = useState<PlatformLogin | null>(null);
   const [pay, setPay] = useState<PaymasterPayload | null>(null);
@@ -91,15 +95,16 @@ export function AccountField({
   // which a pure derivation would read back as Machine login and bounce.
   const [mode, setMode] = useState<Mode>(() => modeOf(value, platform));
   useEffect(() => {
-    if (value === "auto" && platform === "anthropic") setMode("auto");
-    else if (value !== "" && value !== "auto") setMode("pin");
+    setMode(modeOf(value, platform));
   }, [value, platform]);
 
   const refresh = useCallback(async () => {
     try {
       const [a, m, p] = await Promise.all([
         fetch("/api/accounts").then((r) => (r.ok ? r.json() : null)),
-        fetch("/api/accounts/machine-login").then((r) => (r.ok ? r.json() : null)),
+        emptyMode === "machine-login"
+          ? fetch("/api/accounts/machine-login").then((r) => (r.ok ? r.json() : null))
+          : Promise.resolve(null),
         platform === "anthropic"
           ? fetch("/api/accounts/paymaster").then((r) => (r.ok ? r.json() : null))
           : Promise.resolve(null)
@@ -114,20 +119,23 @@ export function AccountField({
     } catch {
       /* transient — keep last render */
     }
-  }, [platform]);
+  }, [platform, emptyMode]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const platAccounts = accounts.filter((a) => a.platform === platform);
+  const platAccounts = compatibleRuntimeAccounts(accounts, contract);
   const selected = platAccounts.find((account) => account.name === value);
+  const issue = runtimeAccountSelectionIssue(value, contract, accounts);
+  const hasMachineLogin = emptyMode === "machine-login";
+  const defaultModeLabel = hasMachineLogin ? "Machine login" : "Default key";
 
   const chooseMode = (next: Mode) => {
     setMode(next);
     if (next === "machine") onChange("");
     else if (next === "auto") onChange("auto");
-    else onChange(value && value !== "auto" ? value : platAccounts[0]?.name ?? "");
+    else if (!value || value === "auto") onChange(platAccounts[0]?.name ?? "");
   };
 
   const modes: { id: Mode; label: string }[] =
@@ -138,7 +146,7 @@ export function AccountField({
           { id: "pin", label: "Pin an account" }
         ]
       : [
-          { id: "machine", label: "Machine login" },
+          { id: "machine", label: defaultModeLabel },
           { id: "pin", label: "Pin an account" }
         ];
 
@@ -156,10 +164,37 @@ export function AccountField({
         ))}
       </div>
 
+      {issue ? (
+        <div
+          className="hint"
+          data-testid="account-selection-incompatible"
+          style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--alarm)" }}
+        >
+          {issue.message}{" "}
+          <button
+            type="button"
+            className="btn small"
+            data-testid="account-selection-clear"
+            onClick={() => onChange("")}
+          >
+            Clear selection
+          </button>
+        </div>
+      ) : null}
+
       {mode === "machine" ? (
         <div className="hint" data-testid="account-summary-machine" style={{ fontSize: 12, lineHeight: 1.5 }}>
-          Runs under this box&apos;s own {PLATFORM_SPECS[platform].label.split(" / ")[0]} login.{" "}
-          {machine ? (
+          {hasMachineLogin ? (
+            <>
+              Runs under this box&apos;s own {PLATFORM_SPECS[platform].label.split(" / ")[0]} login.{" "}
+            </>
+          ) : (
+            <>
+              Uses the unpinned {PLATFORM_SPECS[platform].envKeys.join(" / ") || "provider key"} from the
+              Vault/runtime environment.{" "}
+            </>
+          )}
+          {hasMachineLogin && machine ? (
             machine.loggedIn ? (
               <span style={{ color: CHIP_COLOR[machineStatusChip(machine).tone], fontWeight: 600 }}>
                 {machine.email ?? "logged in"}
@@ -170,9 +205,9 @@ export function AccountField({
                 {machineStatusChip(machine).detail}
               </span>
             )
-          ) : (
+          ) : hasMachineLogin ? (
             <span>checking…</span>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -218,8 +253,8 @@ export function AccountField({
                 {accountOptionLabel(account)}
               </option>
             ))}
-            {value && !selected && platAccounts.length > 0 ? (
-              <option value={value}>{value} · not in registry</option>
+            {value && !selected ? (
+              <option value={value}>{issue?.optionLabel ?? `${value} (incompatible)`}</option>
             ) : null}
           </select>
           {selected ? (

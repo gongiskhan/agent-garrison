@@ -395,6 +395,14 @@ describe("primaryRuntime in the policy (P3/D4)", () => {
   it("compiled policy carries the providers section alongside (P2+P3 coherence)", async () => {
     const mod = await core();
     const pol = mod.compilePolicy(seedConfig());
-    expect(pol.providers.map((x: { id: string }) => x.id)).toEqual(["anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm"]);
+    expect(pol.providers.map((x: { id: string }) => x.id)).toEqual([
+      "anthropic-plan",
+      "anthropic",
+      "ollama-local",
+      "deepseek",
+      "zai-glm",
+      "openai",
+      "openai-compat"
+    ]);
   });
 });

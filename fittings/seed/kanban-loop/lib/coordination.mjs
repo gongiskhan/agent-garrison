@@ -34,10 +34,12 @@ import {
   readdirSync,
   openSync,
   closeSync,
-  rmSync
+  rmSync,
+  renameSync,
+  statSync
 } from "node:fs";
-import { saveCardCAS, updateCardCAS } from "./board.mjs";
-import { policyLoadState } from "./policy.mjs";
+import { saveCardCAS, updateCardCAS, loadCard, loadAllCards, withCardLock } from "./board.mjs";
+import { loadPolicy, policyLoadState } from "./policy.mjs";
 import { listProjects, readDevRoot } from "./discover.mjs";
 
 // ── policy coordination section ──────────────────────────────────────────────
@@ -282,6 +284,192 @@ function intentPath(repoPath) {
   return path.join(intentDir(), `${repoSlug(repoPath)}.jsonl`);
 }
 
+// Shared file protocol with coord-mcp's intent-store.mjs. Every ledger mutation
+// takes the same Lamport bakery-ticket lock, and every rewrite is temp+rename. A
+// ticket owns a unique pathname, so ticket cleanup can remove only that generation.
+// The elected owner also holds a PID-prefixed legacy bridge so already-running
+// pre-ticket writers remain mutually exclusive during rollout. Keep the path,
+// prefix, record, bridge, and ordering protocol compatible with intent-store.mjs.
+const INTENT_LOCK_TIMEOUT_MS = 5000;
+const INTENT_LOCK_STALE_MS = 30000;
+const INTENT_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const MUTATION_CHOOSING_PREFIX = "choosing-";
+const MUTATION_TICKET_PREFIX = "ticket-";
+const MUTATION_RECORD_SUFFIX = ".json";
+function intentOwnerAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (err) { return err?.code === "EPERM"; }
+}
+
+function mutationLockToken() {
+  return `${process.pid}-${crypto.randomBytes(16).toString("hex")}`;
+}
+function mutationRecordName(prefix, token) {
+  return `${prefix}${token}${MUTATION_RECORD_SUFFIX}`;
+}
+function mutationTokenFromName(name, prefix) {
+  if (!name.startsWith(prefix) || !name.endsWith(MUTATION_RECORD_SUFFIX)) return null;
+  const token = name.slice(prefix.length, -MUTATION_RECORD_SUFFIX.length);
+  return /^[0-9]+-[0-9a-f]{32}$/.test(token) ? token : null;
+}
+function activeMutationLockRecords(dir, prefix, staleMs) {
+  let names;
+  try { names = readdirSync(dir); }
+  catch { return []; }
+  const active = [];
+  for (const name of names) {
+    const token = mutationTokenFromName(name, prefix);
+    if (!token) continue;
+    const recordFile = path.join(dir, name);
+    let row = null;
+    let stat = null;
+    try {
+      row = JSON.parse(readFileSync(recordFile, "utf8"));
+      stat = statSync(recordFile);
+    } catch {
+      try { stat = statSync(recordFile); } catch { continue; }
+    }
+    const valid =
+      row &&
+      row.token === token &&
+      Number.isInteger(row.pid) &&
+      row.pid > 0 &&
+      (prefix !== MUTATION_TICKET_PREFIX || Number.isSafeInteger(row.number) && row.number > 0);
+    if (valid && intentOwnerAlive(row.pid)) {
+      active.push(row);
+      continue;
+    }
+    if (valid || stat && Date.now() - stat.mtimeMs > staleMs) {
+      try {
+        // recordFile contains the unique generation token. Delayed cleanup can
+        // never name a successor acquisition.
+        rmSync(recordFile, { force: true });
+        continue;
+      } catch {
+        active.push({ token, invalid: true });
+        continue;
+      }
+    }
+    // A fresh partial record blocks until readable or stale; never fail open in
+    // the O_EXCL-create -> record-write visibility window.
+    active.push({ token, invalid: true });
+  }
+  return active;
+}
+function legacyMutationLockBlocks(lock, staleMs) {
+  try {
+    const raw = readFileSync(lock, "utf8");
+    const stat = statSync(lock);
+    let pid;
+    try { pid = Number.parseInt(JSON.parse(raw)?.pid, 10); }
+    catch { pid = Number.parseInt(raw, 10); }
+    if (Number.isInteger(pid) && intentOwnerAlive(pid)) return true;
+    if (Number.isInteger(pid) || Date.now() - stat.mtimeMs > staleMs) {
+      try {
+        // No current owner exists, so the elected ticket may replace this stale
+        // legacy generation with its own PID-prefixed bridge.
+        rmSync(lock, { force: true });
+        return false;
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function legacyMutationBridgeRecord(token) {
+  // Pre-ticket writers parse the leading PID; new writers compare the complete
+  // record before release so they never intentionally unlink another generation.
+  return `${process.pid}:${token}`;
+}
+function tryAcquireLegacyMutationBridge(lock, token) {
+  const record = legacyMutationBridgeRecord(token);
+  try {
+    writeFileSync(lock, record, { flag: "wx" });
+    return record;
+  } catch (err) {
+    if (err?.code === "EEXIST") return null;
+    throw err;
+  }
+}
+function releaseLegacyMutationBridge(lock, record) {
+  if (!record) return;
+  try {
+    if (readFileSync(lock, "utf8") !== record) return;
+    rmSync(lock, { force: true });
+  } catch {
+    // A missing/replaced bridge no longer belongs to this generation.
+  }
+}
+function withMutationTicketLock({ lock, ticketDir, timeoutMs, staleMs, label }, fn) {
+  mkdirSync(ticketDir, { recursive: true });
+  const token = mutationLockToken();
+  const choosingFile = path.join(ticketDir, mutationRecordName(MUTATION_CHOOSING_PREFIX, token));
+  const ticketFile = path.join(ticketDir, mutationRecordName(MUTATION_TICKET_PREFIX, token));
+  const deadline = Date.now() + timeoutMs;
+  let ticketCreated = false;
+  let legacyBridge = null;
+  try {
+    writeFileSync(choosingFile, JSON.stringify({ pid: process.pid, token }), { flag: "wx" });
+    const existing = activeMutationLockRecords(ticketDir, MUTATION_TICKET_PREFIX, staleMs);
+    const number = existing.reduce(
+      (max, row) => Number.isSafeInteger(row.number) ? Math.max(max, row.number) : max,
+      0
+    ) + 1;
+    writeFileSync(ticketFile, JSON.stringify({ pid: process.pid, token, number }), { flag: "wx" });
+    ticketCreated = true;
+    rmSync(choosingFile, { force: true });
+
+    for (;;) {
+      const choosing = activeMutationLockRecords(ticketDir, MUTATION_CHOOSING_PREFIX, staleMs);
+      const tickets = activeMutationLockRecords(ticketDir, MUTATION_TICKET_PREFIX, staleMs);
+      const owner = tickets
+        .filter((row) => Number.isSafeInteger(row.number))
+        .sort((a, b) => a.number - b.number || a.token.localeCompare(b.token))[0];
+      const ownTicketPresent = tickets.some((row) => row.token === token);
+      const everyTicketReadable = tickets.every((row) => Number.isSafeInteger(row.number));
+      if (
+        choosing.length === 0 &&
+        everyTicketReadable &&
+        ownTicketPresent &&
+        owner?.token === token &&
+        !legacyMutationLockBlocks(lock, staleMs)
+      ) {
+        // The ticket protocol elects one new-code owner; the legacy bridge makes
+        // that owner visible to an old process that still uses `<resource>.lock`.
+        legacyBridge = tryAcquireLegacyMutationBridge(lock, token);
+        if (legacyBridge) return fn();
+      }
+      if (Date.now() > deadline) throw new Error(`${label} lock timeout`);
+      Atomics.wait(INTENT_LOCK_WAIT, 0, 0, 10);
+    }
+  } finally {
+    releaseLegacyMutationBridge(lock, legacyBridge);
+    try { rmSync(choosingFile, { force: true }); } catch { /* best-effort */ }
+    if (ticketCreated) {
+      try { rmSync(ticketFile, { force: true }); } catch { /* best-effort */ }
+    }
+  }
+}
+function withIntentLedgerLock(file, fn) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  return withMutationTicketLock({
+    lock: `${file}.lock`,
+    ticketDir: `${file}.lock.tickets`,
+    timeoutMs: INTENT_LOCK_TIMEOUT_MS,
+    staleMs: INTENT_LOCK_STALE_MS,
+    label: `coordination intent ledger ${file}`
+  }, fn);
+}
+function atomicRewriteIntentLedger(file, text) {
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  writeFileSync(tmp, text, "utf8");
+  renameSync(tmp, file);
+}
+
 // Resolve a card's project label to an absolute repo path (Q5). Precedence:
 // board.projects[label].path, then an absolute-path label that exists on disk,
 // then a dev-root name lookup (the SAME source the project picker uses via
@@ -325,8 +513,54 @@ export function registerTouchSetIntent({ repoPath, card, touchSet, now = () => n
     kind: "touch-set"
   };
   try {
-    mkdirSync(intentDir(), { recursive: true });
-    appendFileSync(intentPath(repoPath), JSON.stringify(row) + "\n");
+    const file = intentPath(repoPath);
+    withIntentLedgerLock(file, () => appendFileSync(file, JSON.stringify(row) + "\n"));
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+// Refresh one card's outward touch-set claim after a human-held pause. Replace
+// only that card's prior touch-set rows (preserving its mail rows and every other
+// session) before appending the current claim with a fresh timestamp. This keeps
+// coord-mcp's 3-7 day lookback honest without accumulating stale duplicate claims.
+export function refreshCardTouchSetIntent({ repoPath, card, touchSet, now = () => new Date().toISOString() }) {
+  if (!repoPath || !card?.id || !touchSet) return null;
+  const file = intentPath(repoPath);
+  const session = `kanban:${card.id}`;
+  const ts = typeof now === "function" ? now() : now;
+  const row = {
+    repo: repoPath,
+    session,
+    area: card.title || "",
+    files: [...(touchSet.files || []), ...(touchSet.dirs || [])],
+    reason: `kanban card ${card.id} (${card.project || "no-project"})`,
+    ts: ts || new Date().toISOString(),
+    cardId: card.id,
+    runId: card.runId || null,
+    kind: "touch-set"
+  };
+  try {
+    withIntentLedgerLock(file, () => {
+      let lines = [];
+      try {
+        lines = readFileSync(file, "utf8").split("\n").map((line) => line.trim()).filter(Boolean);
+      } catch {
+        lines = [];
+      }
+      const kept = lines.filter((line) => {
+        try {
+          const prior = JSON.parse(line);
+          return prior.session !== session || prior.kind !== "touch-set";
+        } catch {
+          return false;
+        }
+      });
+      // One atomic rewrite, not rewrite-then-append: a failed append must not
+      // erase this card's old claim and leave the resumed card invisible.
+      atomicRewriteIntentLedger(file, [...kept, JSON.stringify(row)].join("\n") + "\n");
+    });
     return row;
   } catch {
     return null;
@@ -341,57 +575,86 @@ export function registerTouchSetIntent({ repoPath, card, touchSet, now = () => n
 // registered (no prior row) is left to the plan-completion registration.
 export function reregisterTouchSetIfGrown({ repoPath, card, touchSet, now = () => new Date().toISOString() }) {
   if (!repoPath || !touchSet) return { grown: false, added: [] };
-  let rows = [];
   try {
-    rows = readFileSync(intentPath(repoPath), "utf8")
+    const file = intentPath(repoPath);
+    return withIntentLedgerLock(file, () => {
+      let rows = [];
+      try {
+        rows = readFileSync(file, "utf8")
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+          .filter(Boolean);
+      } catch {
+        rows = [];
+      }
+      const session = `kanban:${card.id}`;
+      const prior = rows.filter((r) => r.session === session && r.kind === "touch-set").pop();
+      if (!prior) return { grown: false, added: [] };
+      const current = [...(touchSet.files || []), ...(touchSet.dirs || [])].map(normPath);
+      const priorSet = new Set((prior.files || []).map(normPath));
+      const added = current.filter((p) => !priorSet.has(p));
+      if (added.length === 0) return { grown: false, added: [] };
+      const ts = typeof now === "function" ? now() : now;
+      const row = {
+        repo: repoPath,
+        session,
+        area: card.title || "",
+        files: [...(touchSet.files || []), ...(touchSet.dirs || [])],
+        reason: `kanban card ${card.id} (${card.project || "no-project"})`,
+        ts: ts || new Date().toISOString(),
+        cardId: card.id,
+        runId: card.runId || null,
+        kind: "touch-set"
+      };
+      appendFileSync(file, JSON.stringify(row) + "\n");
+      return { grown: true, added };
+    });
+  } catch {
+    return { grown: false, added: [] };
+  }
+}
+
+// Strict removal primitive used by the durable post-commit cleanup queue. A
+// missing ledger is a successful no-op; storage/locking failures are surfaced so
+// the queue remains pending for the next repair sweep.
+function removeCardIntentsStrict({ repoPath, cardId }) {
+  if (!repoPath || !cardId) return;
+  const file = intentPath(repoPath);
+  withIntentLedgerLock(file, () => {
+    let txt;
+    try {
+      txt = readFileSync(file, "utf8");
+    } catch (err) {
+      if (err?.code === "ENOENT") return;
+      throw err;
+    }
+    const session = `kanban:${cardId}`;
+    const kept = txt
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean)
-      .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-      .filter(Boolean);
-  } catch {
-    rows = [];
-  }
-  const session = `kanban:${card.id}`;
-  const prior = rows.filter((r) => r.session === session && r.kind === "touch-set").pop();
-  if (!prior) return { grown: false, added: [] };
-  const current = [...(touchSet.files || []), ...(touchSet.dirs || [])].map(normPath);
-  const priorSet = new Set((prior.files || []).map(normPath));
-  const added = current.filter((p) => !priorSet.has(p));
-  if (added.length === 0) return { grown: false, added: [] };
-  registerTouchSetIntent({ repoPath, card, touchSet, now });
-  return { grown: true, added };
+      .filter((l) => {
+        try {
+          return JSON.parse(l).session !== session;
+        } catch {
+          return false; // drop unparseable rows
+        }
+      });
+    atomicRewriteIntentLedger(file, kept.join("\n") + (kept.length ? "\n" : ""));
+  });
 }
 
-// Drop every ledger row a card owns (session "kanban:<cardId>") — called when the
-// card reaches a terminal list or is abandoned/deleted, mirroring coord-mcp's
-// removeIntentsBySession. Best-effort; a missing ledger is a no-op.
-export function removeCardIntents({ repoPath, cardId }) {
-  if (!repoPath || !cardId) return;
-  const file = intentPath(repoPath);
-  let txt;
+// Compatibility best-effort API for advisory callers. Lifecycle closure uses
+// cleanupCardCoordination below, which calls the strict primitive and journals
+// failures before attempting removal.
+export function removeCardIntents(args) {
   try {
-    txt = readFileSync(file, "utf8");
-  } catch {
-    return; // no ledger for this repo yet
-  }
-  const session = `kanban:${cardId}`;
-  const kept = txt
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((l) => {
-      try {
-        return JSON.parse(l).session !== session;
-      } catch {
-        return false; // drop unparseable rows
-      }
-    });
-  try {
-    mkdirSync(intentDir(), { recursive: true });
-    writeFileSync(file, kept.map((l) => l).join("\n") + (kept.length ? "\n" : ""));
-  } catch {
-    /* best-effort */
+    removeCardIntentsStrict(args);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 
@@ -415,8 +678,8 @@ export function appendMailLedgerRow({ repoPath, fromCard, toCard, subject, body,
     toCardId: toCard?.id || null
   };
   try {
-    mkdirSync(intentDir(), { recursive: true });
-    appendFileSync(intentPath(repoPath), JSON.stringify(row) + "\n");
+    const file = intentPath(repoPath);
+    withIntentLedgerLock(file, () => appendFileSync(file, JSON.stringify(row) + "\n"));
     return row;
   } catch {
     return null;
@@ -460,114 +723,410 @@ function readLease(file) {
     return null;
   }
 }
+function readLeaseForMutation(file) {
+  try {
+    const lease = JSON.parse(readFileSync(file, "utf8"));
+    const expires = typeof lease?.expiresAt === "string" ? Date.parse(lease.expiresAt) : NaN;
+    if (!lease || typeof lease !== "object" || typeof lease.cardId !== "string" || !lease.cardId || !Number.isFinite(expires)) {
+      throw new Error("invalid coordination lease record");
+    }
+    return lease;
+  } catch (err) {
+    if (err?.code === "ENOENT") return null;
+    // Corrupt or unreadable ownership evidence is contention, never absence.
+    // The caller converts this into an unavailable/fail-closed result.
+    throw new Error(`coordination lease is unreadable: ${file}`, { cause: err });
+  }
+}
 function leaseExpired(lease, nowMs) {
   const exp = lease?.expiresAt ? Date.parse(lease.expiresAt) : NaN;
   return !Number.isFinite(exp) || exp <= nowMs;
 }
 
-// Try to take exclusive leases on `paths` for a card. O_EXCL create; a same-card
-// lease is renewed; an EXPIRED foreign lease is broken and taken; a live foreign
-// lease blocks (returns {ok:false, heldBy}). On a block, any lease acquired in
-// THIS call is rolled back so a card never holds a partial set. Returns
-// {ok:true, acquired:[paths]} or {ok:false, heldBy, path}.
+// Every lease mutation is a small compare-and-swap transaction protected by a
+// stable sibling lock. The old read -> unlink/overwrite sequence let two expired-
+// lease contenders both believe they won, and let a stale release unlink the
+// successor that landed between its read and rm. Atomic lease-file replacement
+// keeps lockless readers from observing torn JSON; ownerToken protects a stale
+// rollback/renew/release from acting on a newer generation of the same card.
+const LEASE_LOCK_TIMEOUT_MS = 5000;
+const LEASE_LOCK_STALE_MS = 30000;
+function withLeaseMutationLock(file, fn) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  return withMutationTicketLock({
+    lock: `${file}.lock`,
+    ticketDir: `${file}.lock.tickets`,
+    timeoutMs: LEASE_LOCK_TIMEOUT_MS,
+    staleMs: LEASE_LOCK_STALE_MS,
+    label: `coordination lease ${file}`
+  }, fn);
+}
+function atomicWriteLease(file, lease) {
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(lease), "utf8");
+    renameSync(tmp, file);
+  } finally {
+    try { rmSync(tmp, { force: true }); } catch { /* renamed or best-effort */ }
+  }
+}
+
+// Try to take exclusive leases on `paths` for a card. Each path is compared and
+// replaced under its mutation lock. A same-card lease advances to this call's new
+// owner token; an expired foreign lease is replaced; a live foreign lease blocks.
+// On a later-path block, token-conditional rollback restores each prior record so
+// the call never leaves a partial set or deletes a successor generation. Storage,
+// lock, or parse failures return `{ok:false, unavailable:true}`: missing ownership
+// evidence is never permission to dispatch without the exclusive lease.
 export function acquireLeases({ repoPath, card, paths, ttlMinutes = DEFAULT_COORDINATION.leaseTtlMinutes, now = () => new Date().toISOString() }) {
-  if (!repoPath || !Array.isArray(paths) || paths.length === 0) return { ok: true, acquired: [] };
+  if (!repoPath || !Array.isArray(paths) || paths.length === 0) return { ok: true, acquired: [], ownerToken: null };
   const nowStr = typeof now === "function" ? now() : now;
   const nowMs = Date.parse(nowStr) || Date.now();
   const expiresAt = new Date(nowMs + Math.max(1, ttlMinutes) * 60_000).toISOString();
+  const ownerToken = crypto.randomUUID();
   const acquired = [];
+  const mutations = [];
   try {
     mkdirSync(leaseDirFor(repoPath), { recursive: true });
   } catch {
-    return { ok: true, acquired: [] }; // substrate down -> serialize gate covers it, don't block here
+    return { ok: false, acquired: [], ownerToken: null, unavailable: true };
   }
-  const record = (p) => JSON.stringify({ path: normPath(p), cardId: card.id, runId: card.runId || null, holder: `kanban:${card.id}`, acquiredAt: nowStr, expiresAt });
+  const record = (p) => ({
+    path: normPath(p),
+    cardId: card.id,
+    runId: card.runId || null,
+    holder: `kanban:${card.id}`,
+    ownerToken,
+    acquiredAt: nowStr,
+    expiresAt
+  });
   for (const p of paths) {
     const file = leasePathFor(repoPath, p);
+    let result;
     try {
-      writeFileSync(file, record(p), { flag: "wx" });
-      acquired.push(p);
-      continue;
-    } catch (err) {
-      if (err?.code !== "EEXIST") {
-        // unexpected error — roll back and treat as unavailable (don't block)
-        rollbackLeases(repoPath, card.id, acquired);
-        return { ok: true, acquired: [] };
-      }
+      result = withLeaseMutationLock(file, () => {
+        const prior = readLeaseForMutation(file);
+        if (prior && prior.cardId !== card.id && !leaseExpired(prior, nowMs)) {
+          return { ok: false, heldBy: prior.cardId || null, path: normPath(p) };
+        }
+        atomicWriteLease(file, record(p));
+        return { ok: true, prior };
+      });
+    } catch {
+      rollbackLeaseMutations(mutations, ownerToken);
+      return { ok: false, acquired: [], ownerToken: null, unavailable: true };
     }
-    // exists — inspect the holder
-    const cur = readLease(file);
-    if (cur && cur.cardId === card.id) {
-      try { writeFileSync(file, record(p)); } catch { /* renew best-effort */ }
-      acquired.push(p);
-      continue;
+    if (!result.ok) {
+      rollbackLeaseMutations(mutations, ownerToken);
+      return { ...result, ownerToken: null };
     }
-    if (!cur || leaseExpired(cur, nowMs)) {
-      // Take over an absent/expired lease by unlink-then-O_EXCL create, so two
-      // processes racing the same expired lease cannot both "take" it: whoever
-      // loses the exclusive create (EEXIST) treats it as held-by-other.
-      try { rmSync(file, { force: true }); } catch { /* already gone */ }
-      try {
-        writeFileSync(file, record(p), { flag: "wx" });
-        acquired.push(p);
-        continue;
-      } catch {
-        const winner = readLease(file);
-        rollbackLeases(repoPath, card.id, acquired);
-        return { ok: false, heldBy: winner?.cardId || null, path: normPath(p) };
-      }
-    }
-    // held by another live card — roll back and report
-    rollbackLeases(repoPath, card.id, acquired);
-    return { ok: false, heldBy: cur?.cardId || null, path: normPath(p) };
+    acquired.push(p);
+    mutations.push({ file, prior: result.prior });
   }
-  return { ok: true, acquired };
+  return { ok: true, acquired, ownerToken };
 }
 
-function rollbackLeases(repoPath, cardId, paths) {
-  for (const p of paths) {
-    const file = leasePathFor(repoPath, p);
-    const cur = readLease(file);
-    if (cur && cur.cardId === cardId) {
-      try { rmSync(file, { force: true }); } catch { /* best-effort */ }
+function rollbackLeaseMutations(mutations, ownerToken) {
+  for (const { file, prior } of [...mutations].reverse()) {
+    try {
+      withLeaseMutationLock(file, () => {
+        const cur = readLeaseForMutation(file);
+        if (!cur || cur.ownerToken !== ownerToken) return;
+        if (prior) atomicWriteLease(file, prior);
+        else rmSync(file, { force: true });
+      });
+    } catch {
+      /* best-effort; token check prevents deleting a successor */
     }
   }
 }
 
 // Renew (extend the TTL of) the leases a card already holds — called at each fence
 // so a long implement phase does not let its own leases expire under it.
-export function renewLeases({ repoPath, card, paths, ttlMinutes = DEFAULT_COORDINATION.leaseTtlMinutes, now = () => new Date().toISOString() }) {
+export function renewLeases({ repoPath, card, paths, ownerToken = card?.leaseOwnerToken || null, ttlMinutes = DEFAULT_COORDINATION.leaseTtlMinutes, now = () => new Date().toISOString() }) {
   if (!repoPath || !Array.isArray(paths) || paths.length === 0) return;
   const nowStr = typeof now === "function" ? now() : now;
   const nowMs = Date.parse(nowStr) || Date.now();
   const expiresAt = new Date(nowMs + Math.max(1, ttlMinutes) * 60_000).toISOString();
   for (const p of paths) {
     const file = leasePathFor(repoPath, p);
-    const cur = readLease(file);
-    if (cur && cur.cardId === card.id) {
-      try { writeFileSync(file, JSON.stringify({ ...cur, expiresAt })); } catch { /* best-effort */ }
-    }
+    try {
+      withLeaseMutationLock(file, () => {
+        const cur = readLeaseForMutation(file);
+        if (!cur || cur.cardId !== card.id) return;
+        if (ownerToken && cur.ownerToken !== ownerToken) return;
+        atomicWriteLease(file, { ...cur, expiresAt });
+      });
+    } catch { /* best-effort */ }
   }
 }
 
-// Release every lease a card holds in a repo (advance past implement, terminal,
-// abandon). Best-effort; scans the repo's lease dir and removes the card's files.
-export function releaseLeases({ repoPath, cardId }) {
+// Strict release primitive for durable lifecycle cleanup. ownerToken narrows a
+// run-specific cleanup; lifecycle closure intentionally omits it to remove every
+// generation for the closed card. Missing lease storage is a successful no-op;
+// mutation/locking failures are thrown for the retry queue to retain.
+function releaseLeasesStrict({ repoPath, cardId, ownerToken = null }) {
   if (!repoPath || !cardId) return;
   let entries = [];
   try {
     entries = readdirSync(leaseDirFor(repoPath), { withFileTypes: true });
-  } catch {
-    return;
+  } catch (err) {
+    if (err?.code === "ENOENT") return;
+    throw err;
   }
+  const errors = [];
   for (const e of entries) {
     if (!e.isFile() || !e.name.endsWith(".json")) continue;
     const file = path.join(leaseDirFor(repoPath), e.name);
-    const cur = readLease(file);
-    if (cur && cur.cardId === cardId) {
-      try { rmSync(file, { force: true }); } catch { /* best-effort */ }
+    try {
+      withLeaseMutationLock(file, () => {
+        let cur;
+        try {
+          cur = JSON.parse(readFileSync(file, "utf8"));
+        } catch (err) {
+          if (err?.code === "ENOENT") return;
+          throw err;
+        }
+        if (!cur || cur.cardId !== cardId) return;
+        if (ownerToken && cur.ownerToken !== ownerToken) return;
+        rmSync(file, { force: true });
+      });
+    } catch (error) {
+      errors.push(error);
     }
   }
+  if (errors.length) throw new AggregateError(errors, `failed to release coordination leases for ${cardId}`);
+}
+
+export function releaseLeases(args) {
+  try {
+    releaseLeasesStrict(args);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+// Post-commit intent/lease cleanup cannot be rolled back with the card write. Put
+// a board-local retry record on disk BEFORE attempting it; a transient failure is
+// then both visible (`postCommitError` + this sidecar) and recoverable on the next
+// waiting/tick sweep. The card lifecycle lock serializes queue mutation for this
+// card, including after Delete because its lock lives outside cards/<id>.
+function cleanupQueueDir(root) {
+  return path.join(root, ".coordination-cleanup");
+}
+function cleanupQueueFile(root, cardId) {
+  return path.join(cleanupQueueDir(root), `${sha1Hex(cardId)}.json`);
+}
+function readCleanupQueueRecord(file) {
+  try { return JSON.parse(readFileSync(file, "utf8")); }
+  catch { return null; }
+}
+function readCleanupQueueRecordForMutation(file) {
+  try { return JSON.parse(readFileSync(file, "utf8")); }
+  catch (err) {
+    if (err?.code === "ENOENT") return null;
+    throw new Error(`coordination cleanup journal is unreadable: ${file}`, { cause: err });
+  }
+}
+function atomicWriteCleanupQueue(file, record) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(record), "utf8");
+    renameSync(tmp, file);
+  } finally {
+    try { rmSync(tmp, { force: true }); } catch { /* renamed or best-effort */ }
+  }
+}
+function cleanupCardFile(root, cardId) {
+  return path.join(root, "cards", cardId, "card.json");
+}
+function readCardStateForCleanup(root, cardId) {
+  try {
+    const card = JSON.parse(readFileSync(cleanupCardFile(root, cardId), "utf8"));
+    if (!card || typeof card !== "object" || card.id !== cardId) {
+      throw new Error("invalid card record");
+    }
+    return card;
+  } catch (err) {
+    if (err?.code === "ENOENT") return null;
+    // An unreadable card is unknown state, not proof that closure still applies.
+    throw new Error(`coordination cleanup card state is unreadable: ${cardId}`, { cause: err });
+  }
+}
+function cleanupStateGuard(card) {
+  return card == null
+    ? { kind: "card-state", deleted: true }
+    : {
+        kind: "card-state",
+        deleted: false,
+        cardCreatedAt: typeof card.created === "string" ? card.created : null,
+        listId: card.list || null,
+        abandoned: card.abandoned === true,
+        coordinationSeq: Number.isSafeInteger(card.coordinationSeq) && card.coordinationSeq >= 0
+          ? card.coordinationSeq
+          : 0,
+        // Kept for diagnostics and for the exact-revision compatibility fallback
+        // used by version-2 sidecars written before coordinationSeq existed.
+        rev: Number.isInteger(card.rev) ? card.rev : null,
+        runId: card.runId || null,
+        runSeq: Number.isInteger(card.runSeq) ? card.runSeq : null
+      };
+}
+function cleanupGuardStillApplies(record, card) {
+  const guard = record?.guard;
+  if (!guard) {
+    // Version-1 release-all sidecars predate lifecycle guards. Preserve their
+    // useful cleanup only while the card is observably closed; never apply one
+    // to an active successor generation.
+    if (record?.version === 1 && (record.removeIntents || record.leaseOwnerTokens === null)) {
+      return card == null || card.abandoned === true || card.list === "done";
+    }
+    return true;
+  }
+  if (guard.kind !== "card-state") return false;
+  if (card == null) return true; // a later Delete makes every prior release safe
+  if (guard.deleted) return false; // the id was recreated after Delete
+  // Release-all and intent removal are card-id scoped, so they must stay bound to
+  // the exact coordination lifecycle that queued them. Benign annotation edits
+  // advance rev but preserve coordinationSeq, while reopening/re-dispatching and
+  // later returning to the same list advances coordinationSeq and supersedes the
+  // old cleanup. Older version-2 sidecars have no sequence, so retain their
+  // conservative exact-revision behavior during migration.
+  const sameCardIdentity =
+    typeof guard.cardCreatedAt === "string"
+      ? card.created === guard.cardCreatedAt
+      : true;
+  const sameCoordinationGeneration = Number.isSafeInteger(guard.coordinationSeq)
+    ? (Number.isSafeInteger(card.coordinationSeq) && card.coordinationSeq >= 0 ? card.coordinationSeq : 0) === guard.coordinationSeq
+    : Number.isInteger(guard.rev) && card.rev === guard.rev;
+  return (
+    sameCardIdentity &&
+    sameCoordinationGeneration &&
+    card.list === guard.listId &&
+    (card.abandoned === true) === guard.abandoned &&
+    (card.runId || null) === guard.runId &&
+    (Number.isInteger(card.runSeq) ? card.runSeq : null) === guard.runSeq
+  );
+}
+function mergeCleanupQueueRecord(existing, { cardId, repoPaths, removeIntents, ownerToken, guard = null }) {
+  const priorRepos = Array.isArray(existing?.repoPaths) ? existing.repoPaths : [];
+  const repos = [...new Set([...priorRepos, ...(repoPaths || [])].filter((repo) => typeof repo === "string" && repo))];
+  const releaseAll = existing?.leaseOwnerTokens === null || ownerToken == null;
+  const priorTokens = Array.isArray(existing?.leaseOwnerTokens) ? existing.leaseOwnerTokens : [];
+  const leaseOwnerTokens = releaseAll
+    ? null
+    : [...new Set([...priorTokens, ownerToken].filter((token) => typeof token === "string" && token))];
+  return {
+    version: 3,
+    cardId,
+    repoPaths: repos,
+    removeIntents: Boolean(existing?.removeIntents || removeIntents),
+    leaseOwnerTokens,
+    guard: guard || existing?.guard || null,
+    queuedAt: existing?.queuedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+function cleanupOperationError(result, label) {
+  if (result && result.ok === false) throw result.error || new Error(`${label} failed`);
+}
+function performCoordinationCleanup(record, operations = {}) {
+  const remove = operations.removeCardIntents || removeCardIntentsStrict;
+  const release = operations.releaseLeases || releaseLeasesStrict;
+  const errors = [];
+  for (const repoPath of record.repoPaths || []) {
+    if (record.removeIntents) {
+      try { cleanupOperationError(remove({ repoPath, cardId: record.cardId }), "intent cleanup"); }
+      catch (error) { errors.push(error); }
+    }
+    const tokens = record.leaseOwnerTokens === null ? [null] : (record.leaseOwnerTokens || []);
+    for (const ownerToken of tokens) {
+      try { cleanupOperationError(release({ repoPath, cardId: record.cardId, ownerToken }), "lease cleanup"); }
+      catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, `coordination cleanup failed for ${record.cardId}`);
+}
+
+export function cleanupCardCoordination({ root, cardId, repoPaths, removeIntents = false, ownerToken = null }, operations = {}) {
+  const repos = [...new Set((repoPaths || []).filter(Boolean))];
+  if (!root || !cardId || repos.length === 0) return { ok: true, skipped: true };
+  const file = cleanupQueueFile(root, cardId);
+  const currentCard = readCardStateForCleanup(root, cardId);
+  let existing = readCleanupQueueRecordForMutation(file);
+  if (existing && !cleanupGuardStillApplies(existing, currentCard)) {
+    // A card-state change supersedes a card-id-wide cleanup operation. Drop it
+    // before merging any cleanup belonging to the current lifecycle state.
+    rmSync(file, { force: true });
+    existing = null;
+  }
+  // Owner-token cleanup is generation-safe on its own. Card-id-wide intent
+  // removal or lease release-all needs an exact durable card-state guard.
+  const guard = removeIntents || ownerToken == null ? cleanupStateGuard(currentCard) : null;
+  const record = mergeCleanupQueueRecord(existing, {
+    cardId,
+    repoPaths: repos,
+    removeIntents,
+    ownerToken,
+    guard
+  });
+  // Refuse to perform unjournaled post-commit cleanup: if this write fails, the
+  // caller receives postCommitError and no destructive side effect has happened.
+  atomicWriteCleanupQueue(file, record);
+  try {
+    performCoordinationCleanup(record, operations);
+    rmSync(file, { force: true });
+    return { ok: true };
+  } catch (error) {
+    console.error(`[kanban-loop] coordination cleanup queued for retry (${cardId}):`, error?.message || error);
+    throw error;
+  }
+}
+
+export async function repairPendingCoordinationCleanups({ root }, operations = {}) {
+  const repaired = [];
+  const pending = [];
+  const superseded = [];
+  let entries;
+  try {
+    entries = readdirSync(cleanupQueueDir(root), { withFileTypes: true });
+  } catch (err) {
+    if (err?.code !== "ENOENT") pending.push({ cardId: null, error: err });
+    return { repaired, pending, superseded };
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const file = path.join(cleanupQueueDir(root), entry.name);
+    const initial = readCleanupQueueRecord(file);
+    if (!initial?.cardId || !Array.isArray(initial.repoPaths)) {
+      pending.push({ cardId: initial?.cardId || null, error: new Error(`invalid coordination cleanup record: ${file}`) });
+      continue;
+    }
+    try {
+      await withCardLock(root, initial.cardId, async () => {
+        const record = readCleanupQueueRecordForMutation(file);
+        if (!record) return;
+        const currentCard = readCardStateForCleanup(root, record.cardId);
+        if (!cleanupGuardStillApplies(record, currentCard)) {
+          rmSync(file, { force: true });
+          superseded.push(record.cardId);
+          return;
+        }
+        try {
+          performCoordinationCleanup(record, operations);
+          rmSync(file, { force: true });
+          repaired.push(record.cardId);
+        } catch (error) {
+          pending.push({ cardId: record.cardId, error });
+        }
+      });
+    } catch (error) {
+      pending.push({ cardId: initial.cardId, error });
+    }
+  }
+  return { repaired, pending, superseded };
 }
 
 // Is any of `paths` currently leased by a DIFFERENT, non-expired card? Returns the
@@ -628,6 +1187,26 @@ function listById(board, listId) {
 
 function isTerminalList(list, listId) {
   return Boolean(list && (list.terminal || listId === "done"));
+}
+
+// `needs-attention` is a human ownership boundary. It is deliberately NOT a
+// terminal coordination state: all runs share one checkout/branch, and a run
+// can park after leaving partial edits in that checkout. Until a human resumes
+// or explicitly abandons/closes it, its overlap and lease waiters must remain
+// held rather than being released into possibly dirty shared state.
+function isParkedForHuman(card) {
+  return card?.status === "needs-attention" || card?.list === "needs-attention";
+}
+
+// Manual and interactive columns are also human-held. A previously-started card
+// moved there can still own partial same-checkout work, so its waiters must not
+// auto-release merely because an exclusive lease file aged out. Terminal columns
+// are closure and are intentionally excluded here.
+export function isHumanHeld(card, board) {
+  if (isParkedForHuman(card)) return true;
+  const list = listById(board, card?.list);
+  if (!list) return Boolean(card); // stranded/removed list cannot progress autonomously
+  return Boolean(list && !isTerminalList(list, card?.list) && list.kind !== "agent");
 }
 
 // A card is LIVE (occupies the project's one serialize slot / counts as an
@@ -901,10 +1480,10 @@ function appendEvent(card, event) {
 // Why (if at all) a waiting card's release predicate has cleared. Returns a
 // human release reason string, or null when it must keep waiting.
 //
-// The blocker DISAPPEARING supersedes every `until`: a blocker that is deleted,
-// abandoned, or has reached a terminal list will never produce any further signal
-// (stability point OR fix fence), so a waiter keyed to one of those would be
-// stranded forever — skipped by every tick, silently. Terminal strictly
+// The blocker CLOSING supersedes every `until`: a blocker that is deleted,
+// abandoned, or has reached a terminal list will not produce any further
+// autonomous signal (stability point OR fix fence), so a waiter keyed to one of
+// those would be stranded forever — skipped by every tick, silently. Terminal
 // supersedes stability (a medium waiter whose blocker went straight to Done
 // without a dispatched review still releases). Only when the blocker is still
 // alive-and-progressing do we consult the `until`:
@@ -919,6 +1498,27 @@ function appendEvent(card, event) {
 //                       the holder card's lifecycle).
 function releaseReason(waitingOn, blocker, board, waiterCard) {
   const until = waitingOn?.until;
+  // A human-held list is NOT closure. On this same-branch engine the card may have
+  // partial edits in the shared checkout, so releasing any overlap (including an
+  // expired lease) would let another run build on unreviewed state. Resume the
+  // blocker, or use the explicit human Abandon/Delete release override, before
+  // autonomous waiters can move. Normal parking never asserts checkout cleanliness.
+  if (blocker && isHumanHeld(blocker, board) && !blocker.abandoned) return null;
+  // A closed lease owner cannot be allowed to strand a waiter behind its stale
+  // lease file. The release seam below retries owner-scoped lease cleanup; if a
+  // different live card acquired the path meanwhile, Implement will atomically
+  // discover that holder and establish a new wait.
+  if (until === "lease") {
+    if (!blocker) return "lease holder no longer exists (deleted)";
+    if (blocker.abandoned) return "lease holder was abandoned";
+    if (isTerminalList(listById(board, blocker.list), blocker.list)) return "lease holder reached terminal";
+    // A live Implement owner still logically owns its exclusive paths even if a
+    // lease file is momentarily missing/expired. Releasing from file state alone
+    // would let a stale reevaluator fan work into the same checkout. Once it moves
+    // past Implement, the file predicate below can authorize the next holder.
+    const blockerList = listById(board, blocker.list);
+    if (blocker.list === "implement" || blockerList?.phase === "implement") return null;
+  }
   // Lease: the truth is the lease files, not a blocker card. Check directly.
   if (until === "lease") {
     const repoPath = repoPathForProject(waiterCard?.project, board);
@@ -927,7 +1527,7 @@ function releaseReason(waitingOn, blocker, board, waiterCard) {
     if (!repoPath || paths.length === 0) return "exclusive lease no longer applies";
     return leaseHeldByOther({ repoPath, cardId: waiterCard.id, paths }) ? null : "exclusive lease is now free";
   }
-  // Disappearance (deleted / abandoned / terminal) supersedes every other `until`.
+  // Closure (deleted / abandoned / terminal) supersedes every other `until`.
   if (!blocker) return "blocker no longer exists (deleted)";
   if (blocker.abandoned) return "blocker was abandoned";
   if (isTerminalList(listById(board, blocker.list), blocker.list)) {
@@ -954,32 +1554,98 @@ function releaseReason(waitingOn, blocker, board, waiterCard) {
 // Returns { released: [{ id, to }] }.
 export async function reevaluateWaiting({ root, board, cards, now = () => new Date().toISOString() }) {
   const released = [];
-  const byId = new Map((cards || []).map((c) => [c.id, c]));
-  for (const card of cards || []) {
-    if (!card.waitingOn) continue;
-    const w = card.waitingOn;
-    const blocker = byId.get(w.cardId) || null;
-    const reason = releaseReason(w, blocker, board, card);
-    if (!reason) continue;
-    const nowStr = typeof now === "function" ? now() : now;
-    const target = w.rerun ? card.list : w.thenTo || card.list;
-    const events = appendEvent(card, {
-      at: nowStr,
-      kind: "coordination",
-      message: `Released from waiting on ${w.cardTitle || w.cardId} → ${target} (${reason})`,
-      detail: w.reason || null
+  // Retry post-commit closure cleanup (including for already-deleted cards) from
+  // its board-local sidecar before evaluating any waiter that depends on it.
+  await repairPendingCoordinationCleanups({ root });
+  // Build cohorts from a fresh disk scan, not the caller's tick snapshot. Two
+  // concurrent reevaluators must choose the same successor leader even if one
+  // caller began with an older card array; otherwise each could release a
+  // different overlapping waiter from the same closing blocker.
+  const diskCards = await loadAllCards(root);
+  const observedCards = diskCards.length ? diskCards : (cards || []);
+  const waiters = observedCards
+    .filter((card) => card?.waitingOn && !isHumanHeld(card, board))
+    .sort((a, b) => {
+      const blocker = String(a.waitingOn.cardId).localeCompare(String(b.waitingOn.cardId));
+      if (blocker) return blocker;
+      return compareOrder(
+        a.planCompletedAt || a.waitingOn.since,
+        a.runId || a.id,
+        b.planCompletedAt || b.waitingOn.since,
+        b.runId || b.id
+      );
     });
-    const res = await saveCardCAS(
-      root,
-      { ...card, list: target, status: "ok", runningSince: null, waitingOn: null, events },
-      card.rev ?? 0,
-      nowStr
-    );
-    if (!res.ok) continue; // lost the race — a later tick re-evaluates it
-    released.push({ id: card.id, to: target });
-    // Best-effort released event on the blocker + drop it from `blocking`.
-    if (blocker) {
-      await updateCardCAS(root, blocker.id, (bc) => {
+
+  // Build an overlap-aware successor chain per closing blocker. Among waiters
+  // that may safely run in parallel, keep multiple leaders; every medium/heavy
+  // (or evidence-missing) overlap points at the earliest selected leader it
+  // overlaps. Thus one closing card can release independent work, but never fans
+  // two overlapping runs into the shared checkout in the same reevaluation.
+  const predecessor = new Map();
+  const groups = new Map();
+  for (const card of waiters) {
+    const blockerId = card.waitingOn.cardId;
+    if (!groups.has(blockerId)) groups.set(blockerId, []);
+    groups.get(blockerId).push(card);
+  }
+  const thresholds = coordinationConfig(loadPolicy()).thresholds;
+  for (const group of groups.values()) {
+    const touchSets = group.map((card) => readTouchSet(card.runDir));
+    const parent = group.map((_, i) => i);
+    const find = (i) => {
+      let root = i;
+      while (parent[root] !== root) root = parent[root];
+      while (parent[i] !== i) {
+        const next = parent[i];
+        parent[i] = root;
+        i = next;
+      }
+      return root;
+    };
+    const union = (a, b) => {
+      const ar = find(a);
+      const br = find(b);
+      if (ar !== br) parent[br] = ar;
+    };
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        // Missing evidence is never permission to fan out. Treat it as a heavy
+        // overlap so repair/Plan must make the relationship explicit later.
+        const overlap = touchSets[i] && touchSets[j]
+          ? scoreOverlap(touchSets[i], touchSets[j], thresholds)
+          : { grade: "heavy" };
+        if (gradeRank(overlap.grade) >= gradeRank("medium")) union(i, j);
+      }
+    }
+    // One earliest leader per transitive overlap component. Followers retain an
+    // honest overlap grade, then re-chain to the leader's terminal edge below so
+    // a stale stability marker from an earlier pass cannot wake the component.
+    const leaders = new Map();
+    for (let i = 0; i < group.length; i++) {
+      const component = find(i);
+      const leaderIndex = leaders.get(component);
+      if (leaderIndex == null) {
+        leaders.set(component, i);
+        continue;
+      }
+      const direct = touchSets[i] && touchSets[leaderIndex]
+        ? scoreOverlap(touchSets[i], touchSets[leaderIndex], thresholds).grade
+        : "heavy";
+      predecessor.set(group[i].id, {
+        card: group[leaderIndex],
+        grade: direct === "medium" ? "medium" : "heavy"
+      });
+    }
+  }
+
+  async function recordWaiterAction(card, action) {
+    if (!action || action.kind === "not-ready" || action.kind === "rechain-failed") return;
+    if (action.kind === "release") released.push({ id: card.id, to: action.target });
+
+    // Cross-card timeline/index writes stay outside the blocker lock (avoids a
+    // nested self-lock), and are advisory: waitingOn is the authoritative edge.
+    if (action.blocker) {
+      await updateCardCAS(root, action.blocker.id, (bc) => {
         const blocking = Array.isArray(bc.blocking) ? bc.blocking.filter((x) => x !== card.id) : [];
         return {
           ...bc,
@@ -987,11 +1653,146 @@ export async function reevaluateWaiting({ root, board, cards, now = () => new Da
           events: appendEvent(bc, {
             at: typeof now === "function" ? now() : now,
             kind: "coordination",
-            message: `Card ${short(card)} released (was waiting on this card)`
+            message: action.kind === "release"
+              ? `Card ${short(card)} released (was waiting on this card)`
+              : `Card ${short(card)} re-chained behind ${short(action.predecessor)}`
           })
         };
       }).catch(() => {});
     }
+    if (action.kind === "rechain") {
+      await updateCardCAS(root, action.predecessor.id, (bc) => {
+        const blocking = Array.isArray(bc.blocking) ? bc.blocking.slice() : [];
+        if (!blocking.includes(card.id)) blocking.push(card.id);
+        return { ...bc, blocking };
+      }).catch(() => {});
+    }
+  }
+
+  // DURABLE successor ordering: followers are re-chained BEFORE their component
+  // leader is released. A crash after any follower write leaves the leader on the
+  // original blocker, which is conservative and self-heals next pass. A failed
+  // follower CAS blocks that leader for this pass, so no in-memory "released set"
+  // is required to bridge two non-atomic writes.
+  const blockedLeaders = new Set();
+  for (const card of waiters.filter((candidate) => predecessor.has(candidate.id))) {
+    const w = card.waitingOn;
+    const pred = predecessor.get(card.id);
+    const action = await withCardLock(root, w.cardId, async () => {
+      let blocker = null;
+      try {
+        blocker = await loadCard(root, w.cardId);
+        blocker.id = w.cardId;
+      } catch {
+        blocker = null;
+      }
+      const ownReason = releaseReason(w, blocker, board, card);
+      const leaderReason = releaseReason(pred.card.waitingOn, blocker, board, pred.card);
+      if (!ownReason && !leaderReason) return { kind: "not-ready" };
+
+      const nowStr = typeof now === "function" ? now() : now;
+      const until = "terminal";
+      const chainedWaiting = {
+        ...w,
+        cardId: pred.card.id,
+        cardTitle: pred.card.title || null,
+        grade: pred.grade,
+        until,
+        since: nowStr,
+        reason: `Re-chained behind ${pred.card.id} (${pred.card.title || "untitled"}) before releasing the overlap component successor; waiting until ${until}.`
+      };
+      const events = appendEvent(card, {
+        at: nowStr,
+        kind: "coordination",
+        message: `Re-chained behind ${short(pred.card)} (${pred.grade} overlap) until ${until}`,
+        detail: chainedWaiting.reason
+      });
+      const res = await saveCardCAS(
+        root,
+        { ...card, status: "ok", runningSince: null, waitingOn: chainedWaiting, events },
+        card.rev ?? 0,
+        nowStr
+      );
+      return res.ok
+        ? { kind: "rechain", blocker, predecessor: pred.card, card: res.card }
+        : { kind: "rechain-failed", predecessor: pred.card };
+    });
+    if (action?.kind === "rechain-failed") blockedLeaders.add(pred.card.id);
+    await recordWaiterAction(card, action);
+  }
+
+  // Only component leaders (and independent waiters) can release. Every follower
+  // that was ready either durably points at its leader now, or blocked that leader.
+  for (const snapshot of waiters.filter((candidate) => !predecessor.has(candidate.id))) {
+    if (blockedLeaders.has(snapshot.id)) continue;
+    // Follower bookkeeping above appends to the leader's advisory `blocking`
+    // index, which legitimately advances its revision. Reload before the release
+    // CAS so that durable follower-first ordering does not make its own leader
+    // snapshot stale. A concurrently changed wait edge is skipped this pass.
+    let card;
+    try {
+      card = await loadCard(root, snapshot.id);
+      card.id = snapshot.id;
+    } catch {
+      continue;
+    }
+    if (
+      !card.waitingOn ||
+      isHumanHeld(card, board) ||
+      card.waitingOn.cardId !== snapshot.waitingOn.cardId
+    ) continue;
+    const w = card.waitingOn;
+    const action = await withCardLock(root, w.cardId, async () => {
+      let blocker = null;
+      try {
+        blocker = await loadCard(root, w.cardId);
+        blocker.id = w.cardId;
+      } catch {
+        blocker = null;
+      }
+      const reason = releaseReason(w, blocker, board, card);
+      if (!reason) return null;
+
+      // Retry owner-scoped closure cleanup only after observing committed closure
+      // under the lifecycle lock. The sidecar carries a closed-state guard, so a
+      // later reopen supersedes this release-all operation.
+      if (!blocker || blocker.abandoned || isTerminalList(listById(board, blocker.list), blocker.list)) {
+        const repos = new Set([
+          repoPathForProject(card.project, board),
+          repoPathForProject(blocker?.project, board)
+        ].filter(Boolean));
+        try {
+          cleanupCardCoordination({
+            root,
+            cardId: w.cardId,
+            repoPaths: [...repos],
+            removeIntents: true,
+            ownerToken: null
+          });
+        } catch {
+          // The closure is committed but its holds are not yet durably cleared.
+          // Keep this waiter closed until the queued repair succeeds.
+          return null;
+        }
+      }
+
+      const nowStr = typeof now === "function" ? now() : now;
+      const target = w.rerun ? card.list : w.thenTo || card.list;
+      const events = appendEvent(card, {
+        at: nowStr,
+        kind: "coordination",
+        message: `Released from waiting on ${w.cardTitle || w.cardId} → ${target} (${reason})`,
+        detail: w.reason || null
+      });
+      const res = await saveCardCAS(
+        root,
+        { ...card, list: target, status: "ok", runningSince: null, waitingOn: null, events },
+        card.rev ?? 0,
+        nowStr
+      );
+      return res.ok ? { kind: "release", blocker, target, card: res.card } : null;
+    });
+    await recordWaiterAction(card, action);
   }
   return { released };
 }

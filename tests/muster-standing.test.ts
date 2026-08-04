@@ -50,7 +50,8 @@ function fixtureManifest() {
           runtimes: [
             { id: "claude-code-runtime", config: {} },
             { id: "agent-sdk-runtime", config: {} },
-            { id: "codex-runtime", config: {} }
+            { id: "codex-runtime", config: {} },
+            { id: "openai-agents-runtime", config: { provider: "glm", account: "" } }
           ],
           observability: [{ id: "scheduler", config: {} }],
           // vault-git-sync (sessions) consumes automation-runner:scheduler (one),
@@ -238,6 +239,27 @@ describe("standing model (fs-backed)", () => {
 
     // rejects a config write to a fitting not stationed in the slot.
     await expect(setStandingConfig(FIXTURE_ID, "gateway", "not-there", "port", 1)).rejects.toThrow(/not stationed/);
+  });
+
+  it("persists a named GLM account on the OpenAI Agents runtime", async () => {
+    const model = await setStandingConfig(
+      FIXTURE_ID,
+      "runtimes",
+      "openai-agents-runtime",
+      "account",
+      "glm-box"
+    );
+    const runtime = model.slots
+      .find((slot) => slot.faculty === "runtimes")!
+      .fittings.find((fitting) => fitting.id === "openai-agents-runtime")!;
+    expect(runtime.config).toMatchObject({ provider: "glm", account: "glm-box" });
+
+    const block = await readManifestComposition();
+    expect(
+      selectionsOf(block).runtimes.find(
+        (selection) => selection.id === "openai-agents-runtime"
+      )?.config
+    ).toMatchObject({ provider: "glm", account: "glm-box" });
   });
 
   it("(d) a reference-loss swap OFFERS removal (returns orphaned) and never auto-removes", async () => {

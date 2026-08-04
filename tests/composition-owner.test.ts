@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CompositionOwnedByOtherInstanceError,
   claimComposition,
+  claimCompositionForLaunch,
+  isCompositionClaimCurrent,
   ownerFilePath,
   readCompositionOwner,
-  releaseComposition
+  releaseComposition,
+  releaseCompositionClaim
 } from "@/lib/composition-owner";
 
 // prod, dev and codex all run out of ONE checkout, so they resolve the same
@@ -81,6 +84,34 @@ describe("composition working-tree ownership", () => {
 
     expect(second.instanceId).toBe("prod");
     expect(second.claimedAt >= first.claimedAt).toBe(true);
+  });
+
+  it("marks only an otherwise-unowned launch claim as safe for failure cleanup", async () => {
+    const dir = sandbox();
+    asProfile("prod");
+
+    const first = await claimCompositionForLaunch(dir, "default");
+    const reentry = await claimCompositionForLaunch(dir, "default");
+
+    expect(first.acquiredFresh).toBe(true);
+    expect(reentry.acquiredFresh).toBe(false);
+    expect(await isCompositionClaimCurrent(dir, first.owner)).toBe(false);
+    expect(await isCompositionClaimCurrent(dir, reentry.owner)).toBe(true);
+  });
+
+  it("an old failed launch cannot release a newer same-profile owner generation", async () => {
+    const dir = sandbox();
+    asProfile("codex");
+    const oldClaim = await claimCompositionForLaunch(dir, "default");
+    const successor = await claimCompositionForLaunch(dir, "default");
+
+    expect(await releaseCompositionClaim(dir, oldClaim.owner)).toBe(false);
+    expect(await readCompositionOwner(dir)).toMatchObject({
+      instanceId: "codex",
+      claimId: successor.owner.claimId
+    });
+    expect(await releaseCompositionClaim(dir, successor.owner)).toBe(true);
+    expect(await readCompositionOwner(dir)).toBeNull();
   });
 
   it("releases only for the owning profile, so another instance cannot give away a live tree", async () => {

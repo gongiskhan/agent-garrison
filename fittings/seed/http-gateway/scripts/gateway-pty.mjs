@@ -11,7 +11,7 @@
  * web-channel and slack-channel relays work unchanged:
  *   POST /chat          { message }            → { reply, session_id, cost_usd }
  *   POST /chat/stream    { message }           → SSE open/chunk/tool/done/error
- *   POST /jobs           { kind, ... }         → { ack: true }
+ *   POST /jobs           { kind, ... }         → { ack, deduped } or retryable 503
  *   POST /attachments    { filename, content_base64 } → { path, bytes }
  *   GET  /health                               → { ok, session_id, uptime_ms, engine, pty_status }
  *
@@ -58,6 +58,13 @@ import { isEmptyQuickReply, quickEmptyFailureReason, moveCardEngine } from "./li
 import { resolveDiscussInterception } from "./lib/discuss-intercept.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
+import {
+  createJobIngressGuard,
+  forwardClaimWithRetry,
+  isPendingJobClaim,
+  jobDescription,
+  prepareClaimForAcknowledgement
+} from "./lib/job-ingress.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -92,6 +99,7 @@ let ptyStatus = "spawning"; // spawning | ready | failed
 let ptyError = null;
 let inflight = null; // promise chain — turns serialize
 let router = null; // Stage-A live routing layer (BRIEF U1), null = legacy single-session
+const jobIngress = createJobIngressGuard();
 let readyResolve;
 const readyPromise = new Promise((resolve) => {
   readyResolve = resolve;
@@ -2413,12 +2421,94 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/jobs") {
       const body = await readJsonBody(request);
-      const description = typeof body.kind === "string" ? `Heartbeat job: ${body.kind}` : "Heartbeat tick";
-      const jobMessage = `${description}\n\nPayload:\n${JSON.stringify(body)}`;
-      readyPromise
-        .then(() => enqueueTurn(jobMessage))
-        .catch((err) => logEvent("stderr", { kind: "job-turn-failed", error: err.message }));
-      sendJson(response, 202, { ack: true });
+      const claim = await jobIngress.claim(body);
+      if (!claim.accepted) {
+        if (claim.source === "invalid") {
+          sendJson(response, 400, { ack: false, retryable: false, error: claim.error });
+          return;
+        }
+        if (claim.source === "storage-error") {
+          logEvent("stderr", { kind: "job-storage-unavailable", error: claim.error });
+          sendJson(response, 503, { ack: false, retryable: true, error: claim.error });
+          return;
+        }
+        if (claim.source === "backpressure") {
+          logEvent("stderr", { kind: "job-backpressure", job: claim.key.split(":", 1)[0] });
+          sendJson(response, 503, { ack: false, retryable: true, error: "job ingress is at capacity" });
+          return;
+        }
+        if (isPendingJobClaim(claim)) {
+          logEvent("stdout", { kind: "job-dispatch-pending", job: claim.key.split(":", 1)[0] });
+          sendJson(response, 503, {
+            ack: false,
+            retryable: true,
+            error: "job dispatch reservation is still being prepared"
+          });
+          return;
+        }
+        logEvent("stdout", {
+          kind: "job-deduped",
+          source: claim.source,
+          card: claim.cardId ?? null,
+          job: claim.key.split(":", 1)[0]
+        });
+        sendJson(response, 202, { ack: true, deduped: true, card: claim.cardId ?? null });
+        return;
+      }
+      const jobMessage = jobDescription(body);
+      try {
+        await prepareClaimForAcknowledgement({ guard: jobIngress, claim });
+      } catch (error) {
+        logEvent("stderr", {
+          kind: "job-dispatch-fence-failed",
+          error: error?.message || String(error)
+        });
+        sendJson(response, 503, {
+          ack: false,
+          retryable: true,
+          error: "job dispatch could not be durably reserved"
+        });
+        return;
+      }
+      let resolveAdmission;
+      let rejectAdmission;
+      const admitted = new Promise((resolve, reject) => {
+        resolveAdmission = resolve;
+        rejectAdmission = reject;
+      });
+      const forwarding = forwardClaimWithRetry({
+        guard: jobIngress,
+        claim,
+        dispatchPrepared: true,
+        forward: async () => {
+          await readyPromise;
+          return { completion: enqueueTurn(jobMessage) };
+        },
+        onAdmitted: () => resolveAdmission(),
+        onFailure: (err, attempt, attempts) => {
+          logEvent("stderr", {
+            kind: "job-turn-attempt-failed",
+            attempt,
+            attempts,
+            error: err?.message || String(err)
+          });
+        }
+      });
+      void forwarding.catch((err) => {
+        rejectAdmission(err);
+        logEvent("stderr", { kind: "job-turn-failed", error: err.message });
+      });
+      try {
+        await admitted;
+      } catch {
+        sendJson(response, 503, {
+          ack: false,
+          retryable: true,
+          error: "job turn could not be admitted to the operative queue"
+        });
+        return;
+      }
+      sendJson(response, 202, { ack: true, deduped: false });
       return;
     }
 

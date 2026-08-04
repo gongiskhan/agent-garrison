@@ -112,12 +112,13 @@ describe("providers as policy data (P2)", () => {
     ).toThrowError(/unknown provider "nope".*anthropic-plan/);
   });
 
-  it("migration seeds resolve byte-identically to the historical registry", () => {
+  it("migration seeds retain historical providers and add OpenAI-shaped policy ids", () => {
     // anthropic-plan: empty env delta; ollama: base URL + dummy token;
     // deepseek/zai: base URL + vault key as AUTH_TOKEN. (The fifth id,
-    // "anthropic", is the agent-sdk spelling of the Max OAuth path.)
+    // "anthropic", is the agent-sdk spelling of the Max OAuth path.) OpenAI
+    // entries make the openai-agents fitting's documented providers valid.
     expect(PROVIDERS_LIST.map((p: any) => p.id)).toEqual([
-      "anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm"
+      "anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm", "openai", "openai-compat"
     ]);
     const zai = buildLaunchEnv({ provider: "zai-glm" } as any, { baseEnv: {}, secrets: { ZAI_API_KEY: "zk" }, providers: PROVIDERS_LIST });
     expect(zai.ANTHROPIC_BASE_URL).toBe("https://api.z.ai/api/anthropic");
@@ -126,6 +127,7 @@ describe("providers as policy data (P2)", () => {
 
   it("validateProviders rejects duplicates, bad kinds, and null baseUrl on non-plan kinds", () => {
     expect(validateProviders([{ id: "x", kind: "cloud-oss", baseUrl: null }]).join(" ")).toMatch(/baseUrl is required/);
+    expect(validateProviders([{ id: "x", kind: "openai-compatible", baseUrl: null }])).toEqual([]);
     expect(validateProviders([{ id: "x", kind: "weird", baseUrl: "http://h" }]).join(" ")).toMatch(/unknown kind/);
     expect(
       validateProviders([

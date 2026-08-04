@@ -1,7 +1,7 @@
 // S4 (GARRISON-UNIFY-V1) — THE run engine: policy-driven resolution (D15),
 // durable gate-evidence transitions (D9), rail fast-forward + per-card phase
 // toggles (D17), engine-owned list locks (D16 API side), the in-process
-// library entry (D13), and the board v2→v3 migration.
+// library entry (D13), and the board schema migrations.
 import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -122,7 +122,7 @@ describe("policy resolution (D15)", () => {
     expect(classificationForPhase(policy, "implement", { tier: "bogus" })!.tier).toBe("T1-standard");
   });
 
-  it("v2 boards migrate: dead per-list pins stripped, phase stamped, version 3", () => {
+  it("v2 boards migrate through v4: pins stripped, phase stamped, Archived added", () => {
     const v2 = {
       version: 2,
       lists: [
@@ -130,16 +130,45 @@ describe("policy resolution (D15)", () => {
         { id: "todo", kind: "manual", validNext: ["plan"] }
       ]
     };
-    const v3 = migrateBoard(v2);
-    expect(v3.version).toBe(3);
-    const plan = v3.lists[0];
+    const v4 = migrateBoard(v2);
+    expect(v4.version).toBe(4);
+    const plan = v4.lists[0];
     expect(plan.skill).toBeUndefined();
     expect(plan.taskType).toBeUndefined();
     expect(plan.tier).toBeUndefined();
     expect(plan.mode).toBeUndefined();
     expect(plan.phase).toBe("plan");
+    expect(v4.lists.at(-1)).toMatchObject({
+      id: "archived",
+      kind: "manual",
+      terminal: true,
+      archived: true,
+      validNext: []
+    });
     // idempotent
-    expect(migrateBoard(v3)).toBe(v3);
+    expect(migrateBoard(v4)).toBe(v4);
+  });
+
+  it("v3 boards receive the v4 Archived tail without disturbing existing lists", () => {
+    const v3 = {
+      version: 3,
+      lists: [
+        { id: "todo", title: "To do", order: 1, kind: "manual", validNext: ["plan"] },
+        { id: "done", title: "Done", order: 11, kind: "manual", terminal: true, validNext: [] }
+      ],
+      custom: { retained: true }
+    };
+    const v4 = migrateBoard(v3);
+    expect(v4).not.toBe(v3);
+    expect(v4.version).toBe(4);
+    expect(v4.custom).toEqual({ retained: true });
+    expect(v4.lists.slice(0, 2)).toEqual(v3.lists);
+    expect(v4.lists[2]).toMatchObject({
+      id: "archived",
+      order: 12,
+      terminal: true,
+      archived: true
+    });
   });
 
   it("the dispatch prompt names the policy-bound skill and demands the gate-status entry", () => {

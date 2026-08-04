@@ -50,6 +50,13 @@ import { loadRoutingCore, loadRoutingConfig, resolveModelRouterDir, classifyByKe
 import { resolveSoulsHint } from "./lib/souls-route.mjs";
 import { CardRegistrar, isTaskShaped, isCardOriginatedChannel, heuristicClassify, isEmptyQuickReply, quickEmptyFailureReason } from "./lib/autonomous-cards.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
+import {
+  createJobIngressGuard,
+  forwardClaimWithRetry,
+  isPendingJobClaim,
+  jobDescription,
+  prepareClaimForAcknowledgement
+} from "./lib/job-ingress.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -67,6 +74,7 @@ const ORCHESTRATOR_MODE = Boolean(SOULS_CONFIG_RAW);
 const registry = new SessionRegistry();
 const channels = new ChannelHub();
 const watcher = new JsonlWatcher();
+const jobIngress = createJobIngressGuard();
 
 let soulsConfig = null;
 let orchestratorSessionId = null;
@@ -599,7 +607,7 @@ function killSessionBySoul(soul) {
 // Sticky current mode per channel (BRIEF: no name keeps the current mode).
 const modeByChannel = new Map();
 
-async function forwardChatToOrchestrator({ origin, channel, message, body }) {
+async function forwardChatToOrchestrator({ origin, channel, message, body, deferCompletion = false }) {
   await ensureOrchestrator();
   if (!orchestratorChild || !orchestratorSessionId) {
     throw new Error("orchestrator not booted");
@@ -678,7 +686,11 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
   // session-scoped waiters cross replies whenever two turns are in flight
   // (the Kanban tick dispatches several cards concurrently) — one card would
   // receive another card's verdict.
-  return Promise.resolve(turnPromise).then((text) => ({ status: "completed", summary: text ?? "" }));
+  const completion = Promise.resolve(turnPromise).then((text) => ({
+    status: "completed",
+    summary: text ?? ""
+  }));
+  return deferCompletion ? { completion } : completion;
 }
 
 // ────────────────────────────────────────────────────────────── HTTP server
@@ -779,14 +791,98 @@ const server = http.createServer(async (request, response) => {
 
     if (method === "POST" && url.pathname === "/jobs") {
       const body = await readJsonBody(request);
-      const description = typeof body.kind === "string" ? `Heartbeat job: ${body.kind}` : "Heartbeat tick";
-      const payloadJson = JSON.stringify(body);
-      const message = `${description}\n\nPayload:\n${payloadJson}`;
-      // Channel origin, channel=heartbeat. Fire-and-forget.
-      forwardChatToOrchestrator({ origin: "channel", channel: "heartbeat", message }).catch((err) => {
+      const claim = await jobIngress.claim(body);
+      if (!claim.accepted) {
+        if (claim.source === "invalid") {
+          sendJson(response, 400, { ack: false, retryable: false, error: claim.error });
+          return;
+        }
+        if (claim.source === "storage-error") {
+          logEvent("stderr", { kind: "job-storage-unavailable", error: claim.error });
+          sendJson(response, 503, { ack: false, retryable: true, error: claim.error });
+          return;
+        }
+        if (claim.source === "backpressure") {
+          logEvent("stderr", { kind: "job-backpressure", job: claim.key.split(":", 1)[0] });
+          sendJson(response, 503, { ack: false, retryable: true, error: "job ingress is at capacity" });
+          return;
+        }
+        if (isPendingJobClaim(claim)) {
+          logEvent("stdout", { kind: "job-dispatch-pending", job: claim.key.split(":", 1)[0] });
+          sendJson(response, 503, {
+            ack: false,
+            retryable: true,
+            error: "job dispatch reservation is still being prepared"
+          });
+          return;
+        }
+        logEvent("stdout", {
+          kind: "job-deduped",
+          source: claim.source,
+          card: claim.cardId ?? null,
+          job: claim.key.split(":", 1)[0]
+        });
+        sendJson(response, 202, { ack: true, deduped: true, card: claim.cardId ?? null });
+        return;
+      }
+      const message = jobDescription(body);
+      try {
+        await prepareClaimForAcknowledgement({ guard: jobIngress, claim });
+      } catch (error) {
+        logEvent("stderr", {
+          kind: "job-dispatch-fence-failed",
+          error: error?.message || String(error)
+        });
+        sendJson(response, 503, {
+          ack: false,
+          retryable: true,
+          error: "job dispatch could not be durably reserved"
+        });
+        return;
+      }
+      let resolveAdmission;
+      let rejectAdmission;
+      const admitted = new Promise((resolve, reject) => {
+        resolveAdmission = resolve;
+        rejectAdmission = reject;
+      });
+      const forwarding = forwardClaimWithRetry({
+        guard: jobIngress,
+        claim,
+        dispatchPrepared: true,
+        forward: () => forwardChatToOrchestrator({
+          origin: "channel",
+          channel: "heartbeat",
+          message,
+          deferCompletion: true
+        }),
+        isFailure: (result) =>
+          typeof result?.summary === "string" && result.summary.startsWith("[operative error]"),
+        onAdmitted: () => resolveAdmission(),
+        onFailure: (err, attempt, attempts) => {
+          logEvent("stderr", {
+            kind: "job-forward-attempt-failed",
+            attempt,
+            attempts,
+            error: err?.message || String(err)
+          });
+        }
+      });
+      void forwarding.catch((err) => {
+        rejectAdmission(err);
         logEvent("stderr", { kind: "job-forward-failed", error: err.message });
       });
-      sendJson(response, 202, { ack: true });
+      try {
+        await admitted;
+      } catch (error) {
+        sendJson(response, 503, {
+          ack: false,
+          retryable: true,
+          error: "job turn could not be admitted to the operative queue"
+        });
+        return;
+      }
+      sendJson(response, 202, { ack: true, deduped: false });
       return;
     }
 

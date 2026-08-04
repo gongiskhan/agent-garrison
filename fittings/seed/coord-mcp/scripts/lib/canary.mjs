@@ -48,7 +48,10 @@ function cleanupRepo(repo) {
     const dir = path.join(gh, "coord", sub);
     try {
       for (const f of fs.readdirSync(dir)) {
-        if (f.startsWith(slug)) fs.rmSync(path.join(dir, f), { force: true });
+        // Ticket locks are directories named from the same repo slug. This
+        // cleanup is bounded to the canary's throwaway repo, so remove either
+        // its ledger files or its lock directories recursively.
+        if (f.startsWith(slug)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
       }
     } catch {
       /* none */

@@ -50,11 +50,11 @@ export function isV2(config) {
 
 // ── Providers as policy data (GARRISON-RUNTIMES-V1 P2/D2) ───────────────────
 // The provider registry is POLICY DATA, not code. Each entry names an
-// Anthropic-compatible endpoint: id, kind (anthropic-plan | local | cloud-oss),
-// baseUrl (null ONLY for the anthropic-plan Max-OAuth path), vaultKey for the
-// auth credential (or dummyToken for local endpoints that ignore auth), notes.
-// SEED_PROVIDERS reproduces the four historical hardcoded entries byte-for-byte
-// in behavior; migration seeds them so existing routing resolves identically.
+// endpoint: id, kind (anthropic-plan | local | cloud-oss | openai-compatible),
+// baseUrl (null for the plan path and configurable OpenAI-compatible slots),
+// vaultKey for the auth credential (or dummyToken for local endpoints that ignore
+// auth), notes. Migration seeds these so a runtime fitting's documented provider
+// ids are valid policy data even before a composition authors its own registry.
 export const SEED_PROVIDERS = [
   { id: "anthropic-plan", kind: "anthropic-plan", baseUrl: null, notes: "Max OAuth, no base URL, no key" },
   // The agent-sdk runtime's historical id for the same Max-OAuth endpoint —
@@ -63,10 +63,12 @@ export const SEED_PROVIDERS = [
   { id: "anthropic", kind: "anthropic-plan", baseUrl: null, notes: "agent-sdk id for the Anthropic Max OAuth endpoint" },
   { id: "ollama-local", kind: "local", baseUrl: "http://localhost:11434", dummyToken: "ollama", notes: "local Ollama Anthropic-compatible endpoint" },
   { id: "deepseek", kind: "cloud-oss", baseUrl: "https://api.deepseek.com/anthropic", vaultKey: "DEEPSEEK_API_KEY" },
-  { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" }
+  { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" },
+  { id: "openai", kind: "openai-compatible", baseUrl: "https://api.openai.com/v1", vaultKey: "OPENAI_API_KEY", notes: "OpenAI cloud endpoint for OpenAI-shaped runtimes" },
+  { id: "openai-compat", kind: "openai-compatible", baseUrl: null, vaultKey: "OPENAI_API_KEY", notes: "configurable OpenAI-compatible endpoint; the runtime fitting must supply baseUrl" }
 ];
 
-export const PROVIDER_KINDS = ["anthropic-plan", "local", "cloud-oss"];
+export const PROVIDER_KINDS = ["anthropic-plan", "local", "cloud-oss", "openai-compatible"];
 
 // ── Primary runtime selection (GARRISON-RUNTIMES-V1 P3/D4) ──────────────────
 // The policy file names WHICH composed runtime fitting hosts the orchestrator
@@ -110,8 +112,12 @@ export function validateProviders(providers) {
     if (p.baseUrl !== null && p.baseUrl !== undefined && typeof p.baseUrl !== "string") {
       errors.push(`provider ${p.id}: baseUrl must be a string or null`);
     }
-    if ((p.baseUrl === null || p.baseUrl === undefined) && p.kind !== "anthropic-plan") {
-      errors.push(`provider ${p.id}: baseUrl is required for kind "${p.kind ?? "(unset)"}" (only anthropic-plan runs without one)`);
+    if (
+      (p.baseUrl === null || p.baseUrl === undefined) &&
+      p.kind !== "anthropic-plan" &&
+      p.kind !== "openai-compatible"
+    ) {
+      errors.push(`provider ${p.id}: baseUrl is required for kind "${p.kind ?? "(unset)"}" (only anthropic-plan and openai-compatible run without a policy default)`);
     }
     if (p.vaultKey !== undefined && (typeof p.vaultKey !== "string" || !p.vaultKey.length)) {
       errors.push(`provider ${p.id}: vaultKey must be a non-empty string when present`);

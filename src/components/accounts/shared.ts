@@ -454,13 +454,24 @@ export function eligibleRotationCount(accounts: AccountInfo[]): number {
   return accounts.filter((a) => a.enabled && a.status === "ready" && !a.needs_relogin).length;
 }
 
+export type RuntimeAccountEmptyMode = "machine-login" | "default-key";
+
 /**
- * Which account platform a runtime fitting authenticates with — so the compact
- * picker filters the pin list and hides Auto for non-Anthropic engines. Derived
- * from the runtime's provided name (falling back to the fitting id): the seed
- * runtimes are claude-code/agent-sdk (anthropic), codex (openai), gemini (google).
+ * The complete UI-side credential contract for one runtime/provider pairing.
+ * Platform alone is insufficient: Codex and OpenAI Agents both use the OpenAI
+ * rail, but only Codex can consume a ChatGPT auth file / machine login.
+ *
+ * Keep this table aligned with runner.primaryAccountRoute. Null means the
+ * provider is keyless or has no declared named-account contract; callers must
+ * surface any stale selection rather than guessing a vendor.
  */
-export function platformForRuntime(
+export interface RuntimeAccountContract {
+  platform: AccountPlatform;
+  allowAuthFile: boolean;
+  emptyMode: RuntimeAccountEmptyMode;
+}
+
+export function runtimeAccountContract(
   fittingId: string,
   runtimeName?: string,
   /**
@@ -471,18 +482,119 @@ export function platformForRuntime(
    * the endpoint rejects.
    */
   provider?: string
-): AccountPlatform {
+): RuntimeAccountContract | null {
   const s = `${runtimeName ?? ""} ${fittingId}`.toLowerCase();
+  const p = (provider ?? "").trim().toLowerCase();
   if (s.includes("openai-agents")) {
-    const p = (provider ?? "").trim().toLowerCase();
-    if (p === "glm") return "glm";
-    // `ollama-local` is keyless; there is no account to pin, and "anthropic" would
-    // be actively wrong. Fall through to openai, the only keyed vendor here.
-    return "openai";
+    if (p === "glm") {
+      return { platform: "glm", allowAuthFile: false, emptyMode: "default-key" };
+    }
+    if (p === "openai" || p === "openai-compat") {
+      return { platform: "openai", allowAuthFile: false, emptyMode: "default-key" };
+    }
+    // ollama-local (including the fitting's blank/default value) is keyless;
+    // an unknown provider has no declared account contract. Never guess OpenAI.
+    return null;
   }
-  if (s.includes("codex")) return "openai";
-  if (s.includes("gemini")) return "google";
-  if (s.includes("openrouter")) return "openrouter";
-  if (s.includes("huggingface") || s.includes("hugging-face")) return "huggingface";
-  return "anthropic";
+  if (s.includes("agent-sdk")) {
+    return p === "anthropic" || p === "anthropic-plan"
+      ? { platform: "anthropic", allowAuthFile: false, emptyMode: "machine-login" }
+      : null;
+  }
+  if (s.includes("claude-code")) {
+    return !p || p === "anthropic-plan"
+      ? { platform: "anthropic", allowAuthFile: false, emptyMode: "machine-login" }
+      : null;
+  }
+  if (s.includes("codex")) {
+    return { platform: "openai", allowAuthFile: true, emptyMode: "machine-login" };
+  }
+  if (s.includes("gemini")) {
+    return { platform: "google", allowAuthFile: true, emptyMode: "machine-login" };
+  }
+  if (s.includes("openrouter")) {
+    return { platform: "openrouter", allowAuthFile: false, emptyMode: "default-key" };
+  }
+  if (s.includes("huggingface") || s.includes("hugging-face")) {
+    return { platform: "huggingface", allowAuthFile: false, emptyMode: "default-key" };
+  }
+  return null;
+}
+
+/** Named accounts that this runtime can actually consume. */
+export function compatibleRuntimeAccounts(
+  accounts: AccountInfo[],
+  contract: RuntimeAccountContract
+): AccountInfo[] {
+  return accounts.filter(
+    (account) =>
+      account.platform === contract.platform &&
+      (contract.allowAuthFile || account.credential_kind !== "auth-file")
+  );
+}
+
+export type RuntimeAccountSelectionIssueKind =
+  | "provider-has-no-account-contract"
+  | "auto-not-supported"
+  | "missing-account"
+  | "wrong-platform"
+  | "auth-file-not-supported";
+
+export interface RuntimeAccountSelectionIssue {
+  kind: RuntimeAccountSelectionIssueKind;
+  message: string;
+  optionLabel: string;
+}
+
+/**
+ * Explain a persisted selection that the current runtime/provider cannot use.
+ * This is deliberately pure so every picker can preserve and expose stale
+ * values instead of letting a controlled <select> visually snap to its default.
+ */
+export function runtimeAccountSelectionIssue(
+  value: string,
+  contract: RuntimeAccountContract | null,
+  accounts: AccountInfo[]
+): RuntimeAccountSelectionIssue | null {
+  const selectedName = value.trim();
+  if (!selectedName) return null;
+  if (!contract) {
+    return {
+      kind: "provider-has-no-account-contract",
+      message: `Account "${selectedName}" is incompatible because this provider is keyless or has no named-account contract.`,
+      optionLabel: `${selectedName} (incompatible provider)`
+    };
+  }
+  if (selectedName === "auto") {
+    return contract.platform === "anthropic"
+      ? null
+      : {
+          kind: "auto-not-supported",
+          message: "Auto rotation is available only to Anthropic runtimes. Clear it or pin a compatible account.",
+          optionLabel: "auto (not supported)"
+        };
+  }
+  const selected = accounts.find((account) => account.name === selectedName);
+  if (!selected) {
+    return {
+      kind: "missing-account",
+      message: `Account "${selectedName}" is no longer in the registry. Clear it or choose another account.`,
+      optionLabel: `${selectedName} (missing)`
+    };
+  }
+  if (selected.platform !== contract.platform) {
+    return {
+      kind: "wrong-platform",
+      message: `Account "${selectedName}" belongs to ${PLATFORM_SPECS[selected.platform].label}, but this runtime requires ${PLATFORM_SPECS[contract.platform].label}.`,
+      optionLabel: `${selectedName} (wrong platform)`
+    };
+  }
+  if (selected.credential_kind === "auth-file" && !contract.allowAuthFile) {
+    return {
+      kind: "auth-file-not-supported",
+      message: `Account "${selectedName}" is a subscription login, but this runtime requires an API-token account.`,
+      optionLabel: `${selectedName} (API token required)`
+    };
+  }
+  return null;
 }

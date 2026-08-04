@@ -8,6 +8,7 @@ import {
   removeAccount,
   setAccountNeedsRelogin,
   accountTokenForSpawn,
+  resolvePrimaryRuntimeAccount,
   resolveRuntimeAccountEnv
 } from "@/lib/accounts";
 import {
@@ -162,6 +163,10 @@ describe("generic platforms (RUNTIME-ACCOUNTS-V2)", () => {
     });
     expect(accountAuthEnv("b", "tok", "openai")).toMatchObject({ OPENAI_API_KEY: "tok" });
     expect(accountAuthEnv("c", "tok", "google")).toMatchObject({ GEMINI_API_KEY: "tok" });
+    expect(accountAuthEnv("glm-box", "tok", "glm")).toMatchObject({
+      GLM_API_KEY: "tok",
+      GARRISON_ACCOUNT: "glm-box"
+    });
     expect(accountAuthEnv("d", "tok", "custom", ["MISTRAL_API_KEY", "MY_TOKEN"])).toMatchObject({
       MISTRAL_API_KEY: "tok",
       MY_TOKEN: "tok"
@@ -177,17 +182,174 @@ describe("generic platforms (RUNTIME-ACCOUNTS-V2)", () => {
     expect((await listAccounts()).find((a) => a.name === "mistral")?.env_keys).toEqual(["MISTRAL_API_KEY"]);
   });
 
-  it("resolveRuntimeAccountEnv injects non-anthropic accounts, excludes anthropic", async () => {
-    await addAccount({ name: "acc-anthropic", token: TOKEN_A }); // anthropic (plan path owns it)
+  it("resolveRuntimeAccountEnv injects a provider-matched account without a primary marker", async () => {
     await addAccount({ name: "acc-openai", token: "sk-openai-xyz", platform: "openai" });
     const env = await resolveRuntimeAccountEnv([
-      { id: "claude-code-runtime", account: "acc-anthropic" },
-      { id: "codex-runtime", account: "acc-openai" },
-      { id: "gemini-runtime", account: "auto" }, // auto skipped (anthropic-only concept)
-      { id: "other-runtime", account: "" } // machine login skipped
+      {
+        id: "codex-runtime",
+        account: "acc-openai",
+        expectedPlatform: "openai",
+        allowAuthFile: true
+      }
     ]);
     expect(env.OPENAI_API_KEY).toBe("sk-openai-xyz");
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined(); // anthropic excluded here
+    expect(env.GARRISON_ACCOUNT).toBeUndefined();
+  });
+
+  it("fails loudly on secondary platform mismatches and missing selected accounts", async () => {
+    await addAccount({ name: "openai-key", token: "sk-openai-xyz", platform: "openai" });
+    await expect(
+      resolveRuntimeAccountEnv([
+        { id: "gemini-runtime", account: "openai-key", expectedPlatform: "google" }
+      ])
+    ).rejects.toThrow(/expects a google account.*is openai/);
+    await expect(
+      resolveRuntimeAccountEnv([
+        { id: "codex-runtime", account: "missing", expectedPlatform: "openai" }
+      ])
+    ).rejects.toThrow(/not in the account registry/);
+  });
+
+  it("rejects process-wide secondary collisions instead of choosing the last account", async () => {
+    await addAccount({ name: "openai-a", token: "sk-a", platform: "openai" });
+    await addAccount({ name: "openai-b", token: "sk-b", platform: "openai" });
+    await expect(
+      resolveRuntimeAccountEnv([
+        { id: "codex-a", account: "openai-a", expectedPlatform: "openai" },
+        { id: "codex-b", account: "openai-b", expectedPlatform: "openai" }
+      ])
+    ).rejects.toThrow(/openai-a.*already owns.*credential rail/);
+  });
+
+  it("rejects two secondary accounts on one platform even when their token values match", async () => {
+    await addAccount({ name: "openai-same-a", token: "sk-same", platform: "openai" });
+    await addAccount({ name: "openai-same-b", token: "sk-same", platform: "openai" });
+    await expect(
+      resolveRuntimeAccountEnv([
+        { id: "codex-a", account: "openai-same-a", expectedPlatform: "openai" },
+        { id: "codex-b", account: "openai-same-b", expectedPlatform: "openai" }
+      ])
+    ).rejects.toThrow(/openai-same-a.*already owns.*credential rail/);
+  });
+
+  it("allows two secondary runtimes to reuse the same account on one platform", async () => {
+    await addAccount({ name: "openai-shared", token: "sk-shared", platform: "openai" });
+    const env = await resolveRuntimeAccountEnv([
+      { id: "codex-a", account: "openai-shared", expectedPlatform: "openai" },
+      { id: "codex-b", account: "openai-shared", expectedPlatform: "openai" }
+    ]);
+    expect(env.OPENAI_API_KEY).toBe("sk-shared");
+  });
+
+  it("allows a secondary to reuse the exact named account already owned by the primary", async () => {
+    await addAccount({ name: "openai-primary", token: "sk-primary", platform: "openai" });
+    const env = await resolveRuntimeAccountEnv(
+      [{ id: "codex-secondary", account: "openai-primary", expectedPlatform: "openai" }],
+      {
+        reservedEnv: { OPENAI_API_KEY: "sk-primary" },
+        reservedPlatforms: [{
+          platform: "openai",
+          account: "openai-primary",
+          owner: "primary runtime codex-runtime"
+        }]
+      }
+    );
+    expect(env.OPENAI_API_KEY).toBe("sk-primary");
+  });
+
+  it("rejects a different secondary account on a named primary platform rail", async () => {
+    await addAccount({ name: "openai-primary", token: "sk-primary", platform: "openai" });
+    await addAccount({ name: "openai-other", token: "sk-primary", platform: "openai" });
+    await expect(
+      resolveRuntimeAccountEnv(
+        [{ id: "codex-secondary", account: "openai-other", expectedPlatform: "openai" }],
+        {
+          reservedEnv: { OPENAI_API_KEY: "sk-primary" },
+          reservedPlatforms: [{
+            platform: "openai",
+            account: "openai-primary",
+            owner: "primary runtime codex-runtime"
+          }]
+        }
+      )
+    ).rejects.toThrow(/primary runtime codex-runtime.*credential rail/);
+  });
+
+  it("rejects identical-value env collisions owned by different account platforms", async () => {
+    await addAccount({ name: "openai-owner", token: "same-secret", platform: "openai" });
+    await addAccount({
+      name: "custom-owner",
+      token: "same-secret",
+      platform: "custom",
+      env_keys: ["OPENAI_API_KEY"]
+    });
+    await expect(
+      resolveRuntimeAccountEnv([
+        { id: "codex-secondary", account: "openai-owner", expectedPlatform: "openai" },
+        { id: "custom-secondary", account: "custom-owner", expectedPlatform: "custom" }
+      ])
+    ).rejects.toThrow(/conflicts on OPENAI_API_KEY/);
+  });
+
+  it("rejects a secondary pin on the primary's process-wide platform rail", async () => {
+    await addAccount({ name: "openai-a", token: "sk-a", platform: "openai" });
+    await expect(
+      resolveRuntimeAccountEnv(
+        [{ id: "codex-secondary", account: "openai-a", expectedPlatform: "openai" }],
+        {
+          reservedPlatforms: [
+            { platform: "openai", owner: "primary runtime openai-agents-runtime" }
+          ]
+        }
+      )
+    ).rejects.toThrow(/primary runtime openai-agents-runtime.*Per-runtime env isolation/);
+  });
+
+  it("strictly resolves a named GLM primary into GLM_API_KEY", async () => {
+    await addAccount({ name: "glm-box", token: "glm-secret", platform: "glm" });
+
+    const resolved = await resolvePrimaryRuntimeAccount(
+      "glm-box",
+      "openai-agents-runtime",
+      "glm"
+    );
+
+    expect(resolved).toMatchObject({
+      name: "glm-box",
+      platform: "glm",
+      credentialKind: "token"
+    });
+    expect(resolved.env).toMatchObject({
+      GLM_API_KEY: "glm-secret",
+      GARRISON_ACCOUNT: "glm-box"
+    });
+    expect(resolved.env.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it("preserves the provider platform when flagging a vault-only account", async () => {
+    const secrets = await readVaultSecrets();
+    await writeVaultSecrets([
+      ...secrets,
+      { key: "ACCOUNT__GLM__handmade", value: "glm-secret" }
+    ]);
+
+    await setAccountNeedsRelogin("handmade", true, "glm");
+
+    expect((await listAccounts()).find((account) => account.name === "handmade")).toMatchObject({
+      platform: "glm",
+      needs_relogin: true
+    });
+  });
+
+  it("fails loudly for a missing or wrong-platform named primary account", async () => {
+    await expect(
+      resolvePrimaryRuntimeAccount("missing", "openai-agents-runtime", "glm")
+    ).rejects.toThrow(/not in the account registry/);
+
+    await addAccount({ name: "openai-key", token: "sk-openai-xyz", platform: "openai" });
+    await expect(
+      resolvePrimaryRuntimeAccount("openai-key", "openai-agents-runtime", "glm")
+    ).rejects.toThrow(/expects a glm account.*is openai/);
   });
 
   it("REFUSES to reuse a name on another platform, instead of destroying it", async () => {

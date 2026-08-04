@@ -18,18 +18,21 @@ import {
   PLATFORM_SECTIONS,
   PLATFORM_SPECS,
   accountStatusChip,
+  compatibleRuntimeAccounts,
   credentialLabel,
   eligibleRotationCount,
   formatAgo,
   formatCountdown,
   machineStatusChip,
-  platformForRuntime,
+  runtimeAccountContract,
+  runtimeAccountSelectionIssue,
   type AccountInfo,
   type AccountBalance,
   type AccountPlatform,
   type AddMethod,
   type PaymasterPayload,
   type PlatformLogin,
+  type RuntimeAccountContract,
   type StatusChip,
   type UsageWindow
 } from "./shared";
@@ -38,11 +41,12 @@ import { KeyGuideLink } from "./KeyGuide";
 
 // One stationed runtime of the active composition, reduced to the only thing
 // this page cares about: which identity it launches under.
-interface RuntimeBinding {
+export interface RuntimeBinding {
   id: string;
   name: string;
   primary: boolean;
-  /** "" = machine login · "auto" = Paymaster rotation · else a pinned account. */
+  contract: RuntimeAccountContract | null;
+  /** "" = unpinned machine login/default key · "auto" = Paymaster · else pinned. */
   account: string;
 }
 
@@ -214,10 +218,10 @@ function RuntimeBindings({
         </span>
       </div>
       {runtimes.map((runtime) => {
-        const missing =
-          runtime.account !== "" &&
-          runtime.account !== "auto" &&
-          !accounts.some((account) => account.name === runtime.account);
+        const contract = runtime.contract;
+        if (!contract) return null;
+        const compatibleAccounts = compatibleRuntimeAccounts(accounts, contract);
+        const issue = runtimeAccountSelectionIssue(runtime.account, contract, accounts);
         return (
           <div key={runtime.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span className="font-mono" style={{ fontSize: 12.5, fontWeight: 600 }}>
@@ -225,29 +229,91 @@ function RuntimeBindings({
             </span>
             {runtime.primary ? <span className="pill">primary</span> : null}
             <span style={{ flex: 1 }} />
-            <select
-              className="text"
-              style={{ minWidth: 230 }}
-              value={runtime.account}
-              data-testid={`runtime-account-${runtime.id}`}
-              onChange={(event) => onSet(runtime.id, event.target.value)}
-            >
-              <option value="">Machine login (this box)</option>
-              {platform === "anthropic" ? <option value="auto">Auto - rotate by usage</option> : null}
-              {accounts.map((account) => (
-                <option key={account.name} value={account.name}>
-                  {account.name}
-                  {account.label ? ` (${account.label})` : ""}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+              <select
+                className="text"
+                style={{ minWidth: 230 }}
+                value={runtime.account}
+                data-testid={`runtime-account-${runtime.id}`}
+                onChange={(event) => onSet(runtime.id, event.target.value)}
+              >
+                <option value="">
+                  {contract.emptyMode === "machine-login"
+                    ? "Machine login (this box)"
+                    : `Default ${PLATFORM_SPECS[platform].envKeys.join(" / ") || "provider key"} (un-pinned)`}
                 </option>
-              ))}
-              {/* A pin to a since-removed account must stay visible, not snap
-                  silently back to machine login. */}
-              {missing ? <option value={runtime.account}>{runtime.account} (missing)</option> : null}
-            </select>
+                {contract.platform === "anthropic" ? <option value="auto">Auto - rotate by usage</option> : null}
+                {compatibleAccounts.map((account) => (
+                  <option key={account.name} value={account.name}>
+                    {account.name}
+                    {account.label ? ` (${account.label})` : ""}
+                  </option>
+                ))}
+                {/* A stale or incompatible pin must remain visible until the user
+                    deliberately clears or replaces it. */}
+                {issue ? <option value={runtime.account}>{issue.optionLabel}</option> : null}
+              </select>
+              {issue ? (
+                <span
+                  className="hint"
+                  data-testid={`runtime-account-issue-${runtime.id}`}
+                  style={{ maxWidth: 520, color: "var(--alarm)", fontSize: 10.5, textAlign: "right" }}
+                >
+                  {issue.message}{" "}
+                  <button
+                    type="button"
+                    className="btn small"
+                    data-testid={`runtime-account-clear-${runtime.id}`}
+                    onClick={() => onSet(runtime.id, "")}
+                  >
+                    Clear
+                  </button>
+                </span>
+              ) : null}
+            </div>
           </div>
         );
       })}
     </div>
+  );
+}
+
+function IncompatibleRuntimeBindings({
+  runtimes,
+  onSet
+}: {
+  runtimes: RuntimeBinding[];
+  onSet: (fittingId: string, account: string) => void;
+}) {
+  if (runtimes.length === 0) return null;
+  return (
+    <section
+      data-testid="runtime-bindings-incompatible"
+      className="banner alarm"
+      style={{ display: "flex", flexDirection: "column", gap: 8 }}
+    >
+      <strong>Incompatible runtime account selections</strong>
+      <span style={{ fontSize: 12 }}>
+        These providers are keyless or have no declared account contract. Clear the stale selection before launch.
+      </span>
+      {runtimes.map((runtime) => {
+        const issue = runtimeAccountSelectionIssue(runtime.account, null, []);
+        return (
+          <div key={runtime.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{runtime.id}</span>
+            <span style={{ fontSize: 12 }}>{issue?.message}</span>
+            <button
+              type="button"
+              className="btn small"
+              data-testid={`runtime-account-clear-${runtime.id}`}
+              onClick={() => onSet(runtime.id, "")}
+            >
+              Clear “{runtime.account}”
+            </button>
+          </div>
+        );
+      })}
+    </section>
   );
 }
 
@@ -387,7 +453,7 @@ function AccountRow({
 // Reduce the Muster standing model to the runtimes that actually take an
 // account. A runtime without an `account` config field (a local engine like
 // ollama) has no identity to pick and is left out rather than shown inert.
-function runtimeBindings(standing: unknown): RuntimeBinding[] {
+export function runtimeBindings(standing: unknown): RuntimeBinding[] {
   const model = standing as {
     slots?: { faculty: string; fittings?: unknown[] }[];
   };
@@ -402,12 +468,24 @@ function runtimeBindings(standing: unknown): RuntimeBinding[] {
   }[];
   return fittings
     .filter((f) => f.providesRuntime && (f.configSchema ?? []).some((field) => field.key === "account"))
-    .map((f) => ({
-      id: f.id,
-      name: f.name,
-      primary: Boolean(f.isPrimaryRuntime),
-      account: String(f.config?.account ?? "")
-    }));
+    .flatMap((f) => {
+      const contract = runtimeAccountContract(
+        f.id,
+        f.name,
+        String(f.config?.provider ?? "")
+      );
+      const account = String(f.config?.account ?? "");
+      // Keyless providers with no selection stay out of the account UI. A stale
+      // value remains as an explicit incompatible binding so it can be cleared.
+      if (!contract && !account.trim()) return [];
+      return [{
+        id: f.id,
+        name: f.name,
+        primary: Boolean(f.isPrimaryRuntime),
+        contract,
+        account
+      }];
+    });
 }
 
 export function AccountsManager() {
@@ -524,7 +602,11 @@ export function AccountsManager() {
     async (fittingId: string, account: string) => {
       // Optimistic: the select must not snap back while the write lands.
       setRuntimes((current) =>
-        current.map((runtime) => (runtime.id === fittingId ? { ...runtime, account } : runtime))
+        current.flatMap((runtime) => {
+          if (runtime.id !== fittingId) return [runtime];
+          if (!runtime.contract && !account) return [];
+          return [{ ...runtime, account }];
+        })
       );
       try {
         const response = await fetch("/api/muster/standing/config", {
@@ -550,7 +632,7 @@ export function AccountsManager() {
         <h1>Accounts</h1>
         <p className="ld">
           The identities your operatives run under, grouped by engine. A runtime launches under one
-          of three modes - the box&apos;s own <strong>Machine login</strong>, <strong>Auto</strong>{" "}
+          of three modes - the box&apos;s own login or <strong>default provider key</strong>, <strong>Auto</strong>{" "}
           (Claude only - rotates registered accounts by rate-limit usage), or a single{" "}
           <strong>pinned</strong> account. Each section below sets the mode for its runtimes
           directly; the same pickers live on the <Link href="/compose">Composition</Link> page.
@@ -558,6 +640,10 @@ export function AccountsManager() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 34, maxWidth: 920 }}>
+        <IncompatibleRuntimeBindings
+          runtimes={runtimes.filter((runtime) => !runtime.contract)}
+          onSet={setRuntimeAccount}
+        />
         {PLATFORM_SECTIONS.map((section) => {
           const platAccounts = accounts.filter((a) => a.platform === section.id);
           const machine = machineByPlatform.get(section.id);
@@ -589,7 +675,7 @@ export function AccountsManager() {
                 <KeyGuideLink platform={section.id} />
               </p>
 
-              {machine ? (
+              {machine && PLATFORM_SPECS[section.id].nativeLoginPath ? (
                 <MachineLoginCard
                   machine={machine}
                   platformLabel={section.label}
@@ -662,8 +748,8 @@ export function AccountsManager() {
 
               <RuntimeBindings
                 platform={section.id}
-                runtimes={runtimes.filter((runtime) => platformForRuntime(runtime.id) === section.id)}
-                accounts={platAccounts}
+                runtimes={runtimes.filter((runtime) => runtime.contract?.platform === section.id)}
+                accounts={accounts}
                 onSet={setRuntimeAccount}
               />
 

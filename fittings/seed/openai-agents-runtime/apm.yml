@@ -50,6 +50,10 @@ x-garrison:
       type: number
       default: 12
       description: Cap on the agentic loop - the loop has no natural bound, so an unbounded run would burn paid credits until stopped.
+    - key: account
+      type: string
+      default: ""
+      description: Which keyed provider account this runtime uses. With provider `glm`, choose a GLM account; with `openai` or `openai-compat`, choose an OpenAI account. Leave empty to use the provider's plain vault key/runtime default. Manage accounts on the Accounts page.
   provides:
     - kind: runtime
       name: openai-agents

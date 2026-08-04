@@ -65,6 +65,20 @@
       "kind": "cloud-oss",
       "baseUrl": "https://api.z.ai/api/anthropic",
       "vaultKey": "ZAI_API_KEY"
+    },
+    {
+      "id": "openai",
+      "kind": "openai-compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "vaultKey": "OPENAI_API_KEY",
+      "notes": "OpenAI cloud endpoint for OpenAI-shaped runtimes"
+    },
+    {
+      "id": "openai-compat",
+      "kind": "openai-compatible",
+      "baseUrl": null,
+      "vaultKey": "OPENAI_API_KEY",
+      "notes": "configurable OpenAI-compatible endpoint; the runtime fitting must supply baseUrl"
     }
   ],
   "exceptions": [

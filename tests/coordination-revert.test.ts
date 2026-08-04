@@ -5,7 +5,7 @@
 // directly). It asserts the five behaviours the design (plan-coord-engine Q7) requires:
 //   (a) POST /abandon builds the prepared-revert descriptor from EXACTLY the card's
 //       trailer-attributed commits, parks the card with the abandoned flag, and
-//       releases its coordination ledger intents;
+//       releases its coordination ledger intents and exclusive leases;
 //   (b) POST /revert without { confirm: true } is a 400 (never auto-applied);
 //   (c) POST /revert with { confirm: true } lands the revert commits (verified in git
 //       log) and flips the descriptor to "applied";
@@ -46,7 +46,7 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
 import { saveBoard, createCard, loadCard, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore
-import { registerTouchSetIntent } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+import { acquireLeases, registerTouchSetIntent } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
 
 // ── git helpers (same shape as tests/coordination-attribution.test.ts) ──
 function git(repo: string, ...args: string[]): string {
@@ -128,8 +128,55 @@ afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
 });
 
-describe("(a) POST /abandon builds the descriptor, parks, releases intents", () => {
-  it("descriptor = exactly the card's trailer commits; card parked + abandoned; ledger released", async () => {
+describe("recovery Start is transactional", () => {
+  it("preserves waitingOn + schedule when a previously-started card has no touch-set", async () => {
+    const repo = newRepo();
+    const baseCard = await createCard(KANBAN_DIR, {
+      title: "cannot safely resume",
+      project: repo,
+      list: "needs-attention"
+    });
+    const runDir = join(RUNS_DIR, baseCard.id);
+    mkdirSync(runDir, { recursive: true }); // deliberately no touch-set.json
+    const waitingOn = {
+      cardId: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+      cardTitle: "earlier card",
+      grade: "heavy",
+      reason: "shared checkout overlap",
+      until: "terminal",
+      thenTo: "implement",
+      rerun: false,
+      since: "2026-08-03T09:00:00.000Z"
+    };
+    await updateCardCAS(KANBAN_DIR, baseCard.id, (card: any) => ({
+      ...card,
+      runId: baseCard.id,
+      runDir,
+      list: "needs-attention",
+      status: "needs-attention",
+      parkedFrom: "implement",
+      waitingOn,
+      scheduledFor: "2026-08-04T10:00:00.000Z",
+      scheduleAction: "run"
+    }));
+
+    const response = await jsend("POST", `/cards/${baseCard.id}/start`);
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      error: "coordination-recovery-held",
+      coordination: { code: "touch-set-unavailable" }
+    });
+
+    const disk: any = await loadCard(KANBAN_DIR, baseCard.id);
+    expect(disk.list).toBe("needs-attention");
+    expect(disk.waitingOn).toEqual(waitingOn);
+    expect(disk.scheduledFor).toBe("2026-08-04T10:00:00.000Z");
+    expect(disk.scheduleAction).toBe("run");
+  });
+});
+
+describe("(a) POST /abandon builds the descriptor, parks, releases coordination holds", () => {
+  it("descriptor = exactly the card's trailer commits; card parked + abandoned; intent and lease released", async () => {
     const repo = newRepo();
     const { id, runDir } = await makeCard(repo, "feature x");
 
@@ -140,6 +187,11 @@ describe("(a) POST /abandon builds the descriptor, parks, releases intents", () 
       touchSet: { files: ["a.txt"], dirs: [] }
     });
     expect(readFileSync(ledgerFor(repo), "utf8")).toContain(`kanban:${id}`);
+    expect(acquireLeases({
+      repoPath: repo,
+      card: { id, runId: id },
+      paths: ["package-lock.json"]
+    }).ok).toBe(true);
 
     // Two commits carry THIS card's trailer; one plain commit does not.
     const a = trailerCommit(repo, id, "a.txt", "aaa\n", "card work a");
@@ -169,6 +221,13 @@ describe("(a) POST /abandon builds the descriptor, parks, releases intents", () 
 
     // The card's ledger intent row is gone.
     expect(readFileSync(ledgerFor(repo), "utf8")).not.toContain(`kanban:${id}`);
+    // Its exclusive lease is owner-scoped too: a successor can acquire the path
+    // only after this explicit human release override.
+    expect(acquireLeases({
+      repoPath: repo,
+      card: { id: `${id}-successor`, runId: `${id}-successor` },
+      paths: ["package-lock.json"]
+    }).ok).toBe(true);
   });
 });
 

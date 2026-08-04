@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { writeJsonAtomic } from "./atomic-write";
@@ -32,6 +33,14 @@ export interface CompositionOwner {
   pid: number;
   compositionId: string;
   claimedAt: string;
+  /** Distinguishes successive same-profile claims for failure-path cleanup. */
+  claimId?: string;
+}
+
+export interface CompositionLaunchClaim {
+  owner: CompositionOwner;
+  /** False for a same-profile re-entry; a failed re-entry must preserve prior state. */
+  acquiredFresh: boolean;
 }
 
 export function ownerFilePath(compositionDir: string): string {
@@ -70,11 +79,10 @@ export class CompositionOwnedByOtherInstanceError extends Error {
   }
 }
 
-// Claim the tree for THIS profile. Throws if another profile holds it.
-export async function claimComposition(
+async function createCompositionClaim(
   compositionDir: string,
   compositionId: string
-): Promise<CompositionOwner> {
+): Promise<CompositionLaunchClaim> {
   const profile = currentProfile();
   const existing = await readCompositionOwner(compositionDir);
   if (existing && existing.instanceId !== profile) {
@@ -84,11 +92,68 @@ export async function claimComposition(
     instanceId: profile,
     pid: process.pid,
     compositionId,
-    claimedAt: new Date().toISOString()
+    claimedAt: new Date().toISOString(),
+    claimId: randomUUID()
   };
   await mkdir(path.dirname(ownerFilePath(compositionDir)), { recursive: true });
   await writeJsonAtomic(ownerFilePath(compositionDir), owner);
-  return owner;
+  return { owner, acquiredFresh: existing === null };
+}
+
+// Claim the tree for THIS profile. Throws if another profile holds it.
+export async function claimComposition(
+  compositionDir: string,
+  compositionId: string
+): Promise<CompositionOwner> {
+  return (await createCompositionClaim(compositionDir, compositionId)).owner;
+}
+
+/**
+ * Launch-specific claim metadata lets a failed `up` clean only state it acquired
+ * from an unowned tree. A same-profile re-entry may be a live restart boundary;
+ * its failure must not wipe or release the prior owner's materialized state.
+ */
+export async function claimCompositionForLaunch(
+  compositionDir: string,
+  compositionId: string
+): Promise<CompositionLaunchClaim> {
+  return createCompositionClaim(compositionDir, compositionId);
+}
+
+function sameClaim(left: CompositionOwner, right: CompositionOwner): boolean {
+  if (left.claimId || right.claimId) return left.claimId === right.claimId;
+  return left.instanceId === right.instanceId &&
+    left.pid === right.pid &&
+    left.compositionId === right.compositionId &&
+    left.claimedAt === right.claimedAt;
+}
+
+/** True only while the exact launch generation still owns the tree. */
+export async function isCompositionClaimCurrent(
+  compositionDir: string,
+  expected: CompositionOwner
+): Promise<boolean> {
+  const existing = await readCompositionOwner(compositionDir);
+  return existing !== null && sameClaim(existing, expected);
+}
+
+/**
+ * Release one exact failed-launch generation. Unlike releaseComposition(), this
+ * cannot delete a newer same-profile claim that took ownership after it.
+ */
+export async function releaseCompositionClaim(
+  compositionDir: string,
+  expected: CompositionOwner
+): Promise<boolean> {
+  if (expected.instanceId !== currentProfile()) return false;
+  if (!(await isCompositionClaimCurrent(compositionDir, expected))) return false;
+  try {
+    await unlink(ownerFilePath(compositionDir));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 // Release on down(). Only the owning profile may release, so a stray call from

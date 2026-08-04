@@ -408,9 +408,12 @@ function waitingLabel(w: WaitingOn): string {
 // point; an exclusive-lease wait and an interference wait have their own phrasing
 // (their release point — "it releases" / "its fix fence" — folded into the clause).
 function waitingClause(w: WaitingOn): string {
-  if (w.grade === "lease") return "exclusive lease held, until it releases";
-  if (w.grade === "interference") return "broken by its commits, until its fix fence";
-  return `${w.grade} overlap, until ${w.until}`;
+  const base = w.grade === "lease"
+    ? "exclusive lease held, until it releases"
+    : w.grade === "interference"
+      ? "broken by its commits, until its fix fence"
+      : `${w.grade} overlap, until ${w.until}`;
+  return `${base}. If that card is parked, this hold stays in place; resume it or explicitly Abandon/Delete it.`;
 }
 
 // ── drill handoff (Send to Drill) ────────────────────────────────────────────

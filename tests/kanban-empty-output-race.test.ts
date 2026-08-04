@@ -275,12 +275,25 @@ describe("un-park honors retryKeepsContext (S1b review finding — flag now read
     expect(patch.retryKeepsContext).toBe(false); // consumed
     expect(patch.iterations).toBe(0); // counter still resets (re-cap avoidance)
     expect(patch.attentionReason).toBeNull();
+    expect(patch).not.toHaveProperty("coordinationRecoveryPending");
   });
 
   it("a normal un-park (no flag) does not touch runDir/retryKeepsContext", () => {
     const patch = unparkRecoveryFields({ iterations: 3 });
     expect(patch).not.toHaveProperty("runDir");
     expect(patch).not.toHaveProperty("retryKeepsContext");
+    expect(patch).not.toHaveProperty("coordinationRecoveryPending");
     expect(patch.iterations).toBe(0);
+  });
+
+  it("keeps PATCH/Start/manual-list recovery marker-free under the fail-closed contract", () => {
+    const patch = unparkRecoveryFields({
+      list: "needs-attention",
+      status: "needs-attention",
+      parkedFrom: "implement",
+      iterations: 2
+    });
+    expect(patch).not.toHaveProperty("coordinationRecoveryPending");
+    expect(patch).toMatchObject({ attentionReason: null, parkedFrom: null, iterations: 0 });
   });
 })

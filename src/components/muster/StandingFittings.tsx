@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
-import { platformForRuntime } from "@/components/accounts/shared";
+import { runtimeAccountContract } from "@/components/accounts/shared";
 import styles from "./Muster.module.css";
 
 type ConfigValue = string | number | boolean;
@@ -663,13 +663,30 @@ function ConfigField({
   // RUNTIME-ACCOUNTS-V1: the "account" key renders as the account selector +
   // guided login flow (registry-driven options; mirrors Compose ConfigInput).
   if (field.key === "account") {
+    const accountContract = runtimeAccountContract(fittingId, undefined, provider);
+    if (!accountContract) {
+      return (
+        <div className={styles.cfgField} data-testid={testId}>
+          {label}
+          <span className={styles.cfgHint}>
+            This provider is keyless or has no declared named-account mapping.
+          </span>
+          {String(value) ? (
+            <button type="button" className="btn small" onClick={() => onChange("")}>
+              Clear incompatible account “{String(value)}”
+            </button>
+          ) : null}
+          {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
+        </div>
+      );
+    }
     return (
       <div className={styles.cfgField} data-testid={testId}>
         {label}
         <AccountField
           value={String(value)}
           onChange={(next) => onChange(next)}
-          platform={platformForRuntime(fittingId, undefined, provider)}
+          contract={accountContract}
         />
         {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
       </div>

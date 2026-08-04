@@ -216,11 +216,12 @@ describe("v1 → v2 migrate-at-read (moved from the retired server's startup)", 
     const bak = `${CONFIG()}.v1.bak`;
     expect(existsSync(bak)).toBe(true);
     expect(JSON.parse(readFileSync(bak, "utf8")).version).toBe(1);
-    // unknown provider ids are dropped from migrated secondaries
+    // Known provider ids survive migration now that OpenAI-shaped runtimes are
+    // first-class policy data; only ids absent from the registry are dropped.
     const targets = (config as { targets: { id: string; provider?: string; model?: string }[] }).targets;
     const sec = targets.find((t) => t.id === "sec-codex");
     expect(sec).toBeTruthy();
-    expect(sec?.provider).toBeUndefined();
+    expect(sec?.provider).toBe("openai");
     expect(sec?.model).toBe("gpt-5-codex");
     // and the migrated config passes its own v2 validation: a no-op write is accepted
     const res = await write(structuredClone(config), baselineSha);

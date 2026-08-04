@@ -32,6 +32,7 @@ import {
   loadCard,
   createCard,
   saveCardCAS,
+  saveCardCASWithHooks,
   deleteCard,
   deriveMembership,
   appendCardLog,
@@ -68,6 +69,7 @@ import {
   withEvent,
   replySnippet,
   parkFields,
+  consumeStartOverrides,
   ATTENTION_LIST
 } from "../lib/engine.mjs";
 import {
@@ -84,12 +86,16 @@ import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mj
 import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
   readTouchSet,
+  inspectTouchSet,
   coordinationConfig,
   coordinationAvailability,
   serializeGate,
   repoPathForProject,
-  removeCardIntents,
-  releaseLeases
+  claimCovers,
+  acquireLeases,
+  isHumanHeld,
+  refreshCardTouchSetIntent,
+  cleanupCardCoordination
 } from "../lib/coordination.mjs";
 import { prepareRevert, executeRevert } from "../lib/fences.mjs";
 import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
@@ -965,41 +971,84 @@ async function handleSteerCard(req, res, opts, id) {
     }
   }
 
-  // (a) steering.md — always (the absorb guidance the prompt folds in).
-  appendSteeringMd(opts.root, id, { at, action, message });
-  // (b) steering.json — the pending revisit directive.
-  if (action === "revisit" && revisitDuty) {
-    writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
-  }
-  // (c) timeline event (engine-context, rev-safe reload+retry; non-fatal).
-  await updateCard(opts.root, id, (c) => ({
-    ...c,
-    events: withEvent(c, { at, kind: "steering", message: `Steering: ${action}${revisitDuty ? ` → ${revisitDuty}` : ""}`, detail: reason || null })
-  })).catch(() => null);
-  // (d) an idle card with a revisit directive re-stages IMMEDIATELY.
   let applied = false;
+  // An idle revisit is one lifecycle transition, not a preflight + retrying
+  // update pair. Rev/existence are validated before restoring the coordination
+  // hold, and the card cannot become running/abandoned/deleted underneath us.
   if (action === "revisit" && revisitDuty && card.status !== "running") {
     const board = await loadBoard(opts.root);
     if (getList(board, revisitDuty)) {
-      const moved = await updateCard(opts.root, id, (c) => ({
-        ...c,
+      let events = withEvent(card, {
+        at,
+        kind: "steering",
+        message: `Steering: ${action} → ${revisitDuty}`,
+        detail: reason || null
+      });
+      events = withEvent({ events }, {
+        at,
+        kind: "steering-restage",
+        message: `Re-staged to ${revisitDuty} (steering)`
+      });
+      const target = {
+        ...card,
         // A human sending a card back through the pipeline is a fresh, approved pass:
         // clear the park reason and RESET the iteration counter (the convergence guard),
         // exactly like un-parking. Without this a card re-staged from needs-attention
         // (parked AT the cap) would trip the cap on its first tick and re-park, and a
         // done card would burn straight into it. The runDir + steering.md carry the
         // prior context forward, so "same card, same context" holds.
-        ...unparkRecoveryFields(c),
+        ...unparkRecoveryFields(card),
         list: revisitDuty,
         status: "ok",
         runningSince: null,
-        events: withEvent(c, { at: new Date().toISOString(), kind: "steering-restage", message: `Re-staged to ${revisitDuty} (steering)` })
-      }));
-      if (moved) {
-        applied = true;
-        markSteeringApplied(opts.root, id);
-      }
+        events
+      };
+      const moved = await saveCardCASWithHooks(opts.root, target, card.rev ?? 0, at, {
+        beforeWrite: ({ next }) => prepareRecoveredCoordinationHold(board, next),
+        afterWrite: () => {
+          appendSteeringMd(opts.root, id, { at, action, message });
+          writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
+          markSteeringApplied(opts.root, id);
+        }
+      });
+      if (moved.precondition) return coordinationRecoveryConflict(res, moved.detail);
+      if (moved.deleted) return jsonRes(res, 404, { error: "card was deleted while you were steering it" });
+      if (!moved.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(moved.card) });
+      card = moved.card;
+      applied = true;
     }
+  }
+  if (!applied) {
+    // Running revisits remain pending until the engine's next duty boundary;
+    // absorb/acknowledge only append guidance + a timeline event. Keep their
+    // sidecars in the same external lifecycle lock too: writing steering.md
+    // before a guarded card save let a concurrent Delete remove the card, then
+    // the late sidecar write recreate cards/<id>/ without card.json.
+    const steered = await saveCardCASWithHooks(
+      opts.root,
+      {
+        ...card,
+        events: withEvent(card, {
+          at,
+          kind: "steering",
+          message: `Steering: ${action}${revisitDuty ? ` → ${revisitDuty}` : ""}`,
+          detail: reason || null
+        })
+      },
+      card.rev ?? 0,
+      at,
+      {
+        afterWrite: () => {
+          appendSteeringMd(opts.root, id, { at, action, message });
+          if (action === "revisit" && revisitDuty) {
+            writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
+          }
+        }
+      }
+    );
+    if (steered.deleted) return jsonRes(res, 404, { error: "card was deleted while you were steering it" });
+    if (!steered.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(steered.card) });
+    card = steered.card;
   }
   // The short confirmation, recorded to the origin event log (web-delivered unless
   // the gateway turn already delivered it — detail.viaTurn).
@@ -1408,6 +1457,12 @@ export function quickRouteEvent(raw, at = new Date().toISOString()) {
 // PRESERVED so the re-entered phase resumes with prior context; the flag is
 // then consumed (cleared). Pure + exported so the recovery contract is
 // unit-tested (S1b review finding: the flag was written but read nowhere).
+//
+// Coordination invariant: this patch never marks the card as having yielded its
+// ordering position. A needs-attention card retains its same-checkout overlap,
+// intent, and lease holds while parked; PATCH, Start, and steering/manual-list
+// recovery resume that held position. Only terminal completion, Delete, or the
+// explicit Abandon path releases those holds.
 export function unparkRecoveryFields(card) {
   const patch = {
     attentionReason: null,
@@ -1422,6 +1477,119 @@ export function unparkRecoveryFields(card) {
   return patch;
 }
 
+// Restore every durable part of a parked card's coordination position BEFORE its
+// CAS moves back into autonomous work. While parked, the card is the logical owner
+// even if an on-disk lease expires; reacquiring here closes the unpark→dispatch gap
+// in which a waiter could otherwise observe a free lease and fan out. There is no
+// dirty-worktree predicate in this shared-checkout flow, so recovery fails closed
+// instead of guessing that partial edits were safely yielded. The same preflight
+// refreshes the outward touch-set intent after a long pause; terminal, Abandon,
+// and Delete remove the owner-scoped records instead. This is a forward recovery
+// seam, not a background repair sweep: historical parked cards keep their internal
+// board holds, and their outward intent is refreshed only when a human resumes them.
+export function prepareRecoveredCoordinationHold(board, card, now = () => new Date().toISOString()) {
+  if (card?.abandoned) {
+    return {
+      ok: false,
+      code: "abandoned-card",
+      message: "This card was explicitly abandoned and no longer owns its prior coordination position. Finish or discard its prepared revert, or create a new card; it cannot be resumed in place."
+    };
+  }
+  const cfg = coordinationConfig(loadPolicy());
+  if (!cfg.enabled) return { ok: true, skipped: "coordination-disabled", acquired: [], intent: null };
+  // A never-started card has no ordering position to restore. Once a runDir was
+  // minted, however, its touch-set is the evidence that defines that position;
+  // missing/corrupt evidence must fail closed instead of silently re-entering the
+  // shared checkout with unknown overlap.
+  if (!card?.runDir) return { ok: true, skipped: "never-started", acquired: [], intent: null };
+  const inspected = inspectTouchSet(card.runDir);
+  const touchSet = inspected.touchSet;
+  if (!touchSet) {
+    return {
+      ok: false,
+      code: "touch-set-unavailable",
+      message: `Recovery remains parked because its prior coordination touch-set is unavailable (${inspected.issue}). Restore a valid schema-v1 touch-set.json, re-run Plan, or explicitly Abandon/Delete the card.`
+    };
+  }
+  const repoPath = repoPathForProject(card?.project, board);
+  if (!repoPath) {
+    return {
+      ok: false,
+      code: "repo-unresolved",
+      message: `Recovery remains parked because project "${card?.project || "(none)"}" no longer resolves to a repository. Fix the project scope, or explicitly Abandon/Delete the card.`
+    };
+  }
+  const exclusive = [...new Set(touchSet.exclusive || [])];
+  for (const p of cfg.exclusiveLeases || []) {
+    if (!exclusive.includes(p) && claimCovers(touchSet, p)) exclusive.push(p);
+  }
+  const lease = acquireLeases({
+    repoPath,
+    card,
+    paths: exclusive,
+    ttlMinutes: cfg.leaseTtlMinutes,
+    now
+  });
+  if (lease.unavailable) {
+    return {
+      ok: false,
+      code: "lease-substrate-unavailable",
+      message: "Recovery remains parked because its exclusive lease could not be durably restored. Make coordination storage writable and retry, or explicitly Abandon/Delete the card."
+    };
+  }
+  if (!lease.ok) {
+    return {
+      ok: false,
+      code: "lease-held",
+      heldBy: lease.heldBy || null,
+      path: lease.path || null,
+      message: `Recovery remains parked because ${lease.path || "an exclusive path"} is now leased by ${lease.heldBy || "another card"}. Resolve that holder first, or explicitly Abandon/Delete this card.`
+    };
+  }
+  if (lease.acquired.length !== exclusive.length) {
+    return {
+      ok: false,
+      code: "lease-substrate-unavailable",
+      message: "Recovery remains parked because its exclusive lease could not be durably restored. Make coordination storage writable and retry, or explicitly Abandon/Delete the card."
+    };
+  }
+  const intent = refreshCardTouchSetIntent({ repoPath, card, touchSet, now });
+  if (!intent) {
+    return {
+      ok: false,
+      code: "intent-refresh-failed",
+      message: "Recovery remains parked because its outward coordination intent could not be refreshed. Make coordination storage writable and retry, or explicitly Abandon/Delete the card."
+    };
+  }
+  // The lease generation is part of the card's durable ownership identity.
+  // Persist it in the same lifecycle CAS that unparks the card so a delayed
+  // cleanup/renewal from the prior generation cannot mutate this successor.
+  if (lease.ownerToken) card.leaseOwnerToken = lease.ownerToken;
+  return { ok: true, acquired: lease.acquired, ownerToken: lease.ownerToken || null, intent };
+}
+
+function coordinationRecoveryConflict(res, hold) {
+  return jsonRes(res, 409, {
+    error: "coordination-recovery-held",
+    message: hold.message,
+    coordination: { code: hold.code, heldBy: hold.heldBy || null, path: hold.path || null }
+  });
+}
+
+function cleanupClosedCoordinationHold(root, board, card, priorCard = null) {
+  const repos = new Set([
+    repoPathForProject(card?.project, board),
+    repoPathForProject(priorCard?.project, board)
+  ].filter(Boolean));
+  return cleanupCardCoordination({
+    root,
+    cardId: card.id,
+    repoPaths: [...repos],
+    removeIntents: true,
+    ownerToken: null
+  });
+}
+
 // D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
 // rejects manual moves and edits on them. needs-attention is the one human
 // touchpoint on the autonomous side; interactive + manual lists stay editable.
@@ -1433,6 +1601,18 @@ export function isEngineOwned(board, card) {
   if (card.quick === true) return false;
   const list = getList(board, card.list);
   return Boolean(list && list.kind === "agent" && !isInteractive(list));
+}
+
+// A move from a human-held column resumes an existing coordination position.
+// Reopening a terminal card does too: terminal entry removed its leases/intents,
+// while its runDir and touch-set still make it live again on a non-terminal
+// destination. Treating Archived/Done as ordinary manual sources would reopen
+// the card without restoring that position.
+export function shouldRecoverCoordinationHold(board, card, next) {
+  if (!card || !next || card.list === next.list) return false;
+  const sourceTerminal = Boolean(getList(board, card.list)?.terminal || card.list === "done");
+  const targetTerminal = Boolean(getList(board, next.list)?.terminal || next.list === "done");
+  return !targetTerminal && (isHumanHeld(card, board) || sourceTerminal);
 }
 
 // PATCH /cards/:id — manual gate: Move to a list and/or set editable fields
@@ -1650,8 +1830,23 @@ async function handlePatchCard(req, res, opts, id) {
       if (event.detail) next.lastReply = event.detail;
     }
   }
+  const movedLists = typeof body.list === "string" && next.list !== card.list;
+  const landedTerminal = movedLists && Boolean(getList(board, next.list)?.terminal || next.list === "done");
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
-  const result = await saveCardCAS(root, next, expectedRev);
+  const result = await saveCardCASWithHooks(root, next, expectedRev, new Date().toISOString(), {
+    // Existence + rev are checked before this hook while the external lifecycle
+    // lock is held, so a losing PATCH cannot mint leases/intent for a transition
+    // that never commits.
+    beforeWrite: movedLists && shouldRecoverCoordinationHold(board, card, next)
+      ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(board, lockedNext)
+      : undefined,
+    // Closure cleanup runs after the card write but before releasing that same
+    // lifecycle lock; a concurrent reopen cannot slip between the two.
+    afterWrite: landedTerminal
+      ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
+      : undefined
+  });
+  if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
   if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
 
@@ -1732,7 +1927,10 @@ async function handlePatchCard(req, res, opts, id) {
     const finalCard = errSave.ok ? errSave.card : result.card;
     return jsonRes(res, 200, { card: cardSummary(finalCard), dispatched: false, note: "gateway not reachable — card waits on this list until an operative is up" });
   }
-  jsonRes(res, 200, { card: cardSummary(result.card) });
+  jsonRes(res, 200, {
+    card: cardSummary(result.card),
+    ...(result.postCommitError ? { coordinationCleanupPending: true } : {})
+  });
 }
 
 // DELETE /cards/:id — delete the card AND the artifacts it produced that are safe to
@@ -1764,7 +1962,17 @@ async function handleDeleteCard(req, res, opts, id) {
   const removed = [];
 
   // 1. The card's own directory (always).
-  if (await deleteCard(opts.root, id)) removed.push(`cards/${id}`);
+  const deleted = await deleteCard(opts.root, id, card.rev ?? 0, {
+    afterDelete: ({ disk }) => cleanupClosedCoordinationHold(opts.root, boardForLock, disk, card)
+  });
+  if (deleted) {
+    removed.push(`cards/${id}`);
+  } else {
+    let fresh = null;
+    try { fresh = await loadCard(opts.root, id); } catch { /* concurrently deleted */ }
+    if (fresh) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(fresh) });
+    return jsonRes(res, 404, { error: `card not found: ${id}` });
+  }
 
   // 2. The run directory it produced — only the card's own ULID runId, confined
   // to the evidence home (~/.garrison/runs/, D19). Legacy repo-relative runDirs
@@ -1848,37 +2056,43 @@ async function handleAbandonCard(req, res, opts, id) {
     state: "prepared"
   };
 
-  // Persist the descriptor durably as run evidence (best-effort — the card copy below
-  // is the authoritative one the UI and /revert read).
-  if (card.runDir) {
-    try { await atomicWriteJSON(preparedRevertFile(card.runDir), descriptor); }
-    catch { /* evidence best-effort */ }
-  }
-
-  // Release the card's outward coordination holds. Both are safe on a null repo.
-  try { removeCardIntents({ repoPath, cardId: id }); } catch { /* best-effort */ }
-  try { releaseLeases({ repoPath, cardId: id }); } catch { /* best-effort */ }
-
   const n = descriptor.commits.length;
   const reason = `Abandoned - prepared revert of ${n} commit${n === 1 ? "" : "s"} ready; confirm to apply`;
-  const updated = await updateCard(root, id, (c) => ({
-    ...c,
+  const target = {
+    ...card,
     // Park it in needs-attention (a real list move). Preserve an existing parkedFrom
     // when the card was ALREADY parked (don't overwrite it with needs-attention).
-    ...parkFields(c, c.list === ATTENTION_LIST ? undefined : c.list, reason),
+    ...parkFields(card, card.list === ATTENTION_LIST ? undefined : card.list, reason),
     abandoned: true,
     preparedRevert: descriptor,
     // An abandoned card is no longer waiting on anyone — drop its own wait if it had one.
     waitingOn: null,
-    events: withEvent(c, {
+    events: withEvent(card, {
       at,
       kind: "coordination",
       message: `Abandoned by request - prepared revert of ${n} commit(s) ready to apply`,
       detail: descriptor.commits.length ? descriptor.commits.map((s) => String(s).slice(0, 10)).join("\n") : null
     })
-  }));
-  if (!updated) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(card) });
-  return jsonRes(res, 200, { card: cardSummary(updated), preparedRevert: cardSummary(updated).preparedRevert });
+  };
+  const transition = await saveCardCASWithHooks(root, target, card.rev ?? 0, at, {
+    afterWrite: async ({ disk, next }) => {
+      // Evidence + owner-scoped cleanup happen only after abandonment commits,
+      // while a reopen/delete is still excluded by the lifecycle lock.
+      if (next.runDir) {
+        try { await atomicWriteJSON(preparedRevertFile(next.runDir), descriptor); }
+        catch { /* the card copy remains authoritative */ }
+      }
+      cleanupClosedCoordinationHold(root, board, next, disk);
+    }
+  });
+  if (transition.deleted) return jsonRes(res, 404, { error: `card not found: ${id}` });
+  if (!transition.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(transition.card || card) });
+  const updated = transition.card;
+  return jsonRes(res, 200, {
+    card: cardSummary(updated),
+    preparedRevert: cardSummary(updated).preparedRevert,
+    ...(transition.postCommitError ? { coordinationCleanupPending: true } : {})
+  });
 }
 
 // POST /cards/:id/drill — hand this card's change to Drill: plan the checks for it,
@@ -2259,42 +2473,6 @@ async function handleStartCard(req, res, opts, id) {
   const list = getList(board, card.list);
   if (!list) return jsonRes(res, 400, { error: `card on unknown list: ${card.list}` });
 
-  // Coordination override (GARRISON-FLOW-V2 S1, Q4): a manual Start on a card that
-  // is WAITING behind an overlapping run is a DELIBERATE escape hatch. Clear the
-  // wait (recording it honestly on the timeline) before dispatching — there is no
-  // separate override endpoint; the button press IS the override.
-  if (card.waitingOn) {
-    const w = card.waitingOn;
-    const cleared = await updateCard(root, id, (c) => (c.waitingOn ? ({
-      ...c,
-      waitingOn: null,
-      events: withEvent(c, {
-        at: new Date().toISOString(),
-        kind: "coordination",
-        message: `Wait overridden manually (was waiting on ${w.cardTitle || w.cardId})`,
-        detail: w.reason || null
-      })
-    }) : null));
-    if (cleared) { card = cleared; card.id = id; }
-  }
-
-  // An explicit Start IS the "run it now" override for a scheduled card: clear
-  // the hold first, or the engine's schedule guard would refuse the dispatch.
-  if (card.scheduledFor) {
-    const released = await updateCard(root, id, (c) => (c.scheduledFor ? ({
-      ...c,
-      scheduledFor: null,
-      scheduleAction: null,
-      scheduleNotifiedAt: null,
-      events: withEvent(c, {
-        at: new Date().toISOString(),
-        kind: "moved",
-        message: `Schedule cleared by manual start (was scheduled for ${c.scheduledFor})`
-      })
-    }) : null));
-    if (released) { card = released; card.id = id; }
-  }
-
   // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
   // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
   // a Start cannot skip the brief-to-disk hand-off. EXCEPTION (S3d): a clarity-gated
@@ -2332,23 +2510,34 @@ async function handleStartCard(req, res, opts, id) {
     const target = parkedTarget ?? targets[0];
     if (!target) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
     const recovering = card.list === ATTENTION_LIST;
+    const landedTerminal = Boolean(getList(board, target)?.terminal || target === "done");
+    const at = new Date().toISOString();
+    const overridden = consumeStartOverrides(card, at);
     const recover = recovering ? unparkRecoveryFields(card) : {};
     const fromTitle = list.title || card.list;
     const toTitle = getList(board, target)?.title || target;
-    let events = withEvent(card, {
-      at: new Date().toISOString(),
+    let events = withEvent(overridden, {
+      at,
       kind: recovering ? "recovered" : "moved",
       message: recovering ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
     });
     if (recovering && card.retryKeepsContext) {
       events = withEvent({ events }, {
-        at: new Date().toISOString(),
+        at,
         kind: "retry-keeps-context",
         message: "Retry preserves prior context (phase runDir + iteration logs kept)"
       });
     }
-    const next = { ...card, list: target, status: "ok", events, ...recover };
-    const result = await saveCardCAS(root, next, card.rev ?? 0);
+    const next = { ...overridden, list: target, status: "ok", events, ...recover };
+    const result = await saveCardCASWithHooks(root, next, card.rev ?? 0, at, {
+      beforeWrite: isHumanHeld(card, board) && !landedTerminal
+        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(board, lockedNext)
+        : undefined,
+      afterWrite: landedTerminal
+        ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
+        : undefined
+    });
+    if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
     if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
     if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
     // If we advanced onto an immediate agent list, kick the automated flow.
@@ -2356,7 +2545,11 @@ async function handleStartCard(req, res, opts, id) {
       void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
         .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
     }
-    return jsonRes(res, 200, { card: cardSummary(result.card), advanced: target });
+    return jsonRes(res, 200, {
+      card: cardSummary(result.card),
+      advanced: target,
+      ...(result.postCommitError ? { coordinationCleanupPending: true } : {})
+    });
   }
 
   // Agent list: dispatch through the engine. Requires a LIVE gateway — PING it first
@@ -2368,8 +2561,8 @@ async function handleStartCard(req, res, opts, id) {
   }
   // Coordination serialize gate (GARRISON-FLOW-V2 S1, Q8): when coordination is
   // enabled but its substrate is degraded, only the oldest live card per project may
-  // dispatch — the same choke the tick applies. A waiting card already had its wait
-  // cleared above (Start is the override), so this only guards the degraded fallback.
+  // dispatch — the same choke the tick applies. Start authorizes a waiting-card
+  // override, but the engine consumes it only in the eventual run-acquire CAS.
   {
     const coordCfg = coordinationConfig(loadPolicy());
     if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
@@ -2378,6 +2571,10 @@ async function handleStartCard(req, res, opts, id) {
       if (!gate.allowed) return jsonRes(res, 409, { error: gate.reason, card: cardSummary(card) });
     }
   }
+  // Do not consume wait/schedule in a standalone save here. The engine folds the
+  // explicit override into the exact status:"running" acquire CAS; every
+  // pre-acquire refusal/race therefore leaves both holds untouched.
+  const manualStart = Boolean(card.waitingOn || card.scheduledFor);
   const cap = opts.cap;
 
   // A BATCHED list (Test) runs one session per PROJECT with a per-card-verdict router
@@ -2389,7 +2586,16 @@ async function handleStartCard(req, res, opts, id) {
     const all = await loadAllCards(root);
     const projectKey = card.project || "(no-project)";
     const projectCards = all.filter((c) => c.list === card.list && (c.project || "(no-project)") === projectKey);
-    void processBatch({ root, board, listId: card.list, cards: projectCards, batchRunFn: batchGatewayRunFn(gatewayUrl), cap, cwd: opts.cwd })
+    void processBatch({
+      root,
+      board,
+      listId: card.list,
+      cards: projectCards,
+      batchRunFn: batchGatewayRunFn(gatewayUrl),
+      cap,
+      cwd: opts.cwd,
+      manualStartIds: manualStart ? [card.id] : []
+    })
       .catch((err) => console.error(`[kanban-loop] start/batch failed for ${id}:`, err?.message || err));
     return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true, batched: true });
   }
@@ -2398,9 +2604,25 @@ async function handleStartCard(req, res, opts, id) {
   // the HTTP response on it). The card flips to running and is watchable; the response
   // returns at once. This is the manual Run / Retry path (the UI shows it on any agent
   // list card that isn't already running; immediate agent lists also auto-run on entry).
-  void processChain({ root, board, card, runFn: gatewayRunFn(gatewayUrl), cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(gatewayUrl) })
+  void processChain({
+    root,
+    board,
+    card,
+    runFn: gatewayRunFn(gatewayUrl),
+    cap,
+    cwd: opts.cwd,
+    onDutyBoundary: compactBoundaryFn(gatewayUrl),
+    manualStart
+  })
     .catch((err) => console.error(`[kanban-loop] start/chain failed for ${id}:`, err?.message || err));
-  jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true });
+  // This response is already an accepted-dispatch projection (the chain is
+  // intentionally fire-and-forget). Reflect the same override that the acquire
+  // CAS will consume, without writing it early: a failed acquire still leaves
+  // the durable wait/schedule untouched for a safe retry.
+  const acceptedCard = manualStart
+    ? consumeStartOverrides({ ...card, status: "running" }, new Date().toISOString())
+    : { ...card, status: "running" };
+  jsonRes(res, 200, { card: cardSummary(acceptedCard), dispatched: true });
 }
 
 // Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs)

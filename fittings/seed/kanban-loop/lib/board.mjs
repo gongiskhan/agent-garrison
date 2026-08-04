@@ -359,6 +359,11 @@ export async function createCard(root, { title, description = "", project = null
     stabilityAt: null,
     planCompletedAt: null,
     blocking: [],
+    // Monotonic coordination-lifecycle generation. This advances only when the
+    // card changes coordination ownership state (list, run generation, or
+    // abandonment), not for benign annotation edits. Durable cleanup sidecars
+    // use it to distinguish a harmless later revision from a reopened successor.
+    coordinationSeq: 0,
     // S2 (Q5/Q7): git fence anchors this run has committed ({phase, sha, at,
     // empty}) and a prepared-revert descriptor after abandonment. New keys; a
     // pre-S2 card reads them as undefined.
@@ -380,9 +385,34 @@ export async function loadCard(root, id) {
   return readJSON(cardFile(root, id));
 }
 
+function coordinationSeqForWrite(disk, candidate) {
+  const current = Number.isSafeInteger(disk?.coordinationSeq) && disk.coordinationSeq >= 0
+    ? disk.coordinationSeq
+    : 0;
+  if (!disk) return current;
+  const changed =
+    (disk.list || null) !== (candidate?.list || null) ||
+    (disk.runId || null) !== (candidate?.runId || null) ||
+    (Number.isInteger(disk.runSeq) ? disk.runSeq : null) !==
+      (Number.isInteger(candidate?.runSeq) ? candidate.runSeq : null) ||
+    (disk.leaseOwnerToken || null) !== (candidate?.leaseOwnerToken || null) ||
+    (disk.abandoned === true) !== (candidate?.abandoned === true);
+  return changed ? current + 1 : current;
+}
+
 // Read-immediately-before-write then atomic-write the mutated card. Bumps rev.
 export async function saveCard(root, card, at = new Date().toISOString()) {
-  const next = { ...card, rev: (card.rev ?? 0) + 1, updated: at };
+  // saveCard is primarily a setup/test helper, but it must preserve the same
+  // lifecycle-generation semantics as the production CAS path below.
+  let disk = null;
+  try { disk = await readJSON(cardFile(root, card.id)); }
+  catch { /* the existing write behavior remains authoritative */ }
+  const next = {
+    ...card,
+    coordinationSeq: coordinationSeqForWrite(disk, card),
+    rev: (card.rev ?? 0) + 1,
+    updated: at
+  };
   await atomicWriteJSON(cardFile(root, card.id), next);
   return next;
 }
@@ -400,63 +430,192 @@ export function isPidAlive(pid) {
   catch (e) { return e.code === "EPERM"; }
 }
 
-// Per-card EXCLUSIVE lock via O_EXCL create (`wx`) — atomic across PROCESSES, so two
-// concurrent ticks (or a tick + the scheduler beat) cannot both enter a card's
-// read-compare-write critical section. The lock file records the holder's pid so a
-// lock is broken ONLY when its owner is provably gone (a crashed worker) — never
-// because a live holder ran long. Age (LOCK_STALE_MS) is a last-resort fallback used
-// only when the owner pid is unreadable (e.g. a cross-host or corrupt lock).
 // Generic cross-process exclusive lock around a critical section, keyed by a lock
-// file path. O_EXCL create + owner-pid + dead-owner/stale breaking — the substrate
-// withCardLock and withBoardLock both build on so the check-and-set logic lives in
-// exactly one place.
-export async function withFileLock(lockPath, label, fn) {
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  for (;;) {
+// path. Each contender owns TWO unique files in `<lockPath>.tickets`: a short-lived
+// bakery "choosing" ticket, then its numbered ownership ticket. Lamport's bakery
+// ordering means simultaneous contenders deterministically choose one winner; the
+// filename's unguessable generation means stale cleanup and finally-release remove
+// ONLY the generation they observed. The elected ticket owner also holds a
+// PID-prefixed legacy bridge at `lockPath` so an already-running pre-ticket writer
+// participates during a rolling upgrade; new code removes that bridge only when
+// its full PID+token record still matches.
+//
+// A pre-ticket implementation used `lockPath` itself. The elected ticket owner
+// therefore reuses it only as the compatibility bridge described above.
+const LOCK_CHOOSING_PREFIX = "choosing-";
+const LOCK_TICKET_PREFIX = "ticket-";
+const LOCK_RECORD_SUFFIX = ".json";
+
+function lockTicketDir(lockPath) {
+  return `${lockPath}.tickets`;
+}
+
+function lockToken() {
+  return `${process.pid}-${ulid()}`;
+}
+
+function lockRecordName(prefix, token) {
+  return `${prefix}${token}${LOCK_RECORD_SUFFIX}`;
+}
+
+function lockTokenFromName(name, prefix) {
+  if (!name.startsWith(prefix) || !name.endsWith(LOCK_RECORD_SUFFIX)) return null;
+  const token = name.slice(prefix.length, -LOCK_RECORD_SUFFIX.length);
+  return /^[0-9]+-[0-9A-HJKMNP-TV-Z]{26}$/.test(token) ? token : null;
+}
+
+async function activeLockRecords(dir, prefix) {
+  let names;
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const active = [];
+  for (const name of names) {
+    const token = lockTokenFromName(name, prefix);
+    if (!token) continue;
+    const file = path.join(dir, name);
+    let row = null;
+    let stat = null;
     try {
-      // Create the lock AND write the owner pid in ONE atomic exclusive op (flag 'wx'
-      // = O_CREAT|O_EXCL|O_WRONLY) — so the lock file is never observed pid-less by a
-      // racing breaker (no post-create pre-pid window).
-      await fs.writeFile(lockPath, String(process.pid), { flag: "wx" });
-      break;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      let broke = false;
-      // Break the lock only if its owner process is provably dead.
+      const [raw, currentStat] = await Promise.all([fs.readFile(file, "utf8"), fs.stat(file)]);
+      row = JSON.parse(raw);
+      stat = currentStat;
+    } catch {
+      try { stat = await fs.stat(file); } catch { continue; }
+    }
+    const valid =
+      row &&
+      row.token === token &&
+      Number.isInteger(row.pid) &&
+      row.pid > 0 &&
+      (prefix !== LOCK_TICKET_PREFIX || Number.isSafeInteger(row.number) && row.number > 0);
+    if (valid && isPidAlive(row.pid)) {
+      active.push(row);
+      continue;
+    }
+    // A valid record whose owner is provably dead is abandoned immediately. A
+    // torn/corrupt record gets the age fallback. `file` includes the unique token,
+    // so even two delayed breakers can never target a successor generation.
+    if (valid || stat && Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
       try {
-        const owner = parseInt(await fs.readFile(lockPath, "utf8"), 10);
-        if (Number.isInteger(owner) && !isPidAlive(owner)) {
-          await fs.rm(lockPath, { force: true });
-          broke = true;
-        }
-      } catch { /* owner unreadable — fall through to the age fallback */ }
-      // Fallback: an owner-less lock older than LOCK_STALE_MS is treated as abandoned.
-      if (!broke) {
-        try {
-          const st = await fs.stat(lockPath);
-          const owner = parseInt(await fs.readFile(lockPath, "utf8").catch(() => ""), 10);
-          if (!Number.isInteger(owner) && Date.now() - st.mtimeMs > LOCK_STALE_MS) {
-            await fs.rm(lockPath, { force: true }); broke = true;
-          }
-        } catch { broke = true; /* lock vanished between checks — retry the acquire */ }
+        await fs.rm(file, { force: true });
+        continue;
+      } catch {
+        active.push({ token, invalid: true });
+        continue;
       }
-      if (broke) continue;
+    }
+    // A fresh partially-written record is a blocker until it becomes readable or
+    // stale. This closes the O_EXCL-create -> write visibility window fail-closed.
+    active.push({ token, invalid: true });
+  }
+  return active;
+}
+
+async function legacyLockBlocks(lockPath) {
+  let raw;
+  let stat;
+  try {
+    [raw, stat] = await Promise.all([fs.readFile(lockPath, "utf8"), fs.stat(lockPath)]);
+  } catch {
+    return false;
+  }
+  const owner = Number.parseInt(raw, 10);
+  if (Number.isInteger(owner) && isPidAlive(owner)) return true;
+  if (Number.isInteger(owner) || Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+    // The elected ticket owner may reuse this pathname only after this observed
+    // legacy owner is provably dead/stale. Ticket generations remain separate.
+    try {
+      await fs.rm(lockPath, { force: true });
+      return false;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
+function legacyBridgeRecord(token) {
+  // The PID prefix keeps this readable by the pre-ticket implementation's
+  // `parseInt(raw, 10)` owner probe; the token lets new code avoid removing a
+  // legacy-path generation it no longer owns.
+  return `${process.pid}:${token}`;
+}
+
+async function tryAcquireLegacyBridge(lockPath, token) {
+  const record = legacyBridgeRecord(token);
+  try {
+    await fs.writeFile(lockPath, record, { flag: "wx" });
+    return record;
+  } catch (err) {
+    if (err?.code === "EEXIST") return null;
+    throw err;
+  }
+}
+
+async function releaseLegacyBridge(lockPath, record) {
+  if (!record) return;
+  try {
+    if ((await fs.readFile(lockPath, "utf8")) !== record) return;
+    await fs.rm(lockPath, { force: true });
+  } catch {
+    // Missing/replaced bridge: this generation no longer owns the shared path.
+  }
+}
+
+export async function withFileLock(lockPath, label, fn) {
+  const dir = lockTicketDir(lockPath);
+  await fs.mkdir(dir, { recursive: true });
+  const token = lockToken();
+  const choosingFile = path.join(dir, lockRecordName(LOCK_CHOOSING_PREFIX, token));
+  const ticketFile = path.join(dir, lockRecordName(LOCK_TICKET_PREFIX, token));
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  let ticketCreated = false;
+  let legacyBridge = null;
+  try {
+    await fs.writeFile(choosingFile, JSON.stringify({ pid: process.pid, token }), { flag: "wx" });
+    const existing = await activeLockRecords(dir, LOCK_TICKET_PREFIX);
+    const number = existing.reduce((max, row) => Number.isSafeInteger(row.number) ? Math.max(max, row.number) : max, 0) + 1;
+    await fs.writeFile(ticketFile, JSON.stringify({ pid: process.pid, token, number }), { flag: "wx" });
+    ticketCreated = true;
+    await fs.rm(choosingFile, { force: true });
+
+    for (;;) {
+      const choosing = await activeLockRecords(dir, LOCK_CHOOSING_PREFIX);
+      const tickets = await activeLockRecords(dir, LOCK_TICKET_PREFIX);
+      const owner = tickets
+        .filter((row) => Number.isSafeInteger(row.number))
+        .sort((a, b) => a.number - b.number || a.token.localeCompare(b.token))[0];
+      const ownTicketPresent = tickets.some((row) => row.token === token);
+      const everyTicketReadable = tickets.every((row) => Number.isSafeInteger(row.number));
+      if (choosing.length === 0 && everyTicketReadable && ownTicketPresent && owner?.token === token && !(await legacyLockBlocks(lockPath))) {
+        // Hold the pre-ticket pathname too. An already-running old process only
+        // understands this O_EXCL PID file; without the bridge it could enter
+        // while this ticket owner was already inside the critical section.
+        legacyBridge = await tryAcquireLegacyBridge(lockPath, token);
+        if (legacyBridge) return await fn();
+      }
       if (Date.now() > deadline) throw new Error(`kanban: ${label} lock timeout after ${LOCK_TIMEOUT_MS}ms`);
       await sleep(10 + Math.floor(Math.random() * 15)); // jittered backoff
     }
-  }
-  try {
-    return await fn();
   } finally {
-    await fs.rm(lockPath, { force: true });
+    await releaseLegacyBridge(lockPath, legacyBridge);
+    // These paths include this acquisition's unique generation. If a stale breaker
+    // already removed either one, force is a no-op; it can never name a successor.
+    await fs.rm(choosingFile, { force: true }).catch(() => {});
+    if (ticketCreated) await fs.rm(ticketFile, { force: true }).catch(() => {});
   }
 }
 
 export async function withCardLock(root, id, fn) {
-  const dir = path.join(root, "cards", id);
-  await fs.mkdir(dir, { recursive: true });
-  return withFileLock(path.join(dir, ".lock"), `card ${id}`, fn);
+  // The lock MUST live outside cards/<id>. Delete removes that whole directory;
+  // when the lock lived inside it, a delete could unlink an acquired lock and a
+  // late CAS writer could then recreate the card from its stale in-memory copy.
+  // A stable external lock serializes every lifecycle edge (save/delete/reopen)
+  // without creating the card directory as a side effect of merely locking it.
+  return withFileLock(path.join(root, ".card-locks", `${id}.lock`), `card ${id}`, fn);
 }
 
 // Board-level exclusive lock (board.json is one shared file). Serializes the
@@ -492,8 +651,15 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 // prevent). The read-compare-write runs inside a per-card O_EXCL lock, so the
 // check-and-set is atomic across processes — two concurrent ticks cannot both observe
 // the same rev and both succeed (no double-acquire, no double-mint of runId).
-// Returns { ok, conflict?, card }.
-export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {
+// Returns { ok, conflict?, deleted?, precondition?, card }. `hooks` provides the
+// narrow transaction seam used by lifecycle-sensitive callers:
+//   beforeWrite({disk,next}) — runs only AFTER existence + rev validation while
+//     the card lock is held; returning {ok:false,...} aborts without a card write.
+//   afterWrite({disk,next,prepared}) — runs after the atomic card write, still
+//     under the same lock (closure cleanup cannot race a reopen/delete).
+// A post-commit hook failure is reported as `postCommitError` but never turns a
+// committed card write into a false CAS failure.
+export async function saveCardCASWithHooks(root, card, expectedRev, at = new Date().toISOString(), hooks = {}) {
   return withCardLock(root, card.id, async () => {
     let disk = null;
     try {
@@ -516,7 +682,23 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     if ((disk.rev ?? 0) !== expectedRev) {
       return { ok: false, conflict: true, card: disk };
     }
-    const next = { ...card, rev: expectedRev + 1, updated: at };
+    const next = {
+      ...card,
+      coordinationSeq: coordinationSeqForWrite(disk, card),
+      rev: expectedRev + 1,
+      updated: at
+    };
+    let prepared = null;
+    if (typeof hooks.beforeWrite === "function") {
+      prepared = await hooks.beforeWrite({ disk, next });
+      if (prepared && prepared.ok === false) {
+        return { ok: false, precondition: true, detail: prepared, card: disk };
+      }
+    }
+    // A beforeWrite hook may enrich the candidate while the lifecycle lock is
+    // held. Recompute from the final candidate so a future hook that changes a
+    // coordination identity field cannot accidentally preserve the old epoch.
+    next.coordinationSeq = coordinationSeqForWrite(disk, next);
     await atomicWriteJSON(cardFile(root, card.id), next);
     // Feedback to the originating channel on a terminal transition (done /
     // needs-attention). saveCardCAS is the one write path every mover uses
@@ -535,8 +717,20 @@ export async function saveCardCAS(root, card, expectedRev, at = new Date().toISO
     if ((next.list === "done" || next.list === "needs-attention") && (disk?.list ?? null) !== next.list) {
       markSteeringApplied(root, next.id, "obsolete-terminal");
     }
-    return { ok: true, card: next };
+    let postCommitError = null;
+    if (typeof hooks.afterWrite === "function") {
+      try {
+        await hooks.afterWrite({ disk, next, prepared });
+      } catch (err) {
+        postCommitError = err;
+      }
+    }
+    return { ok: true, card: next, ...(postCommitError ? { postCommitError } : {}) };
   });
+}
+
+export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {
+  return saveCardCASWithHooks(root, card, expectedRev, at);
 }
 
 // Read-immediately, mutate, CAS-write a card by id — retrying a few times when a
@@ -601,14 +795,33 @@ export function deriveMembership(cards) {
 // the card itself + its iteration logs; it never touches the run dir, brief, or shared
 // transcripts (the server's delete handler decides those). Idempotent: a missing dir is
 // a no-op. Returns true if a directory was removed.
-export async function deleteCard(root, id) {
-  const dir = path.join(root, "cards", id);
-  try {
-    await fs.rm(dir, { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
-  }
+export async function deleteCard(root, id, expectedRev = null, hooks = {}) {
+  return withCardLock(root, id, async () => {
+    const dir = path.join(root, "cards", id);
+    let disk;
+    try {
+      disk = await loadCard(root, id);
+    } catch {
+      return false; // idempotent missing-card no-op
+    }
+    if (Number.isInteger(expectedRev) && (disk.rev ?? 0) !== expectedRev) {
+      return false; // caller must re-authorize against the fresh lifecycle state
+    }
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      if (typeof hooks.afterDelete === "function") {
+        try { await hooks.afterDelete({ disk }); }
+        catch (err) {
+          // Deletion is committed, but post-commit cleanup failures must remain
+          // observable. Coordination cleanup journals its retry before throwing.
+          console.error(`[kanban] post-delete cleanup failed for ${id}:`, err?.message || err);
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export async function appendCardLog(root, id, n, text) {

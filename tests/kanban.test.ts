@@ -569,7 +569,7 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
   it("has the full pipeline in order with the exact list ids", () => {
     expect(seeded.lists.map((l: any) => l.id)).toEqual([
       "backlog", "todo", "discuss", "plan", "implement", "review", "adversarial-review",
-      "test", "adversarial-test", "walkthrough", "validate", "done", "needs-attention"
+      "test", "adversarial-test", "walkthrough", "validate", "done", "needs-attention", "archived"
     ]);
   });
 
@@ -613,6 +613,12 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     expect(byId.discuss.validNext).toEqual(["plan"]);
     expect(byId.done.terminal).toBe(true);
     expect(byId.done.validNext).toEqual([]);
+    expect(byId.archived).toMatchObject({
+      kind: "manual",
+      terminal: true,
+      archived: true,
+      validNext: []
+    });
     expect(byId["needs-attention"].notifyOnEntry).toBe(true);
     expect(byId["needs-attention"].validNext).toEqual(["todo", "plan", "implement"]);
   });

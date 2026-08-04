@@ -19,10 +19,15 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import date, datetime
 from typing import Optional
+
+
+POST_ATTEMPTS = 3
+POST_RETRY_BASE_SECONDS = 0.25
 
 
 # The proven prompt from the scheduler/SKILL.md cookbook entry, plus
@@ -90,24 +95,43 @@ def cmd_fire() -> int:
     }
     url = f"{gateway_url()}/jobs"
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            status = resp.status
-            payload = resp.read().decode("utf-8", "replace")
-    except urllib.error.URLError as exc:
-        print(f"failed to POST to {url}: {exc}", file=sys.stderr)
-        return 1
-    if status >= 300:
-        print(f"gateway returned {status}: {payload}", file=sys.stderr)
-        return 1
-    print(payload)
-    return 0
+    for attempt in range(1, POST_ATTEMPTS + 1):
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                status = resp.status
+                payload = resp.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            payload = exc.read().decode("utf-8", "replace")
+        except urllib.error.URLError as exc:
+            print(
+                f"failed to POST to {url} (attempt {attempt}/{POST_ATTEMPTS}): {exc}",
+                file=sys.stderr,
+            )
+            if attempt == POST_ATTEMPTS:
+                return 1
+            time.sleep(POST_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+            continue
+
+        if status < 300:
+            print(payload)
+            return 0
+        print(
+            f"gateway returned {status} (attempt {attempt}/{POST_ATTEMPTS}): {payload}",
+            file=sys.stderr,
+        )
+        # 5xx (including 503 ingress backpressure) is retryable. A 4xx is a
+        # payload/configuration error and should fail immediately.
+        if status < 500 or attempt == POST_ATTEMPTS:
+            return 1
+        time.sleep(POST_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+    return 1
 
 
 def compute_cron(time_hhmm: str, weekdays_only: bool) -> str:
