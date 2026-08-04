@@ -10,6 +10,8 @@
 //   node heartbeat.mjs --once    # fire one tick, exit
 //   node heartbeat.mjs daemon    # tick every cadence_minutes until killed
 
+import { randomUUID } from "node:crypto";
+
 const cadenceMinutes = Number(process.env.GARRISON_HEARTBEAT_MINUTES ?? "40");
 // NO port literal fallback, deliberately. This value is another process's
 // address, and defaulting it is a guess about which instance we belong to: the
@@ -53,13 +55,17 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function tick() {
   const startedAt = new Date().toISOString();
+  // One occurrence id per cadence tick: all retries share it (at-most-once at
+  // ingress), while the next legitimate 40-minute tick remains distinct instead
+  // of being suppressed by the gateway's multi-hour replay window.
+  const payload = { ...TICK_PAYLOAD, occurrence_id: randomUUID() };
   let lastStatus = -1;
   for (let attempt = 1; attempt <= POST_ATTEMPTS; attempt += 1) {
     try {
       const res = await fetch(gatewayUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(TICK_PAYLOAD),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(POST_TIMEOUT_MS)
       });
       const txt = await res.text();

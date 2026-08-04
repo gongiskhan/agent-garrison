@@ -250,6 +250,11 @@ describe("scheduled job ingress dedupe", () => {
     await guard.release(parkedRetry.key, parkedRetry.token);
 
     writeCard(cardsDir, "01ACTIVE", body, { list: "done" });
+    const doneRetry = await guard.claim(body);
+    expect(doneRetry).toMatchObject({ accepted: true });
+    await guard.release(doneRetry.key, doneRetry.token);
+
+    writeCard(cardsDir, "01ACTIVE", body, { list: "archived" });
     await expect(guard.claim(body)).resolves.toMatchObject({ accepted: true });
   });
 

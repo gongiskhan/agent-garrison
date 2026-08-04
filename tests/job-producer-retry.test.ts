@@ -99,6 +99,21 @@ describe("scheduled job producer retries", () => {
     expect(recovered.status).toBe(0);
     expect(transient.requests()).toBe(3);
     expect(new Set(transient.bodies()).size).toBe(1);
+    const recoveredPayload = JSON.parse(transient.bodies()[0]);
+    expect(recoveredPayload.occurrence_id).toMatch(/^[0-9a-f-]{36}$/);
+
+    const recurring = await retryingServer([202]);
+    const firstTick = await run(process.execPath, [heartbeatScript, "--once"], {
+      GARRISON_GATEWAY_URL: `${recurring.baseUrl}/jobs`
+    });
+    const secondTick = await run(process.execPath, [heartbeatScript, "--once"], {
+      GARRISON_GATEWAY_URL: `${recurring.baseUrl}/jobs`
+    });
+    expect(firstTick.status).toBe(0);
+    expect(secondTick.status).toBe(0);
+    expect(recurring.requests()).toBe(2);
+    const occurrenceIds = recurring.bodies().map((body) => JSON.parse(body).occurrence_id);
+    expect(new Set(occurrenceIds).size).toBe(2);
 
     const invalid = await retryingServer([400, 202]);
     const rejected = await run(process.execPath, [heartbeatScript, "--once"], {

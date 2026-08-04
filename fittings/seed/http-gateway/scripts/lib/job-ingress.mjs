@@ -1,11 +1,11 @@
 // Durable ingress dedupe for scheduled /jobs turns.
 //
 // The gateway durably fences a job as dispatching before acknowledging it, then
-// keeps that generation until the standing operative has converted the turn
-// into a Kanban card. Active forwarding claims never age out underneath a long
-// turn. Successfully forwarded claims are retained only for the card-discovery
-// TTL, closing the forward→card visibility gap without disabling an automation
-// forever.
+// keeps that generation until the standing operative has admitted and completed
+// the turn. Active forwarding claims never age out underneath a long turn.
+// Successfully forwarded claims are retained for a bounded TTL; the Kanban scan
+// remains as backward-compatible dedupe evidence for cards created by older
+// gateways, without making cards part of the scheduled-job contract.
 
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
@@ -94,7 +94,12 @@ function bodyFromCard(card) {
 
 function isActiveJobCard(card, nowMs, ttlMs) {
   if (!card || card.abandoned) return false;
-  if (card.list === "done" || card.list === "needs-attention" || card.status === "needs-attention") {
+  if (
+    card.list === "done" ||
+    card.list === "archived" ||
+    card.list === "needs-attention" ||
+    card.status === "needs-attention"
+  ) {
     return false;
   }
   // A card can sit in one lane for a long time while its run is still making

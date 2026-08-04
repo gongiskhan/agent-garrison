@@ -54,7 +54,12 @@ import {
 } from "./lib/gateway-routing.mjs";
 import { listProjectNames } from "./lib/project-source.mjs";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
-import { isEmptyQuickReply, quickEmptyFailureReason, moveCardEngine } from "./lib/autonomous-cards.mjs";
+import {
+  isCardOriginatedChannel,
+  isEmptyQuickReply,
+  quickEmptyFailureReason,
+  moveCardEngine
+} from "./lib/autonomous-cards.mjs";
 import { resolveDiscussInterception } from "./lib/discuss-intercept.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
@@ -1255,7 +1260,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   {
     const cls = pre.classification || {};
     const origin = String(hints?.channel || "").toLowerCase();
-    const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board" || origin === "garrison";
+    const cardOriginated = isCardOriginatedChannel(origin);
     const v4TaskShaped = !!pre?.duty && pre.duty !== "other" && pre.duty !== "dispatch";
     if (!cardOriginated && (v4TaskShaped || router.isTaskShaped(cls))) {
       let attached = sessionKey ? await router.attachedCard(sessionKey, cls) : null;
@@ -2482,7 +2487,10 @@ const server = http.createServer(async (request, response) => {
         dispatchPrepared: true,
         forward: async () => {
           await readyPromise;
-          return { completion: enqueueTurn(jobMessage) };
+          // `/jobs` is a server-owned system-beat surface. Never trust a payload
+          // `channel` field, but preserve the gateway's own heartbeat identity so
+          // runRoutedTurn executes it inline instead of registering it as a task.
+          return { completion: enqueueTurn(jobMessage, undefined, { channel: "heartbeat" }) };
         },
         onAdmitted: () => resolveAdmission(),
         onFailure: (err, attempt, attempts) => {

@@ -52,6 +52,12 @@ describe("orchestrator prompt + {{capabilities}} substitution", () => {
     expect(raw).toContain("{{capabilities}}");
   });
 
+  it("gives scheduled heartbeats precedence over development hat detection", async () => {
+    const raw = await fs.readFile(ORCH_PROMPT, "utf8");
+    expect(raw).toContain("a prompt beginning with `Heartbeat job:` is");
+    expect(raw).toContain("Never create, reuse, advance, or delegate a Kanban card for the beat");
+  });
+
   it("substituting against a Composition with Trello selected lists channel:trello", async () => {
     const raw = await fs.readFile(ORCH_PROMPT, "utf8");
     const trello = entry(

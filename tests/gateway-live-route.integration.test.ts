@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -143,5 +144,88 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
     const targets = decisions.map((d) => d.targetId);
     expect(targets).toContain("cc-sonnet-med");
     expect(targets).toContain("cc-haiku-low");
+  }, 20_000);
+
+  it("runs scheduled heartbeat jobs inline without creating a Kanban card", async () => {
+    const boardRequests: string[] = [];
+    const board = http.createServer((request, response) => {
+      boardRequests.push(`${request.method} ${request.url}`);
+      request.resume();
+      response.setHeader("content-type", "application/json");
+      if (request.method === "POST" && request.url === "/cards") {
+        response.statusCode = 201;
+        response.end(JSON.stringify({ id: "01HEARTBEATREGRESSION00000", rev: 0 }));
+        return;
+      }
+      if (request.method === "PATCH" && request.url?.startsWith("/cards/")) {
+        response.statusCode = 200;
+        response.end(JSON.stringify({ ok: true, card: { id: "01HEARTBEATREGRESSION00000", list: "plan", rev: 1 } }));
+        return;
+      }
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: "not found" }));
+    });
+    await new Promise<void>((resolve) => board.listen(0, "127.0.0.1", resolve));
+    const boardPort = (board.address() as { port: number }).port;
+    const uiFittings = path.join(tmp, "ui-fittings");
+    const boardStatus = path.join(uiFittings, "kanban-loop.json");
+    const cardsDir = path.join(tmp, "kanban-empty", "cards");
+    fs.mkdirSync(uiFittings, { recursive: true });
+    fs.mkdirSync(cardsDir, { recursive: true });
+    fs.writeFileSync(boardStatus, JSON.stringify({ url: `http://127.0.0.1:${boardPort}` }));
+
+    try {
+      const before = readDecisions(path.join(tmp, ".garrison", "decisions.jsonl")).length;
+      const body = {
+        kind: "heartbeat-tick",
+        // Force the deterministic classifier stub onto a significant code route.
+        // System-owned channel identity, not content, must prevent carding.
+        instructions: "fix the failing login unit test"
+      };
+      const accepted = await fetch(`http://127.0.0.1:${port}/jobs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      expect(accepted.status).toBe(202);
+      await expect(accepted.json()).resolves.toMatchObject({ ack: true, deduped: false });
+
+      const receiptsDir = path.join(tmp, "kanban-empty", "job-ingress");
+      let settled = false;
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const decisions = readDecisions(path.join(tmp, ".garrison", "decisions.jsonl")).length;
+        const retained = fs.existsSync(receiptsDir) && fs.readdirSync(receiptsDir)
+          .filter((name) => name.endsWith(".json"))
+          .some((name) => {
+            try {
+              return JSON.parse(fs.readFileSync(path.join(receiptsDir, name), "utf8")).state === "retained";
+            } catch {
+              return false;
+            }
+          });
+        if (decisions === before + 1 && retained) {
+          settled = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(settled).toBe(true);
+      expect(boardRequests).toEqual([]);
+
+      const replay = await fetch(`http://127.0.0.1:${port}/jobs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      expect(replay.status).toBe(202);
+      await expect(replay.json()).resolves.toMatchObject({ ack: true, deduped: true });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(readDecisions(path.join(tmp, ".garrison", "decisions.jsonl"))).toHaveLength(before + 1);
+      expect(boardRequests).toEqual([]);
+    } finally {
+      fs.rmSync(boardStatus, { force: true });
+      await new Promise<void>((resolve) => board.close(() => resolve()));
+    }
   }, 20_000);
 });
