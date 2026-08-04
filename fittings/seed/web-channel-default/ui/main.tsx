@@ -679,12 +679,39 @@ function ThreadedApp({ url }: { url: UrlState }) {
 
   const mode = activeThread?.mode ?? url.mode;
   const kickoff = activeId && kickoffFor === activeId ? url.kickoff : undefined;
+  const refreshAfterResume = useCallback(async () => {
+    if (!activeId) return;
+    const [fresh] = await Promise.all([apiGetThread(activeId), refreshList()]);
+    if (!fresh) return;
+    setActiveThread((current) => {
+      if (!current || current.id !== fresh.id) return current;
+      // The replay already painted the final reply. Re-mount from disk only when
+      // the canonical transcript actually advanced; this also covers the benign
+      // race where the turn settled just before /live connected (no frames to paint).
+      if ((fresh.messages?.length ?? 0) > (current.messages?.length ?? 0)) {
+        setHistoryRev((r) => r + 1);
+      }
+      return fresh;
+    });
+  }, [activeId, refreshList]);
   // One transport per open thread (ClaudeChat re-mounts on activeId anyway), so
   // every send carries the thread id the server persists under. sendMessage is
   // wrapped to mark the turn busy — the idle poll must never re-mount the chat
-  // while a reply is streaming.
+  // while a reply is streaming. A reopened running thread asks the SAME transport
+  // to replay/follow its server-owned event journal; no second event reducer exists.
   const transport = useMemo(() => {
-    const t = createOrchestratorTransport("/api", activeId ?? undefined);
+    const resumedSince = activeThread?.runningSince ?? null;
+    const t = createOrchestratorTransport("/api", activeId ?? undefined, {
+      resumeOnConnect: Boolean(resumedSince),
+      onResumeState(active) {
+        busyRef.current = active;
+        if (active) {
+          const started = Date.parse(resumedSince ?? "");
+          busySinceRef.current = Number.isFinite(started) ? started : Date.now();
+        }
+      },
+      onResumeSettled() { void refreshAfterResume(); },
+    });
     return {
       ...t,
       sendMessage: ((...args: Parameters<typeof t.sendMessage>) => {
@@ -693,7 +720,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         return t.sendMessage(...args);
       }) as typeof t.sendMessage
     };
-  }, [activeId]);
+  }, [activeId, activeThread?.runningSince, refreshAfterResume]);
 
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}`}>
@@ -797,12 +824,9 @@ function ThreadedApp({ url }: { url: UrlState }) {
             </div>
           </div>
         )}
-        {/* A turn that was in flight when this view unmounted is still running
-            server-side, but the remounted chat rebuilds from persisted history -
-            which stays empty until the turn settles - so it renders as an idle
-            conversation. This is the only signal that the operative is still
-            working, and it disappears on its own when the reply lands and the
-            history poll brings it in. */}
+        {/* A compact elapsed-time anchor for a resumed turn. The chat below also
+            replays and follows every buffered live frame; this notice is context,
+            no longer the only sign of activity. */}
         {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
@@ -823,6 +847,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             initialHistory={history}
             onTurnComplete={() => { void onTurnSettled(); void checkBriefAfterTurn(); }}
             transcriptUrl={activeId ? `/api/session-stream?thread=${encodeURIComponent(activeId)}` : undefined}
+            autoShowTranscript
             // The Turn Rail (contract §13). `voice` stays OFF - the streaming mic in
             // the composer adornment supersedes the component's batch voice - so
             // `routing` is what brings the toolbar (and its Route chip) into the web

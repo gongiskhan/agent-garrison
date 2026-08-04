@@ -152,133 +152,119 @@ function routeEventFrom(data: Record<string, unknown>, turnSeq: number): (ChatEv
 // `threadId` identifies the conversation this transport serves; it rides every
 // POST /api/chat body so the SERVER can persist the exchange into the thread when
 // the upstream `done` event arrives (survives navigation/tab-close mid-turn).
-export function createOrchestratorTransport(base = "/api", threadId?: string): ChatTransport {
+export interface OrchestratorTransportOptions {
+  /** Reopen the server-owned live stream as soon as ClaudeChat connects. */
+  resumeOnConnect?: boolean;
+  /** Lets the thread host suppress history polling while replay/follow is active. */
+  onResumeState?: (active: boolean) => void;
+  /** Fires after the live endpoint closes cleanly (the settled reply is on disk). */
+  onResumeSettled?: () => void;
+}
+
+export interface ResumableChatTransport extends ChatTransport {
+  /** Replay buffered runtime events, then follow until that turn settles. */
+  resume(): Promise<void>;
+}
+
+export function createOrchestratorTransport(
+  base = "/api",
+  threadId?: string,
+  options: OrchestratorTransportOptions = {}
+): ResumableChatTransport {
   const b = base.replace(/\/$/, "");
   let listener: ((ev: ChatEvent) => void) | null = null;
-  let acc = "";
+  let resumeStarted = false;
+  let resumeController: AbortController | null = null;
   // Monotonic per-send turn number (contract §5). ClaudeChat keeps its OWN 1-based
   // counter (Turn.seq) in the same order and DROPS a frame stamped older than the
   // turn it would land on, so the two are a convention: bump this exactly once per
   // send or a late frame silently attributes the wrong bubble.
   let turnSeq = 0;
 
-  const send: (text: string, meta?: ChatSendMeta) => Promise<void> = async (text, meta) => {
-    acc = "";
-    const seq = ++turnSeq;
-    const payload: Record<string, unknown> = { message: text };
-    if (threadId) payload.thread = threadId;
-    if (meta?.context !== undefined && meta.context !== null) payload.context = meta.context;
-    if (typeof meta?.mode === "string" && meta.mode.trim()) {
-      payload.mode = meta.mode.trim();
-      // A mode-carrying turn is an interactive Discuss/design chat (Kanban / Automations
-      // open these with mode=james). These must NOT use extended thinking: the router
-      // otherwise classifies a "design a process" prompt as standard-tier → Sonnet with
-      // `/effort medium`, and extended thinking on that content trips Anthropic's
-      // usage-policy classifier (a hard AUP refusal on every Discuss turn). Pin the turn
-      // to the no-thinking trivial tier - Discuss is lightweight by design, and the
-      // gateway honors this classification hint (routeHintsFromBody). Ad-hoc threaded
-      // chats carry no mode and are left to auto-classify as before.
-      payload.classification = { taskType: "other", tier: "T0-trivial" };
-    }
-    // meta.autonomous has ALWAYS been produced by buildSendMeta (the D21 chip) and
-    // was silently dropped right here - live proof that this seam loses any key it
-    // does not name, with no error anywhere. Forwarded now, and pinned by a test
-    // alongside `routing` so the next key added upstream cannot rot the same way.
-    if (meta?.autonomous === true) payload.autonomous = true;
-    // The pinned run context for this turn (contract §3):
-    //   ChatSendMeta.routing -> body.routing -> hints.routing -> applyTurnOverride.
-    // Already compacted by buildSendMeta/compactRouting, so an all-empty pin set
-    // never reaches the wire and a plain send keeps the pinned back-compat body.
-    if (meta?.routing && typeof meta.routing === "object" && Object.keys(meta.routing).length > 0) {
-      payload.routing = meta.routing;
-    }
-    payload.turnSeq = seq;
-    // The serve table decides whether a card link is reachable from this client, and
-    // the frames are rewritten inline as they arrive, so it has to be resolved BEFORE
-    // the stream opens. Shared + cached + never rejecting, so this is one extra
-    // same-origin GET on the first send of the page and a no-op after that.
-    await loadHostMap();
+  interface StreamState {
+    seq: number;
+    acc: string;
+    sawReply: boolean;
+    settled: boolean;
+  }
 
-    const res = await fetch(`${b}/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok || !res.body) {
-      listener?.({ type: "error", message: `chat ${res.status}` });
+  const newStreamState = (seq: number): StreamState => ({ seq, acc: "", sawReply: false, settled: false });
+
+  const handleEvent = (state: StreamState, name: string, dataRaw: string) => {
+    let data: any = {};
+    try { data = dataRaw ? JSON.parse(dataRaw) : {}; } catch { /* ignore */ }
+    if (name === "chunk" && typeof data.text === "string") {
+      // PTY lanes re-emit the whole visible answer after a reflow. Preserve the
+      // wire's replace flag during replay and run the exact same accumulator here.
+      if (data.replace) state.acc = data.text;
+      else state.acc += data.text;
+      state.sawReply = true;
+      listener?.({ type: "assistant", text: state.acc });
+    } else if (name === "tool") {
+      listener?.({ type: "tool", ...data } as ChatEvent);
+    } else if (name === "route") {
+      // A resumed turn targets the persisted trailing user exchange (seq 0), not
+      // whatever turnSeq another browser originally placed on the wire. Restamping
+      // here prevents route frames being dropped or attached to later history.
+      const ev = routeEventFrom(data, state.seq);
+      if (ev) listener?.(ev);
+    } else if (name === "activity") {
+      if (data.kind === "thinking") {
+        const text = typeof data.text === "string" ? data.text.trim() : "";
+        listener?.({ type: "activity", kind: "thinking", name: text || "thinking…" });
+      } else if (typeof data.name === "string" && data.name) {
+        listener?.({
+          type: "activity",
+          kind: "tool",
+          name: data.name,
+          ...(typeof data.id === "string" && data.id ? { id: data.id } : {}),
+        });
+      }
+    } else if (name === "done") {
+      if (typeof data.reply === "string" && data.reply.trim()) {
+        state.acc = data.reply;
+        state.sawReply = true;
+        listener?.({ type: "assistant", text: state.acc });
+      }
+      if (!state.sawReply) {
+        listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._" });
+      }
+      const routeEv = routeEventFrom(data, state.seq);
+      if (routeEv) listener?.(routeEv);
+      state.settled = true;
       listener?.({ type: "turn", active: false });
-      return;
+    } else if (name === "error") {
+      state.settled = true;
+      listener?.({ type: "error", message: String(data.error ?? "stream error") });
+      listener?.({ type: "turn", active: false });
     }
+  };
+
+  // Runtime-neutral SSE reader: both the original POST and the replay/follow GET
+  // feed their named events through handleEvent, so ordering and reducers cannot
+  // drift. Accepts CRLF, split network chunks and multi-line data fields.
+  const readEventStream = async (res: Response, state: StreamState) => {
+    if (!res.body) return;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
-    let sawReply = false;
-    const handleEvent = (name: string, dataRaw: string) => {
-      let data: any = {};
-      try { data = dataRaw ? JSON.parse(dataRaw) : {}; } catch { /* ignore */ }
-      if (name === "chunk" && typeof data.text === "string") {
-        // `replace` marks a full re-emit after a screen reflow (not a delta) - REPLACE
-        // the accumulator rather than appending, so a reflow doesn't duplicate the whole
-        // reply into the stream (the kilobytes-of-repeated-text bug).
-        if (data.replace) acc = data.text;
-        else acc += data.text;
-        sawReply = true;
-        listener?.({ type: "assistant", text: acc });
-      } else if (name === "tool") {
-        // AskUserQuestion → tappable buttons. Forward the wire payload verbatim
-        // (name / tool_use_id / questions) as a ChatEvent.
-        listener?.({ type: "tool", ...data } as ChatEvent);
-      } else if (name === "route") {
-        // The PRE-TURN frame (contract §4): the gateway emits it the moment preRoute
-        // resolves, ~1s in, carrying `pending: true`. Forwarded as its own event -
-        // the consumer merges the later done-frame over it, so this is a refinable
-        // first draft of the badge row, never the final word.
-        const ev = routeEventFrom(data, seq);
-        if (ev) listener?.(ev);
-      } else if (name === "activity") {
-        // Tool activity from a routed runtime (§12). The non-primary lanes used to
-        // stream nothing at all, leaving the conversation silent for minutes; this
-        // feeds the working indicator's hint ("Working 0:42 - Edit").
-        if (data.kind === "thinking") {
-          // A thinking beat with no readable text (a redacted block) still proves
-          // the turn is alive, so it degrades to the bare word rather than being
-          // dropped for having an empty payload.
-          const text = typeof data.text === "string" ? data.text.trim() : "";
-          listener?.({ type: "activity", kind: "thinking", name: text || "thinking…" });
-        } else if (typeof data.name === "string" && data.name) {
-          listener?.({
-            type: "activity",
-            kind: "tool",
-            name: data.name,
-            ...(typeof data.id === "string" && data.id ? { id: data.id } : {}),
-          });
+    const drain = () => {
+      let boundary: RegExpExecArray | null;
+      while ((boundary = /\r?\n\r?\n/.exec(buf))) {
+        const block = buf.slice(0, boundary.index);
+        buf = buf.slice(boundary.index + boundary[0].length);
+        let name = "message";
+        const data: string[] = [];
+        for (const line of block.split(/\r?\n/)) {
+          if (!line || line.startsWith(":")) continue;
+          const colon = line.indexOf(":");
+          const field = colon === -1 ? line : line.slice(0, colon);
+          let value = colon === -1 ? "" : line.slice(colon + 1);
+          if (value.startsWith(" ")) value = value.slice(1);
+          if (field === "event") name = value.trim();
+          else if (field === "data") data.push(value);
         }
-      } else if (name === "done") {
-        // The done event carries the AUTHORITATIVE final reply (the settled scrape).
-        // Prefer it whenever present: the streamed chunks are a live preview that can
-        // still carry transient reflow artifacts, while done.reply is the clean result.
-        if (typeof data.reply === "string" && data.reply.trim()) {
-          acc = data.reply;
-          sawReply = true;
-          listener?.({ type: "assistant", text: acc });
-        }
-        // The turn settled but produced nothing - surface it instead of silently
-        // doing nothing (the old failure mode), so the user can retry.
-        if (!sawReply) {
-          listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._" });
-        }
-        // The settled turn's FULL run context: the legacy route/runtime/model/tier
-        // fields plus every field the 2026-07-25 contract added (duty, level, phase,
-        // skill, via, account + accountSource, project + projectPath, card + cardUrl,
-        // sessionId + transcriptPath, stoppedByUser + stoppedReason, and the applied /
-        // rejected override bookkeeping). Emitted BEFORE idling the turn so the UI can
-        // attach it to the just-finished reply.
-        const routeEv = routeEventFrom(data, seq);
-        if (routeEv) listener?.(routeEv);
-        listener?.({ type: "turn", active: false });
-      } else if (name === "error") {
-        listener?.({ type: "error", message: String(data.error ?? "stream error") });
-        listener?.({ type: "turn", active: false });
+        if (name !== "message" || data.length > 0) handleEvent(state, name, data.join("\n"));
       }
     };
     // eslint-disable-next-line no-constant-condition
@@ -286,20 +272,82 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
       const { value, done } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buf.indexOf("\n\n")) !== -1) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        let name = "message";
-        let data = "";
-        for (const line of block.split("\n")) {
-          if (line.startsWith("event:")) name = line.slice(6).trim();
-          else if (line.startsWith("data:")) data += line.slice(5).trim();
-        }
-        if (name !== "message" || data) handleEvent(name, data);
+      drain();
+    }
+    buf += decoder.decode();
+    drain();
+  };
+
+  const resume = async () => {
+    if (resumeStarted || !threadId) return;
+    resumeStarted = true;
+    const controller = new AbortController();
+    resumeController = controller;
+    const state = newStreamState(turnSeq); // restored history uses seq 0
+    listener?.({ type: "turn", active: true });
+    options.onResumeState?.(true);
+    let shouldRefresh = false;
+    try {
+      await loadHostMap();
+      const res = await fetch(`${b}/threads/${encodeURIComponent(threadId)}/live`, {
+        method: "GET",
+        headers: { accept: "text/event-stream" },
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (res.ok && res.body) {
+        await readEventStream(res, state);
+        shouldRefresh = true;
+      } else if (res.status === 404) {
+        // The turn settled between the thread read and this GET. Refresh history;
+        // do not render a fake error bubble for a benign race.
+        shouldRefresh = true;
+      }
+    } catch (err: any) {
+      if (err?.name !== "AbortError") shouldRefresh = true;
+    } finally {
+      if (resumeController === controller) resumeController = null;
+      if (!controller.signal.aborted) {
+        if (!state.settled) listener?.({ type: "turn", active: false });
+        options.onResumeState?.(false);
+        if (shouldRefresh) options.onResumeSettled?.();
       }
     }
-    listener?.({ type: "turn", active: false });
+  };
+
+  const send: (text: string, meta?: ChatSendMeta) => Promise<void> = async (text, meta) => {
+    const state = newStreamState(++turnSeq);
+    const payload: Record<string, unknown> = { message: text };
+    if (threadId) payload.thread = threadId;
+    if (meta?.context !== undefined && meta.context !== null) payload.context = meta.context;
+    if (typeof meta?.mode === "string" && meta.mode.trim()) {
+      payload.mode = meta.mode.trim();
+      // Discuss/design chat is lightweight and deliberately avoids extended thinking.
+      payload.classification = { taskType: "other", tier: "T0-trivial" };
+    }
+    if (meta?.autonomous === true) payload.autonomous = true;
+    if (meta?.routing && typeof meta.routing === "object" && Object.keys(meta.routing).length > 0) {
+      payload.routing = meta.routing;
+    }
+    payload.turnSeq = state.seq;
+    await loadHostMap();
+    try {
+      const res = await fetch(`${b}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok || !res.body) {
+        listener?.({ type: "error", message: `chat ${res.status}` });
+        listener?.({ type: "turn", active: false });
+        return;
+      }
+      await readEventStream(res, state);
+      if (!state.settled) listener?.({ type: "turn", active: false });
+    } catch (err: any) {
+      listener?.({ type: "error", message: String(err?.message ?? "chat stream failed") });
+      listener?.({ type: "turn", active: false });
+    }
   };
 
   return {
@@ -307,8 +355,17 @@ export function createOrchestratorTransport(base = "/api", threadId?: string): C
     connect(onEvent) {
       listener = onEvent;
       onEvent({ type: "connection", state: "open" });
-      return () => { listener = null; onEvent({ type: "connection", state: "closed" }); };
+      if (options.resumeOnConnect) void resume();
+      return () => {
+        options.onResumeState?.(false);
+        if (resumeController) resumeStarted = false;
+        resumeController?.abort();
+        resumeController = null;
+        listener = null;
+        onEvent({ type: "connection", state: "closed" });
+      };
     },
+    resume,
     sendMessage: send as ChatTransport["sendMessage"],
     async sendKey() { /* no key surface on the orchestrator channel */ },
     async setMode(mode) { return { mode, reached: false }; },

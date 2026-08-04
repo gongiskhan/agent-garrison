@@ -80,6 +80,17 @@ function isPostResultMaxTurnsError(err) {
   return /(?:Claude Code returned an error result:\s*)?Reached maximum number of turns \(\d+\)/i.test(message);
 }
 
+// Session ids become filesystem coordinates when the gateway exposes the SDK's
+// Claude journal. Accept the opaque id shape emitted by Claude Code, but reject
+// separators, control characters and unbounded input before publishing it to a
+// channel. Keeping this local to the adapter means every future channel receives
+// the same trusted identity rather than re-validating an SDK frame ad hoc.
+function validatedSessionId(value) {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) ? id : null;
+}
+
 export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
@@ -182,6 +193,8 @@ export class AgentSdkAdapter {
   //   onThinking(text)         - per extended-thinking block (the DELTA, not the
   //                              accumulation: thinking is long and a channel
   //                              shows only the latest line as a liveness hint)
+  //   onSession(sessionId)     - when the SDK's system frame first announces a
+  //                              validated session id, before the turn completes
   // Callers that pass nothing get byte-identical behaviour: the reply is still
   // accumulated and returned whole by awaitResponse. Without these the routed
   // lanes are silent for minutes and then dump a blob.
@@ -223,6 +236,7 @@ export class AgentSdkAdapter {
     const onText = typeof hooks.onText === "function" ? hooks.onText : null;
     const onTool = typeof hooks.onTool === "function" ? hooks.onTool : null;
     const onThinking = typeof hooks.onThinking === "function" ? hooks.onThinking : null;
+    const onSession = typeof hooks.onSession === "function" ? hooks.onSession : null;
     // S1b: a rebuilt session seeds the next turn with the focus summary (the SDK
     // session/resume was cleared, so this restores the working context).
     const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
@@ -235,6 +249,7 @@ export class AgentSdkAdapter {
     const toolUses = [];
     let stoppedReason = null;
     let sessionId = session.sessionId;
+    let announcedSessionId = null;
 
     try {
       for await (const msg of client) {
@@ -247,7 +262,22 @@ export class AgentSdkAdapter {
         }
         const type = msg?.type;
         if (type === "system" && msg.session_id) {
-          sessionId = msg.session_id;
+          const announced = validatedSessionId(msg.session_id);
+          if (announced) {
+            sessionId = announced;
+            // Persist immediately: callers must be able to derive and expose the
+            // journal while thinking and tools are still streaming, not only
+            // after awaitResponse settles at the bottom of this method.
+            session.sessionId = announced;
+            if (onSession && announced !== announcedSessionId) {
+              announcedSessionId = announced;
+              try {
+                onSession(announced);
+              } catch {
+                /* streaming consumer error must not kill the turn */
+              }
+            }
+          }
         } else if (type === "assistant") {
           for (const block of msg.message?.content ?? []) {
             if (block.type === "text") {
@@ -293,7 +323,8 @@ export class AgentSdkAdapter {
             stoppedReason = stoppedReason ?? msg.subtype;
           }
           if (!textOut && typeof msg.result === "string") textOut = msg.result;
-          if (msg.session_id) sessionId = msg.session_id;
+          const resultSessionId = validatedSessionId(msg.session_id);
+          if (resultSessionId) sessionId = resultSessionId;
         }
         // Hard budget ceiling.
         if (session.budgetTokens != null && session.usedTokens >= session.budgetTokens) {

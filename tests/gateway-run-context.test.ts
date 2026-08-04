@@ -198,6 +198,20 @@ describe("routeFieldsFrom — the pre-turn frame carries only what is already kn
     expect("effortApplied" in fields).toBe(false);
     expect("honored" in fields).toBe(false);
   });
+
+  it("additively refines the pending frame with a journal identity", () => {
+    expect(gw.pendingRouteFrame(preFixture(), { turnSeq: 4 }, {
+      session_id: "sdk-live",
+      transcript_path: "/opaque/projects/sdk-live.jsonl"
+    })).toMatchObject({
+      route: "cc-sonnet-med",
+      runtime: "claude-code",
+      pending: true,
+      turnSeq: 4,
+      session_id: "sdk-live",
+      transcript_path: "/opaque/projects/sdk-live.jsonl"
+    });
+  });
 });
 
 describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () => {
@@ -648,13 +662,25 @@ class FakeAgentSdk {
   hooks: any[] = [];
   response: any = { text: "final answer", toolUses: [], stoppedReason: null };
   blocks: { text?: string; tool?: { name: string; id: string } }[] = [];
+  initialSessionId: string | null | undefined = undefined;
+  systemSessionId: string | null = null;
   async spawn(cfg: any) {
     this.spawned.push(cfg);
-    return { alive: true, sessionId: `sdk-${this.spawned.length}`, harness: { promptMode: cfg.promptMode }, config: cfg };
+    const generated = `sdk-${this.spawned.length}`;
+    return {
+      alive: true,
+      sessionId: this.initialSessionId === undefined ? generated : this.initialSessionId,
+      harness: { promptMode: cfg.promptMode },
+      config: cfg
+    };
   }
   async awaitReady() {}
-  async sendTurn(_s: any, _text: string, hooks: any = {}) {
+  async sendTurn(s: any, _text: string, hooks: any = {}) {
     this.hooks.push(hooks);
+    if (this.systemSessionId) {
+      s.sessionId = this.systemSessionId;
+      hooks.onSession?.(this.systemSessionId);
+    }
     let acc = "";
     for (const block of this.blocks) {
       if (block.text) {
@@ -704,6 +730,53 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     expect(again.session_id).toBe(a.session_id);
     // §12: the transcript badge needs a real file for that session.
     expect(a.transcript_path).toContain(`${a.session_id}.jsonl`);
+  });
+
+  it("reports a resumed SDK journal before send and de-duplicates its system frame", async () => {
+    const order: string[] = [];
+    const adapter = new FakeAgentSdk();
+    adapter.systemSessionId = "sdk-1";
+    const originalSend = adapter.sendTurn.bind(adapter);
+    adapter.sendTurn = async (session: any, text: string, hooks: any = {}) => {
+      order.push("send");
+      return originalSend(session, text, hooks);
+    };
+    const gateway = bareGateway(adapter);
+    const journals: any[] = [];
+    await gateway.runAgentSdkTurn(sdkRoute(), "hi", undefined, {
+      sessionKey: "thread-journal",
+      onJournal: (identity: any) => {
+        order.push("journal");
+        journals.push(identity);
+      }
+    });
+    expect(order.slice(0, 2)).toEqual(["journal", "send"]);
+    expect(journals).toEqual([
+      expect.objectContaining({
+        session_id: "sdk-1",
+        transcript_path: expect.stringContaining("sdk-1.jsonl")
+      })
+    ]);
+  });
+
+  it("reports a fresh SDK journal as soon as sendTurn receives the system frame", async () => {
+    const adapter = new FakeAgentSdk();
+    adapter.initialSessionId = null;
+    adapter.systemSessionId = "sdk-fresh";
+    const journals: any[] = [];
+    const gateway = bareGateway(adapter);
+    const result = await gateway.runAgentSdkTurn(sdkRoute(), "hi", undefined, {
+      sessionKey: "thread-fresh-journal",
+      onJournal: (identity: any) => journals.push(identity)
+    });
+    expect(journals).toEqual([
+      expect.objectContaining({
+        session_id: "sdk-fresh",
+        transcript_path: expect.stringContaining("sdk-fresh.jsonl")
+      })
+    ]);
+    expect(result.session_id).toBe("sdk-fresh");
+    expect(typeof adapter.hooks[0].onSession).toBe("function");
   });
 
   it("caps the warm map and releases the evicted session WITHOUT relying on teardown", async () => {

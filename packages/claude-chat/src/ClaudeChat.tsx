@@ -722,6 +722,13 @@ export interface ClaudeChatProps {
    */
   transcriptUrl?: string;
   /**
+   * Opt in to opening the rich activity journal when a turn becomes busy. The
+   * default is false so existing embedders keep the current Chat-first surface;
+   * a host with durable transcript linkage (such as web-channel) can enable it.
+   * The user can still switch back to Chat while the turn is running.
+   */
+  autoShowTranscript?: boolean;
+  /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
    * with a fresh `key` when switching threads (see `initialHistory`), which would
@@ -761,7 +768,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -810,6 +817,13 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   }, [draftKey, input, attachments]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Additive host choice: once a busy turn has a journal URL, reveal the rich
+  // activity automatically. This follows busy's false→true transition; a user
+  // who switches back to Chat during that turn is not immediately overridden.
+  useEffect(() => {
+    if (autoShowTranscript && transcriptUrl && busy) setShowTranscript(true);
+  }, [autoShowTranscript, transcriptUrl, busy]);
 
   const uploadOne = useCallback(
     (file: File) => {

@@ -341,7 +341,8 @@ body {
 .backlog-add .ba-input,
 .backlog-add .ba-select {
   width: 100%;
-  font: inherit;
+  font-family: inherit;
+  line-height: inherit;
   font-size: 13.5px;
   padding: 10px 11px;
   min-height: 44px;
@@ -408,6 +409,9 @@ body {
   border: 1px solid var(--rule);
   padding: 8px 9px;
   font-size: 12.5px;
+  /* Item 5: the card body is clickable (opens detail). A sortable card overrides
+     this to `grab` below to signal it also drags. */
+  cursor: pointer;
   transition: border-color 120ms, transform 120ms, box-shadow 120ms;
 }
 .card:hover { border-color: var(--rule-2); }
@@ -429,6 +433,16 @@ body {
   font-size: 13px;
   color: var(--ink);
 }
+.card .ct .card-title-open {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.card .ct .card-title-open:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
 .card .ct .ct-date {
   flex: none;
   font-size: 10px;
@@ -794,6 +808,21 @@ body {
   background: white;
 }
 .move-list .move-opt:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
+/* Item 2: agent-list caution — moving a card onto an agent list auto-dispatches a run. */
+.move-list .move-opt .move-agent-hint {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mute);
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.move-list .move-opt .move-agent-hint.starts-run {
+  color: var(--warn, #a15c00);
+  border-color: var(--warn, #a15c00);
+}
 
 /* ── watch (log) — Garrison .term: dark green-tinted console, brass highlight ── */
 .watch {
@@ -1898,7 +1927,29 @@ button:active, .btn:active { transform: translateY(1px); }
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
-.checklist .cl-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.checklist .cl-text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.checklist .cl-text-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+.checklist .cl-edit {
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  padding: 0 2px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.checklist .cl-edit:hover { color: var(--ink); }
+.checklist .cl-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.checklist .cl-editor textarea,
+.checklist > .row textarea { min-height: 7.5em; resize: vertical; white-space: pre-wrap; }
 .checklist .cl-del {
   border: none;
   background: transparent;
@@ -1909,6 +1960,43 @@ button:active, .btn:active { transform: translateY(1px); }
 }
 .checklist .cl-del:hover { color: var(--alarm); }
 .checklist .cl-del svg { width: 11px; height: 11px; }
+
+/* Card bundle + Trello JSON transfer */
+.transfer-row {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.transfer-row .dd-title { margin-bottom: 3px; }
+.import-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 76px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.import-drop input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
+.import-archived { display: flex; gap: 8px; align-items: flex-start; margin: -3px 0 14px; font-size: 12px; }
+.import-archived input { margin-top: 2px; accent-color: var(--sage); }
+.import-preview { margin: 12px 0; padding: 12px; border: 1px solid var(--rule); background: var(--paper-2); }
+.import-preview details { margin-top: 8px; font-size: 12px; }
+.import-preview ul { margin: 6px 0 0; padding-left: 20px; }
+@media (max-width: 620px) {
+  .transfer-row { align-items: stretch; flex-direction: column; }
+  .topbar { flex-wrap: wrap; }
+  .topbar .spacer { min-width: 20px; }
+}
 
 /* Schedule rows */
 .sched-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }

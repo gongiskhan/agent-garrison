@@ -33,6 +33,7 @@ import {
   createCard,
   saveCardCAS,
   saveCardCASWithHooks,
+  withCardOrderLock,
   deleteCard,
   deriveMembership,
   appendCardLog,
@@ -114,6 +115,12 @@ export { isValidSliceId, isSafeEvidenceName, isEvidenceImage };
 // Rich-Log SSE tail of the Claude Code transcript per card session (parser copy
 // in lib/session-transcript.mjs, canonical in the drill fitting).
 import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
+import {
+  CardImportError,
+  NATIVE_CARD_BUNDLE_KIND,
+  NATIVE_CARD_BUNDLE_VERSION,
+  normaliseCardImport
+} from "../lib/card-import.mjs";
 // Terminal modal: an interactive shell PTY per card over the /io WebSocket.
 import { WebSocketServer } from "ws";
 import { spawnPty, getPty, resizePty, killPty, shutdownPtys } from "./ptys.mjs";
@@ -451,8 +458,67 @@ export const EXPORT_CARD_FIELDS = [
   "scheduleAction"
 ];
 
-export const CARDS_BUNDLE_KIND = "garrison.kanban.cards";
-export const CARDS_BUNDLE_VERSION = 1;
+export const CARDS_BUNDLE_KIND = NATIVE_CARD_BUNDLE_KIND;
+export const CARDS_BUNDLE_VERSION = NATIVE_CARD_BUNDLE_VERSION;
+export const MAX_CHECKLIST_ITEMS = 100;
+export const MAX_CHECKLIST_ITEM_CHARACTERS = 64 * 1024;
+const DEFAULT_JSON_BODY_BYTES = 16 * 1024 * 1024;
+
+export function isMachineLocalPath(value) {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  // Match the gateway's safe project-label boundary: a project that travels is
+  // a dev-root child NAME, never an absolute, relative, UNC, URI, or dot path.
+  // This lexical check deliberately does not require the label to exist on the
+  // exporting host; portability is what matters here.
+  return path.isAbsolute(text)
+    || text.includes("/")
+    || text.includes("\\")
+    || text.includes("..")
+    || text.startsWith(".")
+    || /^~(?:[\\/]|$)/.test(text)
+    || /^[A-Za-z]:/.test(text)
+    || /^[A-Za-z][A-Za-z0-9+.-]*:/i.test(text);
+}
+
+// ClaudeChat appends this exact machine-local attachment block to a prompt. It
+// is useful inside one host but must never turn into a fake attachment or leak a
+// home path when a card bundle moves elsewhere.
+export function stripAttachedFilesBlock(value) {
+  if (typeof value !== "string") return value;
+  return value.replace(/\n{2,}Attached files?:\n(?:- [^\n]*(?:\n|$))+\s*$/i, "").trimEnd();
+}
+
+function portableChecklist(value) {
+  if (!Array.isArray(value)) return value;
+  return value
+    .filter((item) => item && typeof item === "object" && typeof item.text === "string" && item.text.trim())
+    .map((item) => ({ text: item.text.trim(), done: item.done === true }));
+}
+
+function portablePhases(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, enabled]) => /^[A-Za-z0-9_-]{1,80}$/.test(key) && typeof enabled === "boolean")
+      .slice(0, 64)
+  );
+}
+
+export function checklistValidationError(value) {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value)) return "checklist must be an array or null";
+  if (value.length > MAX_CHECKLIST_ITEMS) {
+    return `checklist has ${value.length} items; the maximum is ${MAX_CHECKLIST_ITEMS}`;
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index];
+    if (item && typeof item === "object" && typeof item.text === "string" && item.text.length > MAX_CHECKLIST_ITEM_CHARACTERS) {
+      return `checklist item ${index + 1} exceeds the ${MAX_CHECKLIST_ITEM_CHARACTERS.toLocaleString("en-US")}-character limit`;
+    }
+  }
+  return null;
+}
 
 // Project a card down to the export bundle's shape: the allow-listed content fields
 // plus two INFORMATIONAL source markers (sourceList, created) that are NOT re-imported
@@ -460,7 +526,28 @@ export const CARDS_BUNDLE_VERSION = 1;
 export function exportCard(card) {
   const out = {};
   for (const f of EXPORT_CARD_FIELDS) {
-    if (card[f] !== undefined) out[f] = card[f];
+    const value = card[f];
+    if (value === undefined) continue;
+    if (f === "project" && isMachineLocalPath(value)) continue;
+    if (f === "description") {
+      out.description = stripAttachedFilesBlock(value);
+      continue;
+    }
+    if (f === "checklist") {
+      out.checklist = portableChecklist(value);
+      continue;
+    }
+    if (f === "phases") {
+      out.phases = portablePhases(value);
+      continue;
+    }
+    if (f === "routing") {
+      const routing = sanitiseCardRouting(value);
+      if (routing?.project && isMachineLocalPath(routing.project)) delete routing.project;
+      if (routing && Object.keys(routing).length) out.routing = routing;
+      continue;
+    }
+    out[f] = value;
   }
   out.sourceList = card.list ?? null;
   out.created = card.created ?? null;
@@ -939,9 +1026,18 @@ function jsonRes(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = DEFAULT_JSON_BODY_BYTES) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let bytes = 0;
+  for await (const c of req) {
+    bytes += c.length;
+    if (Number.isFinite(maxBytes) && bytes > maxBytes) {
+      const err = new Error(`request body exceeds ${maxBytes} bytes`);
+      err.code = "BODY_TOO_LARGE";
+      throw err;
+    }
+    chunks.push(c);
+  }
   if (!chunks.length) return null;
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return null; }
 }
@@ -1275,21 +1371,42 @@ export function deriveTitle(description, max = 80) {
 const TOP_OF_LIST_STEP = 60_000;
 
 // The float position a card should take to land at the TOP of `list` — one step
-// below the current topmost card's effective position, or null when the list is
-// empty (createCard's null = created order, which is correct for the first card).
+// below the current topmost card's effective position, or zero when the list is
+// empty (zero is an explicit allocator baseline, so even the first concurrent
+// create has a unique numeric position rather than a shared null fallback).
 // Best-effort: a read failure falls back to null (created order), never fails a
 // create.
 async function topOfListPosition(root, list) {
   try {
     const cards = await loadAllCards(root);
     const inList = cards.filter((c) => c.list === list);
-    if (inList.length === 0) return null;
+    if (inList.length === 0) return 0;
     const minPos = Math.min(...inList.map((c) => cardPosition(c)));
     return Number.isFinite(minPos) ? minPos - TOP_OF_LIST_STEP : null;
   } catch (err) {
     console.error(`[kanban-loop] top-of-list position for ${list}:`, err?.message || err);
     return null;
   }
+}
+
+// A browser drag sends a float midpoint computed from the board snapshot it saw.
+// Another create/move may claim that exact value before the PATCH reaches disk.
+// Under the collection-order lock, keep the requested location but nudge a
+// collision just ahead of the incumbent so ordering never falls through to ULID.
+async function collisionFreePosition(root, list, cardId, requested) {
+  if (typeof requested !== "number" || !Number.isFinite(requested)) return requested;
+  const occupied = new Set(
+    (await loadAllCards(root))
+      .filter((candidate) => candidate.id !== cardId && candidate.list === list)
+      .map((candidate) => cardPosition(candidate))
+      .filter((position) => typeof position === "number" && Number.isFinite(position))
+  );
+  let position = requested;
+  while (occupied.has(position)) {
+    const delta = Math.max(0.000001, Math.abs(position) * Number.EPSILON * 4);
+    position -= delta;
+  }
+  return position;
 }
 
 // POST /cards — create a card in Backlog. Body: { title?, description?, project?,
@@ -1299,6 +1416,8 @@ async function topOfListPosition(root, list) {
 // (so the attempt shows on the card instead of nothing).
 async function handleCreateCard(req, res, opts) {
   const body = (await readBody(req)) || {};
+  const checklistError = checklistValidationError(body.checklist);
+  if (checklistError) return jsonRes(res, 400, { error: checklistError });
   const description = typeof body.description === "string" ? body.description : "";
   const rawTitle = typeof body.title === "string" ? body.title.trim() : "";
   const title = rawTitle || deriveTitle(description);
@@ -1316,12 +1435,12 @@ async function handleCreateCard(req, res, opts) {
   // create time avoids a rev-churning stamp-after-create write, and 44509022's
   // provisional-coordination event already bumps rev right after create). Gateway/
   // Continue cards are created in backlog then engine-PATCHed to their target list;
-  // a PATCH move does not reset position, so the top-position rides into the
-  // destination list too — consistent with "add cards to the top". Positions trend
-  // negative over time; the sort is float-based and the server 400s non-finite
-  // positions, so this is safe. Empty list → null (created order, i.e. first card).
-  const topPosition = await topOfListPosition(opts.root, "backlog");
-  const card = await createCard(opts.root, {
+  // handlePatchCard allocates that destination's top unless an explicit drag
+  // midpoint is supplied. Positions trend negative over time; the sort is
+  // float-based and the server 400s non-finite values. Empty list starts at zero.
+  const card = await withCardOrderLock(opts.root, async () => {
+    const topPosition = await topOfListPosition(opts.root, "backlog");
+    return createCard(opts.root, {
     title,
     description,
     project: suppliedProject || explicitWorkspace,
@@ -1391,8 +1510,9 @@ async function handleCreateCard(req, res, opts) {
     scheduleAction: body.scheduleAction ?? null,
     // The in-card checklist (normalised by createCard).
     checklist: body.checklist ?? null,
-    // Item 1: land at the top of backlog (null when the list is empty).
-    position: topPosition
+    // Item 1: land at the top of backlog (zero when the list is empty).
+      position: topPosition
+    });
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
@@ -1514,15 +1634,35 @@ async function handleExportCards(req, res, opts, query) {
 // dispatch runs); default "backlog". preview:true returns counts + warnings, no write.
 async function handleImportCards(req, res, opts) {
   const root = opts.root;
-  const body = (await readBody(req)) || {};
+  let body;
+  try {
+    body = (await readBody(req, 50 * 1024 * 1024)) || {};
+  } catch (err) {
+    if (err?.code === "BODY_TOO_LARGE") return jsonRes(res, 413, { error: "import JSON exceeds the 50 MB limit" });
+    throw err;
+  }
   const bundle = body.bundle;
-  if (!bundle || typeof bundle !== "object" || bundle.kind !== CARDS_BUNDLE_KIND) {
-    return jsonRes(res, 400, { error: `not a ${CARDS_BUNDLE_KIND} bundle` });
+  let source;
+  try {
+    // One adapter boundary for both local files and a future live connector: raw
+    // Trello board JSON is normalised to the same content-only card shape as a
+    // native Garrison bundle. No credential, API token, runtime id, or raw source
+    // object is persisted.
+    source = normaliseCardImport(bundle, {
+      sourceList: typeof body.sourceList === "string" && body.sourceList ? body.sourceList : null,
+      includeArchived: body.includeArchived === true
+    });
+  } catch (err) {
+    const message = err instanceof CardImportError ? err.message : "could not read the import file";
+    return jsonRes(res, 400, { error: message });
   }
-  if (bundle.version !== CARDS_BUNDLE_VERSION) {
-    return jsonRes(res, 400, { error: `unsupported bundle version ${bundle.version} (expected ${CARDS_BUNDLE_VERSION})` });
+  const incoming = source.cards;
+  for (let index = 0; index < incoming.length; index += 1) {
+    const checklistError = checklistValidationError(incoming[index]?.checklist);
+    if (checklistError) {
+      return jsonRes(res, 400, { error: `card ${index + 1}: ${checklistError}` });
+    }
   }
-  const incoming = Array.isArray(bundle.cards) ? bundle.cards : [];
 
   const board = await loadBoard(root);
   const cards = await loadAllCards(root);
@@ -1540,12 +1680,38 @@ async function handleImportCards(req, res, opts) {
   // run→notify so an imported card never auto-runs), and collect human-readable
   // warnings. The importer NEVER trusts a field outside EXPORT_CARD_FIELDS.
   const knownProjects = new Set(knownProjectsFrom(cards));
-  const warnings = [];
+  const warnings = [...source.warnings];
   const prepared = incoming.map((raw, i) => {
     const c = raw && typeof raw === "object" ? raw : {};
     const picked = {};
     for (const f of EXPORT_CARD_FIELDS) {
       if (c[f] !== undefined) picked[f] = c[f];
+    }
+    // Fully normalise every selected field before the first card is written. The
+    // create loop below consumes only this prepared shape, never the raw bundle.
+    picked.title = typeof picked.title === "string" ? picked.title.trim() : "";
+    picked.description = stripAttachedFilesBlock(typeof picked.description === "string" ? picked.description : "");
+    picked.project = typeof picked.project === "string" ? picked.project.trim() : null;
+    picked.acceptance = typeof picked.acceptance === "string" ? picked.acceptance : null;
+    picked.goalMode = picked.goalMode === true;
+    picked.checklist = picked.checklist == null
+      ? null
+      : normaliseChecklist(
+          Array.isArray(picked.checklist)
+            ? picked.checklist.map((item) => item && typeof item === "object" ? { ...item, id: undefined } : item)
+            : picked.checklist
+        );
+    picked.routing = sanitiseCardRouting(picked.routing);
+    picked.workKind = typeof picked.workKind === "string" && picked.workKind.trim() ? picked.workKind.trim() : null;
+    picked.tier = typeof picked.tier === "string" && picked.tier.trim() ? picked.tier.trim() : null;
+    if (picked.phases && typeof picked.phases === "object" && !Array.isArray(picked.phases)) {
+      picked.phases = Object.fromEntries(
+        Object.entries(picked.phases)
+          .filter(([key, value]) => /^[A-Za-z0-9_-]{1,80}$/.test(key) && typeof value === "boolean")
+          .slice(0, 64)
+      );
+    } else {
+      picked.phases = null;
     }
     const label = String(c.title || "").slice(0, 40);
     // Fail-closed schedule: an unparseable scheduledFor would hold the imported card
@@ -1561,13 +1727,21 @@ async function handleImportCards(req, res, opts) {
         warnings.push(`card ${i + 1} ("${label}"): scheduleAction "run" downgraded to "notify" on import`);
       }
     }
-    // An unknown project LABEL just means this machine has no path mapping for it (the
-    // card imports fine; the engine infers/prompts). A path-shaped project is machine-
-    // specific and won't resolve here either — surface both.
-    if (typeof picked.project === "string" && picked.project) {
-      if (picked.project.startsWith("/")) {
-        warnings.push(`card ${i + 1} ("${label}"): project is an absolute path "${picked.project}" — likely won't resolve on this machine`);
-      } else if (!knownProjects.has(picked.project)) {
+    // A machine path never travels as a project label. The routing pin has its
+    // own project copy, so scrub both spellings before createCard sees either.
+    if (picked.project && isMachineLocalPath(picked.project)) {
+      warnings.push(`card ${i + 1} ("${label}"): removed a machine-local project path`);
+      picked.project = null;
+    }
+    if (picked.routing?.project && isMachineLocalPath(picked.routing.project)) {
+      warnings.push(`card ${i + 1} ("${label}"): removed a machine-local routing.project path`);
+      delete picked.routing.project;
+      if (Object.keys(picked.routing).length === 0) picked.routing = null;
+    }
+    // An unknown LABEL is still useful content; import it and explain that this
+    // machine has no path mapping for it yet.
+    if (picked.project) {
+      if (!knownProjects.has(picked.project)) {
         warnings.push(`card ${i + 1} ("${label}"): project "${picked.project}" is not known on this machine`);
       }
     }
@@ -1577,6 +1751,12 @@ async function handleImportCards(req, res, opts) {
       warnings.push(`card ${i + 1}: title looks like a scheduled-job card — may collide with job dedupe`);
     }
     return picked;
+  }).filter((picked, i) => {
+    const title = typeof picked.title === "string" ? picked.title.trim() : "";
+    const description = typeof picked.description === "string" ? picked.description.trim() : "";
+    if (title || description) return true;
+    warnings.push(`card ${i + 1}: skipped because it has no title or description`);
+    return false;
   });
 
   if (body.preview === true) {
@@ -1585,40 +1765,56 @@ async function handleImportCards(req, res, opts) {
       count: prepared.length,
       targetList,
       warnings,
-      sourceLists: Array.isArray(bundle.sourceLists) ? bundle.sourceLists : []
+      sourceFormat: source.format,
+      sourceName: source.sourceName,
+      sourceLists: source.sourceLists,
+      excludedArchived: source.excludedArchived
     });
   }
 
   // Land the batch at the TOP of the target list, preserving bundle order (first card
   // on top), so imported cards behave like freshly-added ones (Item 1).
-  const existing = cards.filter((c) => c.list === targetList);
-  const minPos = existing.length ? Math.min(...existing.map(cardPosition)) : 0;
-  const n = prepared.length;
-  const created = [];
-  for (let i = 0; i < n; i++) {
-    const p = prepared[i];
-    const position = minPos - (n - i) * TOP_OF_LIST_STEP;
-    const title = typeof p.title === "string" && p.title.trim() ? p.title : (deriveTitle(typeof p.description === "string" ? p.description : "") || undefined);
-    const card = await createCard(root, {
-      title,
-      description: typeof p.description === "string" ? p.description : "",
-      project: typeof p.project === "string" && p.project.trim() ? p.project.trim() : null,
-      list: targetList,
-      goalMode: p.goalMode === true,
-      acceptance: typeof p.acceptance === "string" ? p.acceptance : null,
-      checklist: p.checklist ?? null,
-      routing: p.routing ?? null,
-      workKind: typeof p.workKind === "string" ? p.workKind : null,
-      tier: typeof p.tier === "string" ? p.tier : null,
-      phases: p.phases && typeof p.phases === "object" ? p.phases : null,
-      scheduledFor: p.scheduledFor ?? null,
-      scheduleAction: p.scheduleAction ?? null,
-      origin: "import",
-      position
-    });
-    created.push(cardSummary(card));
-  }
-  return jsonRes(res, 201, { imported: created.length, targetList, warnings, cards: created });
+  const created = await withCardOrderLock(root, async () => {
+    // Re-read under the allocator lock: a card may have landed after preview or
+    // prevalidation, and its position is part of the ordering transaction.
+    const currentCards = await loadAllCards(root);
+    const existing = currentCards.filter((c) => c.list === targetList);
+    const minPos = existing.length ? Math.min(...existing.map(cardPosition)) : 0;
+    const n = prepared.length;
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const p = prepared[i];
+      const position = minPos - (n - i) * TOP_OF_LIST_STEP;
+      const title = p.title || deriveTitle(p.description);
+      const card = await createCard(root, {
+        title,
+        description: p.description,
+        project: p.project,
+        list: targetList,
+        goalMode: p.goalMode,
+        acceptance: p.acceptance,
+        checklist: p.checklist,
+        routing: p.routing,
+        workKind: p.workKind,
+        tier: p.tier,
+        phases: p.phases,
+        scheduledFor: p.scheduledFor ?? null,
+        scheduleAction: p.scheduleAction ?? null,
+        origin: "import",
+        position
+      });
+      rows.push(cardSummary(card));
+    }
+    return rows;
+  });
+  return jsonRes(res, 201, {
+    imported: created.length,
+    targetList,
+    warnings,
+    cards: created,
+    sourceFormat: source.format,
+    sourceName: source.sourceName
+  });
 }
 
 // POST /cards/:id/infer-project — manually (re)run project inference for a no-project
@@ -1859,11 +2055,18 @@ export function shouldRecoverCoordinationHold(board, card, next) {
 async function handlePatchCard(req, res, opts, id) {
   const root = opts.root;
   const body = (await readBody(req)) || {};
+  const checklistError = checklistValidationError(body.checklist);
+  if (checklistError) return jsonRes(res, 400, { error: checklistError });
   let card;
   try { card = await loadCard(root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id — the write must never use a tampered on-disk id
   const board = await loadBoard(root);
+  // A list move without an explicit drag position is an insertion at the top.
+  // The position is allocated later under the collection-order lock; drag moves
+  // supply a midpoint and bypass that allocator.
+  const needsImplicitMovePosition =
+    typeof body.list === "string" && body.list !== card.list && body.position === undefined;
   // D16 lock: a card on an autonomous list is engine-owned — manual moves and
   // edits are rejected in the API (the UI hides the controls too). The engine
   // and the gateway's registration flow pass x-garrison-engine.
@@ -2070,19 +2273,29 @@ async function handlePatchCard(req, res, opts, id) {
   const movedLists = typeof body.list === "string" && next.list !== card.list;
   const landedTerminal = movedLists && Boolean(getList(board, next.list)?.terminal || next.list === "done");
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
-  const result = await saveCardCASWithHooks(root, next, expectedRev, new Date().toISOString(), {
-    // Existence + rev are checked before this hook while the external lifecycle
-    // lock is held, so a losing PATCH cannot mint leases/intent for a transition
-    // that never commits.
-    beforeWrite: movedLists && shouldRecoverCoordinationHold(board, card, next)
-      ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(board, lockedNext)
-      : undefined,
-    // Closure cleanup runs after the card write but before releasing that same
-    // lifecycle lock; a concurrent reopen cannot slip between the two.
-    afterWrite: landedTerminal
-      ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
-      : undefined
-  });
+  const commitPatch = async () => {
+    if (needsImplicitMovePosition) next.position = await topOfListPosition(root, next.list);
+    else if (typeof next.position === "number" && body.position !== undefined) {
+      next.position = await collisionFreePosition(root, next.list, id, next.position);
+    }
+    return saveCardCASWithHooks(root, next, expectedRev, new Date().toISOString(), {
+      // Existence + rev are checked before this hook while the external lifecycle
+      // lock is held, so a losing PATCH cannot mint leases/intent for a transition
+      // that never commits.
+      beforeWrite: movedLists && shouldRecoverCoordinationHold(board, card, next)
+        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(board, lockedNext)
+        : undefined,
+      // Closure cleanup runs after the card write but before releasing that same
+      // lifecycle lock; a concurrent reopen cannot slip between the two.
+      afterWrite: landedTerminal
+        ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
+        : undefined
+    });
+  };
+  const needsOrderLock = needsImplicitMovePosition || (typeof body.position === "number" && Number.isFinite(body.position));
+  const result = needsOrderLock
+    ? await withCardOrderLock(root, commitPatch)
+    : await commitPatch();
   if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
   if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
@@ -3803,6 +4016,9 @@ export function makeRequestHandler(opts, distDir) {
 
       return serveStatic(req, res, distDir);
     } catch (err) {
+      if (err?.code === "BODY_TOO_LARGE") {
+        return jsonRes(res, 413, { error: "request JSON exceeds the 16 MB limit" });
+      }
       jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
   };

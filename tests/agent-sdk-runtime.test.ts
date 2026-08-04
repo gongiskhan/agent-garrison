@@ -284,6 +284,52 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.sessionId).toBe("sess-1");
   });
 
+  it("announces a fresh validated session on the SDK system frame, before later activity", async () => {
+    const adapter = adapterYielding([
+      { type: "system", session_id: "../not-a-session" },
+      { type: "system", session_id: "sess-live_1" },
+      { type: "assistant", message: { content: [{ type: "text", text: "working" }] } },
+      { type: "result", subtype: "success", session_id: "../../also-not-a-session", usage: { output_tokens: 1 } }
+    ]);
+    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
+    const events: any[] = [];
+    await adapter.sendTurn(s, "start", {
+      onSession: (sessionId: string) => events.push({ kind: "session", sessionId, current: s.sessionId }),
+      onText: () => events.push({ kind: "text" })
+    });
+    await adapter.awaitResponse(s);
+    expect(events).toEqual([
+      { kind: "session", sessionId: "sess-live_1", current: "sess-live_1" },
+      { kind: "text" }
+    ]);
+    expect(s.sessionId).toBe("sess-live_1");
+  });
+
+  it("preserves resume semantics and isolates a throwing session observer", async () => {
+    const adapter = adapterYielding([
+      { type: "system", session_id: "sess-resumed" },
+      { type: "assistant", message: { content: [{ type: "text", text: "continued" }] } },
+      { type: "result", subtype: "success", usage: { output_tokens: 1 } }
+    ]);
+    const s = await adapter.spawn({
+      provider: "ollama-local",
+      model: "qwen3:8b",
+      compositionDir: "/tmp",
+      sessionId: "sess-resumed"
+    });
+    expect(adapter.buildQueryOptions(s).resume).toBe("sess-resumed");
+    let announcements = 0;
+    await adapter.sendTurn(s, "continue", {
+      onSession: () => {
+        announcements += 1;
+        throw new Error("broken observability sink");
+      }
+    });
+    await expect(adapter.awaitResponse(s)).resolves.toMatchObject({ text: "continued" });
+    expect(announcements).toBe(1);
+    expect(s.sessionId).toBe("sess-resumed");
+  });
+
   it("buildQueryOptions wires the harness (preset/settingSources/maxTurns) + the launch env", async () => {
     const adapter = adapterYielding([]);
     const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/work", maxTurns: 5 });

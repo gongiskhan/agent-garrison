@@ -28,6 +28,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { LiveEventStreamRegistry } from "../lib/live-event-stream.mjs";
 
 function garrisonDir() {
   const override = process.env.GARRISON_HOME?.trim();
@@ -485,25 +486,40 @@ export function _readThreadSync(id) {
 //
 // This is deliberately IN-MEMORY, not persisted: it describes live work owned by
 // THIS process. A restart has no in-flight turns by definition, and a stale
-// on-disk "running" flag would be a lie no one could clear.
-const runningTurns = new Map();
+// on-disk "running" flag would be a lie no one could clear. The generic registry
+// retains the ordered SSE prefix as well as the start time so another browser can
+// replay and then follow the same turn after navigating back.
+const runningTurns = new LiveEventStreamRegistry();
 
 export function markRunning(threadId, at = new Date().toISOString()) {
-  if (!threadId) return;
-  runningTurns.set(threadId, at);
+  if (!threadId) return null;
+  return runningTurns.start(threadId, at);
+}
+
+export function appendLiveFrame(threadId, frame) {
+  if (!threadId) return null;
+  return runningTurns.append(threadId, frame);
+}
+
+export function liveFrames(threadId) {
+  return threadId ? runningTurns.frames(threadId) : [];
+}
+
+export function subscribeLive(threadId, subscriber) {
+  return threadId ? runningTurns.subscribe(threadId, subscriber) : null;
 }
 
 export function clearRunning(threadId) {
   if (!threadId) return;
-  runningTurns.delete(threadId);
+  runningTurns.finish(threadId);
 }
 
 // ISO timestamp the live turn started, or null when the thread is idle. The
 // client renders elapsed time from this, so it survives a reload mid-turn.
 export function runningSince(threadId) {
-  return runningTurns.get(threadId) ?? null;
+  return runningTurns.since(threadId);
 }
 
 export function runningThreadIds() {
-  return [...runningTurns.keys()];
+  return runningTurns.keys();
 }

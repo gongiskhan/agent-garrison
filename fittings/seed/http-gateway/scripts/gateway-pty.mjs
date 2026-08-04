@@ -144,6 +144,37 @@ function runtimeSessionAlive(sess = activeRuntimeSession()) {
   }
 }
 
+// Runtime-neutral journal identity for any Claude-shaped session. PTY Claude
+// versions do not always create the file, but when a session id exists the
+// location is still deterministic and safe to advertise: the transcript SSE
+// endpoint performs its own existence/confinement checks. Other runtimes report
+// their identity directly through opts.onJournal instead of being forced into
+// this Claude path convention.
+function sessionJournalIdentity(sess, cwd = sess?.compositionDir ?? CANONICAL_COMPOSITION_DIR) {
+  const sessionId = runtimeSessionId(sess);
+  if (!sessionId) return null;
+  let canonical = cwd;
+  try {
+    canonical = realpathSync(cwd);
+  } catch {
+    // A disposable cwd may have gone away after spawn; use the launch value.
+  }
+  return {
+    session_id: sessionId,
+    transcript_path: path.join(claudeProjectDirForCwd(canonical), `${sessionId}.jsonl`)
+  };
+}
+
+function reportJournal(opts, identity) {
+  if (!identity?.session_id || typeof opts?.onJournal !== "function") return identity;
+  try {
+    opts.onJournal(identity);
+  } catch {
+    /* observability must never break the turn */
+  }
+  return identity;
+}
+
 function richPtyAvailable(sess = activeRuntimeSession()) {
   return runtimeSessionAlive(sess) && !!sess?.handle && typeof sess?.writeKeys === "function";
 }
@@ -1022,6 +1053,20 @@ export function routeFieldsFrom(pre) {
   };
 }
 
+/** Additive pre-completion route frame. A runtime can refine it with journal
+ * identity after preRoute without waiting for the turn's authoritative `done`. */
+export function pendingRouteFrame(pre, hints, extra = {}) {
+  const base = pre
+    ? { ...turnAttribution(pre, hints), ...routeFieldsFrom(pre) }
+    : { turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null };
+  return {
+    ...base,
+    ...extra,
+    pending: true,
+    turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null
+  };
+}
+
 // ───────────────────────── cancel registry (§9)
 // One entry per IN-FLIGHT turn, keyed by the conversation the turn belongs to.
 // Turns are serialized on the inflight chain, so this holds at most one live
@@ -1188,7 +1233,9 @@ export function buildRouteOptions() {
 /** Run one turn through Stage-A routing: classify → resolve → log → switch →
  *  turn → honored check. The operative session is served by the routing pool.
  *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
- *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity. */
+ *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity;
+ *  `opts.onJournal({session_id,transcript_path})` fires as soon as a runtime's
+ *  structured journal can be tailed, before the turn settles. */
 // Liveness for the INTERACTIVE lane, which has no structured event stream: the
 // TUI draws thinking and tool use instead of emitting them, so a channel sees
 // nothing between "sent" and the final reply. Scrape the screen for the current
@@ -1542,6 +1589,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // composition dir (caught by asking a live turn to print its own pwd).
       cwd: pre.projectPath ?? undefined,
       onActivity: opts.onActivity,
+      onJournal: opts.onJournal,
       registerStop: (stop) => registerTurnStop("agent-sdk", stop)
     });
     // Inject the off-screen agent-sdk reply + a status badge into rich clients so
@@ -1649,6 +1697,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       timeoutMs: hints?.timeoutMs,
       // §8: honor a pinned project here too, else the badge overstates the scope.
       cwd: pre.projectPath ?? undefined,
+      onJournal: opts.onJournal,
       registerStop: (stop) => registerTurnStop("claude-delegate", stop)
     });
     broadcastRich("status", {
@@ -1739,6 +1788,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
         onScreen: osOnScreen,
         onSession: (s) => {
           osSession = s;
+          reportJournal(opts, sessionJournalIdentity(s, s?.compositionDir ?? pre.projectPath ?? COMPOSITION_DIR));
           // §9: ESC on the disposable session is the one-shot lane's stop
           // primitive; waitForTurnComplete's liveness check then settles the turn
           // with its partial reply instead of hanging to the 5-minute timeout.
@@ -1796,6 +1846,10 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   }
 
   let lastEmitted = "";
+  const journal = reportJournal(
+    opts,
+    sessionJournalIdentity(session, session?.compositionDir ?? pre.projectPath ?? CANONICAL_COMPOSITION_DIR)
+  );
   // Runs even when onChunk is absent: the activity hint is the ONLY feedback a
   // caller gets on this lane, so it must not be gated on text streaming.
   const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
@@ -1870,6 +1924,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     // reports a session (outcome.sessionId is null for the pooled PTY operative).
     reply: outcome.reply,
     session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
+    transcript_path: journal?.transcript_path ?? null,
     cost_usd: null,
     route: pre.route.targetId,
     honored: honored.honored,
@@ -1890,7 +1945,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
 
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived).
- *  opts: { onPreRoute, onActivity } - the §4/§12 SSE frame sinks. */
+ *  opts: { onPreRoute, onActivity, onJournal } - the §4/§12 SSE frame sinks. */
 async function runTurn(message, onChunk, hints, opts = {}) {
   // S3d review R1: bind AskUserQuestions raised during THIS turn to its card (the
   // engine's dutyKey = "cardId:phase"), and sweep any that outlive the turn. Turns are
@@ -1941,11 +1996,13 @@ async function runTurn(message, onChunk, hints, opts = {}) {
       session.writeKeys("\x1b");
       return true;
     });
+    const journal = reportJournal(opts, sessionJournalIdentity(session));
     const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
     await markPriorSession();
     return {
       reply: outcome.reply,
-      session_id: outcome.sessionId,
+      session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
+      transcript_path: journal?.transcript_path ?? null,
       cost_usd: null,
       ...(entry.cancelled ? { stoppedByUser: true, stoppedReason: "user-interrupt" } : {})
     };
@@ -2348,18 +2405,22 @@ const server = http.createServer(async (request, response) => {
       // badge row appears ~1s into the turn instead of after the reply. `pending`
       // marks it as refinable; the client merges the done frame over it and drops
       // any frame from an older turnSeq (§5).
-      const onPreRoute = (pre) => {
+      let pendingPre = null;
+      const emitPendingRoute = (extra = {}) => {
         try {
-          sseWrite(response, "route", {
-            ...turnAttribution(pre, hints),
-            ...routeFieldsFrom(pre),
-            pending: true,
-            turnSeq: hints.turnSeq
-          });
+          sseWrite(response, "route", pendingRouteFrame(pendingPre, hints, extra));
         } catch {
           /* client gone */
         }
       };
+      const onPreRoute = (pre) => {
+        pendingPre = pre;
+        emitPendingRoute();
+      };
+      // Follow-up `route` frame once the selected runtime has a journal. It
+      // merges into the same pending attribution client-side, giving the host a
+      // session id early enough to open SessionStream during the turn.
+      const onJournal = (identity) => emitPendingRoute(identity);
       // §12: tool activity from a routed runtime, for the working-hint slot.
       const onActivity = (payload) => {
         try {
@@ -2382,7 +2443,7 @@ const server = http.createServer(async (request, response) => {
           } catch {
             /* client gone */
           }
-        }, hints, { onPreRoute, onActivity });
+        }, hints, { onPreRoute, onActivity, onJournal });
         // Additive context telemetry (D5b): the turn's live/peak context % + any
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any

@@ -186,6 +186,9 @@ describe("Item 4 — export / import a list of cards", () => {
     // The dispatchCommand never made it across.
     const detail = await jget(`/cards/${landed.id}`);
     expect(detail.body.card.dispatchCommand).toBeNull();
+    const sourceDetail = await jget(`/cards/${sourceId}`);
+    expect(detail.body.checklist.map((item: any) => item.id))
+      .not.toEqual(sourceDetail.body.checklist.map((item: any) => item.id));
   });
 
   it("refuses to import onto an agent list (would auto-dispatch runs)", async () => {
@@ -199,5 +202,179 @@ describe("Item 4 — export / import a list of cards", () => {
   it("rejects a non-bundle body", async () => {
     const bad = await jsend("POST", "/cards/import", { bundle: { kind: "nope", version: 1, cards: [] } });
     expect(bad.status).toBe(400);
+  });
+
+  it("removes machine-local projects and ClaudeChat attachment markers in both directions", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Machine-bound source",
+      description: "Portable body\n\nAttached files:\n- /home/ggomes/private/screenshot.png",
+      project: "/home/ggomes/dev/garrison",
+      routing: { project: "/home/ggomes/dev/garrison", model: "sonnet" }
+    });
+    expect(create.status).toBe(201);
+    const exportedResponse = await fetch(base + "/cards/export?list=backlog");
+    const exportedBundle = await exportedResponse.json() as any;
+    const exported = exportedBundle.cards.find((card: any) => card.title === "Machine-bound source");
+    expect(exported.project).toBeUndefined();
+    expect(exported.routing).toEqual({ model: "sonnet" });
+    expect(exported.description).toBe("Portable body");
+
+    const hostile = {
+      kind: "garrison.kanban.cards",
+      version: 1,
+      sourceLists: [{ id: "elsewhere", title: "Elsewhere" }],
+      cards: [{
+        title: "Hostile portable card",
+        description: "Keep this\n\nAttached file:\n- C:\\Users\\someone\\secret.txt",
+        project: "C:\\Users\\someone\\repo",
+        routing: { project: "file:///Users/someone/repo", model: "sonnet" }
+      }]
+    };
+    const imp = await jsend("POST", "/cards/import", { bundle: hostile, targetList: "backlog" });
+    expect(imp.status).toBe(201);
+    expect(imp.body.warnings.some((warning: string) => /machine-local project path/i.test(warning))).toBe(true);
+    const importedId = imp.body.cards[0].id;
+    const detail = await jget(`/cards/${importedId}`);
+    expect(detail.body.card.project).toBeNull();
+    expect(detail.body.card.routing).toEqual({ model: "sonnet" });
+    expect(detail.body.card.description).toBe("Keep this");
+  });
+
+  it("normalises nested export fields and rejects every path-shaped project spelling", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Nested portable source",
+      description: "Only content should travel",
+      project: "../private/repo",
+      routing: { project: "\\\\server\\share\\repo", model: "sonnet", extraSecret: "nope" },
+      phases: { plan: true, review: false, nested: { secret: true }, "../escape": true },
+      checklist: [{ text: "Keep the task", done: false, secret: "do not export", attachmentPath: "/private/file" }]
+    });
+    expect(create.status).toBe(201);
+
+    const response = await fetch(base + "/cards/export?list=backlog");
+    const bundle = await response.json() as any;
+    const exported = bundle.cards.find((card: any) => card.title === "Nested portable source");
+    expect(exported.project).toBeUndefined();
+    expect(exported.routing).toEqual({ model: "sonnet" });
+    expect(exported.phases).toEqual({ plan: true, review: false });
+    expect(exported.checklist).toEqual([{ text: "Keep the task", done: false }]);
+
+    const hostile = {
+      kind: "garrison.kanban.cards",
+      version: 1,
+      cards: [
+        { title: "UNC", project: "\\\\server\\share", routing: { project: "foo/bar", model: "sonnet" } },
+        { title: "Dot path", project: ".hidden", routing: { project: "../repo" } }
+      ]
+    };
+    const imported = await jsend("POST", "/cards/import", { bundle: hostile, targetList: "todo" });
+    expect(imported.status).toBe(201);
+    for (const summary of imported.body.cards) {
+      const detail = await jget(`/cards/${summary.id}`);
+      expect(detail.body.card.project).toBeNull();
+      expect(detail.body.card.routing?.project).toBeUndefined();
+    }
+  });
+
+  const TRELLO = {
+    id: "board-1",
+    name: "Personal tasks",
+    lists: [
+      { id: "trello-inbox", name: "Inbox", closed: false, pos: 100 },
+      { id: "trello-later", name: "Later", closed: false, pos: 200 },
+      { id: "trello-archive", name: "Old", closed: true, pos: 300 }
+    ],
+    cards: [
+      {
+        id: "trello-card-1",
+        idList: "trello-inbox",
+        name: "Trello first",
+        desc: "A useful description",
+        closed: false,
+        pos: 10,
+        due: FUTURE,
+        dueComplete: false,
+        shortUrl: "https://trello.com/c/abc123/trello-first",
+        labels: [{ name: "Priority", color: "red" }],
+        members: [{ id: "must-not-travel", fullName: "Private Person" }],
+        attachments: [{ url: "https://example.invalid/private" }]
+      },
+      {
+        id: "trello-card-2",
+        idList: "trello-inbox",
+        name: "Unsafe metadata",
+        desc: "Keep this paragraph\n\nAttached files:\n- /Users/someone/private.png",
+        closed: false,
+        pos: 20,
+        shortUrl: "javascript:alert(1)",
+        labels: []
+      },
+      { id: "trello-card-3", idList: "trello-later", name: "Archived card", desc: "", closed: true, pos: 10 },
+      { id: "trello-card-4", idList: "trello-archive", name: "Card on archived list", desc: "", closed: false, pos: 10 }
+    ],
+    checklists: [{
+      id: "trello-checklist",
+      idCard: "trello-card-1",
+      name: "Launch",
+      checkItems: [
+        { id: "trello-item-one", name: "Prepare", state: "complete", pos: 10 },
+        { id: "trello-item-two", name: "Ship", state: "incomplete", pos: 20 }
+      ]
+    }],
+    actions: [{ type: "commentCard", data: { text: "must not travel" } }]
+  };
+
+  it("previews Trello JSON by source list and excludes archived cards by default", async () => {
+    const all = await jsend("POST", "/cards/import", { bundle: TRELLO, targetList: "backlog", preview: true });
+    expect(all.status).toBe(200);
+    expect(all.body.sourceFormat).toBe("trello");
+    expect(all.body.sourceName).toBe("Personal tasks");
+    expect(all.body.count).toBe(2);
+    expect(all.body.excludedArchived).toBe(2);
+    expect(all.body.sourceLists.map((list: any) => list.title)).toEqual(["Inbox", "Later", "Old"]);
+
+    const oneList = await jsend("POST", "/cards/import", {
+      bundle: TRELLO,
+      targetList: "backlog",
+      sourceList: "trello-later",
+      includeArchived: true,
+      preview: true
+    });
+    expect(oneList.status).toBe(200);
+    expect(oneList.body.count).toBe(1);
+  });
+
+  it("imports Trello titles, descriptions, safe provenance, due dates, and fresh checklist identities", async () => {
+    const imp = await jsend("POST", "/cards/import", {
+      bundle: TRELLO,
+      targetList: "todo",
+      sourceList: "trello-inbox"
+    });
+    expect(imp.status).toBe(201);
+    expect(imp.body.imported).toBe(2);
+
+    const first = imp.body.cards.find((card: any) => card.title === "Trello first");
+    const firstDetail = await jget(`/cards/${first.id}`);
+    expect(firstDetail.body.card.description).toContain("A useful description");
+    expect(firstDetail.body.card.description).toContain("https://trello.com/c/abc123/trello-first");
+    expect(firstDetail.body.card.description).toContain("Labels: Priority");
+    expect(firstDetail.body.card.description).not.toContain("Private Person");
+    expect(firstDetail.body.card.description).not.toContain("example.invalid");
+    expect(firstDetail.body.card.scheduledFor).toBe(FUTURE);
+    expect(firstDetail.body.card.scheduleAction).toBe("notify");
+    expect(firstDetail.body.checklist.map((item: any) => item.text)).toEqual(["Launch\n\nPrepare", "Launch\n\nShip"]);
+    expect(firstDetail.body.checklist.map((item: any) => item.done)).toEqual([true, false]);
+    expect(firstDetail.body.checklist.map((item: any) => item.id)).not.toContain("trello-item-one");
+
+    const unsafe = imp.body.cards.find((card: any) => card.title === "Unsafe metadata");
+    const unsafeDetail = await jget(`/cards/${unsafe.id}`);
+    expect(unsafeDetail.body.card.description).toContain("Keep this paragraph");
+    expect(unsafeDetail.body.card.description).not.toContain("Attached files:");
+    expect(unsafeDetail.body.card.description).not.toContain("private.png");
+    expect(unsafeDetail.body.card.description).not.toContain("javascript:");
+
+    const todo = (await jget("/board")).body.lists.find((list: any) => list.id === "todo");
+    expect(todo.cards.findIndex((card: any) => card.id === first.id))
+      .toBeLessThan(todo.cards.findIndex((card: any) => card.id === unsafe.id));
   });
 });

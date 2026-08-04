@@ -35,12 +35,20 @@ import {
   sanitizeRouteMeta,
   sanitizeRouting,
   markRunning,
+  appendLiveFrame,
+  subscribeLive,
   clearRunning,
   runningSince,
   runningThreadIds
 } from "./threads.mjs";
+import { SseFrameDecoder, formatSseFrame } from "../lib/live-event-stream.mjs";
 import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
-import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
+import {
+  readJsonlLines,
+  parseTranscriptLines,
+  extractRelatedTaskRecords,
+  relatedTaskEvents
+} from "../lib/session-transcript.mjs";
 import { sendPush } from "../lib/webpush.mjs";
 import { readSubscriptions, saveSubscription, removeSubscription, vapidFromEnv } from "../lib/push-store.mjs";
 
@@ -366,7 +374,7 @@ export function mergeTurnRouting(pinned, perTurn) {
 //   2. It does NOT propagate client-close to the gateway request - the turn runs
 //      to `done` server-side so the reply is persisted and the task is never
 //      orphaned invisibly. Writes to a gone client are simply skipped.
-function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessage, overrides } = {}) {
+function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId } = {}) {
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -392,46 +400,47 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
   // when the turn never reaches `done`.
   let preRoute = null;
   let persisted = false;
-  // Mark this thread as RUNNING for the whole life of the turn. The turn outlives
-  // the browser tab (the proxy keeps streaming and persists on `done`), so a user
-  // who navigates away and back finds a thread whose reply has not landed yet and
-  // no way to tell it apart from an idle one - the reason the channel looked
-  // "stopped" after leaving and returning. markSettled() runs on EVERY exit path
-  // below, including the ones that never reach `done`.
-  if (threadId) markRunning(threadId);
-  const markSettled = () => { if (threadId) clearRunning(threadId); };
-  const writeMessages = (messages) =>
-    appendMessages(threadId, messages).catch((err) => {
-      console.error(`[web-channel] failed to persist turn into thread ${threadId}: ${err.message}`);
+  // handleChat persisted the user entry and marked the stream running BEFORE it
+  // opened the upstream. Keep all subsequent thread writes serialized: a route
+  // frame can carry the session id milliseconds before `done`, and two concurrent
+  // read-modify-writes would otherwise lose either that id or the assistant reply.
+  let persistence = Promise.resolve();
+  const queueThreadWrite = (work) => {
+    persistence = persistence.then(work).catch((err) => {
+      console.error(`[web-channel] failed to persist live turn into thread ${threadId}: ${err.message}`);
     });
-  // The ask, carrying the pins that were in force when it was sent. Persisted on BOTH
-  // the settled and the failed path: intent is what the user can act on next.
-  const userEntry = () => ({ role: "user", text: userMessage, overrides: overrides ?? undefined });
+    return persistence;
+  };
+  const markSettled = () => { if (threadId) clearRunning(threadId); };
+  const queueSession = (payload) => {
+    const sid = payload?.session_id ?? payload?.sessionId;
+    if (!threadId || !sid) return persistence;
+    return queueThreadWrite(() => setThreadSession(threadId, String(sid)));
+  };
 
   const persistDone = (payload) => {
-    markSettled();
-    if (persisted || !threadId) return;
+    if (persisted) return;
     persisted = true;
+    if (!threadId) return markSettled();
     const reply = payload?.reply;
-    const messages = [userEntry()];
     if (typeof reply === "string" && reply.trim()) {
       // The whole turn, not just its text: the resolved attribution rides in the
       // message so the badges survive a reload and the 10s thread poll's remount
       // (contract §10), and so the per-turn sessionId can open THIS turn's transcript
       // rather than the thread-level last-write-wins one (§12).
-      messages.push({ role: "assistant", text: reply, route: attributionFromFrame({ ...(preRoute ?? {}), ...payload }) ?? undefined });
+      queueThreadWrite(() => appendMessages(threadId, [{
+        role: "assistant",
+        text: reply,
+        route: attributionFromFrame({ ...(preRoute ?? {}), ...payload }) ?? undefined
+      }]));
     }
-    // The two writes are SEQUENCED, never fired together: both are read-modify-write
-    // on the same thread file (and the store's tmp name is per-pid-per-millisecond, so
-    // two writes in the same tick collide on it too), so running them in parallel loses
-    // whichever landed first - the messages, in practice.
-    void writeMessages(messages).then(() => {
-      // The Claude session id, kept at thread level as well as per message so
-      // /api/session-stream?thread=<id> still resolves without a message id (the
-      // per-message sessionId in `route` is what the per-turn transcript badge uses).
-      const sid = payload?.session_id ?? payload?.sessionId;
-      if (sid) return setThreadSession(threadId, String(sid)).catch(() => {});
-    });
+    // The Claude session id is also thread-level so /api/session-stream?thread=<id>
+    // resolves without a message id. A pre-turn route may already have stored it;
+    // setThreadSession is idempotent.
+    queueSession(payload);
+    // Keep the live stream discoverable until the settled reply is on disk. This
+    // closes the tiny "running=false but history not written yet" reload gap.
+    void persistence.finally(markSettled);
   };
 
   // Before this, NOTHING was persisted when a turn errored or `done` never arrived -
@@ -439,59 +448,57 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
   // transcript on the next reload. Keeps whatever the pre-turn route frame already
   // told us so the rail can still say which lane broke.
   const persistFailed = (reason) => {
-    markSettled();
-    if (persisted || !threadId) return;
+    if (persisted) return;
     persisted = true;
+    if (!threadId) return markSettled();
     const why = String(reason || "turn did not complete").slice(0, 200);
     // `pending: null` drops the pre-turn frame's pending flag: this turn is over,
     // badly, and a persisted "still running" marker would be a lie.
     const route = attributionFromFrame({ ...(preRoute ?? {}), pending: null, stoppedReason: why });
-    void writeMessages([
-      userEntry(),
+    queueThreadWrite(() => appendMessages(threadId, [
       { role: "assistant", text: `_Turn did not complete: ${why}._`, route: route ?? undefined }
-    ]);
+    ]));
+    void persistence.finally(markSettled);
   };
 
-  // Scan the upstream SSE frames (same block parse as the browser client). The
-  // gateway JSON-stringifies each payload on one data line.
-  let scanBuf = "";
-  const scanUpstream = (chunk) => {
-    scanBuf += chunk.toString("utf8");
-    let idx;
-    while ((idx = scanBuf.indexOf("\n\n")) !== -1) {
-      const block = scanBuf.slice(0, idx);
-      scanBuf = scanBuf.slice(idx + 2);
-      let name = "message";
-      let data = "";
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event:")) name = line.slice(6).trim();
-        else if (line.startsWith("data:")) data += line.slice(5).trim();
-      }
-      if (name !== "route" && name !== "done" && name !== "error") continue;
-      let payload = {};
-      try { payload = data ? JSON.parse(data) : {}; } catch { /* ignore */ }
-      if (name === "route") {
-        preRoute = { ...(preRoute ?? {}), ...payload };
-        continue;
-      }
-      if (name === "error") {
-        persistFailed(String(payload?.error ?? "stream error"));
-        continue;
-      }
-      persistDone(payload);
+  // Tee EVERY named upstream frame into the generic live journal before applying
+  // chat-specific persistence. The data string is retained verbatim, including a
+  // chunk's `replace:true`, so replay follows the exact same reducer as live send.
+  const scanUpstream = new SseFrameDecoder(({ event: name, data }) => {
+    if (threadId) appendLiveFrame(threadId, { event: name, data });
+    let payload = {};
+    try { payload = data ? JSON.parse(data) : {}; } catch { /* leave it observable, but do not interpret it */ }
+    if (name === "route") {
+      preRoute = { ...(preRoute ?? {}), ...payload };
+      // Agent SDK and any future runtime can publish its session coordinate on a
+      // route frame. Store it immediately; rich transcript discovery no longer
+      // waits for a terminal `done` that may be minutes away.
+      queueSession(payload);
+      return;
     }
+    if (name === "error") {
+      persistFailed(String(payload?.error ?? "stream error"));
+      return;
+    }
+    if (name === "done") persistDone(payload);
+  });
+
+  const emitLocalError = (message) => {
+    const data = JSON.stringify({ error: String(message) });
+    if (threadId) appendLiveFrame(threadId, { event: "error", data });
+    clientWrite(`event: error\ndata: ${data}\n\n`);
   };
 
   const upstream = http.request(upstreamOpts, (up) => {
     if (up.statusCode && up.statusCode >= 400) {
-      clientWrite(`event: error\ndata: ${JSON.stringify({ error: `upstream ${up.statusCode}` })}\n\n`);
+      emitLocalError(`upstream ${up.statusCode}`);
       up.resume();
       persistFailed(`upstream ${up.statusCode}`);
       clientEnd();
       return;
     }
     up.on("data", (chunk) => {
-      scanUpstream(chunk);
+      scanUpstream.push(chunk);
       clientWrite(chunk);
     });
     up.on("end", () => {
@@ -501,13 +508,13 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId, userMessa
       clientEnd();
     });
     up.on("error", (err) => {
-      clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+      emitLocalError(err.message);
       persistFailed(err.message);
       clientEnd();
     });
   });
   upstream.on("error", (err) => {
-    clientWrite(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+    emitLocalError(err.message);
     persistFailed(err.message);
     clientEnd();
   });
@@ -865,13 +872,9 @@ async function handleChat(req, res, opts) {
     return;
   }
   // The client's thread id (never forwarded to the gateway) - the exchange is
-  // persisted into it server-side when the upstream `done` event arrives.
+  // persisted into it server-side. The USER side is written before the upstream
+  // opens; the assistant side lands only when that upstream settles.
   const threadId = typeof body?.thread === "string" && body.thread.trim() ? body.thread.trim() : null;
-  // S3b: MATERIALIZE the turn — assemble bounded deterministic context from this
-  // thread's history + board cards, and record the bounded-context telemetry. Falls
-  // back to any client-supplied context when there is no thread id.
-  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId);
-  void appendMaterializedTurn(telemetry);
   // The pins in force for THIS turn: the thread's persisted (conversation-sticky)
   // TurnRouting with the request's own `routing` laid over it. Read the thread again
   // rather than threading it out of the context assembly above - that helper's return
@@ -879,6 +882,24 @@ async function handleChat(req, res, opts) {
   // thread file is a couple of KB.
   const pinned = threadId ? (await getThread(threadId))?.routing ?? null : null;
   const routing = mergeTurnRouting(pinned, body?.routing);
+  // S3b: MATERIALIZE the turn — assemble bounded deterministic context from this
+  // thread's PRIOR history + board cards, and record the bounded-context telemetry.
+  // This deliberately runs before appending the current ask: the explicit gateway
+  // `message` is authoritative and must not also appear inside its own context.
+  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId);
+  void appendMaterializedTurn(telemetry);
+  if (threadId) {
+    // Await this tiny atomic write before opening the upstream: navigating away
+    // can never reopen a running thread that has forgotten the ask. The trailing
+    // unanswered user message is already a supported history shape (toHistory).
+    try {
+      await appendMessages(threadId, [{ role: "user", text: message, overrides: routing ?? undefined }]);
+    } catch (err) {
+      // A persistence fault must be visible in logs, but it must not silently turn
+      // the chat channel into a runtime outage.
+      console.error(`[web-channel] failed to persist user turn into thread ${threadId}: ${err.message}`);
+    }
+  }
   // Forward the assembled context + mode + optional routing hint through to the gateway.
   const payload = JSON.stringify(
     buildGatewayChatBody({
@@ -892,6 +913,7 @@ async function handleChat(req, res, opts) {
     })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
+  if (threadId) markRunning(threadId);
   pipeChatSse(req, res, {
     method: "POST",
     hostname: target.hostname,
@@ -902,7 +924,7 @@ async function handleChat(req, res, opts) {
       "Content-Length": Buffer.byteLength(payload),
       Accept: "text/event-stream"
     }
-  }, payload, { threadId, userMessage: message, overrides: routing });
+  }, payload, { threadId });
 }
 
 // POST a JSON object to a gateway path and stream the reply straight back. The
@@ -1094,6 +1116,50 @@ async function handleThreadGet(res, id) {
   jsonRes(res, 200, { thread: { ...thread, runningSince: runningSince(id) } });
 }
 
+// Replay the buffered prefix of a running turn, then follow new frames until the
+// producer settles. The URL is deliberately same-origin and contains only the
+// opaque thread id; no gateway address or machine-local path reaches the browser.
+function handleThreadLive(req, res, id) {
+  let closed = false;
+  let keep = null;
+  let subscription = null;
+  const writeFrame = (frame) => {
+    if (closed || res.writableEnded || res.destroyed) return;
+    try { res.write(formatSseFrame(frame)); } catch { stop(); }
+  };
+  const stop = () => {
+    if (closed) return;
+    closed = true;
+    if (keep) clearInterval(keep);
+    subscription?.unsubscribe();
+  };
+  const end = () => {
+    if (closed) return;
+    stop();
+    if (!res.writableEnded && !res.destroyed) {
+      try { res.end(); } catch { /* client gone */ }
+    }
+  };
+
+  subscription = subscribeLive(id, { onFrame: writeFrame, onEnd: end });
+  if (!subscription) return jsonRes(res, 404, { error: "thread has no running turn" });
+
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+  for (const frame of subscription.frames) writeFrame(frame);
+  keep = setInterval(() => {
+    if (closed) return;
+    try { res.write(": keep-alive\n\n"); } catch { stop(); }
+  }, 15_000);
+  keep.unref?.();
+  req.on("aborted", stop);
+  res.on("close", stop);
+}
+
 async function handleThreadAppend(req, res, id) {
   let body;
   try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
@@ -1131,7 +1197,8 @@ async function handleThreadDelete(res, id) {
   jsonRes(res, ok ? 200 : 404, { ok });
 }
 
-// Route /api/threads, /api/threads/:id, /api/threads/:id/messages. Returns true
+// Route /api/threads, /api/threads/:id, /api/threads/:id/live and mutations.
+// Returns true
 // when it handled the request.
 function routeThreads(req, res, pathname, method) {
   if (pathname === "/api/threads" && method === "GET") { void handleThreadsList(res); return true; }
@@ -1143,6 +1210,7 @@ function routeThreads(req, res, pathname, method) {
     const id = parts[0];
     if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
     if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "live" && method === "GET") { handleThreadLive(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "messages" && method === "POST") { void handleThreadAppend(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "routing" && method === "GET") { void handleThreadRoutingGet(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "routing" && method === "PUT") { void handleThreadRoutingPut(req, res, id); return true; }
@@ -1242,6 +1310,54 @@ async function findTranscriptBySession(sessionId) {
   return null;
 }
 
+function subagentsDirFor(parentTranscript) {
+  return parentTranscript.endsWith(".jsonl")
+    ? path.join(path.dirname(parentTranscript), path.basename(parentTranscript, ".jsonl"), "subagents")
+    : null;
+}
+
+// Resolve an INTERNAL agent id only inside the parent session's real subagents
+// directory. The returned path never crosses the HTTP boundary.
+function confinedSubagentTranscript(parentTranscript, agentId) {
+  const safe = typeof agentId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(agentId) ? agentId : null;
+  const root = subagentsDirFor(parentTranscript);
+  if (!safe || !root) return null;
+  const candidate = path.join(root, `agent-${safe}.jsonl`);
+  return realpathConfined(candidate, [root]);
+}
+
+function relatedTaskStreamUrl(parentTranscript, sessionId, task) {
+  if (!confinedSubagentTranscript(parentTranscript, task?.agentId)) return null;
+  return `/api/session-stream?session=${encodeURIComponent(sessionId)}&task=${encodeURIComponent(task.taskId)}`;
+}
+
+// A public task id is derived from the Agent/Task tool-use id, never the journal's
+// explicitly-internal agentId. Search the confined journal tree so nested fan-out
+// (a child spawning another child) remains openable through the same contract.
+async function findRelatedTaskTranscript(parentTranscript, publicTaskId) {
+  if (typeof publicTaskId !== "string" || !/^task-[A-Za-z0-9_-]{1,133}$/.test(publicTaskId)) return null;
+  const root = subagentsDirFor(parentTranscript);
+  const journals = [parentTranscript];
+  if (root) {
+    let names = [];
+    try { names = await readdir(root); } catch { /* no children */ }
+    for (const name of names) {
+      if (!/^agent-[A-Za-z0-9_-]{1,128}\.jsonl$/.test(name)) continue;
+      const confined = realpathConfined(path.join(root, name), [root]);
+      if (confined) journals.push(confined);
+    }
+  }
+  for (const journal of journals) {
+    let lines = [];
+    try { ({ lines } = await readJsonlLines(journal, 0)); } catch { continue; }
+    const task = extractRelatedTaskRecords(lines).find((candidate) => candidate.taskId === publicTaskId);
+    if (!task?.agentId) continue;
+    const child = confinedSubagentTranscript(parentTranscript, task.agentId);
+    if (child) return child;
+  }
+  return null;
+}
+
 // SSE stream of a thread's (or an explicit session's) Claude transcript: the
 // structured blocks (text / collapsible thinking / tool calls / inline images)
 // the plain-text chat stream drops. Tails live; the client closes it.
@@ -1249,6 +1365,7 @@ async function handleSessionStream(req, res) {
   const parsed = url.parse(req.url || "", true);
   const threadId = typeof parsed.query.thread === "string" ? parsed.query.thread : null;
   let sessionId = typeof parsed.query.session === "string" ? parsed.query.session : null;
+  const publicTaskId = typeof parsed.query.task === "string" ? parsed.query.task : null;
   if (!sessionId && threadId) {
     const thread = await getThread(threadId);
     sessionId = thread?.claudeSessionId ?? null;
@@ -1260,18 +1377,32 @@ async function handleSessionStream(req, res) {
   res.setHeader("X-Accel-Buffering", "no");
   const emit = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
 
-  const abs = sessionId ? await findTranscriptBySession(sessionId) : null;
+  const parentAbs = sessionId ? await findTranscriptBySession(sessionId) : null;
+  const abs = parentAbs && publicTaskId
+    ? await findRelatedTaskTranscript(parentAbs, publicTaskId)
+    : parentAbs;
   if (!abs) {
     emit({ type: "init", available: false, live: false, events: [] });
     emit({ type: "end" });
     return res.end();
   }
   let offset = 0;
+  let journalLines = [];
+  let relatedById = new Map();
+  const safeRelated = () => {
+    if (!parentAbs || !sessionId) return [];
+    return relatedTaskEvents(journalLines, {
+      streamUrlFor: (task) => relatedTaskStreamUrl(parentAbs, sessionId, task)
+    });
+  };
   try {
     const first = await readJsonlLines(abs, 0);
     offset = first.offset;
+    journalLines = first.lines.slice();
     const { events, title } = parseTranscriptLines(first.lines);
-    emit({ type: "init", available: true, live: true, title, events });
+    const related = safeRelated();
+    relatedById = new Map(related.map((event) => [event.id, JSON.stringify(event)]));
+    emit({ type: "init", available: true, live: true, title, events: [...events, ...related] });
   } catch {
     emit({ type: "init", available: false, live: false, events: [] });
     emit({ type: "end" });
@@ -1286,8 +1417,21 @@ async function handleSessionStream(req, res) {
       const next = await readJsonlLines(abs, offset);
       if (next.lines.length) {
         offset = next.offset;
+        journalLines.push(...next.lines);
         const { events, title } = parseTranscriptLines(next.lines);
-        if (events.length) emit({ type: "events", title, events });
+        // Related tasks are snapshot-derived because a tool_use, its launch result
+        // and its completion notification can arrive in different polls. Emit only
+        // descriptors whose latest-wins value changed.
+        const related = safeRelated();
+        const changed = [];
+        const nextRelated = new Map();
+        for (const event of related) {
+          const encoded = JSON.stringify(event);
+          nextRelated.set(event.id, encoded);
+          if (relatedById.get(event.id) !== encoded) changed.push(event);
+        }
+        relatedById = nextRelated;
+        if (events.length || changed.length) emit({ type: "events", title, events: [...events, ...changed] });
       }
     } catch { /* transient read error; retry next tick */ }
   }, 800);

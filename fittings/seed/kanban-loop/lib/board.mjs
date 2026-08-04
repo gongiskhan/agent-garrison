@@ -169,7 +169,10 @@ export function normaliseChecklist(raw) {
     const done = it.done === true;
     items.push({
       id: typeof it.id === "string" && /^[0-9A-Za-z_-]{1,32}$/.test(it.id) ? it.id : ulid().slice(-10),
-      text: text.slice(0, 500),
+      // Preserve the authored body verbatim (after surrounding whitespace). A
+      // checklist item is allowed to be a small multi-paragraph task brief; the
+      // former silent 500-character slice lost later paragraphs on every save.
+      text,
       done,
       doneAt: done && typeof it.doneAt === "string" ? it.doneAt : done ? new Date().toISOString() : null
     });
@@ -628,6 +631,14 @@ export async function withCardLock(root, id, fn) {
 // two concurrent writers cannot both read the same rev and both save.
 export async function withBoardLock(root, fn) {
   return withFileLock(path.join(root, ".board.lock"), "board", fn);
+}
+
+// Collection-level ordering lock. Card files have independent CAS locks, but
+// choosing a new top position requires a read of every card in the destination
+// list followed by a create/move. Serialise only that short allocator window so
+// concurrent POSTs cannot all choose the same/null position.
+export async function withCardOrderLock(root, fn) {
+  return withFileLock(path.join(root, ".card-order.lock"), "card order", fn);
 }
 
 // Compare-and-swap whole-board save. Runs the read→check-rev→mutate→write inside

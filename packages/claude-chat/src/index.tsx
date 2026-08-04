@@ -1,5 +1,22 @@
 export { ClaudeChat, buildSendMeta, QuestionBlock } from "./ClaudeChat";
 export { SessionStream } from "./SessionTranscript";
+export type { SessionStreamProps } from "./SessionTranscript";
+export {
+  collectRelatedTasks,
+  isFanoutTool,
+  latestBlocksByToolUse,
+  mergeSessionEvents,
+  parseToolInput,
+  sessionThinkingSummary,
+  sessionToolSummary,
+} from "./journal";
+export type {
+  RelatedTask,
+  RelatedTaskStatus,
+  SessionBlock,
+  SessionEvent,
+  SessionImage,
+} from "./journal";
 export type { ClaudeChatProps, ChatFeatures, ChatSendMeta, ComposerAdornmentApi } from "./ClaudeChat";
 export { createHttpTransport } from "./transport";
 export { createVoiceClient } from "./voice";

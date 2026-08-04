@@ -440,6 +440,53 @@ describe("orchestrator transport: card links are made reachable for THIS client"
   });
 });
 
+describe("orchestrator transport: replay/follow a running thread", () => {
+  it("uses the normal reducer, preserves replace, restamps route seq, and owns busy state", async () => {
+    const frames = [
+      `id: 1\nevent: route\ndata: ${JSON.stringify({ runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77, pending: true })}\n\n`,
+      `id: 2\nevent: chunk\ndata: ${JSON.stringify({ text: "draft " })}\n\n`,
+      `id: 3\nevent: chunk\ndata: ${JSON.stringify({ text: "clean", replace: true })}\n\n`,
+      `id: 4\nevent: chunk\ndata: ${JSON.stringify({ text: " answer" })}\n\n`,
+      `id: 5\nevent: done\ndata: ${JSON.stringify({ reply: "clean answer", runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77 })}\n\n`,
+    ];
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const u = String(raw);
+      calls.push(u);
+      if (u === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (u === "/api/threads/thread-resume/live") return sseResponse(frames);
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const events: ChatEvent[] = [];
+    const states: boolean[] = [];
+    let settled!: () => void;
+    const finished = new Promise<void>((resolve) => { settled = resolve; });
+    const transport = create("/api", "thread-resume", {
+      resumeOnConnect: true,
+      onResumeState: (active: boolean) => states.push(active),
+      onResumeSettled: settled,
+    });
+    transport.connect((event) => events.push(event));
+    await finished;
+
+    expect(calls).toContain("/api/threads/thread-resume/live");
+    expect(states).toEqual([true, false]);
+    expect(events.filter((event) => event.type === "turn").map((event: any) => event.active)).toEqual([true, false]);
+    expect(events.filter((event) => event.type === "assistant").map((event: any) => event.text)).toEqual([
+      "draft ",
+      "clean",
+      "clean answer",
+      "clean answer",
+    ]);
+    // The wire came from another client's send #77. Restored history is seq 0,
+    // so both route frames are deliberately rebound to 0 before ClaudeChat sees them.
+    expect(events.filter((event) => event.type === "route").map((event: any) => event.turnSeq)).toEqual([0, 0]);
+  });
+});
+
 describe("orchestrator transport: interrupt (contract §9)", () => {
   it("POSTs the thread id to /api/chat/interrupt", async () => {
     const calls = recordingFetch([]);

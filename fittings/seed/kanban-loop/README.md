@@ -100,3 +100,31 @@ the goal-stop hook (Decision 7 — the sentinel never fires on the shared board 
 - `--tick` dispatches due immediate agent-list cards through `GARRISON_GATEWAY_URL`.
 - `--tick-list test` runs the batched Test path (one session per project); the Test
   beat calls exactly this.
+
+## Moving and transferring tasks
+
+- **Move** can send a card to any board list. **Advance** remains the guarded
+  workflow action: it follows the card's viable next lists and may ask which branch
+  to take.
+- Newly created, imported, and button-moved cards are placed at the top of their
+  destination list. Drag-and-drop keeps the explicitly chosen position.
+- **Export** downloads a portable JSON bundle for the whole board or one list.
+  Bundles contain task content, not machine-local project paths, run/session ids,
+  runtime state, or attachment paths.
+- **Import tasks** accepts either a Garrison task bundle or a raw Trello board JSON
+  export. Imports go only to human-held lists and receive fresh Garrison ids; they do
+  not resume old execution state.
+
+### Importing a Trello list
+
+1. In Trello, open the board, choose **Board menu → Print, Export and Share →
+   Export as JSON**, and save the downloaded file.
+2. In Garrison's Kanban toolbar, choose **Import tasks** and select that JSON file.
+3. Choose one source list (or all open cards), optionally include archived cards,
+   choose the Garrison destination list, review the count, and import.
+
+The adapter preserves card titles, descriptions, labels, due dates, checklist text
+and completion state, and safe `trello.com` source links. It intentionally excludes
+members, comments, actions, attachments, and Trello ids. The same normalized import
+boundary can later accept a connector-fed Trello payload without changing board
+storage or import semantics.

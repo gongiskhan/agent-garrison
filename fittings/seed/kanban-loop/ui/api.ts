@@ -181,6 +181,8 @@ export interface CardSummary {
   runningSince?: string | null;
   liveTail?: string | null;
   inferState?: string | null;
+  // A clarity-gated card starts the interactive Discuss duty when moved there.
+  clarity?: string | null;
   // S3c: a mid-run revisit steering directive is pending (unapplied) on this card.
   steeringPending?: boolean;
   // D15 (S4a): the card's resolved leaf phase lists, in visit order (null on a legacy
@@ -207,6 +209,34 @@ export interface ChecklistItem {
   text: string;
   done: boolean;
   doneAt?: string | null;
+}
+
+export interface CardImportSourceList {
+  id: string;
+  title: string;
+  archived?: boolean;
+  count?: number;
+  archivedCount?: number;
+}
+
+export interface CardImportPreview {
+  preview: true;
+  count: number;
+  targetList: string;
+  warnings: string[];
+  sourceFormat: "garrison" | "trello";
+  sourceName: string;
+  sourceLists: CardImportSourceList[];
+  excludedArchived?: number;
+}
+
+export interface CardImportResult {
+  imported: number;
+  targetList: string;
+  warnings: string[];
+  cards: CardSummary[];
+  sourceFormat: "garrison" | "trello";
+  sourceName: string;
 }
 
 // GET /board/runtime — channel discovery + gateway status for the board UI.
@@ -433,6 +463,18 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body)
     }),
+  exportBoardUrl: () => "/cards/export?download=1",
+  exportListUrl: (id: string) => `/cards/export?list=${encodeURIComponent(id)}&download=1`,
+  importCards: (body: {
+    bundle: unknown;
+    targetList?: string;
+    preview?: boolean;
+    sourceList?: string | null;
+    includeArchived?: boolean;
+  }) => jfetch<CardImportPreview | CardImportResult>("/cards/import", {
+    method: "POST",
+    body: JSON.stringify(body)
+  }),
   card: (id: string) => jfetch<CardDetail>(`/cards/${encodeURIComponent(id)}`),
   projects: () => jfetch<ProjectsView>("/projects"),
   skills: () => jfetch<SkillsView>("/skills"),

@@ -219,4 +219,124 @@ describe("POST /cards — the Backlog quick-add contract", () => {
     const done = board.body.lists.find((l: any) => l.id === "done");
     expect(done.cards.map((c: any) => c.id)).toContain(id);
   });
+
+  it("moves without an explicit drag position land at the TOP of the destination", async () => {
+    const older = await jsend("POST", "/cards", { title: "Older destination card", project: "garrison" });
+    const olderMove = await jsend("PATCH", `/cards/${older.body.card.id}`, { list: "done", rev: older.body.card.rev });
+    expect(olderMove.status).toBe(200);
+
+    const fresh = await jsend("POST", "/cards", { title: "Fresh destination card", project: "garrison" });
+    const freshMove = await jsend("PATCH", `/cards/${fresh.body.card.id}`, { list: "done", rev: fresh.body.card.rev });
+    expect(freshMove.status).toBe(200);
+
+    const board = await jget("/board");
+    const done = board.body.lists.find((l: any) => l.id === "done");
+    expect(done.cards.findIndex((c: any) => c.id === fresh.body.card.id))
+      .toBeLessThan(done.cards.findIndex((c: any) => c.id === older.body.card.id));
+  });
+
+  it("preserves an explicit drag position on a cross-list move", async () => {
+    const create = await jsend("POST", "/cards", { title: "Precisely dropped", project: "garrison" });
+    const moved = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      list: "todo",
+      position: -987_654_321,
+      rev: create.body.card.rev
+    });
+    expect(moved.status).toBe(200);
+    expect(moved.body.card.position).toBe(-987_654_321);
+  });
+
+  it("serialises concurrent top-position allocation", async () => {
+    const created = await Promise.all(Array.from({ length: 8 }, (_, i) =>
+      jsend("POST", "/cards", { title: `Concurrent top ${i}`, project: "garrison" })
+    ));
+    expect(created.every((r) => r.status === 201)).toBe(true);
+    const ids = new Set(created.map((r) => r.body.card.id));
+    const board = await jget("/board");
+    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
+    const positions = backlog.cards
+      .filter((card: any) => ids.has(card.id))
+      .map((card: any) => card.position);
+    expect(positions).toHaveLength(8);
+    expect(positions.every((position: unknown) => typeof position === "number" && Number.isFinite(position))).toBe(true);
+    expect(new Set(positions).size).toBe(8);
+  });
+
+  it("serialises concurrent implicit moves into one destination", async () => {
+    const created = await Promise.all(Array.from({ length: 6 }, (_, i) =>
+      jsend("POST", "/cards", { title: `Concurrent move ${i}`, project: "garrison" })
+    ));
+    const moved = await Promise.all(created.map((response) =>
+      jsend("PATCH", `/cards/${response.body.card.id}`, { list: "archived", rev: response.body.card.rev })
+    ));
+    expect(moved.every((response) => response.status === 200)).toBe(true);
+    const positions = moved.map((response) => response.body.card.position);
+    expect(positions.every((position) => typeof position === "number" && Number.isFinite(position))).toBe(true);
+    expect(new Set(positions).size).toBe(positions.length);
+  });
+
+  it("resolves a concurrent create versus explicit drag-to-top collision", async () => {
+    const dragCard = await jsend("POST", "/cards", { title: "Concurrent dragged top", project: "garrison" });
+    const before = await jget("/board");
+    const backlog = before.body.lists.find((list: any) => list.id === "backlog");
+    const oldMin = Math.min(...backlog.cards.map((card: any) => card.position));
+    const requestedTop = oldMin - 60_000;
+
+    const [created, moved] = await Promise.all([
+      jsend("POST", "/cards", { title: "Concurrent created top", project: "garrison" }),
+      jsend("PATCH", `/cards/${dragCard.body.card.id}`, {
+        list: "backlog",
+        position: requestedTop,
+        rev: dragCard.body.card.rev
+      })
+    ]);
+    expect(created.status).toBe(201);
+    expect(moved.status).toBe(200);
+    expect(created.body.card.position).toBeLessThan(oldMin);
+    expect(moved.body.card.position).toBeLessThan(oldMin);
+    expect(created.body.card.position).not.toBe(moved.body.card.position);
+  });
+
+  it("round-trips edited checklist items with five paragraphs and no 500-char truncation", async () => {
+    const original = Array.from(
+      { length: 5 },
+      (_, i) => `Paragraph ${i + 1}: ${"detail ".repeat(30).trimEnd()}`
+    ).join("\n\n");
+    expect(original.length).toBeGreaterThan(500);
+    const create = await jsend("POST", "/cards", {
+      title: "Long checklist",
+      project: "garrison",
+      checklist: [{ text: original, done: false }]
+    });
+    expect(create.status).toBe(201);
+    const detail = await jget(`/cards/${create.body.card.id}`);
+    expect(detail.body.checklist[0].text).toBe(original);
+
+    const edited = `${original}\n\nSixth paragraph added during editing.`;
+    const patch = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      rev: detail.body.card.rev,
+      checklist: [{ ...detail.body.checklist[0], text: edited }]
+    });
+    expect(patch.status).toBe(200);
+    const after = await jget(`/cards/${create.body.card.id}`);
+    expect(after.body.checklist[0].text).toBe(edited);
+  });
+
+  it("rejects oversized checklist input instead of silently truncating it", async () => {
+    const tooLong = await jsend("POST", "/cards", {
+      title: "Too long checklist",
+      project: "garrison",
+      checklist: [{ text: "x".repeat(64 * 1024 + 1) }]
+    });
+    expect(tooLong.status).toBe(400);
+    expect(String(tooLong.body.error)).toMatch(/checklist item 1 exceeds/i);
+
+    const tooMany = await jsend("POST", "/cards", {
+      title: "Too many checklist items",
+      project: "garrison",
+      checklist: Array.from({ length: 101 }, (_, index) => ({ text: `item ${index}` }))
+    });
+    expect(tooMany.status).toBe(400);
+    expect(String(tooMany.body.error)).toMatch(/maximum is 100/i);
+  });
 });

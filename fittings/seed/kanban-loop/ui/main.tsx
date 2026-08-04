@@ -36,6 +36,7 @@ import {
   type CardDetail,
   type CardEvent,
   type ChecklistItem,
+  type CardImportPreview,
   type RouteStamp,
   type ListView,
   type ListConfig,
@@ -72,7 +73,7 @@ import {
 import { TerminalPane } from "./terminal-pane";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
-import { deriveMoveTargets } from "./move-targets";
+import { deriveMoveTargets, isManualImportTarget } from "./move-targets";
 import { shouldOpenCard } from "./card-click";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
@@ -560,24 +561,13 @@ function Card({
       // 15+ buttons / links / fields, whose clicks bubble here) and the trailing click
       // a drag synthesises. Placed on the card ROOT — not the sortable wrapper — so
       // the Done-column quick-strip cards (rendered without the wrapper) open too.
-      role="button"
-      tabIndex={0}
       onClick={(e) => {
         if (shouldOpenCard(e.target as EventTarget, dragJustEnded.current)) onOpen(card);
-      }}
-      onKeyDown={(e) => {
-        // Enter on the card root itself opens it. Only when the root is the target —
-        // an Enter on a focused child button is that button's business. Space is NOT
-        // bound: dnd-kit's keyboard sensor uses it on the sortable wrapper.
-        if (e.key === "Enter" && e.target === e.currentTarget) {
-          e.preventDefault();
-          onOpen(card);
-        }
       }}
     >
       <div className="ct">
         <span className={dotClass(card)} aria-hidden />
-        <span className="title">{card.title}</span>
+        <button className="title card-title-open" onClick={() => onOpen(card)}>{card.title}</button>
         {fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
       </div>
       <div className="cmeta">
@@ -1424,8 +1414,11 @@ function MoveSheet({
             <button key={t.id} className="btn move-opt" disabled={busy} onClick={() => void moveTo(t.id)}>
               <MoveIcon /> {t.title}
               {t.isAgent && (
-                <span className="move-agent-hint" title="This is an agent list — moving a card here starts a run.">
-                  starts a run
+                <span
+                  className={`move-agent-hint${t.startsRun ? " starts-run" : ""}`}
+                  title={t.startsRun ? "This agent list dispatches immediately." : "This is an agent-owned list; it does not dispatch on entry."}
+                >
+                  {t.startsRun ? "starts a run" : "agent list"}
                 </span>
               )}
             </button>
@@ -1689,6 +1682,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   const [descDraft, setDescDraft] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [checkText, setCheckText] = useState("");
+  const [checkDraft, setCheckDraft] = useState<{ id: string; text: string } | null>(null);
   const [schedDraft, setSchedDraft] = useState<string | null>(null);
   const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
   const [savingSched, setSavingSched] = useState(false);
@@ -1776,10 +1770,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   // Checklist writes are whole-array replaces (tiny, human-edited) and are
   // BENIGN patches - allowed even on an engine-owned card.
   async function saveChecklist(items: ChecklistItem[]) {
-    if (!detail) return;
+    if (!detail) return false;
     // Optimistic: the checkbox flips instantly; a 409 re-pulls.
     setDetail((d) => (d ? { ...d, checklist: items } : d));
-    await patchCard({ checklist: items });
+    return patchCard({ checklist: items });
   }
 
   function addCheckItem() {
@@ -1788,6 +1782,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
     const id = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`).replace(/-/g, "").slice(0, 10);
     setCheckText("");
     void saveChecklist([...(detail.checklist ?? []), { id, text, done: false }]);
+  }
+
+  async function saveCheckItem() {
+    if (!detail || !checkDraft) return;
+    const text = checkDraft.text.trim();
+    if (!text) {
+      setActionErr("A checklist item cannot be empty. Remove it explicitly if it is no longer needed.");
+      return;
+    }
+    const saved = await saveChecklist((detail.checklist ?? []).map((item) => item.id === checkDraft.id ? { ...item, text } : item));
+    if (saved) setCheckDraft(null);
   }
 
   async function setSchedule(iso: string | null, action: "notify" | "run") {
@@ -2162,7 +2167,44 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
                   title={item.done ? "mark as not done" : "mark as done"}
                   onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
                 />
-                <span className="cl-text">{item.text}</span>
+                {checkDraft?.id === item.id ? (
+                  <div className="cl-editor">
+                    <textarea
+                      aria-label="Edit checklist item"
+                      rows={6}
+                      value={checkDraft.text}
+                      onChange={(e) => setCheckDraft({ id: item.id, text: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setCheckDraft(null);
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveCheckItem();
+                      }}
+                    />
+                    <div className="row" style={{ gap: 6 }}>
+                      <button className="btn tiny primary" disabled={!checkDraft.text.trim()} onClick={() => void saveCheckItem()}>Save item</button>
+                      <button className="btn tiny" onClick={() => setCheckDraft(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="cl-text cl-text-button"
+                    title="edit checklist item"
+                    onClick={() => setCheckDraft({ id: item.id, text: item.text })}
+                  >
+                    {item.text}
+                  </button>
+                )}
+                {checkDraft?.id !== item.id && (
+                  <button
+                    type="button"
+                    className="cl-edit"
+                    title="edit this item"
+                    aria-label={`edit checklist item ${item.text.slice(0, 80)}`}
+                    onClick={() => setCheckDraft({ id: item.id, text: item.text })}
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   type="button"
                   className="cl-del"
@@ -2177,12 +2219,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
           </ul>
         )}
         <div className="row" style={{ gap: 8 }}>
-          <input
+          <textarea
             aria-label="New checklist item"
             value={checkText}
-            placeholder="add an item…"
+            rows={4}
+            placeholder="Add an item. Multi-paragraph task briefs are supported."
             onChange={(e) => setCheckText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") addCheckItem(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addCheckItem(); }}
             style={{ flex: 1, minWidth: 0 }}
           />
           <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
@@ -2984,6 +3027,14 @@ function ListConfigSheet({
         {saving ? "Saving…" : "Save list config"}
       </button>
 
+      <div className="transfer-row">
+        <div>
+          <div className="dd-title">Export tasks</div>
+          <div className="muted" style={{ fontSize: 11 }}>Downloads this list as a content-only JSON bundle. Run state and machine paths are excluded.</div>
+        </div>
+        <a className="btn small" href={api.exportListUrl(cfg.id)} download>Export list (JSON)</a>
+      </div>
+
       {/* Remove list - only the derived duty columns; the fixed human head/tail
           (backlog, todo, discuss, done, needs-attention) is structural. Removing
           the list removes its DUTY from the composition; cards sitting here are
@@ -3057,6 +3108,7 @@ type Overlay =
   | { kind: "config"; listId: string }
   | { kind: "feedback"; card: CardSummary }
   | { kind: "addlist" }
+  | { kind: "import" }
   | null;
 
 // ── add-list sheet ──────────────────────────────────────────────────────────
@@ -3101,6 +3153,148 @@ function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
       {err && <div className="banner">{err}</div>}
       <button className="btn primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
         {busy ? "Creating…" : "Create list"}
+      </button>
+    </Sheet>
+  );
+}
+
+// ── card import sheet ───────────────────────────────────────────────────────
+// Accepts either Garrison's content-only card bundle or Trello's raw board JSON
+// export. The server owns detection, sanitisation, and preview so a future live
+// Trello connector can feed the same adapter without changing this surface.
+function ImportSheet({
+  board,
+  onClose,
+  onImported
+}: {
+  board: BoardView;
+  onClose: () => void;
+  onImported: (count: number) => void;
+}) {
+  const manualLists = board.lists.filter(isManualImportTarget);
+  const [bundle, setBundle] = useState<unknown | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [targetList, setTargetList] = useState(manualLists.find((list) => list.id === "backlog")?.id ?? manualLists[0]?.id ?? "");
+  const [sourceList, setSourceList] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [preview, setPreview] = useState<CardImportPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bundle || !targetList) return;
+    let alive = true;
+    setPreviewing(true);
+    setErr(null);
+    api.importCards({
+      bundle,
+      targetList,
+      preview: true,
+      sourceList: sourceList || null,
+      includeArchived
+    }).then((result) => {
+      if (alive && "preview" in result) setPreview(result);
+    }).catch((e) => {
+      if (alive) { setPreview(null); setErr(e instanceof Error ? e.message : String(e)); }
+    }).finally(() => { if (alive) setPreviewing(false); });
+    return () => { alive = false; };
+  }, [bundle, targetList, sourceList, includeArchived]);
+
+  async function pickFile(file: File | null) {
+    if (!file) return;
+    setErr(null);
+    setPreview(null);
+    setSourceList("");
+    if (file.size > 50 * 1024 * 1024) {
+      setErr("That JSON file is larger than 50 MB. Export a single Trello board or a smaller Garrison list.");
+      return;
+    }
+    try {
+      setBundle(JSON.parse(await file.text()));
+      setFileName(file.name);
+    } catch {
+      setBundle(null);
+      setFileName("");
+      setErr("The selected file is not valid JSON.");
+    }
+  }
+
+  async function confirmImport() {
+    if (!bundle || !targetList || !preview?.count) return;
+    setImporting(true);
+    setErr(null);
+    try {
+      const result = await api.importCards({
+        bundle,
+        targetList,
+        sourceList: sourceList || null,
+        includeArchived
+      });
+      if (!("imported" in result)) throw new Error("The import returned another preview instead of creating cards.");
+      onImported(result.imported);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Sheet title="Import tasks" onClose={onClose} size="mid">
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        Choose a Garrison card bundle or a Trello board JSON export. For Trello:
+        Board menu → Print, Export and Share → Export as JSON. The file stays on
+        this Garrison machine; comments, members, attachments, and runtime data are not imported.
+      </p>
+      <label className="import-drop">
+        <span>{fileName || "Choose a .json file"}</span>
+        <input type="file" accept=".json,application/json" onChange={(e) => void pickFile(e.target.files?.[0] ?? null)} />
+      </label>
+
+      {preview?.sourceFormat === "trello" && (
+        <>
+          <div className="field">
+            <label htmlFor="import-source-list">Trello source list</label>
+            <select id="import-source-list" value={sourceList} onChange={(e) => setSourceList(e.target.value)}>
+              <option value="">All open lists</option>
+              {preview.sourceLists.map((list) => (
+                <option key={list.id} value={list.id}>
+                  {list.title}{list.archived ? " (archived list)" : ""} · {list.count ?? 0} open
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="check-row import-archived">
+            <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} />
+            Include archived Trello cards and cards on archived lists
+          </label>
+        </>
+      )}
+
+      <div className="field">
+        <label htmlFor="import-target-list">Garrison destination list</label>
+        <select id="import-target-list" value={targetList} onChange={(e) => setTargetList(e.target.value)}>
+          {manualLists.map((list) => <option key={list.id} value={list.id}>{list.title}</option>)}
+        </select>
+        <span className="muted" style={{ fontSize: 11 }}>Imported cards are inserted at the top. Agent lists are excluded so an import cannot start runs.</span>
+      </div>
+
+      {previewing && <div className="banner info">Reading and validating the import…</div>}
+      {preview && !previewing && (
+        <div className="import-preview">
+          <div><strong>{preview.count}</strong> task{preview.count === 1 ? "" : "s"} ready from {preview.sourceName}</div>
+          {preview.warnings.length > 0 && (
+            <details>
+              <summary>{preview.warnings.length} import note{preview.warnings.length === 1 ? "" : "s"}</summary>
+              <ul>{preview.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
+            </details>
+          )}
+        </div>
+      )}
+      {err && <div className="banner">{err}</div>}
+      <button className="btn primary" disabled={importing || previewing || !preview?.count} onClick={() => void confirmImport()}>
+        {importing ? "Importing…" : preview ? `Import ${preview.count} task${preview.count === 1 ? "" : "s"}` : "Choose a file to preview"}
       </button>
     </Sheet>
   );
@@ -3489,6 +3683,11 @@ function App() {
   }
 
   async function onDragEnd(ev: DragEndEvent) {
+    // Raise the click guard synchronously, before the first awaited PATCH/load.
+    // Browsers dispatch the pointer-up click immediately; doing this in finally
+    // was too late and opened the card while the network write was still running.
+    dragActiveRef.current = false;
+    markDragJustEnded();
     const drag = activeDrag;
     setActiveDrag(null);
     try {
@@ -3532,8 +3731,6 @@ function App() {
     } catch (e) {
       setNotice(e instanceof Error ? e.message : String(e));
     } finally {
-      dragActiveRef.current = false;
-      markDragJustEnded();
       await load();
       setCardOrderOverride(null);
       setColOrderOverride(null);
@@ -3559,7 +3756,11 @@ function App() {
 
   return (
     <>
-      <TopBar onNew={() => setOverlay({ kind: "new" })} status={board ? `${board.cards.length} cards` : "loading…"} />
+      <TopBar
+        onNew={() => setOverlay({ kind: "new" })}
+        onImport={board ? () => setOverlay({ kind: "import" }) : undefined}
+        status={board ? `${board.cards.length} cards` : "loading…"}
+      />
       {runtime?.noGateway && (
         <div className="banner" role="status">
           No gateway running - agent lists won&apos;t dispatch. Bring the composition up (Run / `npm start`).
@@ -3733,11 +3934,18 @@ function App() {
       {overlay?.kind === "addlist" && (
         <AddListSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
       )}
+      {overlay?.kind === "import" && board && (
+        <ImportSheet
+          board={board}
+          onClose={() => setOverlay(null)}
+          onImported={(count) => { setNotice(`Imported ${count} task${count === 1 ? "" : "s"}`); void load(); }}
+        />
+      )}
     </>
   );
 }
 
-function TopBar({ onNew, status }: { onNew: () => void; status: string }) {
+function TopBar({ onNew, onImport, status }: { onNew: () => void; onImport?: () => void; status: string }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -3749,6 +3957,8 @@ function TopBar({ onNew, status }: { onNew: () => void; status: string }) {
       </div>
       <span className="status">{status}</span>
       <div className="spacer" />
+      <a className="btn" href={api.exportBoardUrl()} download>Export</a>
+      {onImport && <button className="btn" onClick={onImport}>Import</button>}
       <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>
     </header>
   );

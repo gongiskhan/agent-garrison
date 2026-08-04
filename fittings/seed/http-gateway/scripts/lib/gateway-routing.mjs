@@ -1010,6 +1010,24 @@ export class RoutedGateway {
       target: route.targetId,
     });
     await adapter.awaitReady(session);
+    // A resumed SDK session is known before sendTurn; a fresh session is only
+    // announced by the SDK's first system frame. One reporter covers both timing
+    // paths and de-duplicates the warm session's later system announcement.
+    let reportedJournalSessionId = null;
+    const reportJournalSession = (value) => {
+      const sessionId = typeof value === "string" ? value.trim() : "";
+      if (!sessionId || sessionId === reportedJournalSessionId || typeof opts.onJournal !== "function") return;
+      reportedJournalSessionId = sessionId;
+      try {
+        opts.onJournal({
+          session_id: sessionId,
+          transcript_path: this.claudeTranscriptPathFor(spawnArgs.compositionDir, sessionId)
+        });
+      } catch {
+        /* an observability sink must never break a turn */
+      }
+    };
+    reportJournalSession(session.sessionId);
     if (requestedEffort != null && typeof adapter.setEffort === "function") {
       await adapter.setEffort(session, requestedEffort);
     }
@@ -1018,6 +1036,7 @@ export class RoutedGateway {
     // minutes later. onText hands the ACCUMULATED text, which is exactly the
     // onChunk(text, replace=true) contract. tool_use becomes an `activity` frame.
     const streamHooks = {
+      onSession: reportJournalSession,
       onText: onChunk ? (text) => onChunk(text, true) : undefined,
       onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined,
       // Extended thinking is where a turn spends its silent minutes, so it is the
@@ -1203,6 +1222,19 @@ export class RoutedGateway {
       }
       session.__garrisonEffortApplied = effortApplied;
       this._claudeDelegateSessions.set(key, session);
+    }
+    if (typeof opts.onJournal === "function") {
+      try {
+        const sessionId = session.getClaudeSessionId?.() ?? session.sessionId ?? null;
+        if (sessionId) {
+          opts.onJournal({
+            session_id: sessionId,
+            transcript_path: this.claudeTranscriptPathFor(session.compositionDir ?? cwd, sessionId)
+          });
+        }
+      } catch {
+        /* an observability sink must never break a turn */
+      }
     }
     this.logFn({ kind: "runtime-turn", runtime: "claude-code", provider, model, effort, target: route.targetId, delegated: true });
     // §9: a delegate is a real Claude session, so ESC is its stop primitive (the
