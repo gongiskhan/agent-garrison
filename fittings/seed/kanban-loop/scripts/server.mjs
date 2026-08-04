@@ -421,6 +421,52 @@ export function cardSummary(card) {
   };
 }
 
+// ── card export / import (Item 4) ────────────────────────────────────────────
+//
+// A list of cards leaves the board as ONE JSON bundle and comes back the same way.
+// EXPORT_CARD_FIELDS is the ALLOW-LIST of card fields that travel (composition-
+// transfer's principle: a bundle is shared, so an unknown field must never ride
+// along). This ONE const drives BOTH the export projection and the import reader, so
+// the two can never drift.
+//
+// What travels: the human-authored content + the run SPEC (routing pin, work kind,
+// tier, phase toggles) + the schedule. What NEVER travels: identity (id/rev), the
+// lifecycle (status/iterations), all run evidence (runId/runDir/sessionIds/briefPath/
+// events/logIndex), coordination state (waitingOn/blocking/fences/preparedRevert/
+// coordinationSeq/planCompletedAt/stabilityAt), the outpost/placement/dispatch ledger,
+// origin*/continues/duty/level/sequence, the within-list `position`, and above all the
+// literal `dispatchCommand` — a shell command that must never cross machines.
+export const EXPORT_CARD_FIELDS = [
+  "title",
+  "description",
+  "project",       // a LABEL (board.projects maps it to a path on THIS machine), never a path
+  "acceptance",
+  "goalMode",
+  "checklist",
+  "routing",       // the RUN-SPEC-V1 pin (scalars only; re-sanitised on import)
+  "workKind",
+  "tier",
+  "phases",
+  "scheduledFor",
+  "scheduleAction"
+];
+
+export const CARDS_BUNDLE_KIND = "garrison.kanban.cards";
+export const CARDS_BUNDLE_VERSION = 1;
+
+// Project a card down to the export bundle's shape: the allow-listed content fields
+// plus two INFORMATIONAL source markers (sourceList, created) that are NOT re-imported
+// — the importer reads only EXPORT_CARD_FIELDS and lets createCard mint everything else.
+export function exportCard(card) {
+  const out = {};
+  for (const f of EXPORT_CARD_FIELDS) {
+    if (card[f] !== undefined) out[f] = card[f];
+  }
+  out.sourceList = card.list ?? null;
+  out.created = card.created ?? null;
+  return out;
+}
+
 // The most recent timeline event (or null) — what the card front shows as "last
 // activity". The full history is on the detail (GET /cards/:id).
 function lastEventOf(card) {
@@ -1225,6 +1271,27 @@ export function deriveTitle(description, max = 80) {
   return cleaned.length > max ? cleaned.slice(0, max).trimEnd() + "…" : cleaned;
 }
 
+// Float step used to place a fresh card just below the current top of a list.
+const TOP_OF_LIST_STEP = 60_000;
+
+// The float position a card should take to land at the TOP of `list` — one step
+// below the current topmost card's effective position, or null when the list is
+// empty (createCard's null = created order, which is correct for the first card).
+// Best-effort: a read failure falls back to null (created order), never fails a
+// create.
+async function topOfListPosition(root, list) {
+  try {
+    const cards = await loadAllCards(root);
+    const inList = cards.filter((c) => c.list === list);
+    if (inList.length === 0) return null;
+    const minPos = Math.min(...inList.map((c) => cardPosition(c)));
+    return Number.isFinite(minPos) ? minPos - TOP_OF_LIST_STEP : null;
+  } catch (err) {
+    console.error(`[kanban-loop] top-of-list position for ${list}:`, err?.message || err);
+    return null;
+  }
+}
+
 // POST /cards — create a card in Backlog. Body: { title?, description?, project?,
 // goalMode?, acceptance? }. Title is OPTIONAL: a blank title is inferred from the
 // description's first line (only when BOTH are blank is there nothing to name it by).
@@ -1243,6 +1310,17 @@ async function handleCreateCard(req, res, opts) {
   if (body.scheduledFor != null && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))) {
     return jsonRes(res, 400, { error: "scheduledFor must be a parseable ISO date-time string" });
   }
+  // Item 1: a new card lands at the TOP of its list, not the bottom. The single
+  // creation door always lands in backlog, so compute a float position just below
+  // the current top of backlog and thread it through createCard (stamping it at
+  // create time avoids a rev-churning stamp-after-create write, and 44509022's
+  // provisional-coordination event already bumps rev right after create). Gateway/
+  // Continue cards are created in backlog then engine-PATCHed to their target list;
+  // a PATCH move does not reset position, so the top-position rides into the
+  // destination list too — consistent with "add cards to the top". Positions trend
+  // negative over time; the sort is float-based and the server 400s non-finite
+  // positions, so this is safe. Empty list → null (created order, i.e. first card).
+  const topPosition = await topOfListPosition(opts.root, "backlog");
   const card = await createCard(opts.root, {
     title,
     description,
@@ -1312,7 +1390,9 @@ async function handleCreateCard(req, res, opts) {
     scheduledFor: body.scheduledFor ?? null,
     scheduleAction: body.scheduleAction ?? null,
     // The in-card checklist (normalised by createCard).
-    checklist: body.checklist ?? null
+    checklist: body.checklist ?? null,
+    // Item 1: land at the top of backlog (null when the list is empty).
+    position: topPosition
   });
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
@@ -1382,6 +1462,163 @@ async function handleCreateCard(req, res, opts) {
     void runProjectInference(opts, card.id).catch((err) => console.error(`[kanban-loop] inference failed for ${card.id}:`, err?.message || err));
   }
   jsonRes(res, 201, { card: cardSummary(card) });
+}
+
+// GET /cards/export[?list=<id>][&download=1] — export ONE list's cards (or the whole
+// board when no list is named) as a portable JSON bundle. download=1 sets a
+// Content-Disposition so the browser saves a file (jsonRes can't set headers).
+async function handleExportCards(req, res, opts, query) {
+  const root = opts.root;
+  const board = await loadBoard(root);
+  const cards = await loadAllCards(root);
+  const listId = typeof query.list === "string" && query.list ? query.list : null;
+  let scope = cards;
+  let sourceLists;
+  if (listId) {
+    if (!isValidListId(listId) || !getList(board, listId)) {
+      return jsonRes(res, 400, { error: `unknown list: ${listId}` });
+    }
+    scope = cards.filter((c) => c.list === listId);
+    const l = getList(board, listId);
+    sourceLists = [{ id: l.id, title: l.title ?? l.id }];
+  } else {
+    const present = new Set(scope.map((c) => c.list));
+    sourceLists = (board.lists || [])
+      .filter((l) => present.has(l.id))
+      .map((l) => ({ id: l.id, title: l.title ?? l.id }));
+  }
+  // Bundle order mirrors the board's within-list sort (position then created) so the
+  // batch re-imports in the same visible order.
+  scope = scope.slice().sort((a, b) => cardPosition(a) - cardPosition(b) || (a.id < b.id ? -1 : 1));
+  const bundle = {
+    kind: CARDS_BUNDLE_KIND,
+    version: CARDS_BUNDLE_VERSION,
+    exportedAt: new Date().toISOString(),
+    sourceLists,
+    cards: scope.map(exportCard)
+  };
+  const payload = JSON.stringify(bundle, null, 2);
+  const headers = { "content-type": "application/json; charset=utf-8" };
+  if (query.download) {
+    const name = listId ? `kanban-${listId}.cards.json` : "kanban-board.cards.json";
+    headers["content-disposition"] = `attachment; filename="${name}"`;
+  }
+  res.writeHead(200, headers);
+  return res.end(payload);
+}
+
+// POST /cards/import { bundle, targetList?, preview? } — import a card bundle onto a
+// list. Every card is CREATED FRESH (fresh ULID, rev 0, every travelled field re-
+// validated by createCard's normalisers) — an incoming card is NEVER written verbatim.
+// targetList must be a real NON-AGENT list (importing onto an agent list would auto-
+// dispatch runs); default "backlog". preview:true returns counts + warnings, no write.
+async function handleImportCards(req, res, opts) {
+  const root = opts.root;
+  const body = (await readBody(req)) || {};
+  const bundle = body.bundle;
+  if (!bundle || typeof bundle !== "object" || bundle.kind !== CARDS_BUNDLE_KIND) {
+    return jsonRes(res, 400, { error: `not a ${CARDS_BUNDLE_KIND} bundle` });
+  }
+  if (bundle.version !== CARDS_BUNDLE_VERSION) {
+    return jsonRes(res, 400, { error: `unsupported bundle version ${bundle.version} (expected ${CARDS_BUNDLE_VERSION})` });
+  }
+  const incoming = Array.isArray(bundle.cards) ? bundle.cards : [];
+
+  const board = await loadBoard(root);
+  const cards = await loadAllCards(root);
+  const targetList = typeof body.targetList === "string" && body.targetList ? body.targetList : "backlog";
+  if (!isValidListId(targetList)) return jsonRes(res, 400, { error: "invalid target list id" });
+  const target = getList(board, targetList);
+  if (!target) return jsonRes(res, 400, { error: `unknown target list: ${targetList}` });
+  // Never import onto an agent list — creating/moving a card there auto-dispatches a run.
+  if (target.kind === "agent" || target.kind === "agent-interactive") {
+    return jsonRes(res, 400, { error: `cannot import onto the agent list "${targetList}" — pick a manual list (e.g. backlog)` });
+  }
+
+  // Read ONLY the allow-listed fields from each incoming card (the SAME const the
+  // export projected), validate the schedule (drop an unparseable hold; downgrade
+  // run→notify so an imported card never auto-runs), and collect human-readable
+  // warnings. The importer NEVER trusts a field outside EXPORT_CARD_FIELDS.
+  const knownProjects = new Set(knownProjectsFrom(cards));
+  const warnings = [];
+  const prepared = incoming.map((raw, i) => {
+    const c = raw && typeof raw === "object" ? raw : {};
+    const picked = {};
+    for (const f of EXPORT_CARD_FIELDS) {
+      if (c[f] !== undefined) picked[f] = c[f];
+    }
+    const label = String(c.title || "").slice(0, 40);
+    // Fail-closed schedule: an unparseable scheduledFor would hold the imported card
+    // forever (scheduleHolds treats it as "never releases"). Drop it and warn.
+    if (picked.scheduledFor != null) {
+      if (typeof picked.scheduledFor !== "string" || !Number.isFinite(Date.parse(picked.scheduledFor))) {
+        warnings.push(`card ${i + 1} ("${label}"): dropped an unparseable scheduledFor`);
+        picked.scheduledFor = null;
+        picked.scheduleAction = null;
+      } else if (picked.scheduleAction === "run") {
+        // Never auto-RUN an imported card — downgrade the schedule to a reminder.
+        picked.scheduleAction = "notify";
+        warnings.push(`card ${i + 1} ("${label}"): scheduleAction "run" downgraded to "notify" on import`);
+      }
+    }
+    // An unknown project LABEL just means this machine has no path mapping for it (the
+    // card imports fine; the engine infers/prompts). A path-shaped project is machine-
+    // specific and won't resolve here either — surface both.
+    if (typeof picked.project === "string" && picked.project) {
+      if (picked.project.startsWith("/")) {
+        warnings.push(`card ${i + 1} ("${label}"): project is an absolute path "${picked.project}" — likely won't resolve on this machine`);
+      } else if (!knownProjects.has(picked.project)) {
+        warnings.push(`card ${i + 1} ("${label}"): project "${picked.project}" is not known on this machine`);
+      }
+    }
+    // A Heartbeat-titled card can collide with job-ingress dedupe (harmless for normal
+    // cards, but worth flagging so an unexpected suppression is explicable).
+    if (typeof picked.title === "string" && /^Heartbeat job:/i.test(picked.title)) {
+      warnings.push(`card ${i + 1}: title looks like a scheduled-job card — may collide with job dedupe`);
+    }
+    return picked;
+  });
+
+  if (body.preview === true) {
+    return jsonRes(res, 200, {
+      preview: true,
+      count: prepared.length,
+      targetList,
+      warnings,
+      sourceLists: Array.isArray(bundle.sourceLists) ? bundle.sourceLists : []
+    });
+  }
+
+  // Land the batch at the TOP of the target list, preserving bundle order (first card
+  // on top), so imported cards behave like freshly-added ones (Item 1).
+  const existing = cards.filter((c) => c.list === targetList);
+  const minPos = existing.length ? Math.min(...existing.map(cardPosition)) : 0;
+  const n = prepared.length;
+  const created = [];
+  for (let i = 0; i < n; i++) {
+    const p = prepared[i];
+    const position = minPos - (n - i) * TOP_OF_LIST_STEP;
+    const title = typeof p.title === "string" && p.title.trim() ? p.title : (deriveTitle(typeof p.description === "string" ? p.description : "") || undefined);
+    const card = await createCard(root, {
+      title,
+      description: typeof p.description === "string" ? p.description : "",
+      project: typeof p.project === "string" && p.project.trim() ? p.project.trim() : null,
+      list: targetList,
+      goalMode: p.goalMode === true,
+      acceptance: typeof p.acceptance === "string" ? p.acceptance : null,
+      checklist: p.checklist ?? null,
+      routing: p.routing ?? null,
+      workKind: typeof p.workKind === "string" ? p.workKind : null,
+      tier: typeof p.tier === "string" ? p.tier : null,
+      phases: p.phases && typeof p.phases === "object" ? p.phases : null,
+      scheduledFor: p.scheduledFor ?? null,
+      scheduleAction: p.scheduleAction ?? null,
+      origin: "import",
+      position
+    });
+    created.push(cardSummary(card));
+  }
+  return jsonRes(res, 201, { imported: created.length, targetList, warnings, cards: created });
 }
 
 // POST /cards/:id/infer-project — manually (re)run project inference for a no-project
@@ -3485,6 +3722,16 @@ export function makeRequestHandler(opts, distDir) {
       // the /cards/:id match ("resolve" is not a ULID).
       if (pathname === "/cards/resolve" && method === "GET") {
         return await handleResolveCard(req, res, opts, parsed.query);
+      }
+
+      // Card export / import (Item 4). Both MUST precede the /cards/:id match below
+      // ("export"/"import" are not ULIDs, exactly like /cards/resolve). Non-GET is
+      // already behind the originAllowed guard at the top of the handler.
+      if (pathname === "/cards/export" && method === "GET") {
+        return await handleExportCards(req, res, opts, parsed.query);
+      }
+      if (pathname === "/cards/import" && method === "POST") {
+        return await handleImportCards(req, res, opts);
       }
 
       // POST /reconcile - live board reconcile from model.json (the shell calls

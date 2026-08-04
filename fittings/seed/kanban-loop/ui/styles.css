@@ -408,6 +408,9 @@ body {
   border: 1px solid var(--rule);
   padding: 8px 9px;
   font-size: 12.5px;
+  /* Item 5: the card body is clickable (opens detail). A sortable card overrides
+     this to `grab` below to signal it also drags. */
+  cursor: pointer;
   transition: border-color 120ms, transform 120ms, box-shadow 120ms;
 }
 .card:hover { border-color: var(--rule-2); }
@@ -794,6 +797,17 @@ body {
   background: white;
 }
 .move-list .move-opt:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
+/* Item 2: agent-list caution — moving a card onto an agent list auto-dispatches a run. */
+.move-list .move-opt .move-agent-hint {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warn, #a15c00);
+  border: 1px solid var(--warn, #a15c00);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
 
 /* ── watch (log) — Garrison .term: dark green-tinted console, brass highlight ── */
 .watch {

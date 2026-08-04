@@ -173,4 +173,50 @@ describe("POST /cards — the Backlog quick-add contract", () => {
     expect(create.status).toBe(400);
     expect(String(create.body.error)).toMatch(/title or a description/i);
   });
+
+  // Item 1 — a new card lands at the TOP of the list, not the bottom. Create A
+  // then B and prove B (the later create) sorts BEFORE A in Backlog, with a
+  // strictly-lower effective position. Membership + order come from GET /board,
+  // exactly as the UI renders it.
+  it("adds a new card to the TOP of Backlog (later card sorts first)", async () => {
+    const a = await jsend("POST", "/cards", { title: "Top test A", project: "garrison" });
+    const b = await jsend("POST", "/cards", { title: "Top test B", project: "garrison" });
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+
+    const board = await jget("/board");
+    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
+    const ids = backlog.cards.map((c: any) => c.id);
+    const iA = ids.indexOf(a.body.card.id);
+    const iB = ids.indexOf(b.body.card.id);
+    // B was created after A, so B must appear ABOVE A (lower index) — top, not bottom.
+    expect(iB).toBeLessThan(iA);
+    // And B must be the very first card in Backlog.
+    expect(iB).toBe(0);
+
+    // The order is float-position driven: B's effective position is strictly below A's.
+    const cardB = backlog.cards[iB];
+    const cardA = backlog.cards[iA];
+    expect(typeof cardB.position).toBe("number");
+    expect(typeof cardA.position).toBe("number");
+    expect(cardB.position).toBeLessThan(cardA.position);
+  });
+
+  // Item 2 — the Move button is the MANUAL gate: PATCH can move a card to ANY real
+  // list, not just its validNext. This pins the server contract the UI's move sheet
+  // now leans on (deriveMoveTargets offers every list; there is no validNext gate on
+  // PATCH). backlog.validNext is ["todo"], so a move straight to "done" proves it.
+  it("move: PATCH can move a card to an arbitrary list outside its validNext", async () => {
+    const create = await jsend("POST", "/cards", { title: "Move me anywhere", project: "garrison" });
+    expect(create.status).toBe(201);
+    const { id, rev } = create.body.card;
+
+    const moved = await jsend("PATCH", `/cards/${id}`, { list: "done", rev });
+    expect(moved.status).toBe(200);
+    expect(moved.body.card.list).toBe("done");
+
+    const board = await jget("/board");
+    const done = board.body.lists.find((l: any) => l.id === "done");
+    expect(done.cards.map((c: any) => c.id)).toContain(id);
+  });
 });

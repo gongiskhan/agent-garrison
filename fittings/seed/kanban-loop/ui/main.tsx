@@ -1,14 +1,15 @@
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
-// title, project chip, list, iter N/cap, goalMode and the four actions:
-// Start/Advance · Move · Watch · Open. Open shows the decision-10 LINKS (plan,
-// brief, sessions, gate markers, screenshots, video) + the small decision log;
+// title, project chip, list, iter N/cap, goalMode and the actions:
+// Start/Advance · Move · Watch. Clicking the card body opens its detail sheet
+// (the decision-10 LINKS: plan, brief, sessions, gate markers, screenshots, video)
+// + the small decision log;
 // the card LINKS its artifacts, never inlines their bodies (FINDING 10). Watch
 // streams the card's log over SSE for a live run, opens the web chat for an
 // interactive list (Discuss), or shows the linked static logs when nothing is
 // live — it never tmux-attaches (the pooled gateway operative is raw node-pty).
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DndContext,
@@ -51,7 +52,6 @@ import {
   PlayIcon,
   MoveIcon,
   WatchIcon,
-  OpenIcon,
   PlusIcon,
   CloseIcon,
   LinkIcon,
@@ -72,6 +72,8 @@ import {
 import { TerminalPane } from "./terminal-pane";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
+import { deriveMoveTargets } from "./move-targets";
+import { shouldOpenCard } from "./card-click";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
 // the card as an OPAQUE context blob; James (the operative) reads it.
@@ -489,6 +491,7 @@ function Card({
   onContinue,
   onDrill,
   onFeedback,
+  dragJustEnded,
   busy
 }: {
   card: CardSummary;
@@ -507,6 +510,9 @@ function Card({
   onContinue: (c: CardSummary) => void;
   onDrill: (c: CardSummary) => void;
   onFeedback: (c: CardSummary) => void;
+  // Item 5: the drag-just-ended flag from App, so the card-body click handler can
+  // suppress the trailing click a completed drag synthesises.
+  dragJustEnded: MutableRefObject<boolean>;
   busy: boolean;
 }) {
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
@@ -547,7 +553,28 @@ function Card({
   const canInfer = !card.project && !inferring && !running;
   const lastEv = card.lastEvent;
   return (
-    <div className={`card${running ? " running" : ""}${parked ? " parked" : ""}`}>
+    <div
+      className={`card${running ? " running" : ""}${parked ? " parked" : ""}`}
+      // Item 5: click the card body to open its detail (the dedicated Open button is
+      // gone). shouldOpenCard ignores clicks on any interactive control (the card's
+      // 15+ buttons / links / fields, whose clicks bubble here) and the trailing click
+      // a drag synthesises. Placed on the card ROOT — not the sortable wrapper — so
+      // the Done-column quick-strip cards (rendered without the wrapper) open too.
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        if (shouldOpenCard(e.target as EventTarget, dragJustEnded.current)) onOpen(card);
+      }}
+      onKeyDown={(e) => {
+        // Enter on the card root itself opens it. Only when the root is the target —
+        // an Enter on a focused child button is that button's business. Space is NOT
+        // bound: dnd-kit's keyboard sensor uses it on the sortable wrapper.
+        if (e.key === "Enter" && e.target === e.currentTarget) {
+          e.preventDefault();
+          onOpen(card);
+        }
+      }}
+    >
       <div className="ct">
         <span className={dotClass(card)} aria-hidden />
         <span className="title">{card.title}</span>
@@ -792,9 +819,8 @@ function Card({
             <DrillIcon /> {card.drill ? "Re-drill" : "Send to Drill"}
           </button>
         )}
-        <button className="btn small" onClick={() => onOpen(card)}>
-          <OpenIcon /> Open
-        </button>
+        {/* Item 5: the Open button is gone — clicking the card body opens it (see the
+            card root's onClick above). */}
       </div>
     </div>
   );
@@ -1363,25 +1389,13 @@ function MoveSheet({
   onClose: () => void;
   onMoved: () => void;
 }) {
-  const current = board.lists.find((l) => l.id === card.list);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // A manual-only work kind (empty phase plan — personal/channel) rides the
-  // manual lists by hand: never offer the dev pipeline from here, surface the
-  // manual subset of the list's exits, or Done when the pipeline was the only
-  // exit. Mirrors the server's rail-aware Advance (railIsManualOnly).
-  const [policy, setPolicy] = useState<PolicyView | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.policy().then((v) => { if (alive) setPolicy(v); }).catch(() => { /* no policy — static targets */ });
-    return () => { alive = false; };
-  }, []);
-  const staticTargets = current?.validNext ?? [];
-  const kind = policy && card.workKind ? policy.workKinds[card.workKind] : null;
-  const plan = kind && policy ? policy.phasePlans[kind.phasePlan] : null;
-  const manualOnly = !!plan && (plan.phases ?? []).length === 0;
-  const manualTargets = staticTargets.filter((t) => board.lists.find((l) => l.id === t)?.kind === "manual");
-  const targets = manualOnly ? (manualTargets.length ? manualTargets : ["done"]) : staticTargets;
+  // Item 2: the Move button is the MANUAL gate — it offers EVERY list except the
+  // card's current one, so a card can be moved ANYWHERE by hand. (Advance is the
+  // other control and keeps the next-list-only rail semantics: validNext.) Agent-kind
+  // targets are FLAGGED, not hidden — moving a card onto one auto-dispatches a run.
+  const targets = deriveMoveTargets(board, card);
 
   async function moveTo(listId: string) {
     setBusy(true);
@@ -1399,20 +1413,23 @@ function MoveSheet({
   return (
     <Sheet title={`Move: ${card.title}`} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-        Pick the next list yourself — this is the manual gate.
+        Move this card to any list — this is the manual gate. Advance instead to walk
+        the next step of its pipeline.
       </p>
       {targets.length === 0 ? (
-        <div className="banner info">No valid next list from {card.list}.</div>
+        <div className="banner info">No other list to move {card.title} to.</div>
       ) : (
         <div className="move-list">
-          {targets.map((t) => {
-            const target = board.lists.find((l) => l.id === t);
-            return (
-              <button key={t} className="btn move-opt" disabled={busy} onClick={() => void moveTo(t)}>
-                <MoveIcon /> {target?.title ?? t}
-              </button>
-            );
-          })}
+          {targets.map((t) => (
+            <button key={t.id} className="btn move-opt" disabled={busy} onClick={() => void moveTo(t.id)}>
+              <MoveIcon /> {t.title}
+              {t.isAgent && (
+                <span className="move-agent-hint" title="This is an agent list — moving a card here starts a run.">
+                  starts a run
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       )}
       {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
@@ -3156,6 +3173,16 @@ function App() {
   const [colOrderOverride, setColOrderOverride] = useState<string[] | null>(null);
   const [activeDrag, setActiveDrag] = useState<{ type: "card"; card: CardSummary } | { type: "column"; listId: string } | null>(null);
   const dragActiveRef = useRef(false);
+  // Item 5: a completed pointer-drag synthesises a trailing click on mouse-up, which
+  // would otherwise open the card's detail sheet after every reorder. Raised on
+  // dragEnd/dragCancel and cleared on the next tick, so the card root's click handler
+  // can suppress exactly that one trailing click. (dragActiveRef is already false by
+  // the time the trailing click fires, so it can't be reused for this.)
+  const dragJustEndedRef = useRef(false);
+  const markDragJustEnded = useCallback(() => {
+    dragJustEndedRef.current = true;
+    setTimeout(() => { dragJustEndedRef.current = false; }, 0);
+  }, []);
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } })
@@ -3506,6 +3533,7 @@ function App() {
       setNotice(e instanceof Error ? e.message : String(e));
     } finally {
       dragActiveRef.current = false;
+      markDragJustEnded();
       await load();
       setCardOrderOverride(null);
       setColOrderOverride(null);
@@ -3514,6 +3542,7 @@ function App() {
 
   function onDragCancel() {
     dragActiveRef.current = false;
+    markDragJustEnded();
     setActiveDrag(null);
     setCardOrderOverride(null);
     setColOrderOverride(null);
@@ -3599,14 +3628,11 @@ function App() {
                             onDiscuss={onDiscuss}
                             onRevert={onRevert}
                             onMove={(c) => {
-                              // One valid next list → just move (the server auto-dispatches if
-                              // it's an immediate agent list); only ASK when there's a choice.
-                              const tgts = list.validNext;
-                              if (tgts.length === 1) {
-                                void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch(() => load());
-                              } else {
-                                setOverlay({ kind: "move", card: c });
-                              }
+                              // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
+                              // now offers every list (not just validNext). Advance is the separate
+                              // next-list-only control. No single-target short-circuit: even a
+                              // one-exit list shows the picker so a card can be moved anywhere.
+                              setOverlay({ kind: "move", card: c });
                             }}
                             onQuickMove={onQuickMove}
                             onWatch={(c) => setOverlay({ kind: "watch", card: c })}
@@ -3615,6 +3641,7 @@ function App() {
                             onContinue={onContinue}
                             onDrill={onDrill}
                             onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                            dragJustEnded={dragJustEndedRef}
                           />
                         );
                         return sortable ? (

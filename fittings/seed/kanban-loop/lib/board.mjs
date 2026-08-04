@@ -222,7 +222,7 @@ export function sanitiseCardRouting(raw) {
   return Object.keys(out).length ? out : null;
 }
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, scheduledFor = null, scheduleAction = null, checklist = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, scheduledFor = null, scheduleAction = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
@@ -317,7 +317,12 @@ export async function createCard(root, { title, description = "", project = null
     scheduledFor: normaliseScheduledFor(scheduledFor),
     scheduleAction: scheduledFor ? normaliseScheduleAction(scheduleAction) : null,
     scheduleNotifiedAt: null,
-    position: null,
+    // Within-list float order. A finite `position` (from drag-reorder, or a
+    // creation asking to land at the top of a list) wins; null = created order.
+    // Threaded through createCard so the single creation door can stamp a
+    // top-of-list position atomically at create time (no rev-churning
+    // stamp-after-create write).
+    position: typeof position === "number" && Number.isFinite(position) ? position : null,
     checklist: normaliseChecklist(checklist),
     // A literal command for a stub/no-model dispatched run. Present so the
     // transport can be proven end-to-end without spending model tokens; a
