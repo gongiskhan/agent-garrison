@@ -34,6 +34,7 @@ compositions/*/.garrison/souls/
 compositions/*/.garrison/switch-log.jsonl
 compositions/*/.garrison/run-evidence.json
 compositions/*/.garrison/mcp.json
+compositions/*/.garrison/basic-memory-kanban-capture
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
