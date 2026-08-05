@@ -11,6 +11,7 @@ import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readlink, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { createHmac, randomBytes } from "node:crypto";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -126,10 +127,19 @@ let shuttingDown = false;
  *   page: import("playwright").Page,
  *   cdpSession: import("playwright").CDPSession | null,
  *   requestedUrl: string,
+ *   createdAt: number,
+ *   navigationAt: number,
+ *   persistentProfile: boolean,
+ *   mainFrameId?: string | null,
  *   lastActivityAt: number,
  *   console: ConsoleEntry[],
  *   network: NetworkEntry[],
  *   networkById: Map<string, NetworkEntry>,
+ *   activeNetwork: Set<NetworkEntry>,
+ *   networkLastActivityAt: number,
+ *   networkActivitySeq: number,
+ *   networkDroppedCount: number,
+ *   networkDroppedThrough: number | null,
  *   viewportClient: import("ws").WebSocket | null,
  *   viewportCdp: import("playwright").CDPSession | null,
  *   viewportTeardownTimer: NodeJS.Timeout | null,
@@ -145,6 +155,10 @@ let shuttingDown = false;
  */
 
 const BUFFER_LIMIT = 500;
+const OBSERVE_QUIET_FOR_MS = 600;
+const OBSERVE_QUIET_BUDGET_MS = 4000;
+const OBSERVE_QUIET_POLL_MS = 80;
+const STABILITY_TOKEN_SECRET = randomBytes(32);
 
 // Screencast presets — the per-tab qualityLevel can be changed at runtime via
 // an input-WS {type:"quality", level} message. everyNthFrame stays at 1:
@@ -177,6 +191,58 @@ const HEARTBEAT_MS = 15_000;
 function pushBounded(arr, entry) {
   arr.push(entry);
   if (arr.length > BUFFER_LIMIT) arr.splice(0, arr.length - BUFFER_LIMIT);
+}
+
+function pushNetwork(tab, entry) {
+  tab.network.push(entry);
+  if (tab.network.length <= BUFFER_LIMIT) return;
+  const dropped = tab.network.splice(0, tab.network.length - BUFFER_LIMIT);
+  tab.networkDroppedCount += dropped.length;
+  for (const old of dropped) {
+    if (Number.isFinite(old?.ts)) {
+      tab.networkDroppedThrough = Math.max(tab.networkDroppedThrough ?? old.ts, old.ts);
+    }
+  }
+}
+
+function applyNetworkResponse(entry, response) {
+  if (!entry || !response) return;
+  entry.status = response.status;
+  entry.statusText = response.statusText;
+  entry.mimeType = response.mimeType;
+  entry.fromCache = Boolean(response.fromDiskCache || response.fromServiceWorker);
+  if (Number.isFinite(response.encodedDataLength)) {
+    entry.encodedDataLength = response.encodedDataLength;
+  }
+}
+
+function startNetworkEntry(tab, entry) {
+  tab.networkById.set(entry.requestId, entry);
+  tab.activeNetwork.add(entry);
+  tab.networkLastActivityAt = Math.max(tab.networkLastActivityAt, entry.ts);
+  tab.networkActivitySeq++;
+  pushNetwork(tab, entry);
+}
+
+function finishNetworkEntry(tab, entry, { encodedDataLength } = {}) {
+  if (!entry) return;
+  if (Number.isFinite(encodedDataLength)) entry.encodedDataLength = encodedDataLength;
+  if (entry.duration == null) entry.duration = Math.max(0, Date.now() - entry.ts);
+  tab.activeNetwork.delete(entry);
+  if (tab.networkById.get(entry.requestId) === entry) {
+    tab.networkById.delete(entry.requestId);
+  }
+  tab.networkLastActivityAt = Date.now();
+  tab.networkActivitySeq++;
+}
+
+// Long-lived transports are healthy while they remain open. Treating an SSE
+// feed or WebSocket as ordinary pending traffic would make every bounded quiet
+// observation spend its full budget, even though the page is ready to inspect.
+function isPersistentNetworkEntry(entry) {
+  const type = String(entry?.resourceType || "").toLowerCase();
+  const mime = String(entry?.mimeType || "").split(";", 1)[0].trim().toLowerCase();
+  return type === "eventsource" || type === "websocket" || mime === "text/event-stream";
 }
 
 // Console entries feed the bounded buffer AND an optional per-tab listener
@@ -249,6 +315,8 @@ async function attachInstrumentation(tab) {
     await cdp.send("Network.enable", { maxResourceBufferSize: 8 * 1024 * 1024 });
     await cdp.send("Log.enable");
     await cdp.send("Page.enable");
+    const { frameTree } = await cdp.send("Page.getFrameTree");
+    tab.mainFrameId = frameTree?.frame?.id ?? null;
   } catch (err) {
     console.warn(`[browser] enable domains failed: ${err.message}`);
     return;
@@ -282,9 +350,12 @@ async function attachInstrumentation(tab) {
   // A real main-frame navigation makes any prior pick/region stale — drop it so
   // the Operative never resolves "this" against a page that's gone.
   cdp.on("Page.frameNavigated", (e) => {
-    if (e.frame && !e.frame.parentId && tab.selection) {
-      tab.selection = null;
-      broadcastToInput(tab, { type: "selection", selection: null });
+    if (e.frame && !e.frame.parentId) {
+      tab.mainFrameId = e.frame.id;
+      if (tab.selection) {
+        tab.selection = null;
+        broadcastToInput(tab, { type: "selection", selection: null });
+      }
     }
   });
 
@@ -330,6 +401,20 @@ async function attachInstrumentation(tab) {
 
   // Network
   cdp.on("Network.requestWillBeSent", (e) => {
+    // CDP reuses a requestId for every hop in an HTTP redirect chain and puts
+    // the prior hop's response on the NEXT requestWillBeSent event. Finalize
+    // that prior object before replacing the id map entry; otherwise it remains
+    // in the bounded history forever looking like a hung request.
+    if (e.redirectResponse) {
+      const redirected = tab.networkById.get(e.requestId);
+      if (redirected) {
+        applyNetworkResponse(redirected, e.redirectResponse);
+        finishNetworkEntry(tab, redirected, { encodedDataLength: e.redirectResponse.encodedDataLength });
+      }
+    }
+    if (e.type === "Document" && (!tab.mainFrameId || e.frameId === tab.mainFrameId)) {
+      tab.navigationAt = Date.now();
+    }
     const entry = {
       requestId: e.requestId,
       ts: Date.now(),
@@ -337,37 +422,56 @@ async function attachInstrumentation(tab) {
       url: e.request?.url || "",
       resourceType: e.type || "Other"
     };
-    tab.networkById.set(e.requestId, entry);
-    pushBounded(tab.network, entry);
-    // Drop the head off networkById too if we trimmed the array.
-    if (tab.network.length === BUFFER_LIMIT && tab.networkById.size > BUFFER_LIMIT * 2) {
-      const cutoff = tab.network[0].requestId;
-      for (const [k] of tab.networkById) {
-        if (k === cutoff) break;
-        tab.networkById.delete(k);
-      }
-    }
+    startNetworkEntry(tab, entry);
   });
   cdp.on("Network.responseReceived", (e) => {
     const entry = tab.networkById.get(e.requestId);
     if (!entry) return;
-    entry.status = e.response?.status;
-    entry.statusText = e.response?.statusText;
-    entry.mimeType = e.response?.mimeType;
-    entry.fromCache = Boolean(e.response?.fromDiskCache || e.response?.fromServiceWorker);
+    applyNetworkResponse(entry, e.response);
   });
   cdp.on("Network.loadingFinished", (e) => {
     const entry = tab.networkById.get(e.requestId);
-    if (!entry) return;
-    entry.encodedDataLength = e.encodedDataLength;
-    entry.duration = Date.now() - entry.ts;
+    finishNetworkEntry(tab, entry, { encodedDataLength: e.encodedDataLength });
   });
   cdp.on("Network.loadingFailed", (e) => {
     const entry = tab.networkById.get(e.requestId);
     if (!entry) return;
     entry.failed = true;
     entry.failureText = e.errorText;
-    entry.duration = Date.now() - entry.ts;
+    finishNetworkEntry(tab, entry);
+  });
+
+  // WebSockets use their own CDP event family rather than requestWillBeSent.
+  // Include them in the same evidence buffer so quiet observations can report
+  // (and deliberately ignore) the healthy persistent connection.
+  cdp.on("Network.webSocketCreated", (e) => {
+    const existing = tab.networkById.get(e.requestId);
+    if (existing) {
+      existing.resourceType = "WebSocket";
+      if (e.url) existing.url = e.url;
+      return;
+    }
+    const entry = {
+      requestId: e.requestId,
+      ts: Date.now(),
+      method: "GET",
+      url: e.url || "",
+      resourceType: "WebSocket"
+    };
+    startNetworkEntry(tab, entry);
+  });
+  cdp.on("Network.webSocketHandshakeResponseReceived", (e) => {
+    applyNetworkResponse(tab.networkById.get(e.requestId), e.response);
+  });
+  cdp.on("Network.webSocketFrameError", (e) => {
+    const entry = tab.networkById.get(e.requestId);
+    if (!entry) return;
+    entry.failed = true;
+    entry.failureText = e.errorMessage;
+    finishNetworkEntry(tab, entry);
+  });
+  cdp.on("Network.webSocketClosed", (e) => {
+    finishNetworkEntry(tab, tab.networkById.get(e.requestId));
   });
 }
 
@@ -825,6 +929,7 @@ async function openTab(initialUrl, { context: targetContext = null, captureSessi
   const cdpSession = await owningContext.newCDPSession(page);
   const { targetInfo } = await cdpSession.send("Target.getTargetInfo");
   const tabId = targetInfo.targetId;
+  const createdAt = Date.now();
 
   /** @type {TabState} */
   const tab = {
@@ -832,10 +937,19 @@ async function openTab(initialUrl, { context: targetContext = null, captureSessi
     page,
     cdpSession,
     requestedUrl: initialUrl || "about:blank",
-    lastActivityAt: Date.now(),
+    createdAt,
+    navigationAt: createdAt,
+    persistentProfile: !targetContext && PERSISTENT_PROFILE,
+    mainFrameId: null,
+    lastActivityAt: createdAt,
     console: [],
     network: [],
     networkById: new Map(),
+    activeNetwork: new Set(),
+    networkLastActivityAt: createdAt,
+    networkActivitySeq: 0,
+    networkDroppedCount: 0,
+    networkDroppedThrough: null,
     viewportClient: null,
     viewportCdp: null,
     viewportTeardownTimer: null,
@@ -854,6 +968,7 @@ async function openTab(initialUrl, { context: targetContext = null, captureSessi
   await attachInstrumentation(tab);
 
   if (initialUrl) {
+    tab.navigationAt = Date.now();
     try { await page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 }); }
     catch (err) { console.warn(`[browser] goto failed: ${err.message}`); }
   }
@@ -1285,6 +1400,7 @@ async function handleCreateTab(req, res) {
       }
       if (initialUrl && initialUrl !== "about:blank") {
         tab.requestedUrl = initialUrl;
+        tab.navigationAt = Date.now();
         try { await tab.page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 }); }
         catch (err) { console.warn(`[capture] goto-at-attach failed: ${err.message}`); }
       }
@@ -1354,6 +1470,7 @@ async function handleNavigateTab(req, res, tabId) {
   if (!isAllowedNavScheme(target)) return jsonRes(res, 400, { error: "navigation scheme not allowed" });
   tab.requestedUrl = target;
   tab.lastActivityAt = Date.now();
+  tab.navigationAt = Date.now();
   try {
     await tab.page.goto(target, { waitUntil: "domcontentloaded", timeout: 30000 });
     jsonRes(res, 200, { ok: true, url: tab.page.url() });
@@ -1447,6 +1564,12 @@ function filterBySince(arr, since) {
   return arr.filter((e) => e.ts >= t);
 }
 
+function finiteSince(since) {
+  if (since === null || since === undefined || since === "") return null;
+  const value = Number(since);
+  return Number.isFinite(value) ? value : null;
+}
+
 function handleConsole(_req, res, tabId, query) {
   const tab = tabs.get(tabId);
   if (!tab) return jsonRes(res, 404, { error: "tab not found" });
@@ -1461,23 +1584,55 @@ function handleConsole(_req, res, tabId, query) {
 function handleNetwork(_req, res, tabId, query) {
   const tab = tabs.get(tabId);
   if (!tab) return jsonRes(res, 404, { error: "tab not found" });
-  let entries = filterBySince(tab.network, query.since);
-  if (query.filter) {
-    const f = String(query.filter).toLowerCase();
-    entries = entries.filter((e) =>
-      e.url.toLowerCase().includes(f) ||
-      (e.resourceType || "").toLowerCase().includes(f) ||
-      (e.method || "").toLowerCase() === f
-    );
-  }
-  if (query.status === "error") {
-    entries = entries.filter((e) => e.failed || (e.status && e.status >= 400));
-  }
+  const since = finiteSince(query.since);
+  const matchesQuery = (entry) => {
+    if (since !== null && entry.ts < since) return false;
+    if (query.filter) {
+      const f = String(query.filter).toLowerCase();
+      if (!(
+        entry.url.toLowerCase().includes(f) ||
+        (entry.resourceType || "").toLowerCase().includes(f) ||
+        (entry.method || "").toLowerCase() === f
+      )) return false;
+    }
+    if (query.status === "error" && !(entry.failed || (entry.status != null && entry.status >= 400))) {
+      return false;
+    }
+    return true;
+  };
+
+  // History is bounded evidence, while active requests are live state. Overlay
+  // every matching active object after filtering the history so an older hung
+  // request remains inspectable even after 500 newer rows evict its history
+  // slot. Object identity distinguishes a redirect's completed prior hop from
+  // its active next hop even though CDP deliberately reuses their requestId.
+  const activeEntries = [...tab.activeNetwork].filter(matchesQuery);
+  const activeSet = new Set(activeEntries);
+  let historyEntries = tab.network.filter((entry) => !activeSet.has(entry) && matchesQuery(entry));
   if (query.limit) {
     const n = Math.max(1, Math.min(BUFFER_LIMIT, Number(query.limit) || 0));
-    entries = entries.slice(-n);
+    historyEntries = historyEntries.slice(-n);
   }
-  jsonRes(res, 200, { entries });
+  const entries = [...historyEntries, ...activeEntries].sort((a, b) => a.ts - b.ts);
+  const now = Date.now();
+  const historyTruncated = tab.networkDroppedCount > 0
+    && (since === null || (tab.networkDroppedThrough !== null && tab.networkDroppedThrough >= since));
+  jsonRes(res, 200, {
+    entries: entries.map((entry) => {
+      // A response status only means headers arrived. A streaming or stalled
+      // body remains pending until loadingFinished/loadingFailed supplies a
+      // duration, which is why status==null is not the pending definition.
+      const pending = entry.duration == null && !entry.failed;
+      return {
+        ...entry,
+        pending,
+        persistent: pending && isPersistentNetworkEntry(entry),
+        ageMs: Math.max(0, now - entry.ts)
+      };
+    }),
+    historyTruncated,
+    historyDroppedCount: tab.networkDroppedCount
+  });
 }
 
 async function handleNetworkBody(_req, res, tabId, requestId) {
@@ -1516,7 +1671,9 @@ async function handleDom(_req, res, tabId, query) {
 // Post-action OBSERVATION envelope: the fingerprint inputs (url/title/heading +
 // DOM-shape counts + viewport) the Automations orchestration layer keys its
 // action cache on, plus optional a11y snapshot + screenshot for vision. ?a11y=1
-// includes the accessibility tree; ?screenshot=1 includes a base64 JPEG.
+// includes the accessibility tree; ?screenshot=1 includes a base64 JPEG. The
+// opt-in ?quiet=1 gate waits, within a hard budget, until relevant network work
+// and DOM mutations have both been quiet before ANY evidence fields are read.
 async function handleObserve(_req, res, tabId, query) {
   const tab = tabs.get(tabId);
   if (!tab || !tab.page) return jsonRes(res, 404, { error: "tab not found" });
@@ -1531,7 +1688,11 @@ async function handleObserve(_req, res, tabId, query) {
     // more. One retry only; a page redirecting on a timer is a real finding, not
     // something to loop on.
     const observed = await observeOnce(tab, query);
-    if (observed.url !== tab.page.url()) {
+    // quiet=1 performs generation-based same-document and URL validation inside
+    // one shared deadline. Keep this URL-only retry solely for compatibility
+    // callers; giving a quiet request a second fresh 4s window would defeat its
+    // bounded contract.
+    if (query?.quiet !== "1" && observed.url !== tab.page.url()) {
       return jsonRes(res, 200, { ...(await observeOnce(tab, query)), reobservedAfterNavigation: true });
     }
     return jsonRes(res, 200, observed);
@@ -1542,6 +1703,78 @@ async function handleObserve(_req, res, tabId, query) {
 
 async function observeOnce(tab, query) {
   const page = tab.page;
+  const wantsScreenshot = query?.screenshot === "1";
+  const wantsQuiet = query?.quiet === "1";
+  if (!wantsQuiet) {
+    let screenshot = null;
+    if (wantsScreenshot) {
+      // Compatibility path for existing screenshot callers. Preserve the older
+      // networkidle + pixel comparison, but perform it BEFORE reading the DOM and
+      // a11y tree so those fields no longer describe an earlier loading state than
+      // the pixels returned beside them.
+      screenshot = await settledScreenshot(page);
+    }
+    return captureObservationFields(tab, query, { screenshot });
+  }
+
+  // A quiet result is useful only if the fields gathered after it still belong
+  // to that quiet window. Keep the page-side MutationObserver alive across the
+  // sequential DOM/a11y/screenshot reads, then compare its generation and the
+  // network lifecycle generation. If either changed, discard that capture and
+  // settle/capture again inside the ORIGINAL 4s deadline. The probe remains as
+  // one observer on the current document so returning a coherent capture does
+  // not add a post-validation cleanup round trip where another mutation could
+  // slip through; navigation destroys it with the document.
+  const startedAt = Date.now();
+  const deadline = startedAt + OBSERVE_QUIET_BUDGET_MS;
+  let latest = null;
+  while (true) {
+    const quietResult = await waitForObservationQuiet(tab, {
+      startedAt,
+      deadline,
+      keepProbe: true
+    });
+    const { _stability, ...quiet } = quietResult;
+    latest = await captureObservationFields(tab, query);
+    latest.quiet = quiet;
+    if (quiet.outcome !== "quiet" || !_stability) return latest;
+
+    const validation = await revalidateObservationQuiet(tab, _stability, {
+      startedAt,
+      deadline,
+      quietForMs: quiet.quietForMs ?? OBSERVE_QUIET_FOR_MS
+    });
+    if (validation.stable) {
+      latest.quiet = {
+        ...quiet,
+        waitedMs: Date.now() - startedAt,
+        readyState: validation.readyState,
+        networkQuiet: true,
+        domStable: true,
+        timedOut: false,
+        pendingRequests: 0,
+        persistentRequests: validation.persistentRequests
+      };
+      latest.stabilityToken = validation.stabilityToken;
+      return latest;
+    }
+
+    if (Date.now() >= deadline) {
+      const exhausted = await waitForObservationQuiet(tab, {
+        startedAt,
+        deadline,
+        keepProbe: true
+      });
+      const { _stability: _ignored, ...publicExhausted } = exhausted;
+      latest.quiet = publicExhausted;
+      return latest;
+    }
+  }
+}
+
+async function captureObservationFields(tab, query, { screenshot = null } = {}) {
+  const page = tab.page;
+  const wantsScreenshot = query?.screenshot === "1";
   const pageUrl = page.url();
   const title = await page.title();
   const parts = await page.evaluate(() => {
@@ -1562,14 +1795,256 @@ async function observeOnce(tab, query) {
     .map(([k, v]) => `${k}:${v}`)
     .join(",");
   const vp = tab.emulatedViewport || page.viewportSize() || { width: 0, height: 0 };
-  const observation = { url: pageUrl, title, headingText: parts.headingText, shapeSketch, viewport: { w: vp.width, h: vp.height } };
+  const observedAt = Date.now();
+  const observation = {
+    url: pageUrl,
+    title,
+    headingText: parts.headingText,
+    shapeSketch,
+    viewport: { w: vp.width, h: vp.height },
+    browserContext: {
+      persistentProfile: Boolean(tab.persistentProfile),
+      tabAgeMs: Math.max(0, observedAt - tab.createdAt),
+      navigationAgeMs: Math.max(0, observedAt - tab.navigationAt)
+    }
+  };
   if (query && query.a11y === "1") {
     observation.a11y = await accessibilityTree(tab);
   }
-  if (query && query.screenshot === "1") {
-    observation.screenshotB64 = (await settledScreenshot(page)).toString("base64");
+  if (wantsScreenshot) {
+    if (!screenshot) {
+      screenshot = await page.screenshot({ type: "jpeg", quality: 50, animations: "disabled" });
+    }
+    observation.screenshotB64 = screenshot.toString("base64");
   }
   return observation;
+}
+
+async function revalidateObservationQuiet(tab, stability, {
+  startedAt,
+  deadline,
+  quietForMs
+}) {
+  const remaining = Math.max(1, deadline - Date.now());
+  const dom = await readDomQuietProbe(tab.page, Math.min(250, remaining));
+  const now = Date.now();
+  const network = quietNetworkState(tab, now, startedAt, quietForMs);
+  const readyState = dom?.readyState || "unknown";
+  const postState = {
+    navigationAt: tab.navigationAt,
+    mutationVersion: dom?.mutationVersion ?? null,
+    networkActivitySeq: tab.networkActivitySeq,
+    url: tab.page.url()
+  };
+  const stable = Boolean(dom)
+    && postState.mutationVersion === stability.mutationVersion
+    && postState.networkActivitySeq === stability.networkActivitySeq
+    && postState.navigationAt === stability.navigationAt
+    && postState.url === stability.url
+    && readyState !== "loading"
+    && readyState !== "unknown"
+    && network.networkQuiet
+    && network.pendingRequests === 0;
+  return {
+    stable,
+    readyState,
+    persistentRequests: network.persistentRequests,
+    stabilityToken: stable ? opaqueObservationStabilityToken(postState) : null
+  };
+}
+
+function opaqueObservationStabilityToken({ navigationAt, mutationVersion, networkActivitySeq, url }) {
+  const digest = createHmac("sha256", STABILITY_TOKEN_SECRET)
+    .update(JSON.stringify([navigationAt, mutationVersion, networkActivitySeq, url]))
+    .digest("hex")
+    .slice(0, 32);
+  return `stability-v1-${digest}`;
+}
+
+/*
+ * The compatibility screenshot branch above intentionally stays independent
+ * from quiet revalidation: callers that did not opt into quiet retain their
+ * prior bounded pixel-settle behavior and response shape.
+ */
+
+const QUIET_PROBE_KEY = "__garrisonBrowserQuietProbeV1";
+
+function quietNetworkState(tab, now, startedAt, quietForMs) {
+  // Only this document's traffic is relevant. The tab-level evidence history
+  // is intentionally cumulative and bounded, so it cannot be the source of
+  // truth for active work: a hanging request may be older than 500 newer rows.
+  // `activeNetwork` is lifecycle-owned and unbounded only by actual concurrent
+  // work; completed entries leave it immediately.
+  const baseline = tab.navigationAt || tab.createdAt || startedAt;
+  const lastActivityAt = Math.max(startedAt, tab.networkLastActivityAt || startedAt);
+  let pendingRequests = 0;
+  let persistentRequests = 0;
+  for (const entry of tab.activeNetwork) {
+    if (entry.ts < baseline) continue;
+    if (isPersistentNetworkEntry(entry)) {
+      persistentRequests++;
+      continue;
+    }
+    pendingRequests++;
+  }
+  return {
+    networkQuiet: pendingRequests === 0 && now - lastActivityAt >= quietForMs,
+    pendingRequests,
+    persistentRequests
+  };
+}
+
+async function readDomQuietProbe(page, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), Math.max(1, timeoutMs));
+  });
+  try {
+    return await Promise.race([
+      page.evaluate((key) => {
+        let probe = globalThis[key];
+        if (!probe) {
+          probe = { lastMutationAt: Date.now(), mutationVersion: 0, observer: null };
+          probe.observer = new MutationObserver(() => {
+            probe.lastMutationAt = Date.now();
+            probe.mutationVersion++;
+          });
+          probe.observer.observe(document, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true
+          });
+          globalThis[key] = probe;
+        }
+        return {
+          lastMutationAt: probe.lastMutationAt,
+          mutationVersion: probe.mutationVersion || 0,
+          readyState: document.readyState
+        };
+      }, QUIET_PROBE_KEY),
+      timeout
+    ]);
+  } catch {
+    // A navigation can destroy the execution context between two polls. The
+    // next document gets a fresh observer and therefore a fresh quiet window.
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function clearDomQuietProbe(page) {
+  try {
+    await Promise.race([
+      page.evaluate((key) => {
+        const probe = globalThis[key];
+        try { probe?.observer?.disconnect(); } catch {}
+        try { delete globalThis[key]; } catch {}
+      }, QUIET_PROBE_KEY),
+      new Promise((resolve) => setTimeout(resolve, 100))
+    ]);
+  } catch { /* page navigated/closed after observation */ }
+}
+
+// "Quiet" deliberately does not claim semantic readiness. It only means the
+// observable loading signals stopped changing for a short window. Persistent
+// transports are counted for evidence but ignored as blockers; an ordinary
+// hung fetch remains a blocker and exhausts the bounded budget.
+async function waitForObservationQuiet(tab, {
+  quietForMs = OBSERVE_QUIET_FOR_MS,
+  budgetMs = OBSERVE_QUIET_BUDGET_MS,
+  pollMs = OBSERVE_QUIET_POLL_MS,
+  startedAt: requestedStartedAt = null,
+  deadline: requestedDeadline = null,
+  keepProbe = false
+} = {}) {
+  const startedAt = Number.isFinite(requestedStartedAt) ? requestedStartedAt : Date.now();
+  const deadline = Number.isFinite(requestedDeadline) ? requestedDeadline : startedAt + budgetMs;
+  let readyState = "unknown";
+  let networkQuiet = false;
+  let domStable = false;
+  let pendingRequests = 0;
+  let persistentRequests = 0;
+
+  try {
+    while (Date.now() < deadline) {
+      const now = Date.now();
+      const remaining = Math.max(1, deadline - now);
+      const dom = await readDomQuietProbe(tab.page, Math.min(250, remaining));
+      const network = quietNetworkState(tab, Date.now(), startedAt, quietForMs);
+      networkQuiet = network.pendingRequests === 0
+        && network.networkQuiet
+        && Date.now() - startedAt >= quietForMs;
+      pendingRequests = network.pendingRequests;
+      persistentRequests = network.persistentRequests;
+      if (dom) {
+        readyState = dom.readyState || "unknown";
+        domStable = Date.now() - dom.lastMutationAt >= quietForMs;
+      } else {
+        domStable = false;
+      }
+      if (readyState !== "loading" && readyState !== "unknown" && networkQuiet && domStable) {
+        return {
+          outcome: "quiet",
+          waitedMs: Date.now() - startedAt,
+          quietForMs,
+          readyState,
+          networkQuiet: true,
+          domStable: true,
+          timedOut: false,
+          budgetMs,
+          pendingRequests: 0,
+          persistentRequests,
+          // Internal-only token consumed by observeOnce. It never crosses the
+          // JSON boundary; comparing generations after capture detects even a
+          // fast request or same-URL mutation that began and ended mid-capture.
+          _stability: {
+            mutationVersion: dom.mutationVersion,
+            networkActivitySeq: tab.networkActivitySeq,
+            navigationAt: tab.navigationAt,
+            url: tab.page.url()
+          }
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(0, deadline - Date.now()))));
+    }
+
+    // The server and Chromium can be starved independently when the wider test
+    // suite is busy. In that case the deadline may pass between polls, leaving
+    // these fields describing an older sample rather than the state at the
+    // deadline. Take one short final sample so a budget-exhausted result still
+    // reports factual settle signals. It does not turn exhaustion into success.
+    const finalDom = await readDomQuietProbe(tab.page, 100);
+    const finalNow = Date.now();
+    const finalNetwork = quietNetworkState(tab, finalNow, startedAt, quietForMs);
+    networkQuiet = finalNetwork.pendingRequests === 0
+      && finalNetwork.networkQuiet
+      && finalNow - startedAt >= quietForMs;
+    pendingRequests = finalNetwork.pendingRequests;
+    persistentRequests = finalNetwork.persistentRequests;
+    if (finalDom) {
+      readyState = finalDom.readyState || "unknown";
+      domStable = finalNow - finalDom.lastMutationAt >= quietForMs;
+    } else {
+      readyState = "unknown";
+      domStable = false;
+    }
+    return {
+      outcome: "budget-exhausted",
+      waitedMs: Date.now() - startedAt,
+      quietForMs,
+      readyState,
+      networkQuiet,
+      domStable,
+      timedOut: true,
+      budgetMs,
+      pendingRequests,
+      persistentRequests
+    };
+  } finally {
+    if (!keepProbe) await clearDomQuietProbe(tab.page);
+  }
 }
 
 // A screenshot is only worth taking once the page has stopped moving.

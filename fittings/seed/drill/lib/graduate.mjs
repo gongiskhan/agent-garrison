@@ -33,6 +33,14 @@ async function ensureDrillJudgeAsset(root = drillTargetRoot()) {
   return dest;
 }
 
+export async function writePageSpecFile(book, page, root = drillTargetRoot()) {
+  await ensureDrillJudgeAsset(root);
+  const specSource = emitPageSpec(page, resolvePageUrl(book, page));
+  const specFile = path.join(root, specRelPath(page.id));
+  await atomicWriteFile(specFile, specSource);
+  return specFile;
+}
+
 // Pair each of a check's AUTHORED actions with the concrete action the engine
 // actually resolved for it, harvested from the automation run record.
 //
@@ -132,10 +140,7 @@ async function writeStepUpdate(book, pageId, stepId, patch, root) {
   const nextSteps = page.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s));
   const updatedPage = { ...page, steps: nextSteps };
 
-  await ensureDrillJudgeAsset(root);
-  const specSource = emitPageSpec(updatedPage, resolvePageUrl(book, updatedPage));
-  const specFile = path.join(root, specRelPath(pageId));
-  await atomicWriteFile(specFile, specSource);
+  const specFile = await writePageSpecFile(book, updatedPage, root);
 
   const saved = await savePage(pageId, { steps: nextSteps }, root);
   return { step: saved.steps.find((s) => s.id === stepId), specFile };

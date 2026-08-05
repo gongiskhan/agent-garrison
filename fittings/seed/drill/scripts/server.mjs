@@ -20,7 +20,7 @@ import {
   navigateTab, tabAction, closeTab, tabInfo, readConsole
 } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
-import { openExplore, actExplore, assertExplore, closeExplore, closeAllExplore } from "../lib/explore.mjs";
+import { openExplore, actExplore, observeExplore, assertExplore, closeExplore, closeAllExplore } from "../lib/explore.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import {
   selectSteps, compileStepAutomation,
@@ -877,7 +877,7 @@ async function handle(req, res) {
 
     // Authoring: open/reuse a tab for a page at a given viewport (B1/S19).
     // ── Plan-time exploration (the planning agent's eyes) ──────────────────
-    // Navigate, act, and validate a candidate assertion against the LIVE app.
+    // Navigate, observe, act, and validate a candidate assertion against the LIVE app.
     // The agent supplies its own vision: every response names a screenshot file
     // it reads directly. See lib/explore.mjs for why validation is delegated to
     // the automations engine rather than answered here.
@@ -918,6 +918,16 @@ async function handle(req, res) {
         return send(res, /browser 400|execute failed/.test(err.message) ? 400 : 502, { error: err.message });
       }
     }
+    if (pathname === "/api/explore/observe" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      try {
+        return send(res, 200, await observeExplore({ root: resolved.root }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
     if (pathname === "/api/explore/assert" && req.method === "POST") {
       const body = await readJsonBody(req);
       const resolved = resolveMutationRoot(body.root);
@@ -936,7 +946,7 @@ async function handle(req, res) {
       const resolved = resolveMutationRoot(body.root);
       if (resolved.error) return send(res, 400, { error: resolved.error });
       try {
-        return send(res, 200, await closeExplore({ root: resolved.root }));
+        return send(res, 200, await closeExplore({ root: resolved.root, retainEvidence: true }));
       } catch (err) {
         return send(res, 502, { error: err.message });
       }

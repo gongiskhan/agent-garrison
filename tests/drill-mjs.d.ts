@@ -101,6 +101,7 @@ declare module "*/drill/lib/spec-emit.mjs" {
 declare module "*/drill/lib/graduate.mjs" {
   export function harvestResolvedActions(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
   export function specRelPath(pageId: string): string;
+  export function writePageSpecFile(book: any, page: any, root?: string): Promise<string>;
   export function graduationPlanFor(step: any, outcome: any, automationRun?: any): any;
   export function graduateStep(book: any, pageId: string, stepId: string, plan: any): Promise<any>;
   export function actionPinFor(step: any, automationRun: any): Array<{ id: string; description: string; resolved: any }> | null;
@@ -156,6 +157,32 @@ declare module "*/drill/lib/browser-fitting-client.mjs" {
   export function closeTab(tabId: string, opts?: any): Promise<any>;
   export function tabInfo(tabId: string, opts?: any): Promise<any | null>;
   export function readConsole(tabId: string, opts?: any): Promise<any>;
+  export function readNetwork(tabId: string, opts?: any): Promise<any>;
+}
+declare module "*/drill/lib/explore-evidence.mjs" {
+  export const EXPLORE_NETWORK_LIMIT: number;
+  export const EXPLORE_ELEMENTS_LIMIT: number;
+  export function safeExploreNetworkUrl(rawUrl: unknown, pageUrl?: unknown): string;
+  export function safeExplorePageUrl(rawUrl: unknown): string;
+  export function sanitizeExploreConsoleText(value: unknown, opts?: any): string;
+  export function safeExploreQuietMetadata(value: any): any;
+  export function isCoherentExploreQuiet(value: any): boolean;
+  export function compactExploreNetwork(entries: any[], opts?: any): any;
+  export function compactExploreElements(entries: any[], opts?: any): any;
+  export function safeExploreBrowserContext(value: any): any;
+}
+declare module "*/drill/lib/explore.mjs" {
+  export function exploreDir(): string;
+  export function exploreTabFor(root: string): string | null;
+  export function getExploreObservation(root: string, observationId: string): any | null;
+  export function listExploreObservations(root: string): any[];
+  export function hasPassedExploreAssertion(root: string, assertion: any, constraints?: any): boolean;
+  export function openExplore(opts: any): Promise<any>;
+  export function actExplore(opts: any): Promise<any>;
+  export function observeExplore(opts: any): Promise<any>;
+  export function assertExplore(opts: any): Promise<any>;
+  export function closeExplore(opts: any): Promise<any>;
+  export function closeAllExplore(): Promise<number>;
 }
 declare module "*/drill/lib/video-tighten.mjs" {
   export const TIGHTEN_DEFAULTS: {

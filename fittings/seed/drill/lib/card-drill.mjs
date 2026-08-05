@@ -196,6 +196,15 @@ export function resolveRunScope({ changed, book, allPageIds }) {
   return { pageIds: [...allPageIds], scope: "all-pages" };
 }
 
+// A plan may finish authoring after its integrity guard quarantines a finding,
+// restores a poisoned rewrite, or downgrades an unreceipted assertion. Keep the
+// Book for review, but do not let the unattended card flow run it immediately.
+export function planNeedsAttentionError(planJob) {
+  if (!planJob?.needsAttention) return null;
+  const count = Array.isArray(planJob.warnings) ? planJob.warnings.length : 0;
+  return `planning finished with integrity warnings${count ? ` (${count})` : ""}; review the Drill Book before running it`;
+}
+
 // ── the job ─────────────────────────────────────────────────────────────────
 
 function newJob({ card, brief, project, boardUrl }) {
@@ -317,6 +326,11 @@ async function drive(job, { drillBaseUrl, fetchImpl }) {
   }
 
   // ── 2. scope ──────────────────────────────────────────────────────────────
+  const integrityError = planNeedsAttentionError(settled);
+  if (integrityError) {
+    return finish(job, { state: "error", error: integrityError }, { fetchImpl });
+  }
+
   const after = await snapshotPages(root);
   const changed = changedPageIds(before, after);
   const book = await getDrillBook(root).catch(() => null);

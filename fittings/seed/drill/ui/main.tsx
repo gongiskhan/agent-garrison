@@ -285,6 +285,7 @@ interface PlanJob {
   startedAt: string;
   deadlineAt: string;
   canceledAt: string | null;
+  needsAttention?: boolean;
   progress?: PlanProgress;
   // Plan-time defects that are not worth failing a long plan over, but that
   // silently cost coverage if nobody is told (a page with no default-state
@@ -708,6 +709,10 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
       const freshBook = b.book as DrillBook;
       if (freshPages.length === 0) throw new Error("planning finished but the Book still has no pages - see the plan log");
       if (thenRun) {
+        if (st.job?.needsAttention) {
+          setError("Planning finished with integrity warnings. Review the warnings and Drill Book, then start the run explicitly when it is ready.");
+          return;
+        }
         const ticked = freshBook.pages.filter((pg) => pg.selected).map((pg) => pg.id);
         const ids = freshBook.fullDrill || ticked.length === 0 ? freshPages.map((pg) => pg.id) : ticked;
         onRunSelected(ids, freshBook.viewports.length ? freshBook.viewports : ["desktop"]);

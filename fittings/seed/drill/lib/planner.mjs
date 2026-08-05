@@ -25,7 +25,8 @@ import path from "node:path";
 import { findRunSkill } from "./projects.mjs";
 import { listPages, getPage } from "./store.mjs";
 import { drillHomeDir } from "./runs-store.mjs";
-import { closeExplore } from "./explore.mjs";
+import * as explore from "./explore.mjs";
+import { applyPlanIntegrity, capturePlanBaseline } from "./plan-integrity.mjs";
 
 const jobs = new Map(); // root -> job
 
@@ -123,7 +124,7 @@ function exploreSection(drillBaseUrl, root) {
   return [
     `LOOK AT THE APP. This is not optional and it is not a formality - it is how you decide what is worth`,
     `checking and how you write a check that can actually be answered. Drill drives a real browser for you`,
-    `and every reply names a screenshot file: READ that file with the Read tool. Your own eyes are the`,
+    `and every open/act/observe reply names a screenshot file: READ that file with the Read tool. Your own eyes are the`,
     `vision here; nothing behind these endpoints calls a model.`,
     ``,
     `  # go to a page (path resolves against the Book's app.url; viewport: desktop|tablet|mobile)`,
@@ -134,6 +135,9 @@ function exploreSection(drillBaseUrl, root) {
     `  curl -sS -X POST ${drillBaseUrl}/api/explore/act -H 'content-type: application/json' \\`,
     `    -d ${q({ action: { kind: "click", role: "button", name: "Save" } })}`,
     ``,
+    `  # explicitly re-observe the current page without inventing a hover or shell sleep`,
+    `  curl -sS -X POST ${drillBaseUrl}/api/explore/observe -H 'content-type: application/json' -d ${q({})}`,
+    ``,
     `  # ask whether a candidate assertion is TRUE of the page right now`,
     `  curl -sS -X POST ${drillBaseUrl}/api/explore/assert -H 'content-type: application/json' \\`,
     `    -d ${q({ assertion: { kind: "visible", role: "button", name: "Save" } })}`,
@@ -141,10 +145,22 @@ function exploreSection(drillBaseUrl, root) {
     `  # when you are completely finished exploring`,
     `  curl -sS -X POST ${drillBaseUrl}/api/explore/close -H 'content-type: application/json' -d ${q({})}`,
     ``,
-    `open/act return: url, title, heading, screenshot (a PNG path - Read it), elements (role+name pairs,`,
-    `the exact vocabulary assertions and actions are written in), consoleErrors. act takes ONE resolved`,
+    `open/act/observe return: observationId, url, title, heading, screenshot (a .jpg or image path - Read it),`,
+    `elements (role+name pairs), consoleErrors, quiet (bounded DOM/network inactivity, NOT proof that`,
+    `the page is semantically ready), network`,
+    `(sanitised requests since navigation), and browserContext. These are a RECEIPT for the exact route,`,
+    `viewport, browser context and time you actually saw. persistentProfile and tab/navigation ages`,
+    `describe continuity only; they do NOT prove that an auth token or other app state is fresh. act takes ONE resolved`,
     `action: {kind: click|fill|select|check|hover|press, plus a locator - role+name, testId, label,`,
     `placeholder, or selector - and value for fill/select/press}.`,
+    ``,
+    `Do not fake settling with sleep, a no-op hover, or repeated screenshots until one tells the story you`,
+    `expected. The observation endpoint already performs the bounded DOM/network inactivity check. A screenshot of a loader`,
+    `proves only that the loader was visible in that finite observation; it does NOT prove that a request`,
+    `hung, that the API was healthy, or that the page "never resolves". Use the response's quiet + network`,
+    `fields. Re-open the route to take an independent sample. Describe a finite deadline miss with its real`,
+    `conditions, never as "forever", "indefinitely", or "never". A curl to an API is a different client,`,
+    `auth context and request path and cannot corroborate what the browser received.`,
     ``,
     `Work page by page: open it, read the screenshot, then USE it - click the menus, open the dialogs,`,
     `submit the forms, try the empty and error paths. You cannot plan a page you have only read the source`,
@@ -217,7 +233,10 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
     `  fullDrill: true | false      (keep the existing value; default true for a fresh Book)`,
     `  autonomy: gated | auto       (keep existing; default gated)`,
     `  viewports: [desktop]         (add tablet/mobile ONLY when the app clearly targets them)`,
-    `  globalRules: <short prose rules that apply to every page - tone, brand, layout invariants; "" if none>`,
+    `  globalRules: <KEEP the pre-plan value byte-for-byte. For a fresh Book write "". Planner sessions`,
+    `               cannot prove arbitrary app-wide prose from route observations, so the integrity gate`,
+    `               rejects additions and rewrites; only deletion-only cleanup of polluted legacy clauses`,
+    `               is accepted. Current defects belong in report-only output, never global rules.>`,
     `  dispatch: manual             (keep existing)`,
     `  auth: <OMIT unless the app requires login to reach its real pages - otherwise EVERY check just sees the login screen and fails>`,
     `    loginPath: </login>              (the login route, resolved against app.url; omit if login is at the app root)`,
@@ -254,6 +273,18 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
     `                                giving every step on a page the same named state, that state is the page's default: write`,
     `                                state: default.)`,
     `      description: <the check, written as a concrete acceptance criterion an agent verifies on the page AFTER this step's actions have run. If the criterion is about what HAPPENS when the user interacts - clicks, presses, types, submits, hovers, drags, scrolls - you MUST also author \`actions\` below; the description alone never makes the interaction happen.>`,
+    `      authoringObservation:       (OPTIONAL; bounded provenance for what you actually observed,`,
+    `                                  separate from the timeless acceptance criterion in description)`,
+    `        kind: snapshot`,
+    `        receipts: [<observationId returned by open/act/observe>]`,
+    `      (snapshot accepts open/observe/act receipts, but Drill does not yet persist or replay the exact`,
+    `       ordered locator/value sequence needed to attest an interaction. Keep interaction findings report-only.)`,
+    `      (A receipt must come from THIS plan, the same route+viewport, and a screenshot you Read. The`,
+    `       integrity gate quarantines a new empirical claim without one and restores an unsupported rewrite`,
+    `       of an existing check. Drill does not yet issue the multi-sample/correlated evidence needed for`,
+    `       timeout or data-mismatch provenance: keep those report-only, not Book facts. Independent curl`,
+    `       output is not browser evidence. Keep dates, "Observed at authoring time", diagnoses and current defect`,
+    `       prose OUT of description; the plan session and this structured field carry provenance.)`,
     `      actions: []              (OPTIONAL, ordered - the interactions performed on the page BEFORE this check is judged. Same vocabulary as the Book's auth.steps and a state's reachPath: one plain-English instruction per entry, e.g. "click the \"Anexar\" button", "type \"hello\" into the composer", "press Shift+Enter". Entries are bare strings, or { id: <slug>, description: <action> } for a stable id.)`,
     `      (REQUIRED whenever the description asserts a BEHAVIOUR rather than a static fact about the page as it first loads. WHY THIS MATTERS: without actions the runner only navigates and looks, so a behavioural check is judged against an untouched page - it then passes or fails on evidence that cannot show the behaviour either way, which is a WRONG verdict, and a passing one gets committed as a spec that never performs the behaviour. A behavioural description with no actions is a mis-authored check.)`,
     `      (Keep actions minimal and page-local. If reaching the state takes more than a few actions, or several checks need the same setup, author a state with a reachPath instead and scope those steps to it.)`,
@@ -275,6 +306,11 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
     `  assertion to /api/explore/assert and confirm passed:true. That endpoint is the same evaluator the`,
     `  run uses, so a passing answer means the check will pass. If it comes back false, your assertion is`,
     `  wrong - fix it or drop it. NEVER write an assertion you did not see return passed:true.`,
+    `  Drill records that exact passed assertion against the current route+viewport. After the session it`,
+    `  mechanically marks every new or semantically changed assertion assertionSource: authored; if no`,
+    `  matching receipt exists it removes the unproven assertion and safely falls the check back to vision.`,
+    `  Until Drill can bind and replay an exact setup/action sequence, only assertions on the untouched`,
+    `  default state (no step actions) are eligible for this shortcut; stateful or behavioural checks stay vision.`,
     `  The five kinds (nothing else is valid):`,
     `      { kind: visible,           role|testId|label|placeholder|selector, name?: <accessible name> }`,
     `      { kind: count,             role|testId|selector, name?, op: eq|gte|lte|gt|lt, value: <n> }`,
@@ -305,6 +341,14 @@ function planPrompt(root, { brief, runSkill, drillBaseUrl }) {
     `      label: <human label>`,
     `      reachPath: [{ id: <slug>, description: <one natural-language action an agent executes to move toward the state, e.g. "log in as the demo user"> }]`,
     `      (reachPath moves the PAGE into a named state SHARED by many steps; a step's own \`actions\` are the one-off interactions a SINGLE check needs. When a step is state-scoped, its actions run after the reach path.)`,
+    ``,
+    `Do not add or rewrite globalRules. Route receipts are not predicate-specific evidence for arbitrary`,
+    `app-wide prose, so the integrity gate restores the pre-plan value even if you sampled several pages.`,
+    `Only deletion-only cleanup of a polluted legacy clause is accepted. One stale browser context, one screenshot, a health counter, or a`,
+    `separate curl never proves that every authenticated request or every page is broken. Do not mutate app`,
+    `source or backend data to manufacture a plan; if the environment blocks exploration, keep the normative`,
+    `coverage you can support and report the blocker. Removing a pre-plan page/step or deselecting coverage`,
+    `is allowed to remain on disk but is always flagged needs-attention, so an unattended plan-then-run stops.`,
     ``,
     `Write valid YAML; after writing, re-read every file you wrote and confirm it parses. Keep descriptions self-contained - the run agent sees the description and the page, nothing else.`,
     ``,
@@ -409,9 +453,11 @@ async function drillsChangedSince(root, before) {
 
 export function publicPlanJob(job) {
   if (!job) return null;
-  // proc (the live ChildProcess) and snapshot (a Map - JSON.stringify would
-  // silently emit "{}") never belong in the wire payload.
-  const { proc, snapshot, ...rest } = job;
+  // proc (the live ChildProcess), snapshot (a Map), and the parsed pre-plan
+  // baseline never belong in the wire payload. The baseline may contain Book
+  // auth actions as well as every acceptance criterion; it exists solely for
+  // the post-agent integrity comparison.
+  const { proc, snapshot, baseline, ...rest } = job;
   return rest;
 }
 
@@ -419,11 +465,24 @@ export function getPlanJob(root) {
   return jobs.get(root) ?? null;
 }
 
+export function inFlightPlanConflict(existing, brief) {
+  if (!existing || existing.status !== "planning") return false;
+  const requested = typeof brief === "string" ? brief.trim() : "";
+  if (!requested) return false;
+  const active = typeof existing.brief === "string" ? existing.brief.trim() : "";
+  return requested !== active;
+}
+
 // Kick (or return the already-running) plan job for `root`. Resolution
 // happens in a detached poll loop; callers watch GET /api/plan/status.
 export async function startPlan({ root, brief = null, timeoutMs = defaultTimeoutMs(), drillBaseUrl = "http://127.0.0.1:7096" }) {
   const existing = jobs.get(root);
-  if (existing && existing.status === "planning") return existing;
+  if (existing && existing.status === "planning") {
+    if (inFlightPlanConflict(existing, brief)) {
+      throw new Error("a different plan is already running for this project - wait for it to finish before starting this update");
+    }
+    return existing;
+  }
 
   const startedAt = new Date().toISOString();
   const deadlineAt = new Date(Date.now() + timeoutMs).toISOString();
@@ -437,7 +496,8 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
   const job = {
     root, mode: brief ? "update" : "full", brief, status: "planning",
     startedAt, endedAt: null, deadlineAt, canceledAt: null, sessionId, logFile: null, error: null,
-    pages: null, noop: false, warnings: [], agentPid: null, agentExited: null, proc: null, snapshot: null
+    pages: null, noop: false, needsAttention: false, warnings: [], integrity: null,
+    agentPid: null, agentExited: null, proc: null, snapshot: null, baseline: null
   };
   jobs.set(root, job);
   const finish = (status, patch = {}) => {
@@ -446,7 +506,7 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
     // The plan session owns the exploration tab; a plan that ends any way at
     // all (done, failed, timed out, killed) must not leave a driven browser
     // tab behind for the next one to inherit mid-flow.
-    closeExplore({ root }).catch(() => {});
+    explore.closeExplore({ root }).catch(() => {});
   };
 
   let logStream;
@@ -460,7 +520,14 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
       await clearJobRecord(root);
     } catch { /* no record - the normal case */ }
 
-    job.snapshot = await snapshotDrills(root);
+    // Both snapshots are taken before the child exists. `snapshot` is the
+    // pre-guard filesystem proof used by the OK-sentinel discipline; `baseline`
+    // is parsed private state used only after that decision to establish
+    // assertion/observation provenance.
+    [job.snapshot, job.baseline] = await Promise.all([
+      snapshotDrills(root),
+      capturePlanBaseline(root)
+    ]);
     await fs.mkdir(logDir(), { recursive: true });
     job.logFile = path.join(logDir(), `${safeName(root)}-${Date.now()}.log`);
     await fs.writeFile(job.logFile, `[drill plan] ${startedAt} mode=${job.mode} root=${root} session=${sessionId}\n`, "utf8");
@@ -533,10 +600,41 @@ export async function startPlan({ root, brief = null, timeoutMs = defaultTimeout
           } else if (!claimedNoop && !(await drillsChangedSince(root, job.snapshot))) {
             finish("failed", { error: `agent reported DRILL_PLAN_OK=${sentinel.ok} but nothing under drills/ changed (see log)` });
           } else {
+            // IMPORTANT: integrity may itself rewrite page YAML (mark an
+            // assertion authored, downgrade one to vision, quarantine a new
+            // unsupported finding). It runs only AFTER the independent
+            // filesystem-change decision above so its own writes can never
+            // vouch for a lying DRILL_PLAN_OK sentinel.
+            const integrity = await applyPlanIntegrity({
+              root,
+              baseline: job.baseline,
+              startedAt: job.startedAt,
+              evidence: {
+                getObservation: (id) => explore.getExploreObservation?.(root, id) ?? null,
+                listObservations: () => explore.listExploreObservations?.(root) ?? [],
+                hasPassedAssertion: (assertion, constraints) =>
+                  explore.hasPassedExploreAssertion?.(root, assertion, constraints) ?? false
+              }
+            });
             finish("done", {
               pages: pages.length,
               noop: claimedNoop,
-              warnings: await deadCoverageWarnings(root).catch(() => [])
+              needsAttention: integrity.needsAttention,
+              integrity: {
+                quarantined: integrity.quarantined,
+                restoredSteps: integrity.restoredSteps,
+                downgradedAssertions: integrity.downgradedAssertions,
+                globalRulesRestored: integrity.globalRulesRestored,
+                globalRulesEvidenceRoutes: integrity.globalRulesEvidenceRoutes,
+                removedCoverage: integrity.removedCoverage,
+                provenanceRepairs: integrity.provenanceRepairs,
+                bookConfigRepairs: integrity.bookConfigRepairs,
+                bookConfigReviews: integrity.bookConfigReviews
+              },
+              warnings: [
+                ...integrity.warnings,
+                ...await deadCoverageWarnings(root).catch(() => [])
+              ]
             });
           }
         } else {
@@ -568,7 +666,7 @@ export async function cancelPlan(root) {
   try { job.proc?.kill("SIGKILL"); } catch { /* already gone */ }
   Object.assign(job, { status: "canceled", error: null, canceledAt: new Date().toISOString(), endedAt: new Date().toISOString() });
   await clearJobRecord(root);
-  await closeExplore({ root }).catch(() => {});
+  await explore.closeExplore({ root }).catch(() => {});
   return { canceled: true, job: publicPlanJob(job) };
 }
 

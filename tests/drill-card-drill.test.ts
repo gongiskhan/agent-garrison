@@ -28,7 +28,7 @@ const REPO = resolve(HERE, "..");
 const DRILL_START = join(REPO, "fittings", "seed", "drill", "scripts", "start.mjs");
 
 // @ts-ignore — pure ESM .mjs
-import { changedPageIds, resolveRunScope, verdictOf, outcomeFrom, reapOrphanCardDrills } from "../fittings/seed/drill/lib/card-drill.mjs";
+import { changedPageIds, resolveRunScope, planNeedsAttentionError, verdictOf, outcomeFrom, reapOrphanCardDrills } from "../fittings/seed/drill/lib/card-drill.mjs";
 // @ts-ignore
 import { outcomeText, summarizeReceipts, broadcastOutcome } from "../fittings/seed/drill/lib/broadcast.mjs";
 
@@ -58,6 +58,12 @@ describe("run scope — what a card's drill actually runs", () => {
   it("falls back to every page when the Book has no selection at all", () => {
     expect(resolveRunScope({ changed: [], book: { pages: [] }, allPageIds: ["chat"] }))
       .toEqual({ pageIds: ["chat"], scope: "all-pages" });
+  });
+
+  it("stops an autonomous card run when planning required integrity repairs", () => {
+    expect(planNeedsAttentionError({ needsAttention: false })).toBeNull();
+    expect(planNeedsAttentionError({ needsAttention: true, warnings: ["quarantined", "restored"] }))
+      .toBe("planning finished with integrity warnings (2); review the Drill Book before running it");
   });
 });
 

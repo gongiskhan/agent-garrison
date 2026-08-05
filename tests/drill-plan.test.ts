@@ -76,7 +76,8 @@ beforeAll(async () => {
 
   // The stub planner: behavior switched per kick through a plan-stub-mode
   // file in its cwd (the project root). "ok" honors the whole contract,
-  // "fail" reports a failure, "lie" claims success without writing anything,
+  // "empirical" writes an unsupported current-defect claim for the post-plan
+  // integrity guard, "fail" reports a failure, "lie" claims success without writing anything,
   // "silent" exits without any sentinel, "noop" claims OK=0 (already
   // covered, changed nothing), "fail-then-ok" recovers after an early
   // failure line (last sentinel wins), "hang" stays alive without ever
@@ -93,8 +94,15 @@ beforeAll(async () => {
     "  writeFileSync(path.join(process.cwd(), 'drills', 'drillbook.yml'), 'app:\\n  name: stub\\n  url: \\'\\'\\nfullDrill: true\\npages:\\n  - id: home\\n    title: Home\\n    path: /\\n    mode: steps\\n    selected: true\\n');",
     "  writeFileSync(path.join(process.cwd(), 'drills', 'pages', 'home.yml'), 'id: home\\ntitle: Home\\npath: /\\nmode: steps\\nareas: []\\nsteps:\\n  - id: hero\\n    area: 0\\n    mode: vision\\n    enabled: true\\n    viewports:\\n      - desktop\\n    state: default\\n    description: hero renders\\n    tags: []\\nstates: []\\n');",
     "}",
+    "function writeEmpiricalBook() {",
+    "  writeBook();",
+    "  writeFileSync(path.join(process.cwd(), 'drills', 'pages', 'home.yml'), 'id: home\\ntitle: Home\\npath: /\\nmode: steps\\nareas: []\\nsteps:\\n  - id: hero\\n    area: 0\\n    mode: vision\\n    enabled: true\\n    viewports:\\n      - desktop\\n    state: default\\n    description: hero renders\\n    tags: []\\n  - id: current-defect\\n    area: 0\\n    mode: vision\\n    enabled: true\\n    viewports:\\n      - desktop\\n    state: default\\n    description: \\'Standing defect: this page currently shows a blank panel\\'\\n    tags: []\\nstates: []\\n');",
+    "}",
     'if (mode === "ok") {',
     "  writeBook();",
+    '  console.log("DRILL_PLAN_OK=1");',
+    '} else if (mode === "empirical") {',
+    "  writeEmpiricalBook();",
     '  console.log("DRILL_PLAN_OK=1");',
     '} else if (mode === "fail") {',
     '  console.log("DRILL_PLAN_FAILED=cannot map the app");',
@@ -186,6 +194,7 @@ describe("full plan + scoped update", () => {
     const kick = await postJson("/api/plan/start", {});
     expect(kick.status).toBe(200);
     expect(kick.body.job.mode).toBe("full");
+    expect(kick.body.job).not.toHaveProperty("baseline");
 
     const st = await waitPlanSettled(12000);
     expect(st.job.status).toBe("done");
@@ -220,6 +229,23 @@ describe("full plan + scoped update", () => {
     expect(prompt).toContain("Mode: UPDATE");
     expect(prompt).toContain("the new invoices page: list, filters, CSV export");
     expect(prompt).not.toContain("Mode: FULL PLAN");
+  }, 20000);
+
+  it("finishes but flags and quarantines an unsupported empirical plan claim", async () => {
+    stubMode(projOk, "empirical");
+    expect((await postJson("/api/plan/start", { brief: "cover the latest UI" })).status).toBe(200);
+    const st = await waitPlanSettled(12000);
+    expect(st.job.status).toBe("done");
+    expect(st.job.needsAttention).toBe(true);
+    expect(st.job.integrity).toMatchObject({ quarantined: 1 });
+    expect(st.job.warnings.join("\n")).toMatch(/quarantined/);
+    expect(st.job).not.toHaveProperty("baseline");
+
+    const saved = await getJson("/api/pages/home");
+    expect(saved.body.page.steps.find((item: any) => item.id === "current-defect")).toMatchObject({
+      enabled: false,
+      planGuard: { status: "quarantined" }
+    });
   }, 20000);
 
   it("rejects an OK claim that changed nothing on a Book that already has pages", async () => {

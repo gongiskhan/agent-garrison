@@ -13,7 +13,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Headless Chromium substrate (default port 27084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Persistent profile by default (login continuity across restarts); opt-in stealth.
+  summary: Headless Chromium substrate (default port 27084). Per-tab JPEG screencast, mouse/key/touch input dispatch, raw CDP passthrough, and the full Chrome DevTools UI reverse-proxied at /devtools/inspector.html. Plus post-action OBSERVATION (/tabs/:id/observe — url/title/heading + DOM-shape counts + viewport + optional bounded quiet gate/a11y/screenshot), a CDP a11y tree (/a11y), and resolved-action EXECUTION via a locator ladder (/execute) — the inputs the Automations orchestration layer keys its action cache on. Persistent profile by default (login continuity across restarts); opt-in stealth.
   config_schema:
     - key: port
       type: integer
@@ -82,11 +82,45 @@ x-garrison:
                                           - captured console + uncaught
                                             exceptions + Log.entryAdded
       GET    /tabs/:id/network[?since=…&limit=…&filter=…&status=error]
-                                          - captured network requests/responses
+                                          - captured network requests/responses;
+                                            each entry derives pending, persistent,
+                                            and ageMs at read time; persistent is
+                                            true only while a long-lived transport
+                                            remains open. Top-level
+                                            historyTruncated says whether the
+                                            requested since-window lost entries
+                                            to the 500-entry source buffer;
+                                            historyDroppedCount is the tab-lifetime
+                                            eviction count. Matching active
+                                            requests are overlaid exactly once
+                                            even when their history row was
+                                            evicted (and do not consume limit).
       GET    /tabs/:id/network/:requestId/body
                                           - on-demand response body
                                             (Network.getResponseBody)
       GET    /tabs/:id/dom[?selector=…]   - outerHTML of doc or selector
+      GET    /tabs/:id/observe[?a11y=1&screenshot=1&quiet=1]
+                                          - coherent page fingerprint; quiet=1
+                                            waits up to 4s for 600ms with no
+                                            relevant pending network or DOM
+                                            mutation, reads evidence, then
+                                            revalidates both lifecycle generations
+                                            inside that same deadline. Active
+                                            request accounting is independent of
+                                            the bounded 500-entry history.
+                                            Returns quiet { outcome, waitedMs,
+                                            quietForMs, readyState, networkQuiet,
+                                            domStable, timedOut, budgetMs,
+                                            pendingRequests, persistentRequests }
+                                            plus safe browserContext {
+                                            persistentProfile, tabAgeMs,
+                                            navigationAgeMs }. EventSource,
+                                            WebSocket, and text/event-stream are
+                                            reported persistent, not quiet blockers.
+                                            A top-level opaque stabilityToken is
+                                            present only for a coherent quiet
+                                            capture; it changes with navigation,
+                                            URL, DOM mutation, or network lifecycle.
       POST   /tabs/:id/eval  {js}         - Runtime.evaluate; returns
                                             { ok, value, type }
       GET    /tabs/:id/selection          - what the user pointed at on the
