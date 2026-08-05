@@ -86,26 +86,12 @@ x-garrison:
             enabled: true
             triage_enabled: true
             wake_enabled: true
-            # Chat must be ON before the Omi app is created: the backend FETCHES
-            # chat_tools_manifest_url at create time, and a 403 there means the
-            # app is created with silently-empty chat tools.
             chat_enabled: true
             notify_enabled: true
-            # Omi streams realtime segments in batches, and the gap between the
-            # segment carrying "Gary, create a task saying" and the one carrying
-            # the title exceeded the 4s default - the window shut mid-sentence
-            # and the truncated command classified as unknown.
-            # Create the card FAST so it can be corrected by voice: close 15s
-            # after the last speech, or 45s after the wake word, whichever comes
-            # first. Near a television the stream never goes quiet, so the 45s
-            # ceiling is the real terminator. The 10-minute revision pass below
-            # is what recovers detail this short window misses.
             wake_silence_close_ms: 15000
             wake_min_capture_ms: 0
             wake_max_capture_ms: 45000
             wake_command_window_ms: 45000
-            # Segments from BEFORE the wake word handed to the classifier as
-            # context - that is where the subject of a fragmented command lands.
             wake_context_segments: 6
             wake_context_max_age_ms: 120000
       gateway:
@@ -220,7 +206,7 @@ x-garrison:
             projects_root: ~/dev
         - id: improver-nightly
           config:
-            autonomy_mode: manual
+            autonomy_mode: enabled
             schedule_cron: 17 3 * * *
             state_dir: data/improver
             proposal_namespace: improver
