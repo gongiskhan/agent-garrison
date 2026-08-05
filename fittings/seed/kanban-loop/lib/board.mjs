@@ -750,7 +750,7 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
     // a finished | blocked | failed event — appends to the origin's durable event log
     // for ALL transports, and posts the (legacy) web text to the originating thread.
-    routeTerminalTransition(root, disk, next);
+    routeTerminalTransition(root, disk, next, { summary: hooks.terminalSummary });
     // The Done handoff is scheduled only AFTER withCardLock returns below. If it
     // were queued here, the lock's asynchronous cleanup could yield to that
     // callback before processCard writes its final duty-summary.

@@ -1,4 +1,4 @@
-export { ClaudeChat, buildSendMeta, QuestionBlock } from "./ClaudeChat";
+export { ClaudeChat, buildSendMeta, QuestionBlock, rewriteRouteForHost } from "./ClaudeChat";
 export { SessionStream } from "./SessionTranscript";
 export type { SessionStreamProps } from "./SessionTranscript";
 export {

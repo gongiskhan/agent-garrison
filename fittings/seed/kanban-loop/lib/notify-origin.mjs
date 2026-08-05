@@ -117,13 +117,25 @@ function boardCardUrl(cardId) {
 
 // The outcome message the thread receives. Plain text + the card link — the
 // channel renders links; content stays snippet-sized (the card holds the rest).
-export function outcomeMessage(card) {
+const MAX_WEB_COMPLETION = 8_000;
+
+function completionText(value, max = MAX_WEB_COMPLETION) {
+  const text = String(value ?? "").trim().replace(/(?:\r?\n)+done\s*$/i, "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max).trimEnd()}…\n\n(Reply shortened in chat; open the card for the full log.)`;
+}
+
+export function outcomeMessage(card, { summary } = {}) {
   const title = (card.title || "(untitled)").trim();
   const url = boardCardUrl(card.id);
   if (card.list === DONE_LIST) {
     const lines = [`Run complete — ${title}.`];
-    const snippet = typeof card.lastReply === "string" && card.lastReply.trim() ? card.lastReply.trim() : null;
-    if (snippet) lines.push(snippet.length > 400 ? `${snippet.slice(0, 400)}…` : snippet);
+    // The card stores only a small front-of-card snippet. Engine callers pass the
+    // authoritative reply separately so the originating conversation receives
+    // the actual answer without persisting that large body into card.json.
+    const hasAuthoritativeSummary = typeof summary === "string" && summary.trim();
+    const reply = completionText(hasAuthoritativeSummary ? summary : card.lastReply, hasAuthoritativeSummary ? MAX_WEB_COMPLETION : 400);
+    if (reply) lines.push(reply);
     if (card.videoUrl) lines.push(`Evidence video: ${card.videoUrl}`);
     if (url) lines.push(`Card: ${url}`);
     return lines.join("\n\n");
@@ -344,7 +356,11 @@ export function routeOriginEvent(root, disk, card, event) {
     // that path ALWAYS sends the inline reply, so this is never the sole notification.
     const skipWeb =
       (event.kind === "steering" && event.detail?.viaTurn === true) ||
-      event.kind === "created";
+      event.kind === "created" ||
+      // The terminal CAS already delivered one authoritative "Run complete"
+      // message. Keep the final duty-summary in the durable lifecycle log, but
+      // do not post a second, 200-character copy into the Web Channel thread.
+      (event.kind === "duty-summary" && event.detail?.listTo === DONE_LIST);
     if (CHANNEL_FITTINGS[transport] && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
       deliverChannelMessage(transport, card.originChannel.threadId, event.message);
     }
@@ -368,13 +384,13 @@ function terminalEdge(prev, next) {
  * blocked|failed (into needs-attention, split by card.attentionKind) with the legacy
  * web text. Fire-and-forget, never throws.
  */
-export function routeTerminalTransition(root, prev, next) {
+export function routeTerminalTransition(root, prev, next, { summary } = {}) {
   try {
     if (!terminalEdge(prev, next)) return;
     let kind;
     if (next.list === DONE_LIST) kind = "finished";
     else kind = next.attentionKind === "failed" ? "failed" : "blocked";
-    routeOriginEvent(root, prev, next, { kind, message: outcomeMessage(next) });
+    routeOriginEvent(root, prev, next, { kind, message: outcomeMessage(next, { summary }) });
   } catch {
     /* never let the router break a save */
   }

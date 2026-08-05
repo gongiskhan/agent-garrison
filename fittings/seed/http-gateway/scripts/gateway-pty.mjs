@@ -1074,7 +1074,7 @@ export function pendingRouteFrame(pre, hints, extra = {}) {
 // stop somebody else's turn. `stop` is filled in by the LANE (the primitives
 // differ per runtime and are only knowable once the route resolved), so an
 // interrupt arriving before then reports the honest "no cancel primitive yet".
-const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled }
+const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled, dutyKey, cardIds }
 const INTERRUPT_FALLBACK_KEY = "operative";
 let currentTurnEntry = null;
 
@@ -1085,16 +1085,38 @@ function registerTurnStop(lane, stop) {
   currentTurnEntry.stop = stop;
 }
 
-/** POST /chat/interrupt {sessionId} → {ok, lane} | 404 | 409. */
+/** POST /chat/interrupt {sessionId?, cardId?} → {ok, lane} | 404 | 409.
+ *
+ * A card-bound interrupt fails closed unless the requested card belongs to the
+ * active turn. Kanban does not allocate a conversation session per card (its
+ * turns use the shared `operative` key), so sessionId alone cannot prevent a
+ * queued card from stopping whichever card happens to be running. Batched turns
+ * deliberately carry every member: panicking any one member stops the shared
+ * runtime turn and the batch engine parks all of them.
+ */
 export async function handleInterrupt(body, turns = activeTurns) {
   const sessionId =
     typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : INTERRUPT_FALLBACK_KEY;
   const entry = turns.get(sessionId);
   if (!entry) return { status: 404, body: { ok: false, error: "no-active-turn", sessionId } };
+  const cardId = typeof body?.cardId === "string" && body.cardId.trim() ? body.cardId.trim() : null;
+  const cardIds = Array.isArray(entry.cardIds)
+    ? entry.cardIds.filter((id) => typeof id === "string" && id)
+    : [];
+  if (cardId && !cardIds.includes(cardId)) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: "active-turn-belongs-to-another-card",
+        cardId,
+        activeCardIds: cardIds
+      }
+    };
+  }
   if (typeof entry.stop !== "function") {
     return { status: 409, body: { ok: false, error: "lane-has-no-cancel-primitive", lane: entry.lane } };
   }
-  entry.cancelled = true;
   let stopped = false;
   try {
     stopped = (await entry.stop()) !== false;
@@ -1102,10 +1124,19 @@ export async function handleInterrupt(body, turns = activeTurns) {
     logEvent("stderr", { kind: "interrupt-failed", lane: entry.lane, error: String(err?.message ?? err) });
     return { status: 500, body: { ok: false, error: "cancel-failed", lane: entry.lane } };
   }
-  logEvent("stdout", { kind: "interrupt", lane: entry.lane, sessionId, stopped });
+  if (!stopped) {
+    logEvent("stderr", { kind: "interrupt-refused", lane: entry.lane, sessionId, cardId, cardIds });
+    return {
+      status: 409,
+      body: { ok: false, error: "cancel-primitive-did-not-stop", lane: entry.lane, cardIds }
+    };
+  }
+  entry.interruptedByCardId = cardId;
+  entry.cancelled = true;
+  logEvent("stdout", { kind: "interrupt", lane: entry.lane, sessionId, cardId, cardIds, stopped });
   // The turn now settles normally with its partial reply; runTurn stamps
   // stoppedByUser onto the done frame.
-  return { status: 200, body: { ok: true, lane: entry.lane, stopped } };
+  return { status: 200, body: { ok: true, lane: entry.lane, stopped, cardIds } };
 }
 
 // ───────────────────────── account → real auth env (§6)
@@ -1985,7 +2016,17 @@ async function runTurn(message, onChunk, hints, opts = {}) {
   // lane fills in the actual `stop` as soon as it owns something interruptible; an
   // interrupt before that answers "no cancel primitive yet" rather than lying.
   const turnKey = hints?.sessionId || INTERRUPT_FALLBACK_KEY;
-  const entry = { lane: primaryRuntime(), stop: null, cancelled: false };
+  const hintedCardIds = Array.isArray(hints?.cardIds)
+    ? hints.cardIds.filter((id) => typeof id === "string" && id).slice(0, 100)
+    : [];
+  const cardIds = [...new Set([turnCardId, ...hintedCardIds].filter(Boolean))];
+  const entry = {
+    lane: primaryRuntime(),
+    stop: null,
+    cancelled: false,
+    dutyKey: typeof hints?.dutyKey === "string" ? hints.dutyKey : null,
+    cardIds
+  };
   const prevTurnEntry = currentTurnEntry;
   currentTurnEntry = entry;
   activeTurns.set(turnKey, entry);
@@ -1995,7 +2036,17 @@ async function runTurn(message, onChunk, hints, opts = {}) {
       // A cancelled turn settles NORMALLY with its partial reply - the stop is not
       // an error path - so the done frame is where the user learns it was stopped.
       return entry.cancelled
-        ? { ...result, stoppedByUser: true, stoppedReason: result?.stoppedReason ?? "user-interrupt" }
+        ? {
+            ...result,
+            stoppedByUser: true,
+            // The adapter may call its own primitive stop "cancelled". Preserve
+            // that low-level reason separately; the workflow needs the stable,
+            // user-authored cause so it never interprets a partial reply.
+            runtimeStoppedReason: result?.stoppedReason ?? null,
+            stoppedReason: "user-interrupt",
+            interruptedByCardId: entry.interruptedByCardId ?? null,
+            affectedCardIds: entry.cardIds
+          }
         : result;
     }
     if (!session || session.isDisposed() || !session.isAlive()) {
@@ -2032,7 +2083,14 @@ async function runTurn(message, onChunk, hints, opts = {}) {
       session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
       transcript_path: journal?.transcript_path ?? null,
       cost_usd: null,
-      ...(entry.cancelled ? { stoppedByUser: true, stoppedReason: "user-interrupt" } : {})
+      ...(entry.cancelled
+        ? {
+            stoppedByUser: true,
+            stoppedReason: "user-interrupt",
+            interruptedByCardId: entry.interruptedByCardId ?? null,
+            affectedCardIds: entry.cardIds
+          }
+        : {})
     };
   } finally {
     // The turn ended (returned, timed out, or threw) - an unanswered question it raised
@@ -2122,6 +2180,11 @@ export function routeHintsFromBody(body) {
     // card+phase the turn ran, folded into the compact-log record.
     contextHold: body?.contextHold === true,
     dutyKey: typeof body?.dutyKey === "string" && body.dutyKey ? body.dutyKey : null,
+    // Kanban batch identity. Bounded and opaque: it is used only to prove that a
+    // card-level interrupt belongs to the active shared turn.
+    cardIds: Array.isArray(body?.cardIds)
+      ? [...new Set(body.cardIds.filter((id) => typeof id === "string" && id).slice(0, 100))]
+      : null,
     // S3b: the web-channel's assembled materialized-turn context — prefixed onto a
     // web one-shot so the standing operative session holds no web context.
     context: typeof body?.context === "string" ? body.context : null,

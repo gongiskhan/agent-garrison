@@ -12,6 +12,8 @@ import {
   dispatchSchema,
   parseDispatch,
   fallbackDispatch,
+  deterministicFallbackDispatch,
+  discussionDutyShortCircuit,
   parseLevelOverride,
   applyOverride,
   messageDigest,
@@ -72,6 +74,46 @@ describe("dispatch prompt (mirrors buildClassifierPrompt)", () => {
     expect(s.properties.duty.type).toBe("string");
     expect(s.properties.duty.enum).toBeUndefined();
     expect(s.properties.level.type).toBe("integer");
+  });
+});
+
+describe("explicit discussion intent", () => {
+  const discussionModel = () => ({
+    duties: {
+      ...model().duties,
+      discuss: {
+        id: "discuss",
+        title: "Discuss",
+        description: "talk a problem through",
+        levels: [
+          { description: "quick", cell: { target: "fable", effort: "medium" } },
+          { description: "involved", cell: { target: "fable", effort: "high" } }
+        ]
+      }
+    },
+    selectedDuties: ["code", "other", "discuss"]
+  });
+
+  const incident =
+    "queria falar sobre a feature do assistente do ekoa (nova versão) nas apps. " +
+    "Queria tornar o assistente configurável e publicamente exposto, com tenancy, billing e API documentada. O que achas?";
+
+  it("routes the exact Portuguese product-opinion shape to Discuss despite feature/API nouns", () => {
+    expect(discussionDutyShortCircuit(incident, discussionModel())).toMatchObject({ duty: "discuss", level: 2 });
+    expect(deterministicFallbackDispatch(discussionModel(), incident)).toMatchObject({ duty: "discuss", level: 2 });
+  });
+
+  it("overrides a mistaken model code pick when the operator explicitly asks for an opinion", async () => {
+    const result = await dispatch(discussionModel(), incident, {
+      call: async () => ({ ok: true, structured: { duty: "code", level: 2, confidence: "high" } })
+    });
+    expect(result).toMatchObject({ duty: "discuss", level: 2, confidence: "high" });
+  });
+
+  it("does not turn a direct implementation request into a discussion", () => {
+    const ask = "Implement the app-assistant API feature and add tests.";
+    expect(discussionDutyShortCircuit(ask, discussionModel())).toBeNull();
+    expect(deterministicFallbackDispatch(discussionModel(), ask).duty).toBe("code");
   });
 });
 

@@ -27,7 +27,21 @@ await build({
 });
 
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
-writeFileSync(path.join(DIST, "kanban.css"), readFileSync(path.join(HERE, "styles.css"), "utf8"));
+// SessionStream is the same shared component Web Channel renders. Ship its base
+// stylesheet first, then the Kanban skin so local palette/chrome overrides win.
+const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
+let chatCss = "";
+if (existsSync(chatCssPath)) {
+  chatCss = readFileSync(chatCssPath, "utf8");
+} else {
+  const nm = path.resolve(HERE, "..", "..", "..", "..", "node_modules", "@garrison", "claude-chat", "src", "claude-chat.css");
+  if (existsSync(nm)) chatCss = readFileSync(nm, "utf8");
+}
+writeFileSync(
+  path.join(DIST, "kanban.css"),
+  `/* === @garrison/claude-chat (base) === */\n${chatCss.trimEnd()}\n\n/* === kanban skin (override layer) === */\n${skinCss.trimEnd()}\n`
+);
 
 // Copy xterm's CSS so the Terminal modal's xterm renders correctly when served
 // stand-alone. Walk up from here — the fitting may be built in-repo or from an

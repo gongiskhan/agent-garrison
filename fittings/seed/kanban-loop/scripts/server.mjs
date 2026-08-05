@@ -84,7 +84,7 @@ import {
 } from "../lib/resolved-model.mjs";
 import { batchGatewayRunFn, reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
-import { gatewayRunFn, inferenceRunFn, compactBoundaryFn, projectNameForRouting } from "../lib/gateway-client.mjs";
+import { gatewayRunFn, inferenceRunFn, compactBoundaryFn, interruptCardTurn, projectNameForRouting } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
 import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
@@ -117,7 +117,13 @@ import {
 export { isValidSliceId, isSafeEvidenceName, isEvidenceImage };
 // Rich-Log SSE tail of the Claude Code transcript per card session (parser copy
 // in lib/session-transcript.mjs, canonical in the drill fitting).
-import { readJsonlLines, parseTranscriptLines } from "../lib/session-transcript.mjs";
+import {
+  readJsonlLines,
+  parseTranscriptLines,
+  extractRelatedTaskRecords,
+  relatedTaskEvents
+} from "../lib/session-transcript.mjs";
+import { readLiveSessionPointer } from "../lib/live-session.mjs";
 import {
   CardImportError,
   NATIVE_CARD_BUNDLE_KIND,
@@ -3259,6 +3265,76 @@ async function handleStartCard(req, res, opts, id) {
   jsonRes(res, 200, { card: cardSummary(acceptedCard), dispatched: true });
 }
 
+// POST /cards/:id/panic — stop only the gateway turn that proves it owns this
+// card. The endpoint intentionally does NOT mutate the card: processCard/processBatch
+// still owns the status:"running" CAS and will atomically park the interrupted
+// result. Writing here would bump rev, race the terminal save, and recreate the
+// running-card wedge this engine's rebase discipline exists to prevent.
+async function handlePanicCard(req, res, opts, id) {
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  if (card.status !== "running") {
+    const message = "Panic only stops an active runtime turn. This card is no longer running; refresh the board before retrying.";
+    return jsonRes(res, 409, {
+      code: "card-not-running",
+      error: message,
+      message
+    });
+  }
+  if (!opts.gatewayUrl) {
+    const message = "No gateway is configured for this board, so there is no runtime turn to stop.";
+    return jsonRes(res, 503, {
+      code: "gateway-not-configured",
+      error: message,
+      message
+    });
+  }
+
+  let result;
+  try {
+    result = await interruptCardTurn(opts.gatewayUrl, id);
+  } catch (err) {
+    const message = `Could not reach the gateway to stop this card: ${err?.message || err}`;
+    return jsonRes(res, 503, {
+      code: "gateway-unreachable",
+      error: message,
+      message
+    });
+  }
+  if (result.status !== 200) {
+    const upstream = result.body && typeof result.body === "object" ? result.body : {};
+    const message = upstream.error === "active-turn-belongs-to-another-card"
+      ? "This card is marked running but is not the gateway's active turn (it may still be queued). Nothing else was stopped."
+      : upstream.error === "no-active-turn"
+        ? "The gateway has no active turn for this card. It may have finished already; refresh the board."
+        : upstream.error === "lane-has-no-cancel-primitive"
+          ? "This card's runtime has not exposed a safe stop primitive yet. Try Panic again once the turn starts producing output."
+          : upstream.error === "cancel-primitive-did-not-stop"
+            ? "This card's runtime declined the stop request. Nothing was marked interrupted; try again or wait for the turn to settle."
+          : "The gateway could not stop this card's active turn.";
+    return jsonRes(res, result.status, {
+      ...upstream,
+      code: upstream.error ?? "interrupt-refused",
+      error: message,
+      message
+    });
+  }
+
+  const affectedCardIds = Array.isArray(result.body?.cardIds) ? result.body.cardIds : [id];
+  const shared = affectedCardIds.length > 1;
+  return jsonRes(res, 200, {
+    ok: true,
+    stopped: result.body?.stopped !== false,
+    lane: result.body?.lane ?? null,
+    affectedCardIds,
+    sharedBatch: shared,
+    message: shared
+      ? `Stop sent. This was a shared batch turn, so all ${affectedCardIds.length} cards in it will park in Needs attention; no partial verdict will be used.`
+      : "Stop sent. The card will park in Needs attention; no partial verdict will be used."
+  });
+}
+
 // Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs)
 // so the board + the scheduler tick use one wire shape + one failure classification (a
 // transient gateway failure must REVERT a card, not park it).
@@ -3379,12 +3455,11 @@ async function handleOperativeScreen(req, res, opts) {
   try { res.end(); } catch {}
 }
 
-// GET /cards/:id/session-stream?i=<n> — SSE rich-Log tail of the card's Nth
-// Claude Code session transcript (~/.claude/projects/<encoded-cwd>/<sid>.jsonl,
-// resolved server-side from the card's OWN sessionIds via the `session:<i>` ref).
-// For a RUNNING card it tails new transcript lines live; otherwise it emits the
-// current transcript once and ends. Drill-compatible framing: default `message`
-// events with a JSON `data` payload ({type:init|events|end}).
+// GET /cards/:id/session-stream?i=<n>|live=1[&task=<public-id>] — the
+// @garrison/claude-chat SessionStream contract. `live=1` resolves the current
+// generation's ephemeral journal pointer, which exists before card.sessionIds can
+// be committed; numbered sessions resolve the durable pointers after completion.
+// Default-message SSE frames are {type:init|events|end}, exactly like Web Channel.
 // Find <sessionId>.jsonl by globbing every ~/.claude/projects/* dir. Session ids
 // are globally unique, so this sidesteps the cwd-encoding of claudeProjectDirForCwd:
 // the operative journals its transcript under ITS OWN cwd (the composition dir for
@@ -3404,8 +3479,54 @@ function findTranscriptBySession(sessionId) {
   return null;
 }
 
+function subagentsDirFor(parentTranscript) {
+  return parentTranscript.endsWith(".jsonl")
+    ? path.join(path.dirname(parentTranscript), path.basename(parentTranscript, ".jsonl"), "subagents")
+    : null;
+}
+
+function confinedSubagentTranscript(parentTranscript, agentId) {
+  const safe = typeof agentId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(agentId) ? agentId : null;
+  const root = subagentsDirFor(parentTranscript);
+  if (!safe || !root) return null;
+  const candidate = confinePath(path.join(root, `agent-${safe}.jsonl`), [root]);
+  return candidate && isReadableFile(candidate) ? candidate : null;
+}
+
+function relatedTaskStreamUrl(parentTranscript, baseQuery, task) {
+  if (!confinedSubagentTranscript(parentTranscript, task?.agentId)) return null;
+  return `/cards/${encodeURIComponent(baseQuery.cardId)}/session-stream?${baseQuery.selector}&task=${encodeURIComponent(task.taskId)}`;
+}
+
+function findRelatedTaskTranscript(parentTranscript, publicTaskId) {
+  if (typeof publicTaskId !== "string" || !/^task-[A-Za-z0-9_-]{1,133}$/.test(publicTaskId)) return null;
+  const root = subagentsDirFor(parentTranscript);
+  const journals = [parentTranscript];
+  if (root) {
+    let names = [];
+    try { names = readdirSync(root); } catch { /* no children */ }
+    for (const name of names) {
+      if (!/^agent-[A-Za-z0-9_-]{1,128}\.jsonl$/.test(name)) continue;
+      const confined = confinePath(path.join(root, name), [root]);
+      if (confined && isReadableFile(confined)) journals.push(confined);
+    }
+  }
+  for (const journal of journals) {
+    let lines = [];
+    try { lines = readFileSync(journal, "utf8").split("\n").filter((line) => line.trim()); } catch { continue; }
+    const task = extractRelatedTaskRecords(lines).find((candidate) => candidate.taskId === publicTaskId);
+    if (!task?.agentId) continue;
+    const child = confinedSubagentTranscript(parentTranscript, task.agentId);
+    if (child) return child;
+  }
+  return null;
+}
+
 async function handleSessionStream(req, res, opts, id, i) {
   if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin session read rejected" });
+  const query = url.parse(req.url || "", true).query;
+  const wantsLive = query.live === "1";
+  const publicTaskId = typeof query.task === "string" ? query.task : null;
   let card;
   try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
@@ -3413,8 +3534,9 @@ async function handleSessionStream(req, res, opts, id, i) {
 
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
   let closed = false;
@@ -3436,48 +3558,65 @@ async function handleSessionStream(req, res, opts, id, i) {
     try { res.end(); } catch { /* already closed */ }
   };
 
-  // Resolve the transcript path from the card's own pointers, then confine it.
-  // Primary: the cwd-encoded path (resolveArtifactRef). Fallback: glob the session
-  // id across every ~/.claude/projects/* dir, which is robust to the operative's cwd
-  // (agent-sdk journals under the composition dir, not the board's projectRoot()).
-  let absPath = resolveArtifactRef(card, `session:${i}`, { root: opts.root, cwd: opts.cwd });
-  if (!absPath || !isReadableFile(absPath)) {
-    const sid = (Array.isArray(card.sessionIds) ? card.sessionIds : [])[i];
-    const globbed = findTranscriptBySession(sid);
-    if (globbed) absPath = globbed;
+  const pointer = wantsLive ? await readLiveSessionPointer(opts.root, card) : null;
+  const durableIds = Array.isArray(card.sessionIds) ? card.sessionIds : [];
+  const durableIndex = Number.isInteger(i) && i >= 0 ? i : -1;
+  // If the UI raced the final card commit, `live=1` gracefully falls back to the
+  // latest durable session rather than turning a just-finished journal invisible.
+  const sessionId = pointer?.sessionId ?? (wantsLive ? durableIds.at(-1) : durableIds[durableIndex]) ?? null;
+  let absPath = pointer?.transcriptPath ?? null;
+  if (!absPath && !wantsLive && durableIndex >= 0) {
+    absPath = resolveArtifactRef(card, `session:${durableIndex}`, { root: opts.root, cwd: opts.cwd });
   }
-  const confined = absPath ? confinePath(absPath, allowedRoots(opts.cwd, opts.root)) : null;
+  if (!absPath || !isReadableFile(absPath)) absPath = findTranscriptBySession(sessionId);
+  const parent = absPath ? confinePath(absPath, allowedRoots(opts.cwd, opts.root)) : null;
+  const confined = parent && publicTaskId ? findRelatedTaskTranscript(parent, publicTaskId) : parent;
   if (!confined || !isReadableFile(confined)) {
-    // No resolvable transcript (stale/rotated session, or the operative ran under
-    // a different cwd than the board resolves against) → the UI falls back to Raw.
-    emit({ type: "init", i, title: null, available: false, live: false, events: [] });
+    emit({ type: "init", title: null, available: false, live: false, events: [] });
     return finish();
   }
 
   try {
     let read = await readJsonlLines(confined, 0);
     let offset = read.offset;
+    let journalLines = read.lines.slice();
     const parsed = parseTranscriptLines(read.lines);
+    const baseQuery = { cardId: id, selector: wantsLive ? "live=1" : `i=${durableIndex}` };
+    const safeRelated = () => parent
+      ? relatedTaskEvents(journalLines, {
+          streamUrlFor: (task) => relatedTaskStreamUrl(parent, baseQuery, task)
+        })
+      : [];
+    const related = safeRelated();
+    let relatedById = new Map(related.map((event) => [event.id, JSON.stringify(event)]));
+    const liveGeneration = pointer?.runSeq ?? null;
+    const streamLive = Boolean(wantsLive && pointer && card.status === "running");
     emit({
       type: "init",
-      i,
       title: parsed.title,
-      events: parsed.events,
-      live: card.status === "running",
+      events: [...parsed.events, ...related],
+      live: streamLive,
       available: true
     });
-    // Live tail: only while the card is still running. Re-load the card each tick
-    // (like handleWatchCard) so a run finishing stops the tail promptly.
-    while (!closed && card.status === "running") {
+    while (!closed && streamLive && card.status === "running" && card.runSeq === liveGeneration) {
       await new Promise((r) => setTimeout(r, 800));
       if (closed) break;
       try {
         read = await readJsonlLines(confined, offset);
         if (read.lines.length) {
           offset = read.offset;
+          journalLines.push(...read.lines);
           const chunk = parseTranscriptLines(read.lines);
-          if (chunk.events.length || chunk.title) {
-            emit({ type: "events", i, title: chunk.title, events: chunk.events });
+          const nextRelated = new Map();
+          const changedRelated = [];
+          for (const event of safeRelated()) {
+            const encoded = JSON.stringify(event);
+            nextRelated.set(event.id, encoded);
+            if (relatedById.get(event.id) !== encoded) changedRelated.push(event);
+          }
+          relatedById = nextRelated;
+          if (chunk.events.length || changedRelated.length || chunk.title) {
+            emit({ type: "events", title: chunk.title, events: [...chunk.events, ...changedRelated] });
           }
         }
       } catch { /* transient read failure — keep polling */ }
@@ -4171,7 +4310,7 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachments|\/attachment|\/session-stream|\/start|\/snooze|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachments|\/attachment|\/session-stream|\/start|\/panic|\/snooze|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
@@ -4184,6 +4323,7 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/attachment" && method === "GET") return await handleAttachment(req, res, opts, id, parsed.query.i);
         if (sub === "/session-stream" && method === "GET") return await handleSessionStream(req, res, opts, id, Number(parsed.query.i ?? 0));
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
+        if (sub === "/panic" && method === "POST") return await handlePanicCard(req, res, opts, id);
         if (sub === "/abandon" && method === "POST") return await handleAbandonCard(req, res, opts, id);
         if (sub === "/revert" && method === "POST") return await handleRevertCard(req, res, opts, id);
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);

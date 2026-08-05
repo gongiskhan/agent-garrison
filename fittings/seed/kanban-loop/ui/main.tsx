@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createRoot } from "react-dom/client";
+import { SessionStream as SharedSessionStream } from "@garrison/claude-chat";
 import {
   DndContext,
   DragOverlay,
@@ -1018,14 +1019,16 @@ function RunSpec({
   spec,
   setSpec,
   options,
-  optionsError
+  optionsError,
+  initialOpen = false
 }: {
   spec: CardRouting;
   setSpec: (next: CardRouting) => void;
   options: RouteOptionsView | null;
   optionsError: string | null;
+  initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   // A pin is "in force" only when it holds a real value - null/blank both mean
   // automatic, exactly as TurnRouting defines it.
   const pinnedCount = Object.values(spec).filter((v) => v !== null && v !== undefined && v !== "").length;
@@ -1852,6 +1855,14 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   const [projectDraft, setProjectDraft] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
   const [savingScope, setSavingScope] = useState(false);
+  // Routing stays editable on a human-held card even after it has run. This is
+  // the recovery seam for Panic/parked work: artifacts stay in the same runDir,
+  // while the next Retry may deliberately use a different runtime/model/effort.
+  const [routingDraft, setRoutingDraft] = useState<CardRouting | null>(null);
+  const [routeOptions, setRouteOptions] = useState<RouteOptionsView | null>(null);
+  const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null);
+  const [savingRouting, setSavingRouting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   // Trello-style in-place editing: title + description drafts (null = not
   // editing), the checklist add-input, the schedule picker drafts, and the
   // attachment upload state.
@@ -1879,6 +1890,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   }, [cardId]);
 
   useEffect(() => { setProjectDraft(null); }, [cardId]);
+  useEffect(() => { setRoutingDraft(null); }, [cardId]);
+  useEffect(() => {
+    let alive = true;
+    api.routeOptions()
+      .then((v) => { if (alive) { setRouteOptions(v); setRouteOptionsError(null); } })
+      .catch((e) => { if (alive) setRouteOptionsError(e instanceof Error ? e.message : String(e)); });
+    return () => { alive = false; };
+  }, [cardId]);
+  useEffect(() => {
+    if (detail && routingDraft === null) setRoutingDraft({ ...(detail.card.routing ?? {}) });
+  }, [detail, routingDraft]);
 
   async function saveProjectScope() {
     if (!detail) return;
@@ -1912,6 +1934,34 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
       setActionErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingScope(false);
+    }
+  }
+
+  async function saveRouting(): Promise<boolean> {
+    if (!detail || routingDraft === null) return false;
+    setSavingRouting(true);
+    const clean = Object.fromEntries(
+      Object.entries(routingDraft).filter(([, value]) => value !== null && value !== undefined && value !== "")
+    ) as CardRouting;
+    const saved = await patchCard({ routing: Object.keys(clean).length ? clean : null });
+    if (saved) setRoutingDraft(clean);
+    setSavingRouting(false);
+    return saved;
+  }
+
+  async function retryWithRouting() {
+    if (!detail) return;
+    setRetrying(true);
+    setActionErr(null);
+    try {
+      if (!(await saveRouting())) return;
+      await api.start(detail.card.id);
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -2223,6 +2273,35 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
             </p>
           )}
           {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
+        </div>
+      )}
+      {!lockedCard && !running && routingDraft !== null && (
+        <div className="detail-desc routing-recovery">
+          <div className="dd-title">Run routing</div>
+          <p className="muted routing-help">
+            Changes apply to the next Run or Retry. Existing logs and run context stay with this card.
+          </p>
+          <RunSpec
+            spec={routingDraft}
+            setSpec={setRoutingDraft}
+            options={routeOptions}
+            optionsError={routeOptionsError}
+            initialOpen={parked}
+          />
+          <div className="routing-actions">
+            {parked && (
+              <button className="btn small" disabled={savingRouting || retrying} onClick={() => void saveRouting()}>
+                {savingRouting && !retrying ? "Saving…" : "Save only"}
+              </button>
+            )}
+            <button
+              className="btn small primary"
+              disabled={savingRouting || retrying}
+              onClick={() => parked ? void retryWithRouting() : void saveRouting()}
+            >
+              {retrying ? "Retrying…" : savingRouting ? "Saving…" : parked ? "Save & Retry" : "Save routing"}
+            </button>
+          </div>
         </div>
       )}
       {card.waitingOn && (
@@ -2598,188 +2677,16 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   );
 }
 
-// ── watch sheet — live terminal + SSE log (never tmux) ──────────────────────
-// Two panes: TERMINAL shows the operative session's actual rendered screen
-// (the gateway's PTY render, proxied same-origin via /operative/screen) -
-// what you'd see in a real terminal, live. LOG tails the card's iteration log
-// over SSE, or replays the linked static logs when nothing is live. The
-// interactive Discuss list does NOT use this - it has its own
-// Discuss button that opens a James-mode session (see App.onDiscuss).
-// ── session transcript view (rich Log) ──────────────────────────────────────
-// Ported from the drill fitting (SessionStream / SessionViewer): the operative's
-// actual turns, tool calls and screenshots, streamed live over
-// /cards/:id/session-stream while the card runs, or replayed once when idle.
-
-interface SessionImage { mediaType: string; data: string }
-interface SessionBlock {
-  type: string;
-  text?: string;
-  name?: string;
-  input?: string;
-  toolUseId?: string | null;
-  isError?: boolean;
-  images?: SessionImage[];
-}
-interface SessionEvent {
-  id: string | null;
-  role: string;
-  ts: number | null;
-  toolResultsOnly?: boolean;
-  blocks: SessionBlock[];
-}
-
-function SessionTextBlock({ text, role }: { text: string; role: string }) {
-  // Long prompts (the routed phase instructions) collapse to their first line —
-  // the desktop-app "show more" idiom without the chrome.
-  if (role === "user" && text.length > 280) {
-    const head = text.slice(0, 140).split("\n")[0];
-    return (
-      <details className="dr-session-longtext">
-        <summary>{head}…</summary>
-        <pre className="dr-session-pre">{text}</pre>
-      </details>
-    );
-  }
-  return <pre className="dr-session-text">{text}</pre>;
-}
-
-function SessionToolBlock({ block, result }: { block: SessionBlock; result: SessionBlock | undefined }) {
-  const hint = (block.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
-  return (
-    <div className="dr-session-toolwrap">
-      <details className="dr-session-tool">
-        <summary>
-          <WrenchIcon />
-          <b>{block.name}</b>
-          <span className="dr-session-tool-hint">{hint}</span>
-          {result?.isError && <span className="chip alarm">error</span>}
-        </summary>
-        {block.input && <pre className="dr-session-pre">{block.input}</pre>}
-        {result?.text && <pre className="dr-session-pre result">{result.text}</pre>}
-      </details>
-      {(result?.images ?? []).map((image, index) => (
-        <img
-          key={index}
-          className="dr-session-img"
-          src={`data:${image.mediaType};base64,${image.data}`}
-          alt={`${block.name ?? "tool"} result image ${index + 1}`}
-          loading="lazy"
-        />
-      ))}
-    </div>
-  );
-}
-
-// One session's live/replayed transcript, consuming the default-`message` SSE
-// framing the kanban server emits (init / events / end), pairing each tool_use
-// with its later tool_result via a toolUseId map.
-function SessionStream({ cardId, i, live }: { cardId: string; i: number; live: boolean }) {
-  const [events, setEvents] = useState<SessionEvent[]>([]);
-  const [title, setTitle] = useState<string | null>(null);
-  const [status, setStatus] = useState<"connecting" | "streaming" | "ended" | "unavailable">("connecting");
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickRef = useRef(true);
-
-  useEffect(() => {
-    setEvents([]);
-    setTitle(null);
-    setStatus("connecting");
-    stickRef.current = true;
-    const source = new EventSource(`/cards/${encodeURIComponent(cardId)}/session-stream?i=${i}`);
-    source.onmessage = (message) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let payload: any;
-      try { payload = JSON.parse(message.data); } catch { return; }
-      if (payload.type === "init") {
-        setEvents(payload.events ?? []);
-        if (payload.title) setTitle(payload.title);
-        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
-      } else if (payload.type === "events") {
-        if (payload.title) setTitle(payload.title);
-        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
-      } else if (payload.type === "end") {
-        setStatus((current) => (current === "unavailable" ? current : "ended"));
-        source.close();
-      }
-    };
-    source.onerror = () => {
-      // The server ends the stream itself after `end`; an earlier transport
-      // error should read as "stream over", not an eternal spinner.
-      setStatus((current) => (current === "unavailable" ? current : "ended"));
-      source.close();
-    };
-    return () => source.close();
-  }, [cardId, i]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [events]);
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-  };
-
-  const resultsByToolUse = useMemo(() => {
-    const map = new Map<string, SessionBlock>();
-    for (const event of events) {
-      for (const block of event.blocks) {
-        if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
-      }
-    }
-    return map;
-  }, [events]);
-
-  return (
-    <div className="dr-session">
-      <div className="dr-session-head">
-        <ChatIcon />
-        <b>{title ?? `Session ${i + 1}`}</b>
-        {live && status === "streaming" && <span className="chip sage">live</span>}
-        {status === "connecting" && <span className="chip">connecting…</span>}
-        {status === "unavailable" && <span className="chip brass">transcript unavailable</span>}
-      </div>
-      <div className="dr-session-scroll" ref={scrollRef} onScroll={onScroll}>
-        {events.length === 0 && (
-          <div className="dr-empty">
-            {status === "connecting"
-              ? "Opening the session stream…"
-              : status === "unavailable"
-                ? "No transcript is available for this session — use the Raw tab for the phase log."
-                : live
-                  ? "Waiting for the first session activity…"
-                  : "No session activity was captured for this run."}
-          </div>
-        )}
-        {events.filter((event) => !event.toolResultsOnly).map((event, index) => (
-          <div key={event.id ?? `event-${index}`} className={"dr-session-turn " + (event.role === "user" ? "user" : "assistant")}>
-            <span className="dr-session-role">{event.role === "user" ? "Prompt" : "Assistant"}</span>
-            {event.blocks.map((block, blockIndex) => {
-              if (block.type === "text") return <SessionTextBlock key={blockIndex} text={block.text ?? ""} role={event.role} />;
-              if (block.type === "thinking") {
-                return (
-                  <details key={blockIndex} className="dr-session-thinking">
-                    <summary>Thinking</summary>
-                    <pre className="dr-session-pre">{block.text}</pre>
-                  </details>
-                );
-              }
-              if (block.type === "tool_use") {
-                return <SessionToolBlock key={blockIndex} block={block} result={block.toolUseId ? resultsByToolUse.get(block.toolUseId) : undefined} />;
-              }
-              return null;
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Chip-per-session picker (defaults to the LAST, most-recent session) over the
-// card's sessionIds, mounting one SessionStream for the selected index.
+// Rich activity uses @garrison/claude-chat's canonical SessionStream — the same
+// renderer as Web Channel (grouped turns, live tool progress, screenshot modal,
+// related tasks and retry). This wrapper only supplies card-scoped stream URLs
+// and the historical/live session picker.
 function SessionViewer({ cardId, sessionIds, live }: { cardId: string; sessionIds: string[]; live: boolean }) {
-  const count = sessionIds.length;
+  const entries = [
+    ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Session ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
+    ...(live ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }] : [])
+  ];
+  const count = entries.length;
   const [selected, setSelected] = useState<number>(count > 0 ? count - 1 : 0);
   useEffect(() => {
     // Default to the most-recent session; re-clamp if the count shrinks.
@@ -2792,20 +2699,29 @@ function SessionViewer({ cardId, sessionIds, live }: { cardId: string; sessionId
     <div className="dr-session-viewer">
       {count > 1 && (
         <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Sessions">
-          {sessionIds.map((_sid, index) => (
+          {entries.map((entry, index) => (
             <button
-              key={index}
+              key={entry.key}
               role="tab"
               aria-selected={selected === index}
               className={"chip click" + (selected === index ? " ink active" : "")}
               onClick={() => setSelected(index)}
             >
-              Session {index + 1}
+              {entry.label}
             </button>
           ))}
         </div>
       )}
-      <SessionStream key={selected} cardId={cardId} i={selected} live={live} />
+      {entries[selected] && (
+        <div className="kanban-session-host cc-root" data-theme="light">
+          <SharedSessionStream
+            key={entries[selected].key}
+            url={entries[selected].url}
+            live={entries[selected].live}
+            title={entries[selected].label === "Live" ? "Live activity" : entries[selected].label}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -2866,12 +2782,16 @@ function TerminalModal({ card, onClose }: { card: CardSummary; onClose: () => vo
 // interactive Discuss list does NOT use this — it opens a James-mode session.
 function WatchSheet({
   card,
-  onClose
+  onClose,
+  onChanged,
+  onReviewRouting
 }: {
   card: CardSummary;
   onClose: () => void;
+  onChanged: () => void;
+  onReviewRouting: () => void;
 }) {
-  const hasSession = (card.sessionIds?.length ?? 0) > 0;
+  const hasSession = card.status === "running" || (card.sessionIds?.length ?? 0) > 0;
   // Default to the rich Log (session transcript) when the card has a session;
   // otherwise the Raw phase log. The live operative TERMINAL moved to its own
   // Terminal modal.
@@ -2879,7 +2799,27 @@ function WatchSheet({
   const [lines, setLines] = useState<string>("");
   const [live, setLive] = useState<boolean | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [panicking, setPanicking] = useState(false);
+  const [panicResult, setPanicResult] = useState<{ message: string; affectedCardIds: string[] } | null>(null);
+  const [panicError, setPanicError] = useState<string | null>(null);
   const scrRef = useRef<HTMLDivElement | null>(null);
+
+  async function panic() {
+    if (!window.confirm(
+      "Stop this card's active agent turn? Partial output will be kept but ignored, and the card will park in Needs attention. If this is a shared batch, every card in that runtime turn will stop."
+    )) return;
+    setPanicking(true);
+    setPanicError(null);
+    try {
+      const result = await api.panic(card.id);
+      setPanicResult({ message: result.message, affectedCardIds: result.affectedCardIds });
+      onChanged();
+    } catch (e) {
+      setPanicError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPanicking(false);
+    }
+  }
 
   useEffect(() => {
     const es = new EventSource(api.watchUrl(card.id));
@@ -2923,6 +2863,24 @@ function WatchSheet({
       {card.status === "needs-attention" && card.attentionReason && (
         <div className="state-callout parked" style={{ marginTop: 0 }}>{card.attentionReason}</div>
       )}
+      {card.status === "running" && !panicResult && (
+        <div className="panic-bar">
+          <div>
+            <b>Need to stop this run?</b>
+            <span> Panic interrupts only the active turn proven to contain this card.</span>
+          </div>
+          <button className="btn danger small" disabled={panicking} onClick={() => void panic()}>
+            {panicking ? "Stopping…" : "Panic"}
+          </button>
+        </div>
+      )}
+      {panicResult && (
+        <div className="state-callout parked panic-result">
+          <span>{panicResult.message} Review the routing before retrying if the runtime was wrong.</span>
+          <button className="btn small" onClick={onReviewRouting}>Review routing &amp; retry</button>
+        </div>
+      )}
+      {panicError && <div className="dispatch-err panic-error">Panic did not stop anything: {panicError}</div>}
       <div className="watch">
         <div className="wbar">
           <span className="wtabs">
@@ -2939,7 +2897,11 @@ function WatchSheet({
           )}
         </div>
         {tab === "session" ? (
-          <SessionViewer cardId={card.id} sessionIds={card.sessionIds ?? []} live={card.status === "running"} />
+          <SessionViewer
+            cardId={card.id}
+            sessionIds={card.sessionIds ?? []}
+            live={card.status === "running" && live !== false && !done}
+          />
         ) : (
           <div className="wscr" ref={scrRef}>
             {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
@@ -4141,6 +4103,8 @@ function App() {
         <WatchSheet
           card={overlay.card}
           onClose={() => setOverlay(null)}
+          onChanged={() => void load()}
+          onReviewRouting={() => setOverlay({ kind: "detail", cardId: overlay.card.id })}
         />
       )}
       {overlay?.kind === "terminal" && (

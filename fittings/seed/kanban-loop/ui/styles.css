@@ -1112,6 +1112,7 @@ body {
 .ev-routed { background: var(--sage-2); }
 .ev-runtime { background: var(--brass); }
 .ev-runtime-stop { background: var(--warn); }
+.ev-interrupted { background: var(--alarm); }
 .ev-moved, .ev-recovered { background: var(--mute-2); }
 .ev-parked { background: var(--alarm); }
 .ev-failed { background: var(--alarm); }
@@ -1720,65 +1721,17 @@ button:active, .btn:active { transform: translateY(1px); }
 .dr-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
 .dr-rowwrap > * { min-width: 0; }
 
-/* dr-session-* block — copied verbatim from fittings/seed/drill/ui/styles.css. */
 .dr-session-viewer { min-width: 0; }
 .dr-session-tabs { margin-bottom: 8px; }
-.dr-session { border: 1px solid var(--rule-2); background: white; }
-.dr-session-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; border-bottom: 1px solid var(--rule);
-  background: var(--paper-2); color: var(--ink);
+.kanban-session-host.cc-root {
+  display: block;
+  height: auto;
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
 }
-.dr-session-head b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dr-session-head svg { flex: none; color: var(--sage-2); }
-.dr-session-id { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
-.dr-session-scroll {
-  max-height: 460px; overflow-y: auto; padding: 10px;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.dr-session-turn { min-width: 0; }
-.dr-session-turn.user { border-left: 2px solid var(--rule-2); padding-left: 8px; }
-.dr-session-turn.assistant { border-left: 2px solid var(--sage-2); padding-left: 8px; }
-.dr-session-role {
-  display: block; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--mute); margin-bottom: 3px;
-}
-.dr-session-text, .dr-session-pre {
-  margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
-  white-space: pre-wrap; word-break: break-word; font-family: var(--sans);
-}
-.dr-session-pre {
-  font-family: var(--mono); font-size: 10.5px;
-  background: var(--paper); border: 1px solid var(--rule);
-  padding: 6px 8px; margin-top: 4px; max-height: 240px; overflow-y: auto;
-}
-.dr-session-pre.result { border-left: 2px solid var(--sage-2); }
-.dr-session-longtext summary, .dr-session-thinking summary, .dr-session-tool summary {
-  cursor: pointer; font-size: 11px; color: var(--ink-mute);
-}
-.dr-session-longtext summary { font-style: italic; }
-.dr-session-thinking { margin: 4px 0; }
-.dr-session-thinking summary { color: var(--mute); font-style: italic; }
-.dr-session-thinking .dr-session-pre { color: var(--mute); }
-.dr-session-toolwrap { margin: 4px 0; min-width: 0; }
-.dr-session-tool summary {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 6px; border: 1px solid var(--rule); background: var(--paper-2);
-  min-width: 0;
-}
-.dr-session-tool summary b { font-size: 11px; color: var(--ink); flex: none; }
-.dr-session-tool summary svg { flex: none; color: var(--warn-ink); }
-.dr-session-tool-hint {
-  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--mono); font-size: 9.5px; color: var(--mute);
-}
-.dr-session-img {
-  display: block; margin-top: 6px; max-width: 100%; max-height: 340px;
-  border: 1px solid var(--rule-2); background: var(--paper-2);
-}
-@media (max-width: 760px) {
-  .dr-session-scroll { max-height: 55vh; }
-}
+.kanban-session-host .cc-session-scroll { max-height: 55vh; overflow-y: auto; }
 
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -2054,3 +2007,35 @@ button:active, .btn:active { transform: translateY(1px); }
 }
 .ev-item .ev-del:hover { color: var(--alarm); border-color: var(--alarm); }
 .ev-item .ev-del svg { width: 10px; height: 10px; }
+
+/* Watch Panic + parked-card rerouting. The destructive stop is visually
+   isolated from passive log navigation, and its outcome points directly at the
+   editable Run spec before Retry. */
+.panic-bar,
+.panic-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.panic-bar {
+  padding: 9px 10px;
+  border: 1px solid var(--alarm);
+  border-radius: 8px;
+  background: var(--alarm-soft);
+  color: var(--ink);
+  font-size: 12px;
+}
+.panic-bar span { color: var(--mute); }
+.panic-result .btn { flex: 0 0 auto; }
+.panic-error { margin-bottom: 10px; }
+.routing-help { margin: 0 0 8px; font-size: 11px; }
+.routing-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+@media (max-width: 640px) {
+  .panic-bar,
+  .panic-result { align-items: stretch; flex-direction: column; }
+  .panic-bar .btn,
+  .panic-result .btn { width: 100%; justify-content: center; }
+}

@@ -46,6 +46,7 @@ import { commitFence, attributeBreakage } from "./fences.mjs";
 import { sendCoordMail } from "./coord-mail.mjs";
 import { PERSONAL_SCOPE_TOKEN, isPersonalCard } from "./personal-workspace.mjs";
 import { projectNameForRouting } from "./gateway-client.mjs";
+import { writeLiveSessionPointer, clearLiveSessionPointer } from "./live-session.mjs";
 
 // Gate phases whose fail edge (verdict === "implement") triggers breakage
 // attribution (Q6): a loop-back to implement from one of these, with other live
@@ -1076,12 +1077,12 @@ async function releaseIfStillRunning(root, base, now, why) {
   }).catch(() => null);
 }
 
-async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5, afterWrite = undefined }) {
+async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5, afterWrite = undefined, terminalSummary = undefined }) {
   // The run is over, so its owner stamp is stale by definition — clear it here
   // (the one terminal write) rather than in each of the ~29 places that build a
   // terminal card, so a finished card can never look orphan-sweepable.
   const target = { ...rawTarget, runOwner: null };
-  let res = await saveCardCASWithHooks(root, target, runRev, now(), { afterWrite });
+  let res = await saveCardCASWithHooks(root, target, runRev, now(), { afterWrite, terminalSummary });
   if (res.ok) return { ok: true, card: res.card, takenOver: false, postCommitError: res.postCommitError || null };
   // The card was DELETED mid-run. There is nothing to write, nothing to rebase and
   // nothing to release — and retrying would only re-attempt a write the store now
@@ -1103,7 +1104,7 @@ async function commitRunResult(root, { base, target: rawTarget, runRev, dispatch
       return { ok: false, card: released ?? fresh, takenOver: true };
     }
     const rebased = rebaseTerminalWrite(base, target, fresh);
-    res = await saveCardCASWithHooks(root, rebased, fresh.rev ?? 0, now(), { afterWrite });
+    res = await saveCardCASWithHooks(root, rebased, fresh.rev ?? 0, now(), { afterWrite, terminalSummary });
     if (res.ok) return { ok: true, card: res.card, takenOver: false, postCommitError: res.postCommitError || null };
   }
   // Rebase exhausted (a writer is hammering this card). Still never leave it running.
@@ -1586,6 +1587,24 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     acceptingLiveChunks = false;
     await liveLogWrites;
   };
+  // The runtime journal identity arrives on an early gateway route frame. Keep it
+  // in a generation-keyed sidecar rather than card.json: a mid-turn card save would
+  // bump `rev` and invalidate this run's terminal CAS. Writes are serialized for the
+  // same reason as live log rewrites, and the exact generation is cleared only after
+  // the terminal card write, so Watch can open throughout final gate processing.
+  let liveSessionWrites = Promise.resolve();
+  let acceptingJournal = true;
+  const onJournal = (identity) => {
+    if (!acceptingJournal) return;
+    liveSessionWrites = liveSessionWrites
+      .then(() => writeLiveSessionPointer(root, runningCard, identity, now()))
+      .catch(() => {});
+  };
+  const closeLiveSessionWrites = async () => {
+    acceptingJournal = false;
+    await liveSessionWrites;
+  };
+  const clearLiveSession = () => clearLiveSessionPointer(root, runningCard.id, runningCard.runSeq).catch(() => false);
   // S3d (D9b): AskUserQuestion tool events raised MID-TURN (the discuss duty asking
   // for scope). Route the questions to the card's ORIGIN immediately (web = numbered
   // thread message; board/skill = origin event log) so the human can answer while the
@@ -1626,6 +1645,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       suppressContinuations: true,
       onChunk,
       onTool,
+      onJournal,
       contextHold,
       dutyKey,
       ...executionContext
@@ -1647,6 +1667,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     // No streamed rewrite may land after the error record below. Draining here
     // also prevents a chunk failure from escaping the run-finalization path.
     await closeLiveLog();
+    await closeLiveSessionWrites();
     // A TRANSPORT failure (gateway unreachable / restarting — err.transport from the
     // gateway client) is NOT the card's fault: REVERT the acquire (back to the prior
     // status, iteration un-consumed) so the run retries on the next tick/Start once the
@@ -1704,6 +1725,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
             })
           : undefined
       });
+      await clearLiveSession();
       return { card: res.card ?? runningCard, outcome: { status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err) } };
     }
     await appendCardLog(root, card.id, logIndex, `# iteration ${iteration}\nrun failed: ${err?.message || err}\n`);
@@ -1732,6 +1754,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       dispatchedFrom: card.list,
       now
     });
+    await clearLiveSession();
     return { card: res.card ?? runningCard, outcome: { status: "needs-attention", reason: "run-failed", error: String(err?.message || err) } };
   }
 
@@ -1739,6 +1762,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // delayed transport callback after runFn resolves is ignored, and every already
   // accepted chunk is durable before the clean final reply is written.
   await closeLiveLog();
+  await closeLiveSessionWrites();
   const reply = out?.reply ?? out?.text ?? String(out ?? "");
   // Per-turn routing attribution (the gateway's `done` event surfaces which
   // runtime/model/tier actually served THIS phase turn; null in souls mode / a
@@ -1762,6 +1786,68 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // target below rebuilds events via withEvent(runningCard, …)), never a racing
   // mid-turn card write that would conflict the final save.
   for (const ev of needsInputEvents) runningCard.events = withEvent(runningCard, ev);
+  // Panic is a human-authored terminal decision for THIS runtime turn. Its reply
+  // is necessarily partial, so it must never reach verdict parsing, durable-gate
+  // rescue, or the follow-up nudge: any of those could advance a card after the
+  // user explicitly stopped it. Park the card in one CAS, preserve its session and
+  // runDir for inspection/retry, and refund the interrupted iteration.
+  const parkInterruptedTurn = async (stopOut, partialReply) => {
+    const partial = String(partialReply ?? "").trim();
+    const panicReason =
+      `Panic stopped the active ${listTitle} turn. Its partial output was kept in log ${logIndex} but was not treated as a verdict. ` +
+      `Review or change the Run spec, then Retry to resume this phase with the same run context.`;
+    const stopRouteMeta = stopOut?.route
+      ? { ...stopOut.route, tier: stopOut.route.tier ?? runningCard.tier ?? null }
+      : routeMeta;
+    const { route: stopRoute } = routeStamp(stopRouteMeta, phase);
+    runningCard.sessionIds = appendSessionId(runningCard.sessionIds, stopOut?.sessionId);
+    try {
+      await writeCardLog(root, card.id, logIndex, `# iteration ${iteration}\n${partialReply ?? ""}\n`);
+      await appendCardLog(root, card.id, logIndex, "\n_(stopped by card Panic; partial output ignored for routing)_\n");
+    } catch {
+      // The card transition is the safety boundary. A log filesystem error must
+      // not leave a successfully-stopped turn stranded in status:"running".
+    }
+    const res = await commitRunResult(root, {
+      base: runningCard,
+      target: {
+        ...runningCard,
+        ...parkFields(runningCard, card.list, panicReason),
+        status: "needs-attention",
+        iterations: card.iterations || 0,
+        runningSince: null,
+        lastReply: replySnippet(partial),
+        lastDispatchError: null,
+        retryKeepsContext: true,
+        events: withEvent(runningCard, {
+          at: now(),
+          kind: "interrupted",
+          message: `Panic stopped the active turn on ${listTitle}; partial output was ignored`,
+          detail: `requestedByCard=${stopOut?.interruptedByCardId || card.id}; stoppedReason=${stopOut?.stoppedReason || "user-interrupt"}`,
+          ...(stopRoute ? { route: stopRoute } : {})
+        })
+      },
+      runRev,
+      dispatchedFrom: card.list,
+      now
+    });
+    await clearLiveSession();
+    if (!res.ok) {
+      return {
+        card: res.card ?? runningCard,
+        outcome: res.deleted
+          ? { status: "skipped", reason: "card-deleted-during-run" }
+          : res.takenOver
+            ? { status: "skipped", reason: "taken-over-during-run" }
+            : { status: "needs-attention", reason: "conflict-during-run" }
+      };
+    }
+    return { card: res.card, outcome: { status: "needs-attention", reason: "user-interrupt", interrupted: true } };
+  };
+  const stoppedByUser = out?.stoppedByUser === true || out?.stoppedReason === "user-interrupt";
+  if (stoppedByUser) {
+    return parkInterruptedTurn(out, reply);
+  }
   const stoppedAtMaxTurns = out?.stoppedReason === "max_turns";
   // A routed runtime turn is evidence in its own right, even when a later gate,
   // coordination check, or verdict check parks the card. Previously attribution
@@ -1846,6 +1932,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       await appendCardLog(root, card.id, logIndex, `\n_(verdict from durable gate evidence: ${durable})_\n`);
     }
   }
+  let nudgeInterrupt = null;
   if (!next && !stoppedAtMaxTurns) {
     try {
       const nudgePrompt =
@@ -1861,16 +1948,26 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         ...executionContext
       });
       const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
-      const nnext = parseNextList(nudgeReply, validNext);
-      if (nnext) {
-        next = nnext;
-        nudged = true;
-        if (!snippet) snippet = replySnippet(nudgeReply);
-        await appendCardLog(root, card.id, logIndex, `\n_(follow-up verdict: ${nnext})_\n`);
+      if (nout?.stoppedByUser === true || nout?.stoppedReason === "user-interrupt") {
+        nudgeInterrupt = {
+          stopOut: nout,
+          partialReply: [replyText, String(nudgeReply ?? "").trim()].filter(Boolean).join("\n\n# Partial verdict follow-up\n")
+        };
+      } else {
+        const nnext = parseNextList(nudgeReply, validNext);
+        if (nnext) {
+          next = nnext;
+          nudged = true;
+          if (!snippet) snippet = replySnippet(nudgeReply);
+          await appendCardLog(root, card.id, logIndex, `\n_(follow-up verdict: ${nnext})_\n`);
+        }
       }
     } catch {
       // Nudge failed (gateway hiccup) — fall through and park with the ORIGINAL reply.
     }
+  }
+  if (nudgeInterrupt) {
+    return parkInterruptedTurn(nudgeInterrupt.stopOut, nudgeInterrupt.partialReply);
   }
   // Resolve the ACTUAL destination before either integrity gate. A rail can skip
   // the router-named list, and the contracts bind to where the card will really
@@ -2296,9 +2393,14 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     runRev,
     dispatchedFrom: card.list,
     now,
-    afterWrite: afterLifecycleWrite
+    afterWrite: afterLifecycleWrite,
+    // `lastReply` is intentionally a 280-char card-front snippet. Carry the
+    // authoritative final reply out-of-band so Web Channel completion feedback
+    // can deliver it once without bloating card.json.
+    terminalSummary: outcome?.status === "moved" && outcome.to === "done" ? replyText : undefined
   });
   if (!res.ok) {
+    await clearLiveSession();
     return {
       card: res.card ?? runningCard,
       outcome: res.deleted
@@ -2338,6 +2440,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       });
     }
   }
+  // Keep interruption bookkeeping, but only after the final duty summary is
+  // durable. Awaiting cleanup immediately after the terminal CAS yields to the
+  // deferred handoff/outbox writers and lets them snapshot an incomplete run.
+  await clearLiveSession();
   // S1b duty boundary: the duty just completed and advanced — ask the gateway to
   // compact if needed (holds discharge here). After the CAS so the advance is
   // committed; best-effort so it never affects the outcome.
@@ -2928,6 +3034,9 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
     }
   }
   const res = await saveCardCASWithHooks(root, target, card.rev ?? 0, now(), {
+    terminalSummary: outcome?.status === "moved" && outcome.to === "done"
+      ? (typeof card.lastReply === "string" ? card.lastReply : undefined)
+      : undefined,
     afterWrite: terminalIntentRemoval || leaseMaintenance
       ? () => {
           if (terminalIntentRemoval) {
@@ -3206,6 +3315,53 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     if (acquired.length === 0) continue;
 
     const runningCards = acquired.map((a) => a.running);
+    // One batch turn serves every acquired card, so mirror its live text and
+    // journal coordinate onto every card's own Watch surfaces. Each queue is
+    // serialized independently: a slow card directory cannot reorder another
+    // member's updates, and the final writes drain before terminal CAS cleanup.
+    const liveQueues = new Map();
+    const journalQueues = new Map();
+    let acceptingBatchStreams = true;
+    let latestBatchOutput = "";
+    for (const a of acquired) {
+      await writeCardLog(
+        root,
+        a.original.id,
+        a.logIndex,
+        `# iteration ${a.iteration} (batch:${project})\n\n_dispatching batched work to the operative…_\n`
+      );
+      liveQueues.set(a.original.id, Promise.resolve());
+      journalQueues.set(a.original.id, Promise.resolve());
+    }
+    const onChunk = (full) => {
+      if (!acceptingBatchStreams) return;
+      latestBatchOutput = String(full ?? "");
+      for (const a of acquired) {
+        const text = `# iteration ${a.iteration} (batch:${project})\n${latestBatchOutput}\n`;
+        const next = liveQueues.get(a.original.id)
+          .then(() => writeCardLog(root, a.original.id, a.logIndex, text))
+          .catch(() => {});
+        liveQueues.set(a.original.id, next);
+      }
+    };
+    const onJournal = (identity) => {
+      if (!acceptingBatchStreams) return;
+      for (const a of acquired) {
+        const next = journalQueues.get(a.original.id)
+          .then(() => writeLiveSessionPointer(root, a.running, identity, now()))
+          .catch(() => {});
+        journalQueues.set(a.original.id, next);
+      }
+    };
+    const closeBatchStreams = async () => {
+      acceptingBatchStreams = false;
+      await Promise.all([...liveQueues.values(), ...journalQueues.values()]);
+    };
+    const clearBatchSessions = async () => {
+      await Promise.all(acquired.map((a) =>
+        clearLiveSessionPointer(root, a.running.id, a.running.runSeq).catch(() => false)
+      ));
+    };
     // D15: same policy-derived classification as processCard — the batched
     // Test beat resolves its skill/model/effort from the compiled policy like
     // every other phase. Tier: the group's first card's tier (a batch shares
@@ -3232,9 +3388,12 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         classification,
         skill,
         suppressContinuations: true,
+        onChunk,
+        onJournal,
         ...executionContext
       });
     } catch (err) {
+      await closeBatchStreams();
       if (err?.transport) {
         // A TRANSPORT failure (gateway down/restarting, stream dropped) is not
         // the cards' fault — REVERT every acquire (status + iteration restored)
@@ -3266,9 +3425,17 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
               detail: String(err?.message || err)
             })
           } });
-          await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
+          await writeCardLog(
+            root,
+            a.original.id,
+            a.logIndex,
+            `# iteration ${a.iteration} (batch:${project})\n` +
+              (latestBatchOutput ? `${latestBatchOutput}\n\n` : "") +
+              `gateway unavailable (deferred, will retry): ${err?.message || err}\n`
+          );
           outcomes.push({ id: a.original.id, status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err), project });
         }
+        await clearBatchSessions();
         continue;
       }
       // A real (non-transport) batch failure — park every acquired card with the reason.
@@ -3281,12 +3448,81 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           lastReply: replySnippet(String(err?.message || err)),
           events: withEvent(a.running, { at: now(), kind: "failed", message: `Batch run errored on ${listTitle}`, detail: String(err?.message || err) })
         } });
-        await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\nbatch run failed: ${err?.message || err}\n`);
+        await writeCardLog(
+          root,
+          a.original.id,
+          a.logIndex,
+          `# iteration ${a.iteration} (batch:${project})\n` +
+            (latestBatchOutput ? `${latestBatchOutput}\n\n` : "") +
+            `batch run failed: ${err?.message || err}\n`
+        );
         outcomes.push({ id: a.original.id, status: "needs-attention", reason: "run-failed", error: String(err?.message || err), project });
       }
+      await clearBatchSessions();
       continue;
     }
 
+    const parkInterruptedBatch = async (stopOut, partialReply) => {
+      const affected = Array.isArray(stopOut?.affectedCardIds) && stopOut.affectedCardIds.length
+        ? stopOut.affectedCardIds
+        : acquired.map((a) => a.original.id);
+      for (const a of acquired) {
+        a.running.sessionIds = appendSessionId(a.running.sessionIds, stopOut?.sessionId);
+        const panicReason =
+          `Panic stopped the shared ${listTitle} batch turn for ${project}. Because one runtime turn covered ${affected.length} card(s), ` +
+          `every card in that turn was parked safely; no partial verdict was used. Review or change each card's Run spec, then Retry.`;
+        const { route: stopRoute } = routeStamp(
+          stopOut?.route ? { ...stopOut.route, tier: stopOut.route.tier ?? a.running.tier ?? null } : null,
+          phase
+        );
+        try {
+          await writeCardLog(
+            root,
+            a.original.id,
+            a.logIndex,
+            `# iteration ${a.iteration} (batch:${project})\n${partialReply}\n\n_(stopped by card Panic; every partial batch verdict was ignored)_\n`
+          );
+        } catch {
+          // Still park this member. One broken log path must not strand the
+          // remainder of an interrupted shared batch in status:"running".
+        }
+        const res = await commitRunResult(root, {
+          base: a.running,
+          target: {
+            ...a.running,
+            ...parkFields(a.running, listId, panicReason),
+            status: "needs-attention",
+            iterations: a.original.iterations || 0,
+            runningSince: null,
+            lastReply: replySnippet(String(partialReply ?? "").trim()),
+            lastDispatchError: null,
+            retryKeepsContext: true,
+            events: withEvent(a.running, {
+              at: now(),
+              kind: "interrupted",
+              message: `Panic stopped the shared ${listTitle} batch; partial verdicts were ignored`,
+              detail: `requestedByCard=${stopOut?.interruptedByCardId || "unknown"}; affectedCards=${affected.join(",")}`,
+              ...(stopRoute ? { route: stopRoute } : {})
+            })
+          },
+          runRev: a.running.rev,
+          dispatchedFrom: listId,
+          now
+        });
+        outcomes.push(res.ok
+          ? { id: a.original.id, status: "needs-attention", reason: "user-interrupt", project, interrupted: true }
+          : res.takenOver
+            ? { id: a.original.id, status: "skipped", reason: "taken-over-during-run", project }
+            : { id: a.original.id, status: "needs-attention", reason: "conflict-during-run", project });
+      }
+    };
+    const stoppedByUser = out?.stoppedByUser === true || out?.stoppedReason === "user-interrupt";
+    if (stoppedByUser) {
+      await closeBatchStreams();
+      await parkInterruptedBatch(out, out?.reply ?? out?.text ?? String(out ?? ""));
+      await clearBatchSessions();
+      continue;
+    }
     const stoppedAtMaxTurns = out?.stoppedReason === "max_turns";
     // Preserve the shared batch route on every acquired card before interpreting
     // its individual verdict. That attribution must survive a per-card park just
@@ -3340,6 +3576,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     // work but ended narrating — or returned an empty screen-scrape — leaves
     // ZERO verdict lines and would park the whole group. One bounded follow-up
     // asks for nothing but the verdict lines, in the same session.
+    let batchNudgeInterrupt = null;
     if (!Object.values(verdicts).some(Boolean) && !stoppedAtMaxTurns) {
       try {
         const nudgePrompt =
@@ -3355,17 +3592,39 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           skill,
           suppressContinuations: true,
           nudge: nudgePrompt,
+          onChunk,
+          onJournal,
           ...executionContext
         });
+        if (!out?.sessionId && nout?.sessionId) out = { ...out, sessionId: nout.sessionId };
         const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
-        const nudged = parseBatchVerdicts(nudgeReply, runningCards, board, resolvedModel);
-        if (Object.values(nudged).some(Boolean)) {
-          verdicts = nudged;
-          if (!reply.trim()) reply = nudgeReply;
+        if (nout?.stoppedByUser === true || nout?.stoppedReason === "user-interrupt") {
+          batchNudgeInterrupt = {
+            stopOut: nout,
+            partialReply: [String(reply ?? "").trim(), String(nudgeReply ?? "").trim()]
+              .filter(Boolean)
+              .join("\n\n# Partial batch verdict follow-up\n")
+          };
+        } else {
+          const nudged = parseBatchVerdicts(nudgeReply, runningCards, board, resolvedModel);
+          if (Object.values(nudged).some(Boolean)) {
+            verdicts = nudged;
+            if (!reply.trim()) reply = nudgeReply;
+          }
         }
       } catch {
         // Nudge failed — fall through and handle with the original (empty) verdicts.
       }
+    }
+    if (batchNudgeInterrupt) {
+      await closeBatchStreams();
+      await parkInterruptedBatch(batchNudgeInterrupt.stopOut, batchNudgeInterrupt.partialReply);
+      await clearBatchSessions();
+      continue;
+    }
+    await closeBatchStreams();
+    for (const a of acquired) {
+      a.running.sessionIds = appendSessionId(a.running.sessionIds, out?.sessionId);
     }
     const snippet = replySnippet(reply);
     for (const a of acquired) {
@@ -3375,7 +3634,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // not the board's column order; a legacy card falls back to the board's set.
       const cardValidNext = validNextForCard(a.running, phase, resolvedModel) ?? validNext;
       const cardExpected = cardValidNext.join(", ");
-      await appendCardLog(
+      await writeCardLog(
         root,
         a.original.id,
         a.logIndex,
@@ -3592,6 +3851,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         runRev: a.running.rev,
         dispatchedFrom: listId,
         now,
+        terminalSummary: target.list === "done" ? snippet : undefined,
         afterWrite: terminalHold
           ? () => cleanupCardCoordination({
               root,
@@ -3632,6 +3892,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         ...(res.postCommitError ? { coordinationCleanupPending: true } : {})
       });
     }
+    await clearBatchSessions();
   }
   return { outcomes };
 }

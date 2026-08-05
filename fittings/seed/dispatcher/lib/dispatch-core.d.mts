@@ -110,6 +110,7 @@ export const CLARITY_VALUES: Set<string>;
 // The phrasing short-circuit for clarity - an explicit "just do it" / "let's discuss
 // first" wins over the model, both directions. Null when no explicit phrasing matches.
 export function clarityShortCircuit(message: string): { clarity: Clarity; overrideSource: "message" } | null;
+export function discussionDutyShortCircuit(message: string, model: DispatchModel): DispatchPick | null;
 
 export function buildDispatchPrompt(model: DispatchModel, userPrompt: string, opts?: { clarityRubric?: string }): string;
 export function dispatchSchema(): DispatchSchema;

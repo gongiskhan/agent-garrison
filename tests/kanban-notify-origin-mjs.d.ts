@@ -19,7 +19,7 @@ declare module "*/kanban-loop/lib/notify-origin.mjs" {
     }
   ): Promise<FanOutNotificationResult[]>;
 
-  export function outcomeMessage(card: Record<string, unknown>): string;
+  export function outcomeMessage(card: Record<string, unknown>, options?: { summary?: string }): string;
   export function terminalTransition(
     previous: Record<string, unknown> | null,
     next: Record<string, unknown>

@@ -26,7 +26,7 @@ import {
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
 import { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
-import { rewriteHostUrl, filePathMarkedExtension, type ServeMap } from "./host-rewrite";
+import { rewriteHostUrl, filePathMarkedExtension, type HostContext, type ServeMap } from "./host-rewrite";
 import { SessionStream } from "./SessionTranscript";
 
 // A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
@@ -206,6 +206,18 @@ function hostCtx() {
     protocol: typeof window !== "undefined" ? window.location.protocol : "",
     serveMap: chatServeMap,
   };
+}
+
+// Persisted thread history bypasses the live Web Channel transport normaliser.
+// Rewrite at the final render boundary as well, so a reloaded card badge can
+// never hand a remote browser the board machine's 127.0.0.1 URL.
+export function rewriteRouteForHost(
+  route: RouteAttribution | null | undefined,
+  ctx: HostContext
+): RouteAttribution | null | undefined {
+  if (!route || typeof route.cardUrl !== "string") return route;
+  const cardUrl = rewriteHostUrl(route.cardUrl, ctx);
+  return cardUrl === route.cardUrl ? route : { ...route, cardUrl };
 }
 
 // ── Composer draft persistence (unsent text + attachments) ──────────────────
@@ -1806,8 +1818,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // actually carries attribution; the chip stays as the fallback for a
           // pre-migration persisted turn, a lane that reports nothing, and dev-env
           // (which passes no `routing` feature).
-          const showRail = railOn && Boolean(t.route);
-          const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
+          const displayRoute = rewriteRouteForHost(t.route, hostCtx());
+          const showRail = railOn && Boolean(displayRoute);
+          const structuredChip = displayRoute ? routeChipFromAttribution(displayRoute) : null;
           const metaLabel = routeChipLabel(clean.meta);
           const metaTitle = clean.meta.route
             ? `routed via ${clean.meta.route}${clean.meta.rule ? ` · rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` · ${clean.meta.profile} profile` : ""}`
@@ -1927,7 +1940,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 {showRail && (
                   <AttributionRail
                     variant="settled"
-                    route={t.route}
+                    route={displayRoute}
                     pins={t.overrides}
                     label="Run context for this reply"
                     onOpenTranscript={onOpenTranscript}
@@ -2125,7 +2138,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         {showFlightRail && (
           <AttributionRail
             variant="flight"
-            route={latestAssistant?.route}
+            route={rewriteRouteForHost(latestAssistant?.route, hostCtx())}
             pins={pins}
             pendingFields={pendingPins}
             options={routeOptions ?? undefined}

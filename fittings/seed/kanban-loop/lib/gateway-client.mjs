@@ -178,6 +178,35 @@ export function compactBoundaryFn(gatewayUrl) {
   };
 }
 
+// Stop the gateway turn that is provably executing this card. Kanban turns share
+// the gateway's fallback conversation key, so the card id is load-bearing: the
+// gateway rejects a mismatch instead of cancelling whichever queued turn happens
+// to be active. HTTP errors are returned (the board wants to preserve 404 vs 409);
+// only network/timeout failures throw as transport errors.
+export async function interruptCardTurn(gatewayUrl, cardId) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    let res;
+    try {
+      res = await fetch(`${gatewayUrl}/chat/interrupt`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
+        body: JSON.stringify({ cardId }),
+        signal: ctrl.signal
+      });
+    } catch (err) {
+      const e = new Error(`gateway interrupt unreachable: ${err?.message || err}`);
+      e.transport = true;
+      throw e;
+    }
+    const body = await res.json().catch(() => ({}));
+    return { status: res.status, body };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // A card's `project` is stored in TWO shapes in the wild: a bare slug
 // ("ekoa-code") and an absolute path ("/home/ggomes/dev/ekoa-code") — on a real
 // board, both, roughly half and half. The gateway's resolver takes NAMES only
@@ -270,8 +299,10 @@ export function gatewayRunFn(gatewayUrl) {
     stepIndex,
     sequence,
     onTool,
+    onJournal,
     contextHold,
-    dutyKey
+    dutyKey,
+    cardIds
   }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
@@ -312,6 +343,10 @@ export function gatewayRunFn(gatewayUrl) {
       if (idleTimer) clearTimeout(idleTimer);
     };
     armIdle();
+    const turnCardIds = [...new Set([
+      ...(typeof card?.id === "string" && card.id ? [card.id] : []),
+      ...(Array.isArray(cardIds) ? cardIds.filter((id) => typeof id === "string" && id) : [])
+    ])].slice(0, 100);
 
     let res;
     try {
@@ -357,7 +392,11 @@ export function gatewayRunFn(gatewayUrl) {
           // S1b: whether this duty holds off compaction + the card+phase key, so the
           // gateway's turn-boundary check honors the hold and stamps the compact log.
           contextHold: contextHold === true,
-          dutyKey: dutyKey ?? null
+          dutyKey: dutyKey ?? null,
+          // Exact ownership proof for card-level Panic. Per-card turns derive it
+          // from `card.id`; batched turns pass every member explicitly because
+          // stopping their shared runtime turn necessarily affects the group.
+          ...(turnCardIds.length ? { cardIds: turnCardIds } : {})
         })
       });
     } catch (err) {
@@ -380,19 +419,33 @@ export function gatewayRunFn(gatewayUrl) {
     }
 
     // Parse the SSE stream: blocks separated by a blank line. `done` carries the final
-    // result; `error` a turn error; `chunk` events stream the operative's GROWING reply,
-    // which we forward to onChunk (throttled) so the card's Watch shows live progress
-    // instead of nothing-until-the-result. `: keepalive` comments are ignored.
+    // result; `error` a turn error; `chunk` events are normally deltas, but PTY lanes
+    // can re-emit the whole visible answer after a screen reflow with `replace:true`.
+    // Apply the same accumulator contract as Web Channel before forwarding the growing
+    // reply to onChunk (throttled), so the card's Watch never appends a replacement as
+    // a duplicate. `: keepalive` comments are ignored.
     const decoder = new TextDecoder();
     let buf = "";
     let done = null;
     let streamErr = null;
     let live = "";
+    let journalSessionId = null;
     let lastEmit = 0;
     const emit = (force) => {
       if (!onChunk) return;
       const t = Date.now();
       if (force || t - lastEmit > 400) { lastEmit = t; try { onChunk(live); } catch { /* ignore */ } }
+    };
+    const emitJournal = (payload) => {
+      const sessionId = payload?.session_id ?? payload?.sessionId;
+      if (typeof sessionId !== "string" || !sessionId || sessionId === journalSessionId || !onJournal) return;
+      journalSessionId = sessionId;
+      try {
+        onJournal({
+          sessionId,
+          transcriptPath: payload?.transcript_path ?? payload?.transcriptPath ?? null
+        });
+      } catch { /* observability must never break a turn */ }
     };
     try {
       for await (const chunk of res.body) {
@@ -411,9 +464,17 @@ export function gatewayRunFn(gatewayUrl) {
           // comment carries no `event:` line, so it lands here as "message" and
           // deliberately does NOT count as progress — otherwise a wedged turn on a
           // healthy socket would be kept alive forever by its own heartbeat.
-          if (event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
+          if (event === "route" || event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
           if (event === "chunk") {
-            try { const c = JSON.parse(data); if (typeof c.text === "string") { live += c.text; emit(false); } } catch { /* ignore */ }
+            try {
+              const c = JSON.parse(data);
+              if (typeof c.text === "string") {
+                live = c.replace ? c.text : live + c.text;
+                emit(false);
+              }
+            } catch { /* ignore */ }
+          } else if (event === "route") {
+            try { emitJournal(JSON.parse(data)); } catch { /* malformed route frame - ignore */ }
           } else if (event === "tool") {
             // S3d (D9b): an AskUserQuestion the operative raised MID-TURN (the discuss
             // duty asking for scope). Forward the tool payload ({tool_use_id, questions})
@@ -421,7 +482,7 @@ export function gatewayRunFn(gatewayUrl) {
             // event. Previously DROPPED - the round-trip closes E6 gap (a).
             if (onTool) { try { onTool(JSON.parse(data)); } catch { /* malformed tool frame - ignore */ } }
           } else if (event === "done") {
-            try { done = JSON.parse(data); } catch { done = { reply: "" }; }
+            try { done = JSON.parse(data); emitJournal(done); } catch { done = { reply: "" }; }
           } else if (event === "error") {
             try { streamErr = JSON.parse(data)?.error || "stream error"; } catch { streamErr = "stream error"; }
           }
@@ -458,8 +519,16 @@ export function gatewayRunFn(gatewayUrl) {
       reply: done.reply ?? done.text ?? "",
       route: routeFromDone(done),
       context: contextFromDone(done),
-      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : null,
-      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null
+      // A runtime may announce its journal on the early route frame but omit the
+      // coordinate from done. Preserve what Watch streamed so the terminal card
+      // still gains the durable sessionIds pointer.
+      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : journalSessionId,
+      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null,
+      stoppedByUser: done.stoppedByUser === true,
+      interruptedByCardId: typeof done.interruptedByCardId === "string" ? done.interruptedByCardId : null,
+      affectedCardIds: Array.isArray(done.affectedCardIds)
+        ? done.affectedCardIds.filter((id) => typeof id === "string" && id).slice(0, 100)
+        : []
     };
   };
 }

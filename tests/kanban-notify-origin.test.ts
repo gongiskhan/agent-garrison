@@ -54,6 +54,15 @@ describe("outcomeMessage (what the thread reads)", () => {
     expect(text).toContain("exports the visible rows");
   });
 
+  it("uses the authoritative engine summary without the card-front truncation or verdict token", async () => {
+    const { outcomeMessage } = await lib();
+    const marker = "final recommendation after the old 280-character boundary";
+    const summary = `${"context ".repeat(60)}${marker}\ndone`;
+    const text = outcomeMessage({ ...base, list: "done", lastReply: "context …" }, { summary });
+    expect(text).toContain(marker);
+    expect(text).not.toMatch(/\ndone\s*$/i);
+  });
+
   it("a parked card carries the attention reason", async () => {
     const { outcomeMessage } = await lib();
     const text = outcomeMessage({

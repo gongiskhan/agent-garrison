@@ -482,7 +482,9 @@ export function batchGatewayRunFn(gatewayUrl) {
     level,
     phase: routedPhase,
     stepIndex,
-    sequence
+    sequence,
+    onChunk,
+    onJournal
   }) => {
     const routeContext = { duty, level, phase: routedPhase, stepIndex, sequence };
     // A verdict NUDGE (engine backstop) replaces the roster prompt: same
@@ -497,6 +499,9 @@ export function batchGatewayRunFn(gatewayUrl) {
         classification,
         skill,
         suppressContinuations: suppressContinuations ?? true,
+        cardIds: cards.map((c) => c.id).filter(Boolean),
+        onChunk,
+        onJournal,
         ...routeContext
       });
     }
@@ -532,6 +537,9 @@ export function batchGatewayRunFn(gatewayUrl) {
       classification,
       skill,
       suppressContinuations: suppressContinuations ?? true,
+      cardIds: cards.map((c) => c.id).filter(Boolean),
+      onChunk,
+      onJournal,
       ...routeContext
     });
   };

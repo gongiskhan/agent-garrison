@@ -30,7 +30,7 @@ import { sanitizeRouting } from "../fittings/seed/http-gateway/scripts/gateway-p
 import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
 // A gateway stub that captures ONE request body and returns a minimal SSE turn.
-async function captureBody(run: (url: string) => Promise<unknown>): Promise<any> {
+async function captureBody(run: (url: string) => Promise<unknown>, response?: string): Promise<any> {
   let captured: any = null;
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -38,7 +38,7 @@ async function captureBody(run: (url: string) => Promise<unknown>): Promise<any>
     req.on("end", () => {
       try { captured = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { captured = null; }
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(`event: done\ndata: ${JSON.stringify({ reply: "review" })}\n\n`);
+      res.write(response ?? `event: done\ndata: ${JSON.stringify({ reply: "review" })}\n\n`);
       res.end();
     });
   });
@@ -65,6 +65,7 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
       })
     );
     expect(body.routing).toEqual({ project: "ekoa-code" });
+    expect(body.cardIds).toEqual(["c1"]);
   });
 
   it("does NOT overload the top-level `project` field, which means something else on other channels", async () => {
@@ -118,6 +119,7 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
       })
     );
     expect(body.routing).toEqual({ project: "ekoa-code" });
+    expect(body.cardIds).toEqual(["c1"]);
   });
 
   it("the batch VERDICT NUDGE keeps the same cwd (it is the same session's follow-up)", async () => {
@@ -125,6 +127,30 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
       batchGatewayRunFn(url)({ project: "ekoa-code", cards: [], nudge: "just the verdict please", list: {} })
     );
     expect(body.routing).toEqual({ project: "ekoa-code" });
+  });
+
+  it.each([false, true])("forwards live text and journal callbacks through the batch lane (nudge=%s)", async (nudge) => {
+    const chunks: string[] = [];
+    const journals: any[] = [];
+    const response = [
+      `event: route\ndata: ${JSON.stringify({ session_id: "batch-session", transcript_path: "/runtime/batch-session.jsonl" })}\n\n`,
+      `event: chunk\ndata: ${JSON.stringify({ text: "streamed batch output" })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ reply: "streamed batch output" })}\n\n`
+    ].join("");
+    await captureBody((url) => batchGatewayRunFn(url)({
+      project: "ekoa-code",
+      cards: [{ id: "c1", list: "test" }],
+      list: { id: "test", validNext: ["done"] },
+      ...(nudge ? { nudge: "verdict only" } : {}),
+      onChunk: (full: string) => chunks.push(full),
+      onJournal: (identity: any) => journals.push(identity)
+    }), response);
+
+    expect(chunks).toEqual(["streamed batch output"]);
+    expect(journals).toEqual([{
+      sessionId: "batch-session",
+      transcriptPath: "/runtime/batch-session.jsonl"
+    }]);
   });
 
   it("the personal batch and its verdict nudge preserve the reserved scope", async () => {

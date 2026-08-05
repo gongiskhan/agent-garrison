@@ -156,6 +156,30 @@ export function clarityShortCircuit(message) {
   return null;
 }
 
+// An explicit request to TALK THROUGH a product idea is a discussion even when
+// the prose naturally contains words such as "feature" and "API". Those nouns
+// describe the subject, not an instruction to change code. Keep this narrow and
+// phrase-led so "fix the API" remains code. Folding accents makes the same rule
+// work for the Portuguese Web Channel without maintaining an ASCII shadow list.
+export function discussionDutyShortCircuit(message, model) {
+  if (!selectedDutyList(model).includes("discuss")) return null;
+  const text = String(message ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const explicit =
+    /\b(?:what do you think|what(?:'s| is) your (?:take|opinion)|i(?:'d| would)? like to (?:talk|discuss)|i want(?:ed)? to (?:talk|discuss)|can we (?:talk|discuss)|let'?s (?:talk|discuss))\b/.test(text) ||
+    /\b(?:(?:queria|gostava|quero) (?:falar|discutir)|(?:podemos|podiamos) (?:falar|discutir)|o que (?:achas|pensas)|qual (?:e )?a tua opiniao)\b/.test(text);
+  if (!explicit) return null;
+  return {
+    duty: "discuss",
+    level: defaultLevelFor(dutySpec(model, "discuss")),
+    confidence: "high",
+    clarity: "clear",
+    reason: "explicit request to discuss or give an opinion"
+  };
+}
+
 function extractJsonObject(text) {
   if (typeof text !== "string") return null;
   const fence = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
@@ -245,8 +269,10 @@ export function deterministicFallbackDispatch(model, message) {
   const lower = String(message ?? "").toLowerCase();
   const has = (id) => selected.includes(id);
   let duty = null;
+  const discussion = discussionDutyShortCircuit(message, model);
   const coding = /\b(code|implement|fix|bug|refactor|typescript|javascript|python|api|feature|test|build|change|update|repository|codebase)\b/.test(lower);
-  if (coding && has("develop")) duty = "develop";
+  if (discussion) duty = discussion.duty;
+  else if (coding && has("develop")) duty = "develop";
   else if (coding && has("code")) duty = "code";
   else if (/\b(research|investigate|find|source|compare|learn)\b/.test(lower) && has("research")) duty = "research";
   else if (/\b(image|photo|illustration|render)\b/.test(lower) && has("image")) duty = "image";
@@ -259,7 +285,7 @@ export function deterministicFallbackDispatch(model, message) {
   const count = Math.max(1, Array.isArray(spec?.levels) ? spec.levels.length : 1);
   const deep = /\b(deep|architecture|migration|security|critical|wide[- ]blast|end[- ]to[- ]end|e2e)\b/.test(lower);
   const trivial = String(message ?? "").length < 90 && /\b(typo|rename|one[- ]line|tiny|trivial)\b/.test(lower);
-  const level = trivial ? 1 : deep && count >= 3 ? 3 : Math.min(2, count);
+  const level = discussion?.level ?? (trivial ? 1 : deep && count >= 3 ? 3 : Math.min(2, count));
   return {
     duty,
     level,
@@ -413,7 +439,10 @@ export async function dispatch(model, message, opts = {}) {
       ? opts.fallback(model, message)
       : fallbackDispatch(model)
   );
-  const chosen = applyOverride(base, { message, cardLevel: opts.cardLevel }, model);
+  // Explicit conversational intent outranks both a model pick and the fallback:
+  // a product opinion containing "feature"/"API" must not become a code run.
+  const discussion = discussionDutyShortCircuit(message, model);
+  const chosen = applyOverride(discussion ?? base, { message, cardLevel: opts.cardLevel }, model);
 
   // clarity (S3d D9b): the model's parsed verdict, then a PHRASING OVERRIDE wins
   // (both directions) - an explicit "just do it" / "let's discuss first" beats the

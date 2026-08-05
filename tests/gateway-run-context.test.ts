@@ -694,11 +694,68 @@ describe("the interrupt registry (§9)", () => {
     expect((await gw.handleInterrupt({}, turns)).status).toBe(200);
   });
 
+  it("fails closed when a card-bound interrupt does not own the active turn", async () => {
+    const stop = vi.fn(() => true);
+    const turns = new Map([[
+      "operative",
+      { lane: "agent-sdk", stop, cancelled: false, cardIds: ["CARD-A"], dutyKey: "CARD-A:plan" }
+    ]]);
+
+    const r = await gw.handleInterrupt({ cardId: "CARD-B" }, turns);
+
+    expect(r.status).toBe(409);
+    expect(r.body).toMatchObject({
+      ok: false,
+      error: "active-turn-belongs-to-another-card",
+      cardId: "CARD-B",
+      activeCardIds: ["CARD-A"]
+    });
+    expect(stop).not.toHaveBeenCalled();
+    expect(turns.get("operative")!.cancelled).toBe(false);
+
+    // A turn without card identity (for example, one started by an older client)
+    // is unverifiable too. Never interpret missing ownership as a match.
+    const unidentifiedStop = vi.fn(() => true);
+    const unidentified = new Map([[
+      "operative",
+      { lane: "standing-pty", stop: unidentifiedStop, cancelled: false }
+    ]]);
+    expect((await gw.handleInterrupt({ cardId: "CARD-B" }, unidentified)).status).toBe(409);
+    expect(unidentifiedStop).not.toHaveBeenCalled();
+  });
+
+  it("stops a shared batch only when the requested card is one of its members", async () => {
+    const stop = vi.fn(() => true);
+    const turns = new Map([[
+      "operative",
+      { lane: "agent-sdk", stop, cancelled: false, cardIds: ["CARD-A", "CARD-B"] }
+    ]]);
+
+    const r = await gw.handleInterrupt({ cardId: "CARD-B" }, turns);
+
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, cardIds: ["CARD-A", "CARD-B"], stopped: true });
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(turns.get("operative")!.cancelled).toBe(true);
+    expect((turns.get("operative") as any).interruptedByCardId).toBe("CARD-B");
+  });
+
   it("409s a lane with no cancel primitive rather than claiming a stop", async () => {
     const turns = new Map([["t", { lane: "ollama-native", stop: null, cancelled: false }]]);
     const r = await gw.handleInterrupt({ sessionId: "t" }, turns);
     expect(r.status).toBe(409);
     expect(r.body).toMatchObject({ error: "lane-has-no-cancel-primitive", lane: "ollama-native" });
+  });
+
+  it("does not mark a turn interrupted when its cancel primitive explicitly declines", async () => {
+    const turns = new Map([[
+      "operative",
+      { lane: "standing-pty", stop: () => false, cancelled: false, cardIds: ["CARD-A"] }
+    ]]);
+    const r = await gw.handleInterrupt({ cardId: "CARD-A" }, turns);
+    expect(r.status).toBe(409);
+    expect(r.body).toMatchObject({ ok: false, error: "cancel-primitive-did-not-stop" });
+    expect(turns.get("operative")!.cancelled).toBe(false);
   });
 
   it("reports a throwing stop as a failure, not a success", async () => {

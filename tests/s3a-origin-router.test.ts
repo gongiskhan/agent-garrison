@@ -166,6 +166,39 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
     await new Promise((r) => setTimeout(r, 80));
     expect(received.find((m) => m.url.includes("chat-quick"))).toBeUndefined();
   });
+
+  it("delivers one untruncated terminal answer while retaining both lifecycle records", async () => {
+    const root = tmp();
+    const threadId = "chat-terminal-full";
+    const card = await createCard(root, {
+      list: "code",
+      title: "Product opinion",
+      project: "demo",
+      duty: "code",
+      level: 2,
+      sequence: ["code"],
+      originChannel: { channel: "web", threadId }
+    });
+    const board: any = {
+      version: 4,
+      lists: [
+        { id: "code", title: "Code", kind: "agent", phase: "code", trigger: "immediate", validNext: ["done"] },
+        { id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: [] }
+      ]
+    };
+    const marker = "recommendation beyond the former card snippet boundary";
+    const reply = `${"Detailed product reasoning. ".repeat(20)}${marker}\ndone`;
+    const result = await processCard({ root, board, card, cwd: root, runFn: async () => ({ reply }) });
+    expect(result.outcome).toMatchObject({ status: "moved", to: "done" });
+
+    await new Promise((r) => setTimeout(r, 160));
+    const hits = received.filter((m) => m.url.includes(threadId));
+    expect(hits).toHaveLength(1);
+    expect(hits[0].body.messages[0].text).toContain(marker);
+    expect(hits[0].body.messages[0].text).not.toContain("Code complete —");
+    const kinds = readOriginEvents(root, `web:${threadId}`).map((e: any) => e.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["finished", "duty-summary"]));
+  });
 });
 
 describe("routeTerminalTransition — finished / blocked / failed", () => {

@@ -440,7 +440,11 @@ async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
     let msg = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      if (body?.error) msg = body.error;
+      // API failures may expose a stable machine code in `error` while giving
+      // the operator actionable context in `message`. Prefer that context, but
+      // retain compatibility with older endpoints that only return `error`.
+      if (typeof body?.message === "string" && body.message.trim()) msg = body.message;
+      else if (typeof body?.error === "string" && body.error.trim()) msg = body.error;
     } catch { /* keep status */ }
     throw new Error(msg);
   }
@@ -561,6 +565,18 @@ export const api = {
       `/cards/${encodeURIComponent(id)}/start`,
       { method: "POST" }
     ),
+  // Panic is a card-bound interrupt, not a move and not steering. The server asks
+  // the gateway to stop only a turn that proves it contains this card; the engine
+  // then parks the interrupted card(s) without accepting partial verdicts.
+  panic: (id: string) =>
+    jfetch<{
+      ok: boolean;
+      stopped: boolean;
+      lane: string | null;
+      affectedCardIds: string[];
+      sharedBatch: boolean;
+      message: string;
+    }>(`/cards/${encodeURIComponent(id)}/panic`, { method: "POST" }),
   // Abandon a card: build a PREPARED (not applied) revert of its trailer-attributed
   // commits and park it in needs-attention. Human-only on the server.
   abandon: (id: string) =>

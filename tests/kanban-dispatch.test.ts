@@ -3,7 +3,7 @@
 // then (manual/interactive/scheduler-beat targets just move). Plus the engine actually
 // runs + advances the card when dispatched (processCard with an injected runFn — the same
 // path the board's gatewayRunFn drives against the live gateway).
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -17,7 +17,7 @@ import { tmpdir as __tmpdir } from "node:os";
 import { join as __join } from "node:path";
 process.env.GARRISON_RUNS_DIR = __mkdtemp(__join(__tmpdir(), "runs-home-"));
 
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
@@ -27,12 +27,24 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processBatch, processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { gatewayRunFn } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+// @ts-ignore — pure .mjs
+import { liveSessionPointerFile, readLiveSessionPointer } from "../fittings/seed/kanban-loop/lib/live-session.mjs";
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-dispatch-"));
+
+async function eventually<T>(read: () => Promise<T | null>, timeoutMs = 2_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (value !== null) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for asynchronous Kanban state");
+}
 
 describe("v1c shouldAutoDispatch — Move onto an immediate agent list starts the run", () => {
   it("true ONLY for immediate agent lists", () => {
@@ -64,6 +76,110 @@ describe("v1c shouldAutoDispatch — Move onto an immediate agent list starts th
     expect(typeof disk.runId).toBe("string");           // runId minted on the first agent-list entry
     expect(disk.runDir.endsWith(disk.runId)).toBe(true); // S6: absolute under the evidence home
     expect(disk.runDir.startsWith(process.env.GARRISON_RUNS_DIR!)).toBe(true);
+  });
+
+  it("publishes the current generation's journal without revising the running card, then persists and clears it", async () => {
+    const root = tmp();
+    const card = await createCard(root, { title: "Live journal", project: "garrison", list: "plan" });
+    const sessionId = "session-engine-live-1";
+    let entered!: () => void;
+    let release!: () => void;
+    const didEnter = new Promise<void>((resolve) => { entered = resolve; });
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    let acquiredRev = -1;
+
+    const running = processCard({
+      root,
+      board,
+      card,
+      cap: 10,
+      runFn: async ({ card: active, onJournal }: any) => {
+        acquiredRev = active.rev;
+        onJournal({
+          sessionId,
+          transcriptPath: join(root, "runtime", `${sessionId}.jsonl`)
+        });
+        entered();
+        await hold;
+        return { reply: "implement", sessionId };
+      }
+    });
+
+    await didEnter;
+    const observed = await eventually(async () => {
+      const disk = await loadCard(root, card.id);
+      const pointer = await readLiveSessionPointer(root, disk);
+      return pointer ? { disk, pointer } : null;
+    });
+    expect(observed.disk).toMatchObject({ status: "running", rev: acquiredRev, runSeq: 1 });
+    expect(observed.disk.sessionIds).toEqual([]);
+    expect(observed.pointer).toMatchObject({ sessionId, runSeq: 1 });
+
+    release();
+    const { outcome } = await running;
+    expect(outcome).toMatchObject({ status: "moved", to: "implement" });
+    const settled = await loadCard(root, card.id);
+    expect(settled.sessionIds).toContain(sessionId);
+    expect(existsSync(liveSessionPointerFile(root, card.id, 1)!)).toBe(false);
+  });
+});
+
+describe("batched Watch streaming", () => {
+  it("mirrors one live journal onto every member and settles each raw log without duplication", async () => {
+    const root = tmp();
+    const first = await createCard(root, { title: "First", project: "p1", list: "test" });
+    const second = await createCard(root, { title: "Second", project: "p1", list: "test" });
+    const sessionId = "session-batch-live-1";
+    const all = [await loadCard(root, first.id), await loadCard(root, second.id)];
+
+    const { outcomes } = await processBatch({
+      root,
+      board,
+      listId: "test",
+      cards: all,
+      cap: 10,
+      batchRunFn: async ({ cards, onChunk, onJournal }: any) => {
+        const reply = [
+          "STREAM_FINAL",
+          ...cards.map((active: any) => `${active.id} adversarial-test`)
+        ].join("\n");
+        onChunk("draft that must be replaced");
+        onChunk(reply);
+        onJournal({ sessionId, transcriptPath: join(root, "runtime", `${sessionId}.jsonl`) });
+
+        await eventually(async () => {
+          const observations = await Promise.all(cards.map(async (active: any) => {
+            const disk = await loadCard(root, active.id);
+            const pointer = await readLiveSessionPointer(root, disk);
+            return pointer ? { active, disk, pointer } : null;
+          }));
+          return observations.every(Boolean) ? observations : null;
+        }).then((observations: any[]) => {
+          for (const { active, disk, pointer } of observations) {
+            expect(disk).toMatchObject({ status: "running", rev: active.rev, runSeq: active.runSeq });
+            expect(disk.sessionIds).toEqual([]);
+            expect(pointer).toMatchObject({ sessionId, runSeq: active.runSeq });
+          }
+        });
+        return { reply, sessionId };
+      }
+    });
+
+    expect(outcomes).toHaveLength(2);
+    for (const original of [first, second]) {
+      const settled = await loadCard(root, original.id);
+      expect(settled).toMatchObject({ status: "ok", list: "adversarial-test" });
+      expect(settled.sessionIds).toContain(sessionId);
+      expect(existsSync(liveSessionPointerFile(root, original.id, 1)!)).toBe(false);
+      const reply = [
+        "STREAM_FINAL",
+        `${first.id} adversarial-test`,
+        `${second.id} adversarial-test`
+      ].join("\n");
+      expect(readFileSync(join(root, "cards", original.id, "log-1.md"), "utf8")).toBe(
+        `# iteration 1 (batch:p1)\nverdict: adversarial-test\n${reply}\n`
+      );
+    }
   });
 });
 
@@ -128,6 +244,70 @@ describe("v1d gatewayRunFn — failure classification", () => {
     globalThis.fetch = (async () => ({ ok: true, body })) as any;
     const out = await gatewayRunFn("u")({ prompt: "x", list: {} });
     expect(out.reply).toBe("implement");
+  });
+
+  it("applies replacement chunks instead of duplicating cumulative PTY output in Watch", async () => {
+    // PTY screen reflow uses the same delta/replace framing consumed by Web Channel:
+    // a replacement is the whole visible answer, while later ordinary chunks append.
+    // The incident card's final log looked clean because `done.reply` overwrote it;
+    // this reproduces the duplicated text that was visible only while it was running.
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const enc = new TextEncoder();
+    const body = (async function* () {
+      yield enc.encode(`event: open\ndata: {}\n\n`);
+      now += 401;
+      yield enc.encode(`event: chunk\ndata: ${JSON.stringify({ text: "draft " })}\n\n`);
+      now += 401;
+      yield enc.encode(`event: chunk\ndata: ${JSON.stringify({ text: "clean", replace: true })}\n\n`);
+      now += 401;
+      yield enc.encode(`event: chunk\ndata: ${JSON.stringify({ text: " answer" })}\n\n`);
+      yield enc.encode(`event: done\ndata: ${JSON.stringify({ reply: "clean answer" })}\n\n`);
+    })();
+    globalThis.fetch = (async () => ({ ok: true, body })) as any;
+    const seen: string[] = [];
+
+    try {
+      const out = await gatewayRunFn("u")({
+        prompt: "x",
+        list: {},
+        onChunk: (text: string) => seen.push(text)
+      });
+      expect(seen).toEqual(["draft ", "clean", "clean answer"]);
+      expect(out.reply).toBe("clean answer");
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("publishes the runtime journal from an early route frame before done", async () => {
+    const enc = new TextEncoder();
+    const body = (async function* () {
+      yield enc.encode(`event: route\ndata: ${JSON.stringify({ runtime: "agent-sdk", pending: true })}\n\n`);
+      yield enc.encode(`event: route\ndata: ${JSON.stringify({
+        runtime: "agent-sdk",
+        session_id: "session-live-1",
+        transcript_path: "/safe/runtime/session-live-1.jsonl",
+        pending: true
+      })}\n\n`);
+      // Some lanes omit the journal coordinate from done. The early identity must
+      // still become the card's durable session pointer after the turn settles.
+      yield enc.encode(`event: done\ndata: ${JSON.stringify({ reply: "done" })}\n\n`);
+    })();
+    globalThis.fetch = (async () => ({ ok: true, body })) as any;
+    const journals: any[] = [];
+
+    const out = await gatewayRunFn("u")({
+      prompt: "x",
+      list: {},
+      onJournal: (identity: any) => journals.push(identity)
+    });
+
+    expect(journals).toEqual([{
+      sessionId: "session-live-1",
+      transcriptPath: "/safe/runtime/session-live-1.jsonl"
+    }]);
+    expect(out.sessionId).toBe("session-live-1");
   });
 
   it("preserves max-turn + exact route evidence from the SSE `done` event", async () => {
