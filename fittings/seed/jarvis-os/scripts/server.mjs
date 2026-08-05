@@ -46,6 +46,10 @@ const VOICE_STATUS_FILES = [
 // cards by reaching the kanban-loop Fitting server-to-server (its own port,
 // discovered here — not hardcoded, since its port is configurable).
 const KANBAN_STATUS_FILE = path.join(STATUS_ROOT, "kanban-loop.json");
+// WhatsApp discovery: the HUD's send/received confirmation pulse subscribes to
+// the whatsapp-web Fitting's live message SSE, discovered here (its port is
+// configurable, never hardcoded). Absent = no pulse, the HUD degrades quietly.
+const WHATSAPP_STATUS_FILE = path.join(STATUS_ROOT, "whatsapp-web.json");
 // Connector CLIs (spotify/google/trello): sibling fittings when installed under
 // apm_modules/_local, seed paths in dev. Connectors self-resolve their tokens
 // via Garrison's auth-env route (internal token) — no secrets pass through
@@ -1114,6 +1118,31 @@ function handleStream(req, res, opts) {
   });
 }
 
+// WhatsApp live message stream: proxy /api/whatsapp/events → whatsapp-web's
+// /events SSE (server-to-server; the daemon is loopback-only, a browser can't
+// reach it directly). Absent Fitting → an immediately-closed empty stream so
+// the client's EventSource simply never fires (and its own retry backs off).
+function handleWhatsappEvents(req, res) {
+  const info = readFittingInfo(WHATSAPP_STATUS_FILE);
+  if (!info?.url) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.end();
+    return;
+  }
+  let target;
+  try { target = new URL("/events", info.url); }
+  catch { res.statusCode = 200; res.setHeader("Content-Type", "text/event-stream"); res.end(); return; }
+  pipeUpstreamSse(req, res, {
+    method: "GET",
+    hostname: target.hostname,
+    port: target.port,
+    path: target.pathname,
+    headers: { Accept: "text/event-stream" }
+  });
+}
+
 // Rich chat surface: proxy /api/claude/* to the gateway's /claude/*. The SSE
 // stream uses pipeUpstreamSse; the JSON actions buffer + forward.
 function handleClaudeStream(req, res, opts) {
@@ -1475,6 +1504,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
       if (pathname === "/api/voice/tts" && method === "GET") return handleVoiceTtsGet(req, res);
       if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
+      if (pathname === "/api/whatsapp/events" && method === "GET") return handleWhatsappEvents(req, res);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
       if (pathname === "/api/claude/stream" && method === "GET") return handleClaudeStream(req, res, liveOpts);
       if (pathname === "/api/claude/status" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "status", "GET");

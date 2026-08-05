@@ -352,6 +352,131 @@ function describeDisconnectData(data) {
   }
 }
 
+// A tiny in-process pub/sub for message activity. The own-port daemon publishes
+// one event per stored WhatsApp message (inbound AND outbound); SSE subscribers
+// on GET /events receive them live. Deliberately minimal — no history, no
+// replay: a late subscriber only sees messages from the moment it connects,
+// which is exactly what a "a message just landed" HUD pulse wants (a replay
+// would re-fire the animation for every old message on every reconnect).
+export function createMessageBus() {
+  const subscribers = new Set();
+  return {
+    publish(event) {
+      for (const fn of subscribers) {
+        // One misbehaving subscriber must never block delivery to the rest,
+        // nor bubble out into the Baileys event handler that called publish().
+        try { fn(event); } catch { /* ignore */ }
+      }
+    },
+    subscribe(fn) {
+      subscribers.add(fn);
+      return () => subscribers.delete(fn);
+    },
+    get size() { return subscribers.size; }
+  };
+}
+
+// proto.WebMessageInfo.Status: ERROR 0, PENDING 1, SERVER_ACK 2, DELIVERY_ACK
+// 3, READ 4, PLAYED 5. We fire the "sent" pulse at SERVER_ACK — the moment
+// WhatsApp's own server acknowledges the message (the single grey tick), which
+// is the real "it went out" confirmation. DELIVERY_ACK (3) would be stricter,
+// but it depends on the RECIPIENT's phone being online and may never arrive, so
+// keying on it would make the pulse silently miss perfectly successful sends.
+// Bump to 3 here if the owner ever wants strict delivery instead. The event
+// still carries ackStatus so the UI can distinguish later.
+export const WA_SENT_ACK_STATUS = 2;
+
+// Tracks outbound messages between the moment they're stored (messages.upsert,
+// fromMe) and the moment WhatsApp acks them (messages.update). The HUD's "sent"
+// pulse fires on the ack, not on the store, so a send that never leaves the
+// device never claims to have been sent. Delete-before-publish in takeAcked
+// gives dedupe for free: SERVER_ACK -> DELIVERY_ACK -> READ all arrive for the
+// same id, but only the first finds an entry. Bounded by age and size so a
+// long-lived daemon that sends to unreachable recipients can't leak the map.
+export function createOutboundAckTracker({
+  maxEntries = 300,
+  maxAgeMs = 15 * 60_000,
+  now = () => Date.now()
+} = {}) {
+  const pending = new Map();
+  function prune() {
+    const t = now();
+    for (const [id, entry] of pending) {
+      if (t - entry.at > maxAgeMs) pending.delete(id);
+    }
+    // Map preserves insertion order, so the first key is the oldest.
+    while (pending.size > maxEntries) {
+      pending.delete(pending.keys().next().value);
+    }
+  }
+  return {
+    trackPending(entry) {
+      const id = entry?.id;
+      if (!id) return;
+      const { id: _id, ...payload } = entry;
+      pending.set(id, { at: now(), payload });
+      prune();
+    },
+    takeAcked(id) {
+      if (!id) return null;
+      const entry = pending.get(id);
+      if (!entry) return null;
+      pending.delete(id);
+      return entry.payload;
+    },
+    get size() { return pending.size; }
+  };
+}
+
+// Resolves a contact's profile photo URL over the live socket, with a TTL cache
+// so a burst of messages from one chat hits WhatsApp once. Timeouts, missing
+// photos and privacy-hidden photos all resolve to null (a short negative TTL so
+// they don't hammer the API) — the UI falls back to initials. NEVER throws: a
+// photo is a nice-to-have on a pulse, never a reason to drop the pulse.
+export function createAvatarResolver({
+  getProfilePictureUrl,
+  timeoutMs = 1500,
+  ttlMs = 6 * 3_600_000,
+  negativeTtlMs = 10 * 60_000,
+  maxEntries = 512,
+  now = () => Date.now()
+} = {}) {
+  const cache = new Map();
+  function prune() {
+    while (cache.size > maxEntries) {
+      cache.delete(cache.keys().next().value);
+    }
+  }
+  async function lookup(jid) {
+    if (!jid || typeof getProfilePictureUrl !== "function") return null;
+    const t = now();
+    const hit = cache.get(jid);
+    if (hit && hit.exp > t) return hit.url;
+    let url = null;
+    let timer = null;
+    try {
+      url = await Promise.race([
+        // "preview" is the small thumbnail — faster than the full "image".
+        Promise.resolve().then(() => getProfilePictureUrl(jid, "preview")),
+        new Promise((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); })
+      ]);
+    } catch {
+      url = null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (typeof url !== "string" || !url) url = null;
+    cache.set(jid, { url, exp: t + (url ? ttlMs : negativeTtlMs) });
+    prune();
+    return url;
+  }
+  return { lookup, get size() { return cache.size; } };
+}
+
+// No-op bus so buildConnectionManager()/createApp() stay constructible in
+// isolation (the HTTP-layer tests build them without wiring a bus).
+const NULL_BUS = { publish() {}, subscribe() { return () => {}; }, get size() { return 0; } };
+
 // ---------------------------------------------------------------------------
 // Connection manager — the ONLY code in this file that touches Baileys. Real
 // deps are injected by startServer(); tests build a fake object satisfying
@@ -363,6 +488,7 @@ export function buildConnectionManager({
   store,
   contactIndex,
   sendQueue,
+  messageBus = NULL_BUS,
   log = () => {},
   fetchImpl = fetch,
   // Injectable so a hand test COULD exercise this against a fake Baileys
@@ -386,6 +512,16 @@ export function buildConnectionManager({
     // WhatsApp's own stated reason for the last close - see the close branch.
     lastDisconnect: null
   };
+
+  // Outbound "sent" pulses fire on the ack (messages.update), not on the store
+  // (messages.upsert). This bridges the two events by message id. One tracker
+  // per manager so it survives socket reconnects.
+  const ackTracker = createOutboundAckTracker();
+  // Reads the photo off whatever socket is currently live; the cache persists
+  // across reconnects, so a resync doesn't re-fetch every avatar.
+  const avatars = createAvatarResolver({
+    getProfilePictureUrl: (jid, kind) => state.sock?.profilePictureUrl?.(jid, kind)
+  });
 
   function credsPath() {
     return path.join(authDir, "creds.json");
@@ -511,8 +647,49 @@ export function buildConnectionManager({
           timestamp: Number(m.messageTimestamp) ? Number(m.messageTimestamp) * 1000 : Date.now(),
           type: "text"
         };
+        // Persist synchronously and BEFORE any await — storage must never wait
+        // on a profile-photo lookup.
         store.append(record);
-        if (!fromMe) void forwardInbound(chatJid, body);
+        const pulse = {
+          chatJid: chatJid ?? null,
+          chatName: record.chatName ?? null,
+          preview: body.slice(0, 140),
+          timestamp: record.timestamp
+        };
+        if (fromMe) {
+          // Do NOT pulse yet. A stored outbound message hasn't necessarily left
+          // the device; the "sent" pulse waits for WhatsApp's ack in
+          // messages.update (below), keyed by this id.
+          ackTracker.trackPending({ id: record.id, ...pulse });
+        } else {
+          // Inbound is confirmed the moment it lands: pulse "received" now,
+          // enriched with the sender's avatar. The photo lookup is async, so
+          // fire it detached — it must never block the event loop or delay the
+          // gateway forward.
+          void (async () => {
+            const avatarUrl = await avatars.lookup(chatJid);
+            messageBus.publish({ type: "message", direction: "in", avatarUrl, ...pulse });
+          })();
+          void forwardInbound(chatJid, body);
+        }
+      }
+    });
+
+    // Delivery acks for our own sent messages. WhatsApp reports a rising status
+    // (SERVER_ACK -> DELIVERY_ACK -> READ); we fire the "sent" pulse on the
+    // first that clears WA_SENT_ACK_STATUS and takeAcked() dedupes the rest.
+    sock.ev.on("messages.update", (updates) => {
+      for (const u of updates || []) {
+        if (!u?.key?.fromMe) continue;
+        // Baileys nests status under `update`; read defensively across versions.
+        const status = u.update?.status ?? u.update?.update?.status;
+        if (typeof status !== "number" || status < WA_SENT_ACK_STATUS) continue;
+        const pulse = ackTracker.takeAcked(u.key.id);
+        if (!pulse) continue; // unknown id, or already fired for an earlier ack
+        void (async () => {
+          const avatarUrl = await avatars.lookup(pulse.chatJid);
+          messageBus.publish({ type: "message", direction: "out", avatarUrl, ackStatus: status, ...pulse });
+        })();
       }
     });
 
@@ -650,7 +827,7 @@ export function buildConnectionManager({
 // what tests exercise directly (with a fake connectionManager), and what
 // startServer() wires the real one into.
 // ---------------------------------------------------------------------------
-export function createApp({ connectionManager, store, contactIndex, port, host, log = () => {} }) {
+export function createApp({ connectionManager, store, contactIndex, messageBus = NULL_BUS, port, host, log = () => {} }) {
   return async function handleRequest(req, res) {
     try {
       if (!isLoopbackAddr(req.socket?.remoteAddress)) {
@@ -683,6 +860,32 @@ export function createApp({ connectionManager, store, contactIndex, port, host, 
       if (req.method === "GET" && parsed.pathname === "/resolve") {
         const name = String(parsed.query.name || "");
         return jsonRes(res, 200, { candidates: contactIndex.resolve(name) });
+      }
+
+      if (req.method === "GET" && parsed.pathname === "/events") {
+        // Live message stream (SSE). One `message` event per stored message,
+        // inbound or outbound. No replay — see createMessageBus.
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        // Greet immediately so a buffering proxy flushes the headers and the
+        // client's onopen fires before the first real message.
+        res.write(`event: hello\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+        const unsubscribe = messageBus.subscribe((event) => {
+          try { res.write(`event: message\ndata: ${JSON.stringify(event)}\n\n`); } catch { /* client gone */ }
+        });
+        // Heartbeat comment frame keeps intermediaries from idle-closing a
+        // quiet stream; unref so it never holds the process open on shutdown.
+        const heartbeat = setInterval(() => {
+          try { res.write(": ping\n\n"); } catch { /* client gone */ }
+        }, 25_000);
+        if (typeof heartbeat.unref === "function") heartbeat.unref();
+        const cleanup = () => { unsubscribe(); clearInterval(heartbeat); };
+        req.on("close", cleanup);
+        res.on("close", cleanup);
+        return;
       }
 
       if (req.method === "GET" && parsed.pathname === "/recent") {
@@ -782,17 +985,19 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const contactIndex = new ContactIndex(path.join(opts.sessionDir, "contacts.json"));
   const cachedContacts = contactIndex.load();
   const sendQueue = new SendQueue({ minDelayMs: opts.minSendDelayMs, maxDelayMs: opts.maxSendDelayMs });
+  const messageBus = createMessageBus();
   const connectionManager = buildConnectionManager({
     sessionDir: opts.sessionDir,
     gatewayUrl: opts.gatewayUrl,
     store,
     contactIndex,
     sendQueue,
+    messageBus,
     log
   });
 
   const server = http.createServer(
-    createApp({ connectionManager, store, contactIndex, port, host: opts.host, log })
+    createApp({ connectionManager, store, contactIndex, messageBus, port, host: opts.host, log })
   );
 
   await new Promise((resolve, reject) => {

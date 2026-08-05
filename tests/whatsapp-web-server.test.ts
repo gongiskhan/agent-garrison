@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ContactIndex } from "../fittings/seed/whatsapp-web/lib/contacts.mjs";
 import { MessageStore } from "../fittings/seed/whatsapp-web/lib/store.mjs";
-import { createApp, extractMessageText, isLoopbackAddr } from "../fittings/seed/whatsapp-web/scripts/server.mjs";
+import { createApp, createMessageBus, extractMessageText, isLoopbackAddr } from "../fittings/seed/whatsapp-web/scripts/server.mjs";
 
 // Exercises the daemon's internal HTTP API end to end over a REAL http server
 // (127.0.0.1, ephemeral port) with a FAKE connection manager standing in for
@@ -206,5 +206,109 @@ describe("whatsapp-web internal HTTP API", () => {
   it("an unknown route returns 404", async () => {
     const res = await fetch(`${base}/nope`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("whatsapp-web message bus", () => {
+  it("delivers published events to every subscriber and stops after unsubscribe", () => {
+    const bus = createMessageBus();
+    const a: unknown[] = [];
+    const b: unknown[] = [];
+    const offA = bus.subscribe((e) => a.push(e));
+    bus.subscribe((e) => b.push(e));
+    expect(bus.size).toBe(2);
+    bus.publish({ type: "message", direction: "out" });
+    expect(a).toEqual([{ type: "message", direction: "out" }]);
+    expect(b).toEqual([{ type: "message", direction: "out" }]);
+    offA();
+    expect(bus.size).toBe(1);
+    bus.publish({ type: "message", direction: "in" });
+    expect(a).toHaveLength(1); // A no longer receives
+    expect(b).toHaveLength(2);
+  });
+
+  it("a throwing subscriber never blocks delivery to the others", () => {
+    const bus = createMessageBus();
+    const seen: unknown[] = [];
+    bus.subscribe(() => { throw new Error("boom"); });
+    bus.subscribe((e) => seen.push(e));
+    expect(() => bus.publish({ ok: true })).not.toThrow();
+    expect(seen).toEqual([{ ok: true }]);
+  });
+});
+
+describe("whatsapp-web GET /events (SSE)", () => {
+  let dir: string;
+  let server: http.Server;
+  let base: string;
+  let bus: ReturnType<typeof createMessageBus>;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), "wweb-sse-"));
+    const store = new MessageStore(dir);
+    const contactIndex = new ContactIndex();
+    bus = createMessageBus();
+    const handler = createApp({
+      connectionManager: fakeConnectionManager(),
+      store,
+      contactIndex,
+      messageBus: bus,
+      port: 0,
+      host: "127.0.0.1"
+    });
+    server = http.createServer(handler);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    base = `http://127.0.0.1:${port}`;
+  });
+
+  afterEach(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("streams a hello frame then relays a published message event", async () => {
+    const { port } = server.address() as AddressInfo;
+    const frames = await new Promise<string>((resolve, reject) => {
+      const req = http.get({ hostname: "127.0.0.1", port, path: "/events", headers: { Accept: "text/event-stream" } }, (res) => {
+        expect(res.headers["content-type"]).toContain("text/event-stream");
+        let buf = "";
+        res.on("data", (c) => {
+          buf += c.toString();
+          // Publish only once a subscriber is attached (after the hello frame).
+          if (buf.includes("event: hello") && bus.size > 0 && !buf.includes("event: message")) {
+            bus.publish({ type: "message", direction: "out", chatName: "Ana", preview: "olá", avatarUrl: "https://pps.whatsapp.net/ana.jpg" });
+          }
+          if (buf.includes("event: message")) { req.destroy(); resolve(buf); }
+        });
+        res.on("error", () => { /* destroyed on purpose */ });
+      });
+      req.on("error", (err: NodeJS.ErrnoException) => { if (err.code !== "ECONNRESET") reject(err); });
+      setTimeout(() => reject(new Error("timeout waiting for SSE frames")), 3000);
+    });
+    expect(frames).toContain("event: hello");
+    expect(frames).toContain("event: message");
+    const dataLine = frames.split("\n").find((l) => l.startsWith("data:") && l.includes("direction"));
+    expect(dataLine).toBeTruthy();
+    const payload = JSON.parse(dataLine!.replace(/^data:\s*/, ""));
+    // avatarUrl rides through the SSE as an opaque field — the proxy and the
+    // stream never inspect it, so the UI gets the photo for free.
+    expect(payload).toMatchObject({ type: "message", direction: "out", chatName: "Ana", preview: "olá", avatarUrl: "https://pps.whatsapp.net/ana.jpg" });
+  });
+
+  it("drops the subscriber when the client disconnects", async () => {
+    const { port } = server.address() as AddressInfo;
+    await new Promise<void>((resolve, reject) => {
+      const req = http.get({ hostname: "127.0.0.1", port, path: "/events" }, (res) => {
+        res.on("data", () => { req.destroy(); });
+      });
+      req.on("error", () => { /* expected on destroy */ });
+      // Give the server a beat to register then tear down, and confirm cleanup.
+      setTimeout(() => {
+        expect(bus.size).toBe(0);
+        resolve();
+      }, 300);
+      setTimeout(() => reject(new Error("timeout")), 3000);
+    });
   });
 });

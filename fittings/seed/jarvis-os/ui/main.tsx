@@ -287,6 +287,72 @@ function takeSentences(text: string, from: number): { sentences: { text: string;
 
 type Turn = { id: string; role: "user" | "assistant" | "error"; content: string };
 type Callout = { id: string; label: string; content: string };
+// A single WhatsApp send/received confirmation pulse. `direction` drives the
+// icon + arrow ("out" = we just sent, "in" = someone just wrote). It reveals
+// centre-stage, then flies to the top-right dock (see fireWhatsappPulse) where
+// the last few stack — the same choreography as the Calendar/Trello cards.
+type WhatsappPulse = {
+  id: string;
+  direction: "in" | "out";
+  chatName: string | null;
+  preview: string;
+  avatarUrl: string | null;
+};
+
+// WhatsApp mark (the phone-in-speech-bubble), reused for the avatar fallback
+// glyph and the small corner badge.
+const WA_GLYPH_PATH =
+  "M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Zm5.8 14.16c-.25.7-1.44 1.33-1.99 1.38-.53.05-1.02.24-3.42-.72-2.87-1.13-4.7-4.06-4.85-4.25-.14-.19-1.16-1.54-1.16-2.94 0-1.4.73-2.09 1-2.38.25-.28.55-.35.73-.35.18 0 .37 0 .53.01.17.01.4-.06.62.48.25.6.86 2.06.94 2.21.08.15.13.32.02.51-.1.19-.16.32-.31.5-.15.19-.32.42-.46.56-.15.15-.31.32-.13.62.18.3.79 1.3 1.69 2.11 1.16 1.03 2.14 1.35 2.44 1.5.3.15.47.13.65-.08.18-.21.75-.87.95-1.17.2-.3.4-.25.67-.15.27.1 1.71.81 2 .96.3.15.5.22.57.35.07.12.07.72-.18 1.42Z";
+
+// Initials from a contact name: first letter of the first two words, uppercased
+// (so "Ana Maria Costa" -> "AM"). Empty when there is no name to work with.
+function waInitials(name: string | null): string {
+  if (!name) return "";
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  return ((words[0][0] ?? "") + (words.length > 1 ? words[1][0] ?? "" : "")).toUpperCase();
+}
+
+// Contact photo for a pulse: the real avatar when we have a URL, else the
+// contact's initials, else the WhatsApp glyph. A small WhatsApp badge sits in
+// the corner whenever the face is a photo or initials, so the pill still reads
+// as WhatsApp at a glance. `onError` on the <img> falls back to initials, so a
+// dead/expired URL never shows a broken image.
+function WhatsappAvatar({
+  avatarUrl,
+  chatName,
+  size,
+}: {
+  avatarUrl: string | null;
+  chatName: string | null;
+  size: number;
+}) {
+  const [broken, setBroken] = useState(false);
+  const initials = waInitials(chatName);
+  const showImg = Boolean(avatarUrl) && !broken;
+  return (
+    <span className="jarvis-whatsapp-avatar" style={{ width: size, height: size }} aria-hidden="true">
+      {showImg ? (
+        <img src={avatarUrl!} alt="" onError={() => setBroken(true)} />
+      ) : initials ? (
+        <span className="jarvis-whatsapp-initials" style={{ fontSize: Math.round(size * 0.42) }}>
+          {initials}
+        </span>
+      ) : (
+        <svg viewBox="0 0 24 24" width={Math.round(size * 0.62)} height={Math.round(size * 0.62)}>
+          <path fill="currentColor" d={WA_GLYPH_PATH} />
+        </svg>
+      )}
+      {(showImg || initials) && (
+        <span className="jarvis-whatsapp-badge">
+          <svg viewBox="0 0 24 24">
+            <path fill="currentColor" d={WA_GLYPH_PATH} />
+          </svg>
+        </span>
+      )}
+    </span>
+  );
+}
 type Activity = { id: string; tool: string; detail: string };
 // One web search in the current turn. Lifecycle: centre overlay (typing) →
 // `leaving` (fly-right exit) → `docked` (SearchDock card tethered to the orb).
@@ -532,6 +598,13 @@ function App() {
   const [micMuted, setMicMutedRaw] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [callouts, setCallouts] = useState<Callout[]>([]);
+  // WhatsApp confirmation pulse (sent / received). At most one at a time.
+  // WhatsApp pulse choreography (mirrors infoCenter/infoLeaving/infoWidget):
+  // waCenter shows centre-stage, flies right when waLeaving, then lands in
+  // waDocked — the last 4, newest first, stacked in the top-right corner.
+  const [waCenter, setWaCenter] = useState<WhatsappPulse | null>(null);
+  const [waLeaving, setWaLeaving] = useState(false);
+  const [waDocked, setWaDocked] = useState<WhatsappPulse[]>([]);
   const [report, setReport] = useState<{ path: string; content: string } | null>(null);
   const [diff, setDiff] = useState<{ title: string; patch: string; truncated?: boolean } | null>(null);
   // Card deep-link opened INSIDE the HUD (board iframe overlay) instead of a new tab.
@@ -1753,6 +1826,90 @@ function App() {
     return () => { delete (window as any).__jarvisSay; };
   }, [dispatch]);
 
+  // Retire the centre pulse into the top-right dock: play the fly-to-corner
+  // exit, then flip it into waDocked (newest first, cap 4 FIFO). Mirrors
+  // dockInfo exactly. Both timers live in refs so a new pulse can cancel a
+  // dock in flight — otherwise the stale flip timer would dock the newcomer.
+  const waDwellTimer = useRef<number | null>(null);
+  const waLeaveTimer = useRef<number | null>(null);
+  const dockWhatsapp = useCallback(() => {
+    if (waLeaveTimer.current !== null) window.clearTimeout(waLeaveTimer.current);
+    setWaLeaving(true);
+    waLeaveTimer.current = window.setTimeout(() => {
+      waLeaveTimer.current = null;
+      setWaCenter((c) => {
+        if (c) setWaDocked((d) => [c, ...d].slice(0, 4));
+        return null;
+      });
+      setWaLeaving(false);
+    }, 380);
+  }, []);
+
+  // Fire a confirmation pulse centre-stage. If one is already centred, dock it
+  // INSTANTLY (no fly) and take its place — that's what makes several in a row
+  // queue into the corner without overlapping (same move as the web searches).
+  // It dwells ~3.6s, then flies to the corner dock.
+  const fireWhatsappPulse = useCallback((p: Omit<WhatsappPulse, "id">) => {
+    if (waDwellTimer.current !== null) window.clearTimeout(waDwellTimer.current);
+    if (waLeaveTimer.current !== null) { window.clearTimeout(waLeaveTimer.current); waLeaveTimer.current = null; }
+    setWaLeaving(false);
+    setWaCenter((cur) => {
+      if (cur) setWaDocked((d) => [cur, ...d].slice(0, 4));
+      return { ...p, id: genId("wa") };
+    });
+    waDwellTimer.current = window.setTimeout(() => dockWhatsapp(), 3600);
+  }, [dockWhatsapp]);
+
+  // Subscribe to the whatsapp-web Fitting's live message stream (proxied
+  // same-origin by our server). Every stored message — sent or received —
+  // arrives as a `message` event; we turn it into one confirmation pulse.
+  // Absent Fitting → the stream closes empty and this simply never fires.
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let retry: number | null = null;
+    let closed = false;
+    const open = () => {
+      if (closed) return;
+      try { es = new EventSource("/api/whatsapp/events"); } catch { return; }
+      es.addEventListener("message", ((e: MessageEvent) => {
+        let d: any;
+        try { d = JSON.parse(e.data); } catch { return; }
+        if (d?.type !== "message") return;
+        fireWhatsappPulse({
+          direction: d.direction === "out" ? "out" : "in",
+          chatName: typeof d.chatName === "string" && d.chatName ? d.chatName : null,
+          preview: typeof d.preview === "string" ? d.preview : "",
+          avatarUrl: typeof d.avatarUrl === "string" && d.avatarUrl ? d.avatarUrl : null
+        });
+      }) as EventListener);
+      // The server closes the stream when the Fitting is absent; back off and
+      // retry so a whatsapp-web that starts later still gets picked up.
+      es.onerror = () => {
+        try { es?.close(); } catch {}
+        es = null;
+        if (!closed && retry === null) retry = window.setTimeout(() => { retry = null; open(); }, 5000);
+      };
+    };
+    open();
+    return () => {
+      closed = true;
+      if (retry !== null) window.clearTimeout(retry);
+      try { es?.close(); } catch {}
+    };
+  }, [fireWhatsappPulse]);
+
+  // Debug/test hook: fire a confirmation pulse without a live WhatsApp session,
+  // so the animation is verifiable headlessly (console / Playwright).
+  useEffect(() => {
+    (window as any).__jarvisWhatsapp = (
+      direction: "in" | "out" = "out",
+      chatName = "Ana",
+      preview = "olá",
+      avatarUrl: string | null = null,
+    ) => fireWhatsappPulse({ direction, chatName, preview, avatarUrl });
+    return () => { delete (window as any).__jarvisWhatsapp; };
+  }, [fireWhatsappPulse]);
+
 
   // Create a new dev-env session (button or voice). Defaults to the active
   // workspace project (server-side) unless a path is given; selects it on success.
@@ -2413,6 +2570,40 @@ function App() {
         <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" />
       </div>
 
+      {waCenter && (
+        <div
+          key={waCenter.id}
+          className={`jarvis-whatsapp-pulse dir-${waCenter.direction}${waLeaving ? " is-leaving" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          <WhatsappAvatar avatarUrl={waCenter.avatarUrl} chatName={waCenter.chatName} size={30} />
+          <span className="jarvis-whatsapp-body">
+            <span className="jarvis-whatsapp-label">
+              <span className="jarvis-whatsapp-arrow" aria-hidden="true">{waCenter.direction === "out" ? "↑" : "↓"}</span>
+              {waCenter.direction === "out" ? "Enviada" : "Recebida"}
+              {waCenter.chatName ? ` · ${waCenter.chatName}` : ""}
+            </span>
+            {waCenter.preview && (
+              <span className="jarvis-whatsapp-preview">{waCenter.preview}</span>
+            )}
+          </span>
+          <span className="jarvis-whatsapp-check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path
+                className="jarvis-whatsapp-check-path"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 12.5l5 5 11-11"
+              />
+            </svg>
+          </span>
+        </div>
+      )}
+
       <div className="jarvis-status" data-state={mode}>
         <span className={`jarvis-dot ${mode}`} />
         <span className="jarvis-status-text">{statusLabel}</span>
@@ -2690,6 +2881,36 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
 
       {/* Right rail — callouts + Workspace, same non-overlapping flex column. */}
       <div className="jarvis-rail jarvis-rail-right">
+        {/* WhatsApp pulses that have flown to the corner — first child, so the
+            top-right corner IS where they land; the flex column keeps them from
+            overlapping the InfoDock / searches below. Click a mini-pill to
+            dismiss it. */}
+        {waDocked.length > 0 && (
+          <div className="jarvis-whatsapp-dock">
+            {waDocked.map((w) => (
+              <button
+                key={w.id}
+                className={`jarvis-whatsapp-mini dir-${w.direction}`}
+                onClick={() => setWaDocked((d) => d.filter((x) => x.id !== w.id))}
+                title={w.preview || undefined}
+              >
+                <WhatsappAvatar avatarUrl={w.avatarUrl} chatName={w.chatName} size={20} />
+                <span className="jarvis-whatsapp-mini-body">
+                  <span className="jarvis-whatsapp-mini-name">
+                    <span className="jarvis-whatsapp-arrow" aria-hidden="true">{w.direction === "out" ? "↑" : "↓"}</span>
+                    {w.chatName || (w.direction === "out" ? "Enviada" : "Recebida")}
+                  </span>
+                  {w.preview && <span className="jarvis-whatsapp-mini-preview">{w.preview}</span>}
+                </span>
+                <span className="jarvis-whatsapp-mini-check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="13" height="13">
+                    <path fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" d="M4 12.5l5 5 11-11" />
+                  </svg>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {/* Info widget (Calendar / Gmail / Trello) — opened by reply markers,
             shows the data while the spoken answer stays short. */}
         {infoWidget ? <InfoDock widget={infoWidget} onClose={() => setInfoWidget(null)} /> : null}

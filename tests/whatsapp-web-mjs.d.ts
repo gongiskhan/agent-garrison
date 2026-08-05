@@ -61,6 +61,39 @@ declare module "*/whatsapp-web/scripts/server.mjs" {
   };
   export function isLoopbackAddr(addr: unknown): boolean;
   export function extractMessageText(message: unknown): string;
+  export interface MessageBus {
+    publish(event: unknown): void;
+    subscribe(fn: (event: unknown) => void): () => void;
+    readonly size: number;
+  }
+  export function createMessageBus(): MessageBus;
+  export const WA_SENT_ACK_STATUS: number;
+  export interface OutboundPulse {
+    chatJid: string | null;
+    chatName: string | null;
+    preview: string;
+    timestamp: number;
+  }
+  export function createOutboundAckTracker(opts?: {
+    maxEntries?: number;
+    maxAgeMs?: number;
+    now?: () => number;
+  }): {
+    trackPending(entry: OutboundPulse & { id: string }): void;
+    takeAcked(id: string): OutboundPulse | null;
+    readonly size: number;
+  };
+  export function createAvatarResolver(opts: {
+    getProfilePictureUrl?: (jid: string, kind?: string) => unknown;
+    timeoutMs?: number;
+    ttlMs?: number;
+    negativeTtlMs?: number;
+    maxEntries?: number;
+    now?: () => number;
+  }): {
+    lookup(jid: string | undefined | null): Promise<string | null>;
+    readonly size: number;
+  };
   export function buildConnectionManager(opts: Record<string, unknown>): {
     init(): Promise<void>;
     requestPairingCode(phoneNumber: string): Promise<string>;
@@ -76,6 +109,7 @@ declare module "*/whatsapp-web/scripts/server.mjs" {
     };
     store: unknown;
     contactIndex: unknown;
+    messageBus?: MessageBus;
     port: number;
     host: string;
     log?: (...args: unknown[]) => void;

@@ -2550,3 +2550,214 @@ a.yt-btn { text-decoration: none; }
   pointer-events: none;
   opacity: 0.92;
 }
+
+/* ── WhatsApp confirmation pulse ─────────────────────────────────────────────
+   A single toast that flies in below the core when a WhatsApp message is sent
+   ("Enviada", up-arrow) or received ("Recebida", down-arrow), draws its check,
+   holds, then fades. Self-clears on animationend (see main.tsx). WhatsApp green
+   so it reads as WhatsApp at a glance against the red core. */
+.jarvis-whatsapp-pulse {
+  position: fixed;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, 82vw);
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: oklch(0.16 0.02 150 / 0.82);
+  border: 1px solid oklch(0.7 0.16 150 / 0.45);
+  box-shadow:
+    0 8px 30px -8px oklch(0.55 0.16 150 / 0.55),
+    0 0 0 1px oklch(0 0 0 / 0.2) inset;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--ink);
+  pointer-events: none;
+  animation: wa-pulse-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Received leans in from the left, sent lifts from below — a small directional
+   tell reinforcing the arrow + label. */
+.jarvis-whatsapp-pulse.dir-in  { animation-name: wa-pulse-in-left; }
+/* Dwell over → fly to the top-right corner where the dock lives (same gesture
+   as iw-fly-right for the Calendar/Trello cards). The dock card then pops in on
+   the rail, so the "arrival" is the same two-part illusion. */
+.jarvis-whatsapp-pulse.is-leaving {
+  animation: wa-fly-corner 0.38s cubic-bezier(0.5, 0, 0.9, 0.6) both;
+}
+
+@keyframes wa-pulse-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.94); filter: blur(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes wa-pulse-in-left {
+  from { opacity: 0; transform: translateX(-50%) translateX(-18px) scale(0.94); filter: blur(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateX(0) scale(1); filter: blur(0); }
+}
+@keyframes wa-fly-corner {
+  from { opacity: 1; transform: translateX(-50%) translate(0, 0) scale(1); filter: blur(0); }
+  to   { opacity: 0; transform: translateX(-50%) translate(40vw, -8vh) scale(0.3); filter: blur(2px); }
+}
+
+/* Contact face — real photo, initials, or the WhatsApp glyph (see
+   WhatsappAvatar). Size comes inline; the badge is the small WhatsApp mark in
+   the corner so a photo/initials still reads as WhatsApp. */
+.jarvis-whatsapp-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: oklch(0.72 0.17 150);
+  color: #0b1f14;
+  font-weight: 700;
+  animation: wa-icon-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+}
+.jarvis-whatsapp-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.jarvis-whatsapp-initials { line-height: 1; letter-spacing: 0.02em; }
+.jarvis-whatsapp-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 48%;
+  height: 48%;
+  min-width: 11px;
+  min-height: 11px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: oklch(0.72 0.17 150);
+  color: #0b1f14;
+  box-shadow: 0 0 0 1.5px oklch(0.16 0.02 150 / 0.9);
+}
+.jarvis-whatsapp-badge svg { width: 74%; height: 74%; }
+@keyframes wa-icon-pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  70%  { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.jarvis-whatsapp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.jarvis-whatsapp-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: oklch(0.86 0.09 150);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jarvis-whatsapp-arrow {
+  color: oklch(0.82 0.15 150);
+  font-weight: 700;
+}
+.jarvis-whatsapp-preview {
+  font-size: 12px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.jarvis-whatsapp-check {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: oklch(0.82 0.15 150);
+}
+/* Draw the tick on entry: dash the path and reel it in. */
+.jarvis-whatsapp-check-path {
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+  animation: wa-check-draw 0.42s cubic-bezier(0.65, 0, 0.35, 1) 0.28s forwards;
+}
+@keyframes wa-check-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Corner dock — the last few pulses that have flown to the top-right, stacked
+   in the right rail's flex column (first child, so nothing overlaps them).
+   Each mini-pill pops in with the shared callout-in, same as the InfoDock. */
+.jarvis-whatsapp-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.jarvis-whatsapp-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: oklch(0.16 0.02 150 / 0.82);
+  border: 1px solid oklch(0.7 0.16 150 / 0.4);
+  box-shadow: 0 6px 20px -8px oklch(0.55 0.16 150 / 0.45);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  animation: callout-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.jarvis-whatsapp-mini:hover { border-color: oklch(0.7 0.16 150 / 0.7); }
+.jarvis-whatsapp-mini-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.jarvis-whatsapp-mini-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: oklch(0.86 0.09 150);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jarvis-whatsapp-mini-preview {
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jarvis-whatsapp-mini-check {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: oklch(0.82 0.15 150);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-whatsapp-pulse,
+  .jarvis-whatsapp-pulse.dir-in,
+  .jarvis-whatsapp-pulse.is-leaving,
+  .jarvis-whatsapp-avatar,
+  .jarvis-whatsapp-mini { animation-duration: 0.01ms; animation-iteration-count: 1; }
+  .jarvis-whatsapp-check-path { animation: none; stroke-dashoffset: 0; }
+}
