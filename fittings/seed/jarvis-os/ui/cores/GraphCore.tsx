@@ -70,6 +70,7 @@ uniform float uTime;
 uniform float uBoost;
 uniform float uLevel;
 uniform float uHue;
+uniform float uOrb;
 uniform vec3 uInner;
 uniform vec3 uOuter;
 varying float vR;
@@ -79,6 +80,11 @@ vec3 hsl2rgb(vec3 hsl) {
   return hsl.z + hsl.y * (rgb - 0.5) * (1.0 - abs(2.0 * hsl.z - 1.0));
 }
 void main() {
+  // Orb mode: 2 200 nodes inside an 88 px circle is not a graph, it is a filled
+  // ball — no camera distance fixes that, the density is per-pixel. Keep ~16% of
+  // them so the mesh reads as particles-and-lines, which is the whole point of
+  // the orb.
+  if (uOrb > 0.5 && fract(vSeed * 11.7) > 0.16) discard;
   vec2 c = gl_PointCoord - 0.5;
   float alpha = smoothstep(0.5, 0.22, length(c));
   vec3 col = mix(uInner, uOuter, smoothstep(0.0, 0.95, vR));
@@ -89,7 +95,9 @@ void main() {
   col = mix(col, shimmer, uLevel * 0.55);
   // white-hot center — nodes near the core bleach toward white for contrast
   // (after shimmer, so the core stays white while speaking)
-  col = mix(col, vec3(1.0), 0.85 * (1.0 - smoothstep(0.05, 0.5, vR)));
+  // The white-hot core is what turns the shrunken orb into a glowing blob, so
+  // it is dialled right down there.
+  col = mix(col, vec3(1.0), mix(0.85, 0.2, step(0.5, uOrb)) * (1.0 - smoothstep(0.05, 0.5, vR)));
   // twinkle — every node flickers on its own clock
   alpha *= 0.3 + 0.7 * (0.5 + 0.5 * sin(uTime * (1.0 + vSeed * 2.5) + vSeed * 43.0));
   // speaking: brightness waves ripple outward from the center per syllable
@@ -238,6 +246,7 @@ export default function GraphCore({
         uBoost: { value: 1 },
         uLevel: { value: 0 },
         uHue: { value: 0.62 },
+        uOrb: { value: 0 },
         uInner: { value: new THREE.Color().setHSL(0.0, 0.65, 0.84) },
         uOuter: { value: new THREE.Color().setHSL(0.0, 0.85, 0.45) },
       },
@@ -318,6 +327,20 @@ export default function GraphCore({
     );
     halo.material.opacity = 0.09;
     halo.scale.setScalar(3.0);
+
+    // Orb mode strips everything that renders as a filled disc: the halo sprite
+    // (a soft glow the size of the whole orb — the pink circle), most of the
+    // nodes, and the white core. What survives is the bare mesh over a fully
+    // transparent page: particles and lines, nothing else.
+    const applyOrbSkin = () => {
+      const orb = orbDisplayRef.current;
+      nodeMat.uniforms.uOrb.value = orb ? 1 : 0;
+      halo.visible = !orb;
+      edgeMat.opacity = orb ? 0.55 : 0.14;
+    };
+    applyOrbSkin();
+    const applyFramingAndSkin = () => { frameForViewport(); applyOrbSkin(); };
+    updateFramingRef.current = applyFramingAndSkin;
     cloud.add(halo);
 
     // --- background layers (toggled by bgMode) --------------------------------
