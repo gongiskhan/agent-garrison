@@ -568,6 +568,7 @@ export async function cancelPlan(root) {
   try { job.proc?.kill("SIGKILL"); } catch { /* already gone */ }
   Object.assign(job, { status: "canceled", error: null, canceledAt: new Date().toISOString(), endedAt: new Date().toISOString() });
   await clearJobRecord(root);
+  await closeExplore({ root }).catch(() => {});
   return { canceled: true, job: publicPlanJob(job) };
 }
 
@@ -586,7 +587,7 @@ function transcriptProjectsDir() {
 // The CLI slugs cwd into the transcript directory name; rather than
 // reimplementing that rule, glob one level down for the pinned session id -
 // exactly one project directory holds any given session's transcript.
-async function findTranscriptFile(sessionId) {
+export async function findPlanTranscriptFile(sessionId) {
   const base = transcriptProjectsDir();
   let dirs;
   try { dirs = await fs.readdir(base, { withFileTypes: true }); } catch { return null; }
@@ -641,7 +642,7 @@ export async function planProgress(job) {
     }
   } catch { /* best-effort */ }
   try {
-    const file = job.sessionId && await findTranscriptFile(job.sessionId);
+    const file = job.sessionId && await findPlanTranscriptFile(job.sessionId);
     if (file) {
       const stat = await fs.stat(file);
       out.transcriptBytes = stat.size;

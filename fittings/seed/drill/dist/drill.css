@@ -1074,6 +1074,13 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 }
 .dr-live-session-wrap .dr-lbl { margin-bottom: 6px; }
 
+.dr-plan-session > summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  color: var(--ink); font-size: 12px; font-weight: 700; list-style-position: inside;
+}
+.dr-plan-session[open] > summary { margin-bottom: 8px; }
+.dr-plan-session > summary .dr-help-inline { margin-left: auto; font-weight: 400; }
+
 .dr-session-viewer { min-width: 0; }
 .dr-session-tabs { margin-bottom: 8px; }
 .dr-session { border: 1px solid var(--rule-2); background: white; }

@@ -11,7 +11,10 @@ import { access, mkdir, writeFile, unlink, readFile, stat, realpath } from "node
 import { getDrillBook, saveDrillBook, listPages, getPage, savePage, deletePage, drillTargetRoot } from "../lib/store.mjs";
 import { listProjects, selectProject, findRunSkill, projectInfo, activeProjectRoot, readDevRoot, canonicalRoot, isValidProjectRoot } from "../lib/projects.mjs";
 import { urlReachable, startApp, getJob, publicJob } from "../lib/app-runner.mjs";
-import { startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents, cancelPlan, planProgress, logTail } from "../lib/planner.mjs";
+import {
+  startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents, cancelPlan,
+  planProgress, logTail, findPlanTranscriptFile
+} from "../lib/planner.mjs";
 import {
   openTab, evalJs, observeTab, canvasUrl, fetchScreenshot, browserBaseUrl,
   navigateTab, tabAction, closeTab, tabInfo, readConsole
@@ -758,6 +761,93 @@ async function handle(req, res) {
       const job = getPlanJob(root);
       if (!job) return send(res, 404, { error: "no plan job for this project" });
       return send(res, 200, await logTail(job.logFile, 16000), { "content-type": "text/plain; charset=utf-8" });
+    }
+    // Rich live view of the planning Claude session. The same transcript
+    // parser used by run observability keeps assistant text, thinking, tool
+    // calls/results, and image results from Read — which are the screenshots
+    // the planner actually inspected. Nothing here exposes a host path: the
+    // current root selects the current job, and its pinned session id selects
+    // exactly one transcript server-side.
+    if (pathname === "/api/plan/session-stream" && req.method === "GET") {
+      const root = pinnedRoot(url.searchParams.get("root"));
+      const job = getPlanJob(root);
+      if (!job) return send(res, 404, { error: "no plan job for this project" });
+      const requestedSession = url.searchParams.get("session");
+      if (requestedSession && requestedSession !== job.sessionId) {
+        return send(res, 404, { error: "unknown session for this plan" });
+      }
+
+      res.writeHead(200, SSE_HEADERS);
+      let closed = false;
+      req.on("close", () => { closed = true; });
+      const emit = (payload) => {
+        if (closed) return;
+        try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { closed = true; }
+      };
+      const keepAlive = setInterval(() => {
+        if (closed) return;
+        try { res.write(": keep-alive\n\n"); } catch { closed = true; }
+      }, 15_000);
+      keepAlive.unref?.();
+
+      try {
+        let transcriptPath = await findPlanTranscriptFile(job.sessionId);
+        let offset = 0;
+        let initLines = [];
+        if (transcriptPath) {
+          try {
+            const read = await readJsonlLines(transcriptPath, 0);
+            initLines = read.lines;
+            offset = read.offset;
+          } catch { transcriptPath = null; }
+        }
+        const initial = parseTranscriptLines(initLines);
+        emit({
+          type: "init",
+          sessionId: job.sessionId,
+          title: initial.title,
+          events: initial.events,
+          live: job.status === "planning",
+          // A live session whose JSONL has not appeared yet is waiting, not
+          // unavailable. Claude creates it on the first journaled event.
+          available: job.status === "planning" || !!transcriptPath
+        });
+
+        // Tail complete JSONL lines until the authoritative plan job settles.
+        // After terminal state, take two quiet reads so the final assistant
+        // line cannot lose a race with the child-process exit notification.
+        let terminalQuietReads = 0;
+        while (!closed) {
+          await sleep(650);
+          if (!transcriptPath) transcriptPath = await findPlanTranscriptFile(job.sessionId);
+          let emitted = false;
+          if (transcriptPath) {
+            try {
+              const read = await readJsonlLines(transcriptPath, offset);
+              offset = read.offset;
+              if (read.lines.length) {
+                const chunk = parseTranscriptLines(read.lines);
+                if (chunk.events.length || chunk.title) {
+                  emit({ type: "events", sessionId: job.sessionId, title: chunk.title, events: chunk.events });
+                  emitted = true;
+                }
+              }
+            } catch { /* transient read failure — retry while the job lives */ }
+          }
+          if (job.status === "planning") {
+            terminalQuietReads = 0;
+          } else if (emitted) {
+            terminalQuietReads = 0;
+          } else if (++terminalQuietReads >= 2) {
+            break;
+          }
+        }
+        emit({ type: "end", sessionId: job.sessionId, status: job.status });
+      } finally {
+        clearInterval(keepAlive);
+        try { res.end(); } catch { /* already closed */ }
+      }
+      return;
     }
 
     if (pathname === "/api/pages" && req.method === "GET") {

@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,14 +24489,14 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/drill/ui/main.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_client = __toESM(require_client(), 1);
 
-// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 var import_react = __toESM(require_react(), 1);
 
-// ../../../node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
+// node_modules/embla-carousel-reactive-utils/esm/embla-carousel-reactive-utils.esm.js
 function isObject(subject) {
   return Object.prototype.toString.call(subject) === "[object Object]";
 }
@@ -24534,7 +24534,7 @@ function arePluginsEqual(pluginsA, pluginsB) {
   });
 }
 
-// ../../../node_modules/embla-carousel/esm/embla-carousel.esm.js
+// node_modules/embla-carousel/esm/embla-carousel.esm.js
 function isNumber(subject) {
   return typeof subject === "number";
 }
@@ -26162,7 +26162,7 @@ function EmblaCarousel(root2, userOptions, userPlugins) {
 }
 EmblaCarousel.globalOptions = void 0;
 
-// ../../../node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
+// node_modules/embla-carousel-react/esm/embla-carousel-react.esm.js
 function useEmblaCarousel(options = {}, plugins = []) {
   const storedOptions = (0, import_react.useRef)(options);
   const storedPlugins = (0, import_react.useRef)(plugins);
@@ -26195,19 +26195,19 @@ function useEmblaCarousel(options = {}, plugins = []) {
 }
 useEmblaCarousel.globalOptions = void 0;
 
-// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react3 = __toESM(require_react());
 
-// ../../../node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../../../node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react2 = __toESM(require_react());
 
-// ../../../node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -26220,7 +26220,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../../../node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react2.forwardRef)(
   ({
     color = "currentColor",
@@ -26252,7 +26252,7 @@ var Icon = (0, import_react2.forwardRef)(
   }
 );
 
-// ../../../node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component2 = (0, import_react3.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react3.createElement)(Icon, {
@@ -26266,19 +26266,19 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component2;
 };
 
-// ../../../node_modules/lucide-react/dist/esm/icons/arrow-left.js
+// node_modules/lucide-react/dist/esm/icons/arrow-left.js
 var ArrowLeft = createLucideIcon("ArrowLeft", [
   ["path", { d: "m12 19-7-7 7-7", key: "1l729n" }],
   ["path", { d: "M19 12H5", key: "x3x0zl" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// node_modules/lucide-react/dist/esm/icons/arrow-right.js
 var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/camera.js
+// node_modules/lucide-react/dist/esm/icons/camera.js
 var Camera = createLucideIcon("Camera", [
   [
     "path",
@@ -26290,10 +26290,10 @@ var Camera = createLucideIcon("Camera", [
   ["circle", { cx: "12", cy: "13", r: "3", key: "1vg3eu" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/check.js
+// node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/crosshair.js
+// node_modules/lucide-react/dist/esm/icons/crosshair.js
 var Crosshair = createLucideIcon("Crosshair", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "22", x2: "18", y1: "12", y2: "12", key: "l9bcsi" }],
@@ -26302,14 +26302,14 @@ var Crosshair = createLucideIcon("Crosshair", [
   ["line", { x1: "12", x2: "12", y1: "22", y2: "18", key: "15g9kq" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/external-link.js
+// node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/eye.js
+// node_modules/lucide-react/dist/esm/icons/eye.js
 var Eye = createLucideIcon("Eye", [
   [
     "path",
@@ -26321,7 +26321,7 @@ var Eye = createLucideIcon("Eye", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/file-code-2.js
+// node_modules/lucide-react/dist/esm/icons/file-code-2.js
 var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4", key: "1pf5j1" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
@@ -26329,7 +26329,7 @@ var FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/film.js
+// node_modules/lucide-react/dist/esm/icons/film.js
 var Film = createLucideIcon("Film", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
   ["path", { d: "M7 3v18", key: "bbkbws" }],
@@ -26341,13 +26341,13 @@ var Film = createLucideIcon("Film", [
   ["path", { d: "M17 16.5h4", key: "go4c1d" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/flag.js
+// node_modules/lucide-react/dist/esm/icons/flag.js
 var Flag = createLucideIcon("Flag", [
   ["path", { d: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", key: "i9b6wo" }],
   ["line", { x1: "4", x2: "4", y1: "22", y2: "15", key: "1cm3nv" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/layout-grid.js
+// node_modules/lucide-react/dist/esm/icons/layout-grid.js
 var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
   ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
@@ -26355,7 +26355,7 @@ var LayoutGrid = createLucideIcon("LayoutGrid", [
   ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/list-checks.js
+// node_modules/lucide-react/dist/esm/icons/list-checks.js
 var ListChecks = createLucideIcon("ListChecks", [
   ["path", { d: "m3 17 2 2 4-4", key: "1jhpwq" }],
   ["path", { d: "m3 7 2 2 4-4", key: "1obspn" }],
@@ -26364,14 +26364,14 @@ var ListChecks = createLucideIcon("ListChecks", [
   ["path", { d: "M13 18h8", key: "oe0vm4" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/list-filter.js
+// node_modules/lucide-react/dist/esm/icons/list-filter.js
 var ListFilter = createLucideIcon("ListFilter", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M7 12h10", key: "b7w52i" }],
   ["path", { d: "M10 18h4", key: "1ulq68" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/locate-fixed.js
+// node_modules/lucide-react/dist/esm/icons/locate-fixed.js
 var LocateFixed = createLucideIcon("LocateFixed", [
   ["line", { x1: "2", x2: "5", y1: "12", y2: "12", key: "bvdh0s" }],
   ["line", { x1: "19", x2: "22", y1: "12", y2: "12", key: "1tbv5k" }],
@@ -26381,19 +26381,19 @@ var LocateFixed = createLucideIcon("LocateFixed", [
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/message-square.js
+// node_modules/lucide-react/dist/esm/icons/message-square.js
 var MessageSquare = createLucideIcon("MessageSquare", [
   ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/monitor.js
+// node_modules/lucide-react/dist/esm/icons/monitor.js
 var Monitor = createLucideIcon("Monitor", [
   ["rect", { width: "20", height: "14", x: "2", y: "3", rx: "2", key: "48i651" }],
   ["line", { x1: "8", x2: "16", y1: "21", y2: "21", key: "1svkeh" }],
   ["line", { x1: "12", x2: "12", y1: "17", y2: "21", key: "vw1qmm" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/notebook-pen.js
+// node_modules/lucide-react/dist/esm/icons/notebook-pen.js
 var NotebookPen = createLucideIcon("NotebookPen", [
   ["path", { d: "M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4", key: "re6nr2" }],
   ["path", { d: "M2 6h4", key: "aawbzj" }],
@@ -26409,13 +26409,13 @@ var NotebookPen = createLucideIcon("NotebookPen", [
   ]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/plus.js
+// node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
+// node_modules/lucide-react/dist/esm/icons/refresh-ccw.js
 var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "14sxne" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
@@ -26423,19 +26423,19 @@ var RefreshCcw = createLucideIcon("RefreshCcw", [
   ["path", { d: "M16 16h5v5", key: "ccwih5" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/rotate-cw.js
+// node_modules/lucide-react/dist/esm/icons/rotate-cw.js
 var RotateCw = createLucideIcon("RotateCw", [
   ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", key: "1p45f6" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/smartphone.js
+// node_modules/lucide-react/dist/esm/icons/smartphone.js
 var Smartphone = createLucideIcon("Smartphone", [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/square-pen.js
+// node_modules/lucide-react/dist/esm/icons/square-pen.js
 var SquarePen = createLucideIcon("SquarePen", [
   ["path", { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" }],
   [
@@ -26447,19 +26447,19 @@ var SquarePen = createLucideIcon("SquarePen", [
   ]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/tablet.js
+// node_modules/lucide-react/dist/esm/icons/tablet.js
 var Tablet = createLucideIcon("Tablet", [
   ["rect", { width: "16", height: "20", x: "4", y: "2", rx: "2", ry: "2", key: "76otgf" }],
   ["line", { x1: "12", x2: "12.01", y1: "18", y2: "18", key: "1dp563" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/terminal.js
+// node_modules/lucide-react/dist/esm/icons/terminal.js
 var Terminal = createLucideIcon("Terminal", [
   ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
   ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/video.js
+// node_modules/lucide-react/dist/esm/icons/video.js
 var Video = createLucideIcon("Video", [
   [
     "path",
@@ -26471,7 +26471,7 @@ var Video = createLucideIcon("Video", [
   ["rect", { x: "2", y: "6", width: "14", height: "12", rx: "2", key: "158x01" }]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/wrench.js
+// node_modules/lucide-react/dist/esm/icons/wrench.js
 var Wrench = createLucideIcon("Wrench", [
   [
     "path",
@@ -26482,13 +26482,39 @@ var Wrench = createLucideIcon("Wrench", [
   ]
 ]);
 
-// ../../../node_modules/lucide-react/dist/esm/icons/x.js
+// node_modules/lucide-react/dist/esm/icons/x.js
 var X = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// ui/page-normalize.ts
+// fittings/seed/drill/ui/plan-wait.ts
+async function waitForPlanStatus({
+  getStatus,
+  onPhase,
+  onJob,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  pollMs = 3e3
+}) {
+  for (; ; ) {
+    const status = await getStatus();
+    onJob?.(status.job);
+    if (status.job?.status === "done" || status.job?.status === "canceled") {
+      onPhase(null);
+      return status;
+    }
+    if (status.job?.status === "failed") {
+      throw new Error(status.job.error || "planning failed");
+    }
+    if (!status.job) {
+      throw new Error("plan job lost (drill server restarted?) - retry");
+    }
+    onPhase(status.job.mode === "update" ? "Planning the Book update - an agent session is authoring the pages and steps this change touches\u2026" : "Planning the Drill Book - an agent session is exploring the app and authoring pages, steps, and states\u2026");
+    await sleep(pollMs);
+  }
+}
+
+// fittings/seed/drill/ui/page-normalize.ts
 var asArray = (value) => Array.isArray(value) ? value : [];
 function normalizePage(page) {
   return {
@@ -26503,7 +26529,7 @@ function normalizePages(pages) {
   return pages.filter((page) => Boolean(page) && typeof page === "object").map((page) => normalizePage(page));
 }
 
-// ui/main.tsx
+// fittings/seed/drill/ui/main.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 async function apiGet(path) {
   const r = await fetch(path);
@@ -26693,24 +26719,11 @@ async function ensurePlanned({ brief = null, join = false, rootHint = null }, on
   } else if (brief) {
     throw new Error("a plan is already running for this project - wait for it to finish before planning an update");
   }
-  const deadline = Date.now() + 186e4;
-  for (; ; ) {
-    st = await apiGet(`/api/plan/status?root=${encodeURIComponent(root2)}`);
-    onJob?.(st.job);
-    if (st.job && st.job.status === "done") {
-      onPhase(null);
-      return st;
-    }
-    if (st.job && st.job.status === "canceled") {
-      onPhase(null);
-      return st;
-    }
-    if (st.job && st.job.status === "failed") throw new Error(st.job.error || "planning failed");
-    if (!st.job) throw new Error("plan job lost (drill server restarted?) - retry");
-    if (Date.now() > deadline) throw new Error("timed out waiting for planning to finish - see the plan log");
-    onPhase(st.job.mode === "update" ? "Planning the Book update - an agent session is authoring the pages and steps this change touches\u2026" : "Planning the Drill Book - an agent session is exploring the app and authoring pages, steps, and states\u2026");
-    await new Promise((r) => setTimeout(r, 3e3));
-  }
+  return waitForPlanStatus({
+    getStatus: () => apiGet(`/api/plan/status?root=${encodeURIComponent(root2)}`),
+    onPhase,
+    onJob
+  });
 }
 function ProjectBar({ info, onOpenPicker }) {
   const [switching, setSwitching] = (0, import_react4.useState)(false);
@@ -26938,6 +26951,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   const [planOpen, setPlanOpen] = (0, import_react4.useState)(false);
   const [planBusy, setPlanBusy] = (0, import_react4.useState)(false);
   const [planJob, setPlanJob] = (0, import_react4.useState)(null);
+  const [planSessionOpen, setPlanSessionOpen] = (0, import_react4.useState)(false);
   const [canceling, setCanceling] = (0, import_react4.useState)(false);
   const [canceledNotice, setCanceledNotice] = (0, import_react4.useState)(null);
   const [planWarnings, setPlanWarnings] = (0, import_react4.useState)(null);
@@ -26957,9 +26971,18 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     setError(null);
     setCanceledNotice(null);
     setPlanJob(null);
+    if (!join) setPlanSessionOpen(true);
     setPlanBusy(true);
     try {
-      const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      const st = await ensurePlanned(
+        { brief, join, rootHint: pinnedRootRef.current },
+        setPlanPhase,
+        (job) => {
+          setPlanJob(job);
+          if (job?.status === "planning") setPlanSessionOpen(true);
+        }
+      );
+      setPlanJob(st.job);
       setPlanWarnings(st.job?.warnings?.length ? st.job.warnings : null);
       if (st.job && st.job.status === "canceled") {
         setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
@@ -26987,7 +27010,6 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       setError(e.message);
     } finally {
       setPlanPhase(null);
-      setPlanJob(null);
       setPlanBusy(false);
     }
   };
@@ -27135,6 +27157,22 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
         planActivity.stale && " \xB7 no output recently - the plan may be stuck, Cancel to stop it"
       ] })
     ] }),
+    planJob?.sessionId && pinnedRootRef.current && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "details",
+      {
+        className: "dr-sec dr-plan-session",
+        open: planSessionOpen,
+        onToggle: (event) => setPlanSessionOpen(event.currentTarget.open),
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+            "Plan session",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (planJob.status === "planning" ? " sage" : ""), children: planJob.status }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "tool calls and inspected screenshots stream here" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PlanSessionStream, { root: pinnedRootRef.current, job: planJob })
+        ]
+      }
+    ),
     canceledNotice && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", children: canceledNotice }),
     planWarnings && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-notice", role: "status", style: { borderColor: "var(--brass)" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "The plan finished, but some of it will not run:" }),
@@ -29826,7 +29864,7 @@ function SessionToolBlock({ block, result }) {
     ))
   ] });
 }
-function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }) {
+function TranscriptStream({ sourceUrl, sessionId, live, fallbackTitle, emptyEndedText, compact = false }) {
   const [events, setEvents] = (0, import_react4.useState)([]);
   const [title, setTitle] = (0, import_react4.useState)(null);
   const [status, setStatus] = (0, import_react4.useState)("connecting");
@@ -29837,10 +29875,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
     setTitle(null);
     setStatus("connecting");
     stickRef.current = true;
-    const params = new URLSearchParams({ session: sessionId });
-    if (Number.isFinite(windowFrom)) params.set("from", String(Math.floor(windowFrom)));
-    if (Number.isFinite(windowTo)) params.set("to", String(Math.ceil(windowTo)));
-    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`);
+    const source = new EventSource(sourceUrl);
     source.onmessage = (message) => {
       let payload;
       try {
@@ -29865,7 +29900,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
       source.close();
     };
     return () => source.close();
-  }, [runId, sessionId, windowFrom, windowTo]);
+  }, [sourceUrl, sessionId]);
   (0, import_react4.useEffect)(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -29883,18 +29918,17 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
     }
     return map;
   }, [events]);
-  const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session" + (compact ? " compact" : ""), children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-head", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13, "aria-hidden": "true" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? "Verify session" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? fallbackTitle }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-session-id", children: sessionId.slice(0, 8) }),
       live && status === "streaming" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "live" }),
       status === "connecting" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "connecting\u2026" }),
       status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "transcript unavailable" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-scroll", ref: scrollRef, onScroll, children: [
-      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : windowed ? "No session activity fell inside this check's window." : "No session activity fell inside this run's window." }),
+      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : emptyEndedText }),
       events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-role", children: event.role === "user" ? "Prompt" : "Assistant" }),
         event.blocks.map((block, blockIndex) => {
@@ -29913,6 +29947,36 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
       ] }, event.id ?? `event-${index}`))
     ] })
   ] });
+}
+function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }) {
+  const params = new URLSearchParams({ session: sessionId });
+  if (Number.isFinite(windowFrom)) params.set("from", String(Math.floor(windowFrom)));
+  if (Number.isFinite(windowTo)) params.set("to", String(Math.ceil(windowTo)));
+  const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    TranscriptStream,
+    {
+      sourceUrl: `/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`,
+      sessionId,
+      live,
+      fallbackTitle: "Verify session",
+      emptyEndedText: windowed ? "No session activity fell inside this check's window." : "No session activity fell inside this run's window.",
+      compact
+    }
+  );
+}
+function PlanSessionStream({ root: root2, job }) {
+  const params = new URLSearchParams({ root: root2, session: job.sessionId });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    TranscriptStream,
+    {
+      sourceUrl: `/api/plan/session-stream?${params.toString()}`,
+      sessionId: job.sessionId,
+      live: job.status === "planning",
+      fallbackTitle: "Plan session",
+      emptyEndedText: "No session activity was captured for this plan. The raw plan log remains available on failures."
+    }
+  );
 }
 function SessionViewer({ runId, sessions, live }) {
   const [selected, setSelected] = (0, import_react4.useState)(sessions[0]?.id ?? null);
