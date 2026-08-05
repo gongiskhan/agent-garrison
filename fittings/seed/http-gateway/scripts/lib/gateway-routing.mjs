@@ -27,7 +27,11 @@ import { spawn } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
-import { resolveProjectName } from "./project-source.mjs";
+import {
+  PERSONAL_SCOPE_LABEL,
+  PERSONAL_SCOPE_TOKEN,
+  resolveRunScope
+} from "./project-source.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -270,15 +274,27 @@ export function applyTurnOverride(config, route, ov, ctx = {}) {
       applied.push("effort");
     }
   }
-  // A project is a real execution scope (the turn's cwd), confined to a git repo
-  // one level under the dev-root. Unresolvable is a REJECTION: falling back to
-  // the composition dir while showing a project badge is the exact lie §7 bans.
+  // A project is a real execution scope (the turn's cwd), normally confined to a
+  // git repo one level under the dev-root. The exact @personal token is the sole
+  // exception and resolves server-side to $GARRISON_HOME/personal. Unresolvable
+  // is a REJECTION: falling back while showing a scope badge is the exact lie §7
+  // bans.
   if (ov.project) {
-    const resolve = typeof ctx.resolveProject === "function" ? ctx.resolveProject : resolveProjectName;
+    const requestedScope = String(ov.project).trim();
+    const resolve = typeof ctx.resolveProject === "function" ? ctx.resolveProject : resolveRunScope;
     const dir = resolve(ov.project);
-    if (!dir) rejected.push({ field: "project", reason: "project-not-a-git-repo-under-dev-root" });
+    if (!dir) {
+      rejected.push({
+        field: "project",
+        reason: requestedScope === PERSONAL_SCOPE_TOKEN
+          ? "personal-workspace-unavailable"
+          : "project-not-a-git-repo-under-dev-root"
+      });
+    }
     else {
-      out.project = String(ov.project).trim();
+      // Keep the reserved token internal. Attribution says "personal" while the
+      // actual canonical path remains separately available as projectPath.
+      out.project = requestedScope === PERSONAL_SCOPE_TOKEN ? PERSONAL_SCOPE_LABEL : requestedScope;
       out.projectPath = dir;
       applied.push("project");
     }
@@ -1164,6 +1180,16 @@ export class RoutedGateway {
     return route?.target?.runtime === "claude-code" && this.primaryEngine !== "claude-code";
   }
 
+  // A scoped Claude turn cannot use the composition-rooted standing operative.
+  // Reuse the delegate pool even when Claude is the primary: delegate sessions
+  // are keyed by cwd below, so attribution and the process's actual cwd agree
+  // while Kanban follow-up turns retain project/personal context.
+  usesScopedClaudeSession(route, cwd = null) {
+    if (this.isClaudeDelegateTarget(route)) return true;
+    const claudeExecutable = route?.target?.runtime === "claude-code" || this.isWorkflowTarget(route);
+    return claudeExecutable && typeof cwd === "string" && cwd.trim().length > 0;
+  }
+
   // The on-disk jsonl transcript a Claude CLI session at `cwd` journals to.
   // Callers (e.g. the automations vision path) use it to link a routed turn to
   // its session transcript; null when either coordinate is missing.
@@ -1192,8 +1218,9 @@ export class RoutedGateway {
     const adapter = await this.getClaudeDelegateAdapter();
     const t = route.target;
     const provider = t.provider ?? "anthropic-plan";
-    const model = t.model;
+    const model = t.model ?? this._operativeSpawnConfig?.model ?? this.currentTarget?.model ?? "sonnet";
     const effort = t.effort ?? null;
+    const executableTarget = { ...t, runtime: "claude-code", provider, model };
     // cwd, most specific first: a PINNED PROJECT for this turn (§8), else the build
     // workspace, else the composition dir. It is part of the cache KEY because a
     // warm delegate session is pinned to the cwd it spawned in - keying without it
@@ -1203,7 +1230,7 @@ export class RoutedGateway {
     const key = `${provider}:${model}:${effort ?? "none"}:${cwd}`;
     let session = this._claudeDelegateSessions.get(key);
     if (!session || !this.#alive({ session })) {
-      const spawnConfig = this.core.buildRespawnOpts(t, {
+      const spawnConfig = this.core.buildRespawnOpts(executableTarget, {
         compositionDir: cwd,
         appendSystemPromptFile: this.appendSystemPromptFile,
         baseEnv: process.env,
@@ -1947,11 +1974,21 @@ export class RoutedGateway {
       effort: route.target.effort ?? null
     });
 
+    const personalScopeRefused = override.rejected.some(
+      (entry) => entry?.field === "project" && entry?.reason === "personal-workspace-unavailable"
+    );
     let plan;
-    if (this.isAgentSdkTarget(route)) {
+    if (personalScopeRefused) {
+      plan = { path: "refused", reasons: ["managed personal workspace unavailable"] };
+    } else if (this.isAgentSdkTarget(route)) {
       plan = { path: "agent-sdk", reasons: [`v4 duty cell → agent-sdk ${route.target.provider}/${route.target.model}`] };
-    } else if (this.isClaudeDelegateTarget(route)) {
-      plan = { path: "claude-delegate", reasons: [`v4 duty cell → Claude delegate under ${this.primaryEngine} primary`] };
+    } else if (this.usesScopedClaudeSession(route, override.projectPath)) {
+      plan = {
+        path: "claude-delegate",
+        reasons: [override.projectPath
+          ? `v4 duty cell → cwd-keyed Claude session at ${override.projectPath}`
+          : `v4 duty cell → Claude delegate under ${this.primaryEngine} primary`]
+      };
     } else if (this.isSecondaryTarget(route)) {
       plan = { path: "secondary", reasons: [`v4 duty cell → ${route.target.runtime}/${route.target.model}`] };
     } else {
@@ -2143,12 +2180,22 @@ export class RoutedGateway {
     });
     // An agent-sdk target runs on its OWN adapter session (gateway-pty calls
     // runAgentSdkTurn) — do NOT switch the PTY operative for it.
-    const plan = !route.target
+    const personalScopeRefused = override.rejected.some(
+      (entry) => entry?.field === "project" && entry?.reason === "personal-workspace-unavailable"
+    );
+    const plan = personalScopeRefused
+      ? { path: "refused", reasons: ["managed personal workspace unavailable"] }
+      : !route.target
       ? { path: "noop", reasons: ["no target"] }
       : route.target.runtime === "agent-sdk"
         ? { path: "agent-sdk", reasons: [`agent-sdk runtime ${route.target.provider}/${route.target.model}`] }
-        : this.isClaudeDelegateTarget(route)
-          ? { path: "claude-delegate", reasons: [`Claude delegate under ${this.primaryEngine} primary`] }
+        : this.usesScopedClaudeSession(route, override.projectPath)
+          ? {
+              path: "claude-delegate",
+              reasons: [override.projectPath
+                ? `cwd-keyed Claude session at ${override.projectPath}`
+                : `Claude delegate under ${this.primaryEngine} primary`]
+            }
         : this.isSecondaryTarget(route)
           ? { path: "secondary", reasons: [`secondary runtime ${route.target.runtime}`] }
           : await this.applySwitch(route);

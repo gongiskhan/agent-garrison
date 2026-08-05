@@ -20,10 +20,13 @@ const MODULE = path.resolve(
 );
 
 type ProjectSource = {
+  PERSONAL_SCOPE_TOKEN: string;
   expandHome: (p: string) => string;
   readDevRoot: () => string;
   resolveProjectPath: (project: unknown, devRoot?: string) => string | null;
   resolveProjectName: (label: unknown, opts?: { devRoot?: string }) => string | null;
+  resolvePersonalScope: (opts?: { garrisonHome?: string }) => string | null;
+  resolveRunScope: (label: unknown, opts?: { devRoot?: string; garrisonHome?: string }) => string | null;
   listProjectNames: (devRoot?: string) => string[];
 };
 
@@ -175,6 +178,55 @@ describe("listProjectNames", () => {
 
   it("yields [] for a missing dev-root instead of throwing", () => {
     expect(mod.listProjectNames(path.join(tmp, "nope"))).toEqual([]);
+  });
+});
+
+describe("resolveRunScope (one fixed non-project exception)", () => {
+  it("resolves only the exact reserved token to GARRISON_HOME/personal", () => {
+    const home = path.join(tmp, "personal-home-ok");
+    const personal = path.join(home, "personal");
+    mkdirSync(personal, { recursive: true });
+    expect(mod.resolveRunScope(mod.PERSONAL_SCOPE_TOKEN, { devRoot, garrisonHome: home })).toBe(personal);
+    expect(mod.resolveRunScope(`  ${mod.PERSONAL_SCOPE_TOKEN}  `, { devRoot, garrisonHome: home })).toBe(personal);
+  });
+
+  it("keeps ordinary project resolution and project listing unchanged", () => {
+    const home = path.join(tmp, "personal-home-projects");
+    mkdirSync(path.join(home, "personal"), { recursive: true });
+    expect(mod.resolveRunScope("garrison", { devRoot, garrisonHome: home })).toBe(path.join(devRoot, "garrison"));
+    expect(mod.listProjectNames(devRoot)).toEqual(["ekoa", "garrison", "garrison-alias"]);
+    expect(mod.listProjectNames(devRoot)).not.toContain(mod.PERSONAL_SCOPE_TOKEN);
+  });
+
+  it("does not turn absolute paths, traversal, or token lookalikes into a cwd", () => {
+    const home = path.join(tmp, "personal-home-hostile");
+    mkdirSync(path.join(home, "personal"), { recursive: true });
+    for (const hostile of [
+      path.join(home, "personal"),
+      "../personal",
+      "@personal/child",
+      "@Personal",
+      "personal",
+      "@@personal"
+    ]) {
+      expect(mod.resolveRunScope(hostile, { devRoot, garrisonHome: home }), hostile).toBeNull();
+    }
+  });
+
+  it("rejects a missing workspace, a file, and a symlink even when the token is exact", () => {
+    const missingHome = path.join(tmp, "personal-home-missing");
+    mkdirSync(missingHome, { recursive: true });
+    expect(mod.resolveRunScope(mod.PERSONAL_SCOPE_TOKEN, { devRoot, garrisonHome: missingHome })).toBeNull();
+
+    const fileHome = path.join(tmp, "personal-home-file");
+    mkdirSync(fileHome, { recursive: true });
+    writeFileSync(path.join(fileHome, "personal"), "not a directory");
+    expect(mod.resolveRunScope(mod.PERSONAL_SCOPE_TOKEN, { devRoot, garrisonHome: fileHome })).toBeNull();
+
+    const linkHome = path.join(tmp, "personal-home-link");
+    mkdirSync(linkHome, { recursive: true });
+    symlinkSync(outside, path.join(linkHome, "personal"));
+    expect(mod.resolveRunScope(mod.PERSONAL_SCOPE_TOKEN, { devRoot, garrisonHome: linkHome })).toBeNull();
   });
 });
 

@@ -40,18 +40,45 @@ If you edit the LOCAL skill source while on `backend: cortex`, setup prints a
 warning on its next run naming the file that is actually in effect. The edit is
 still not applied — the warning exists so the discard is loud rather than silent.
 
+## Personal Kanban completions are source records
+
+When the Kanban Loop is installed, an explicitly `scope: personal` card entering
+Done emits a bounded completion packet. This Fitting consumes those packets into
+`Personal/Kanban Completions/kanban-<card-id>-g<generation>.md` on the selected
+backend. These notes preserve task context and completion provenance; they are
+not promoted facts. They omit transcripts, session identifiers, logs, diffs,
+environment values, and attachment bodies, and they mark user-authored and agent
+closeout text as unverified source material.
+
+Capture defaults on and requires the Scheduler fitting when Kanban is present.
+Setup and verify fail instead of reporting healthy if that consumer cannot be
+scheduled; explicitly disable `kanban_completion_capture_enabled` if source
+capture is not wanted.
+
+The stable execution directory for a personal card without a real project is
+`$GARRISON_HOME/personal`. Its cwd gives runtime-native memory systems a stable
+namespace, but the directory does not contain or replace the Basic Memory vault.
+
 ## Known gap: deselecting the Fitting leaves its hook and its job behind
 
 `basic-memory` is **not** in `COORD_OWNERS` (`src/lib/coord-wiring.ts`), so
 removing it from a composition does **not** strip:
 
 - the `SessionEnd` / `PreCompact` capture hook in `~/.claude/settings.json`, or
-- the `basic-memory-spool-flush` scheduler job, when spooling was on.
+- the `basic-memory-spool-flush` scheduler job, when spooling was on, or
+- the `basic-memory-kanban-personal-completions` scheduler registration.
 
 The hook half is long-standing and harmless (a local-only vault write). The job
 half matters more now that a remote backend turns spooling on by default: a
 deselect can leave a **scheduled job that keeps shipping local captures to a
 remote vault**.
+
+The personal-Kanban job has an additional fail-closed guard because its payload
+can contain private task context: before every invocation, its persisted command
+checks that the exact Basic Memory composition module that registered it still
+exists. After deselection the registration and staged script can remain, but the
+command performs no read or write. This limits the known teardown gap; it does
+not pretend the residual scheduler row has been removed.
 
 Before unequipping this Fitting from a composition that used a remote backend:
 
@@ -63,7 +90,9 @@ To undo it by hand afterwards:
 
 ```bash
 node <composition>/apm_modules/_local/scheduler/scripts/scheduler.mjs remove basic-memory-spool-flush
+node <composition>/apm_modules/_local/scheduler/scripts/scheduler.mjs remove basic-memory-kanban-personal-completions
 rm -f ~/.claude/basic-memory/flush-spool.mjs
+rm -f ~/.claude/basic-memory/consume-kanban-completions.mjs
 ```
 
 and delete the `capture-session.py` hook entries from `~/.claude/settings.json`.

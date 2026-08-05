@@ -16,7 +16,9 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 // @ts-ignore pure mjs
-import { gatewayRunFn, routeFromDone, projectNameForRouting } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+import { cardTurnRouting, gatewayRunFn, routeFromDone, projectNameForRouting } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+// @ts-ignore pure mjs
+import { PERSONAL_SCOPE_TOKEN } from "../fittings/seed/kanban-loop/lib/personal-workspace.mjs";
 // @ts-ignore pure mjs
 import { routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 import { execBadges } from "../fittings/seed/kanban-loop/ui/exec-badges";
@@ -82,6 +84,28 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
     expect(noCard.routing ?? null).toBeNull();
   });
 
+  it("routes a personal card with no project to the reserved personal scope", async () => {
+    const body = await captureBody((url) =>
+      gatewayRunFn(url)({
+        prompt: "book the appointment",
+        card: { id: "c-personal", scope: "personal", project: null },
+        list: {}
+      })
+    );
+    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+  });
+
+  it("keeps explicit routing and a real project ahead of the personal fallback", () => {
+    expect(cardTurnRouting({ scope: "personal", project: "garrison" })).toEqual({ project: "garrison" });
+    expect(cardTurnRouting({ scope: "personal", routing: { project: "ekoa-code" } })).toEqual({ project: "ekoa-code" });
+  });
+
+  it("does not hide a specified but invalid project by substituting personal", () => {
+    expect(cardTurnRouting({ scope: "personal", project: "/" })).toBeNull();
+    expect(cardTurnRouting({ scope: "personal", routing: { project: ".." } })).toBeNull();
+    expect(cardTurnRouting({ scope: "personal", routing: { project: "../ekoa-code" } })).toBeNull();
+  });
+
   it("the BATCH lane sends it too — a batch is grouped by project, so the group shares a cwd", async () => {
     const body = await captureBody((url) =>
       batchGatewayRunFn(url)({
@@ -102,11 +126,35 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
     );
     expect(body.routing).toEqual({ project: "ekoa-code" });
   });
+
+  it("the personal batch and its verdict nudge preserve the reserved scope", async () => {
+    const body = await captureBody((url) =>
+      batchGatewayRunFn(url)({
+        project: PERSONAL_SCOPE_TOKEN,
+        cards: [{ id: "c1", scope: "personal", list: "test", sequence: ["test"], duty: "test", level: 1 }],
+        list: { id: "test", executePrompt: "run tests", routerPrompt: "emit a verdict" }
+      })
+    );
+    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+
+    const nudge = await captureBody((url) =>
+      batchGatewayRunFn(url)({ project: PERSONAL_SCOPE_TOKEN, cards: [], nudge: "verdict", list: {} })
+    );
+    expect(nudge.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+  });
+
+  it("an ordinary no-project batch does not send a fake cwd pin", async () => {
+    const body = await captureBody((url) =>
+      batchGatewayRunFn(url)({ project: "(no-project)", cards: [], nudge: "verdict", list: {} })
+    );
+    expect(body.routing ?? null).toBeNull();
+  });
 });
 
 describe("the gateway accepts that shape and turns it into a real cwd", () => {
   it("sanitizeRouting passes a project through the edge validator", () => {
     expect(sanitizeRouting({ project: "ekoa-code" }).routing).toEqual({ project: "ekoa-code" });
+    expect(sanitizeRouting({ project: PERSONAL_SCOPE_TOKEN }).routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
   });
 
   it("a resolvable project becomes the turn's projectPath", () => {
@@ -123,6 +171,22 @@ describe("the gateway accepts that shape and turns it into a real cwd", () => {
     const out = applyTurnOverride({}, route, { project: "not-a-repo" }, { resolveProject: () => null });
     expect(out.projectPath).toBeNull();
     expect(out.rejected.map((r: any) => r.field)).toContain("project");
+  });
+
+  it("a resolved personal token reports a friendly scope label and its real cwd", () => {
+    const route = { targetId: "cc-sonnet", target: { runtime: "claude-code", model: "sonnet" } };
+    const out = applyTurnOverride({}, route, { project: PERSONAL_SCOPE_TOKEN }, {
+      resolveProject: (name: string) => name === PERSONAL_SCOPE_TOKEN ? "/home/x/.garrison/personal" : null
+    });
+    expect(out.project).toBe("personal");
+    expect(out.projectPath).toBe("/home/x/.garrison/personal");
+    expect(out.applied).toContain("project");
+  });
+
+  it("reports a personal-specific rejection when the fixed workspace is unavailable", () => {
+    const route = { targetId: "cc-sonnet", target: { runtime: "claude-code", model: "sonnet" } };
+    const out = applyTurnOverride({}, route, { project: PERSONAL_SCOPE_TOKEN }, { resolveProject: () => null });
+    expect(out.rejected).toContainEqual({ field: "project", reason: "personal-workspace-unavailable" });
   });
 });
 
@@ -161,6 +225,19 @@ describe("a refused project reaches the card and is rendered as a warning", () =
     const warn = badges.find((b) => b.key === "project-refused");
     expect(warn?.value).toBe("composition dir");
     expect(warn?.title).toMatch(/could not be used|composition directory/i);
+  });
+
+  it("a refused personal workspace renders personal remediation, not the git-repo rule", () => {
+    const { badges } = execBadges(
+      { model: "sonnet", overridesRejected: [{ field: "project", reason: "personal-workspace-unavailable" }] } as any,
+      null
+    );
+    const warn = badges.find((b) => b.key === "project-refused");
+    expect(warn?.label).toBe("scope");
+    expect(warn?.value).toBe("refused");
+    expect(warn?.title).toMatch(/turn was refused.*personal workspace.*kanban setup/i);
+    expect(warn?.title).not.toMatch(/ran in the composition/i);
+    expect(warn?.title).not.toMatch(/git repo/i);
   });
 
   it("does not claim a run location on a card that has not run yet", () => {

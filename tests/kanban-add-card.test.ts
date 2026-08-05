@@ -36,7 +36,7 @@ import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.
 // @ts-ignore
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
-import { saveBoard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { saveBoard, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
 let gateway: http.Server;
 let gatewayUrl = "";
@@ -56,6 +56,10 @@ beforeAll(async () => {
   // card) resolves quietly. The UI-parity cases below all pass a project, so this
   // is only defence in depth.
   gateway = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/chat") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ reply: "inferred-repo" }));
+    }
     if (req.method === "POST") {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(`event: done\ndata: ${JSON.stringify({ reply: "" })}\n\n`);
@@ -88,7 +92,186 @@ async function jsend(method: string, path: string, body?: unknown) {
   return { status: r.status, body: (await r.json()) as any };
 }
 
+async function waitForCard(id: string, predicate: (card: any) => boolean, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  let detail: any = null;
+  while (Date.now() < deadline) {
+    detail = (await jget(`/cards/${id}`)).body;
+    if (predicate(detail.card)) return detail;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  throw new Error(`card ${id} did not reach the expected state: ${JSON.stringify(detail?.card)}`);
+}
+
 describe("POST /cards — the direct manual-list quick-add contract", () => {
+  it("stores personal as an independent scope and suppresses automatic project inference", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Book a dentist appointment",
+      description: "Call the clinic tomorrow",
+      scope: "personal"
+    });
+    expect(create.status).toBe(201);
+    expect(create.body.card).toMatchObject({ scope: "personal", project: null, workKind: null });
+
+    // Give a mistakenly-started fire-and-forget inference enough time to expose
+    // itself. Personal/no-project capture is deliberate, not an inference failure.
+    await new Promise((resolveWait) => setTimeout(resolveWait, 80));
+    const detail = await jget(`/cards/${create.body.card.id}`);
+    expect(detail.body.card).toMatchObject({ scope: "personal", project: null });
+    expect(detail.body.events.some((event: any) => event.kind === "inference")).toBe(false);
+  });
+
+  it("allows a personal task to carry a real project", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Private cleanup in Garrison",
+      project: "garrison",
+      scope: "personal"
+    });
+    expect(create.status).toBe(201);
+    expect(create.body.card).toMatchObject({ scope: "personal", project: "garrison" });
+  });
+
+  it("rejects contradictory or unknown scope values at the API boundary", async () => {
+    const unknown = await jsend("POST", "/cards", { title: "Bad scope", scope: "private" });
+    expect(unknown.status).toBe(400);
+    expect(String(unknown.body.error)).toMatch(/personal, project, unscoped/);
+
+    const projectless = await jsend("POST", "/cards", { title: "Missing project", scope: "project" });
+    expect(projectless.status).toBe(400);
+
+    const contradictory = await jsend("POST", "/cards", {
+      title: "Contradictory scope",
+      scope: "unscoped",
+      project: "garrison"
+    });
+    expect(contradictory.status).toBe(400);
+  });
+
+  it("lets a human correct an inferred project before the first run and audits the override", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Infer then correct",
+      description: "A project-shaped task"
+    });
+    expect(create.status).toBe(201);
+    const inferred = await waitForCard(create.body.card.id, (card) => card.project === "inferred-repo");
+    expect(inferred.card.scope).toBe("project");
+
+    const corrected = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      project: "garrison",
+      rev: inferred.card.rev
+    });
+    expect(corrected.status).toBe(200);
+    expect(corrected.body.card).toMatchObject({ project: "garrison", scope: "project", inferState: "manual" });
+    const detail = await jget(`/cards/${create.body.card.id}`);
+    expect(detail.body.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "inference", message: expect.stringContaining("inferred-repo → garrison") })
+    ]));
+  });
+
+  it("a project correction clears a stale routing.project unless routing is explicitly replaced", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Correct the real cwd",
+      project: "before",
+      routing: { project: "stale-pin", model: "model-kept" }
+    });
+    const corrected = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      project: "after",
+      rev: create.body.card.rev
+    });
+    expect(corrected.status).toBe(200);
+    expect(corrected.body.card.project).toBe("after");
+    expect(corrected.body.card.routing).toEqual({ model: "model-kept" });
+
+    const explicit = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      project: "label-only",
+      routing: { project: "explicit-cwd", model: "model-kept" },
+      rev: corrected.body.card.rev
+    });
+    expect(explicit.status).toBe(200);
+    expect(explicit.body.card.routing.project).toBe("explicit-cwd");
+  });
+
+  it("manual inference is deliberate on personal/no-project and preserves the personal label", async () => {
+    const create = await jsend("POST", "/cards", { title: "Personal but infer when asked", scope: "personal" });
+    const start = await jsend("POST", `/cards/${create.body.card.id}/infer-project`);
+    expect(start.status).toBe(200);
+    const inferred = await waitForCard(create.body.card.id, (card) => card.project === "inferred-repo");
+    expect(inferred.card).toMatchObject({ project: "inferred-repo", scope: "personal", inferState: "done" });
+  });
+
+  it("fixes project and personal scope after the first run starts", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Scope belongs to the run",
+      project: "garrison",
+      scope: "personal",
+      routing: { project: "run-workspace", model: "model-before" }
+    });
+    const stamped = await updateCardCAS(KANBAN_DIR, create.body.card.id, (card: any) => ({
+      ...card,
+      runId: "01RUNSCOPELOCK00000000000",
+      runDir: "runs/01RUNSCOPELOCK00000000000"
+    }));
+    expect(stamped?.runId).toBeTruthy();
+
+    const project = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      project: "another-project",
+      rev: stamped.rev
+    });
+    expect(project.status).toBe(409);
+    expect(project.body.error).toBe("scope-already-ran");
+
+    const scope = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      scope: "project",
+      rev: stamped.rev
+    });
+    expect(scope.status).toBe(409);
+    expect(scope.body.message).toMatch(/fresh card/i);
+
+    const clearedRoutingProject = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      routing: { model: "model-after" },
+      rev: stamped.rev
+    });
+    expect(clearedRoutingProject.status).toBe(409);
+    expect(clearedRoutingProject.body.error).toBe("scope-already-ran");
+
+    const changedRoutingProject = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      routing: { project: "other-workspace", model: "model-after" },
+      rev: stamped.rev
+    });
+    expect(changedRoutingProject.status).toBe(409);
+
+    // Runtime/model/effort corrections remain legal when the execution project
+    // is preserved exactly.
+    const modelOnly = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      routing: { project: "run-workspace", model: "model-after", effort: "high" },
+      rev: stamped.rev
+    });
+    expect(modelOnly.status).toBe(200);
+    expect(modelOnly.body.card.routing).toMatchObject({
+      project: "run-workspace",
+      model: "model-after",
+      effort: "high"
+    });
+  });
+
+  it("refuses manual project inference after the first run starts", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Personal run without a repository",
+      scope: "personal"
+    });
+    const stamped = await updateCardCAS(KANBAN_DIR, create.body.card.id, (card: any) => ({
+      ...card,
+      runId: "01RUNINFERLOCK0000000000",
+      runDir: "runs/personal/01RUNINFERLOCK0000000000"
+    }));
+
+    const infer = await jsend("POST", `/cards/${create.body.card.id}/infer-project`);
+    expect(infer.status).toBe(409);
+    expect(infer.body.error).toBe("scope-already-ran");
+    const detail = await jget(`/cards/${create.body.card.id}`);
+    expect(detail.body.card).toMatchObject({ project: null, scope: "personal", runId: stamped.runId });
+  });
+
   it("creates a card in Backlog from title + description + project, and it shows on the board", async () => {
     const create = await jsend("POST", "/cards", {
       title: "Wire the export button",

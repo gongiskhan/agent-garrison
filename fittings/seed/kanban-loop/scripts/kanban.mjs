@@ -23,6 +23,11 @@ import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
 import {
+  PERSONAL_SCOPE_TOKEN,
+  ensurePersonalWorkspace,
+  resolvePersonalWorkspace
+} from "../lib/personal-workspace.mjs";
+import {
   reevaluateWaiting,
   coordinationConfig,
   coordinationAvailability,
@@ -385,6 +390,8 @@ async function review() {
 }
 
 async function setup() {
+  const personalWorkspace = await ensurePersonalWorkspace();
+  console.log("kanban-loop: personal workspace ready at", personalWorkspace);
   const root = kanbanRoot();
   await fs.mkdir(path.join(root, "cards"), { recursive: true });
   const boardFile = path.join(root, "board.json");
@@ -431,6 +438,11 @@ async function probe() {
     console.error("KANBAN-FAIL: engine not loadable");
     process.exit(1);
   }
+  const personalWorkspace = await resolvePersonalWorkspace();
+  if (!personalWorkspace) {
+    console.error("KANBAN-FAIL: personal workspace missing, invalid, or symlinked; run --setup");
+    process.exit(1);
+  }
   console.log("KANBAN-OK");
 }
 
@@ -452,6 +464,12 @@ export function batchGatewayRunFn(gatewayUrl) {
   // default) and died at the HTTP client's ~5-min headersTimeout — either way
   // a legitimate long batch parked its whole project group.
   const streamRunFn = gatewayRunFn(gatewayUrl);
+  const batchCard = (project) => {
+    if (project === PERSONAL_SCOPE_TOKEN) return { scope: "personal" };
+    if (project && project !== "(no-project)") return { project };
+    return null;
+  };
+  const batchLabel = (project) => project === PERSONAL_SCOPE_TOKEN ? "personal" : project;
   return async ({
     project,
     cards,
@@ -475,7 +493,7 @@ export function batchGatewayRunFn(gatewayUrl) {
         // A batch runs one session per PROJECT, so the whole group shares a cwd —
         // the same routing.project the per-card path sends. Without it the batch
         // (the Test list) ran in the composition dir too.
-        card: project ? { project } : null,
+        card: batchCard(project),
         classification,
         skill,
         suppressContinuations: suppressContinuations ?? true,
@@ -499,7 +517,7 @@ export function batchGatewayRunFn(gatewayUrl) {
     const mode = (list?.mode || "").trim();
     const prompt = [
       ...(mode ? [`${mode}, take on the following batched test run.`, ""] : []),
-      `Batched test run for project "${project}". Test ALL of these cards' slices in ONE session against one test plan:`,
+      `Batched test run for scope "${batchLabel(project)}". Test ALL of these cards' slices in ONE session against one test plan:`,
       roster,
       "",
       list.executePrompt || "",
@@ -510,7 +528,7 @@ export function batchGatewayRunFn(gatewayUrl) {
     return streamRunFn({
       prompt,
       // The batch is grouped BY project, so every card in it shares this cwd.
-      card: project ? { project } : null,
+      card: batchCard(project),
       classification,
       skill,
       suppressContinuations: suppressContinuations ?? true,

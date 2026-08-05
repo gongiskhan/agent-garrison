@@ -1291,6 +1291,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
       /* a frame observer must never break the turn */
     }
   }
+  assertExecutableRunScope(pre);
   // D19: EVERY task-shaped turn is a card. A trivial plan runs INLINE under a
   // `quick` card that auto-advances Implement→Done at completion; a multi-phase
   // (significant) plan is dispatched to the run engine (the reply carries the card
@@ -1532,9 +1533,34 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   };
 }
 
+// Personal execution is fail-closed. A normal project pin may retain the
+// historical composition-dir fallback, but @personal is a promise to run in the
+// managed private workspace. If resolution rejected that scope, stop after the
+// observable pre-route frame and before card creation or any runtime lane.
+export function personalWorkspaceRejection(pre) {
+  const rejected = Array.isArray(pre?.overridesRejected) ? pre.overridesRejected : [];
+  return rejected.find(
+    (entry) => entry?.field === "project" && entry?.reason === "personal-workspace-unavailable"
+  ) ?? null;
+}
+
+export function assertExecutableRunScope(pre) {
+  if (!personalWorkspaceRejection(pre)) return;
+  const err = new Error(
+    "personal execution refused: the managed personal workspace is missing, invalid, or symlinked; " +
+      "run Kanban setup and verify GARRISON_HOME/personal"
+  );
+  err.code = "personal-workspace-unavailable";
+  throw err;
+}
+
 /** Execute the resolved turn on its runtime (agent-sdk / secondary / workflow /
  *  claude-code PTY) and return the channel-shaped result. Split out of
  *  runRoutedTurn so the D19 quick-card completion runs on every runtime path. */
+export function shouldUseScopedClaudeLane(routing, route, projectPath) {
+  return Boolean(routing?.usesScopedClaudeSession?.(route, projectPath));
+}
+
 async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   // Local-vision lane (Evidence V2): an ollama-local target cannot Read image
   // files (its Anthropic-compat endpoint surfaces no tool_use), so a turn that
@@ -1686,12 +1712,14 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     };
   }
   // A Claude-bound v4 cell under a non-Claude primary is an actual Claude Code
-  // delegate lane. Do not call runTurn on the Codex/Gemini operative and then
-  // mislabel it as Claude: the routing layer owns a real target-specific Claude
-  // session and reports the provider/model/effort it launched.
-  if (router.isClaudeDelegateTarget(pre.route)) {
+  // delegate lane. A cwd-scoped Claude turn uses this lane too, even under a
+  // Claude primary: the standing operative is rooted in the composition and
+  // must never accept a project/personal turn while attribution claims another
+  // cwd. The delegate pool is keyed by cwd, preserving follow-up continuity.
+  if (shouldUseScopedClaudeLane(router, pre.route, pre.projectPath)) {
     broadcastRich("turn", { active: true });
-    const annotated = `${pre.annotation}\n${message}`;
+    const wfPrefix = router.isWorkflowTarget(pre.route) ? router.workflowTurnPrefix(pre.route) : "";
+    const annotated = `${pre.annotation}\n${wfPrefix}${message}`;
     const r = await router.runClaudeDelegateTurn(pre.route, annotated, {
       onChunk,
       timeoutMs: hints?.timeoutMs,

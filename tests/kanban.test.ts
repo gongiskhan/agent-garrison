@@ -24,6 +24,8 @@ import { parseNextList, buildCardPrompt, classificationFor, processCard, process
 // @ts-ignore — pure .mjs
 import { routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore — pure .mjs
+import { PERSONAL_SCOPE_TOKEN } from "../fittings/seed/kanban-loop/lib/personal-workspace.mjs";
+// @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
 const board = {
@@ -265,6 +267,31 @@ describe("kanban engine — triggers + runId minting", () => {
     expect(mintRunFields({ runId: "X", runDir: "docs/autothing/runs/X" })).toBeNull();
   });
 
+  it("mints personal evidence under runs/personal while a real project still wins", () => {
+    const personal = mintRunFields({ scope: "personal", project: null, runId: null, runDir: null }, () => 1235);
+    expect(personal.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "personal", personal.runId));
+
+    const project = mintRunFields({ scope: "personal", project: "garrison", runId: null, runDir: null }, () => 1236);
+    expect(project.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "garrison", project.runId));
+
+    const routedProject = mintRunFields({
+      scope: "personal",
+      project: null,
+      routing: { project: "ekoa-code" },
+      runId: null,
+      runDir: null
+    }, () => 1237);
+    expect(routedProject.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "ekoa-code", routedProject.runId));
+
+    const refusedProject = mintRunFields({
+      scope: "personal",
+      project: "/",
+      runId: null,
+      runDir: null
+    }, () => 1238);
+    expect(refusedProject.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", refusedProject.runId));
+  });
+
   it("processCard mints runId + runDir on the card's FIRST agent-list entry and threads runDir into the prompt", async () => {
     const root = tmp();
     const card = await createCard(root, { title: "T", list: "implement" });
@@ -442,12 +469,18 @@ describe("kanban engine — Test batching (FINDING 7)", () => {
       { id: "a", list: "test", project: "p1", status: "ok" },
       { id: "b", list: "test", project: "p1", status: "ok" },
       { id: "c", list: "test", project: "p2", status: "ok" },
+      { id: "personal", list: "test", project: null, scope: "personal", status: "ok" },
+      { id: "personal-routed", list: "test", project: null, scope: "personal", routing: { project: "p2" }, status: "ok" },
+      { id: "personal-invalid", list: "test", project: "/", scope: "personal", status: "ok" },
+      { id: "unscoped", list: "test", project: null, scope: "unscoped", status: "ok" },
       { id: "d", list: "test", project: "p1", status: "running" }, // skipped
       { id: "e", list: "review", project: "p1", status: "ok" }     // wrong list
     ];
     const g = groupCardsByProject(cards, "test");
     expect(g.p1.map((c: any) => c.id)).toEqual(["a", "b"]);
-    expect(g.p2.map((c: any) => c.id)).toEqual(["c"]);
+    expect(g.p2.map((c: any) => c.id)).toEqual(["c", "personal-routed"]);
+    expect(g[PERSONAL_SCOPE_TOKEN].map((c: any) => c.id)).toEqual(["personal"]);
+    expect(g["(no-project)"].map((c: any) => c.id)).toEqual(["personal-invalid", "unscoped"]);
   });
 
   it("parseBatchVerdicts exact-matches each card's verdict against THAT card's validNext", () => {

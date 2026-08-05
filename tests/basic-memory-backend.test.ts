@@ -34,6 +34,7 @@ const LOCAL_SKILL_SRC = path.join(FITTING_SRC, ".apm", "skills", "garrison-memor
 const CORTEX_SKILL_SRC = path.join(FITTING_SRC, "skill-variants", "cortex", "SKILL.md");
 
 const FLUSH_JOB_ID = "basic-memory-spool-flush";
+const KANBAN_CAPTURE_JOB_ID = "basic-memory-kanban-personal-completions";
 
 /** A stub CLI: logs its argv, then answers the few state questions setup.sh asks. */
 function stub(name: string, body: string): string {
@@ -202,12 +203,15 @@ describe("basic-memory backend switch", () => {
       .hooks;
     return hooks.SessionEnd[0].hooks[0].command;
   }
-  function jobs(): Array<{ id: string; cron: string; command: string }> {
+  function jobs(): Array<{ id: string; cron: string; command: string; enabled?: boolean }> {
     if (!fs.existsSync(jobsFile)) return [];
     return JSON.parse(fs.readFileSync(jobsFile, "utf8"));
   }
   function drainJob() {
     return jobs().find((job) => job.id === FLUSH_JOB_ID);
+  }
+  function kanbanCaptureJob() {
+    return jobs().find((job) => job.id === KANBAN_CAPTURE_JOB_ID);
   }
   function installedSkill(): string {
     return fs.readFileSync(installedSkillPath, "utf8");
@@ -304,6 +308,112 @@ describe("basic-memory backend switch", () => {
       expect(settings()).toEqual(absentSettings);
       expect(installedSkill()).toBe(absentSkill);
       expect(fs.existsSync(jobsFile)).toBe(false);
+    });
+  });
+
+  describe("personal Kanban completion capture wiring", () => {
+    it("registers a guarded exact-outbox job, executes it, and verify catches missing staged pieces", () => {
+      const kanbanFitting = path.join(comp, "apm_modules", "_local", "kanban-loop");
+      const exactKanbanDir = path.join(tmp, "custom-instance", "kanban-data");
+      fs.mkdirSync(kanbanFitting, { recursive: true });
+
+      const setup = runSetup({ GARRISON_KANBAN_DIR: exactKanbanDir });
+      expect(setup.stderr).toBe("");
+      expect(setup.status).toBe(0);
+
+      const job = kanbanCaptureJob();
+      expect(job).toBeDefined();
+      expect(job!.enabled).toBe(true);
+      expect(job!.command).toContain("consume-kanban-completions.mjs");
+      expect(job!.command).toContain(`GARRISON_KANBAN_DIR=${exactKanbanDir}`);
+      expect(job!.command).toContain("if [ -d");
+      expect(job!.command).toContain(fitting); // deselection guard pins this composition module
+
+      const staged = path.join(claudeHome, "basic-memory", "consume-kanban-completions.mjs");
+      const shared = path.join(claudeHome, "basic-memory", "lib", "memory-vault.mjs");
+      expect(fs.existsSync(staged)).toBe(true);
+      expect(fs.existsSync(shared)).toBe(true);
+      expect(runVerify({ GARRISON_KANBAN_DIR: exactKanbanDir }).status).toBe(0);
+
+      // Execute the persisted scheduler command, not merely the consumer
+      // module. This pins shell quoting, the deselection guard, and every
+      // baked environment assignment as one end-to-end contract.
+      const cardId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      const packetId = `${cardId}-g0`;
+      const packetDir = path.join(
+        exactKanbanDir,
+        "memory-outbox",
+        "personal-completions",
+        "packets"
+      );
+      fs.mkdirSync(packetDir, { recursive: true });
+      fs.writeFileSync(path.join(packetDir, `${packetId}.json`), `${JSON.stringify({
+        schemaVersion: 1,
+        kind: "garrison.personal-card-completion",
+        packetId,
+        cardId,
+        coordinationSeq: 0,
+        scope: "personal",
+        completedAt: "2026-08-05T17:00:00.000Z",
+        title: "Renew passport",
+        description: "Book the appointment",
+        checklist: [],
+        manualCompletionNote: null,
+        agentCloseout: null
+      }, null, 2)}\n`);
+      const executed = spawnSync("/bin/sh", ["-c", job!.command], {
+        env: process.env,
+        encoding: "utf8",
+        timeout: 30_000
+      });
+      expect(executed.stderr).toBe("");
+      expect(executed.status).toBe(0);
+      expect(
+        fs.existsSync(path.join(vault, "Personal", "Kanban Completions", `kanban-${cardId}-g0.md`))
+      ).toBe(true);
+      expect(
+        JSON.parse(fs.readFileSync(path.join(
+          exactKanbanDir,
+          "memory-outbox",
+          "personal-completions",
+          "status",
+          `${packetId}.json`
+        ), "utf8")).state
+      ).toBe("captured");
+
+      fs.rmSync(staged);
+      const broken = runVerify({ GARRISON_KANBAN_DIR: exactKanbanDir });
+      expect(broken.status).toBe(1);
+      expect(broken.stderr).toContain("personal Kanban completion consumer missing");
+    });
+
+    it("fails setup and verify when enabled capture has Kanban but no Scheduler", () => {
+      const kanbanFitting = path.join(comp, "apm_modules", "_local", "kanban-loop");
+      fs.mkdirSync(kanbanFitting, { recursive: true });
+      fs.rmSync(path.join(comp, "apm_modules", "_local", "scheduler"), {
+        recursive: true,
+        force: true
+      });
+
+      const setup = runSetup();
+      expect(setup.status).toBe(1);
+      expect(setup.stderr).toContain(
+        "personal Kanban completion capture is enabled but the Scheduler fitting is not installed"
+      );
+      expect(
+        fs.existsSync(path.join(claudeHome, "basic-memory", "consume-kanban-completions.mjs"))
+      ).toBe(false);
+
+      const verified = runVerify();
+      expect(verified.status).toBe(1);
+      expect(verified.stderr).toContain(
+        "personal Kanban completion capture is enabled but the Scheduler fitting is not installed"
+      );
+
+      // The dependency is conditional: explicitly disabling personal-card
+      // capture keeps Basic Memory valid without Scheduler.
+      expect(runSetup({ BASIC_MEMORY_KANBAN_COMPLETION_CAPTURE_ENABLED: "false" }).status).toBe(0);
+      expect(runVerify({ BASIC_MEMORY_KANBAN_COMPLETION_CAPTURE_ENABLED: "false" }).status).toBe(0);
     });
   });
 

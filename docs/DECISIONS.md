@@ -786,3 +786,45 @@ logs `<capture> -> <permalink>` on EVERY flush. If the spool ever leaves that
 boundary this stops being acceptable. See this fitting's README, "Accepted risk".
 **Source:** G4 re-review N1-N4; `tests/basic-memory-shadow.test.ts`.
 **Status:** Settled (the 2026-08-14 review date stands).
+
+## 2026-08-05 · Personal is a card classification, not a fake project or a truth-promotion rule
+
+Personal work needs both a trustworthy execution context and durable continuity,
+but those are separate concerns from repository ownership. A private task may still
+change code in a real project; conversely, inventing a `personal` project would make
+project inference, cwd attribution, and memory ownership disagree.
+
+**Decision:** cards carry an explicit `personal | project | unscoped` scope that is
+independent of `workKind` and, for personal cards, independent of `project`. A selected
+real project always controls execution. An explicitly personal card with no project
+runs through one reserved `@personal` wire scope resolved server-side to the private,
+non-repository `$GARRISON_HOME/personal` directory. Setup creates that directory and
+cross-runtime root policy files; runtime resolution rejects missing, non-directory,
+or symlinked state and must not silently execute in the Garrison composition. Project
+and personal scope may be corrected before the first run, including after inference,
+but are fixed after `runId` because the evidence and handoff already belong to that
+cwd.
+
+An explicit personal card entering Done emits one immutable, bounded, provider-neutral
+packet per coordination generation. The Basic Memory fitting consumes it into
+`Personal/Kanban Completions` using a deterministic card/generation identity. This is
+a source record, not semantic fact extraction: user descriptions/checklists and agent
+closeouts stay labelled unverified; transcripts, logs, diffs, environment values,
+attachment bodies, and session identifiers are excluded, and common credential forms
+are redacted. Kanban commits never wait on a vault/provider write, and startup repair
+reconciles the narrow post-commit outbox window.
+
+The Basic Memory consumer is Scheduler-owned. When Kanban is present and personal
+completion capture is enabled, setup and verify fail if Scheduler is absent rather
+than reporting a healthy pipeline that can only accumulate packets. Compositions may
+explicitly disable the capture instead; the CSG composition now equips Scheduler.
+
+The stable cwd may give Claude or another runtime its ordinary native cwd-scoped hot
+memory, but no `.claude` directory is treated as the shared store. Cross-runtime
+personal continuity belongs to Basic Memory. Automatic fact distillation, a
+post-completion review/promote UI, and post-run in-place re-scoping are explicitly not
+part of this decision.
+
+**Source:** `fittings/seed/kanban-loop/lib/{personal-workspace,personal-memory-outbox}.mjs`,
+`fittings/seed/basic-memory/scripts/consume-kanban-completions.mjs`, and the
+personal scope/workspace/memory test suites. **Status:** Settled.

@@ -54,6 +54,10 @@ REMOTE_BIN="${BASIC_MEMORY_REMOTE_CLI_BIN:-cortex}"
 FLUSH_PATH="$HOOK_HOME/flush-spool.mjs"
 FLUSH_JOB_ID="basic-memory-spool-flush"
 BACKEND="${BASIC_MEMORY_BACKEND:-local}"
+KANBAN_CAPTURE_ENABLED="${BASIC_MEMORY_KANBAN_COMPLETION_CAPTURE_ENABLED:-true}"
+KANBAN_CAPTURE_CRON="${BASIC_MEMORY_KANBAN_COMPLETION_CAPTURE_CRON:-*/2 * * * *}"
+KANBAN_CAPTURE_PATH="$HOOK_HOME/consume-kanban-completions.mjs"
+KANBAN_CAPTURE_JOB_ID="basic-memory-kanban-personal-completions"
 
 # Shadow dual-write and its comparator - the rule-10 migration half. Default
 # OFF: with `shadow_write` absent nothing below runs and the fitting is exactly
@@ -65,6 +69,7 @@ REMOTE_FOLDER="${BASIC_MEMORY_REMOTE_FOLDER:-vault}"
 COMPARE_CRON="${BASIC_MEMORY_COMPARE_CRON:-27 4 * * *}"
 COMPARE_SAMPLE="${BASIC_MEMORY_COMPARE_SAMPLE_SIZE:-5}"
 GARRISON_ROOT="${GARRISON_HOME:-$HOME/.garrison}"
+KANBAN_DATA_DIR="${GARRISON_KANBAN_DIR:-$GARRISON_ROOT/kanban-loop}"
 STATE_DIR="$GARRISON_ROOT/basic-memory"
 SHADOW_MARKER="$STATE_DIR/shadow-write.json"
 COMPARE_PATH="$HOOK_HOME/compare-backends.mjs"
@@ -87,6 +92,8 @@ lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 SCRIPT_DIR_PARENT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 COMPOSITION_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+KANBAN_FITTING_DIR="$MODULES_DIR/_local/kanban-loop"
+KANBAN_CAPTURE_STATE_FILE="$COMPOSITION_DIR/.garrison/basic-memory-kanban-capture"
 SKILL_LOCAL_SRC="$SCRIPT_DIR_PARENT/.apm/skills/garrison-memory/SKILL.md"
 SKILL_CORTEX_SRC="$SCRIPT_DIR_PARENT/skill-variants/cortex/SKILL.md"
 SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
@@ -114,6 +121,7 @@ SKILL_REMOTE_MARK="<!-- garrison-memory-backend: cortex -->"
 
 export PATH="$HOME/.local/bin:$PATH"
 log() { printf '[basic-memory-setup] %s\n' "$*"; }
+fail() { printf '[basic-memory-setup] failed: %s\n' "$*" >&2; exit 1; }
 
 # --- backend + spool precedence -------------------------------------------
 # backend: unknown values fall back to the shipped default rather than failing
@@ -135,6 +143,12 @@ case "$(lower "$SHADOW_WRITE")" in
   *) log "unknown shadow_write '$SHADOW_WRITE'; falling back to false"; SHADOW_ON=0 ;;
 esac
 shadow_on() { [ "$SHADOW_ON" = "1" ]; }
+
+case "$(lower "$KANBAN_CAPTURE_ENABLED")" in
+  1|true|yes|on) KANBAN_CAPTURE_ON=1 ;;
+  *) KANBAN_CAPTURE_ON=0 ;;
+esac
+kanban_capture_on() { [ "$KANBAN_CAPTURE_ON" = "1" ]; }
 
 # spool: `auto` follows the backend AND the shadow (off on plain local, on for a
 # remote backend - a remote backend that never drains is a silent no-op - and on
@@ -448,7 +462,54 @@ else
   fi
 fi
 
-# 8. Shadow dual-write: the marker that fixes the review date, and the daily
+# 8. Personal Kanban completion source capture. Kanban writes only a neutral,
+# bounded packet; this memory-owned scheduled consumer decides where it lands.
+# The exact Kanban data dir is baked into the command so dev/prod/custom
+# instances cannot consume each other's outboxes. No provider/vault work occurs
+# in the Kanban card lock.
+if kanban_capture_on && [ -d "$KANBAN_FITTING_DIR" ]; then
+  mkdir -p "$(dirname "$KANBAN_CAPTURE_STATE_FILE")"
+  printf 'enabled\n' > "$KANBAN_CAPTURE_STATE_FILE"
+  [ -f "$scheduler_script" ] \
+    || fail "personal Kanban completion capture is enabled but the Scheduler fitting is not installed"
+  mkdir -p "$HOOK_HOME/lib"
+  cp "$SCRIPT_DIR/consume-kanban-completions.mjs" "$KANBAN_CAPTURE_PATH"
+  cp "$SCRIPT_DIR/lib/memory-vault.mjs" "$LIB_PATH"
+  chmod +x "$KANBAN_CAPTURE_PATH"
+
+  kanban_env="GARRISON_HOME=$(quote "$GARRISON_ROOT")"
+  kanban_env="$kanban_env GARRISON_KANBAN_DIR=$(quote "$KANBAN_DATA_DIR")"
+  kanban_env="$kanban_env BASIC_MEMORY_BACKEND=$(quote "$BACKEND")"
+  kanban_env="$kanban_env BASIC_MEMORY_SHADOW_WRITE=$(quote "$SHADOW_ON")"
+  kanban_env="$kanban_env BASIC_MEMORY_VAULT_DIR=$(quote "$VAULT_DIR")"
+  kanban_env="$kanban_env REMOTE_MEMORY_CLI_BIN=$(quote "$REMOTE_BIN")"
+  kanban_env="$kanban_env BASIC_MEMORY_REMOTE_FOLDER=$(quote "$REMOTE_FOLDER")"
+  # basic-memory is not currently a coordination-owned fitting, so deselect
+  # cannot invoke this setup hook to remove the job. Keep the residual
+  # registration inert: the scheduled shell verifies this exact composition
+  # still contains the module before it may touch a personal memory backend.
+  module_guard="$(quote "$SCRIPT_DIR_PARENT")"
+  sched register "$KANBAN_CAPTURE_JOB_ID" "$KANBAN_CAPTURE_CRON" \
+    --description "Capture personal Kanban Done cards as deterministic memory source notes" \
+    -- "if [ -d $module_guard ]; then $kanban_env node $(quote "$KANBAN_CAPTURE_PATH"); fi"
+  log "personal Kanban completion capture job registered ($KANBAN_CAPTURE_JOB_ID: $KANBAN_CAPTURE_CRON)"
+else
+  if [ -d "$KANBAN_FITTING_DIR" ]; then
+    mkdir -p "$(dirname "$KANBAN_CAPTURE_STATE_FILE")"
+    printf 'disabled\n' > "$KANBAN_CAPTURE_STATE_FILE"
+  else
+    rm -f "$KANBAN_CAPTURE_STATE_FILE"
+  fi
+  if job_registered "$KANBAN_CAPTURE_JOB_ID"; then
+    sched remove "$KANBAN_CAPTURE_JOB_ID" >/dev/null 2>&1 || true
+  fi
+  if [ -f "$KANBAN_CAPTURE_PATH" ]; then
+    rm -f "$KANBAN_CAPTURE_PATH"
+    log "personal Kanban completion capture disabled or Kanban absent: removed staged consumer"
+  fi
+fi
+
+# 9. Shadow dual-write: the marker that fixes the review date, and the daily
 # comparator. Gated on shadow_write; nothing here runs on the default path.
 #
 # The marker is written ONCE, the first time shadow resolves on, and is then

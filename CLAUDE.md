@@ -580,6 +580,15 @@ Durable knowledge lives in **two tiers** — use these, not ad-hoc note stores:
   SessionEnd/PreCompact hook auto-captures session checkpoints into it; use its
   `search` / `read_note` tools to recall older context.
 
+Kanban cards explicitly labelled `personal` add a second, deterministic ingestion
+path: each Done generation is retained under `Personal/Kanban Completions` as a
+bounded, provenance-marked **source record**. A real project still controls the run
+cwd; a project-less personal card runs in `$GARRISON_HOME/personal`. Descriptions,
+checklists, and agent closeouts are not automatically promoted to durable facts, and
+the capture excludes transcripts, diffs, environment values, attachment bodies, and
+session identifiers. The personal workspace's cwd-scoped native runtime memory is a
+separate hot index; a `.claude` folder is not the shared memory store.
+
 Do not scatter knowledge across other stores. `bd remember`, Serena memories, and
 the former `knowledge`-fitting recall MCP are **not** part of this setup.
 

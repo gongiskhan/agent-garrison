@@ -44,6 +44,8 @@ import {
 } from "./coordination.mjs";
 import { commitFence, attributeBreakage } from "./fences.mjs";
 import { sendCoordMail } from "./coord-mail.mjs";
+import { PERSONAL_SCOPE_TOKEN, isPersonalCard } from "./personal-workspace.mjs";
+import { projectNameForRouting } from "./gateway-client.mjs";
 
 // Gate phases whose fail edge (verdict === "implement") triggers breakage
 // attribution (Q6): a loop-back to implement from one of these, with other live
@@ -374,6 +376,21 @@ export function runProjectLabel(project) {
   return safe || "no-project";
 }
 
+export function runCardScopeLabel(card) {
+  const routing = card?.routing && typeof card.routing === "object" && !Array.isArray(card.routing)
+    ? card.routing
+    : {};
+  const explicitProjectPresent = typeof routing.project === "string" && routing.project.trim().length > 0;
+  const cardProjectPresent = typeof card?.project === "string" && card.project.trim().length > 0;
+  const projectWasSpecified = explicitProjectPresent || cardProjectPresent;
+  const project = projectNameForRouting(explicitProjectPresent ? routing.project : card?.project);
+  if (project) return runProjectLabel(project);
+  // A malformed explicit project is refused by the gateway; do not relabel its
+  // evidence as personal when the personal fallback was deliberately suppressed.
+  if (projectWasSpecified) return "no-project";
+  return isPersonalCard(card) ? "personal" : "no-project";
+}
+
 export function getList(board, listId) {
   return (board.lists || []).find((l) => l.id === listId) || null;
 }
@@ -415,7 +432,7 @@ export function isGatedDiscuss(card, list) {
 export function mintRunFields(card, now = Date.now) {
   if (card.runId && card.runDir) return null; // already minted — idempotent
   const runId = ulid(typeof now === "function" ? now() : now);
-  return { runId, runDir: path.join(RUNS_HOME(), runProjectLabel(card.project), runId) };
+  return { runId, runDir: path.join(RUNS_HOME(), runCardScopeLabel(card), runId) };
 }
 
 // D15: per-list taskType/tier/skill/mode config is DEAD. Resolution comes from
@@ -3002,8 +3019,10 @@ export function resolveBacklogInference(card, inference, threshold = PROJECT_CON
 // project, not the card: gather the project's waiting cards on the list, hand the
 // batch one prompt, and turn the ONE reply into a per-card verdict.
 
-// Group a list's eligible cards by project. A null/empty project groups under the
-// literal "(no-project)" bucket so an unclassified card is still batched (with itself).
+// Group a list's eligible cards by execution scope. Real projects retain their
+// historical keys; personal/no-project cards get the reserved personal token so
+// Test dispatch preserves their fixed workspace. An ordinary null/empty project
+// still groups under "(no-project)" and receives no cwd pin.
 export function groupCardsByProject(cards, listId, { manualStartIds = new Set() } = {}) {
   const overrides = manualStartIds instanceof Set ? manualStartIds : new Set(manualStartIds || []);
   const byProject = {};
@@ -3014,7 +3033,12 @@ export function groupCardsByProject(cards, listId, { manualStartIds = new Set() 
     // holds on disk; processBatch consumes them only in that card's acquire CAS.
     if (c.waitingOn && !overrides.has(c.id)) continue;
     if (scheduleHolds(c) && !overrides.has(c.id)) continue;
-    const key = c.project || "(no-project)";
+    const routing = c?.routing && typeof c.routing === "object" && !Array.isArray(c.routing) ? c.routing : {};
+    const explicitProjectPresent = typeof routing.project === "string" && routing.project.trim().length > 0;
+    const cardProjectPresent = typeof c?.project === "string" && c.project.trim().length > 0;
+    const projectWasSpecified = explicitProjectPresent || cardProjectPresent;
+    const project = projectNameForRouting(explicitProjectPresent ? routing.project : c?.project);
+    const key = project || (!projectWasSpecified && isPersonalCard(c) ? PERSONAL_SCOPE_TOKEN : "(no-project)");
     (byProject[key] ??= []).push(c);
   }
   return byProject;

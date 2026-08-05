@@ -117,6 +117,7 @@ describe("Item 4 — export / import a list of cards", () => {
     expect(exported.title).toBe("Ship the widget");
     expect(exported.description).toBe("build + wire + test the widget");
     expect(exported.project).toBe("garrison");
+    expect(exported.scope).toBe("project");
     expect(exported.acceptance).toBe("widget renders and the test is green");
     expect(exported.goalMode).toBe(true);
     expect(exported.routing).toMatchObject({ tier: "T1-standard", model: "sonnet" });
@@ -136,11 +137,37 @@ describe("Item 4 — export / import a list of cards", () => {
 
     // Every key present is either an allow-listed content field or a source marker.
     const allowed = new Set([
-      "title", "description", "project", "acceptance", "goalMode", "checklist",
+      "title", "description", "project", "scope", "acceptance", "goalMode", "checklist",
       "routing", "workKind", "tier", "phases", "scheduledFor", "scheduleAction",
       "sourceList", "created"
     ]);
     for (const k of Object.keys(exported)) expect(allowed.has(k)).toBe(true);
+  });
+
+  it("round-trips the personal label independently of a real project", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Personal repository task",
+      description: "Private work that still belongs in Garrison",
+      project: "garrison",
+      scope: "personal"
+    });
+    expect(create.status).toBe(201);
+
+    const response = await fetch(base + "/cards/export?list=backlog");
+    const bundle = await response.json() as any;
+    const exported = bundle.cards.find((card: any) => card.title === "Personal repository task");
+    expect(exported).toMatchObject({ project: "garrison", scope: "personal" });
+
+    const imported = await jsend("POST", "/cards/import", {
+      bundle: { ...bundle, cards: [exported] },
+      targetList: "todo"
+    });
+    expect(imported.status).toBe(201);
+    expect(imported.body.cards[0]).toMatchObject({
+      project: "garrison",
+      scope: "personal",
+      list: "todo"
+    });
   });
 
   it("preview reports the count without writing anything", async () => {
@@ -178,6 +205,7 @@ describe("Item 4 — export / import a list of cards", () => {
     expect(landed.list).toBe("todo");
     // Content survived the round trip.
     expect(landed.project).toBe("garrison");
+    expect(landed.scope).toBe("project");
     expect(landed.goalMode).toBe(true);
     expect(landed.routing).toMatchObject({ tier: "T1-standard", model: "sonnet" });
     // The scheduled RUN is downgraded to a reminder — an imported card never auto-runs.
@@ -216,6 +244,7 @@ describe("Item 4 — export / import a list of cards", () => {
     const exportedBundle = await exportedResponse.json() as any;
     const exported = exportedBundle.cards.find((card: any) => card.title === "Machine-bound source");
     expect(exported.project).toBeUndefined();
+    expect(exported.scope).toBe("unscoped");
     expect(exported.routing).toEqual({ model: "sonnet" });
     expect(exported.description).toBe("Portable body");
 

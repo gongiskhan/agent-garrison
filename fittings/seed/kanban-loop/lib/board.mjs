@@ -12,6 +12,7 @@ import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
 import { markSteeringApplied } from "./steering.mjs";
+import { emitPersonalCompletionAfterDone, isPersonalDoneTransition } from "./personal-memory-outbox.mjs";
 
 export function kanbanRoot() {
   const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -225,8 +226,26 @@ export function sanitiseCardRouting(raw) {
   return Object.keys(out).length ? out : null;
 }
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, scheduledFor = null, scheduleAction = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+// What kind of ownership/context a card has. This is deliberately independent of
+// `workKind`: personal is a task classification, while workKind chooses an execution
+// rail. A personal card can therefore still be moved onto an agent list and run.
+export const CARD_SCOPES = ["personal", "project", "unscoped"];
+export function cardScope(card) {
+  if (card?.scope === "personal") return "personal";
+  const project = typeof card?.project === "string" ? card.project.trim() : "";
+  if (project) return "project";
+  return "unscoped";
+}
+
+export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, scheduledFor = null, scheduleAction = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
+  // Personal is an independent label and may coexist with a project (for example,
+  // a private task whose implementation still belongs to a real repository).
+  // Every non-personal legacy/new shape derives project vs unscoped from the
+  // actual project field.
+  // The HTTP boundary rejects malformed scope values; this lower-level constructor
+  // remains tolerant for imports/tests and old callers.
+  scope = cardScope({ scope, project });
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
   const validContinues = typeof continues === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(continues) ? continues : null;
@@ -249,6 +268,7 @@ export async function createCard(root, { title, description = "", project = null
     title: title ?? "(untitled)",
     description,
     project,
+    scope,
     list,
     status: "ok",
     iterations: 0,
@@ -676,7 +696,12 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 // A post-commit hook failure is reported as `postCommitError` but never turns a
 // committed card write into a false CAS failure.
 export async function saveCardCASWithHooks(root, card, expectedRev, at = new Date().toISOString(), hooks = {}) {
-  return withCardLock(root, card.id, async () => {
+  // Snapshot the terminal edge while the CAS lock owns the authoritative
+  // before/after pair, then perform the neutral outbox I/O only after the lock
+  // is released. Vault/provider work is never done by this module at all.
+  let personalCompletionEdge = null;
+  let doneHandoffEdge = null;
+  const result = await withCardLock(root, card.id, async () => {
     let disk = null;
     try {
       disk = await loadCard(root, card.id);
@@ -716,6 +741,8 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     // coordination identity field cannot accidentally preserve the old epoch.
     next.coordinationSeq = coordinationSeqForWrite(disk, next);
     await atomicWriteJSON(cardFile(root, card.id), next);
+    if (isPersonalDoneTransition(disk, next)) personalCompletionEdge = { prev: disk, next };
+    if (next.list === "done" && (disk?.list ?? null) !== "done") doneHandoffEdge = { prev: disk, next };
     // Feedback to the originating channel on a terminal transition (done /
     // needs-attention). saveCardCAS is the one write path every mover uses
     // (engine, server PATCH, batch), so the edge fires exactly once per
@@ -724,9 +751,9 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     // a finished | blocked | failed event — appends to the origin's durable event log
     // for ALL transports, and posts the (legacy) web text to the originating thread.
     routeTerminalTransition(root, disk, next);
-    // WS2 handoff packet: on the done edge, compose + write cards/<id>/handoff.json
-    // (deferred to the next tick, fully guarded — never blocks or fails this write).
-    generateHandoffIfDone(root, disk, next);
+    // The Done handoff is scheduled only AFTER withCardLock returns below. If it
+    // were queued here, the lock's asynchronous cleanup could yield to that
+    // callback before processCard writes its final duty-summary.
     // S3c: a card reaching a terminal list strands any unapplied revisit directive
     // (the boundary guard early-returns before it) — clear it so the chip resolves and
     // it can never fire on a reopened card. No-op when there is no pending directive.
@@ -743,6 +770,32 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     }
     return { ok: true, card: next, ...(postCommitError ? { postCommitError } : {}) };
   });
+
+  if (!result?.ok) return result;
+  // Register the handoff first and personal packet second. Both are deferred,
+  // fail-open side effects outside the lifecycle lock; the engine continuation
+  // therefore writes its final duty summary before either callback runs, and
+  // FIFO immediate ordering lets the packet snapshot the finished handoff.
+  if (doneHandoffEdge) generateHandoffIfDone(root, doneHandoffEdge.prev, doneHandoffEdge.next);
+  if (!personalCompletionEdge) return result;
+  try {
+    const memoryCapture = emitPersonalCompletionAfterDone(
+      root,
+      personalCompletionEdge.prev,
+      personalCompletionEdge.next
+    );
+    return { ...result, ...(memoryCapture ? { memoryCapture } : {}) };
+  } catch (err) {
+    // Only synchronous scheduling/identity failures reach here; asynchronous
+    // outbox I/O is fail-open inside the scheduler. The card is already
+    // committed and startup reconciliation repairs either window.
+    const message = String(err?.message || err).slice(0, 300);
+    console.error(`[kanban] personal completion outbox enqueue failed for ${card.id}: ${message}`);
+    return {
+      ...result,
+      memoryCapture: { status: "pending-reconciliation", error: message }
+    };
+  }
 }
 
 export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {

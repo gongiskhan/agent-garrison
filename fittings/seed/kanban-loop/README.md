@@ -10,12 +10,36 @@ spine; the board UI is owned by other V1b slices.
 - `board.json` — list defs + order + per-list config (never membership).
 - `cards/<ulid>/card.json` — the card, storing **pointers, never inlined bodies**:
   `runId`, `runDir`, `sliceId`, `sessionIds[]`, `briefPath`, `videoUrl`, plus title,
-  project, list, status, iterations, goalMode, acceptance, ts.
+  project, scope, list, status, iterations, goalMode, acceptance, ts.
 - `cards/<ulid>/log-N.md` — per-iteration logs.
+- `memory-outbox/personal-completions/` — immutable, bounded source packets for
+  personal cards that reach Done. This is a provider-neutral handoff; Kanban never
+  writes directly to a vault while committing a card.
 
 ULID ids (so concurrent drops never race), atomic writes (temp + rename),
 read-immediately-before-write + compare-and-swap (rev) on every mutation. **List
 membership is derived by scanning cards — never stored.**
+
+## Project and personal scope
+
+`scope` and `project` answer different questions:
+
+- `scope: personal` classifies the task as personal. It may still carry a real
+  project and may run on any manual or agent list.
+- A real project, including one corrected after inference, is the execution cwd.
+  Correcting the card project also removes any stale run-spec project override so
+  the visible project and actual next-run cwd cannot disagree.
+- A personal card with no project runs in the private, fixed
+  `$GARRISON_HOME/personal` workspace. `--setup` creates it with mode `0700` and
+  create-if-absent Claude/Codex/Gemini policy files; runtime resolution rejects a
+  missing, replaced, or symlinked workspace instead of falling back elsewhere.
+- An ordinary card with neither a project nor the personal label remains
+  unscoped and is eligible for project inference.
+
+Project and personal scope can be edited while a card is human-held and before
+its first run. Once `runId` exists they are fixed because the run's cwd, evidence,
+and handoff already belong to that execution context; create a fresh card to run
+the task somewhere else.
 
 ## The pipeline (seed board)
 
@@ -59,14 +83,16 @@ Each list carries one of three triggers:
 
 ### runId minting + threading (FINDING 4 / Decision 5/10)
 On a card's **first** agent-list entry the engine mints `runId` (a ULID) and sets
-`runDir = docs/autothing/runs/<runId>` (project-relative), persisted CAS-safely in the
-same acquire write so it is never minted twice. `runDir` (and `sliceId`) are threaded
-into **every** subsequent execute-prompt as literal text — the gateway `skill` field is
-inert, so the run dir must be IN the prompt for the garrison skill to write per-run.
+`runDir = $GARRISON_HOME/runs/<project-or-scope>/<runId>`, persisted CAS-safely in
+the same acquire write so it is never minted twice. Project-less personal runs use
+the `personal` segment. `runDir` (and `sliceId`) are threaded into **every**
+subsequent execute-prompt as literal text — the gateway `skill` field is inert, so
+the run dir must be IN the prompt for the garrison skill to write per-run.
 
 ### Test batching (FINDING 7)
-The **Test** list runs batched **per project**: `processBatch` groups the project's
-waiting Test cards, runs **one session per project** against one test plan, and parses
+The **Test** list runs batched **per execution scope**: `processBatch` groups a
+project's waiting Test cards, or project-less personal cards together, runs **one
+session per scope** against one test plan, and parses
 **one verdict per card** (`<cardId> <next-list>`) — each card moves per its own verdict
 (pass → `adversarial-test`, fail / no-match / cap → `implement` or park). It fires on
 the Test scheduler beat, **not** the global heartbeat.
@@ -95,11 +121,33 @@ the goal-stop hook (Decision 7 — the sentinel never fires on the shared board 
 
 ## CLI
 `node scripts/kanban.mjs --setup | --probe | --tick | --tick-list <id>`.
-- `--setup` seeds the board **and** registers the Test scheduler beat
+- `--setup` seeds the board, initializes the confined personal workspace, **and**
+  registers the Test scheduler beat
   (`kanban-test-beat`, default cron `0 */5 * * *`, override `KANBAN_TEST_BEAT_CRON`).
 - `--tick` dispatches due immediate agent-list cards through `GARRISON_GATEWAY_URL`.
-- `--tick-list test` runs the batched Test path (one session per project); the Test
+- `--tick-list test` runs the batched Test path (one session per execution scope); the Test
   beat calls exactly this.
+
+## Personal completion memory
+
+When an explicitly personal card reaches Done, Kanban emits one bounded packet for
+that completion generation after the card lock is released. Reopening and completing
+the card creates a new generation; retries are idempotent, and startup reconciliation
+repairs the narrow commit-before-packet crash window.
+
+When the Basic Memory fitting is equipped, its scheduled consumer writes the packet
+to `Personal/Kanban Completions/kanban-<card>-g<generation>.md` in the configured
+memory backend. The note records provenance, the bounded user-authored description
+and checklist, and any bounded agent closeout/evidence references. It deliberately
+omits transcripts, logs, diffs, environment values, attachment bodies, and session
+identifiers, and redacts common credential shapes.
+
+These are **completion source records**, not automatically promoted personal facts.
+Card text and agent summaries remain explicitly marked unverified so a vague task
+description cannot silently become timeless memory. The stable personal cwd may also
+give a runtime its normal cwd-scoped native memory namespace, but that is separate
+from this deterministic, cross-runtime Basic Memory capture; a `.claude` directory is
+neither required nor treated as the memory store.
 
 ## Moving and transferring tasks
 

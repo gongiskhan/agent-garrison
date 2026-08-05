@@ -180,6 +180,34 @@ describe("turnAttribution — the run context the gateway always knew and never 
   });
 });
 
+describe("personal workspace rejection is fail-closed", () => {
+  const rejection = {
+    overridesRejected: [{ field: "project", reason: "personal-workspace-unavailable" }]
+  };
+
+  it("detects only the personal-workspace rejection", () => {
+    expect(gw.personalWorkspaceRejection(rejection)).toEqual({
+      field: "project",
+      reason: "personal-workspace-unavailable"
+    });
+    expect(gw.personalWorkspaceRejection({
+      overridesRejected: [{ field: "project", reason: "project-not-a-git-repo-under-dev-root" }]
+    })).toBeNull();
+  });
+
+  it("throws a stable refusal before execution while leaving other project rejections unchanged", () => {
+    expect(() => gw.assertExecutableRunScope(rejection)).toThrow(/personal execution refused.*GARRISON_HOME\/personal/i);
+    try {
+      gw.assertExecutableRunScope(rejection);
+    } catch (err: any) {
+      expect(err.code).toBe("personal-workspace-unavailable");
+    }
+    expect(() => gw.assertExecutableRunScope({
+      overridesRejected: [{ field: "project", reason: "project-not-a-git-repo-under-dev-root" }]
+    })).not.toThrow();
+  });
+});
+
 describe("routeFieldsFrom — the pre-turn frame carries only what is already known (§4)", () => {
   it("reads the resolved route/runtime/model/effort and leaves the unknowable out", () => {
     const fields = gw.routeFieldsFrom(preFixture());
@@ -577,6 +605,42 @@ describe("a pinned target changes the resolved LANE, not just the badge (§7)", 
     }
   });
 
+  it("plans an unavailable personal scope as refused without switching the operative", async () => {
+    const { gateway } = await bootGateway({ resolveProject: () => null });
+    try {
+      const pre = await gateway.preRoute("do the personal thing", {
+        channel: "kanban",
+        routing: { project: "@personal" }
+      });
+      expect(pre.overridesRejected).toEqual([
+        { field: "project", reason: "personal-workspace-unavailable" }
+      ]);
+      expect(pre.plan).toEqual({ path: "refused", reasons: ["managed personal workspace unavailable"] });
+      expect(gateway.getOperativeSession().keys.join("")).toBe("");
+      expect(() => gw.assertExecutableRunScope(pre)).toThrow(/personal execution refused/i);
+    } finally {
+      gateway.shutdown();
+    }
+  });
+
+  it("plans a scoped Claude pin onto the cwd-keyed lane without switching the standing operative", async () => {
+    const scopedCwd = path.join(compositionDir, "scoped-project");
+    mkdirSync(scopedCwd, { recursive: true });
+    const { gateway } = await bootGateway({ resolveProject: () => scopedCwd });
+    try {
+      const pre = await gateway.preRoute("do the thing", {
+        channel: "kanban",
+        routing: { target: "cc-opus-high", project: "scoped-project" }
+      });
+      expect(pre.projectPath).toBe(scopedCwd);
+      expect(pre.plan.path).toBe("claude-delegate");
+      expect(pre.plan.reasons.join(" ")).toContain(scopedCwd);
+      expect(gateway.getOperativeSession().keys.join("")).toBe("");
+    } finally {
+      gateway.shutdown();
+    }
+  });
+
   it("folds the edge's own validation rejections into the same list", async () => {
     const { gateway } = await bootGateway();
     try {
@@ -928,6 +992,67 @@ describe("web one-shot lane: project → real cwd, account → real env (§6, §
     await gateway.runWebOneShot({ message: "hi" });
     expect(calls[0].cwd).toBe(compositionDir);
     expect("env" in calls[0]).toBe(false);
+  });
+});
+
+describe("scoped Claude lane: never use the composition-rooted standing PTY", () => {
+  it("selects the cwd-keyed Claude session for a scoped turn under a Claude primary", () => {
+    const gateway: any = new RoutedGateway({ primaryEngine: "claude-code" });
+    const route = { target: { runtime: "claude-code", provider: "anthropic-plan", model: "sonnet" } };
+    expect(gateway.usesScopedClaudeSession(route, "/tmp/personal")).toBe(true);
+    expect(gateway.usesScopedClaudeSession(route, null)).toBe(false);
+    expect(gateway.usesScopedClaudeSession({ target: { type: "workflow", workflow: "weekly-review" } }, "/tmp/personal")).toBe(true);
+    expect(gw.shouldUseScopedClaudeLane(gateway, route, "/tmp/personal")).toBe(true);
+  });
+
+  it("spawns that warm session at the resolved cwd and reuses the cwd-keyed session", async () => {
+    const cwd = path.join(compositionDir, "personal");
+    mkdirSync(cwd, { recursive: true });
+    const spawnConfigs: any[] = [];
+    const sessions: any[] = [];
+    const adapter = {
+      spawn: async (cfg: any) => {
+        spawnConfigs.push(cfg);
+        const session = {
+          compositionDir: cfg.compositionDir,
+          getClaudeSessionId: () => "scoped-1",
+          isAlive: () => true,
+          runTurn: async () => ({ reply: `cwd=${cfg.compositionDir}`, sessionId: "scoped-1" })
+        };
+        sessions.push(session);
+        return session;
+      },
+      awaitReady: async () => {},
+      setEffort: async () => {},
+      cancel: () => true
+    };
+    const gateway: any = new RoutedGateway({
+      primaryEngine: "claude-code",
+      compositionDir,
+      buildWorkspace: null,
+      appendSystemPromptFile: null,
+      config: {},
+      secrets: null,
+      core: {
+        buildRespawnOpts: (_target: any, opts: any) => ({ compositionDir: opts.compositionDir }),
+        ensureProviders: () => ({ providers: {} })
+      },
+      logFn: () => {}
+    });
+    gateway.getClaudeDelegateAdapter = async () => adapter;
+
+    const route = {
+      targetId: "cc-sonnet",
+      target: { runtime: "claude-code", provider: "anthropic-plan", model: "sonnet" }
+    };
+    const first = await gateway.runClaudeDelegateTurn(route, "first", { cwd });
+    const second = await gateway.runClaudeDelegateTurn(route, "second", { cwd });
+
+    expect(first.reply).toBe(`cwd=${cwd}`);
+    expect(second.reply).toBe(`cwd=${cwd}`);
+    expect(spawnConfigs).toHaveLength(1);
+    expect(spawnConfigs[0].compositionDir).toBe(cwd);
+    expect(sessions[0].compositionDir).toBe(cwd);
   });
 });
 

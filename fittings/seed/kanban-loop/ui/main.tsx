@@ -605,7 +605,7 @@ function Card({
   const inferring = card.inferState === "running";
   // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
   // the user asked for — also lets them re-try if it came back blank).
-  const canInfer = !card.project && !inferring && !running;
+  const canInfer = !card.project && !card.runId && !inferring && !running;
   const lastEv = card.lastEvent;
   return (
     <div
@@ -712,6 +712,7 @@ function Card({
         {card.project
           ? <span className="chip" title="project">{card.project}</span>
           : <span className="chip muted" title="no project assigned">no project</span>}
+        {card.scope === "personal" && <span className="chip goal" title="personal task">personal</span>}
         {inferring && <span className="chip infer" title="inferring the project from the description"><SparkIcon /> inferring project…</span>}
         {parked && <span className="chip attn">needs-attention</span>}
         {card.steeringPending && <span className="chip steering" title="a mid-run revisit directive is pending — the card will re-stage at the next duty boundary">steering</span>}
@@ -891,11 +892,10 @@ function Card({
             <button className="btn small" onClick={() => onWatch(card)}>
               <WatchIcon /> Watch
             </button>
-            {/* Terminal opens an interactive shell in the card's project cwd.
-                Only when the card resolves to a project (else the shell would
-                open at the board's own dir, which isn't what you came for). */}
-            {card.project && (
-              <button className="btn small" title="open an interactive shell in this card's project" onClick={() => onTerminal(card)}>
+            {/* Terminal opens in the card's real project, or in the dedicated
+                personal workspace when a personal card has no project. */}
+            {(card.project || card.scope === "personal") && (
+              <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => onTerminal(card)}>
                 <TerminalIcon /> Terminal
               </button>
             )}
@@ -1153,6 +1153,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [projectMode, setProjectMode] = useState<"auto" | "pick" | "custom">("auto");
   const [project, setProject] = useState("");
   const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
+  const [personal, setPersonal] = useState(false);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
   // RUN-SPEC-V1: ONE explicit run spec for the card, in the same shape the Web
@@ -1178,7 +1179,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [saving, setSaving] = useState(false);
 
   // The repos under the dev-root (dev-env parity). Best-effort — on failure the picker
-  // still offers "(auto-infer)" + "Custom path…".
+  // still offers "(auto-infer)" + "Custom project name…".
   useEffect(() => {
     let alive = true;
     api.projects().then((v) => { if (alive) setProjects(v.projects); }).catch(() => { /* leave empty */ });
@@ -1219,6 +1220,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
       const created = await api.create({
         title: title.trim() || undefined,
         project: proj,
+        ...(personal ? { scope: "personal" as const } : {}),
         description,
         goalMode,
         ...(Object.keys(routing).length ? { routing } : {}),
@@ -1266,6 +1268,16 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
           onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
       </div>
       <div className="field">
+        <label className="row" htmlFor="nc-personal">
+          <input id="nc-personal" type="checkbox" checked={personal}
+            onChange={(e) => setPersonal(e.target.checked)} />
+          Personal task
+        </label>
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          Personal is a label, not a run mode. The task can still use a project and run on agent lists.
+        </div>
+      </div>
+      <div className="field">
         <label htmlFor="nc-project">Project <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <select
           id="nc-project"
@@ -1279,14 +1291,14 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         >
           <option value="">(auto-infer from the description)</option>
           {projects.map((p) => <option key={p.path} value={p.name}>{p.name}</option>)}
-          <option value={PROJECT_CUSTOM}>Custom path…</option>
+          <option value={PROJECT_CUSTOM}>Custom project name…</option>
         </select>
         {projectMode === "custom" && (
           <input
             id="nc-project-custom"
             type="text"
             value={project}
-            placeholder="project name or absolute path"
+            placeholder="project name"
             style={{ marginTop: 8 }}
             autoFocus
             onChange={(e) => setProject(e.target.value)}
@@ -1294,7 +1306,9 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         )}
         {projectMode === "auto" && (
           <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-            Left blank — Garrison infers the project from the description (you can change it later).
+            {personal
+              ? "Left blank - personal tasks do not auto-infer a project. You can assign one now or later."
+              : "Left blank - Garrison infers the project from the description (you can change it later)."}
           </div>
         )}
       </div>
@@ -1391,13 +1405,14 @@ function ListAddCard({ listId, listTitle, onCreated }: { listId: string; listTit
   const [projectMode, setProjectMode] = useState<"auto" | "pick" | "custom">("auto");
   const [project, setProject] = useState("");
   const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
+  const [personal, setPersonal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
 
   // Load the dev-root repos for the project picker only once the form is opened
   // (parity with the New Card sheet). Best-effort — on failure the picker still
-  // offers "(auto-infer)" + "Custom path…".
+  // offers "(auto-infer)" + "Custom project name…".
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -1409,7 +1424,7 @@ function ListAddCard({ listId, listTitle, onCreated }: { listId: string; listTit
   useEffect(() => { if (open) titleRef.current?.focus(); }, [open]);
 
   function reset() {
-    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setErr(null); setSaving(false);
+    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setPersonal(false); setErr(null); setSaving(false);
   }
 
   async function submit() {
@@ -1428,6 +1443,7 @@ function ListAddCard({ listId, listTitle, onCreated }: { listId: string; listTit
         title: t,
         description: description.trim() || undefined,
         project: proj,
+        ...(personal ? { scope: "personal" as const } : {}),
         targetList: listId
       });
       reset();
@@ -1489,17 +1505,29 @@ function ListAddCard({ listId, listTitle, onCreated }: { listId: string; listTit
       >
         <option value="">Project: auto-infer</option>
         {projects.map((p) => <option key={p.path} value={p.name}>{p.name}</option>)}
-        <option value={PROJECT_CUSTOM}>Custom path…</option>
+        <option value={PROJECT_CUSTOM}>Custom project name…</option>
       </select>
       {projectMode === "custom" && (
         <input
           className="ba-input"
           type="text"
           value={project}
-          placeholder="project name or absolute path"
-          aria-label="Custom project path"
+          placeholder="project name"
+          aria-label="Custom project name"
           onChange={(e) => setProject(e.target.value)}
         />
+      )}
+      <label className="row" htmlFor={`ba-personal-${listId}`}>
+        <input
+          id={`ba-personal-${listId}`}
+          type="checkbox"
+          checked={personal}
+          onChange={(e) => setPersonal(e.target.checked)}
+        />
+        Personal task
+      </label>
+      {personal && projectMode === "auto" && (
+        <div className="ba-note">No project will be inferred automatically for this personal task.</div>
       )}
       <div className="ba-note">Everything about the run is automatic. Use New card to choose.</div>
       {err && <div className="ba-err" role="alert">{err}</div>}
@@ -1823,6 +1851,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [projectDraft, setProjectDraft] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
+  const [savingScope, setSavingScope] = useState(false);
   // Trello-style in-place editing: title + description drafts (null = not
   // editing), the checklist add-input, the schedule picker drafts, and the
   // attachment upload state.
@@ -1867,6 +1896,22 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
       setActionErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingProject(false);
+    }
+  }
+
+  async function savePersonalScope(personal: boolean) {
+    if (!detail) return;
+    setSavingScope(true);
+    setActionErr(null);
+    try {
+      const scope = personal ? "personal" : detail.card.project ? "project" : "unscoped";
+      const next = await api.patch(detail.card.id, { scope, rev: detail.card.rev });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingScope(false);
     }
   }
 
@@ -2080,6 +2125,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
         {card.project
           ? <span className="chip">proj: {card.project}</span>
           : <span className="chip muted">no project</span>}
+        {card.scope === "personal" && <span className="chip goal">personal</span>}
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
@@ -2102,7 +2148,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
         <button className="btn small" onClick={() => onWatch?.(card)}>
           <WatchIcon /> Watch (Log)
         </button>
-        {card.project && (
+        {(card.project || card.scope === "personal") && (
           <button className="btn small" onClick={() => onTerminal?.(card)}>
             <TerminalIcon /> Terminal
           </button>
@@ -2140,24 +2186,42 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
       {parked && card.attentionReason && (
         <div className="state-callout parked">{card.attentionReason}</div>
       )}
-      {parked && (
+      {!lockedCard && (
         <div className="detail-desc">
-          <div className="dd-title">Project / workspace scope</div>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="dd-title">Task scope</div>
+          <label className="row" htmlFor={`personal-${card.id}`}>
             <input
-              aria-label="Project or workspace scope"
-              value={projectDraft ?? card.project ?? ""}
-              placeholder="project name or absolute workspace path"
-              onChange={(e) => setProjectDraft(e.target.value)}
-              style={{ flex: 1, minWidth: 0 }}
+              id={`personal-${card.id}`}
+              type="checkbox"
+              checked={card.scope === "personal"}
+              disabled={Boolean(card.runId) || savingScope}
+              onChange={(e) => void savePersonalScope(e.target.checked)}
             />
-            <button className="btn small" disabled={savingProject} onClick={() => void saveProjectScope()}>
-              {savingProject ? "Saving…" : "Save scope"}
-            </button>
-          </div>
-          <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
-            A parked card is operator-editable. Use an absolute path when the task owns an isolated workspace outside a known repository.
-          </p>
+            Personal task
+          </label>
+          {!card.runId ? (
+            <>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <input
+                  aria-label="Project"
+                  value={projectDraft ?? card.project ?? ""}
+                  placeholder="project name"
+                  onChange={(e) => setProjectDraft(e.target.value)}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <button className="btn small" disabled={savingProject} onClick={() => void saveProjectScope()}>
+                  {savingProject ? "Saving…" : "Save project"}
+                </button>
+              </div>
+              <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+                Personal is independent of project. A personal task without a project skips automatic inference; use Infer if you deliberately want one.
+              </p>
+            </>
+          ) : (
+            <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+              Scope is fixed after the first run starts because its artifacts belong to that execution context. Create a fresh card to use a different project or personal scope.
+            </p>
+          )}
           {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
         </div>
       )}

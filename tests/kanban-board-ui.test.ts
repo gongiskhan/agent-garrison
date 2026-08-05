@@ -141,7 +141,7 @@ describe("buildBoardView", () => {
     };
     const s = cardSummary(card);
     expect(s).toMatchObject({
-      id: "Z".repeat(26), title: "t", project: "p", list: "plan", status: "running",
+      id: "Z".repeat(26), title: "t", project: "p", scope: "project", list: "plan", status: "running",
       iterations: 3, goalMode: true, rev: 5, runId: "RUN1", sliceId: "slice-x",
       videoUrl: "https://example/v"
     });
@@ -157,6 +157,13 @@ describe("buildBoardView", () => {
       effortApplied: true,
       phase: "plan"
     });
+  });
+
+  it("derives canonical scope for legacy cards and preserves an explicit personal label", () => {
+    expect(cardSummary({ id: "legacy-project", list: "backlog", project: "garrison" }).scope).toBe("project");
+    expect(cardSummary({ id: "legacy-empty", list: "backlog" }).scope).toBe("unscoped");
+    expect(cardSummary({ id: "personal-project", list: "backlog", project: "garrison", scope: "personal" }).scope)
+      .toBe("personal");
   });
 });
 

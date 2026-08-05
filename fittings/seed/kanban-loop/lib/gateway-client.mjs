@@ -13,6 +13,8 @@
 // so the run retries once the gateway is back, instead of parking. Any other failure
 // (a real HTTP 4xx/5xx from a booted gateway) is a genuine run failure and DOES park.
 
+import { PERSONAL_SCOPE_TOKEN, isPersonalCard } from "./personal-workspace.mjs";
+
 // A real garrison-* turn (plan/implement/review/…) runs far longer than the gateway's
 // default 5-min per-turn timeout, which otherwise kills the turn → HTTP 500 → the card
 // parks. The board sends an EXPLICIT generous per-turn timeout (default 25 min, override
@@ -196,6 +198,17 @@ export function projectNameForRouting(project) {
   return name;
 }
 
+// Explicit run-spec projects are authored as names and must already satisfy the
+// gateway's path-free vocabulary. Unlike the top-level legacy card.project field,
+// never reinterpret a path/traversal spelling by taking its basename.
+export function explicitProjectNameForRouting(project) {
+  const raw = typeof project === "string" ? project.trim() : "";
+  if (!raw || raw.includes("/") || raw.includes("\\") || raw.includes("..") || raw.startsWith(".")) {
+    return null;
+  }
+  return raw;
+}
+
 /**
  * The `routing` pin for one card turn (RUN-SPEC-V1) — the card's explicit run spec
  * plus the cwd derived from its project, as ONE object.
@@ -222,9 +235,23 @@ export function cardTurnRouting(card) {
   }
   // Normalise whichever project we end up sending: the gateway's resolveProjectName
   // refuses anything containing a slash.
-  const project = projectNameForRouting(routing.project ?? card?.project);
-  if (project) routing.project = project;
-  else delete routing.project;
+  const explicitProjectPresent = Object.hasOwn(routing, "project");
+  const cardProjectPresent = typeof card?.project === "string" && card.project.trim().length > 0;
+  const projectWasSpecified = explicitProjectPresent || cardProjectPresent;
+  const project = explicitProjectPresent
+    ? explicitProjectNameForRouting(routing.project)
+    : projectNameForRouting(card?.project);
+  if (project) {
+    routing.project = project;
+  } else if (isPersonalCard(card) && !projectWasSpecified) {
+    // Personal is a semantic card scope, not a filesystem path and not a fake
+    // project. The exact internal token is resolved by the gateway to its fixed
+    // $GARRISON_HOME/personal directory. A real/explicit project above always
+    // wins, which keeps scope and project independently editable.
+    routing.project = PERSONAL_SCOPE_TOKEN;
+  } else {
+    delete routing.project;
+  }
   return Object.keys(routing).length ? routing : null;
 }
 

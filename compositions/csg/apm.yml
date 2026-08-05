@@ -15,6 +15,7 @@ dependencies:
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/orchestrator
+    - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/web-channel-default
 x-garrison:
   composition:
@@ -98,6 +99,11 @@ x-garrison:
         - id: automations
           config:
             automations_dir: ~/.garrison/automations
+        - id: scheduler
+          config:
+            jobs_file: ~/.garrison/scheduler-jobs.json
+            log_file: ~/.garrison/scheduler.log
+            health_port: 7099
       sessions:
         - id: dev-env
           config:

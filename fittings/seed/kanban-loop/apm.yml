@@ -37,7 +37,11 @@ x-garrison:
     with explicit off events, never silent. The Test list runs batched per project
     on its own scheduler beat (default every 5h). Goal-mode carries a
     runtime-neutral acceptance block; the convergence guard is the per-card
-    iteration cap.
+    iteration cap. Cards carry an independently editable personal/project/unscoped
+    scope before their first run. A personal card may still belong to a real
+    project; without one it runs in the confined $GARRISON_HOME/personal workspace.
+    Personal Done cards emit bounded provider-neutral completion packets for the
+    Basic Memory fitting to retain as provenance-marked source notes.
   config_schema:
     - key: board_dir
       type: path

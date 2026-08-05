@@ -48,7 +48,9 @@ import {
   normaliseChecklist,
   cardPosition,
   cardAttachmentsDir,
-  listCardAttachments
+  listCardAttachments,
+  CARD_SCOPES,
+  cardScope
 } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
@@ -82,7 +84,7 @@ import {
 } from "../lib/resolved-model.mjs";
 import { batchGatewayRunFn, reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
-import { gatewayRunFn, inferenceRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
+import { gatewayRunFn, inferenceRunFn, compactBoundaryFn, projectNameForRouting } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
 import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
@@ -99,8 +101,9 @@ import {
   cleanupCardCoordination
 } from "../lib/coordination.mjs";
 import { prepareRevert, executeRevert } from "../lib/fences.mjs";
-import { listProjects, readDevRoot, listSkills } from "../lib/discover.mjs";
+import { listProjects, readDevRoot, resolveProjectName, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
+import { reconcilePersonalCompletionOutbox } from "../lib/personal-memory-outbox.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
 // WS2: the artifact-ref vocabulary lives in lib/links.mjs (shared with the handoff
 // packet generator). Re-exported below so existing importers (tests) keep working.
@@ -127,6 +130,7 @@ import { spawnPty, getPty, resizePty, killPty, shutdownPtys } from "./ptys.mjs";
 // Host-aware URL rewriting: loopback ports → their HTTPS tailnet form, for the
 // GET /host-map the UI reads (see ui/host-rewrite.ts).
 import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
+import { resolvePersonalWorkspaceSync } from "../lib/personal-workspace.mjs";
 
 const FITTING_ID = "kanban-loop";
 const DEFAULT_PORT = 7089;
@@ -176,19 +180,34 @@ function parseAttachments(description) {
   return out;
 }
 
-// The working directory a card's Terminal shell opens in. An absolute existing
-// project dir is used directly; a bare project NAME resolves under the same
-// dev-root the /projects picker scans; otherwise the board's project root. No
-// per-task branch/worktree — the shell just opens at the project root.
-function cardWorkdir(card, opts) {
-  const proj = typeof card?.project === "string" ? card.project.trim() : "";
-  if (proj) {
-    if (path.isAbsolute(proj)) {
-      try { if (statSync(proj).isDirectory()) return proj; } catch { /* fall through */ }
-    } else {
-      const under = path.join(readDevRoot(), proj);
-      try { if (statSync(under).isDirectory()) return under; } catch { /* fall through */ }
+// The working directory a card's Terminal shell opens in. This mirrors the
+// gateway's wire boundary: routing.project wins over card.project, and either
+// must be a confined direct-child project NAME resolving to a Git repo. An
+// invalid explicit project is refused instead of silently opening a different
+// cwd. Personal is only the fallback when neither project field was supplied.
+export function cardWorkdir(card, opts) {
+  const routingProject = typeof card?.routing?.project === "string" ? card.routing.project.trim() : "";
+  const cardProject = typeof card?.project === "string" ? card.project.trim() : "";
+  const specifiedProject = routingProject || cardProject;
+  if (specifiedProject) {
+    // routing.project is a strict run-spec name. Only the older top-level card
+    // field supports path-shaped records, and then solely by reducing them to a
+    // name before the same confined resolver dispatch uses.
+    const projectName = routingProject || projectNameForRouting(cardProject);
+    const resolved = projectName
+      ? resolveProjectName(projectName, { devRoot: opts?.devRoot || readDevRoot() })
+      : null;
+    if (resolved) return resolved;
+    throw new Error(`selected project is not a Git repository under the configured dev root: ${specifiedProject}`);
+  }
+  if (cardScope(card) === "personal") {
+    const personal = resolvePersonalWorkspaceSync({
+      home: opts?.garrisonHome || process.env.GARRISON_HOME || path.join(HOME, ".garrison")
+    });
+    if (!personal) {
+      throw new Error("personal workspace is unavailable; run kanban setup and verify it is not a symlink");
     }
+    return personal;
   }
   return opts?.cwd || projectRoot();
 }
@@ -292,6 +311,9 @@ export function cardSummary(card) {
     id: card.id,
     title: card.title ?? "(untitled)",
     project: card.project ?? null,
+    // Explicit task ownership, independent of the execution work kind. Derive it
+    // for pre-scope cards so old card.json files need no destructive migration.
+    scope: cardScope(card),
     list: card.list,
     status: card.status ?? "ok",
     iterations: card.iterations ?? 0,
@@ -447,6 +469,7 @@ export const EXPORT_CARD_FIELDS = [
   "title",
   "description",
   "project",       // a LABEL (board.projects maps it to a path on THIS machine), never a path
+  "scope",         // personal | project | unscoped; independent of execution workKind
   "acceptance",
   "goalMode",
   "checklist",
@@ -526,7 +549,12 @@ export function checklistValidationError(value) {
 export function exportCard(card) {
   const out = {};
   for (const f of EXPORT_CARD_FIELDS) {
-    const value = card[f];
+    // `project` is visited immediately before `scope`. Derive non-personal scope
+    // from the project that actually survived portability scrubbing, not from a
+    // machine-local path that was intentionally omitted from the bundle.
+    const value = f === "scope"
+      ? cardScope({ scope: card.scope, project: out.project ?? null })
+      : card[f];
     if (value === undefined) continue;
     if (f === "project" && isMachineLocalPath(value)) continue;
     if (f === "description") {
@@ -1316,20 +1344,43 @@ async function runProjectInference(opts, id, { manual = false } = {}) {
   const root = opts.root;
   const gatewayUrl = opts.gatewayUrl;
   // Mark "inferring…" immediately so the UI shows the attempt — but only for a card
-  // that still has no project and isn't already inferring.
+  // that still has no project, is not explicitly personal, and isn't already
+  // inferring. Personal is a deliberate classification, not a failed inference.
+  let inferenceStarted = false;
   const started = await updateCard(root, id, (card) => {
+    // updateCard returns the current card for a no-op, so carry an explicit bit
+    // out of the final CAS attempt. Otherwise a suppressed inference would still
+    // call the gateway even though no "running" state was committed.
+    inferenceStarted = false;
+    if (card.runId) return null;
+    if (!manual && cardScope(card) === "personal") return null;
     if (card.project) return null;
     if (!manual && card.inferState === "running") return null;
+    inferenceStarted = true;
     return { ...card, inferState: "running", events: withEvent(card, inferEvent("inference", "Inferring the project from the title + description…")) };
   });
-  if (!started || started.project) return;
+  if (!inferenceStarted || !started || started.project || started.runId) return;
+
+  const stopIfRunStarted = (card) => card.runId ? {
+    ...card,
+    inferState: "skipped",
+    events: withEvent(card, inferEvent(
+      "inference",
+      "Project inference result discarded - the first run had already started, so its execution scope is fixed."
+    ))
+  } : null;
 
   if (!gatewayUrl || !(await gatewayReachable(gatewayUrl))) {
-    await updateCard(root, id, (card) => card.project ? null : ({
-      ...card,
-      inferState: "skipped",
-      events: withEvent(card, inferEvent("inference", "Project inference skipped — no operative is running. Set a project manually, or it'll be inferred on the next run."))
-    }));
+    await updateCard(root, id, (card) => {
+      const stopped = stopIfRunStarted(card);
+      if (stopped) return stopped;
+      if (card.project || (!manual && cardScope(card) === "personal")) return null;
+      return {
+        ...card,
+        inferState: "skipped",
+        events: withEvent(card, inferEvent("inference", "Project inference skipped — no operative is running. Set a project manually, or it'll be inferred on the next run."))
+      };
+    });
     return;
   }
 
@@ -1337,18 +1388,34 @@ async function runProjectInference(opts, id, { manual = false } = {}) {
     const knownProjects = knownProjectsFrom(await loadAllCards(root));
     const { project, reply } = await inferProject(started, inferenceRunFn(gatewayUrl), { knownProjects });
     await updateCard(root, id, (card) => {
+      const stopped = stopIfRunStarted(card);
+      if (stopped) return stopped;
+      if (!manual && cardScope(card) === "personal") return null; // a personal edit while automatic inference ran wins
       if (card.project) return null; // the user set one while we inferred — respect it
       if (project) {
-        return { ...card, project, inferState: "done", events: withEvent(card, inferEvent("inference", `Inferred the project: ${project}`, replySnippet(reply))) };
+        return {
+          ...card,
+          project,
+          // An explicit personal label survives deliberate manual inference; it is
+          // independent of where the task executes.
+          scope: cardScope(card) === "personal" ? "personal" : "project",
+          inferState: "done",
+          events: withEvent(card, inferEvent("inference", `Inferred the project: ${project}`, replySnippet(reply)))
+        };
       }
       return { ...card, inferState: "none", events: withEvent(card, inferEvent("inference", "Couldn't confidently infer a project — left blank. Set one on the card if you know it.", replySnippet(reply))) };
     });
   } catch (err) {
-    await updateCard(root, id, (card) => card.project ? null : ({
-      ...card,
-      inferState: "failed",
-      events: withEvent(card, inferEvent("inference", "Project inference failed (the operative was busy or unavailable) — left blank.", String(err?.message || err)))
-    }));
+    await updateCard(root, id, (card) => {
+      const stopped = stopIfRunStarted(card);
+      if (stopped) return stopped;
+      if (card.project || (!manual && cardScope(card) === "personal")) return null;
+      return {
+        ...card,
+        inferState: "failed",
+        events: withEvent(card, inferEvent("inference", "Project inference failed (the operative was busy or unavailable) — left blank.", String(err?.message || err)))
+      };
+    });
   }
 }
 
@@ -1413,7 +1480,7 @@ async function collisionFreePosition(root, list, cardId, requested) {
 // manual list via `targetList` (the board UI uses this for To Do). Agent,
 // interactive and terminal destinations are refused so simple capture can never
 // start a run or silently mark work complete. Body: { title?, description?,
-// project?, goalMode?, acceptance?, targetList? }. Title is OPTIONAL: a blank
+// project?, scope?, goalMode?, acceptance?, targetList? }. Title is OPTIONAL: a blank
 // title is inferred from the description's first line (only when BOTH are blank
 // is there nothing to name it by). A card created WITHOUT a project kicks a
 // visible, fire-and-forget project inference (so the attempt shows on the card
@@ -1439,8 +1506,20 @@ async function handleCreateCard(req, res, opts) {
       error: `cards can only be created directly in an active manual list: ${targetListId}`
     });
   }
+  const requestedScope = body.scope == null ? null : body.scope;
+  if (requestedScope !== null && !CARD_SCOPES.includes(requestedScope)) {
+    return jsonRes(res, 400, { error: `scope must be one of: ${CARD_SCOPES.join(", ")}` });
+  }
   const suppliedProject = typeof body.project === "string" && body.project.trim() ? body.project.trim() : null;
-  const explicitWorkspace = suppliedProject ? null : explicitWorkspaceFromCard({ title, description });
+  if (requestedScope === "unscoped" && suppliedProject) {
+    return jsonRes(res, 400, { error: "unscoped scope cannot also carry a project" });
+  }
+  if (requestedScope === "project" && !suppliedProject) {
+    return jsonRes(res, 400, { error: "project scope requires a project" });
+  }
+  const explicitWorkspace = suppliedProject || requestedScope === "personal"
+    ? null
+    : explicitWorkspaceFromCard({ title, description });
   // A supplied schedule must parse NOW - storing an unparseable instant would
   // hold the card forever (the engine's fail-closed rule) over a typo.
   if (body.scheduledFor != null && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))) {
@@ -1461,6 +1540,7 @@ async function handleCreateCard(req, res, opts) {
     title,
     description,
     project: suppliedProject || explicitWorkspace,
+    scope: requestedScope,
     list: targetListId,
     goalMode: body.goalMode === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
@@ -1596,7 +1676,7 @@ async function handleCreateCard(req, res, opts) {
   }
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
-  if (!card.project) {
+  if (cardScope(card) === "unscoped") {
     void runProjectInference(opts, card.id).catch((err) => console.error(`[kanban-loop] inference failed for ${card.id}:`, err?.message || err));
   }
   jsonRes(res, 201, { card: cardSummary(card) });
@@ -1710,6 +1790,7 @@ async function handleImportCards(req, res, opts) {
     picked.title = typeof picked.title === "string" ? picked.title.trim() : "";
     picked.description = stripAttachedFilesBlock(typeof picked.description === "string" ? picked.description : "");
     picked.project = typeof picked.project === "string" ? picked.project.trim() : null;
+    picked.scope = CARD_SCOPES.includes(picked.scope) ? picked.scope : null;
     picked.acceptance = typeof picked.acceptance === "string" ? picked.acceptance : null;
     picked.goalMode = picked.goalMode === true;
     picked.checklist = picked.checklist == null
@@ -1756,6 +1837,10 @@ async function handleImportCards(req, res, opts) {
       delete picked.routing.project;
       if (Object.keys(picked.routing).length === 0) picked.routing = null;
     }
+    // Derive legacy/malformed non-personal scope from the project that survived
+    // portability scrubbing. Explicit personal remains personal with or without a
+    // project because it is a task label, not a cwd selector.
+    picked.scope = cardScope({ scope: picked.scope, project: picked.project });
     // An unknown LABEL is still useful content; import it and explain that this
     // machine has no path mapping for it yet.
     if (picked.project) {
@@ -1808,6 +1893,7 @@ async function handleImportCards(req, res, opts) {
         title,
         description: p.description,
         project: p.project,
+        scope: p.scope,
         list: targetList,
         goalMode: p.goalMode,
         acceptance: p.acceptance,
@@ -1844,6 +1930,12 @@ async function handleInferProject(req, res, opts, id) {
   try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id;
+  if (card.runId) {
+    return jsonRes(res, 409, {
+      error: "scope-already-ran",
+      message: "Project inference cannot change a card after its first run starts. Create a fresh card to run the task in a different scope."
+    });
+  }
   if (card.project) return jsonRes(res, 200, { card: cardSummary(card), note: "card already has a project" });
   void runProjectInference(opts, id, { manual: true }).catch((err) => console.error(`[kanban-loop] manual inference failed for ${id}:`, err?.message || err));
   jsonRes(res, 200, { card: cardSummary({ ...card, inferState: "running" }), inferring: true });
@@ -1967,7 +2059,7 @@ export function prepareRecoveredCoordinationHold(board, card, now = () => new Da
     return {
       ok: false,
       code: "repo-unresolved",
-      message: `Recovery remains parked because project "${card?.project || "(none)"}" no longer resolves to a repository. Fix the project scope, or explicitly Abandon/Delete the card.`
+      message: `Recovery remains parked because project "${card?.project || "(none)"}" no longer resolves to a repository. Project scope is locked after a run starts; create a fresh card with the intended project, or explicitly Abandon/Delete this card.`
     };
   }
   const exclusive = [...new Set(touchSet.exclusive || [])];
@@ -2073,12 +2165,19 @@ export function shouldRecoverCoordinationHold(board, card, next) {
 async function handlePatchCard(req, res, opts, id) {
   const root = opts.root;
   const body = (await readBody(req)) || {};
+  if (body.scope !== undefined && !CARD_SCOPES.includes(body.scope)) {
+    return jsonRes(res, 400, { error: `scope must be one of: ${CARD_SCOPES.join(", ")}` });
+  }
   const checklistError = checklistValidationError(body.checklist);
   if (checklistError) return jsonRes(res, 400, { error: checklistError });
   let card;
   try { card = await loadCard(root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id — the write must never use a tampered on-disk id
+  const patchedRouting = body.routing === undefined ? undefined : sanitiseCardRouting(body.routing);
+  const storedExecutionProject = sanitiseCardRouting(card.routing)?.project || card.project || null;
+  const patchedExecutionProject = patchedRouting?.project || card.project || null;
+  const changesExecutionProject = body.routing !== undefined && patchedExecutionProject !== storedExecutionProject;
   const board = await loadBoard(root);
   // A list move without an explicit drag position is an insertion at the top.
   // The position is allocated later under the collection-order lock; drag moves
@@ -2099,6 +2198,12 @@ async function handlePatchCard(req, res, opts, id) {
     return jsonRes(res, 403, {
       error: "engine-owned",
       message: `Card is on the autonomous list "${card.list}" — it is engine-owned (D16). Wait for the run, or resolve it from needs-attention if it parks.`
+    });
+  }
+  if ((typeof body.project === "string" || body.scope !== undefined || changesExecutionProject) && card.runId && !isEngineRequest(req)) {
+    return jsonRes(res, 409, {
+      error: "scope-already-ran",
+      message: "Project/personal scope is fixed after the first run starts because its artifacts belong to that execution context. Create a fresh card to run the task in a different scope."
     });
   }
   const next = { ...card };
@@ -2151,7 +2256,68 @@ async function handlePatchCard(req, res, opts, id) {
   // underneath its own run.
   if (typeof body.title === "string" && body.title.trim()) next.title = body.title.trim();
   if (typeof body.description === "string") next.description = body.description;
-  if (typeof body.project === "string") next.project = body.project.trim() || null;
+  const patchesProject = typeof body.project === "string";
+  const patchesScope = body.scope !== undefined;
+  if (patchesProject || patchesScope) {
+    const priorProject = typeof card.project === "string" && card.project.trim() ? card.project.trim() : null;
+    const priorScope = cardScope(card);
+    const requestedProject = patchesProject ? (body.project.trim() || null) : priorProject;
+    let requestedScope = patchesScope ? body.scope : priorScope;
+
+    // Personal is independent of execution location: assigning/clearing a project
+    // without an explicit scope edit preserves the personal label. Non-personal
+    // cards derive project vs unscoped from the actual project value.
+    if (!patchesScope && priorScope !== "personal") requestedScope = requestedProject ? "project" : "unscoped";
+    if (requestedScope === "project" && !requestedProject) {
+      return jsonRes(res, 400, { error: "project scope requires a project" });
+    }
+    if (requestedScope === "unscoped" && requestedProject) {
+      return jsonRes(res, 400, { error: "unscoped scope cannot also carry a project" });
+    }
+
+    next.project = requestedProject;
+    next.scope = requestedScope;
+
+    // A top-level project correction is the normal card UI path. Unless the same
+    // PATCH explicitly replaces the run spec, remove its stale project override so
+    // the corrected card project genuinely becomes the next turn's cwd.
+    if (patchesProject && body.routing === undefined && next.routing?.project) {
+      const { project: _staleProject, ...rest } = next.routing;
+      next.routing = sanitiseCardRouting(rest);
+    }
+
+    const changed = priorProject !== next.project || priorScope !== next.scope;
+    if (changed) {
+      if (next.scope === "personal" && priorScope !== "personal") {
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "inference",
+          message: `Marked as a personal task${next.project ? ` (project ${next.project})` : " - automatic project inference is off"}`
+        });
+      } else if (priorScope === "personal" && next.scope !== "personal") {
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "inference",
+          message: next.project ? `Personal label removed (project ${next.project})` : "Personal label removed - project is unscoped"
+        });
+      } else if (priorProject !== next.project) {
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "inference",
+          message: next.project
+            ? priorProject ? `Project changed manually: ${priorProject} → ${next.project}` : `Project set manually: ${next.project}`
+            : `Project cleared manually${priorProject ? ` (was ${priorProject})` : ""}`
+        });
+      }
+      if (priorProject !== next.project) {
+        next.inferState = next.project ? "manual" : next.scope === "personal" ? "suppressed" : "none";
+      } else if (next.scope === "personal" && !next.project) {
+        next.inferState = "suppressed";
+      } else if (priorScope === "personal" && next.scope === "unscoped") {
+        next.inferState = "none";
+      }
+    }
+  }
   if (typeof body.goalMode === "boolean") next.goalMode = body.goalMode;
   if (typeof body.sliceId === "string") {
     const s = body.sliceId.trim();
@@ -2168,7 +2334,7 @@ async function handlePatchCard(req, res, opts, id) {
   // Whole-object replace, not a merge: `null` on a field means "back to automatic",
   // and a merge could never express that. Sending `routing: null` clears the lot.
   if (body.routing !== undefined) {
-    next.routing = sanitiseCardRouting(body.routing);
+    next.routing = patchedRouting;
     // The three fields the card ALSO stores flat (they are read by railForCard and
     // the classification hint) are re-derived, or the two copies disagree the
     // moment a spec is edited.
@@ -4059,6 +4225,21 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     console.error("[kanban-loop] interrupted-run recovery failed:", err?.message || err);
   }
 
+  // Repair the narrow post-commit window where a process could die after a
+  // personal card reached Done but before its neutral memory packet landed.
+  // This only touches the Kanban outbox; Basic Memory consumes it separately.
+  try {
+    const repaired = await reconcilePersonalCompletionOutbox(liveOpts.root);
+    if (repaired.emitted) {
+      console.log(`[kanban-loop] repaired ${repaired.emitted} missing personal completion packet(s)`);
+    }
+    for (const failure of repaired.errors) {
+      console.error(`[kanban-loop] personal completion reconcile failed for ${failure.cardId}: ${failure.error}`);
+    }
+  } catch (err) {
+    console.error("[kanban-loop] personal completion reconciliation failed:", err?.message || err);
+  }
+
   // Re-register the scheduler tick from HERE, where this instance's gateway URL is
   // actually in scope. The job command is PERSISTED in the scheduler's jobs file, so
   // a job registered once — by the apm.yml setup hook, which never sees a gateway URL
@@ -4142,7 +4323,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           return;
         }
         card.id = m[1];
-        const rec = spawnPty({ id: msg.sessionId, cwd: cardWorkdir(card, liveOpts) });
+        let workdir;
+        try {
+          workdir = cardWorkdir(card, liveOpts);
+        } catch (err) {
+          try { ws.send(JSON.stringify({ type: "error", message: String(err?.message || err) })); } catch {}
+          ws.close();
+          return;
+        }
+        const rec = spawnPty({ id: msg.sessionId, cwd: workdir });
         rec.ws = ws;
         ptyId = rec.id;
         // Size the PTY to the connecting client BEFORE replaying, so a full-width

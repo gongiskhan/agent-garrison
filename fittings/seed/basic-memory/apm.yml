@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the operative is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist. Moving an existing vault to a remote store is a bounded migration rather than a mode - `scripts/import-vault.mjs` seeds the remote once from the local files, `shadow_write` keeps both sides written while the two are compared, and a daily comparator files a dated diff report whose header carries the date the migration must end on.
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact, and consumes bounded personal Done-card packets into provenance-marked source notes under Personal/Kanban Completions when Kanban is present. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the operative is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist. Moving an existing vault to a remote store is a bounded migration rather than a mode - `scripts/import-vault.mjs` seeds the remote once from the local files, `shadow_write` keeps both sides written while the two are compared, and a daily comparator files a dated diff report whose header carries the date the migration must end on.
   config_schema:
     - key: backend
       type: select
@@ -59,6 +59,14 @@ x-garrison:
       type: boolean
       default: true
       description: Whether to wire the lightweight session-capture hook (SessionEnd/PreCompact) into ~/.claude/settings.json.
+    - key: kanban_completion_capture_enabled
+      type: boolean
+      default: true
+      description: Consume neutral scope=personal Done-card packets from the Kanban outbox into deterministic Personal/Kanban Completions source notes. Requires the Kanban Loop and Scheduler fittings; this never promotes card text into verified facts.
+    - key: kanban_completion_capture_cron
+      type: string
+      default: "*/2 * * * *"
+      description: Scheduler cadence for consuming personal Done-card source packets. The exact configured GARRISON_KANBAN_DIR is baked into the job so instance/profile outboxes cannot be mixed.
     - key: register_codex_gemini
       type: boolean
       default: true
