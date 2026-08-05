@@ -301,8 +301,8 @@ x-garrison:
               effort: high
           - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
             cell:
-              target: cc-opus
-              effort: high
+              target: cc-sonnet
+              effort: xhigh
           - description: >-
               deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
               security-sensitive or multi-subsystem work
