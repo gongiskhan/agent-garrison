@@ -391,7 +391,10 @@ export function gatewayRunFn(gatewayUrl) {
           // healthy socket would be kept alive forever by its own heartbeat.
           if (event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
           if (event === "chunk") {
-            try { const c = JSON.parse(data); if (typeof c.text === "string") { live += c.text; emit(false); } } catch { /* ignore */ }
+            // `chunk` is overloaded: gateway.mjs forwards a text_delta (a DELTA),
+            // gateway-pty.mjs sends the reply SO FAR with replace:true. Appending a
+            // cumulative frame duplicated every reply the routed lane produced.
+            try { const c = JSON.parse(data); if (typeof c.text === "string") { live = c.replace === true ? c.text : live + c.text; emit(false); } } catch { /* ignore */ }
           } else if (event === "tool") {
             // S3d (D9b): an AskUserQuestion the operative raised MID-TURN (the discuss
             // duty asking for scope). Forward the tool payload ({tool_use_id, questions})

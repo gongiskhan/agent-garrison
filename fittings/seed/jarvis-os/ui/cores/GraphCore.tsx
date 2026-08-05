@@ -126,19 +126,28 @@ export default function GraphCore({
   mode = "idle",
   bgMode = "depth",
   getLevel,
+  orbDisplay = false,
 }: {
   mode?: CoreMode;
   bgMode?: BgMode;
   /** real speech envelope 0..1, or null when no audio is playing */
   getLevel?: () => number | null;
+  /** true when the shell is showing this iframe as the small floating orb */
+  orbDisplay?: boolean;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef<CoreMode>(mode);
   const bgRef = useRef<BgMode>(bgMode);
   const getLevelRef = useRef(getLevel);
+  const orbDisplayRef = useRef(orbDisplay);
   modeRef.current = mode;
   bgRef.current = bgMode;
   getLevelRef.current = getLevel;
+  orbDisplayRef.current = orbDisplay;
+
+  // Exposed so the orbDisplay-change effect below can retrigger framing without
+  // re-running the full Three.js setup.
+  const updateFramingRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -171,11 +180,22 @@ export default function GraphCore({
     // cloud on-screen while the canvas stays full-viewport (so the halo still
     // fades into the page instead of clipping into a box), and raising the cloud
     // parks the sphere up top, freeing the lower half for the HUD bands.
+    // In orb mode (160 px iframe clipped to 88 px circle) the default phone
+    // distance (8.6) packs the 2 200 nodes too tightly — the cloud merges into
+    // an opaque solid sphere. Pulling back to 16 spreads the nodes out so the
+    // mesh reads as a graph, not a ball. Cloud y raised slightly to center it
+    // inside the visible 88 px circle.
     const frameForViewport = () => {
-      const phone = mount.clientWidth <= 640;
-      camera.position.set(0, 0, phone ? 8.6 : 5.7);
-      cloud.position.y = phone ? 1.25 : 0.32; // above center, clear of the MRR block
+      if (orbDisplayRef.current) {
+        camera.position.set(0, 0, 16);
+        cloud.position.y = 0.1;
+      } else {
+        const phone = mount.clientWidth <= 640;
+        camera.position.set(0, 0, phone ? 8.6 : 5.7);
+        cloud.position.y = phone ? 1.25 : 0.32; // above center, clear of the MRR block
+      }
     };
+    updateFramingRef.current = frameForViewport;
     frameForViewport();
 
     // --- nodes: center-dense volumetric cloud --------------------------------
@@ -586,8 +606,15 @@ export default function GraphCore({
       renderer.dispose();
       renderer.forceContextLoss();
       mount.removeChild(renderer.domElement);
+      updateFramingRef.current = () => {};
     };
   }, []);
+
+  // Re-frame whenever orbDisplay toggles — the main effect runs once, so framing
+  // is locked at initial orbDisplay value; this effect picks up later changes.
+  useEffect(() => {
+    updateFramingRef.current();
+  }, [orbDisplay]);
 
   return (
     <div className="graph-core" aria-hidden="true">

@@ -378,6 +378,37 @@ html.jarvis-orb-active #root {
   display: none !important;
 }
 
+/* State indicator dot rendered on .jarvis-core so it's visible inside the
+   clipped circle even though .jarvis-status is hidden in orb mode.
+   Positioned at the lower edge of the 88 px visible circle (center at 50%,
+   radius 44 px — dot at +34 px is safely within the circle).
+   The state-* class on .jarvis-root drives the colour, matching .jarvis-dot. */
+.jarvis-root.orb-mode .jarvis-core::after {
+  content: "";
+  position: absolute;
+  top: calc(50% + 34px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ember);
+  pointer-events: none;
+  z-index: 10;
+}
+.jarvis-root.orb-mode.state-listening .jarvis-core::after {
+  background: var(--cobalt);
+  animation: jarvis-pulse 1.4s ease-in-out infinite;
+}
+.jarvis-root.orb-mode.state-working .jarvis-core::after {
+  background: #ff5e3a;
+  animation: jarvis-pulse 0.9s ease-in-out infinite;
+}
+.jarvis-root.orb-mode.state-speaking .jarvis-core::after {
+  background: var(--white-hot);
+  animation: jarvis-pulse 1.1s ease-in-out infinite;
+}
+
 .jarvis-dot {
   width: 7px;
   height: 7px;

@@ -941,6 +941,17 @@ function App() {
     } catch {}
   }, [orbMode, orbCorner]);
 
+  // Announce this document is mounted and the message listener (below) is live.
+  // The shell responds immediately with the current display-mode so we never
+  // stay stuck at isOrbDisplay=false when the shell already had orbActive=true
+  // but the previous garrison:jarvis-display-mode message arrived before this
+  // listener was attached.
+  useEffect(() => {
+    try {
+      window.parent.postMessage({ type: "garrison:jarvis-ready" }, "*");
+    } catch {}
+  }, []);
+
   // Shell-side mute button (rendered next to the orb, not inside this
   // document) needs to know whether to show muted/unmuted and whether a
   // session even exists to mute — mirrors the jarvis-mute button's own
@@ -1437,12 +1448,17 @@ function App() {
           const ev = parseSseEvent(rawEvent);
           if (!ev) continue;
           if (ev.event === "chunk" && typeof ev.data?.text === "string") {
-            assembled += ev.data.text;
+            // A `chunk` frame carries EITHER a delta (gateway.mjs forwards raw
+            // text_delta events) OR the whole reply so far with replace:true
+            // (gateway-pty.mjs, the routed lane). Appending a CUMULATIVE frame is
+            // what made every reply — and every spoken sentence — arrive twice.
+            const replaceChunk = ev.data.replace === true;
+            assembled = replaceChunk ? ev.data.text : assembled + ev.data.text;
             // The answer is streaming — searching is over; dock the centre box
             // (it stays visible on the right while Jarvis reads the answer).
             retireSearch();
             setTurns((prev) => prev.map((t) => t.id === bubbleId
-              ? { ...t, content: t.content + ev.data.text } : t));
+              ? { ...t, content: replaceChunk ? ev.data.text : t.content + ev.data.text } : t));
             // Suppress speech the instant a delegation is detected (cut anything
             // already queued/playing as a belt-and-suspenders — in practice the
             // marker leads, so nothing has been spoken yet).
@@ -2567,7 +2583,7 @@ function App() {
         aria-pressed={sessionOn}
         aria-label={sessionOn ? "Stop voice session" : "Start voice session"}
       >
-        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" />
+        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" orbDisplay={isOrbDisplay} />
       </div>
 
       {waCenter && (

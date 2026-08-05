@@ -162,6 +162,11 @@ export function JarvisPersistentFrame({
       iframeRef.current?.contentWindow?.postMessage(msg, iframeOrigin);
     } catch {}
   }, [iframeOrigin]);
+  // Stable refs so the zero-dep message handler always uses the latest values
+  // without being re-registered on every orbActive/postToJarvis change.
+  const orbActiveRef = useRef(false);
+  const postToJarvisRef = useRef(postToJarvis);
+  postToJarvisRef.current = postToJarvis;
 
   // Activity signal: jarvis-os posts {type:"garrison:jarvis-activity",
   // active} to its parent whenever its HUD mode changes (see the minimal emit
@@ -194,6 +199,14 @@ export function JarvisPersistentFrame({
         if (isOrbCorner(data.corner)) setOrbCorner(data.corner);
       } else if (data.type === "garrison:jarvis-mic-state") {
         setMicState({ micMuted: Boolean(data.micMuted), sessionOn: Boolean(data.sessionOn) });
+      } else if (data.type === "garrison:jarvis-ready") {
+        // HUD just mounted and its listener is live — respond immediately with
+        // the current framing so it never stays stuck at isOrbDisplay=false if
+        // the previous display-mode message fired before the listener existed.
+        postToJarvisRef.current({
+          type: "garrison:jarvis-display-mode",
+          mode: orbActiveRef.current ? "orb" : "normal"
+        });
       }
     }
     window.addEventListener("message", onMessage);
@@ -209,6 +222,7 @@ export function JarvisPersistentFrame({
   // never overlays a dead iframe - flipping the preference on before jarvis-os
   // has finished booting just renders nothing until it's reachable.
   const orbActive = Boolean(mountedSrc) && !onJarvisRoute && orbPref;
+  orbActiveRef.current = orbActive;
 
   // Tell the HUD which framing actually applied - only THIS (not the raw
   // preference) drives its transparent-background / hide-chrome CSS, because
@@ -369,6 +383,12 @@ export function JarvisPersistentFrame({
         aria-hidden={onJarvisRoute ? undefined : true}
         tabIndex={onJarvisRoute ? undefined : -1}
         style={frameStyle}
+        onLoad={() => {
+          // Belt-and-suspenders: re-send on every iframe load. The ready-
+          // handshake (garrison:jarvis-ready above) handles the normal case;
+          // this covers a reload/navigation inside the iframe itself.
+          postToJarvis({ type: "garrison:jarvis-display-mode", mode: orbActive ? "orb" : "normal" });
+        }}
       />
       {orbActive && (
         <button
