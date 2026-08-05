@@ -279,6 +279,26 @@ def _reap_whisper_cpp():
         proc.kill()
 
 
+# The Node wrapper reaps us on SIGTERM, but it cannot when it is itself
+# SIGKILLed (jetsam under memory pressure on an 8 GB box, `kill -9`, a hard
+# crash) -- then we survive as an orphan still holding the mic for wakeword,
+# burning ~18% CPU each. Six of them accumulated over a week (2026-07-30) and
+# pushed the Air into 10.8 GB of swap, so every STT re-read the mmap'd 3 GB
+# model from SSD. Same lesson as _reap_whisper_cpp one level down: watch the
+# parent directly instead of trusting it to clean up.
+def _watch_parent(original_ppid, interval=5.0):
+    while True:
+        time.sleep(interval)
+        if os.getppid() != original_ppid:
+            print(f"[voice-py] parent {original_ppid} gone (ppid now "
+                  f"{os.getppid()}); reaping whisper-server and exiting",
+                  flush=True)
+            _reap_whisper_cpp()
+            # sys.exit() from a non-main thread only unwinds that thread, and
+            # atexit would not run either -- reap explicitly, then hard-exit.
+            os._exit(0)
+
+
 def start_whisper_cpp():
     """Spawn whisper-server (whisper.cpp, Metal GPU) as a supervised child and
     return (proc, port). The model stays warm in the child; /stt proxies to it.
@@ -781,6 +801,14 @@ def speak(text: str = "", lang: Optional[str] = None):
 
 
 if __name__ == "__main__":
+    # Start the watchdog BEFORE the warmup, not after: warmup takes tens of
+    # seconds loading kokoro + piper + a 3 GB ggml model, which is exactly the
+    # window where memory pressure is worst and the wrapper is most likely to
+    # be jetsam'd. A watchdog that only arms after warmup would miss it.
+    threading.Thread(
+        target=_watch_parent, args=(os.getppid(),), daemon=True,
+        name="parent-watchdog",
+    ).start()
     # warm both models so the first real request doesn't pay init cost —
     # whisper's first CUDA run JITs kernels (~9s); feed it kokoro's warmup
     # audio so the whole pipeline is hot

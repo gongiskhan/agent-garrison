@@ -73,6 +73,10 @@ x-garrison:
       type: string
       default: ~/.cache/whisper-cpp/ggml-large-v3.bin
       description: Path to the ggml whisper model used when stt_engine is whisper-cpp (~ is expanded). Ignored by the faster-whisper engine, which loads whisper_model by name instead.
+    - key: whisper_beam
+      type: integer
+      default: 5
+      description: Whisper decoding beam width. 1 = greedy — fastest but badly mistranscribes European Portuguese ("que horas são em Lisboa" -> "então é só uma luz boa"). 5 is the accuracy sweet spot; 2 keeps most of beam search's error recovery at a fraction of the decode cost. Lower it when decode latency hurts on a loaded machine.
     - key: whisper_cpp_no_timestamps
       type: boolean
       default: false

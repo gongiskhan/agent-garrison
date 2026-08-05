@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
+import { JARVIS_FITTING_ID } from "@/components/chrome/JarvisPersistentFrame";
 
 interface ViewEntry {
   fittingId: string;
@@ -76,6 +77,10 @@ export default function EmbedPage() {
   useEffect(() => {
     let alive = true;
     setEntry(undefined);
+    // jarvis-os is rendered exactly once, in AppShell's JarvisPersistentFrame,
+    // which never unmounts across route navigation - see the early return
+    // below. Skip fetching a status this route never uses.
+    if (fittingId === JARVIS_FITTING_ID) return;
     async function load() {
       try {
         const res = await fetch("/api/fittings/views", { cache: "no-store" });
@@ -93,6 +98,14 @@ export default function EmbedPage() {
       alive = false;
     };
   }, [fittingId, reloadNonce]);
+
+  // jarvis-os: this route is now a VIEW over the single shared iframe AppShell
+  // mounts in JarvisPersistentFrame (positioned to cover this route's content
+  // area while it's active) - not a second iframe. Rendering nothing here is
+  // what guarantees exactly one jarvis-os iframe ever exists in the DOM.
+  if (fittingId === JARVIS_FITTING_ID) {
+    return null;
+  }
 
   if (entry === undefined) {
     return (

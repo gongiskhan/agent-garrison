@@ -118,6 +118,20 @@
     }
   },
   {
+    "id": "whatsapp-web",
+    "name": "WhatsApp (personal)",
+    "repo": "local:fittings/seed/whatsapp-web",
+    "localPath": "fittings/seed/whatsapp-web",
+    "summary": "Personal WhatsApp channel over the WhatsApp Web protocol (Baileys, no browser). Own-port daemon holds the session + a local message store; send_text requires an already-confirmed jid and is not reachable from Automations.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 4.3,
+      "claude_code": 4.3
+    }
+  },
+  {
     "id": "web-channel-default",
     "name": "Web channel",
     "repo": "local:fittings/seed/web-channel-default",

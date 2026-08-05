@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
+import { JARVIS_FITTING_ID, JARVIS_EMBED_PATH } from "./JarvisPersistentFrame";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
@@ -54,7 +55,8 @@ export function Sidebar() {
     toggleSidebar,
     narrowViewport,
     switching,
-    switchError
+    switchError,
+    jarvisActive
   } = useAppShell();
   const { entries: viewStatuses } = useFittingViewStatus();
 
@@ -235,6 +237,7 @@ export function Sidebar() {
           library={library}
           pathname={pathname}
           viewStatuses={viewStatuses}
+          jarvisActive={jarvisActive}
         />
       </nav>
 
@@ -426,12 +429,14 @@ function FittingViewsLinks({
   composition,
   library,
   pathname,
-  viewStatuses
+  viewStatuses,
+  jarvisActive
 }: {
   composition: Composition | null;
   library: LibraryEntry[];
   pathname: string;
   viewStatuses: FittingViewStatus[];
+  jarvisActive: boolean;
 }) {
   const isMobile = useIsMobileViewport();
   const [pinned, setPinned] = useState<string[]>([]);
@@ -729,12 +734,19 @@ function FittingViewsLinks({
     }
     const status = row.status;
     const healthy = status?.healthy === true;
+    // Jarvis activity dot: something is happening in the persistent jarvis-os
+    // iframe (see JarvisPersistentFrame) while the user is on a different
+    // route. Never lit while already on /embed/jarvis-os - the HUD itself is
+    // the indicator there.
+    const jarvisPulsing = id === JARVIS_FITTING_ID && jarvisActive && pathname !== JARVIS_EMBED_PATH;
     const icon = (
       <span
         className={clsx(
           "ic",
-          healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off"
+          healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off",
+          jarvisPulsing && "jarvis-active"
         )}
+        title={jarvisPulsing ? "Jarvis is active" : undefined}
       >
         <Icon aria-hidden />
       </span>

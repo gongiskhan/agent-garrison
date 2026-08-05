@@ -1,0 +1,143 @@
+name: whatsapp-web
+version: 0.1.0
+description: Personal WhatsApp channel for Agent Garrison over the WhatsApp Web protocol (Baileys) — no Business API, no browser.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: multi
+  own_port: true
+  default_port: 7080
+  component_shape: script
+  platforms:
+    - claude-code
+  summary: >
+    Personal WhatsApp channel over the WhatsApp Web protocol
+    (@whiskeysockets/baileys — a direct WebSocket client, no browser/Chromium).
+    A supervised own-port daemon holds the persistent session and a local
+    message store; the connector executor CLI talks to it over loopback HTTP.
+    resolve_contact returns a list of candidates for a human to confirm;
+    send_text only accepts an exact, already-confirmed WhatsApp JID and is not
+    reachable from the Automations engine — only a live conversation with the
+    Operative can trigger a send.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7080
+      description: HTTP port the Node own-port daemon binds to (internal API; loopback only). Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address for the internal HTTP API. Keep loopback — this endpoint has no auth of its own and is meant only for the connector CLI and the gateway on the same host.
+    - key: session_dir
+      type: path
+      default: ~/.config/garrison/whatsapp-web
+      description: Directory holding the Baileys auth/session credentials (0600) and the local message store (messages.jsonl). Lives outside the repo tree and outside apm_modules so a reinstall or `apm install` never wipes a paired session.
+    - key: min_send_delay_ms
+      type: integer
+      default: 1200
+      description: Minimum pacing delay before a queued send actually goes out over the socket (human-like; jittered up to max_send_delay_ms on top). There is no batch-send action — sends are always serialized one at a time through this same queue, so a burst of calls still lands paced out.
+    - key: max_send_delay_ms
+      type: integer
+      default: 3500
+      description: Upper bound of the randomized pacing delay added before a send.
+  connector:
+    auth: none
+    actions:
+      - name: resolve_contact
+        args:
+          - name
+        mutates: false
+        description: Look up WhatsApp chats/contacts seen since pairing by (partial, case-insensitive) name match. Returns a LIST of {name, jid} candidates — never a single guess. The caller must have a human confirm which candidate before calling send_text.
+      - name: list_contacts
+        args:
+          - n
+        mutates: false
+        description: List known WhatsApp contacts and chats (name + jid), alphabetical, up to n (default 500). Browse who is reachable; a human still confirms the recipient before send_text.
+      - name: send_text
+        args:
+          - to
+          - body
+        mutates: true
+        description: Send one text message. `to` MUST be an exact WhatsApp JID already confirmed by the human via resolve_contact (matches /^\d+@(s.whatsapp.net|g.us)$/ — an individual or group JID); a bare name or any other string is rejected before anything is sent. No batch form exists. Not exposed to the Automations engine — reachable only via a direct call in a live conversation with the user.
+      - name: recent_messages
+        args:
+          - n
+        mutates: false
+        description: The n most recent stored messages across all chats (default 20, inbound and outbound), newest first. Read from the local store — does not query WhatsApp directly.
+      - name: last_message
+        args:
+          - chat
+        mutates: false
+        description: The most recent stored message for one chat. `chat` accepts either an exact JID or a name (resolved the same way as resolve_contact; ambiguous names return the candidate list instead of a message so the caller can disambiguate).
+    triggers:
+      - type: listener
+        event: message
+        description: >
+          Inbound WhatsApp messages arrive over Baileys' persistent WebSocket
+          session (not an HTTP webhook, and not Scheduler-polled — "listener"
+          is the closest of the two allowed trigger types). The own-port
+          daemon stores each message locally as it arrives and forwards it to
+          the gateway's /chat so the Operative sees it live.
+  secret_scope: []
+  provides:
+    - kind: channel
+      name: whatsapp-web
+    - kind: connector
+      name: whatsapp-web
+  consumes: []
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 30000
+  verify:
+    command: node apm_modules/_local/whatsapp-web/scripts/connector.mjs --probe
+    expect: connectorOk
+    timeout_ms: 10000
+  for_consumers: |
+    Personal WhatsApp (Baileys — WhatsApp Web protocol, no Business API, no
+    browser). Three capabilities:
+
+      1. "send a message to X saying Y" — call resolve_contact first, have the
+         HUMAN confirm which candidate, then call send_text with that exact jid.
+      2. "what was the last message I received on WhatsApp" — call
+         recent_messages or last_message; both read the local store, no network.
+      3. "who can you reach on WhatsApp" / "do I have a contact called X" —
+         call list_contacts to browse the address book (name + jid,
+         alphabetical). Read-only, served from the local index.
+
+    Discover the running daemon at:
+      ~/.garrison/ui-fittings/whatsapp-web.json   ({ fittingId, port, url, pid })
+    Not running yet? Start it from the Views sidebar (Views -> WhatsApp) — the
+    daemon does not auto-start with the Operative (own-port, non-eager by
+    default) until the account has been paired once (see instructions.md).
+
+    Executor CLI (uniform connector contract):
+      node apm_modules/_local/whatsapp-web/scripts/connector.mjs catalog
+        -> the action catalog as JSON.
+      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call resolve_contact '{"name":"Maria"}'
+        -> { candidates: [{ name, jid }, ...] }. Present this list to the user;
+           do not guess. Only proceed to send_text once the user has picked one.
+      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call send_text '{"to":"351912345678@s.whatsapp.net","body":"On my way"}'
+        -> `to` MUST be a jid from resolve_contact's candidates (or one already
+           known from a prior message), never a bare name — the connector
+           rejects anything that isn't shaped like a WhatsApp JID. Only call
+           this after the human has explicitly asked for THIS message to be
+           sent, in the current conversation. Never call it from a scheduled
+           Automation or a background loop — the connector refuses those calls
+           outright (they carry no live human to confirm the send against).
+      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call list_contacts '{"n":500}'
+        -> [{ name, jid }, ...] for every chat/contact the daemon has indexed,
+           alphabetical. The index is synced from the phone's address book and
+           cached on disk, so it survives a restart. Use it to answer "who do I
+           know" and to offer candidates when resolve_contact comes back empty.
+      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call recent_messages '{"n":20}'
+      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call last_message '{"chat":"Maria"}'
+        -> both read-only, served from the local store — no daemon round-trip
+           to WhatsApp's servers required.
+
+    Message history is only reliable from the moment of pairing onward —
+    Baileys does not backfill history that happened before it first connected.
+    Each call prints { ok, result } or { ok:false, error, awaiting_connector }
+    when the daemon isn't running / isn't paired yet.

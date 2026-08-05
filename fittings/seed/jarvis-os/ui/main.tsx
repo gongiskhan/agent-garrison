@@ -27,6 +27,9 @@ import YouTubeWidget, { parseYtMarker, type YtPlay } from "./YouTubeWidget";
 import InfoDock, { InfoOverlay, parseInfoMarker, type InfoWidgetState } from "./InfoWidgets";
 import MusicWidget, { type MusicState } from "./MusicWidget";
 import AmbientMode, { type AmbientData } from "./AmbientMode";
+import SettingsPanel from "./SettingsPanel";
+import { DEFAULT_HUD_COLOR, applyHudTones, isValidHudColor } from "./hud-color";
+import { DEFAULT_ORB_CORNER, DEFAULT_ORB_MODE, isValidOrbCorner, type OrbCorner } from "./orb-settings";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { parseSessionIntent, type SessionIntent } from "./session-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
@@ -557,6 +560,74 @@ function App() {
       }
     }).catch(() => {});
   }, []);
+
+  // HUD settings (v1: just the color) — persisted server-side at
+  // ~/.garrison/view-state/jarvis-os/default.json via scripts/view-state.mjs
+  // (mirrors dev-env's per-instance view-state convention). Starts at the
+  // shipped default so first paint (before the fetch resolves) matches the
+  // static --ember/--cobalt/--white-hot in styles.css exactly — no flash of a
+  // DIFFERENT color, just the same brief pre-hydration window every other
+  // fetched-config value here already has (ambient_after_s, voice availability).
+  const [hudColor, setHudColorRaw] = useState(DEFAULT_HUD_COLOR);
+  // Orb mode (Phase 3): the "shrink into a corner over the rest of Garrison"
+  // preference + the corner it's last docked to. `?mode=orb` is the deep-link
+  // override called for in the brief (e.g. opening jarvis-os standalone
+  // straight into orb framing) — read once at mount, wins over the persisted
+  // default until the fetch below lands, and is then merged the same way a
+  // live settings-panel change would be.
+  const orbQueryOverride = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "orb";
+  const [orbMode, setOrbModeRaw] = useState(orbQueryOverride || DEFAULT_ORB_MODE);
+  const [orbCorner, setOrbCornerRaw] = useState<OrbCorner>(DEFAULT_ORB_CORNER);
+  useEffect(() => {
+    fetch("/api/hud-settings").then((r) => (r.ok ? r.json() : null)).then((s) => {
+      if (!s) return;
+      if (isValidHudColor(s.color)) setHudColorRaw(s.color);
+      if (!orbQueryOverride && typeof s.orbMode === "boolean") setOrbModeRaw(s.orbMode);
+      if (isValidOrbCorner(s.orbCorner)) setOrbCornerRaw(s.orbCorner);
+    }).catch(() => {});
+    // orbQueryOverride is derived from location.search at first render and
+    // deliberately not re-read — a mount-only effect, same as the fetch itself.
+  }, []);
+  // Re-derive the CSS custom properties every time the color changes (mount
+  // fetch above, or a live edit from the settings panel below).
+  useEffect(() => { applyHudTones(document.documentElement, hudColor); }, [hudColor]);
+  // Persist through on every change — debounced client-side (~200ms) so
+  // dragging the <input type="color"> swatch (which fires `input` on every
+  // pixel of movement) doesn't fire a POST per frame; the server debounces
+  // the actual disk write on top of that (scheduleInstanceWrite, ~500ms).
+  const hudColorPostTimerRef = useRef<number | null>(null);
+  const setHudColor = useCallback((hex: string) => {
+    setHudColorRaw(hex);
+    if (hudColorPostTimerRef.current) window.clearTimeout(hudColorPostTimerRef.current);
+    hudColorPostTimerRef.current = window.setTimeout(() => {
+      fetch("/api/hud-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ color: hex }),
+      }).catch(() => {}); // best-effort — a failed write just means the next change retries
+    }, 200);
+  }, []);
+  // Orb mode / corner: no drag-frame debounce needed (these are discrete
+  // toggle/pick actions, not a continuously-dragged input like the color
+  // swatch), so persist immediately. Both also broadcast to the parent shell
+  // — see the postMessage effect below — since the shell (not this document)
+  // owns the actual iframe framing.
+  const setOrbMode = useCallback((next: boolean) => {
+    setOrbModeRaw(next);
+    fetch("/api/hud-settings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orbMode: next }),
+    }).catch(() => {});
+  }, []);
+  const setOrbCorner = useCallback((next: OrbCorner) => {
+    setOrbCornerRaw(next);
+    fetch("/api/hud-settings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orbCorner: next }),
+    }).catch(() => {});
+  }, []);
   useEffect(() => {
     const bump = () => {
       lastActivityRef.current = Date.now();
@@ -746,13 +817,90 @@ function App() {
   }, [turns]);
 
   const modeRef = useRef<CoreMode>("idle");
-  const setMode = useCallback((m: CoreMode) => { modeRef.current = m; setModeRaw(m); }, []);
+  // Garrison shell persistent-HUD activity signal (Phase 1): the shell keeps
+  // this HUD in one never-unmounted iframe and lights up its sidebar entry
+  // while the user is elsewhere - see src/components/chrome/
+  // JarvisPersistentFrame.tsx, which listens for this message. "*" because
+  // the parent's origin varies (loopback vs tailnet); harmless to broadcast -
+  // the payload carries no secret, just a boolean mode transition.
+  const setMode = useCallback((m: CoreMode) => {
+    modeRef.current = m;
+    setModeRaw(m);
+    try {
+      window.parent.postMessage(
+        { type: "garrison:jarvis-activity", active: m !== "idle" && m !== "muted" },
+        "*"
+      );
+    } catch {}
+  }, []);
   // Whether the hands-free voice session is armed (mirrored to a ref so the
   // VAD callbacks and key handlers read the live value without stale closures).
   const sessionOnRef = useRef(false);
   const setSessionOn = useCallback((v: boolean) => { sessionOnRef.current = v; setSessionOnRaw(v); }, []);
   const micMutedRef = useRef(false);
   const setMicMuted = useCallback((v: boolean) => { micMutedRef.current = v; setMicMutedRaw(v); }, []);
+
+  // ── Orb mode (Phase 3): shell <-> HUD postMessage contract ────────────────
+  // The shell (JarvisPersistentFrame.tsx) is the ONLY thing that knows this
+  // HUD's on-screen framing (full-size on /embed/jarvis-os, parked off-screen
+  // elsewhere, or shrunk to the orb elsewhere-with-orb-mode-on) — this
+  // document has no visibility into the parent's route. So framing is a
+  // handshake: this HUD tells the shell its orb PREFERENCE
+  // (garrison:jarvis-orb-pref) and the shell tells it back which framing
+  // actually applied (garrison:jarvis-display-mode) — only THAT drives the
+  // transparent-background / hide-chrome CSS below, not the raw preference
+  // (which stays "on" even while this same tab is showing full-size on its
+  // own route). Mute + expand-to-full controls live shell-side, not here —
+  // see JarvisPersistentFrame.tsx for why keeping them outside the iframe's
+  // rectangle sidesteps the clip-path union problem entirely; this document
+  // only needs to REACT to a mute command posted in from that shell-side
+  // button, via toggleMuteRef (toggleMute itself isn't defined until further
+  // down, past every VAD/session helper it depends on).
+  const [isOrbDisplay, setIsOrbDisplay] = useState(false);
+  const toggleMuteRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    try {
+      window.parent.postMessage(
+        { type: "garrison:jarvis-orb-pref", active: orbMode, corner: orbCorner },
+        "*"
+      );
+    } catch {}
+  }, [orbMode, orbCorner]);
+
+  // Shell-side mute button (rendered next to the orb, not inside this
+  // document) needs to know whether to show muted/unmuted and whether a
+  // session even exists to mute — mirrors the jarvis-mute button's own
+  // {sessionOn && …} guard below.
+  useEffect(() => {
+    try {
+      window.parent.postMessage({ type: "garrison:jarvis-mic-state", micMuted, sessionOn }, "*");
+    } catch {}
+  }, [micMuted, sessionOn]);
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type === "garrison:jarvis-display-mode") {
+        setIsOrbDisplay(data.mode === "orb");
+      } else if (data.type === "garrison:jarvis-mute-toggle") {
+        toggleMuteRef.current();
+      } else if (data.type === "garrison:jarvis-set-orb-corner" && isValidOrbCorner(data.corner)) {
+        setOrbCorner(data.corner);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [setOrbCorner]);
+
+  // html/body/#root (styles.css) go transparent only while the shell is
+  // actually showing this HUD AS the orb — an iframe whose document paints no
+  // background is what lets "just the orb, floating over Garrison" work once
+  // the shell clips the iframe box to a circle.
+  useEffect(() => {
+    document.documentElement.classList.toggle("jarvis-orb-active", isOrbDisplay);
+  }, [isOrbDisplay]);
   // True only inside a push-to-talk window: muted, but the user deliberately
   // opened the mic for ONE utterance (Space/tap while muted). It's the ONLY
   // thing that distinguishes a wanted capture from the room being overheard, so
@@ -2028,6 +2176,7 @@ function App() {
       if (!busy) setMode("listening");
     }
   }, [pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer, setStandby]);
+  useEffect(() => { toggleMuteRef.current = toggleMute; }, [toggleMute]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
   // barge-in: cut the reply off but keep the session armed. While MUTED, a press
@@ -2248,7 +2397,7 @@ function App() {
       : "Mic needs https or localhost";
 
   return (
-    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}${panelsOpen ? " panels-open" : ""}`}>
+    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}${panelsOpen ? " panels-open" : ""}${isOrbDisplay ? " orb-mode" : ""}`}>
       {IS_DEV_INSTANCE && (
         <div className="jarvis-instance-badge" aria-label="instancia de desenvolvimento">
           DEV
@@ -2288,6 +2437,15 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
       >
         {panelsOpen ? "✕" : "☰"}
       </button>
+
+      <SettingsPanel
+        color={hudColor}
+        onChange={setHudColor}
+        orbMode={orbMode}
+        onOrbModeChange={setOrbMode}
+        orbCorner={orbCorner}
+        onOrbCornerChange={setOrbCorner}
+      />
 
       {sessionOn && (
         <button

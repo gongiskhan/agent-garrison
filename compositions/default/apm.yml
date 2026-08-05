@@ -43,6 +43,7 @@ dependencies:
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
+    - path: ../../fittings/seed/whatsapp-web
 x-garrison:
   composition:
     schema: 4
@@ -80,6 +81,13 @@ x-garrison:
           config:
             port: 7094
             bind_host: 127.0.0.1
+        - id: whatsapp-web
+          config:
+            port: 7080
+            bind_host: 127.0.0.1
+            session_dir: ~/.config/garrison/whatsapp-web
+            min_send_delay_ms: 1200
+            max_send_delay_ms: 3500
       gateway:
         - id: http-gateway
           config:

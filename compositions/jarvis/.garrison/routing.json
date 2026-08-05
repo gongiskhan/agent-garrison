@@ -1,14 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
   "activeProfile": "balanced",
-  "roles": [
-    "expert",
-    "standard",
-    "fast",
-    "image",
-    "video",
-    "review"
-  ],
   "taskTypes": [
     "code",
     "review",
@@ -17,7 +9,17 @@
     "video",
     "writing",
     "ops",
-    "other"
+    "other",
+    "plan",
+    "implement",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report"
   ],
   "tiers": [
     "T0-trivial",
@@ -33,121 +35,17 @@
     {
       "id": "ex-secrets",
       "when": "the prompt involves secrets, credentials, auth tokens, or the vault",
-      "role": "review"
+      "target": "cc-sonnet-med"
     },
     {
       "id": "ex-image",
       "when": "the prompt asks to generate, edit, or analyze an image",
-      "role": "image"
+      "target": "sec-gemini"
     },
     {
       "id": "ex-video",
       "when": "the prompt asks to generate or edit a video",
-      "role": "video"
-    }
-  ],
-  "matrix": {
-    "defaults": {
-      "role": "standard"
-    },
-    "columns": {
-      "T2-deep": "expert"
-    },
-    "rows": {
-      "code": {
-        "default": "standard",
-        "cells": {
-          "T0-trivial": "fast",
-          "T2-deep": "expert"
-        }
-      },
-      "review": {
-        "default": "review",
-        "cells": {
-          "T0-trivial": "fast"
-        }
-      },
-      "research": {
-        "default": "standard",
-        "cells": {
-          "T2-deep": "expert"
-        }
-      },
-      "image": {
-        "default": "image",
-        "cells": {}
-      },
-      "video": {
-        "default": "video",
-        "cells": {}
-      },
-      "writing": {
-        "default": "standard",
-        "cells": {
-          "T0-trivial": "fast"
-        }
-      },
-      "ops": {
-        "default": "standard",
-        "cells": {
-          "T0-trivial": "fast"
-        }
-      },
-      "other": {
-        "default": "standard",
-        "cells": {
-          "T0-trivial": "fast"
-        }
-      }
-    }
-  },
-  "discipline": {
-    "T0-trivial": {
-      "review": "none",
-      "testing": "none",
-      "evidence": "none",
-      "distribution": "none"
-    },
-    "T1-standard": {
-      "review": "self-review",
-      "testing": "tests",
-      "evidence": "text",
-      "distribution": "none"
-    },
-    "T2-deep": {
-      "review": "review-by:default",
-      "testing": "full-gates",
-      "evidence": "video",
-      "distribution": "link"
-    }
-  },
-  "continuations": [
-    {
-      "id": "cont-plan",
-      "when": "plan",
-      "then": [
-        {
-          "verb": "ask",
-          "arg": "Implement this plan?"
-        },
-        {
-          "verb": "route",
-          "arg": "cc-sonnet-med"
-        }
-      ]
-    },
-    {
-      "id": "cont-report",
-      "when": "report",
-      "then": [
-        {
-          "verb": "store"
-        },
-        {
-          "verb": "ask",
-          "arg": "Act on this report?"
-        }
-      ]
+      "target": "sec-gemini"
     }
   ],
   "targets": [
@@ -214,26 +112,130 @@
   "profiles": {
     "balanced": {
       "preRoute": "off",
-      "roleMap": {
-        "expert": "cc-opus-high",
-        "standard": "cc-sonnet-med",
-        "fast": "cc-haiku-low",
-        "image": "sec-gemini",
-        "video": "sec-gemini",
-        "review": "cc-sonnet-med"
+      "matrix": {
+        "defaults": {
+          "target": "cc-sonnet-med"
+        },
+        "columns": {
+          "T2-deep": "cc-opus-high"
+        },
+        "rows": {
+          "code": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low",
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "review": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "research": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "image": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "video": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "ops": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "other": {
+            "default": "cc-sonnet-med",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          }
+        }
       },
+      "computeLadder": [
+        "cc-haiku-low",
+        "cc-sonnet-med",
+        "cc-opus-high"
+      ],
       "disciplineOverrides": {}
     },
     "economy": {
       "preRoute": "on",
-      "roleMap": {
-        "expert": "cc-ollama-qwen",
-        "standard": "cc-ollama-qwen",
-        "fast": "cc-haiku-low",
-        "image": "sec-gemini",
-        "video": "sec-gemini",
-        "review": "cc-haiku-low"
+      "matrix": {
+        "defaults": {
+          "target": "cc-ollama-qwen"
+        },
+        "columns": {
+          "T2-deep": "cc-ollama-qwen"
+        },
+        "rows": {
+          "code": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low",
+              "T2-deep": "cc-ollama-qwen"
+            }
+          },
+          "review": {
+            "default": "cc-haiku-low",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "research": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T2-deep": "cc-ollama-qwen"
+            }
+          },
+          "image": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "video": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "ops": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          },
+          "other": {
+            "default": "cc-ollama-qwen",
+            "cells": {
+              "T0-trivial": "cc-haiku-low"
+            }
+          }
+        }
       },
+      "computeLadder": [
+        "cc-haiku-low",
+        "cc-ollama-qwen",
+        "cc-ollama-qwen"
+      ],
       "disciplineOverrides": {
         "T2-deep": {
           "review": "self-review",
@@ -241,19 +243,179 @@
           "evidence": "text",
           "distribution": "none"
         }
+      },
+      "exceptionOverrides": {
+        "ex-secrets": "cc-haiku-low"
       }
     },
     "premium": {
       "preRoute": "on",
-      "roleMap": {
-        "expert": "cc-opus-high",
-        "standard": "cc-opus-high",
-        "fast": "cc-sonnet-med",
-        "image": "sec-gemini",
-        "video": "sec-gemini",
-        "review": "cc-opus-high"
+      "matrix": {
+        "defaults": {
+          "target": "cc-opus-high"
+        },
+        "columns": {
+          "T2-deep": "cc-opus-high"
+        },
+        "rows": {
+          "code": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med",
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "review": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "research": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T2-deep": "cc-opus-high"
+            }
+          },
+          "image": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "video": {
+            "default": "sec-gemini",
+            "cells": {}
+          },
+          "writing": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "ops": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          },
+          "other": {
+            "default": "cc-opus-high",
+            "cells": {
+              "T0-trivial": "cc-sonnet-med"
+            }
+          }
+        }
       },
-      "disciplineOverrides": {}
+      "computeLadder": [
+        "cc-sonnet-med",
+        "cc-opus-high",
+        "cc-opus-high"
+      ],
+      "disciplineOverrides": {},
+      "exceptionOverrides": {
+        "ex-secrets": "cc-opus-high"
+      }
     }
-  }
+  },
+  "discipline": {
+    "T0-trivial": {
+      "review": "none",
+      "testing": "none",
+      "evidence": "none",
+      "distribution": "none"
+    },
+    "T1-standard": {
+      "review": "self-review",
+      "testing": "tests",
+      "evidence": "text",
+      "distribution": "none"
+    },
+    "T2-deep": {
+      "review": "review-by:default",
+      "testing": "full-gates",
+      "evidence": "video",
+      "distribution": "link"
+    }
+  },
+  "continuations": [
+    {
+      "id": "cont-plan",
+      "when": "plan",
+      "then": [
+        {
+          "verb": "ask",
+          "arg": "Implement this plan?"
+        },
+        {
+          "verb": "route",
+          "arg": "cc-sonnet-med"
+        }
+      ]
+    },
+    {
+      "id": "cont-report",
+      "when": "report",
+      "then": [
+        {
+          "verb": "store"
+        },
+        {
+          "verb": "ask",
+          "arg": "Act on this report?"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    "plan",
+    "implement",
+    "review",
+    "adversarial-review",
+    "test",
+    "adversarial-test",
+    "ux-qa",
+    "walkthrough",
+    "validate",
+    "codex-checkpoint",
+    "report"
+  ],
+  "phasePlans": {},
+  "workKinds": {},
+  "defaultWorkKind": null,
+  "phaseSkills": {
+    "bindings": {},
+    "overrides": {}
+  },
+  "providers": [
+    {
+      "id": "anthropic-plan",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "Max OAuth, no base URL, no key"
+    },
+    {
+      "id": "anthropic",
+      "kind": "anthropic-plan",
+      "baseUrl": null,
+      "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
+    },
+    {
+      "id": "ollama-local",
+      "kind": "local",
+      "baseUrl": "http://localhost:11434",
+      "dummyToken": "ollama",
+      "notes": "local Ollama Anthropic-compatible endpoint"
+    },
+    {
+      "id": "deepseek",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.deepseek.com/anthropic",
+      "vaultKey": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "zai-glm",
+      "kind": "cloud-oss",
+      "baseUrl": "https://api.z.ai/api/anthropic",
+      "vaultKey": "ZAI_API_KEY"
+    }
+  ]
 }

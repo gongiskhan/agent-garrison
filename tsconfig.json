@@ -37,7 +37,9 @@
     ".next-build/types/**/*.ts",
     ".next-repro/types/**/*.ts",
     ".next-e2e/types/**/*.ts",
-    ".next-prod/types/**/*.ts"
+    ".next-prod/types/**/*.ts",
+    ".next-diagA/types/**/*.ts",
+    ".next-diagB/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

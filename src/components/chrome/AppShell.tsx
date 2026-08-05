@@ -14,6 +14,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { FittingEditor } from "@/components/FittingEditor";
 import { TourEngine } from "@/components/tours/TourEngine";
+import { JarvisPersistentFrame } from "./JarvisPersistentFrame";
 import type {
   Composition,
   FittingSelectionMap,
@@ -69,6 +70,10 @@ export interface AppShellState {
   editingFitting: LibraryEntry | null;
   openFittingEditor: (entry: LibraryEntry) => void;
   closeFittingEditor: () => void;
+  // jarvis-os persistent HUD (Phase 1) - lit while something is happening in
+  // the always-mounted iframe (see JarvisPersistentFrame) and the user is on
+  // a different route. Read by the Sidebar's Jarvis Views entry.
+  jarvisActive: boolean;
 }
 
 const Ctx = createContext<AppShellState | null>(null);
@@ -100,6 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingFitting, setEditingFitting] = useState<LibraryEntry | null>(null);
+  const [jarvisActive, setJarvisActive] = useState(false);
   // Auto-collapse sidebar on narrow viewports — at < 720px the 244px sidebar
   // dominates the available content area. Initial state matches the server
   // render (false) and we apply the narrow-viewport collapse in a
@@ -544,7 +550,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       narrowViewport,
       editingFitting,
       openFittingEditor: setEditingFitting,
-      closeFittingEditor: () => setEditingFitting(null)
+      closeFittingEditor: () => setEditingFitting(null),
+      jarvisActive
     }),
     [
       composition,
@@ -574,7 +581,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       sidebarCollapsed,
       toggleSidebar,
       narrowViewport,
-      editingFitting
+      editingFitting,
+      jarvisActive
     ]
   );
 
@@ -588,6 +596,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="shell-content">
           <span id="main-content" className="shell-main-anchor" tabIndex={-1} />
           {children}
+          {/* Mounted once, here, so client-side route navigation never tears it
+              down - see JarvisPersistentFrame for why. Rendered after
+              {children} so it paints on top of whatever /embed/jarvis-os
+              itself renders (nothing, by design) while visible there. */}
+          <JarvisPersistentFrame
+            composition={composition}
+            library={library}
+            onActivityChange={setJarvisActive}
+          />
         </div>
       </div>
       {error ? (

@@ -231,6 +231,8 @@ async function handleStt(req, res, ctx) {
     jsonRes(res, 503, { error: "voice engines not ready" });
     return;
   }
+  ctx.inFlight++;
+  res.on("close", () => { ctx.inFlight = Math.max(0, ctx.inFlight - 1); });
   let audio;
   try {
     audio = await readBinaryBody(req);
@@ -296,6 +298,8 @@ async function handleTts(req, res, ctx) {
     jsonRes(res, 503, { error: "voice engines not ready" });
     return;
   }
+  ctx.inFlight++;
+  res.on("close", () => { ctx.inFlight = Math.max(0, ctx.inFlight - 1); });
   let body;
   try {
     body = await readJsonBody(req);
@@ -350,7 +354,7 @@ const PY_CONFIG_KEYS = [
   "PAUSE_COMMA", "PAUSE_CLAUSE", "PAUSE_SENTENCE", "PAUSE_QUESTION", "PAUSE_ELLIPSIS",
   "PAUSE_PARA", "MIN_CLAUSE", "WHISPER_LANG", "STT_ENGINE", "WHISPER_CPP_MODEL",
   "WHISPER_CPP_NO_TIMESTAMPS", "STT_NORMALIZE_GAIN", "TTS_FORCE_LANG", "PIPER_VOICES",
-  "WAKE_THRESHOLD"
+  "WAKE_THRESHOLD", "WHISPER_BEAM"
 ];
 
 // Unset/empty config never shadows the voice-server's own default.
@@ -422,7 +426,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   // Internal port for the Python child — OS-assigned, private to this pair.
   const pyPort = await reserveInternalPort();
 
-  const ctx = { ...opts, port, pyPort, pyReady: false };
+  // inFlight: how many /stt or /tts calls are currently being served by the
+  // Python. Whisper decoding blocks its event loop, so a long transcription
+  // makes /health time out for the WHOLE decode - which is work, not death.
+  const ctx = { ...opts, port, pyPort, pyReady: false, inFlight: 0 };
 
   const pyChild = spawnPython(ctx);
   let shuttingDown = false;
@@ -442,6 +449,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   let healthMisses = 0;
   const HEALTH_MISS_LIMIT = 3;
   const healthTimer = setInterval(async () => {
+    // A decode in flight holds the Python's event loop, so /health cannot
+    // answer within its 2.5s budget. Counting those misses marked the engines
+    // dead after ~4.5s of NORMAL work (STT measured 6-68s on this box), and the
+    // very next /stt was then rejected with "voice engines not ready" - the
+    // caller saw Jarvis drop straight back to listening without a transcript.
+    // A real death is caught by pyChild.on("exit"), not by this poll.
+    if (ctx.inFlight > 0) return;
     const ok = await pyHealth(pyPort);
     if (ok) {
       healthMisses = 0;
@@ -553,6 +567,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
+  // shutdown() covers the signal paths; these cover the rest. A SIGKILL on us
+  // runs none of them -- the Python child's own parent-watchdog is the
+  // backstop for that.
+  process.on("exit", () => { try { pyChild.kill("SIGTERM"); } catch {} });
+  process.on("uncaughtException", (err) => {
+    console.error(`[local-voice] uncaught: ${err?.stack || err}`);
+    shutdown("uncaughtException");
+  });
+  process.on("unhandledRejection", (err) => {
+    console.error(`[local-voice] unhandled rejection: ${err?.stack || err}`);
+    shutdown("unhandledRejection");
+  });
 
   return { server, options: ctx };
 }

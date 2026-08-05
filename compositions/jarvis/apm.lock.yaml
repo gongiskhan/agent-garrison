@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-30T07:30:36.607418+00:00'
+generated_at: '2026-07-30T16:14:57.851057+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/automations
@@ -36,6 +36,17 @@ dependencies:
     .claude/skills/garrison-drill/SKILL.md: sha256:d08cbd8011b1e01f23abcc35701f9c57a2da194470fb4455761ba516ac5e7ab7
   source: local
   local_path: ../../fittings/seed/drill
+- repo_url: _local/duty-discuss
+  name: duty-discuss
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/duty-discuss
+  - .claude/skills/duty-discuss/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/duty-discuss/SKILL.md: sha256:8c8d9b62033dbcfa4e9aee558fa47d417ca62cb9b96d4e8c753cd568a7b77712
+  source: local
+  local_path: ../../fittings/seed/duty-discuss
 - repo_url: _local/file-browser
   name: file-browser
   version: 0.1.0
@@ -48,16 +59,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/garrison-assistant
-- repo_url: _local/garrison-orchestrator
-  name: garrison-orchestrator
-  version: 0.1.0
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/garrison-orchestrator.md
-  deployed_file_hashes:
-    .claude/commands/garrison-orchestrator.md: sha256:96b0a6ae70a444d96ed723f0b1f22fb28b963736f2b5a6fd0d2ab689a69d1e42
-  source: local
-  local_path: ../../fittings/seed/garrison-orchestrator
 - repo_url: _local/google
   name: google
   version: 0.1.0
@@ -115,6 +116,16 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
+- repo_url: _local/orchestrator
+  name: orchestrator
+  version: 0.2.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/commands/orchestrator.md
+  deployed_file_hashes:
+    .claude/commands/orchestrator.md: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+  source: local
+  local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/outpost-tailscale-host
   name: outpost-tailscale-host
   version: 0.3.0
@@ -167,13 +178,13 @@ dependencies:
 deployments:
 - kind: project-relative
   target: claude
-  value: .claude/commands/garrison-orchestrator.md
+  value: .claude/commands/orchestrator.md
   runtime: null
   scope: project
   owners:
-  - ../../fittings/seed/garrison-orchestrator
-  active_owner: ../../fittings/seed/garrison-orchestrator
-  content_hash: sha256:96b0a6ae70a444d96ed723f0b1f22fb28b963736f2b5a6fd0d2ab689a69d1e42
+  - ../../fittings/seed/orchestrator
+  active_owner: ../../fittings/seed/orchestrator
+  content_hash: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
 - kind: project-relative
   target: claude
   value: .claude/rules/http-gateway.md
@@ -192,6 +203,24 @@ deployments:
   - ../../fittings/seed/trello
   active_owner: ../../fittings/seed/trello
   content_hash: sha256:8197dd96c4d49155496eb2c0a5aa5af0420d0dcee688ff194d8fb98761d78ede
+- kind: project-relative
+  target: claude
+  value: .claude/skills/duty-discuss
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/duty-discuss
+  active_owner: ../../fittings/seed/duty-discuss
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/duty-discuss/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/duty-discuss
+  active_owner: ../../fittings/seed/duty-discuss
+  content_hash: sha256:8c8d9b62033dbcfa4e9aee558fa47d417ca62cb9b96d4e8c753cd568a7b77712
 - kind: project-relative
   target: claude
   value: .claude/skills/garrison-browser

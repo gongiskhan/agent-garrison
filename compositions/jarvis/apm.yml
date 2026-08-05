@@ -3,29 +3,31 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
-    - path: ../../fittings/seed/local-voice
-    - path: ../../fittings/seed/orchestrator
-    - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/jarvis-os
-    - path: ../../fittings/seed/web-channel-default
-    - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/knowledge
-    - path: ../../fittings/seed/kanban-loop
-    - path: ../../fittings/seed/trello
-    - path: ../../fittings/seed/google
-    - path: ../../fittings/seed/spotify
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
+    - path: ../../fittings/seed/duty-discuss
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
+    - path: ../../fittings/seed/orchestrator
+    - path: ../../fittings/seed/google
+    - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/jarvis-os
+    - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/knowledge
+    - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/screen-share-default
-    - path: ../../fittings/seed/duty-discuss
+    - path: ../../fittings/seed/snapshots-default
+    - path: ../../fittings/seed/spotify
+    - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/web-channel-default
+    - path: ../../fittings/seed/whatsapp-web
 x-garrison:
   composition:
     id: jarvis
@@ -46,109 +48,48 @@ x-garrison:
         - id: orchestrator
           config: {}
       channels:
-        # Web channel (own-port 7083 dev / 8083 prod) — the TEXT surface: a
-        # browser chat proxying the http-gateway. This is where "faz commit"
-        # can be typed instead of spoken; the HUD (jarvis-os) has no text input.
         - id: web-channel-default
           config:
             port: 7083
             bind_host: 127.0.0.1
+        - id: whatsapp-web
+          config:
+            port: 7080
+            bind_host: 127.0.0.1
+            session_dir: ~/.config/garrison/whatsapp-web
+            min_send_delay_ms: 1200
+            max_send_delay_ms: 3500
         - id: jarvis-os
           config:
             port: 7097
             bind_host: 127.0.0.1
             gateway_url: ''
-            # Smart endpointing (2026-07-02): Silero closes a segment after
-            # vad_redemption_ms of silence, then an ADAPTIVE grace window decides
-            # the real end of turn — short (endpoint_min_ms) when the transcript
-            # sounds finished, long (endpoint_max_ms) when it sounds mid-thought
-            # ("quero que…", trailing "e", comma, ellipsis). Speaking again inside
-            # the window merges into the same turn. Effective pause before send:
-            # finished ≈ 0.9s (550+350), mid-thought up to ≈ 3.2s (550+2600).
             vad_redemption_ms: 550
             endpoint_min_ms: 350
             endpoint_max_ms: 2600
-            # Barge-in (2026-07-02): o mic fica aberto enquanto o Jarvis pensa E
-            # fala (full-duplex). Fala sustentada (bargein_confirm_ms de frames
-            # ≥ bargein_prob, sobre o sinal já com echo-cancellation do browser)
-            # corta o TTS, cancela a geração em curso no orchestrator e abre um
-            # novo turno. Falsos disparos com colunas altas → subir confirm_ms /
-            # prob; 0 desliga o barge-in.
             bargein_confirm_ms: 350
             bargein_prob: 0.55
-            # Wake word (2026-07-02): sessão hands-free adormece após 90s de
-            # inatividade e volta ao standby do "hey jarvis". 0 = nunca adormece.
             wake_idle_timeout_s: 90
         - id: local-voice
           config:
             port: 7081
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
-            # Spoken cadence: seconds of silence inserted after each punctuation
-            # boundary so the reply breathes instead of running together. Bigger
-            # boundary → longer pause (comma ticks, full stop breathes, a
-            # paragraph/topic change gets a real beat). Projected to the voice
-            # server as PAUSE_* / MIN_CLAUSE env vars. Verified 2026-07-01 on the
-            # live Piper pt_PT path — measured gaps matched these to the ms.
-            # Pauses trimmed ~30% for a snappier spoken cadence (2026-07-01).
-            # Zero STT/precision impact — this only shortens the silence the reply
-            # inserts between clauses. Original values kept here for a clean revert:
-            #   comma 0.12 · clause 0.22 · sentence 0.32 · question 0.38 · ellipsis 0.48 · para 0.6
-            pause_comma: 0.08       # ,
-            pause_clause: 0.15      # ; :  — –
-            pause_sentence: 0.22    # .
-            pause_question: 0.27    # ! ?
-            pause_ellipsis: 0.34    # … / ...
-            pause_para: 0.42        # line break / paragraph / topic change
-            min_clause: 26          # a comma only becomes its own pause past this many chars
-            # 2026-07-14 — European Portuguese fix. Stock large-v3 (whisper-cpp,
-            # beam 5) measured 50.8% WER on a Piper pt_PT round-trip bench (8
-            # frases; "Que horas são em Lisboa?" → "Então era só um jogo") — the
-            # boss's PT-PT was misheard constantly while PT-BR sailed through
-            # (Whisper's pt training data is BR-dominated). INESC-ID's CAMÕES
-            # fine-tune for European Portuguese (WhisperLv3-EP-X, CT2 format,
-            # MIT) measured 19.8% WER on the same bench — less than half the
-            # errors. It only runs on the faster-whisper engine (CPU int8,
-            # ~6s/clip vs ~2s on Metal) — accuracy over latency, same trade as
-            # before. Revert: whisper_model large-v3 + stt_engine whisper-cpp.
-            # Next step up: convert inesc-id/WhisperLv3-FT-EP-CPP (safetensors)
-            # to ggml to get EP accuracy back on the Metal engine.
-            # 2026-07-14 FINAL: INESC-ID WhisperLv3-FT-EP (European Portuguese
-            # fine-tune) converted to ggml f16, running on the SAME Metal engine.
-            # Bench (8 Piper pt_PT wavs, warm): 25.6% WER @ 1.4s/clip vs stock
-            # large-v3's 50.8% @ ~2.4s — better on BOTH axes. Needs
-            # whisper_cpp_no_timestamps (the fine-tune has no timestamp tokens;
-            # without -nt it decodes to empty "."). whisper_model below is the
-            # faster-whisper fallback only (cpp path ignores it).
-            # Revert: whisper_cpp_model → ~/.cache/whisper-cpp/ggml-large-v3.bin
-            # + whisper_cpp_no_timestamps false.
+            pause_comma: 0.08
+            pause_clause: 0.15
+            pause_sentence: 0.22
+            pause_question: 0.27
+            pause_ellipsis: 0.34
+            pause_para: 0.42
+            min_clause: 26
             whisper_model: large-v3
-            # Pinned to Portuguese. Bilingual auto-detect was tried but on real
-            # short mic clips whisper.cpp flips wildly (PT heard as es/fr/en →
-            # garbage transcripts) AND makes the TTS voice switch mid-reply. This
-            # user is PT-primary, so pin STT to pt and force the TTS voice to pt
-            # (tts_force_lang) — stable, no flipping, no voice-mixing. Cost:
-            # English is decoded as PT (large-v3 still handles clear EN acceptably,
-            # but it's no longer first-class). Flip back to bilingual by clearing
-            # whisper_lang + tts_force_lang.
             whisper_lang: pt
             tts_force_lang: pt
-            # NO whisper_prompt: a content-rich initial_prompt makes large-v3
-            # REGURGITATE the prompt text on unclear real-mic audio — verified in
-            # the field, a user utterance came back as "Liga as luzes da sala,
-            # marca um email" (verbatim from the old prompt). small needed the
-            # prime; large-v3 is strong without it, so leave it empty.
-            # STT on the Apple GPU (Metal) via whisper.cpp — ~3x faster than
-            # faster-whisper's CPU int8. (EP-X needs faster-whisper; reverted.)
             stt_engine: whisper-cpp
             whisper_cpp_model: ~/.cache/whisper-cpp/ggml-WhisperLv3-FT-EP-f16.bin
             whisper_cpp_no_timestamps: true
-            stt_normalize_gain: "on"
-            # Wake word ON (2026-07-02): openWakeWord "hey jarvis" no mic do host,
-            # emit-only — a deteção arma a sessão hands-free do HUD via /events.
-            # O standby não toca TTS, por isso o receio antigo de auto-ativação
-            # pelo próprio altifalante deixou de se aplicar.
-            wake_word: "on"
+            stt_normalize_gain: 'on'
+            wake_word: 'on'
             wake_threshold: 0.5
       gateway:
         - id: http-gateway
@@ -157,48 +98,15 @@ x-garrison:
             bind_host: 127.0.0.1
             orchestrator_mode: true
             model: haiku
-      # Dev Env (own-port 7086) — the real multi-session engine behind the HUD's
-      # session switcher: independent, per-session Claude PTYs the HUD lists,
-      # creates, and commands by id (via /api/dev-sessions). Keyless (consumes
-      # only outpost:any); `up` starts it operative-bound. No tmux on this Mac →
-      # use_tmux:off (direct node-pty; sessions don't survive a dev-env restart).
-      sessions:
-        - id: dev-env
-          config:
-            port: 7086
-            bind_host: 127.0.0.1
-            use_tmux: "off"
-        - id: file-browser
-          config:
-            port: 7091
-            bind_host: 127.0.0.1
-            root: ~/.garrison/files
-        - id: garrison-assistant
-          config:
-            port: 7095
-            bind_host: 127.0.0.1
       memory:
         - id: knowledge
           config:
             vault_dir: vault
-      # Kanban Loop is the Operative's task system AND the source for the Jarvis
-      # HUD's TAREFAS panel + voice create-card. Stationing it here means a clean
-      # `up` starts it (previously it only ran because it was eager-toggled, so a
-      # fresh clone had a dead Tasks panel). It provides automation-runner and
-      # consumes the orchestrator (satisfied above). The test-beat needs a
-      # scheduler to register; absent one it degrades to skipped, which is fine.
       observability:
         - id: kanban-loop
           config:
-            # The committed base port; the runner shifts it per profile
-            # (dev 7089 / prod 8089 / codex 27089). WITHOUT this the fitting
-            # falls back to its own default_port and every instance binds the
-            # same port, so dev and prod cannot both run the board.
             port: 7089
             bind_host: 127.0.0.1
-            # Base-family literal: o runner reescreve o loopback por perfil.
-            # Sem isto o dispatch de outposts do kanban cai no fallback
-            # hardcoded e fala com o daemon da instancia errada.
             outpost_host_url: http://127.0.0.1:3702
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
@@ -222,11 +130,24 @@ x-garrison:
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
-      # Every remaining view-producing Fitting, so the HUD's panel list is the
-      # whole library rather than the five surfaces the voice loop needs. Ports
-      # are the committed base family; the runner shifts them per profile
-      # (dev 70xx / prod 80xx), which is why each one is written out rather than
-      # left to the fitting default — see the kanban-loop note above.
+      sessions:
+        - id: dev-env
+          config:
+            port: 7086
+            bind_host: 127.0.0.1
+            use_tmux: 'off'
+        - id: file-browser
+          config:
+            port: 7091
+            bind_host: 127.0.0.1
+            root: ~/.garrison/files
+        - id: garrison-assistant
+          config:
+            port: 7095
+            bind_host: 127.0.0.1
+        - id: snapshots-default
+          config:
+            projects_root: ~/dev
       surfaces:
         - id: browser-default
           config:
@@ -256,26 +177,13 @@ x-garrison:
           config:
             port: 7079
             bind_host: 127.0.0.1
-      # Drill consumes automation-runner, satisfied by kanban-loop above.
       building:
         - id: drill
           config:
             port: 7096
             bind_host: 127.0.0.1
-        # Equipped on PROD through the Muster UI, which rewrote that manifest.
-        # Carried into dev so the promote fast-forward does not unequip it.
         - id: duty-discuss
           config: {}
-      # External services the Operative can act on. The Orchestrator discovers
-      # them via `consumes: connector any`, so each connector's action catalog +
-      # bash recipe folds into its prompt automatically. Credentials are NOT set
-      # here — they are sealed in the Vault and connected per service:
-      #   - trello (api_key): seal TRELLO_KEY / TRELLO_TOKEN / TRELLO_BOARD_ID in
-      #     the Vault (Trello dev API key + a token, https://trello.com/power-ups/admin).
-      #   - google (oauth2): create an OAuth client in Google Cloud, seal its
-      #     GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET, then run the
-      #     OAuth connect flow from /connectors (access_type=offline for a
-      #     refresh token). Until connected, calls return awaiting_connector.
       connectors:
         - id: trello
           config: {}
@@ -283,13 +191,6 @@ x-garrison:
           config: {}
         - id: spotify
           config: {}
-    # Specialist Souls the Orchestrator delegates to via talk_to (2026-07-03).
-    # The runner folds these into GARRISON_SOULS_CONFIG at gateway spawn; prompts
-    # live in souls/*.md. Souls are PTY-backed sessions (per the gateway's
-    # orchestrator-mode boot note), so the haiku default stands — the PTY
-    # screen-scrape races Sonnet/Opus TUIs. Bump a soul's `model` only with
-    # evidence the scrape keeps up.
-    # engineer/architect work in the real projects folder (= projects_root).
     souls:
       - id: engineer
         prompt: souls/engineer.md

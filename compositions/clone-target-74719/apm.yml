@@ -1,0 +1,25 @@
+name: codex-build-crew
+version: 0.1.0
+target: claude
+dependencies:
+  apm: []
+x-garrison:
+  composition:
+    schema: 4
+    id: clone-target-74719
+    name: Codex Build Crew
+    selections: {}
+    duties:
+      - id: implement
+        title: Implement
+        description: implement a change
+        levels:
+          - description: standard
+            cell:
+              effort: medium
+    selected_duties:
+      - implement
+    targets: []
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+      soul: .garrison/prompts/soul.md

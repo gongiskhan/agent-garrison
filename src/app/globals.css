@@ -492,6 +492,26 @@ nav.tabs .item.active .ic { opacity: 1; color: var(--brass-2); }
 nav.tabs .item .ic.view-live { color: #82a98b; }
 nav.tabs .item .ic.view-down { color: #d17a6f; }
 nav.tabs .item .ic.view-off { color: #879087; }
+/* Jarvis activity indicator (persistent-HUD Phase 1): a small pulsing dot on
+   the Jarvis entry's icon, lit while the always-mounted jarvis-os iframe is
+   mid-turn and the user is on a different route. */
+nav.tabs .item .ic.jarvis-active { position: relative; }
+nav.tabs .item .ic.jarvis-active::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sage-2);
+  box-shadow: 0 0 0 2px var(--shell);
+  animation: jarvis-activity-pulse 1.4s ease-in-out infinite;
+}
+@keyframes jarvis-activity-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.35); }
+}
 nav.tabs .item .ct {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
   font-size: 10.5px;
@@ -1569,3 +1589,29 @@ nav.tabs .item .pin-toggle {
 }
 nav.tabs .item .pin-toggle svg { width: 12px; height: 12px; stroke-width: 2; }
 nav.tabs .item .pin-toggle:active { transform: translateY(1px); }
+
+/* ── Jarvis orb mode (Phase 3) ─────────────────────────────────────────────
+   Shell-side controls that sit next to the persistent jarvis-os iframe once
+   JarvisPersistentFrame.tsx shrinks it to a floating orb over another
+   Garrison page. Dark/self-contained rather than themed off --paper/--ink -
+   these float over ARBITRARY pages (light or dark shell theme underneath),
+   so they carry their own fixed dark chrome, matching the Jarvis HUD's own
+   look rather than whatever page happens to be under them. */
+.jarvis-orb-expand-btn,
+.jarvis-orb-mute-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 6, 5, 0.82);
+  color: #f3ded9;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.jarvis-orb-expand-btn:hover,
+.jarvis-orb-mute-btn:hover { border-color: rgba(255, 255, 255, 0.32); }
+.jarvis-orb-mute-btn { font-size: 14px; }

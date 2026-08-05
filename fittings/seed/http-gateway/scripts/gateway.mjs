@@ -77,6 +77,58 @@ let orchestratorChild = null;
 // the same channel the caller is listening on (e.g. the voice UI's stream).
 let currentOrchestratorChannel = "main";
 let mcpConfigPath = null;
+
+// ─────────────────────────────────── kanban dispatch operative (2026-07-30)
+//
+// Fix for a live production wedge: kanban-loop's phase dispatches (plan /
+// implement / review / test / drill / …) used to be written into the SAME
+// orchestratorChild queue as every chat channel (web, the voice HUD) and the
+// heartbeat tick (spawn-soul.mjs's PtySoulAdapter.write() chains every turn
+// onto one `.queue`). A single legitimately slow phase turn — these commonly
+// run for minutes — sat in that one queue either ahead of or behind a chat
+// turn, so a chat message sent while a phase turn was running simply never
+// came back: indistinguishable from "Jarvis is broken". Live evidence
+// (2026-07-30): a kanban card cycled for over an hour and the web channel was
+// dead the entire time; killing kanban-loop unblocked chat within seconds.
+//
+// Fix: a SECOND, independent PTY session dedicated to kanban-loop's dispatches
+// (identified by channel === "kanban" — see kanban-loop/lib/gateway-client.mjs,
+// the ONLY place that sends this channel, for both real phase turns and the
+// low-stakes project-inference call). It runs the exact SAME orchestrator
+// prompt/model as soulsConfig.orchestrator — a kanban dispatch expects to
+// reach "the orchestrator" (garrison-* duty skills, talk_to, the MCP tools),
+// not a different persona — but as its OWN claude process with its own PTY and
+// its own turn queue, so it can never block, or be blocked by, chat/voice.
+// talk_to / voice → orchestrator → soul routing is untouched: souls still
+// come from soulsConfig.souls (composition.souls), spawnSoulSession is not
+// modified, and currentOrchestratorChannel keeps its existing (pre-existing,
+// documented) last-write-wins semantics — this only changes which PTY queue a
+// turn's TEXT is written into, not how talk_to resolves a soul.
+//
+// ONE dedicated session, not a pool. kanban-loop already serializes concurrent
+// phase dispatches onto a single queue today — two cards dispatched at once
+// already wait on each other (see the "Kanban tick dispatches cards
+// concurrently" note in spawn-soul.mjs / gateway-routing.mjs). Giving kanban
+// one dedicated session preserves that exact concurrency behavior (no
+// regression, no new starvation mode among kanban cards) while fully isolating
+// it from chat. A pool of N kanban sessions would let N cards run truly in
+// parallel, but this box is an 8GB MacBook Air already running dev+prod
+// simultaneously, each holding a live claude-code PTY (plus souls) — a full
+// interactive claude process is not cheap, and blindly sizing a parallel pool
+// is exactly what this fix must NOT do. If concurrent-phase throughput ever
+// becomes the bottleneck, @garrison/claude-pty's MultiRuntimePool already
+// generalizes "a bounded warm pool per runtime id" for the routed PTY engine
+// (gateway-pty.mjs) — that is the seam to reuse, sized deliberately, not an
+// unbounded fan-out here.
+const KANBAN_OPERATIVE_SOUL = "kanban-dispatch";
+let kanbanOperativeSessionId = null;
+let kanbanChild = null;
+let kanbanBooting = null;
+
+function isKanbanDispatchChannel(channel) {
+  return channel === "kanban";
+}
+
 // Routing config + the pure resolveRoute resolver, loaded once at boot when the
 // model-router fitting is present. Lets souls mode HONOR an explicit
 // {taskType,tier} classification hint (the Kanban Loop §10 contract) the same way
@@ -412,6 +464,94 @@ async function ensureOrchestrator() {
   await orchestratorBooting;
 }
 
+// ─────────────────────────────────────────────── kanban operative lifecycle
+//
+// Mirrors bootOrchestrator()/ensureOrchestrator() exactly (same resume/wedge
+// handling, same reboot-on-demand contract) — a second identical operative
+// identity, persisted under its own session-id marker so it also resumes its
+// conversation across a gateway restart instead of losing kanban's in-flight
+// context every redeploy.
+async function loadKanbanOperativeSessionId() {
+  const filePath = path.join(COMPOSITION_DIR, ".garrison", "kanban-operative-session-id");
+  try {
+    const id = (await fs.readFile(filePath, "utf8")).trim();
+    if (/^[0-9a-f-]{36}$/i.test(id)) return id;
+  } catch { /* fresh start */ }
+  return null;
+}
+
+async function persistKanbanOperativeSessionId(id) {
+  const filePath = path.join(COMPOSITION_DIR, ".garrison", "kanban-operative-session-id");
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, id, "utf8");
+}
+
+async function bootKanbanOperative() {
+  const orchSpawn = soulsConfig?.orchestrator;
+  if (!orchSpawn) {
+    logEvent("stderr", { kind: "kanban-operative-missing", message: "soulsConfig.orchestrator absent" });
+    return null;
+  }
+  const priorId = await loadKanbanOperativeSessionId();
+  const sessionUuid = priorId ?? randomUUID();
+  const resume = Boolean(priorId);
+  const promptTempPath = await writePromptTempFile(sessionUuid, orchSpawn.promptPath);
+
+  const state = registry.register({
+    sessionId: sessionUuid,
+    soul: KANBAN_OPERATIVE_SOUL,
+    mode: "headless",
+    status: "spawning",
+    cwd: orchSpawn.resolvedBasePath || COMPOSITION_DIR,
+    channel: "kanban",
+    tier: null,
+    tierFlags: []
+  });
+  channels.bindSession(sessionUuid, "kanban");
+
+  state.child = spawnHeadless({
+    sessionUuid,
+    spawnConfig: orchSpawn,
+    promptPath: promptTempPath,
+    cwd: state.cwd,
+    tierFlags: [],
+    mcpConfigPath,
+    isOrchestrator: true,
+    resume,
+    onEvent: (ev) => handleOrchestratorEvent(state, ev),
+    onResult: (text) => handleOrchestratorResult(state, text),
+    onExit: (code) => {
+      logEvent("stdout", { kind: "kanban-operative-exit", code });
+      state.status = code === 0 ? "completed" : "killed";
+      registry.resolveWaiters(sessionUuid);
+      // Drop the handle so the next kanban dispatch reboots this operative
+      // instead of queueing into a dead adapter forever — same contract as
+      // the interactive orchestrator's onExit.
+      if (kanbanChild === state.child) kanbanChild = null;
+    }
+  });
+  state.status = "running";
+  kanbanChild = state.child;
+  kanbanOperativeSessionId = sessionUuid;
+  await persistKanbanOperativeSessionId(sessionUuid);
+  logEvent("stdout", { kind: "kanban-operative-booted", session_id: sessionUuid, resume });
+  return state;
+}
+
+// Reboot-on-demand, same shape as ensureOrchestrator(): concurrent kanban
+// dispatches that arrive while it is (re)booting await the SAME boot instead
+// of racing separate ones.
+async function ensureKanbanOperative() {
+  if (kanbanChild && !kanbanChild.dead && !kanbanChild.killed) return;
+  if (!kanbanBooting) {
+    logEvent("stdout", { kind: "kanban-operative-reboot", reason: kanbanChild ? "dead" : "absent" });
+    kanbanBooting = bootKanbanOperative().finally(() => {
+      kanbanBooting = null;
+    });
+  }
+  await kanbanBooting;
+}
+
 function handleOrchestratorEvent(state, ev) {
   channels.publish(state.sessionId, state.soul, ev);
 }
@@ -639,9 +779,20 @@ function killSessionBySoul(soul) {
 const modeByChannel = new Map();
 
 async function forwardChatToOrchestrator({ origin, channel, message, body }) {
-  await ensureOrchestrator();
-  if (!orchestratorChild || !orchestratorSessionId) {
-    throw new Error("orchestrator not booted");
+  // Kanban dispatch turns (channel === "kanban") run on their OWN operative —
+  // see the "kanban dispatch operative" block above. Every other channel (web
+  // chat, the voice HUD's "web", the heartbeat tick) keeps running on the
+  // interactive orchestrator exactly as before this fix.
+  const useKanbanOperative = isKanbanDispatchChannel(channel);
+  if (useKanbanOperative) {
+    await ensureKanbanOperative();
+  } else {
+    await ensureOrchestrator();
+  }
+  const targetChild = useKanbanOperative ? kanbanChild : orchestratorChild;
+  const targetSessionId = useKanbanOperative ? kanbanOperativeSessionId : orchestratorSessionId;
+  if (!targetChild || !targetSessionId) {
+    throw new Error(useKanbanOperative ? "kanban operative not booted" : "orchestrator not booted");
   }
   // Remember this turn's channel so souls delegated during it inherit it.
   // NB: turns are no longer serialized (main's per-turn correlation replaced the
@@ -668,6 +819,14 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
       });
     }
   }
+  // KNOWN pre-existing limitation, unchanged by this fix: pending soul summaries
+  // are drained GLOBALLY (across every session, not per-operative), so whichever
+  // of the main/kanban turns happens to call this first "wins" a summary meant
+  // for the other. This raced before too (every inbound turn already drained
+  // the same shared pool) — it just serialized by accident because every turn
+  // shared one queue. True per-operative attribution would need pendingSummaries
+  // keyed by which operative's talk_to spawned the soul, which is out of scope
+  // here (this fix is about isolating LATENCY, not soul-summary routing).
   const pending = registry.drainPendingSummaries().map((p) => ({
     soul: p.soul,
     sessionId: p.sessionId,
@@ -705,19 +864,23 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
     }
   }
   const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending, routeHint });
-  const orchState = registry.get(orchestratorSessionId);
-  if (orchState) orchState.lastSummary = null;
+  const targetState = registry.get(targetSessionId);
+  if (targetState) targetState.lastSummary = null;
   // Honor an explicit per-turn timeout (the Kanban Loop sends a generous one:
   // a real garrison-* phase turn runs far longer than the PTY's 5-min default).
   const timeoutMs =
     typeof body?.timeoutMs === "number" && Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
       ? body.timeoutMs
       : undefined;
-  const turnPromise = writeUserTurn(orchestratorChild, turn, { timeoutMs });
+  const turnPromise = writeUserTurn(targetChild, turn, { timeoutMs });
   if (!turnPromise) {
-    // The adapter died between ensureOrchestrator and the write — fail the
+    // The adapter died between ensure*Operative and the write — fail the
     // request instead of handing back a waiter that can never resolve.
-    throw new Error("orchestrator is not accepting turns (operative process died)");
+    throw new Error(
+      useKanbanOperative
+        ? "kanban operative is not accepting turns (operative process died)"
+        : "orchestrator is not accepting turns (operative process died)"
+    );
   }
   // PER-TURN correlation: resolve with THIS turn's own reply. The registry's
   // session-scoped waiters cross replies whenever two turns are in flight
@@ -752,11 +915,24 @@ const server = http.createServer(async (request, response) => {
 
   try {
     if (method === "GET" && url.pathname === "/health") {
+      // Reports every ACTUALLY-open session (plural, since the kanban-isolation
+      // fix) so a human can diagnose "is kanban sharing the chat session again?"
+      // by hitting this endpoint instead of grepping `ps`. sessions_count already
+      // reflects it (registry.sessions includes the kanban operative once it has
+      // booted); the explicit ids + breakdown make it legible without cross-
+      // referencing PIDs.
       sendJson(response, 200, {
         ok: true,
         mode: ORCHESTRATOR_MODE ? "orchestrator" : "legacy",
         orchestrator_session_id: orchestratorSessionId,
+        kanban_operative_session_id: kanbanOperativeSessionId,
         sessions_count: registry.sessions.size,
+        sessions: registry.list().map((s) => ({
+          session_id: s.session_id,
+          soul: s.soul,
+          channel: s.channel,
+          status: s.status
+        })),
         channels_count: channels.channels.size,
         uptime_ms: Date.now() - STARTED_AT
       });
@@ -770,20 +946,23 @@ const server = http.createServer(async (request, response) => {
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
       const channel = String(body.channel ?? "main");
+      // Which operative's session id this turn actually reports — the kanban
+      // operative for channel:"kanban", the interactive orchestrator otherwise.
+      const replySessionId = isKanbanDispatchChannel(channel) ? kanbanOperativeSessionId : orchestratorSessionId;
       // D19: a task-shaped channel turn is a card. Significant → registered for
       // the run engine, reply carries the card link (the turn does not run here).
       const carded = await maybeCardChannelTurn({ channel, body, message });
       if (carded?.handled) {
-        sendJson(response, 200, { reply: carded.reply, session_id: orchestratorSessionId, card: carded.card.id, cardUrl: carded.card.url });
+        sendJson(response, 200, { reply: carded.reply, session_id: replySessionId, card: carded.card.id, cardUrl: carded.card.url });
         return;
       }
       const waiter = await forwardChatToOrchestrator({ origin, channel, message, body });
       if (waiter) {
         const result = await waiter;
         await completeQuickTurnCard(carded, result.summary);
-        sendJson(response, 200, { reply: result.summary, session_id: orchestratorSessionId });
+        sendJson(response, 200, { reply: result.summary, session_id: replySessionId });
       } else {
-        sendJson(response, 200, { ack: true, session_id: orchestratorSessionId });
+        sendJson(response, 200, { ack: true, session_id: replySessionId });
       }
       return;
     }
@@ -808,16 +987,22 @@ const server = http.createServer(async (request, response) => {
         try { response.write(": keepalive\n\n"); } catch { /* ignore */ }
       }, 15_000);
 
-      // The orchestrator publishes its stream-JSON events on its OWN bound channel
-      // (it's pinned to "main" at boot), NOT the caller's request channel — so
-      // subscribe where it actually publishes, else the chunks never arrive (this
-      // was the latent bug: callers use "web"/etc, orchestrator stays on "main",
-      // so /chat/stream emitted 0 chunks and the whole reply only landed at `done`).
-      // With --include-partial-messages the orchestrator emits incremental
+      // The operative publishes its stream-JSON events on its OWN bound channel
+      // ("main" for the interactive orchestrator, "kanban" for the kanban
+      // dispatch operative — each pinned at boot), NOT necessarily the caller's
+      // request channel — so subscribe where it actually publishes, else the
+      // chunks never arrive (this was the latent bug: callers use "web"/etc,
+      // orchestrator stays on "main", so /chat/stream emitted 0 chunks and the
+      // whole reply only landed at `done`). Route to the SAME operative
+      // forwardChatToOrchestrator will dispatch this turn to (channel:"kanban" →
+      // the kanban operative's own "kanban" channel), so a kanban dispatch's
+      // live progress isn't read off the wrong PTY's event stream.
+      // With --include-partial-messages the operative emits incremental
       // text_delta events; forward each as a `chunk` so the caller speaks each
       // sentence as it streams. replay:false so we stream only THIS turn's deltas,
       // not the channel ring's prior turns.
-      const orchChannel = channels.channelFor(orchestratorSessionId) ?? channel;
+      const targetSessionId = isKanbanDispatchChannel(channel) ? kanbanOperativeSessionId : orchestratorSessionId;
+      const orchChannel = channels.channelFor(targetSessionId) ?? channel;
       // Tool calls surfaced once each (dedup by tool_use id) as `activity` events,
       // so a channel surface can show "what it's doing now". The full `assistant`
       // message carries the populated input; we emit the first time we see a given
@@ -826,7 +1011,7 @@ const server = http.createServer(async (request, response) => {
       // consumers (web-channel), so this is backward-compatible.
       const seenTools = new Set();
       const unsubscribe = channels.subscribe(orchChannel, (wrapped) => {
-        if (wrapped.session_id !== orchestratorSessionId) return;
+        if (wrapped.session_id !== targetSessionId) return;
         const ev = wrapped.event;
         if (ev?.type === "stream_event" && ev.event?.delta?.type === "text_delta") {
           const t = ev.event.delta.text;
@@ -1047,6 +1232,15 @@ async function main() {
     // of racing a second one.
     try { await ensureOrchestrator(); } catch (err) {
       logEvent("stderr", { kind: "orchestrator-boot-failed", error: err.message });
+    }
+    // Eagerly boot the kanban dispatch operative too (sequentially — spawning
+    // two interactive claude PTYs at the exact same instant needlessly spikes
+    // CPU/memory on an 8GB box), so the FIRST real kanban dispatch after a
+    // gateway restart doesn't pay a cold-boot penalty on top of its own
+    // per-turn timeout. ensureKanbanOperative so a kanban dispatch arriving
+    // before this finishes shares the same boot instead of racing a second one.
+    try { await ensureKanbanOperative(); } catch (err) {
+      logEvent("stderr", { kind: "kanban-operative-boot-failed", error: err.message });
     }
   });
 }

@@ -179,6 +179,205 @@ html, body, #root {
   border-color: #6b7280;
 }
 .jarvis-mute-icon { font-size: 13px; line-height: 1; }
+
+/* ── HUD settings (gear + popover) ───────────────────────────────────────
+   A top corner looks obvious but the flank rails start at top:4vh/left|
+   right:4vw, and on a short/embedded viewport (e.g. this HUD inside the
+   Garrison shell's persistent iframe) that margin is narrower than the
+   button — collides with the workspace/tasks panel's corner. Stacking above
+   the mute/verbosity pills (like .yt-widget does above .jarvis-mute) has the
+   same problem in reverse: their fixed pixel offset can exceed the rails'
+   bottom:11vh clearance on a short viewport and land back inside the rail.
+   Bottom-CENTER at the exact same `bottom` the mute/verbosity pills already
+   use is the one spot proven clear of both rails (they occupy the left/right
+   thirds only) and of the centered status line / dev-action dock (those sit
+   higher, at bottom:16vh / bottom:9vh) — nothing else lives at this baseline,
+   center column, on any viewport width. */
+.jarvis-settings {
+  position: fixed;
+  left: 50%;
+  bottom: max(1.5vh, env(safe-area-inset-bottom)); /* lowest tier — clear of .jarvis-dock (bottom:9vh) above it */
+  transform: translateX(-50%);
+  z-index: 7;
+}
+.jarvis-settings-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.jarvis-settings-btn:hover { color: var(--ink); border-color: hsl(var(--accent-h) 60% 62% / 0.6); }
+.jarvis-settings-btn.is-open {
+  color: var(--ink);
+  border-color: hsl(var(--accent-h) 60% 62% / 0.7);
+  background: hsl(var(--accent-h) 70% 55% / 0.12);
+  transform: rotate(28deg);
+}
+.jarvis-settings-panel {
+  position: absolute;
+  bottom: calc(100% + 8px); /* opens upward — the button sits near the bottom edge */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: oklch(0.13 0.012 270 / 0.96);
+  border: 1px solid hsl(var(--accent-h) 60% 62% / 0.3);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  /* Dedicated keyframe (not the shared callout-in) — that one's `to` state
+     sets transform:none, which would wipe the translateX(-50%) centering
+     this panel needs once the intro animation finishes. */
+  animation: settings-panel-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes settings-panel-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); filter: blur(3px); }
+  to   { opacity: 1; transform: translateX(-50%); filter: none; }
+}
+.jarvis-settings-head {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.jarvis-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+}
+.jarvis-settings-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+}
+/* Native <input type="color">: the browser owns the swatch chrome; strip its
+   default border/padding so only the round chip we draw shows. */
+.jarvis-settings-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.jarvis-settings-swatch::-webkit-color-swatch-wrapper { padding: 0; border-radius: 50%; }
+.jarvis-settings-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
+.jarvis-settings-swatch::-moz-color-swatch { border: none; border-radius: 50%; }
+.jarvis-settings-reset {
+  align-self: flex-start;
+  padding: 0;
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.jarvis-settings-reset:hover { color: var(--ink-dim); }
+
+.jarvis-settings-sep {
+  height: 1px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+}
+
+/* Orb mode toggle — a small pill switch, same visual language as the rest of
+   the panel (no native <input type="checkbox"> chrome to fight). */
+.jarvis-settings-toggle {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  flex: none;
+}
+.jarvis-settings-toggle.is-on {
+  background: hsl(var(--accent-h) 60% 46% / 0.55);
+  border-color: hsl(var(--accent-h) 60% 62% / 0.7);
+}
+.jarvis-settings-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 0.15s;
+}
+.jarvis-settings-toggle.is-on .jarvis-settings-toggle-knob { transform: translateX(16px); }
+
+.jarvis-settings-corners {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.jarvis-settings-corner {
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.jarvis-settings-corner:hover { color: var(--ink); }
+.jarvis-settings-corner.is-active {
+  color: var(--ink);
+  border-color: hsl(var(--accent-h) 60% 62% / 0.7);
+  background: hsl(var(--accent-h) 70% 55% / 0.14);
+}
+
+/* ── Orb mode (Phase 3) ────────────────────────────────────────────────────
+   Applied to .jarvis-root when the shell tells this HUD it is currently
+   rendered as the small floating orb (see the garrison:jarvis-display-mode
+   listener in main.tsx) — NOT merely when the "modo orbe" preference is on,
+   because that preference stays on even while this same HUD is showing full-
+   size on its own /embed/jarvis-os tab (the shell only renders the shrunk,
+   clipped iframe on OTHER routes). html/body/#root also go transparent (see
+   the html.jarvis-orb-active rule below) — an iframe whose document paints no
+   background is what makes "just the orb visible, floating over Garrison"
+   work once the shell clips its box to a circle. Mute + expand-to-full
+   controls live shell-side (JarvisPersistentFrame.tsx), not in this DOM —
+   see that file for why keeping them outside the iframe's rectangle sidesteps
+   the clip-path union problem entirely. */
+html.jarvis-orb-active,
+html.jarvis-orb-active body,
+html.jarvis-orb-active #root {
+  background: transparent !important;
+}
+.jarvis-root.orb-mode {
+  background: transparent !important;
+}
+.jarvis-root.orb-mode > *:not(.jarvis-core) {
+  display: none !important;
+}
+
 .jarvis-dot {
   width: 7px;
   height: 7px;

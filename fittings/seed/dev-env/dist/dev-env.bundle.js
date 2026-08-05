@@ -39908,6 +39908,34 @@ function railBadges(route) {
       title: title(`project ${project}`, projectPath ? `cwd ${projectPath}` : null)
     });
   }
+  const tier = str(route.tier);
+  if (tier) {
+    badges.push({
+      key: "tier",
+      label: tier,
+      title: title(
+        `tier ${tier}`,
+        str(route.taskType) ? `task type ${str(route.taskType)}` : null,
+        route.classifierSkipped === true ? "no classifier ran - it was chosen explicitly" : null
+      )
+    });
+  }
+  const workKind = str(route.workKind);
+  const off = str(route.phasesOff).split(",").map((p) => p.trim()).filter(Boolean);
+  if (workKind || off.length) {
+    badges.push({
+      key: "workKind",
+      // The OFF count rides the label because it is the part that changes what
+      // actually runs - a plan silently missing two gates is the failure this
+      // badge exists to prevent.
+      label: workKind ? off.length ? `${workKind} -${off.length}` : workKind : `plan -${off.length}`,
+      title: title(
+        workKind ? `work kind ${workKind}` : "plan inferred from the tier",
+        off.length ? `phases off: ${off.join(", ")}` : "every phase in the plan runs"
+      ),
+      ...off.length ? { tone: "warn" } : {}
+    });
+  }
   const target = str(route.route);
   if (target) {
     badges.push({
@@ -39988,9 +40016,21 @@ var BADGE_FIELDS = {
   effort: ["effort"],
   account: ["account"],
   project: ["project"],
-  target: ["target"]
+  target: ["target"],
+  tier: ["tier"],
+  workKind: ["workKind", "phasesOff"]
 };
-var PIN_ORDER = ["duty", "target", "model", "effort", "account", "project"];
+var PIN_ORDER = [
+  "duty",
+  "tier",
+  "target",
+  "model",
+  "effort",
+  "account",
+  "project",
+  "workKind",
+  "phasesOff"
+];
 var FIELD_LABEL = {
   target: "target",
   model: "model",
@@ -39998,7 +40038,10 @@ var FIELD_LABEL = {
   duty: "duty",
   level: "level",
   project: "project",
-  account: "account"
+  account: "account",
+  tier: "tier",
+  workKind: "work kind",
+  phasesOff: "phases"
 };
 var AUTO_LABEL = {
   target: "Automatic - the composition's routing",
@@ -40007,10 +40050,22 @@ var AUTO_LABEL = {
   duty: "Automatic - the classifier decides",
   level: "Automatic",
   project: "Automatic - the operative's own directory",
-  account: "Automatic - the composition's account"
+  account: "Automatic - the composition's account",
+  tier: "Automatic - the classifier decides",
+  workKind: "Automatic - the plan inferred from the tier",
+  phasesOff: "Automatic - every phase in the plan runs"
 };
 function str2(v) {
   return typeof v === "string" ? v.trim() : "";
+}
+function splitPhasesOff(raw) {
+  return String(raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+function joinPhasesOff(off, planOrder) {
+  const set = new Set(off);
+  const ordered = planOrder.filter((p) => set.has(p));
+  for (const p of off) if (!planOrder.includes(p)) ordered.push(p);
+  return ordered.length ? ordered.join(",") : null;
 }
 function pinnedValue(pins, field) {
   if (!pins) return null;
@@ -40036,6 +40091,12 @@ function ranValue(route, field) {
       return str2(route.project) || null;
     case "account":
       return str2(route.account) || null;
+    case "tier":
+      return str2(route.tier) || null;
+    case "workKind":
+      return str2(route.workKind) || null;
+    case "phasesOff":
+      return str2(route.phasesOff) || null;
   }
 }
 function railDisplayBadges(opts) {
@@ -40053,7 +40114,14 @@ function railDisplayBadges(opts) {
     });
     const pinned = fields.some((f) => pinnedValue(pins, f) !== null);
     const pending = fields.some((f) => pendingSet.has(f)) || drifted;
-    return { ...b, field, ...pinned ? { pinned: true } : {}, ...pending ? { pending: true } : {} };
+    const auto = !pinned && fields.some((f) => ranValue(route, f) !== null);
+    return {
+      ...b,
+      field,
+      ...pinned ? { pinned: true } : {},
+      ...pending ? { pending: true } : {},
+      ...auto ? { auto: true } : {}
+    };
   });
   const extra = [];
   for (const field of PIN_ORDER) {
@@ -40177,6 +40245,61 @@ function menuForField(field, options2, pins, musterUrl) {
       if (!name) continue;
       rows.push({ key: name, label: name, patch: { project: name }, selected: current === name });
     }
+  } else if (field === "tier") {
+    rows.push(auto);
+    for (const t of options2?.tiers ?? []) {
+      const id = str2(t);
+      if (!id) continue;
+      rows.push({
+        key: id,
+        label: id,
+        // Pinning a tier is half of the {taskType, tier} pair. On its own it still
+        // needs the classifier for the task type, so the detail says so rather than
+        // implying it bought a skipped classification it did not.
+        detail: pinnedValue(pins, "duty") ? "with the pinned duty: no classifier runs" : "the classifier still picks the task type",
+        patch: { tier: id },
+        selected: current === id
+      });
+    }
+  } else if (field === "workKind") {
+    rows.push(auto);
+    for (const k of options2?.workKinds ?? []) {
+      const id = str2(k.id);
+      if (!id) continue;
+      const phases = (k.phases ?? []).filter((p) => str2(p));
+      const isDefault = str2(options2?.defaultWorkKind) === id;
+      rows.push({
+        key: id,
+        label: isDefault ? `${id} (default)` : id,
+        detail: str2(k.description) || (phases.length ? phases.join(" \u2192 ") : void 0),
+        // Switching plans invalidates the OFF set: those phase ids belong to the
+        // OLD plan, and carrying them over would silently disable phases the user
+        // never looked at.
+        patch: { workKind: id, phasesOff: null },
+        selected: current === id
+      });
+    }
+  } else if (field === "phasesOff") {
+    const kindId = str2(pinnedValue(pins, "workKind")) || str2(options2?.defaultWorkKind);
+    const kind = (options2?.workKinds ?? []).find((k) => str2(k.id) === kindId);
+    const planPhases = (kind?.phases ?? []).map((p) => str2(p)).filter(Boolean);
+    const off = new Set(splitPhasesOff(current));
+    rows.push({ ...auto, selected: off.size === 0 });
+    for (const phase of planPhases) {
+      const isOff = off.has(phase);
+      const next = new Set(off);
+      if (isOff) next.delete(phase);
+      else next.add(phase);
+      rows.push({
+        key: phase,
+        // The label carries the state because these rows are toggles, not a
+        // single-choice list - a tick alone would not say which way it goes.
+        label: isOff ? `${phase} - off` : phase,
+        detail: isOff ? "tap to run it again" : "tap to turn it off for this run",
+        patch: { phasesOff: joinPhasesOff([...next], planPhases) },
+        selected: !isOff
+      });
+    }
   } else {
     return null;
   }
@@ -40196,7 +40319,7 @@ function menuForField(field, options2, pins, musterUrl) {
   }
   return {
     field,
-    label: `Pin ${FIELD_LABEL[field]} for the next message`,
+    label: field === "phasesOff" ? "Phases this run walks" : `Pin ${FIELD_LABEL[field]} for the next message`,
     rows,
     ...field === "model" ? { freeText: { field: "model", label: "Any model id", placeholder: "model id" } } : {}
   };
@@ -40343,9 +40466,17 @@ function AttributionRail({
     b.pinned ? "cc-rbadge-pinned" : "",
     b.pending ? "cc-rbadge-pending" : "",
     b.placeholder ? "cc-rbadge-empty" : "",
+    b.auto ? "cc-rbadge-auto" : "",
     openKey === b.key ? "cc-rbadge-open" : ""
   ].filter(Boolean).join(" ");
-  const title2 = (b) => b.pending ? `${b.title} - applies next turn` : b.title;
+  const title2 = (b) => [
+    b.title,
+    // Spelled out on every auto badge, not just as a colour: "who chose this"
+    // is the question the whole rail exists to answer, and colour alone cannot
+    // answer it for a screen reader or a colour-blind user.
+    b.auto ? "chosen automatically - you pinned nothing here" : null,
+    b.pending ? "applies next turn" : null
+  ].filter(Boolean).join(" - ");
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `cc-rail cc-rail-${variant}`, ref: railRef, children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "div",
@@ -40360,7 +40491,7 @@ function AttributionRail({
           const ref = (el) => {
             itemsRef.current[i] = el;
           };
-          const mark = b.pending ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-next", children: "next" }) : null;
+          const mark = b.pending ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-next", children: "next" }) : b.auto ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-automark", "aria-hidden": "true", children: "auto" }) : null;
           if (b.href) {
             return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               "a",

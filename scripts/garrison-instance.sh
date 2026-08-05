@@ -191,6 +191,17 @@ export PATH="$GARRISON_HOME/bin:$UV_TOOL_BIN_DIR:$REPO_ROOT/node_modules/.bin:$H
 # running dev server's .next (and vice versa).
 if [ "$profile" = "prod" ]; then
   export NEXT_DIST_DIR="${NEXT_DIST_DIR:-.next-prod}"
+else
+  # ...and a dev/codex boot launched from a shell that already ran a prod
+  # command inherits prod NEXT_DIST_DIR and NODE_ENV. That is not cosmetic:
+  # next dev under NODE_ENV=production drops css-loader/postcss-loader from the
+  # global-CSS chain, so src/app/globals.css reaches webpack raw and every route
+  # 500s with: Module parse failed: Unexpected character (at the @tailwind on
+  # line 1 of globals.css). Neither var is meaningful outside prod, so clear
+  # them rather than trust the caller. NODE_ENV is unset rather than pinned to
+  # development so that a dev-profile `next build` can still set its own.
+  unset NEXT_DIST_DIR
+  unset NODE_ENV
 fi
 
 # The host daemon sweep is a single-owner job: only prod runs it, so a dev or

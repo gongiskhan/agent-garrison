@@ -20,6 +20,7 @@ import path from "node:path";
 import url from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { deriveStatusLine, rankAndCapCards } from "./kanban-status.mjs";
+import { readInstanceState, scheduleInstanceWrite } from "./view-state.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -219,6 +220,76 @@ function handleEndpointing(res) {
     // 0 disables the hands-free inactivity standby (session stays armed forever)
     idleTimeoutMs: num0(cfg("WAKE_IDLE_TIMEOUT_S"), 90) * 1000
   });
+}
+
+// ── HUD settings panel (gear icon → color picker + orb mode) ────────────────
+// Persisted at ~/.garrison/view-state/jarvis-os/default.json via view-state.mjs
+// (mirrors the dev-env Fitting's per-instance view-state convention — jarvis-os
+// only ever has the one "default" instance, the always-mounted HUD). No save
+// button: every change from the panel POSTs here and the on-disk write is
+// debounced (scheduleInstanceWrite, ~500ms trailing). `latestHudSettings` is
+// the in-memory mirror the debounced writer reads from, and what GET answers
+// from once warm — avoids a disk read on every poll.
+// orbMode/orbCorner (Phase 3): the "shrink into a corner" preference and its
+// last-dragged-to corner, read by both the HUD (ui/main.tsx, to decide whether
+// to render transparent+chromeless) and the Garrison shell
+// (JarvisPersistentFrame.tsx, told via postMessage — it never reads this file
+// directly, cross-origin GETs from the browser would need CORS this endpoint
+// doesn't grant).
+const HUD_SETTINGS_FITTING = "jarvis-os";
+const HUD_SETTINGS_INSTANCE = "default";
+const ORB_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
+const DEFAULT_HUD_SETTINGS = {
+  color: "#c8322c", // matches ui/hud-color.ts DEFAULT_HUD_COLOR
+  orbMode: false,
+  orbCorner: "bottom-right" // matches ui/orb-settings.ts DEFAULT_ORB_CORNER
+};
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+let latestHudSettings = null;
+
+async function handleHudSettingsGet(res) {
+  if (!latestHudSettings) {
+    const { exists, state } = await readInstanceState(HUD_SETTINGS_FITTING, HUD_SETTINGS_INSTANCE);
+    latestHudSettings = exists && state && typeof state === "object"
+      ? { ...DEFAULT_HUD_SETTINGS, ...state }
+      : { ...DEFAULT_HUD_SETTINGS };
+  }
+  jsonRes(res, 200, latestHudSettings);
+}
+
+// Partial-update body: any subset of {color, orbMode, orbCorner}. Each
+// recognized field is validated independently and merged onto whatever is
+// already known; a body with no recognized field is a 400 (most likely a
+// caller bug, not a real "clear settings" request — there is no such thing).
+async function handleHudSettingsPost(req, res) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { jsonRes(res, 400, { error: `invalid json: ${err.message}` }); return; }
+  const next = { ...DEFAULT_HUD_SETTINGS, ...(latestHudSettings || {}) };
+  let touched = false;
+  if (body && typeof body === "object") {
+    if (typeof body.color === "string") {
+      const color = body.color.trim();
+      if (!HEX_COLOR_RE.test(color)) { jsonRes(res, 400, { error: "color must be a #rrggbb hex string" }); return; }
+      next.color = color;
+      touched = true;
+    }
+    if (typeof body.orbMode === "boolean") {
+      next.orbMode = body.orbMode;
+      touched = true;
+    }
+    if (typeof body.orbCorner === "string") {
+      if (!ORB_CORNERS.has(body.orbCorner)) {
+        jsonRes(res, 400, { error: "orbCorner must be one of top-left/top-right/bottom-left/bottom-right" });
+        return;
+      }
+      next.orbCorner = body.orbCorner;
+      touched = true;
+    }
+  }
+  if (!touched) { jsonRes(res, 400, { error: "no recognized field (color/orbMode/orbCorner) in body" }); return; }
+  latestHudSettings = next;
+  scheduleInstanceWrite(HUD_SETTINGS_FITTING, HUD_SETTINGS_INSTANCE, () => latestHudSettings);
+  jsonRes(res, 200, latestHudSettings);
 }
 
 // ── workspace panel data ─────────────────────────────────────────────────────
@@ -1367,6 +1438,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/diff" && method === "GET") return handleDiff(res, liveOpts);
       if (pathname === "/api/ambient" && method === "GET") return handleAmbient(res);
       if (pathname === "/api/ui-config" && method === "GET") return jsonRes(res, 200, { ambient_after_s: Math.max(0, Number(cfg("AMBIENT_AFTER_S") || 180) || 0) });
+      if (pathname === "/api/hud-settings" && method === "GET") return handleHudSettingsGet(res);
+      if (pathname === "/api/hud-settings" && method === "POST") return handleHudSettingsPost(req, res);
       if (pathname === "/api/music" && method === "GET") return handleMusic(res);
       if (pathname === "/api/music/cmd" && method === "POST") return handleMusicCmd(req, res);
       if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
