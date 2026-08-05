@@ -24,6 +24,19 @@ export function evidenceRunDir(runId, root) {
   return path.join(drillHomeDir(), "evidence", evidenceProjectKey(root), String(runId));
 }
 
+// Reel curation is optional and finishes independently of the run response.
+// Absence is therefore ordinary state, not an artifact-read error. Keep this
+// separate from the generic evidence-file route, whose missing-file contract
+// correctly remains 404 for real artifact links.
+export async function readOptionalReel(runId, root) {
+  try {
+    return JSON.parse(await fs.readFile(path.join(evidenceRunDir(runId, root), "reel.json"), "utf8"));
+  } catch (err) {
+    if (err?.code === "ENOENT") return null;
+    throw err;
+  }
+}
+
 // Qualified per-check evidence name: bare stepIds repeat across pages and
 // viewports (page-shell-renders exists on every page), so files are keyed by
 // the full (page, step, viewport) coordinate.

@@ -695,16 +695,16 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 //     under the same lock (closure cleanup cannot race a reopen/delete).
 // A post-commit hook failure is reported as `postCommitError` but never turns a
 // committed card write into a false CAS failure.
-export async function saveCardCASWithHooks(root, card, expectedRev, at = new Date().toISOString(), hooks = {}) {
+async function writeCardWithHooks(root, { id, card = null, expectedRev = null, mutate = null, at, hooks = {} }) {
   // Snapshot the terminal edge while the CAS lock owns the authoritative
   // before/after pair, then perform the neutral outbox I/O only after the lock
   // is released. Vault/provider work is never done by this module at all.
   let personalCompletionEdge = null;
   let doneHandoffEdge = null;
-  const result = await withCardLock(root, card.id, async () => {
+  const result = await withCardLock(root, id, async () => {
     let disk = null;
     try {
-      disk = await loadCard(root, card.id);
+      disk = await loadCard(root, id);
     } catch {
       disk = null;
     }
@@ -720,13 +720,15 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     if (!disk) {
       return { ok: false, deleted: true, card: null };
     }
-    if ((disk.rev ?? 0) !== expectedRev) {
+    if (typeof mutate !== "function" && (disk.rev ?? 0) !== expectedRev) {
       return { ok: false, conflict: true, card: disk };
     }
+    const candidate = typeof mutate === "function" ? await mutate(disk) : card;
+    if (!candidate) return { ok: false, skipped: true, card: disk };
     const next = {
-      ...card,
-      coordinationSeq: coordinationSeqForWrite(disk, card),
-      rev: expectedRev + 1,
+      ...candidate,
+      coordinationSeq: coordinationSeqForWrite(disk, candidate),
+      rev: (disk.rev ?? 0) + 1,
       updated: at
     };
     let prepared = null;
@@ -740,7 +742,7 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     // held. Recompute from the final candidate so a future hook that changes a
     // coordination identity field cannot accidentally preserve the old epoch.
     next.coordinationSeq = coordinationSeqForWrite(disk, next);
-    await atomicWriteJSON(cardFile(root, card.id), next);
+    await atomicWriteJSON(cardFile(root, id), next);
     if (isPersonalDoneTransition(disk, next)) personalCompletionEdge = { prev: disk, next };
     if (next.list === "done" && (disk?.list ?? null) !== "done") doneHandoffEdge = { prev: disk, next };
     // Feedback to the originating channel on a terminal transition (done /
@@ -790,12 +792,25 @@ export async function saveCardCASWithHooks(root, card, expectedRev, at = new Dat
     // outbox I/O is fail-open inside the scheduler. The card is already
     // committed and startup reconciliation repairs either window.
     const message = String(err?.message || err).slice(0, 300);
-    console.error(`[kanban] personal completion outbox enqueue failed for ${card.id}: ${message}`);
+    console.error(`[kanban] personal completion outbox enqueue failed for ${id}: ${message}`);
     return {
       ...result,
       memoryCapture: { status: "pending-reconciliation", error: message }
     };
   }
+}
+
+export async function saveCardCASWithHooks(root, card, expectedRev, at = new Date().toISOString(), hooks = {}) {
+  return writeCardWithHooks(root, { id: card.id, card, expectedRev, at, hooks });
+}
+
+// Lock-scoped read -> mutate -> write for the rare recovery paths where a
+// bounded optimistic CAS would defeat the recovery guarantee itself. The
+// mutator sees the authoritative card while its lifecycle lock is held; the
+// resulting write still goes through every normal revision, coordination,
+// terminal-routing, handoff, and personal-memory hook above.
+export async function updateCardLockedWithHooks(root, id, mutate, at = new Date().toISOString(), hooks = {}) {
+  return writeCardWithHooks(root, { id, mutate, at, hooks });
 }
 
 export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {

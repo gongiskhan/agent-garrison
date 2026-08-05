@@ -16,14 +16,15 @@ const REPO = path.resolve(__dirname, "..");
 const BROWSER_START = path.join(REPO, "fittings", "seed", "browser-default", "scripts", "start.mjs");
 const AUTOMATIONS_START = path.join(REPO, "fittings", "seed", "automations", "scripts", "start.mjs");
 const DRILL_START = path.join(REPO, "fittings", "seed", "drill", "scripts", "start.mjs");
-const BROWSER_PORT = 7361;
-const AUTOMATIONS_PORT = 7362;
-const DRILL_PORT = 7363;
-const STUB_PORT = 7364;
-const BROWSER_BASE = `http://127.0.0.1:${BROWSER_PORT}`;
-const AUTOMATIONS_BASE = `http://127.0.0.1:${AUTOMATIONS_PORT}`;
-const DRILL_BASE = `http://127.0.0.1:${DRILL_PORT}`;
-const STUB_BASE = `http://127.0.0.1:${STUB_PORT}`;
+let BROWSER_PORT = 0;
+let AUTOMATIONS_PORT = 0;
+let DRILL_PORT = 0;
+let STUB_PORT = 0;
+let BROWSER_BASE = "";
+let AUTOMATIONS_BASE = "";
+let DRILL_BASE = "";
+let STUB_BASE = "";
+const HEAVY_RUN_TIMEOUT_MS = 240_000;
 
 const ghome = mkdtempSync(path.join(tmpdir(), "garrison-spotter-home-"));
 const adir = mkdtempSync(path.join(tmpdir(), "garrison-spotter-autos-"));
@@ -34,10 +35,34 @@ let automationsSrv: ChildProcess | null = null;
 let drillSrv: ChildProcess | null = null;
 let stubSrv: http.Server | null = null;
 
-async function waitHealthy(base: string, ms: number) {
+async function allocatePorts(count: number): Promise<number[]> {
+  const servers: http.Server[] = [];
+  const ports: number[] = [];
+  try {
+    for (let index = 0; index < count; index++) {
+      const server = http.createServer();
+      servers.push(server);
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("failed to allocate a fixture port");
+      ports.push(address.port);
+    }
+    return ports;
+  } finally {
+    await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  }
+}
+
+async function waitHealthy(base: string, ms: number, expectedPid: number | undefined) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    try { if ((await fetch(`${base}/health`)).ok) return true; } catch { /* not up */ }
+    try {
+      const response = await fetch(`${base}/health`);
+      if (response.ok && (await response.json()).pid === expectedPid) return true;
+    } catch { /* not up */ }
     await new Promise((r) => setTimeout(r, 250));
   }
   return false;
@@ -104,6 +129,11 @@ function evidenceDirFor(runId: string): string | null {
 }
 
 beforeAll(async () => {
+  [BROWSER_PORT, AUTOMATIONS_PORT, DRILL_PORT, STUB_PORT] = await allocatePorts(4);
+  BROWSER_BASE = `http://127.0.0.1:${BROWSER_PORT}`;
+  AUTOMATIONS_BASE = `http://127.0.0.1:${AUTOMATIONS_PORT}`;
+  DRILL_BASE = `http://127.0.0.1:${DRILL_PORT}`;
+  STUB_BASE = `http://127.0.0.1:${STUB_PORT}`;
   stubSrv = await startVisionStub();
   mkdirSync(path.join(ghome, "ui-fittings"), { recursive: true });
   writeFileSync(
@@ -114,7 +144,7 @@ beforeAll(async () => {
   browserSrv = spawn("node", [BROWSER_START, "--port", String(BROWSER_PORT), "--host", "127.0.0.1"], {
     stdio: "ignore", env: { ...process.env, GARRISON_HOME: ghome }
   });
-  expect(await waitHealthy(BROWSER_BASE, 15000)).toBe(true);
+  expect(await waitHealthy(BROWSER_BASE, 15000, browserSrv.pid)).toBe(true);
 
   automationsSrv = spawn("node", [AUTOMATIONS_START], {
     stdio: "ignore",
@@ -123,7 +153,7 @@ beforeAll(async () => {
       GARRISON_BASE_URL: STUB_BASE, AUTOMATIONS_UI_PORT: String(AUTOMATIONS_PORT), AUTOMATIONS_UI_HOST: "127.0.0.1"
     }
   });
-  expect(await waitHealthy(AUTOMATIONS_BASE, 8000)).toBe(true);
+  expect(await waitHealthy(AUTOMATIONS_BASE, 8000, automationsSrv.pid)).toBe(true);
 
   drillSrv = spawn("node", [DRILL_START], {
     stdio: "ignore",
@@ -132,7 +162,7 @@ beforeAll(async () => {
       GARRISON_BROWSER_URL: BROWSER_BASE, DRILL_UI_PORT: String(DRILL_PORT), DRILL_UI_HOST: "127.0.0.1"
     }
   });
-  expect(await waitHealthy(DRILL_BASE, 8000)).toBe(true);
+  expect(await waitHealthy(DRILL_BASE, 8000, drillSrv.pid)).toBe(true);
 
   await fetch(`${DRILL_BASE}/api/drillbook`, {
     method: "PATCH", headers: { "content-type": "application/json" },
@@ -155,13 +185,13 @@ beforeAll(async () => {
 }, 40000);
 
 afterAll(async () => {
-  if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
-  await waitExit(browserSrv);
-  if (automationsSrv && !automationsSrv.killed) automationsSrv.kill("SIGKILL");
-  if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
+  for (const child of [drillSrv, automationsSrv, browserSrv]) {
+    if (child && !child.killed) child.kill("SIGTERM");
+  }
+  await Promise.all([waitExit(drillSrv), waitExit(automationsSrv), waitExit(browserSrv)]);
   await new Promise((r) => stubSrv?.close(() => r(undefined)));
   browserSrv = null; automationsSrv = null; drillSrv = null; stubSrv = null;
-    rmSync(ghome, { recursive: true, force: true });
+  rmSync(ghome, { recursive: true, force: true });
   rmSync(adir, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
 });
@@ -177,7 +207,7 @@ describe("Spotter capture core (S1)", () => {
       body: JSON.stringify({
         pageIds: ["lab"],
         viewports: ["desktop"],
-        evidence: { spotter: SPOTTER_CFG }
+        evidence: { spotter: SPOTTER_CFG, video: false }
       })
     });
     expect(res.status, await res.clone().text()).toBe(200);
@@ -189,7 +219,7 @@ describe("Spotter capture core (S1)", () => {
     // timing-sensitive assertion below goes red.
     console.log("[spotter-e2e] counts:", JSON.stringify(manifest.counts),
       "triggers:", JSON.stringify(manifest.frames.map((f: any) => f.trigger)));
-  }, 120000);
+  }, HEAVY_RUN_TIMEOUT_MS);
 
   it("summarizes Spotter on the run record and in evidence.json", () => {
     expect(run.evidence?.spotter?.manifest).toBe("spotter-frames.json");
@@ -313,7 +343,7 @@ describe("Spotter capture core (S1)", () => {
   it("stays fully off when the caller disables it", async () => {
     const res = await fetch(`${DRILL_BASE}/api/runs`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pageIds: ["lab"], viewports: ["desktop"], evidence: { spotter: false } })
+      body: JSON.stringify({ pageIds: ["lab"], viewports: ["desktop"], evidence: { spotter: false, video: false } })
     });
     expect(res.status, await res.clone().text()).toBe(200);
     const { run: off } = await res.json();
@@ -323,7 +353,7 @@ describe("Spotter capture core (S1)", () => {
     expect(readdirSync(offDir).filter((f) => f.startsWith("frame-"))).toHaveLength(0);
     const index = JSON.parse(readFileSync(path.join(offDir, "evidence.json"), "utf8"));
     expect(index.items.some((i: any) => i.kind === "spotter")).toBe(false);
-  }, 120000);
+  }, HEAVY_RUN_TIMEOUT_MS);
 });
 
 describe("Live Browser replay (S6)", () => {
@@ -332,11 +362,11 @@ describe("Live Browser replay (S6)", () => {
   beforeAll(async () => {
     const res = await fetch(`${DRILL_BASE}/api/runs`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pageIds: ["lab"], viewports: ["desktop"], evidence: { spotter: false } })
+      body: JSON.stringify({ pageIds: ["lab"], viewports: ["desktop"], evidence: { spotter: false, video: false } })
     });
     expect(res.status, await res.clone().text()).toBe(200);
     run = (await res.json()).run;
-  }, 120000);
+  }, HEAVY_RUN_TIMEOUT_MS);
 
   it("replays compiled steps into a held session and surfaces the live canvas", async () => {
     const res = await fetch(`${DRILL_BASE}/api/runs/${run.id}/live-replay`, {

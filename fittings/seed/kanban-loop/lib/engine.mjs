@@ -25,7 +25,7 @@ import path from "node:path";
 import { hostname } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, saveCardCASWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
+import { saveCard, saveCardCAS, saveCardCASWithHooks, updateCardLockedWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -1058,7 +1058,7 @@ function runStillOwns(fresh, base, dispatchedFrom) {
 // honest reason. A newer generation (runSeq moved on) is somebody else's live run
 // and is left strictly alone.
 async function releaseIfStillRunning(root, base, now, why) {
-  return updateCardCAS(root, base.id, (c) => {
+  const res = await updateCardLockedWithHooks(root, base.id, (c) => {
     if (c.status !== "running") return null;
     if ((c.runSeq ?? 0) !== (base.runSeq ?? 0)) return null; // a newer run owns it now
     return {
@@ -1074,10 +1074,11 @@ async function releaseIfStillRunning(root, base, now, why) {
         detail: `${why}. The card is retryable; its runDir and iteration logs are preserved.`
       })
     };
-  }).catch(() => null);
+  }, now()).catch(() => null);
+  return res?.card ?? null;
 }
 
-async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5, afterWrite = undefined, terminalSummary = undefined }) {
+export async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5, afterWrite = undefined, terminalSummary = undefined }) {
   // The run is over, so its owner stamp is stale by definition — clear it here
   // (the one terminal write) rather than in each of the ~29 places that build a
   // terminal card, so a finished card can never look orphan-sweepable.

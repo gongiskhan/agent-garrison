@@ -28,7 +28,7 @@ import { tmpdir, hostname } from "node:os";
 import path from "node:path";
 
 // @ts-ignore pure mjs
-import { processCard, sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { commitRunResult, processCard, sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore pure mjs
 import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
@@ -457,6 +457,31 @@ describe("commitRunResult — the card is never left running, on any path", () =
     expect(onDisk.runningSince ?? null).toBeNull();
     void outcome;
   }, 20000);
+
+  it("atomically releases its generation after the terminal retry budget is exhausted", async () => {
+    const base: any = await makeCard(tmp, {
+      id: "01NEVERRUNNING0000000000003",
+      status: "running",
+      runningSince: "2026-01-01T00:00:01Z",
+      runOwner: { pid: process.pid, host: hostname(), at: "2026-01-01T00:00:01Z" },
+      runSeq: 7
+    });
+    await updateCardCAS(tmp, base.id, (card: any) => ({ ...card, hammered: 1 }));
+
+    const result = await commitRunResult(tmp, {
+      base,
+      target: { ...base, list: "review", status: "ok", runningSince: null },
+      runRev: base.rev,
+      dispatchedFrom: "implement",
+      now: () => "2026-01-01T00:00:02Z",
+      tries: 0
+    });
+
+    const onDisk: any = await loadCard(tmp, base.id);
+    expect(result.ok).toBe(false);
+    expect(onDisk).toMatchObject({ list: "implement", status: "ok", runningSince: null, runOwner: null, hammered: 1 });
+    expect(onDisk.events.some((event: any) => event.kind === "recovered")).toBe(true);
+  });
 });
 
 // The boot sweep must not clear a run driven by a LIVE process that is not us. The

@@ -50,7 +50,7 @@ import {
   captureStart, captureStop, captureChunkStart, captureChunkStop, captureScreenshot,
   writeStepsManifest, manifestRow, checkKey, writeEvidenceIndex, spotterRequest,
   normalizeEvidenceRequest,
-  evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall,
+  evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall, readOptionalReel,
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
@@ -2236,6 +2236,21 @@ async function handle(req, res) {
         return send(res, 200, { index, steps });
       } catch {
         return send(res, 404, { error: "no evidence index for this run" });
+      }
+    }
+    // Optional Debrief reel read. A run without curation (including every
+    // legacy run) is a successful `reel:null` lookup, so mounting Results does
+    // not manufacture a browser-console 404. The generic evidence-file route
+    // below deliberately retains its normal missing-artifact 404 contract.
+    const runReelGet = pathname.match(/^\/api\/runs\/([^/]+)\/reel$/);
+    if (runReelGet && req.method === "GET") {
+      const record = await getDrillRun(decodeURIComponent(runReelGet[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      try {
+        const reel = await readOptionalReel(record.id, record.project || drillTargetRoot());
+        return send(res, 200, { reel });
+      } catch (err) {
+        return send(res, 500, { error: `could not read reel: ${err.message}` });
       }
     }
     const runEvidenceFileGet = pathname.match(/^\/api\/runs\/([^/]+)\/evidence-file\/([^/]+)$/);

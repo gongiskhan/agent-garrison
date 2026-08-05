@@ -3310,18 +3310,26 @@ function DebriefView({
     return r.stateId as string;
   }, [run.id, stepForChunk]);
 
-  // Load the sidecars the index advertises. Both are confined artifact routes.
-  // Fetch reel.json regardless of whether evidence.json advertises a reel row.
+  // Load the sidecars the index advertises. Fetch the reel regardless of
+  // whether evidence.json advertises a reel row.
   // The row write is warn-only, so gating the fetch on it meant a reel that
   // exists on disk was never loaded and the surface claimed "Curation is still
-  // selecting the reel" permanently. A 404 is the only honest "not ready".
+  // selecting the reel" permanently. The dedicated optional endpoint reports
+  // an ordinary not-yet/never-curated run as `reel:null`; generic artifact
+  // links still return 404 when their file is missing.
   useEffect(() => {
     setReel(null);
     setReelMissing(false);
     let cancelled = false;
-    fetch(evidenceFileUrl(run.id, "reel.json"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled) { setReel(j); setReelMissing(!j); } })
+    fetch(`/api/runs/${encodeURIComponent(run.id)}/reel`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`reel lookup ${r.status}`))))
+      .then((payload) => {
+        if (!cancelled) {
+          const next = payload?.reel ?? null;
+          setReel(next);
+          setReelMissing(!next);
+        }
+      })
       .catch(() => { if (!cancelled) setReelMissing(true); });
     return () => { cancelled = true; };
   }, [run.id]);

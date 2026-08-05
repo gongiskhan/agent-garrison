@@ -17,6 +17,7 @@ import {
   classifyForRetention,
   pruneEvidence,
   evidenceRunDir,
+  readOptionalReel,
   removeRunEvidence,
   KEEP_GREEN_FULL
   // @ts-ignore
@@ -68,6 +69,18 @@ function greenRun(id: string, startedAt: string, { video = true } = {}): Synthet
 
 afterAll(() => {
   rmSync(ghome, { recursive: true, force: true });
+});
+
+describe("readOptionalReel", () => {
+  it("returns null for an ordinary absent reel and parses one when curation produced it", async () => {
+    expect(await readOptionalReel("NO-REEL", ROOT)).toBeNull();
+
+    const dir = evidenceRunDir("HAS-REEL", ROOT);
+    mkdirSync(dir, { recursive: true });
+    const reel = { version: 1, counts: { frames: 3, reel: 1 }, frames: [{ name: "frame-0001.jpg" }] };
+    writeFileSync(path.join(dir, "reel.json"), JSON.stringify(reel));
+    expect(await readOptionalReel("HAS-REEL", ROOT)).toEqual(reel);
+  });
 });
 
 describe("classifyForRetention", () => {

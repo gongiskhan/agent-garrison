@@ -212,11 +212,12 @@ describe("Drill manual UX acceptance", () => {
   it("supports roving keyboard navigation across the section tabs without breaking browser history", async () => {
     const p = page!;
     await p.goto(DRILL_BASE);
-    const selectedTab = () => p.getByRole("tab", { selected: true });
+    const sectionTabs = p.getByRole("tablist", { name: "Drill sections" });
+    const selectedTab = () => sectionTabs.getByRole("tab", { selected: true });
     const expectSelected = async (label: string, view: string) => {
       await expect.poll(() => selectedTab().textContent()).toBe(label);
       expect(new URL(p.url()).searchParams.get("view") ?? "book").toBe(view);
-      expect(await p.getByRole("tab").evaluateAll((tabs) =>
+      expect(await sectionTabs.getByRole("tab").evaluateAll((tabs) =>
         tabs.map((tab) => ({ label: tab.textContent, tabIndex: (tab as HTMLElement).tabIndex }))
       )).toEqual([
         { label: "Drill Book", tabIndex: view === "book" ? 0 : -1 },
@@ -229,7 +230,7 @@ describe("Drill manual UX acceptance", () => {
       await expect.poll(() => p.evaluate(() => document.activeElement?.textContent)).toBe(label);
     };
 
-    const book = p.getByRole("tab", { name: "Drill Book" });
+    const book = sectionTabs.getByRole("tab", { name: "Drill Book" });
     await book.focus();
     await p.keyboard.press("ArrowRight");
     await expectSelected("Authoring", "authoring");
@@ -242,7 +243,7 @@ describe("Drill manual UX acceptance", () => {
     await p.goBack();
     await expectSelected("Authoring", "authoring");
 
-    await p.getByRole("tab", { name: "Authoring" }).focus();
+    await sectionTabs.getByRole("tab", { name: "Authoring" }).focus();
     await p.keyboard.press("Home");
     await expectSelected("Drill Book", "book");
     await expectFocused("Drill Book");
@@ -332,7 +333,8 @@ describe("Drill manual UX acceptance", () => {
     try {
       await p.getByRole("button", { name: "Prepare reference run" }).click();
       await p.getByText("Start a run", { exact: true }).waitFor();
-      expect(await p.getByRole("button", { name: HOME_TITLE }).getAttribute("aria-pressed")).toBe("true");
+      const pagesToRun = p.getByRole("group", { name: "Pages to run" });
+      expect(await pagesToRun.getByRole("button", { name: HOME_TITLE, exact: true }).getAttribute("aria-pressed")).toBe("true");
       expect(await p.locator("#dr-run-state").inputValue()).toBe("ready");
       expect(await p.getByRole("button", { name: "desktop", exact: true }).getAttribute("aria-pressed")).toBe("true");
       expect(delayedPagesRequest).toBe(true);
@@ -390,13 +392,20 @@ describe("Drill manual UX acceptance", () => {
     await expect.poll(() => p.locator(".dr-history-table tbody tr").count()).toBe(2);
 
     await p.goto(`${DRILL_BASE}/?view=results&run=${newestId}`);
-    await p.getByText("Hero heading is clipped.").waitFor();
-    expect(await p.getByRole("button", { name: "Confirm", exact: true }).count()).toBe(1);
+    const triageFinding = p.locator(".dr-finding").filter({ hasText: "Hero heading is clipped." });
+    await triageFinding.waitFor();
+    expect(await triageFinding.getByRole("button", { name: "Confirm", exact: true }).count()).toBe(1);
     const infra = p.locator(".dr-infra");
     await infra.waitFor();
     expect(await infra.getAttribute("open")).toBeNull();
     await infra.locator("summary").click();
     await infra.getByText(/vision 503|fixer 403/).first().waitFor();
+
+    const optionalReel = await fetch(`${DRILL_BASE}/api/runs/${newestId}/reel`);
+    expect(optionalReel.status).toBe(200);
+    expect(await optionalReel.json()).toEqual({ reel: null });
+    const genericArtifact = await fetch(`${DRILL_BASE}/api/runs/${newestId}/evidence-file/reel.json`);
+    expect(genericArtifact.status).toBe(404);
   }, 30_000);
 
   it("keeps dialog and mobile-sheet focus inside the active surface", async () => {
