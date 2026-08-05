@@ -155,7 +155,7 @@ x-garrison:
             model: ''
             promptMode: coding
             maxTurns: 500
-            account: ''
+            account: auto
         - id: openrouter-runtime
           config:
             model: anthropic/claude-sonnet-5
