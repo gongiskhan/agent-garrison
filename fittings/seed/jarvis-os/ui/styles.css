@@ -252,6 +252,12 @@ html, body, #root {
   text-transform: uppercase;
   color: var(--ink-faint);
 }
+/* Section label inside the panel. The FIRST .jarvis-settings-head is the
+   panel's own title; this one names a group of rows under it, so it sits a
+   touch brighter to read as a heading rather than more chrome. */
+.jarvis-settings-subhead {
+  color: var(--ink-dim);
+}
 .jarvis-settings-row {
   display: flex;
   align-items: center;

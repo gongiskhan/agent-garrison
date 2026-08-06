@@ -4,6 +4,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { orbPalettes, type OrbPalettes } from "../core-colors";
 
 // ---------------------------------------------------------------------------
 // GRAPH CORE — JARVIS reference replica (ported from the V.A.U.L.T. HUD).
@@ -24,8 +25,10 @@ export const BG_MODES: BgMode[] = ["flat", "depth", "grid", "nebula"];
 
 // Each mode owns a WHOLE-ORB colour, not just tempo — the state must read at a
 // glance from the colour alone. modes shape tempo + brightness (FEELS) AND the
-// palette the orb lerps toward (PALETTES). The three headline states:
+// palette the orb lerps toward. The three headline states ship as
 //   listening → cyan blue    thinking(working) → magenta/pink    speaking → near-white blue
+// but each is user-settable from the HUD settings panel; ../core-colors.ts owns
+// the defaults and the derivation, and `palettes` below arrives as a prop.
 interface ModeFeel {
   speed: number; // rotation/drift multiplier
   boost: number; // brightness multiplier
@@ -43,29 +46,9 @@ const FEELS: Record<CoreMode, ModeFeel> = {
 // Per-mode palette. HSL is three.js HSL (h,s,l ∈ 0..1). `inner` is the bright
 // core tint, `outer` the darker rim, `edge` the link colour, `hue` feeds the
 // speaking shimmer so it stays in-family. The tick lerps the live uniforms
-// toward these so a mode flip cross-fades instead of snapping.
-interface ModePalette {
-  inner: [number, number, number];
-  outer: [number, number, number];
-  edge: [number, number, number];
-  hue: number;
-}
-
-// h: cyan ≈ 0.52 · blue ≈ 0.60 · magenta/pink ≈ 0.88 · red = 0.0
-const PALETTES: Record<CoreMode, ModePalette> = {
-  // idle — calm, dim cyan (a resting version of listening)
-  idle: { inner: [0.52, 0.55, 0.72], outer: [0.52, 0.7, 0.42], edge: [0.52, 0.65, 0.52], hue: 0.52 },
-  // thinking — magenta/pink
-  working: { inner: [0.88, 0.85, 0.8], outer: [0.88, 0.95, 0.55], edge: [0.88, 0.9, 0.64], hue: 0.88 },
-  // listening — cyan blue
-  listening: { inner: [0.52, 0.85, 0.8], outer: [0.52, 0.95, 0.52], edge: [0.52, 0.9, 0.62], hue: 0.52 },
-  // speaking — white with a slight blue
-  speaking: { inner: [0.6, 0.22, 0.96], outer: [0.6, 0.45, 0.82], edge: [0.6, 0.35, 0.88], hue: 0.6 },
-  // error — red
-  error: { inner: [0.0, 0.85, 0.8], outer: [0.0, 0.95, 0.48], edge: [0.0, 0.9, 0.58], hue: 0.0 },
-  // muted — desaturated grey-blue
-  muted: { inner: [0.6, 0.05, 0.7], outer: [0.6, 0.08, 0.4], edge: [0.6, 0.06, 0.5], hue: 0.6 },
-};
+// toward these so a mode flip — or a live edit in the settings panel —
+// cross-fades instead of snapping.
+const DEFAULT_PALETTES: OrbPalettes = orbPalettes();
 
 const CLOUD_R = 1.5;
 const N_NODES = 2200;
@@ -156,6 +139,7 @@ export default function GraphCore({
   bgMode = "depth",
   getLevel,
   orbDisplay = false,
+  palettes = DEFAULT_PALETTES,
 }: {
   mode?: CoreMode;
   bgMode?: BgMode;
@@ -163,16 +147,24 @@ export default function GraphCore({
   getLevel?: () => number | null;
   /** true when the shell is showing this iframe as the small floating orb */
   orbDisplay?: boolean;
+  /** per-state colours, derived from the user's picks (see ../core-colors.ts) */
+  palettes?: OrbPalettes;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef<CoreMode>(mode);
   const bgRef = useRef<BgMode>(bgMode);
   const getLevelRef = useRef(getLevel);
   const orbDisplayRef = useRef(orbDisplay);
+  // Read through a ref, not a dependency: the Three.js scene is built once in a
+  // mount-only effect, and the tick already eases toward whatever the palette
+  // currently says — so a live colour edit cross-fades in on the next frame
+  // instead of tearing down and rebuilding 2 200 nodes.
+  const palettesRef = useRef(palettes);
   modeRef.current = mode;
   bgRef.current = bgMode;
   getLevelRef.current = getLevel;
   orbDisplayRef.current = orbDisplay;
+  palettesRef.current = palettes;
 
   // Exposed so the orbDisplay-change effect below can retrigger framing without
   // re-running the full Three.js setup.
@@ -266,10 +258,10 @@ export default function GraphCore({
         uTime: { value: 0 },
         uBoost: { value: 1 },
         uLevel: { value: 0 },
-        uHue: { value: PALETTES.idle.hue },
+        uHue: { value: palettesRef.current.idle.hue },
         uOrb: { value: 0 },
-        uInner: { value: new THREE.Color().setHSL(...PALETTES.idle.inner) },
-        uOuter: { value: new THREE.Color().setHSL(...PALETTES.idle.outer) },
+        uInner: { value: new THREE.Color().setHSL(...palettesRef.current.idle.inner) },
+        uOuter: { value: new THREE.Color().setHSL(...palettesRef.current.idle.outer) },
       },
       transparent: true,
       depthWrite: false,
@@ -326,7 +318,7 @@ export default function GraphCore({
     edgeAttr.setUsage(THREE.DynamicDrawUsage);
     edgeGeo.setAttribute("position", edgeAttr);
     const edgeMat = new THREE.LineBasicMaterial({
-      color: new THREE.Color().setHSL(...PALETTES.idle.edge),
+      color: new THREE.Color().setHSL(...palettesRef.current.idle.edge),
       transparent: true,
       opacity: 0.14,
       blending: THREE.AdditiveBlending,
@@ -516,7 +508,7 @@ export default function GraphCore({
     let speed = 1;
     // current shimmer hue, eased toward the active mode's palette hue so the
     // speaking shimmer and the palette never disagree during a cross-fade
-    let hue = PALETTES.idle.hue;
+    let hue = palettesRef.current.idle.hue;
     let lastT = 0;
     // speed-integrated clock — mode changes alter velocity, never position
     // (t * speed would snap rotation/drift when speed lerps on a mode flip)
@@ -547,7 +539,7 @@ export default function GraphCore({
 
       // the active mode owns the palette; ease the shimmer hue toward it so a
       // mode flip cross-fades the colour instead of snapping
-      const pal = PALETTES[modeRef.current];
+      const pal = palettesRef.current[modeRef.current];
       hue += (pal.hue - hue) * 0.06;
       const h = hue;
 

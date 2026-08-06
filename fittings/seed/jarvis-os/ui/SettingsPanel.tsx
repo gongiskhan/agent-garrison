@@ -1,13 +1,23 @@
-// Jarvis HUD settings — a small unobtrusive gear + popover. Two settings live
-// here: HUD color (see ./hud-color.ts for the derivation) and Orb mode
-// (Phase 3 — shrinks the same persistent HUD into a draggable corner orb over
-// the rest of Garrison; see ./orb-settings.ts and JarvisPersistentFrame.tsx
+// Jarvis HUD settings — a small unobtrusive gear + popover. Three settings live
+// here: HUD color (see ./hud-color.ts for the derivation), the per-state orb
+// colours (listening / thinking / speaking — see ./core-colors.ts), and Orb
+// mode (Phase 3 — shrinks the same persistent HUD into a draggable corner orb
+// over the rest of Garrison; see ./orb-settings.ts and JarvisPersistentFrame.tsx
 // for the shell-side half). No save button: every change flows straight to
 // the parent's onChange* callbacks, which persist it (debounced) via
 // /api/hud-settings.
 
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_HUD_COLOR, isValidHudColor } from "./hud-color";
+import {
+  CORE_STATE_KEYS,
+  CORE_STATE_LABEL,
+  DEFAULT_STATE_COLORS,
+  isDefaultStateColors,
+  isValidStateColor,
+  type CoreStateKey,
+  type StateColors,
+} from "./core-colors";
 import { ORB_CORNERS, type OrbCorner } from "./orb-settings";
 
 const CORNER_LABEL: Record<OrbCorner, string> = {
@@ -26,6 +36,9 @@ const CORNER_TITLE: Record<OrbCorner, string> = {
 export default function SettingsPanel({
   color,
   onChange,
+  stateColors,
+  onStateColorChange,
+  onStateColorsReset,
   orbMode,
   onOrbModeChange,
   orbCorner,
@@ -33,6 +46,9 @@ export default function SettingsPanel({
 }: {
   color: string;
   onChange: (hex: string) => void;
+  stateColors: StateColors;
+  onStateColorChange: (state: CoreStateKey, hex: string) => void;
+  onStateColorsReset: () => void;
   orbMode: boolean;
   onOrbModeChange: (next: boolean) => void;
   orbCorner: OrbCorner;
@@ -89,6 +105,30 @@ export default function SettingsPanel({
           {swatch.toLowerCase() !== DEFAULT_HUD_COLOR.toLowerCase() && (
             <button className="jarvis-settings-reset" onClick={() => onChange(DEFAULT_HUD_COLOR)}>
               repor cor por omissão
+            </button>
+          )}
+
+          <div className="jarvis-settings-sep" role="separator" />
+
+          {/* Orb colour per state. One swatch each so the three headline states
+              stay tellable apart at a glance — which is the whole point of the
+              orb changing colour at all. */}
+          <div className="jarvis-settings-head jarvis-settings-subhead">cor do orbe</div>
+          {CORE_STATE_KEYS.map((state) => (
+            <label className="jarvis-settings-row" key={state} htmlFor={`jarvis-core-color-${state}`}>
+              <span className="jarvis-settings-label">{CORE_STATE_LABEL[state]}</span>
+              <input
+                id={`jarvis-core-color-${state}`}
+                type="color"
+                className="jarvis-settings-swatch"
+                value={isValidStateColor(stateColors[state]) ? stateColors[state] : DEFAULT_STATE_COLORS[state]}
+                onChange={(e) => onStateColorChange(state, e.target.value)}
+              />
+            </label>
+          ))}
+          {!isDefaultStateColors(stateColors) && (
+            <button className="jarvis-settings-reset" onClick={onStateColorsReset}>
+              repor cores do orbe
             </button>
           )}
 

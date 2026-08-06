@@ -13,7 +13,7 @@
 // The central core pulses to the live audio through a real AnalyserNode RMS.
 
 import { createRoot } from "react-dom/client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -29,6 +29,14 @@ import MusicWidget, { type MusicState } from "./MusicWidget";
 import AmbientMode, { type AmbientData } from "./AmbientMode";
 import SettingsPanel from "./SettingsPanel";
 import { DEFAULT_HUD_COLOR, applyHudTones, isValidHudColor } from "./hud-color";
+import {
+  DEFAULT_STATE_COLORS,
+  isValidStateColor,
+  normalizeStateColors,
+  orbPalettes,
+  type CoreStateKey,
+  type StateColors,
+} from "./core-colors";
 import { DEFAULT_ORB_CORNER, DEFAULT_ORB_MODE, isValidOrbCorner, type OrbCorner } from "./orb-settings";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { parseSessionIntent, type SessionIntent } from "./session-intent";
@@ -642,6 +650,10 @@ function App() {
   // DIFFERENT color, just the same brief pre-hydration window every other
   // fetched-config value here already has (ambient_after_s, voice availability).
   const [hudColor, setHudColorRaw] = useState(DEFAULT_HUD_COLOR);
+  // Orb colour per state (listening / thinking / speaking). Same persistence
+  // path as hudColor — it is one more key in the same view-state document, and
+  // it starts at the shipped defaults for the same no-flash reason.
+  const [stateColors, setStateColorsRaw] = useState<StateColors>(DEFAULT_STATE_COLORS);
   // Orb mode (Phase 3): the "shrink into a corner over the rest of Garrison"
   // preference + the corner it's last docked to. `?mode=orb` is the deep-link
   // override called for in the brief (e.g. opening jarvis-os standalone
@@ -655,6 +667,7 @@ function App() {
     fetch("/api/hud-settings").then((r) => (r.ok ? r.json() : null)).then((s) => {
       if (!s) return;
       if (isValidHudColor(s.color)) setHudColorRaw(s.color);
+      if (s.stateColors) setStateColorsRaw(normalizeStateColors(s.stateColors));
       if (!orbQueryOverride && typeof s.orbMode === "boolean") setOrbModeRaw(s.orbMode);
       if (isValidOrbCorner(s.orbCorner)) setOrbCornerRaw(s.orbCorner);
     }).catch(() => {});
@@ -680,6 +693,32 @@ function App() {
       }).catch(() => {}); // best-effort — a failed write just means the next change retries
     }, 200);
   }, []);
+  // Orb state colours: same 200ms debounce as the HUD swatch, and for the same
+  // reason — <input type="color"> fires on every pixel of a drag. The POST
+  // always carries the WHOLE stateColors object rather than the one key that
+  // changed, so a rapid pick on a second state can't race a half-written first.
+  const stateColorsPostTimerRef = useRef<number | null>(null);
+  const persistStateColors = useCallback((next: StateColors) => {
+    setStateColorsRaw(next);
+    if (stateColorsPostTimerRef.current) window.clearTimeout(stateColorsPostTimerRef.current);
+    stateColorsPostTimerRef.current = window.setTimeout(() => {
+      fetch("/api/hud-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stateColors: next }),
+      }).catch(() => {});
+    }, 200);
+  }, []);
+  const setStateColor = useCallback((state: CoreStateKey, hex: string) => {
+    if (!isValidStateColor(hex)) return;
+    persistStateColors({ ...stateColors, [state]: hex.toLowerCase() });
+  }, [stateColors, persistStateColors]);
+  const resetStateColors = useCallback(() => {
+    persistStateColors({ ...DEFAULT_STATE_COLORS });
+  }, [persistStateColors]);
+  // Derive the six-mode palette set once per pick, not once per frame — the
+  // core holds it in a ref and its tick eases the live uniforms toward it.
+  const orbPalette = useMemo(() => orbPalettes(stateColors), [stateColors]);
   // Orb mode / corner: no drag-frame debounce needed (these are discrete
   // toggle/pick actions, not a continuously-dragged input like the color
   // swatch), so persist immediately. Both also broadcast to the parent shell
@@ -2583,7 +2622,7 @@ function App() {
         aria-pressed={sessionOn}
         aria-label={sessionOn ? "Stop voice session" : "Start voice session"}
       >
-        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" orbDisplay={isOrbDisplay} />
+        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" orbDisplay={isOrbDisplay} palettes={orbPalette} />
       </div>
 
       {waCenter && (
@@ -2648,6 +2687,9 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
       <SettingsPanel
         color={hudColor}
         onChange={setHudColor}
+        stateColors={stateColors}
+        onStateColorChange={setStateColor}
+        onStateColorsReset={resetStateColors}
         orbMode={orbMode}
         onOrbModeChange={setOrbMode}
         orbCorner={orbCorner}

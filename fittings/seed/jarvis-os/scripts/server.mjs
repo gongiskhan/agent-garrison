@@ -246,8 +246,17 @@ const ORB_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-rig
 const DEFAULT_HUD_SETTINGS = {
   color: "#c8322c", // matches ui/hud-color.ts DEFAULT_HUD_COLOR
   orbMode: false,
-  orbCorner: "bottom-right" // matches ui/orb-settings.ts DEFAULT_ORB_CORNER
+  orbCorner: "bottom-right", // matches ui/orb-settings.ts DEFAULT_ORB_CORNER
+  // Per-state orb colours — matches ui/core-colors.ts DEFAULT_STATE_COLORS
+  // (listening cyan · thinking magenta · speaking near-white blue).
+  stateColors: {
+    listening: "#10ddf9",
+    thinking: "#f91fbc",
+    speaking: "#bccde6"
+  }
 };
+
+const CORE_STATE_KEYS = ["listening", "thinking", "speaking"];
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 let latestHudSettings = null;
 
@@ -257,12 +266,22 @@ async function handleHudSettingsGet(res) {
     latestHudSettings = exists && state && typeof state === "object"
       ? { ...DEFAULT_HUD_SETTINGS, ...state }
       : { ...DEFAULT_HUD_SETTINGS };
+    // stateColors is a nested object, so the spread above would hand back a
+    // PARTIAL one whenever the persisted document predates a state (or predates
+    // the setting entirely). Fill the gaps so every reader — the HUD and the
+    // shell alike — sees all three keys.
+    latestHudSettings.stateColors = {
+      ...DEFAULT_HUD_SETTINGS.stateColors,
+      ...(latestHudSettings.stateColors && typeof latestHudSettings.stateColors === "object"
+        ? latestHudSettings.stateColors
+        : {})
+    };
   }
   jsonRes(res, 200, latestHudSettings);
 }
 
-// Partial-update body: any subset of {color, orbMode, orbCorner}. Each
-// recognized field is validated independently and merged onto whatever is
+// Partial-update body: any subset of {color, orbMode, orbCorner, stateColors}.
+// Each recognized field is validated independently and merged onto whatever is
 // already known; a body with no recognized field is a 400 (most likely a
 // caller bug, not a real "clear settings" request — there is no such thing).
 async function handleHudSettingsPost(req, res) {
@@ -279,6 +298,23 @@ async function handleHudSettingsPost(req, res) {
     }
     if (typeof body.orbMode === "boolean") {
       next.orbMode = body.orbMode;
+      touched = true;
+    }
+    // stateColors is merged key-by-key rather than replaced wholesale: a client
+    // that only knows about two of the three states must not silently drop the
+    // third back to its default.
+    if (body.stateColors && typeof body.stateColors === "object") {
+      const merged = { ...DEFAULT_HUD_SETTINGS.stateColors, ...(next.stateColors || {}) };
+      for (const key of CORE_STATE_KEYS) {
+        const value = body.stateColors[key];
+        if (value === undefined) continue;
+        if (typeof value !== "string" || !HEX_COLOR_RE.test(value.trim())) {
+          jsonRes(res, 400, { error: `stateColors.${key} must be a #rrggbb hex string` });
+          return;
+        }
+        merged[key] = value.trim().toLowerCase();
+      }
+      next.stateColors = merged;
       touched = true;
     }
     if (typeof body.orbCorner === "string") {
