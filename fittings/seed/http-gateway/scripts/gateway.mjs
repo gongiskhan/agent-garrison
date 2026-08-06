@@ -863,7 +863,18 @@ async function forwardChatToOrchestrator({ origin, channel, message, body }) {
       logEvent("stdout", { kind: "mode-switch", channel, from: r.priorMode, to: r.mode, trigger: r.trigger });
     }
   }
-  const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending, routeHint });
+  // When the turn originates from an external connector (today: whatsapp-web),
+  // thread the sender identity so the operative knows WHO wrote and on which
+  // surface to answer. Without it the router sees a bare message and shortcuts to
+  // a toolless probe lane whose reply is discarded — exactly how Rodrigo's
+  // WhatsApp messages went unanswered. Whether to auto-reply is the operative's
+  // own call (its memory scopes authorization per-contact); delivery is the
+  // operative running the connector's send_text, never this gateway.
+  const inbound =
+    body?.source === "whatsapp-web" && body?.chat
+      ? { surface: "WhatsApp", jid: String(body.chat), name: body?.chatName ? String(body.chatName) : null }
+      : null;
+  const turn = buildOrchestratorTurn({ origin, channel, mode: resolvedMode, message, pendingSummaries: pending, routeHint, inbound });
   const targetState = registry.get(targetSessionId);
   if (targetState) targetState.lastSummary = null;
   // Honor an explicit per-turn timeout (the Kanban Loop sends a generous one:
@@ -945,7 +956,12 @@ const server = http.createServer(async (request, response) => {
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
-      const channel = String(body.channel ?? "main");
+      // Inbound connector forwards (whatsapp-web posts {source, chat, chatName})
+      // carry no channel. Tag them so the turn runs as an external-contact turn
+      // instead of a bare "main" message the router shortcuts to a toolless probe
+      // lane — the failure mode that left WhatsApp messages silently unanswered.
+      const source = String(body.source ?? "");
+      const channel = String(body.channel ?? (source === "whatsapp-web" ? "whatsapp" : "main"));
       // Which operative's session id this turn actually reports — the kanban
       // operative for channel:"kanban", the interactive orchestrator otherwise.
       const replySessionId = isKanbanDispatchChannel(channel) ? kanbanOperativeSessionId : orchestratorSessionId;
@@ -973,7 +989,12 @@ const server = http.createServer(async (request, response) => {
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });
       const origin = (request.headers["x-garrison-origin"] ?? "channel").toString();
-      const channel = String(body.channel ?? "main");
+      // Inbound connector forwards (whatsapp-web posts {source, chat, chatName})
+      // carry no channel. Tag them so the turn runs as an external-contact turn
+      // instead of a bare "main" message the router shortcuts to a toolless probe
+      // lane — the failure mode that left WhatsApp messages silently unanswered.
+      const source = String(body.source ?? "");
+      const channel = String(body.channel ?? (source === "whatsapp-web" ? "whatsapp" : "main"));
 
       response.statusCode = 200;
       response.setHeader("content-type", "text/event-stream");

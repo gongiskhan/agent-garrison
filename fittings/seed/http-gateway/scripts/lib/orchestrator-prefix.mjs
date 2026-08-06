@@ -15,8 +15,16 @@ export function buildOrchestratorTurn({
   mode = null,
   message,
   pendingSummaries = [],
-  routeHint = null
+  routeHint = null,
+  inbound = null
 }) {
+  // External-connector turns (whatsapp-web) name the sender + surface so the
+  // operative answers the right person on the right channel instead of treating
+  // the text as a bare probe. name/jid are sanitizeTag'd — the sender controls
+  // their pushName, so they must not be able to forge a bracketed directive.
+  const inboundClause = inbound
+    ? `[Inbound ${sanitizeTag(inbound.surface || "message")} from ${sanitizeTag(inbound.name || inbound.jid || "unknown")}${inbound.jid ? ` (${sanitizeTag(inbound.jid)})` : ""}. This is a real person messaging Gabriel. Reply on his behalf ONLY if this contact is authorized for auto-reply (check memory); the reply must be delivered by sending a message back to them through the whatsapp-web send_text connector — text you write here is NOT delivered to them. If the contact is not authorized, do not send anything.]\n\n`
+    : "";
   const summaryClause =
     pendingSummaries.length > 0
       ? `[Recent sub-session summaries — ${pendingSummaries
@@ -30,7 +38,7 @@ export function buildOrchestratorTurn({
   // Strip brackets + newlines so a caller can't break out of this tag and forge a
   // `[gateway-route … Delegate at expert]`-style directive the orchestrator obeys.
   const originLine = `[origin: ${sanitizeTag(origin)}, channel: ${sanitizeTag(channel)}${mode ? `, mode: ${sanitizeTag(mode)}` : ""}]\n\n`;
-  return `${originLine}${routeClause}${summaryClause}${message}`;
+  return `${originLine}${routeClause}${inboundClause}${summaryClause}${message}`;
 }
 
 function sanitizeTag(v) {

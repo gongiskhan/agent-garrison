@@ -531,13 +531,16 @@ export function buildConnectionManager({
     return existsSync(credsPath());
   }
 
-  async function forwardInbound(chatJid, body) {
+  async function forwardInbound(chatJid, body, chatName) {
     if (!body) return;
     try {
       await fetchImpl(`${gatewayUrl}/chat`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: body, source: "whatsapp-web", chat: chatJid })
+        // chatName lets the operative match the sender against its per-contact
+        // auto-reply authorization (memory) without guessing from the raw JID —
+        // inbound JIDs arrive under a privacy alias (…@lid) that send_text rejects.
+        body: JSON.stringify({ message: body, source: "whatsapp-web", chat: chatJid, chatName: chatName ?? null })
       });
     } catch (err) {
       log(`forward to gateway failed: ${err.message}`);
@@ -670,7 +673,7 @@ export function buildConnectionManager({
             const avatarUrl = await avatars.lookup(chatJid);
             messageBus.publish({ type: "message", direction: "in", avatarUrl, ...pulse });
           })();
-          void forwardInbound(chatJid, body);
+          void forwardInbound(chatJid, body, record.chatName);
         }
       }
     });
