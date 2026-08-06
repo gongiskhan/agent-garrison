@@ -31,11 +31,13 @@ import SettingsPanel from "./SettingsPanel";
 import { DEFAULT_HUD_COLOR, applyHudTones, isValidHudColor } from "./hud-color";
 import {
   DEFAULT_STATE_COLORS,
+  THEMES,
   isValidStateColor,
   normalizeStateColors,
   orbPalettes,
   type CoreStateKey,
   type StateColors,
+  type ThemeKey,
 } from "./core-colors";
 import { DEFAULT_ORB_CORNER, DEFAULT_ORB_MODE, isValidOrbCorner, type OrbCorner } from "./orb-settings";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
@@ -716,6 +718,24 @@ function App() {
   const resetStateColors = useCallback(() => {
     persistStateColors({ ...DEFAULT_STATE_COLORS });
   }, [persistStateColors]);
+  // A theme moves the chrome AND the three orb states together, so it persists
+  // as ONE POST carrying both keys — two separate writes would leave a window
+  // where a reload could pick up half a theme.
+  const applyTheme = useCallback((key: ThemeKey) => {
+    const theme = THEMES[key];
+    const states = { ...theme.states };
+    // Drop any in-flight debounced write first: a swatch dragged <200ms before
+    // the theme click would otherwise land AFTER it and half-undo it.
+    if (hudColorPostTimerRef.current) window.clearTimeout(hudColorPostTimerRef.current);
+    if (stateColorsPostTimerRef.current) window.clearTimeout(stateColorsPostTimerRef.current);
+    setHudColorRaw(theme.hud);
+    setStateColorsRaw(states);
+    fetch("/api/hud-settings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ color: theme.hud, stateColors: states }),
+    }).catch(() => {});
+  }, []);
   // Derive the six-mode palette set once per pick, not once per frame — the
   // core holds it in a ref and its tick eases the live uniforms toward it.
   const orbPalette = useMemo(() => orbPalettes(stateColors), [stateColors]);
@@ -2690,6 +2710,7 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
         stateColors={stateColors}
         onStateColorChange={setStateColor}
         onStateColorsReset={resetStateColors}
+        onThemeChange={applyTheme}
         orbMode={orbMode}
         onOrbModeChange={setOrbMode}
         orbCorner={orbCorner}

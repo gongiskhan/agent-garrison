@@ -45,6 +45,62 @@ export const CORE_STATE_LABEL: Record<CoreStateKey, string> = {
   speaking: "a falar"
 };
 
+// ── themes ──────────────────────────────────────────────────────────────────
+// A theme is the one control that moves EVERYTHING at once: the chrome swatch
+// (hud-color.ts) and all three orb states. It exists because the two are
+// deliberately independent — the chrome is CSS, the orb is a WebGL canvas that
+// reads no CSS at all, and the orb's colour is how a state is signalled, so a
+// single knob painting both one flat colour would cost you the ability to tell
+// listening from thinking at a glance.
+//
+// "garrison" uses Garrison's own tokens, taken from src/app/globals.css. The
+// ON-DARK pair is the right one: --sage/--brass (#31563f/#80601e) are tuned for
+// the light canvas, while --sage-2/--brass-2 are what Garrison's own dark
+// sidebar uses — and the HUD is dark. Speaking takes --shell-ink, the cream
+// Garrison writes on dark, which is exactly the near-white role speaking plays
+// in the Jarvis palette.
+export type ThemeKey = "jarvis" | "garrison";
+
+export type Theme = {
+  key: ThemeKey;
+  label: string;
+  hud: string;
+  states: StateColors;
+};
+
+export const THEMES: Record<ThemeKey, Theme> = {
+  jarvis: {
+    key: "jarvis",
+    label: "Jarvis",
+    hud: "#c8322c", // hud-color.ts DEFAULT_HUD_COLOR
+    states: { ...DEFAULT_STATE_COLORS }
+  },
+  garrison: {
+    key: "garrison",
+    label: "Garrison",
+    hud: "#5d8668", // --sage-2
+    states: {
+      listening: "#5d8668", // --sage-2   · moss green
+      thinking: "#c7a95a", // --brass-2  · brass/yellow
+      speaking: "#f2ead9" // --shell-ink · cream on dark
+    }
+  }
+};
+
+export const THEME_KEYS: ThemeKey[] = ["jarvis", "garrison"];
+
+// Which theme the current settings ARE, or null when a swatch has been edited
+// away from every preset. Drives the pressed state in the panel — a theme
+// button that stayed lit after you nudged one colour would be lying.
+export function activeTheme(hud: string, states: StateColors): ThemeKey | null {
+  const same = (a: string, b: string) => (a || "").toLowerCase() === (b || "").toLowerCase();
+  for (const key of THEME_KEYS) {
+    const t = THEMES[key];
+    if (same(hud, t.hud) && CORE_STATE_KEYS.every((s) => same(states[s], t.states[s]))) return key;
+  }
+  return null;
+}
+
 // three.js HSL: h, s, l all in 0..1.
 export type Hsl = [number, number, number];
 

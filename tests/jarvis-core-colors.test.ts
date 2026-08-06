@@ -6,7 +6,10 @@ import {
   isDefaultStateColors,
   isValidStateColor,
   normalizeStateColors,
-  orbPalettes
+  orbPalettes,
+  THEMES,
+  THEME_KEYS,
+  activeTheme
 } from "../fittings/seed/jarvis-os/ui/core-colors";
 
 // The palettes GraphCore shipped with, before they became user-settable. The
@@ -123,6 +126,51 @@ describe("jarvis orb state colours", () => {
       const merged = normalizeStateColors({ listening: DEFAULT_STATE_COLORS.listening.toUpperCase() });
       expect(isDefaultStateColors(merged)).toBe(true);
       expect(isDefaultStateColors({ ...DEFAULT_STATE_COLORS, speaking: "#22cc55" })).toBe(false);
+    });
+  });
+
+  describe("themes", () => {
+    it("carries Garrison's own on-dark tokens, not the light-canvas pair", () => {
+      // src/app/globals.css: --sage-2 / --brass-2 are what Garrison's own dark
+      // sidebar uses; --sage (#31563f) / --brass (#80601e) are tuned for the
+      // light canvas and would render as mud on a black HUD.
+      expect(THEMES.garrison.states.listening).toBe("#5d8668"); // --sage-2
+      expect(THEMES.garrison.states.thinking).toBe("#c7a95a"); // --brass-2
+      expect(THEMES.garrison.states.speaking).toBe("#f2ead9"); // --shell-ink
+      expect(THEMES.garrison.hud).toBe("#5d8668");
+    });
+
+    it("keeps the jarvis theme identical to the shipped defaults", () => {
+      expect(THEMES.jarvis.states).toEqual(DEFAULT_STATE_COLORS);
+      expect(orbPalettes(THEMES.jarvis.states)).toEqual(orbPalettes(DEFAULT_STATE_COLORS));
+    });
+
+    it("leaves all three Garrison states inside the visible band and apart", () => {
+      const p = orbPalettes(THEMES.garrison.states);
+      for (const mode of ["listening", "working", "speaking"] as const) {
+        expect(p[mode].outer[2]).toBeGreaterThanOrEqual(0.25);
+        expect(p[mode].outer[2]).toBeLessThanOrEqual(0.92);
+      }
+      // green vs brass must not collapse into "two yellows" — the whole point
+      // of a per-state colour is telling the states apart.
+      const gap = Math.abs(p.listening.hue - p.working.hue) * 360;
+      expect(Math.min(gap, 360 - gap)).toBeGreaterThan(30);
+    });
+
+    it("reports which theme is active, and null once a swatch is nudged", () => {
+      expect(activeTheme(THEMES.garrison.hud, THEMES.garrison.states)).toBe("garrison");
+      expect(activeTheme(THEMES.jarvis.hud, THEMES.jarvis.states)).toBe("jarvis");
+      // case must not matter — <input type="color"> hands back lowercase, the
+      // constants are lowercase, but a hand-edited settings file may not be.
+      expect(activeTheme("#5D8668", { ...THEMES.garrison.states, listening: "#5D8668" })).toBe("garrison");
+      // right orb, wrong chrome — that is not the theme any more
+      expect(activeTheme("#ff0000", THEMES.garrison.states)).toBeNull();
+      expect(activeTheme(THEMES.garrison.hud, { ...THEMES.garrison.states, speaking: "#123456" })).toBeNull();
+    });
+
+    it("lists every theme it defines", () => {
+      expect(THEME_KEYS).toEqual(["jarvis", "garrison"]);
+      for (const key of THEME_KEYS) expect(THEMES[key].key).toBe(key);
     });
   });
 

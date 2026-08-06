@@ -13,10 +13,14 @@ import {
   CORE_STATE_KEYS,
   CORE_STATE_LABEL,
   DEFAULT_STATE_COLORS,
+  THEMES,
+  THEME_KEYS,
+  activeTheme,
   isDefaultStateColors,
   isValidStateColor,
   type CoreStateKey,
   type StateColors,
+  type ThemeKey,
 } from "./core-colors";
 import { ORB_CORNERS, type OrbCorner } from "./orb-settings";
 
@@ -39,6 +43,7 @@ export default function SettingsPanel({
   stateColors,
   onStateColorChange,
   onStateColorsReset,
+  onThemeChange,
   orbMode,
   onOrbModeChange,
   orbCorner,
@@ -49,6 +54,7 @@ export default function SettingsPanel({
   stateColors: StateColors;
   onStateColorChange: (state: CoreStateKey, hex: string) => void;
   onStateColorsReset: () => void;
+  onThemeChange: (theme: ThemeKey) => void;
   orbMode: boolean;
   onOrbModeChange: (next: boolean) => void;
   orbCorner: OrbCorner;
@@ -77,6 +83,7 @@ export default function SettingsPanel({
   }, [open]);
 
   const swatch = isValidHudColor(color) ? color : DEFAULT_HUD_COLOR;
+  const theme = activeTheme(swatch, stateColors);
 
   return (
     <div className="jarvis-settings" ref={rootRef}>
@@ -92,6 +99,42 @@ export default function SettingsPanel({
       {open && (
         <div className="jarvis-settings-panel" role="dialog" aria-label="Definições do HUD">
           <div className="jarvis-settings-head">definições</div>
+
+          {/* One click that moves the chrome AND all three orb states. The
+              chrome swatch alone cannot do this: it writes CSS variables, and
+              the orb is a WebGL canvas that reads none of them. */}
+          <div className="jarvis-settings-row">
+            <span className="jarvis-settings-label">tema</span>
+            <div className="jarvis-settings-themes" role="group" aria-label="Tema de cores">
+              {THEME_KEYS.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`jarvis-settings-theme${theme === key ? " is-active" : ""}`}
+                  onClick={() => onThemeChange(key)}
+                  aria-pressed={theme === key}
+                  title={
+                    key === "garrison"
+                      ? "As cores do Garrison — verde sage e latão, para o HUD assentar dentro da app"
+                      : "As cores originais do Jarvis"
+                  }
+                >
+                  <span
+                    className="jarvis-settings-theme-dot"
+                    style={{ background: THEMES[key].states.listening }}
+                    aria-hidden
+                  />
+                  <span
+                    className="jarvis-settings-theme-dot"
+                    style={{ background: THEMES[key].states.thinking }}
+                    aria-hidden
+                  />
+                  {THEMES[key].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <label className="jarvis-settings-row" htmlFor="jarvis-hud-color">
             <span className="jarvis-settings-label">cor do HUD</span>
             <input

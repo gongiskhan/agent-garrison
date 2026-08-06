@@ -258,6 +258,40 @@ html, body, #root {
 .jarvis-settings-subhead {
   color: var(--ink-dim);
 }
+
+/* Theme presets. Each button carries two dots painted with that theme's own
+   listening/thinking colours, so the choice is legible before you make it —
+   the label alone ("Garrison") says nothing about what it looks like. */
+.jarvis-settings-themes {
+  display: flex;
+  gap: 4px;
+}
+.jarvis-settings-theme {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.jarvis-settings-theme:hover {
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.jarvis-settings-theme.is-active {
+  color: var(--ink);
+  border-color: var(--cobalt);
+}
+.jarvis-settings-theme-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
 .jarvis-settings-row {
   display: flex;
   align-items: center;
