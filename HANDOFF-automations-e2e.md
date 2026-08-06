@@ -19,11 +19,17 @@ them changes which action you should run first.
 
 Cortex builds its Google redirect URI as `${OAUTH_REDIRECT_BASE_URL}/api/v1/oauth/google/callback`
 (`api/src/integrations/platform-oauth.ts`, `redirectUri()`). With the stack published on
-the tailnet at port 4111, the value to add is exactly:
+the tailnet at port 8411, the value to add is exactly:
 
 ```
-https://dev-madrid.tail31efa.ts.net:4111/api/v1/oauth/google/callback
+https://dev-madrid.tail31efa.ts.net:8411/api/v1/oauth/google/callback
 ```
+
+**Why 8411 and not 4111.** The API's local port cannot be reused as the tailnet port. The dev
+harness binds `*:4111` and `*:3000` — every interface, including the tailnet IP — so
+`tailscale serve --https=4111` cannot take that port, the browser reaches the raw HTTP server
+instead, and `https://` fails with `ERR_SSL_PROTOCOL_ERROR`. The tailnet port has to be one
+nothing is already bound to; 8411 (API) and 8430 (web) are free on this box.
 
 Add it to the **same** OAuth web client Garrison already uses — the one whose id and
 secret are in the Garrison Vault as `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
@@ -45,11 +51,29 @@ I could not run these (changing network exposure is blocked for me), and without
 your browser cannot reach the stack and Google cannot reach the callback:
 
 ```bash
-tailscale serve --bg --https=4111 http://127.0.0.1:4111   # the API + its OAuth callback
-tailscale serve --bg --https=3000 http://127.0.0.1:3000   # the dashboard
+tailscale serve --bg --https=8411 http://127.0.0.1:4111   # the API + its OAuth callback
+tailscale serve --bg --https=8430 http://127.0.0.1:3000   # the dashboard
 ```
 
-Both are tailnet-only, not funnel. Verify with `tailscale serve status`.
+**Do not use 4111/3000 as the tailnet ports.** `tailscale serve --https=4111` reports
+"Serve started and running in the background" and then does nothing useful: the dev harness
+already binds `*:4111` and `*:3000` on every interface, including the tailnet IP, so
+tailscaled cannot take the port. The browser reaches the plain-HTTP server directly and an
+`https://` URL dies with `ERR_SSL_PROTOCOL_ERROR`. The success message is about recording the
+mapping, not about binding the socket, so this failure is silent from the command's output.
+If you already ran the 4111/3000 form, clear it first:
+
+```bash
+tailscale serve --https=4111 off
+tailscale serve --https=3000 off
+```
+
+Both mappings are tailnet-only, not funnel. Verify the real state with `tailscale serve
+status` — and confirm it actually bound, which the status output alone will not tell you:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://dev-madrid.tail31efa.ts.net:8411/health
+```
 
 ## 3. Start the stack
 
@@ -58,8 +82,8 @@ cd ~/dev/ekoa-code
 npm run build --workspace shared && npm run build --workspace api
 
 EKOA_DEV_DB_PATH="$HOME/.ekoa/dev-db" \
-OAUTH_REDIRECT_BASE_URL="https://dev-madrid.tail31efa.ts.net:4111" \
-EKOA_PUBLIC_API_URL="https://dev-madrid.tail31efa.ts.net:4111" \
+OAUTH_REDIRECT_BASE_URL="https://dev-madrid.tail31efa.ts.net:8411" \
+EKOA_PUBLIC_API_URL="https://dev-madrid.tail31efa.ts.net:8411" \
 EKOA_PUBLIC_WEB_HOST="dev-madrid.tail31efa.ts.net" \
 GOOGLE_CLIENT_ID="<the same client id as the Garrison vault holds>" \
 GOOGLE_CLIENT_SECRET="<the same client secret>" \
@@ -85,7 +109,7 @@ deterministic execute path used in step 7 does **not** need it.
 
 ## 4. HUMAN — connect Google in Ekoa
 
-Open `https://dev-madrid.tail31efa.ts.net:3000`, sign in (`admin` / `tmp12345` on this
+Open `https://dev-madrid.tail31efa.ts.net:8430`, sign in (`admin` / `tmp12345` on this
 dev stack), then:
 
 **Integrações → the "Plataforma" tab → the Google Workspace card → Ligar.**
@@ -118,15 +142,18 @@ answer 401, while the capability routes answer normally.
 
 ## 6. Paste the key into Garrison
 
-The key is already in the prod Vault as `CORTEX_API_KEY` — I minted one and wrote it there.
-The fitting is **not** equipped, and that part is yours to do:
+The key is already in the prod Vault as `CORTEX_API_KEY`, and the Fitting is now stationed in
+the `default` composition. What remains is its `base_url`.
 
 1. **Vault** (`https://dev-madrid.tail31efa.ts.net/vault`) — `CORTEX_API_KEY` is already set.
    It belongs to the dev stack's `admin`; mint your own and replace it if you want the calls
    under your own identity.
-2. **Compose** → equip **cortex-automations** → set its `base_url` to `http://127.0.0.1:4111`
-   (loopback is correct here: Garrison calls Cortex server-to-server on the same box, and the
-   browser never sees this value. Do not put a loopback URL anywhere the browser consumes.)
+2. **Composition → Fittings → the Connectors slot card**. The search box at the top of that tab
+   FILTERS the cards already in the composition — it is not a picker, so searching for a Fitting
+   you have not stationed yet returns "No Fittings match that search". Use the Connectors card's
+   **Add fitting** button, which opens the candidate list. Then set `base_url` on the stationed
+   entry to `http://127.0.0.1:4111` (loopback is correct: Garrison calls Cortex server-to-server
+   on the same box and the browser never sees this value). It autosaves.
 3. Open the Session view at **`/fitting/cortex-automations/session`**. The sidebar's Fittings
    entry links a Fitting's ROOT route only, so this one has to be typed (or bookmarked) — the
    root lands you on the connector view instead.
