@@ -3,6 +3,7 @@ import { readLibrary } from "@/lib/library";
 import { scopedSecrets, setOAuthGrant } from "@/lib/vault";
 import { connectorIdOf } from "@/lib/connectors-view";
 import { consumeOAuthState } from "@/lib/oauth-state";
+import { publicOrigin } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,9 @@ function back(origin: string, q: string) {
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   const id = params.id;
   const url = new URL(request.url);
-  const origin = url.origin;
+  // Same reason as oauth-start: this redirect drives the USER'S browser back to
+  // the Connectors page, so it has to be the origin they are actually on.
+  const origin = publicOrigin(request);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state") ?? "";
   const providerError = url.searchParams.get("error");

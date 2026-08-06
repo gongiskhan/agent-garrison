@@ -3,6 +3,7 @@ import { readLibrary } from "@/lib/library";
 import { scopedSecrets } from "@/lib/vault";
 import { connectorIdOf } from "@/lib/connectors-view";
 import { createOAuthState } from "@/lib/oauth-state";
+import { publicOrigin } from "@/lib/public-origin";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -27,7 +28,11 @@ export async function GET(request: Request, { params }: { params: { id: string }
       return NextResponse.json({ error: "client-credentials-missing", needs: [oauth.clientIdSecret, oauth.clientSecretSecret] }, { status: 409 });
     }
 
-    const origin = new URL(request.url).origin;
+    // The origin the BROWSER used, not the loopback one this process saw behind
+    // tailscale serve. Google redirects the user's browser to this value after
+    // consent, so a machine-local origin lands them on ERR_CONNECTION_REFUSED
+    // with a valid code they can never spend.
+    const origin = publicOrigin(request);
     const redirectUri = `${origin}/api/connectors/${encodeURIComponent(id)}/oauth-callback`;
     const state = createOAuthState(id, redirectUri);
 
