@@ -10,7 +10,8 @@
 import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readlink, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,8 @@ import { tmpdir } from "node:os";
 import { WebSocketServer, WebSocket } from "ws";
 import { chromium } from "playwright";
 import { createSpotter } from "./spotter.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
@@ -512,19 +515,59 @@ async function waitForDevToolsPort(userDataDir, timeoutMs = 15000) {
   throw new Error(`Chromium did not write ${portFile} within ${timeoutMs}ms`);
 }
 
-// The parent pid of a /proc process, or null if unreadable. Used to tell an
-// ORPHANED chromium (its old server exited, so it reparented to init/systemd)
-// from one a LIVE sibling server still owns.
+// The parent pid of a process, or null if unreadable. Used to tell an ORPHANED
+// chromium (its old server exited, so it reparented to init/launchd) from one a
+// LIVE sibling server still owns. /proc is LINUX-ONLY: on darwin every read
+// below threw, so parentPidOf returned null and processArgsOf returned [] for
+// EVERY pid — which made breakStaleProfileLock's `args.includes(...)` guard
+// always false, so it never terminated the orphan. It just deleted the
+// SingletonLock and launched a fresh chromium, leaking one browser per fitting
+// restart (13 orphans / 821 MB observed on the Air, 2026-08-06). ps is the
+// portable fallback.
 async function parentPidOf(pid) {
+  if (process.platform === "linux") {
+    try {
+      // /proc/<pid>/stat: "pid (comm) state ppid ..."; comm can contain spaces
+      // and parens, so parse ppid as the 2nd field after the final ')'.
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      const ppid = Number(after[1]);
+      return Number.isFinite(ppid) ? ppid : null;
+    } catch {
+      return null;
+    }
+  }
   try {
-    // /proc/<pid>/stat: "pid (comm) state ppid ..."; comm can contain spaces
-    // and parens, so parse ppid as the 2nd field after the final ')'.
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-    const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-    const ppid = Number(after[1]);
+    const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "ppid="]);
+    const ppid = Number(stdout.trim());
     return Number.isFinite(ppid) ? ppid : null;
   } catch {
-    return null;
+    return null; // pid gone
+  }
+}
+
+// A process's argv as an ARRAY, so a caller can compare one arg EXACTLY — a
+// substring test would match a sibling prefix dir (browser-profile vs
+// browser-profile-dev) and hit an innocent process. [] when the pid is gone or
+// unreadable, which every caller must read as "do not touch it".
+async function processArgsOf(pid) {
+  if (process.platform === "linux") {
+    try {
+      // cmdline is NUL-separated.
+      return (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
+    } catch {
+      return []; // pid gone
+    }
+  }
+  try {
+    // ps re-joins argv with single spaces, so splitting on whitespace recovers
+    // the exact args for a profile path without spaces (the GARRISON_HOME
+    // convention). A path WITH a space splits into fragments and simply fails
+    // to match — it degrades to "leave it alone", never to a mis-targeted kill.
+    const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "command="]);
+    return stdout.trim().split(/\s+/);
+  } catch {
+    return []; // pid gone
   }
 }
 
@@ -543,13 +586,10 @@ async function breakStaleProfileLock(dir) {
     const target = await readlink(lockPath);
     const pid = Number(target.split("-").pop());
     if (Number.isFinite(pid) && pid > 1) {
-      let args = [];
-      try {
-        // cmdline is NUL-separated; split (not space-join) so the arg compares
-        // EXACTLY - a substring test would match a sibling prefix dir
-        // (browser-profile vs browser-profile-dev) and hit an innocent process.
-        args = (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0");
-      } catch { /* pid gone or non-linux - stale lock */ }
+      // Exact-arg compare (see processArgsOf) - a substring test would match a
+      // sibling prefix dir (browser-profile vs browser-profile-dev) and hit an
+      // innocent process. [] means the pid is gone: a stale lock, nothing to kill.
+      const args = await processArgsOf(pid);
       const ppid = await parentPidOf(pid);
       // Orphan iff the parent is init/systemd (<=1) or no longer alive.
       let orphaned = ppid === null || ppid <= 1;
