@@ -28,6 +28,25 @@ x-garrison:
         placement: sidebar-surface
         entry: garrison:skill
         route: /skill
+      # A hands-on rig over the SAME key-reachable API the skill describes, for
+      # the human rather than the operative: configure the origin, see whether
+      # the credential exists, call an action, start a run and follow it. It
+      # drives the HTTP surface directly through a Garrison server proxy, not
+      # the CLI, so it works before any CLI is installed - which is exactly when
+      # a key and a base URL most need proving.
+      - id: session
+        placement: sidebar-surface
+        entry: cortex-automations:session
+        route: /session
+  config_schema:
+    - key: base_url
+      type: string
+      default: ""
+      description: >-
+        Cortex origin the session view talks to, e.g. https://cortex.example.com. Read
+        SERVER-side only: Garrison's proxy builds every request from it and attaches the
+        Vault-held CORTEX_API_KEY, so neither value reaches the browser. Empty leaves the
+        session view inert, which is the shipped default.
   platforms:
     - all
   summary: >-

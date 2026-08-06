@@ -144,24 +144,42 @@ describe("cortex-automations is stationed in dogfood-dev and survives the regist
     expect(entry?.metadata.verify.command).toContain("scripts/verify.sh");
   });
 
-  it("is a view, not an engine: no port, no server, no setup hook, nothing to configure", async () => {
+  it("is a view, not an engine: no port, no server, no setup hook", async () => {
     const metadata = await loadSeedMetadata("cortex-automations");
     expect(metadata.own_port).toBeUndefined();
     expect(metadata.default_port).toBeUndefined();
     expect(metadata.setup).toBeUndefined();
-    expect(metadata.config_schema).toEqual([]);
-    // Inert by construction: the composition hands it nothing, so a fresh clone
-    // with an empty vault composes and runs (capability contract rule 6).
+    // The session view needs to know WHERE Cortex is, and that is the only
+    // thing it configures. It must still default to empty: inert by
+    // construction, so a fresh clone with an empty vault composes and runs
+    // (capability contract rule 6).
+    expect(metadata.config_schema.map((f) => f.key)).toEqual(["base_url"]);
+    expect(metadata.config_schema[0]?.default).toBe("");
     const selected = ((await selectionsOf("dogfood-dev")).connectors ?? []).find(
       (s) => s.id === "cortex-automations"
     );
-    expect(selected?.config).toEqual({});
+    expect(selected?.config?.base_url ?? "").toBe("");
   });
 
-  it("declares the two views a skill-first connector needs, on known shared entries", async () => {
+  it("declares the connector/skill shared views plus the bespoke session rig", async () => {
     const metadata = await loadSeedMetadata("cortex-automations");
     const views = metadata.ui?.views ?? [];
-    expect(views.map((v) => v.entry).sort()).toEqual(["garrison:connector", "garrison:skill"]);
+    expect(views.map((v) => v.entry).sort()).toEqual([
+      "cortex-automations:session",
+      "garrison:connector",
+      "garrison:skill"
+    ]);
+    // The bespoke entry is a REGISTRY key, not a path: a view whose loader was
+    // never registered renders "Loader pending" forever, and nothing else
+    // catches that.
+    const registry = await fs.readFile(
+      path.join(REPO_ROOT, "src", "components", "fitting-views", "registry.tsx"),
+      "utf8"
+    );
+    expect(registry).toContain('"cortex-automations:session"');
+    await expect(
+      fs.stat(path.join(FITTING_DIR, "ui", "CortexSession.tsx"))
+    ).resolves.toBeTruthy();
     // The skill IS the deliverable, and APM installs it from this path.
     await expect(fs.stat(SKILL)).resolves.toBeTruthy();
   });

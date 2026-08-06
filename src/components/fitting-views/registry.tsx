@@ -78,7 +78,14 @@ const REGISTRY: Record<string, FittingViewComponent> = {
   "roadmaps:project": dynamic(() => import("@/components/fitting-views/RoadmapView"), {
     ssr: false,
     loading: ViewLoading
-  })
+  }),
+  "cortex-automations:session": dynamic(
+    () => import("../../../fittings/seed/cortex-automations/ui/CortexSession"),
+    {
+      ssr: false,
+      loading: ViewLoading
+    }
+  )
 };
 
 // Shared shape-aware views (2026-07-29 fittings/views refit: every Fitting
