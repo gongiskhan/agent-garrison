@@ -383,13 +383,38 @@ describe("the local automations engine is untouched, and nothing binds to the wr
     expect(nameOf(remote)).not.toBe(nameOf(client));
   });
 
-  it("no compositions/default* composition selects it (existing users see zero change)", async () => {
+  // WHAT THIS ACTUALLY PROTECTS, restated 2026-08-06. It began as "no default* composition may
+  // station it", which read as "existing users see zero change" — but on this repo
+  // compositions/default IS the maintainer's daily driver as well as the shipped default, so
+  // stationing it locally is a legitimate choice the old assertion could not express, and it went
+  // red the moment the Fitting was used for real.
+  //
+  // The property worth keeping is the one that would actually harm a fresh clone: a SHIPPED
+  // composition must not arrive pointing at somebody ELSE'S Cortex. Presence of the Fitting is
+  // harmless — with no base_url the session view is inert and every consumer takes its no-op path
+  // (see the Fitting's config_schema). A LOOPBACK origin is harmless for the same reason it is
+  // harmless anywhere else in this repo: composition-migrate.ts `classifyConfigValue` already
+  // rules that a localhost `_url` is a portable default which legitimately stays in apm.yml, since
+  // it can only ever reach the machine it is read on. A remote host is the thing that must never
+  // ship, and this uses that module's own predicate rather than inventing a second rule.
+  it("no compositions/default* composition ships a REMOTE Cortex origin", async () => {
+    const isLoopback = (v: string) => /^\w+:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(v);
+    // Non-tautology: the predicate distinguishes the two cases it is relied on to distinguish.
+    expect(isLoopback("http://127.0.0.1:4111")).toBe(true);
+    expect(isLoopback("https://cortex.example.com")).toBe(false);
+
     for (const id of ["default", "default-build", "default-economy", "default-premium"]) {
       const selections = await selectionsOf(id);
-      const allIds = Object.values(selections).flatMap((items) => (items ?? []).map((s) => s.id));
-      expect(allIds, `${id} must not station the remote automations view`).not.toContain(
-        "cortex-automations"
-      );
+      const stationed = Object.values(selections)
+        .flatMap((items) => items ?? [])
+        .filter((s) => s.id === "cortex-automations" || s.id === "cortex-client");
+      for (const s of stationed) {
+        const baseUrl = String((s.config as Record<string, unknown> | undefined)?.base_url ?? "");
+        expect(
+          baseUrl === "" || isLoopback(baseUrl),
+          `${id} ships base_url="${baseUrl}" on ${s.id} — a fresh clone would talk to another deployment`,
+        ).toBe(true);
+      }
     }
   });
 });
