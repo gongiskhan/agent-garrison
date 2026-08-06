@@ -308,3 +308,38 @@ describe("Drill authenticated runs", () => {
     expect(run.infraErrors[0]).toMatchObject({ component: "vision", code: "vision-overloaded", count: 2 });
   });
 });
+
+// Mid-run login wall (2026-08-06): a session that dies BETWEEN checks makes the
+// app answer later checks with its login screen. The matcher reads the verify
+// verdict's words (the run record carries no final URL), so it must name the
+// login SURFACE itself - generic credential vocabulary ("palavra-passe") would
+// false-positive every change-password check - and the login page's own checks
+// are excluded by navigate path.
+describe("mid-run login-wall detection", () => {
+  it("matches verdicts that name the login surface, in either language", async () => {
+    const { looksLikeLoginWall } = await import(
+      "../fittings/seed/drill/scripts/server.mjs"
+    );
+    const wall = (message: string, kind = "product-failure") => looksLikeLoginWall({ kind, message });
+    expect(wall('verify failed: the page shows the login form "Iniciar sessão" instead of the dashboard')).toBe(true);
+    expect(wall("verify failed: the browser was redirected to /login")).toBe(true);
+    expect(wall("the user appears logged out; a sign-in page is displayed", "unproven")).toBe(true);
+    // credential vocabulary alone is NOT a wall - change-password checks say this constantly
+    expect(wall('verify failed: the "Palavra-passe" field does not show a reveal toggle')).toBe(false);
+    // wrong kind never matches - an infra failure mentioning login stays infra
+    expect(looksLikeLoginWall({ kind: "infra-failure", message: "login page fetch failed" })).toBe(false);
+    expect(looksLikeLoginWall(null)).toBe(false);
+  });
+
+  it("excludes checks whose own page is the login route", async () => {
+    const { jobOffLoginPage } = await import(
+      "../fittings/seed/drill/scripts/server.mjs"
+    );
+    const book = { app: { url: "http://fixture.invalid" }, auth: { loginPath: "/login" } };
+    const jobOn = { automation: { steps: [{ type: "navigate", url: "http://fixture.invalid/login" }] } };
+    const jobOff = { automation: { steps: [{ type: "navigate", url: "http://fixture.invalid/artifacts" }] } };
+    expect(jobOffLoginPage(jobOn, book)).toBe(false);
+    expect(jobOffLoginPage(jobOff, book)).toBe(true);
+    expect(jobOffLoginPage({ automation: { steps: [] } }, book)).toBe(true);
+  });
+});

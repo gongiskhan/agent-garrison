@@ -319,6 +319,32 @@ function resolveStepOutcome(automationRun, stepId) {
 // classifier deliberately narrow: arbitrary prose containing "connection"
 // or "vision" can describe a real product defect and must not be hidden from
 // triage as infrastructure.
+// A mid-run login wall is detected from the verify verdict's own words - the
+// automation run record does not carry the tab's final URL. Conservative on
+// purpose: only phrases that name the login SURFACE itself count ("palavra-
+// passe" alone would false-positive every change-password check), and the
+// caller additionally excludes checks whose own page IS the login route and
+// re-probes before believing it, so a check that legitimately reports login
+// content keeps its verdict.
+const LOGIN_WALL_MARKERS = /\b(?:log[ -]?in (?:page|screen|form)|sign[ -]?in (?:page|screen|form)|iniciar sessão|página de (?:login|entrada)|formulário de (?:login|entrada)|redirected to \/login|logged[ -]?out|not (?:signed|logged) in|session (?:has )?expired)\b/i;
+export function looksLikeLoginWall(terminal) {
+  if (!terminal) return false;
+  if (terminal.kind !== "product-failure" && terminal.kind !== "unproven") return false;
+  return LOGIN_WALL_MARKERS.test(`${terminal.message ?? ""} ${terminal.reasoning ?? ""}`);
+}
+
+// The login page's own checks are expected to see the login form; only a
+// check that navigated somewhere ELSE can hit a wall.
+export function jobOffLoginPage(job, book) {
+  try {
+    const nav = job?.automation?.steps?.find((step) => step?.type === "navigate")?.url;
+    if (!nav) return true;
+    return new URL(nav).pathname !== new URL(resolveAuthUrl(book)).pathname;
+  } catch {
+    return true;
+  }
+}
+
 export function isInfrastructureFailure(text) {
   return legacyInfrastructureFailure(text) !== null;
 }
@@ -1629,6 +1655,10 @@ async function handle(req, res) {
       });
       const manifestRows = [];
       const checkArtifacts = [];
+      // One mid-run login-wall recovery per run: the first check answered by
+      // the app's login screen re-authenticates and continues; a second wall
+      // after that recovery is a real auth problem and stops the run.
+      let authWallHandled = false;
 
       for (const job of jobs) {
         // User-requested stop (POST /api/runs/:id/cancel). Deliberately NOT a
@@ -1757,6 +1787,54 @@ async function handle(req, res) {
         });
         live.current = null;
         await saveDrillRun(record);
+
+        // Mid-run login wall: the app answered an authenticated page's check
+        // with its login screen (session expired / stale token). The Book
+        // stores working credentials, so the first wall re-authenticates and
+        // continues instead of letting every remaining check be judged against
+        // the login form. The probe distinguishes a REAL wall from a check that
+        // legitimately reports login content (e.g. a redirect check): a live
+        // session (probe passes from cache) keeps the original verdict.
+        if (!authWallHandled && hasAuth(book) && looksLikeLoginWall(terminal) && jobOffLoginPage(job, book)) {
+          authWallHandled = true;
+          publishRunEvent(record.id, { type: "auth_started", runId: record.id, reason: "mid-run-login-wall", loginUrl: resolveAuthUrl(book) });
+          const again = await ensureAuthenticated(book, { contextTag, viewport: sessionViewport || job.viewport, root });
+          if (!again.ok) {
+            const askTerminal = {
+              kind: "blocked",
+              source: "auth",
+              code: "auth-session-lost",
+              component: "auth",
+              message: `The app answered "${job.step.id}" with its login screen mid-run and re-login did not restore a session: ${again.terminal?.message ?? "login failed"} — remaining checks skipped. Verify the credentials in the drills/drillbook.yml auth block still work on this stack.`
+            };
+            pr.terminal = askTerminal;
+            addSystemicIncident(job, askTerminal);
+            openCircuit(askTerminal, job);
+            await saveDrillRun(record);
+            publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
+            break;
+          }
+          publishRunEvent(record.id, { type: "auth_ok", runId: record.id, via: again.via });
+          if (again.via !== "cache") {
+            // The session really was dead: this check was answered by the
+            // login wall, not by its page. ONE grouped auth incident, no
+            // product finding, and the fresh session carries the rest.
+            const wallTerminal = {
+              kind: "unproven",
+              source: "auth",
+              code: "auth-session-expired",
+              component: "auth",
+              message: "The session expired mid-run and this check was answered by the login screen; re-login succeeded and the run continued. Re-run this check."
+            };
+            pr.terminal = wallTerminal;
+            terminal = wallTerminal;
+            addSystemicIncident(job, wallTerminal);
+            await saveDrillRun(record);
+            continue;
+          }
+          // Probe passed from cache: the session was alive all along, so the
+          // login sighting is the check's own honest result - fall through.
+        }
 
         if (terminal.kind === "product-failure") {
           const art = capture ? checkArtifacts.at(-1) : null;
