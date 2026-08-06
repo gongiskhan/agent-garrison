@@ -116,30 +116,24 @@ The key carries exactly its user's tenant and access, and nothing more — verif
 with the key, `/api/v1/gateway-keys`, `/api/v1/users` and `/api/v1/cofre/items` all
 answer 401, while the capability routes answer normally.
 
-## 6. Paste the key into Garrison — already done, but here is where
+## 6. Paste the key into Garrison
 
-**This step is already done on this machine.** I minted a key, put it in the prod Vault as
-`CORTEX_API_KEY`, equipped **cortex-automations** in the `default` composition (the one prod
-is running) with `base_url: http://127.0.0.1:4111`, and redeployed prod. The Session view is
-live under Fittings in the sidebar. To redo it yourself, or on another machine:
+The key is already in the prod Vault as `CORTEX_API_KEY` — I minted one and wrote it there.
+The fitting is **not** equipped, and that part is yours to do:
 
-1. **Vault** (`https://dev-madrid.tail31efa.ts.net/vault`) → add secret `CORTEX_API_KEY` →
-   paste the `ekoa_gk_…` value.
-2. **Compose** → equip **cortex-automations** → set its `base_url`.
-3. The **Session** view appears under Fittings.
+1. **Vault** (`https://dev-madrid.tail31efa.ts.net/vault`) — `CORTEX_API_KEY` is already set.
+   It belongs to the dev stack's `admin`; mint your own and replace it if you want the calls
+   under your own identity.
+2. **Compose** → equip **cortex-automations** → set its `base_url` to `http://127.0.0.1:4111`
+   (loopback is correct here: Garrison calls Cortex server-to-server on the same box, and the
+   browser never sees this value. Do not put a loopback URL anywhere the browser consumes.)
+3. The **Session** view then appears under Fittings.
 
-Two things to know about that state:
-
-- The vault key I set belongs to the dev stack's `admin`. Mint your own and replace it if you
-  want it under your own identity.
-- `base_url` is `http://127.0.0.1:4111` — loopback, because Garrison and Cortex are on the
-  same box and that hop is server-to-server. If you move Cortex elsewhere, use its real
-  origin. Do **not** put a loopback URL anywhere the browser consumes.
-- I equipped the fitting by editing `compositions/default/apm.yml` after the redeploy, so
-  `apm install` has not run for it yet. The next `up` will install it; its verify is
-  degraded-ok with no CLI present, so this is expected to be uneventful. A backup of the
-  pre-edit manifest is not kept in git — the change is two small blocks (a `dependencies.apm`
-  path and a `connectors` selection) and is easy to revert by hand if you want it gone.
+I did equip it in `compositions/default/apm.yml` while proving the chain, and then reverted
+it, because the fitting's own suite asserts that no `compositions/default*` composition may
+station it — the shipped default is shared by every user of this repo and the Fitting is
+meant to arrive inert. Equipping it is a per-user choice, not a default. (`dogfood-dev`
+already has it, if you would rather use that composition than edit `default`.)
 
 The key is read server-side only. Garrison's proxy (`src/lib/cortex-proxy.ts`) attaches it
 and holds it to a closed allowlist of the public endpoints; neither the key nor the base

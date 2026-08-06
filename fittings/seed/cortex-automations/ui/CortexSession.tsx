@@ -437,7 +437,14 @@ function Integrations({ ready }: { ready: boolean }) {
 
   return (
     <section style={cardStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      {/* Left-aligned, NOT pushed to the right edge. The shell's composition
+          creator is `position: fixed` at top-right and sits above page content
+          on every non-/embed route, so a control in the extreme top-right of
+          the first card lands underneath it (AppShell already hit this with
+          Drill's PROJECT selector and only exempted /embed there). Keeping the
+          action next to its label sidesteps the collision instead of guessing
+          at the floating button's width. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: "0.75rem", flexWrap: "wrap" }}>
         <SectionLabel>Integrations</SectionLabel>
         <button type="button" className="btn small" onClick={() => void loadList()} disabled={!ready || loading}>
           {loading ? "Loading…" : items ? "Reload" : "Load integrations"}
