@@ -319,6 +319,15 @@ the UI should call itself live.
   mine. My commits name only my own files; do not assume a clean tree.
 - The stack's ephemeral-by-default database means that if you start it *without*
   `EKOA_DEV_DB_PATH`, you will redo the Google consent on every restart.
+- **Persistence makes the forced password change durable, and the harness still prints
+  `login=admin/tmp12345`.** `seedAdmin` (api/src/auth/service.ts) creates the founder with
+  `passwordChangeRequired: true` and returns early ever after, so it never re-seeds. With the old
+  ephemeral database every boot recreated `admin/tmp12345` and nobody could notice; with
+  `EKOA_DEV_DB_PATH` the completed change survives, and the next boot advertises a credential that
+  no longer works (`Credenciais inválidas`). I hit exactly this and reset the hash back to
+  `tmp12345` with `passwordChangeRequired: false`. If it happens again, either reset it the same
+  way or delete `~/.ekoa/dev-db` — deleting also discards the gateway key, so re-mint and re-write
+  `CORTEX_API_KEY` in the Garrison Vault if you do.
 - **The Ekoa automations editor's Save does nothing server-side** (logged OPEN in
   `docs/findings.md` as `the-automation-editors-save-sends-steps-the-api-never-reads`, found while
   auditing the step-field drop, read from code and NOT reproduced live). The editor sends a
