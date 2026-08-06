@@ -9,6 +9,7 @@ dependencies:
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/cortex-automations
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
@@ -246,6 +247,9 @@ x-garrison:
         - id: scroll-world
           config: {}
       connectors:
+        - id: cortex-automations
+          config:
+            base_url: http://127.0.0.1:4111
         - id: deepgram-voice
           config:
             port: 7085

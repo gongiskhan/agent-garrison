@@ -116,19 +116,42 @@ The key carries exactly its user's tenant and access, and nothing more — verif
 with the key, `/api/v1/gateway-keys`, `/api/v1/users` and `/api/v1/cofre/items` all
 answer 401, while the capability routes answer normally.
 
-## 6. Paste the key into Garrison
+## 6. Paste the key into Garrison — already done, but here is where
 
-1. **Vault** (`https://dev-madrid.tail31efa.ts.net/vault`) → add secret `CORTEX_API_KEY`
-   → paste the `ekoa_gk_…` value.
-2. **Compose** → equip the **cortex-automations** fitting. It is currently equipped only
-   in the `dogfood-dev` composition; prod is running `default`, so if you want it in prod
-   you have to add it there. Set its `base_url` config to
-   `https://dev-madrid.tail31efa.ts.net:4111`.
-3. The fitting's **Session** view then appears under Fittings in the sidebar.
+**This step is already done on this machine.** I minted a key, put it in the prod Vault as
+`CORTEX_API_KEY`, equipped **cortex-automations** in the `default` composition (the one prod
+is running) with `base_url: http://127.0.0.1:4111`, and redeployed prod. The Session view is
+live under Fittings in the sidebar. To redo it yourself, or on another machine:
+
+1. **Vault** (`https://dev-madrid.tail31efa.ts.net/vault`) → add secret `CORTEX_API_KEY` →
+   paste the `ekoa_gk_…` value.
+2. **Compose** → equip **cortex-automations** → set its `base_url`.
+3. The **Session** view appears under Fittings.
+
+Two things to know about that state:
+
+- The vault key I set belongs to the dev stack's `admin`. Mint your own and replace it if you
+  want it under your own identity.
+- `base_url` is `http://127.0.0.1:4111` — loopback, because Garrison and Cortex are on the
+  same box and that hop is server-to-server. If you move Cortex elsewhere, use its real
+  origin. Do **not** put a loopback URL anywhere the browser consumes.
+- I equipped the fitting by editing `compositions/default/apm.yml` after the redeploy, so
+  `apm install` has not run for it yet. The next `up` will install it; its verify is
+  degraded-ok with no CLI present, so this is expected to be uneventful. A backup of the
+  pre-edit manifest is not kept in git — the change is two small blocks (a `dependencies.apm`
+  path and a `connectors` selection) and is easy to revert by hand if you want it gone.
 
 The key is read server-side only. Garrison's proxy (`src/lib/cortex-proxy.ts`) attaches it
 and holds it to a closed allowlist of the public endpoints; neither the key nor the base
 URL is ever sent to the browser.
+
+**One hazard while you are in the Vault UI**: `PUT /api/vault/secrets` rebuilds the secret
+list from exactly what you send. A key you omit is DROPPED, not left alone — the route's own
+comment ("undefined/null/missing all mean unchanged") is about a missing *value*, not a
+missing *key*. A partial write would have silently destroyed the other 14 secrets. I wrote
+`CORTEX_API_KEY` by listing all 14 existing key names with no value (which does mean
+"unchanged") plus the new one, and verified afterwards that all 15 were present. The UI does
+the right thing; a script might not.
 
 ## 7. Run the first session
 
@@ -139,6 +162,22 @@ Expected before you connect Google: `{"success": false, "code": "not_connected"}
 HTTP **200**. Expected after: `success: true` with the Drive/Gmail payload.
 
 Do not start with a write action. See the write-gate note below for why.
+
+**What I already drove through the whole chain**, so you know exactly which link is
+untested. Garrison view → Garrison proxy (vault key attached) → Cortex public API (key
+auth) → action resolution → Google:
+
+| through the Garrison proxy | result |
+|---|---|
+| `GET /api/v1/integrations` | HTTP 200, 11 integrations |
+| `POST …/google-workspace/actions/list_files/execute` | HTTP 200 `{"success": false, "code": "not_connected"}` |
+| `POST …/actions/send_email_simple/execute` | HTTP 403 `awaiting_consent`, target `POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, no placeholder |
+| `GET /api/v1/cofre/items` | HTTP 400, refused by the proxy allowlist |
+| `GET /api/v1/gateway-keys` | HTTP 400, refused by the proxy allowlist |
+
+So every link is proven except the Google grant itself. `not_connected` is precisely the
+"everything works, nobody has consented yet" state — after step 4 that same call returns
+your Drive files.
 
 ---
 
