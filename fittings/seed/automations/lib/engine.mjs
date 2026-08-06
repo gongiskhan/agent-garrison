@@ -91,10 +91,20 @@ async function defaultConnectorAuthEnv(connectorId, fetchImpl) {
 }
 
 // Spawn the connector Fitting's uniform connector.mjs with the scoped auth env.
+//
+// GARRISON_AUTOMATION_ENGINE marks every connector.mjs child spawned from
+// here — i.e. every call that did NOT originate from a direct, attended
+// invocation (the Operative's own bash/tool path). It exists so a connector
+// whose action catalog includes something that must only ever happen with a
+// live human in the loop (e.g. whatsapp-web's send_text — see its
+// connector.mjs) can refuse that action outright when it sees this flag,
+// rather than relying on the automation's author having left it out of a
+// hand-authored automation. Unset by default; harmless to every connector
+// that doesn't check it.
 function defaultRunConnector({ scriptPath, action, args, authEnv }) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [scriptPath, "call", action, JSON.stringify(args ?? {})], {
-      env: { ...process.env, ...authEnv },
+      env: { ...process.env, ...authEnv, GARRISON_AUTOMATION_ENGINE: "1" },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let out = "";
