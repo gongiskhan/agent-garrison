@@ -684,6 +684,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
   }, [briefPath]);
 
   const kickoff = activeId && kickoffFor === activeId ? url.kickoff : undefined;
+  // Retire the kickoff the moment it has been handed over. ClaudeChat's own
+  // guard (kickedRef) only fires once per MOUNT, and `key` re-mounts it every
+  // time historyRev advances — which the idle poll and refreshAfterResume both
+  // do as soon as the kickoff's own turn lands. Leaving kickoffFor set therefore
+  // re-sent the opening message after every reply, forever: an unusable Discuss
+  // that answered the same prompt over and over. Child effects run before parent
+  // effects, so ClaudeChat has already sent by the time this clears.
+  useEffect(() => {
+    if (kickoff) setKickoffFor(null);
+  }, [kickoff]);
   const refreshAfterResume = useCallback(async () => {
     if (!activeId) return;
     const [fresh] = await Promise.all([apiGetThread(activeId), refreshList()]);

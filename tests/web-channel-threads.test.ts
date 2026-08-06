@@ -60,6 +60,27 @@ describe("web-channel threads store", () => {
     expect(t2.messages).toEqual([]);
   });
 
+  it("ensureThread lets a Discuss open upgrade a thread stamped with the default chat source", async () => {
+    // "chat" is what ensureThread stamps when nobody declared a source, so a
+    // later Discuss open must be able to fill it in. Without this, whichever code
+    // path touched the thread first won: the transcript never hid the kickoff
+    // bubble and the Discuss duty pin was never applied.
+    const created = await threads.ensureThread({ id: "kanban-upgrade" });
+    expect(created.source).toBe("chat");
+    const upgraded = await threads.ensureThread({ id: "kanban-upgrade", source: "discuss" });
+    expect(upgraded.source).toBe("discuss");
+    expect((await threads.getThread("kanban-upgrade"))?.source).toBe("discuss");
+  });
+
+  it("ensureThread never lets a later open overwrite a source the host already declared", async () => {
+    await threads.ensureThread({ id: "kanban-declared", source: "kanban-loop" });
+    const reopened = await threads.ensureThread({ id: "kanban-declared", source: "discuss" });
+    expect(reopened.source).toBe("kanban-loop");
+    // ...and a bare "chat" open never downgrades a real source.
+    const bare = await threads.ensureThread({ id: "kanban-declared", source: "chat" });
+    expect(bare.source).toBe("kanban-loop");
+  });
+
   it("appendMessages persists exchanges, bumps count, derives an untitled title", async () => {
     const id = "chat-derive";
     await threads.appendMessages(id, [

@@ -338,6 +338,17 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
   if (existing) {
     let changed = false;
     if (title && !existing.title) { existing.title = String(title).slice(0, 120); changed = true; }
+    // "chat" is the DEFAULT this function stamps on any thread created without a
+    // declared source, so it means "nobody said" rather than "the user chose
+    // chat". A host that later opens the same thread as a Discuss must be able to
+    // fill it in — otherwise whichever code path happened to touch the thread
+    // first wins, the transcript never hides the kickoff bubble, and the Discuss
+    // duty pin is never applied. Any other existing source is a real declaration
+    // and is left alone.
+    if (source && String(source) !== "chat" && (!existing.source || existing.source === "chat")) {
+      existing.source = String(source);
+      changed = true;
+    }
     if (mode && !existing.mode) { existing.mode = String(mode); changed = true; }
     if (context !== undefined && existing.context === undefined) { existing.context = context; changed = true; }
     if (changed) { existing.updatedAt = now; await atomicWriteJson(threadPath(safe), existing); }
