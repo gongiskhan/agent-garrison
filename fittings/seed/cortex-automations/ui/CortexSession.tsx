@@ -27,6 +27,11 @@ import {
 //      offers no approve button, because there is no approve call to make.
 //  T3  There is no event stream here. Run status is POLLED, and nothing in this
 //      view is labelled live.
+//  T4  `POST /automations/plan` is not planning. It PERSISTS the automation and
+//      starts a rehearsal run, and it reports a planner refusal as HTTP 200
+//      carrying `plan.status: plan_failed | plan_unavailable`. So the endpoint
+//      that most looks read-only has two side effects, and its failure is
+//      invisible to anything that only reads the status code.
 //
 // Every request leaves the browser as a same-origin call to Garrison, which
 // holds the Vault key and makes the outbound hop (src/lib/cortex-proxy.ts).
@@ -83,11 +88,35 @@ interface IntegrationCapability {
   actions: CapabilityAction[];
 }
 
+/**
+ * A step in an automation's stored plan, as BOTH read paths project it: the
+ * list and the by-id fetch run the same serializer, and it projects the
+ * parametrised `integration` fields back out. That matters here - a projection
+ * that dropped them would make an authored step look stored when it was not.
+ */
+interface PlanStep {
+  stepId?: string;
+  index?: number;
+  description?: string;
+  tool?: string;
+  integrationKey?: string;
+  integrationAction?: string;
+  argsTemplate?: Record<string, string>;
+}
+
+interface AutomationPlan {
+  steps?: PlanStep[];
+  /** `ok` | `awaiting_integration` | `plan_failed` | `plan_unavailable`. */
+  status?: string;
+  reason?: string;
+}
+
 interface Automation {
   id: string;
   name?: string;
   description?: string;
   status?: string;
+  plan?: AutomationPlan;
 }
 
 interface RunStep {
@@ -836,6 +865,20 @@ function Runs({ ready }: { ready: boolean }) {
   }, [ready, runId, following]);
 
   const terminal = !!run?.status && TERMINAL.has(run.status);
+  const selectedAutomation = automations?.find((item) => item.id === automationId) ?? null;
+
+  // Both authoring paths land the same way: refresh the list so the new
+  // automation is selectable, then select it, so its stored plan is rendered
+  // above by the same panel that renders every other automation's. Reading
+  // back what was written is the point - it is the only thing that proves the
+  // server kept the fields that were sent.
+  const adoptAutomation = useCallback(
+    async (id: string) => {
+      await loadAutomations();
+      setAutomationId(id);
+    },
+    [loadAutomations]
+  );
 
   return (
     <section style={cardStyle}>
@@ -879,6 +922,7 @@ function Runs({ ready }: { ready: boolean }) {
                   ))}
                 </select>
               </div>
+              <AutomationPlanPanel automation={selectedAutomation} />
               <div style={{ display: "grid", gap: 5 }}>
                 <label htmlFor="cortex-inputs" className="font-mono" style={{ fontSize: 11.5 }}>
                   inputs (JSON object)
@@ -954,9 +998,678 @@ function Runs({ ready }: { ready: boolean }) {
           ) : (
             <EmptyNote>No run is being followed.</EmptyNote>
           )}
+
+          {/* Last, deliberately. Authoring is occasional; the run being
+              followed is what the page is watched for, and a form above it
+              would push the thing under observation off the screen. */}
+          <Authoring onAuthored={adoptAutomation} onRunStarted={adoptRun} />
         </div>
       )}
     </section>
+  );
+}
+
+// ── Reading an automation's plan ────────────────────────────────────────────
+
+function AutomationPlanPanel({ automation }: { automation: Automation | null }) {
+  const [detail, setDetail] = useState<Automation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const id = automation?.id ?? "";
+  const listSteps = automation?.plan?.steps;
+  // Depend on WHETHER the list carried a plan, not on the array itself: the
+  // list is a fresh object every reload, and an effect keyed on it would
+  // re-fetch the detail on each one (the same trap GatePanel documents below).
+  const listCarriesPlan = Array.isArray(listSteps);
+
+  // The list projection carries the whole plan today - both read paths run one
+  // serializer. The by-id fetch is the fallback for a deployment whose list is
+  // leaner, not the normal path: asking for a detail already in hand would be
+  // a round trip per selection, for nothing.
+  useEffect(() => {
+    setDetail(null);
+    setError(null);
+    if (!id || listCarriesPlan) return;
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const data = await proxy(`/api/v1/automations/${encodeURIComponent(id)}`);
+        if (cancelled) return;
+        if (data.upstream.status !== 200) {
+          throw new Error(
+            `Cortex answered HTTP ${data.upstream.status} ${data.upstream.statusText}: ${render(
+              data.upstream.body
+            )}`
+          );
+        }
+        setDetail(data.upstream.body as Automation);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, listCarriesPlan]);
+
+  if (!automation) return null;
+
+  const steps = listSteps ?? detail?.plan?.steps ?? null;
+
+  return (
+    <div style={{ ...cardStyle, borderLeftColor: "var(--rule-2)" }}>
+      <SectionLabel>Plan · {steps ? `${steps.length} steps` : "not read yet"}</SectionLabel>
+      {automation.description ? (
+        <p style={{ margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.6 }}>{automation.description}</p>
+      ) : null}
+      {error ? <Problem title="Could not read the automation">{error}</Problem> : null}
+      {loading ? (
+        <span style={{ fontSize: 12.5, color: "var(--mute)" }}>Reading the plan…</span>
+      ) : steps ? (
+        <PlanSteps steps={steps} />
+      ) : error ? null : (
+        <EmptyNote>This automation came back without a plan.</EmptyNote>
+      )}
+    </div>
+  );
+}
+
+function PlanSteps({ steps }: { steps: PlanStep[] }) {
+  if (steps.length === 0) {
+    return <EmptyNote>The plan has no steps, so a run of it would do nothing.</EmptyNote>;
+  }
+  // A step whose type is not authorable here runs on parameters the wire plan
+  // does not carry either way, so it renders as a bare tool name with nothing
+  // under it. Saying so beats letting that read as a broken automation.
+  const authorable: readonly string[] = AUTHORABLE_TOOLS;
+  const opaque = Array.from(
+    new Set(
+      steps
+        .map((step) => step.tool)
+        .filter((tool): tool is string => typeof tool === "string" && !authorable.includes(tool))
+    )
+  );
+
+  return (
+    <>
+      <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+        {steps.map((step, position) => (
+          <li
+            key={step.stepId ?? `plan-step-${position}`}
+            style={{ borderLeft: "2px solid var(--rule-2)", paddingLeft: 10 }}
+          >
+            <div style={{ fontSize: 12.5 }}>
+              <span className="font-mono" style={{ fontSize: 11.5, color: "var(--mute)" }}>
+                #{step.index ?? position}
+              </span>{" "}
+              {/* An absent `tool` is not unknown: the server reads it as a
+                  browser step, so showing it as anything else would misreport
+                  what a run will do. */}
+              <b>{step.tool ?? "browser"}</b>
+              {step.tool ? null : (
+                <span style={{ fontSize: 11.5, color: "var(--mute)" }}>
+                  {" "}
+                  (no tool set; the default)
+                </span>
+              )}
+              {step.stepId ? (
+                <span className="font-mono" style={{ fontSize: 11, color: "var(--mute)" }}>
+                  {" "}
+                  · {step.stepId}
+                </span>
+              ) : null}
+            </div>
+            {step.description ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.55 }}>{step.description}</div>
+            ) : null}
+            {step.integrationKey || step.integrationAction || step.argsTemplate ? (
+              <dl
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "max-content 1fr",
+                  gap: "3px 14px",
+                  margin: "4px 0 0",
+                  fontSize: 12.5
+                }}
+              >
+                <Row label="integrationKey">
+                  <code className="font-mono" style={{ fontSize: 12 }}>
+                    {step.integrationKey ?? "-"}
+                  </code>
+                </Row>
+                <Row label="integrationAction">
+                  <code className="font-mono" style={{ fontSize: 12 }}>
+                    {step.integrationAction ?? "-"}
+                  </code>
+                </Row>
+                {step.argsTemplate ? (
+                  <Row label="argsTemplate">
+                    <pre style={{ ...preStyle, margin: 0 }}>{render(step.argsTemplate)}</pre>
+                  </Row>
+                ) : null}
+              </dl>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {opaque.length ? (
+        <p style={{ margin: "8px 0 0", fontSize: 11.5, lineHeight: 1.55, color: "var(--mute)" }}>
+          {opaque.join(", ")}{" "}
+          {opaque.length === 1 ? "is a step type whose" : "are step types whose"} parameters this
+          API does not put on the wire, so there is nothing further to show for{" "}
+          {opaque.length === 1 ? "it" : "them"} here. The steps are stored and will run.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+// ── Authoring ───────────────────────────────────────────────────────────────
+
+/**
+ * The step types this endpoint can express END TO END, and the whole list.
+ *
+ * `navigate`, `sub_automation`, `local_command`, `api_call` and `ekoa_action`
+ * are real step types the engine runs, but each needs parameters the plan
+ * document on this wire cannot carry (a url, a sub-automation id, an argv, an
+ * outbound request, an artifact + capability). The server refuses one at the
+ * door with HTTP 400 VALIDATION_FAILED rather than storing a step that could
+ * only fail at execution, so offering them here would buy nothing but a round
+ * trip that always loses. The planner below is their supported route.
+ */
+const AUTHORABLE_TOOLS = ["browser", "verify", "integration", "wait"] as const;
+
+interface DraftStep {
+  /** React identity only. Never sent - the server mints the stored step id. */
+  key: string;
+  tool: string;
+  description: string;
+  integrationKey: string;
+  integrationAction: string;
+  argsTemplateText: string;
+}
+
+let draftSequence = 0;
+
+function newDraftStep(): DraftStep {
+  draftSequence += 1;
+  return {
+    key: `draft-${draftSequence}`,
+    tool: "browser",
+    description: "",
+    integrationKey: "",
+    integrationAction: "",
+    argsTemplateText: ""
+  };
+}
+
+type BuildResult = { ok: true; steps: PlanStep[] } | { ok: false; problems: string[] };
+
+/**
+ * Drafts to wire steps, or the reasons they are not sendable yet.
+ *
+ * Every check here is one the server also makes. That duplication is on
+ * purpose: the refusals come back as one message about one step, so a form
+ * with three bad steps would be corrected three round trips at a time, and an
+ * `integration` step is the common case rather than the exotic one.
+ */
+function buildSteps(drafts: DraftStep[]): BuildResult {
+  const problems: string[] = [];
+  const steps: PlanStep[] = [];
+
+  drafts.forEach((draft, index) => {
+    const where = `step ${index + 1}`;
+    const step: PlanStep = { tool: draft.tool };
+    if (draft.description.trim()) step.description = draft.description.trim();
+
+    if (draft.tool !== "integration") {
+      steps.push(step);
+      return;
+    }
+
+    // Both fields or neither: sending one names the other in a 400.
+    if (!draft.integrationKey.trim()) {
+      problems.push(`${where}: tool "integration" needs an integrationKey.`);
+    }
+    if (!draft.integrationAction.trim()) {
+      problems.push(`${where}: tool "integration" needs an integrationAction.`);
+    }
+    step.integrationKey = draft.integrationKey.trim();
+    step.integrationAction = draft.integrationAction.trim();
+
+    const raw = draft.argsTemplateText.trim();
+    if (raw) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (error) {
+        problems.push(
+          `${where}: argsTemplate is not JSON - ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        problems.push(`${where}: argsTemplate must be a JSON object.`);
+        return;
+      }
+      // The contract is an object of STRINGS - a literal, or a `{{input.x}}`
+      // reference the engine interpolates. A number or a nested object fails
+      // the server's schema, and that refusal names the whole body rather than
+      // the key that caused it, so it is worth catching by name here.
+      const entries = Object.entries(parsed as Record<string, unknown>);
+      const wrong = entries.filter(([, value]) => typeof value !== "string").map(([key]) => key);
+      if (wrong.length) {
+        problems.push(
+          `${where}: argsTemplate values must be strings; these are not: ${wrong.join(", ")}.`
+        );
+        return;
+      }
+      step.argsTemplate = Object.fromEntries(entries) as Record<string, string>;
+    }
+
+    steps.push(step);
+  });
+
+  return problems.length ? { ok: false, problems } : { ok: true, steps };
+}
+
+function Authoring({
+  onAuthored,
+  onRunStarted
+}: {
+  onAuthored: (automationId: string) => Promise<void>;
+  onRunStarted: (runId: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [drafts, setDrafts] = useState<DraftStep[]>(() => [newDraftStep()]);
+  const [problems, setProblems] = useState<string[]>([]);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [created, setCreated] = useState<Automation | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const [goal, setGoal] = useState("");
+  const [goalName, setGoalName] = useState("");
+  const [planning, setPlanning] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planAnswer, setPlanAnswer] = useState<unknown>(null);
+
+  function patchDraft(key: string, patch: Partial<DraftStep>) {
+    setDrafts((current) =>
+      current.map((draft) => (draft.key === key ? { ...draft, ...patch } : draft))
+    );
+  }
+
+  async function create() {
+    setProblems([]);
+    setCreateError(null);
+    setCreated(null);
+
+    const trimmedName = name.trim();
+    const built = buildSteps(drafts);
+    const found = built.ok ? [] : [...built.problems];
+    if (!trimmedName) found.unshift("name is required.");
+    if (drafts.length === 0) found.push("an automation with no steps would do nothing when run.");
+    if (!built.ok || found.length) {
+      setProblems(found);
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const data = await proxy("/api/v1/automations", "POST", {
+        name: trimmedName,
+        plan: { steps: built.steps }
+      });
+      // 201 is the success here; a refusal (400 VALIDATION_FAILED, or 403 when
+      // the org does not let this principal author) is reported whole.
+      if (data.upstream.status !== 201 && data.upstream.status !== 200) {
+        throw new Error(
+          `Cortex answered HTTP ${data.upstream.status} ${data.upstream.statusText}: ${render(
+            data.upstream.body
+          )}`
+        );
+      }
+      const record = data.upstream.body as Automation;
+      setCreated(record);
+      setName("");
+      setDrafts([newDraftStep()]);
+      if (record?.id) await onAuthored(record.id);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function planFromGoal() {
+    setPlanError(null);
+    setPlanAnswer(null);
+    const trimmedGoal = goal.trim();
+    if (!trimmedGoal) {
+      setPlanError("goal is required.");
+      return;
+    }
+    setPlanning(true);
+    try {
+      const data = await proxy("/api/v1/automations/plan", "POST", {
+        goal: trimmedGoal,
+        ...(goalName.trim() ? { name: goalName.trim() } : {})
+      });
+      if (data.upstream.status !== 200) {
+        throw new Error(
+          `Cortex answered HTTP ${data.upstream.status} ${data.upstream.statusText}: ${render(
+            data.upstream.body
+          )}`
+        );
+      }
+      const body = data.upstream.body;
+      setPlanAnswer(body);
+      // Both side effects are adopted, whichever came back. A planner refusal
+      // (T4) persists nothing and starts nothing, so both are simply absent.
+      const automationId = pick(body, "automation", "id");
+      if (typeof automationId === "string" && automationId) await onAuthored(automationId);
+      const runId = pick(body, "runId");
+      if (typeof runId === "string" && runId) onRunStarted(runId);
+    } catch (error) {
+      setPlanError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  const planStatus = pick(planAnswer, "plan", "status");
+  const planReason = pick(planAnswer, "plan", "reason");
+  const planRefused = planStatus === "plan_failed" || planStatus === "plan_unavailable";
+  const plannedSteps = pick(planAnswer, "plan", "steps");
+
+  return (
+    <div style={{ ...cardStyle, borderLeftColor: "var(--rule-2)" }}>
+      <SectionLabel>Author an automation</SectionLabel>
+
+      <div style={{ display: "grid", gap: 5, marginBottom: 12 }}>
+        <label htmlFor="cortex-new-name" className="font-mono" style={{ fontSize: 11.5 }}>
+          name
+        </label>
+        <input
+          id="cortex-new-name"
+          className="text"
+          type="text"
+          value={name}
+          placeholder="what this automation is for"
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+
+      <div style={{ display: "grid", gap: 10 }}>
+        {drafts.map((draft, index) => (
+          <div
+            key={draft.key}
+            style={{
+              border: "1px solid var(--rule)",
+              borderLeft: "2px solid var(--rule-2)",
+              padding: "10px 12px",
+              display: "grid",
+              gap: 8
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "grid", gap: 4 }}>
+                <label
+                  htmlFor={`cortex-step-tool-${draft.key}`}
+                  className="font-mono"
+                  style={{ fontSize: 11.5 }}
+                >
+                  step {index + 1} · tool
+                </label>
+                <select
+                  id={`cortex-step-tool-${draft.key}`}
+                  className="text"
+                  value={draft.tool}
+                  onChange={(event) => patchDraft(draft.key, { tool: event.target.value })}
+                >
+                  {AUTHORABLE_TOOLS.map((tool) => (
+                    <option key={tool} value={tool}>
+                      {tool}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 220 }}>
+                <label
+                  htmlFor={`cortex-step-description-${draft.key}`}
+                  className="font-mono"
+                  style={{ fontSize: 11.5 }}
+                >
+                  description
+                </label>
+                <input
+                  id={`cortex-step-description-${draft.key}`}
+                  className="text"
+                  type="text"
+                  value={draft.description}
+                  placeholder="what this step does"
+                  onChange={(event) => patchDraft(draft.key, { description: event.target.value })}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn small"
+                onClick={() =>
+                  setDrafts((current) => current.filter((item) => item.key !== draft.key))
+                }
+                disabled={drafts.length === 1}
+              >
+                Remove
+              </button>
+            </div>
+
+            {draft.tool === "integration" ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 180 }}>
+                    <label
+                      htmlFor={`cortex-step-key-${draft.key}`}
+                      className="font-mono"
+                      style={{ fontSize: 11.5 }}
+                    >
+                      integrationKey
+                    </label>
+                    <input
+                      id={`cortex-step-key-${draft.key}`}
+                      className="text"
+                      type="text"
+                      value={draft.integrationKey}
+                      placeholder="from the Integrations section above"
+                      onChange={(event) =>
+                        patchDraft(draft.key, { integrationKey: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 180 }}>
+                    <label
+                      htmlFor={`cortex-step-action-${draft.key}`}
+                      className="font-mono"
+                      style={{ fontSize: 11.5 }}
+                    >
+                      integrationAction
+                    </label>
+                    <input
+                      id={`cortex-step-action-${draft.key}`}
+                      className="text"
+                      type="text"
+                      value={draft.integrationAction}
+                      placeholder="an actionName that integration offers"
+                      onChange={(event) =>
+                        patchDraft(draft.key, { integrationAction: event.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label
+                    htmlFor={`cortex-step-args-${draft.key}`}
+                    className="font-mono"
+                    style={{ fontSize: 11.5 }}
+                  >
+                    argsTemplate (optional JSON object, string values only)
+                  </label>
+                  <textarea
+                    id={`cortex-step-args-${draft.key}`}
+                    className="text"
+                    rows={3}
+                    spellCheck={false}
+                    value={draft.argsTemplateText}
+                    placeholder={'{"cliente": "{{input.cliente}}"}'}
+                    onChange={(event) =>
+                      patchDraft(draft.key, { argsTemplateText: event.target.value })
+                    }
+                    style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
+                  />
+                  <span style={{ fontSize: 11.5, color: "var(--mute)" }}>
+                    Each value is a literal or a <code>{"{{input.x}}"}</code> reference the engine
+                    fills in from the run inputs. Numbers and nested objects are refused.
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0 0" }}>
+        <button
+          type="button"
+          className="btn small"
+          onClick={() => setDrafts((current) => [...current, newDraftStep()])}
+        >
+          Add step
+        </button>
+        <button type="button" className="btn small primary" onClick={() => void create()} disabled={creating}>
+          {creating ? "Creating…" : "Create automation"}
+        </button>
+      </div>
+
+      {problems.length ? (
+        <Problem title="Not sent - fix these first">{problems.join("\n")}</Problem>
+      ) : null}
+      {createError ? <Problem title="Create failed">{createError}</Problem> : null}
+      {created ? (
+        <div style={{ ...cardStyle, borderLeftColor: "var(--sage)", marginTop: 10 }}>
+          <SectionLabel>Created</SectionLabel>
+          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
+            {created.name ?? "unnamed"} ·{" "}
+            <code className="font-mono" style={{ fontSize: 12 }}>
+              {created.id}
+            </code>
+            . It is now selected above, showing the plan as the server stored it.
+          </p>
+          <Raw label="Full response" value={created} />
+        </div>
+      ) : null}
+
+      <div style={{ borderTop: "1px solid var(--rule)", margin: "16px 0 0", paddingTop: 14 }}>
+        <SectionLabel>Or plan one from a goal</SectionLabel>
+        <p style={{ margin: "0 0 10px", fontSize: 12.5, lineHeight: 1.6, color: "var(--mute)" }}>
+          This is not a preview: <b>it saves the automation and immediately starts a rehearsal
+          run</b>, which this view then follows. It also needs a model credential on the Cortex
+          side and answers HTTP 200 with a refusal when there is not one.
+        </p>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "grid", gap: 4 }}>
+            <label htmlFor="cortex-goal" className="font-mono" style={{ fontSize: 11.5 }}>
+              goal
+            </label>
+            <input
+              id="cortex-goal"
+              className="text"
+              type="text"
+              value={goal}
+              placeholder="what the automation should achieve"
+              onChange={(event) => setGoal(event.target.value)}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 220 }}>
+              <label htmlFor="cortex-goal-name" className="font-mono" style={{ fontSize: 11.5 }}>
+                name (optional)
+              </label>
+              <input
+                id="cortex-goal-name"
+                className="text"
+                type="text"
+                value={goalName}
+                placeholder="what to call the automation it saves"
+                onChange={(event) => setGoalName(event.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn small primary"
+              onClick={() => void planFromGoal()}
+              disabled={planning}
+            >
+              {planning ? "Planning…" : "Plan, save and rehearse"}
+            </button>
+          </div>
+        </div>
+
+        {planError ? <Problem title="Plan failed">{planError}</Problem> : null}
+
+        {planAnswer && planRefused ? (
+          <div style={{ ...cardStyle, borderLeftColor: "var(--alarm)", marginTop: 10 }}>
+            <SectionLabel>Refused · HTTP 200, plan.status {String(planStatus)}</SectionLabel>
+            <p style={{ margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.6 }}>
+              The transport succeeded and the planner produced nothing usable, so{" "}
+              <b>nothing was saved and no run was started</b>.{" "}
+              {planStatus === "plan_unavailable"
+                ? "plan_unavailable is the model egress itself failing - a dead or absent credential, or the provider being down - not a problem with the goal."
+                : "plan_failed means the model answered but the plan did not validate."}
+            </p>
+            {typeof planReason === "string" ? (
+              <Problem title="reason, verbatim">{planReason}</Problem>
+            ) : null}
+            <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--mute)" }}>
+              The detailed cause is deliberately not on the wire - it can quote raw model output -
+              so it is in the Cortex server log, not here.
+            </p>
+            <Raw label="Full response" value={planAnswer} open />
+          </div>
+        ) : planAnswer ? (
+          <div style={{ ...cardStyle, borderLeftColor: "var(--sage)", marginTop: 10 }}>
+            <SectionLabel>Planned · HTTP 200</SectionLabel>
+            <dl
+              style={{
+                display: "grid",
+                gridTemplateColumns: "max-content 1fr",
+                gap: "4px 14px",
+                margin: "0 0 10px",
+                fontSize: 12.5
+              }}
+            >
+              <Row label="automation">
+                <code className="font-mono" style={{ fontSize: 12 }}>
+                  {String(pick(planAnswer, "automation", "id") ?? "not saved")}
+                </code>
+              </Row>
+              <Row label="runId">
+                <code className="font-mono" style={{ fontSize: 12 }}>
+                  {String(pick(planAnswer, "runId") ?? "no run started")}
+                </code>
+              </Row>
+              <Row label="rehearsing">{String(pick(planAnswer, "rehearsing") ?? "-")}</Row>
+            </dl>
+            {Array.isArray(plannedSteps) ? <PlanSteps steps={plannedSteps as PlanStep[]} /> : null}
+            <Raw label="Full response" value={planAnswer} />
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
