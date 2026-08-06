@@ -433,6 +433,39 @@ function selfBaseUrl() {
   return `http://${host}:${port}`;
 }
 
+// Refuse to start PLANNING when the app under test is not there.
+//
+// A plan agent pointed at a dead app still spends its whole session. It cannot
+// drive anything, so it falls back to reading source and authoring
+// plausible-looking checks nobody drove - which is how a false STANDING DEFECT
+// got written into a Book once already. Unlike a run, nothing stops it early:
+// the run path has the circuit breaker (one systemic infra outcome opens it and
+// skips the rest), but an authoring agent just keeps going.
+//
+// Fail closed and say precisely what to fix. `blocked: "app-unreachable"` is the
+// machine-readable form so a caller can offer Start app rather than parse prose.
+// An explicitly unconfigured URL is NOT blocked: /api/app/start exists to
+// discover one via the run skill's APP_URL sentinel, and blocking would make
+// that unreachable.
+async function appPreflight(root, { phase }) {
+  const book = await getDrillBook(root);
+  const appUrl = book?.app?.url || null;
+  if (!appUrl) return { ok: true };
+  if (await urlReachable(appUrl)) return { ok: true };
+  return {
+    ok: false,
+    status: 409,
+    body: {
+      blocked: "app-unreachable",
+      appUrl,
+      error:
+        `The app under test is not responding at ${appUrl}, so ${phase} cannot ` +
+        `exercise it. Start the app (Start app, or its run skill) and retry - ` +
+        `planning against a dead app produces checks that were never driven.`
+    }
+  };
+}
+
 // One batch card carrying the findings report (R10) - a normal `code` duty
 // fix card (findings need real code changes + the usual review/test gates),
 // distinct from the R14 testing-only card schema (Phase 7), which instead
@@ -729,6 +762,11 @@ async function handle(req, res) {
         if (brief) return send(res, 409, { error: "a plan is already running for this project - wait for it to finish before planning an update", job: publicPlanJob(existing) });
         return send(res, 200, { started: false, job: publicPlanJob(existing) });
       }
+      // Checked AFTER the join/conflict guards so an in-flight plan still
+      // reports normally, and BEFORE spawning: an agent that cannot reach the
+      // app spends its whole session producing checks it never drove.
+      const planPre = await appPreflight(root, { phase: "planning" });
+      if (!planPre.ok) return send(res, planPre.status, planPre.body);
       // The agent explores through THIS server, so it needs this instance's
       // own base URL - never a baked default, which would point a dev plan at
       // prod's Drill (or a codex-profile port that nothing is serving).
@@ -1354,6 +1392,14 @@ async function handle(req, res) {
         });
       }
       const book = await getDrillBook(root);
+
+      // No preflight here on purpose. A run already fails fast on a dead app:
+      // the first systemic infra outcome opens the circuit, which groups it as
+      // ONE incident and skips every remaining check (see openCircuit /
+      // terminalOpensCircuit below). That covers both "dead before we start" and
+      // the case a preflight cannot catch - the app dying mid-run. Adding a
+      // second gate here would only duplicate it, and would make the circuit's
+      // own behaviour unreachable.
 
       // Configurable autonomy gate (A5/R7/S22): "gated" pauses with a plan
       // preview before running; the caller re-POSTs the returned `resume`

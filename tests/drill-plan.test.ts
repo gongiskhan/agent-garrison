@@ -45,6 +45,11 @@ async function postJson(p: string, body: unknown) {
   return { status: r.status, body: await r.json() };
 }
 
+async function patchJson(p: string, body: unknown) {
+  const r = await fetch(`${DRILL_BASE}${p}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json() };
+}
+
 // Poll /api/plan/status until the job leaves "planning" (or the deadline).
 async function waitPlanSettled(ms: number) {
   const end = Date.now() + ms;
@@ -157,6 +162,33 @@ describe("plan requires a selected project", () => {
     expect(st.body.selected).toBe(false);
     expect(st.body.job).toBeNull();
   });
+});
+
+describe("planning refuses to start against an app that is not there", () => {
+  // A plan agent pointed at a dead app spends its whole session anyway: it
+  // cannot drive anything, so it falls back to reading source and authoring
+  // checks it never drove. Unlike a run there is no circuit breaker to stop it,
+  // so the only cheap moment to catch this is before the spawn.
+  it("blocks with an actionable reason and spawns nothing", async () => {
+    expect((await postJson("/api/projects/select", { path: projEmpty })).status).toBe(200);
+    // A configured-but-unreachable app. (The default fixture book ships url: ''
+    // precisely so the URL can be discovered later by /api/app/start.)
+    expect((await patchJson("/api/drillbook", { app: { name: "stub", url: "http://127.0.0.1:9" } })).status).toBe(200);
+    const { status, body } = await postJson("/api/plan/start", {});
+    expect(status).toBe(409);
+    expect(body.blocked).toBe("app-unreachable");
+    expect(body.appUrl).toBe("http://127.0.0.1:9");
+    expect(body.error).toMatch(/not responding/);
+    // Nothing was started, so a retry after fixing the app is immediately possible.
+    expect((await getJson("/api/plan/status")).body.job).toBeNull();
+
+    // An unconfigured URL is deliberately NOT blocked: /api/app/start discovers
+    // one via the run skill's APP_URL sentinel, and blocking would strand that.
+    expect((await patchJson("/api/drillbook", { app: { name: "stub", url: "" } })).status).toBe(200);
+    stubMode(projEmpty, "fail");
+    expect((await postJson("/api/plan/start", {})).status).toBe(200);
+    await waitPlanSettled(12000);
+  }, 25000);
 });
 
 describe("failure paths stay honest", () => {

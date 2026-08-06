@@ -3533,6 +3533,26 @@ function DebriefView({
                 {passedCount} passed · {failedCount} failed{unprovenCount > 0 ? ` · ${unprovenCount} unproven` : ""}
               </span>
             </div>
+            {/* Jump straight to a page's results. The rail below lists every page
+                and every check under it, which is a long scroll on a real run
+                (the ekoa book is ~700 checks across 28 pages) - this is the
+                "just show me that page" control. It drives the same `scope`
+                state as the rows, so the two always agree. */}
+            {pageGroups.length > 1 && (
+              <select
+                className="dr-db-scope-select"
+                aria-label="Show results for page"
+                value={scope.kind === "all" ? "" : scope.pageId}
+                onChange={(e) => setScope(e.target.value ? { kind: "page", pageId: e.target.value } : { kind: "all" })}
+              >
+                <option value="">All pages ({steps.length} checks)</option>
+                {pageGroups.map((group) => (
+                  <option key={group.pageId} value={group.pageId}>
+                    {group.title} ({group.checks.length})
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               className={"dr-db-scope-row all" + (scope.kind === "all" ? " active" : "")}
               onClick={() => setScope({ kind: "all" })}

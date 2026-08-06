@@ -806,6 +806,19 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
   cursor: pointer; font-family: var(--sans); color: var(--ink-2); padding: 8px 11px; font-size: 12px;
 }
 .dr-db-scope-row.all { font-weight: 600; border-bottom: 1px solid var(--rule); }
+/* Page jump for the scope rail — the rail itself is a long scroll on a real
+   book, so this is the "just show me that page" control above it. */
+.dr-db-scope-select {
+  width: 100%;
+  margin: 6px 0 8px;
+  padding: 5px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
 .dr-db-scope-row:hover { background: var(--paper-3); }
 .dr-db-scope-row.active { background: var(--sage-soft); color: var(--sage); font-weight: 600; box-shadow: inset 3px 0 0 var(--sage-2); }
 .dr-db-scope-group { border-bottom: 1px solid var(--rule); }
