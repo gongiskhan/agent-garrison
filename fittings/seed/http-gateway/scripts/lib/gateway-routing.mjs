@@ -1933,6 +1933,16 @@ export class RoutedGateway {
     return { duty, level: Math.min(requested, count) };
   }
 
+  // The v2 config's exceptions map a caller-asserted matchedException id to a
+  // target — the deterministic half of an explicit classification that the duty
+  // cells cannot express (e.g. the automations vision route steering off an
+  // engine with no credentials on this box).
+  exceptionTarget(id) {
+    if (typeof id !== "string" || !id) return null;
+    const ex = (this.config?.exceptions || []).find((e) => e && e.id === id);
+    return typeof ex?.target === "string" && ex.target ? ex.target : null;
+  }
+
   // Load the board's resolved-model helpers (loadResolvedModel + resolveCardSequence)
   // from the kanban-loop fitting — the SAME module the board uses to decide a card's
   // flow — so the gateway's dispatch consult and the board's card-flow decision read
@@ -2180,9 +2190,16 @@ export class RoutedGateway {
     if (this._dispatcher && opts.classification) {
       const migrated = await this.legacyClassificationToV4(opts.classification);
       if (migrated) {
+        // The caller-asserted matchedException is part of that decision, and the
+        // duty cell it migrates onto knows nothing about it. Carry the exception's
+        // configured target into the turn as a target pin: an explicit caller pin
+        // still wins, and an unknown target is rejected (and recorded) by
+        // applyTurnOverride rather than silently falling back to the cell.
+        const exceptionTarget = this.exceptionTarget(opts.classification.matchedException);
+        const routing = exceptionTarget && !ov?.target ? { ...(ov ?? {}), target: exceptionTarget } : ov;
         return this.preRouteV4(message, {
           ...migrated,
-          routing: ov,
+          routing,
           sessionId: opts.sessionId ?? null,
           sessionTitle: opts.sessionTitle ?? null,
           rejected
