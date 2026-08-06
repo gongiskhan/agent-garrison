@@ -37,6 +37,15 @@ const inputStyle: React.CSSProperties = {
   color: "var(--ink)"
 };
 
+// The client-id/secret names to render and post for an OAuth connector. Prefer
+// what oauth-start reported missing (authoritative — it reads the connector's
+// own oauth block); fall back to the OAuth-shaped entries of its declared
+// secret scope, so the form is still right if the 409 body ever lacks `needs`.
+function credKeysFor(c: ConnectorView, needs: string[]): string[] {
+  if (needs.length > 0) return needs;
+  return c.secrets.map((s) => s.name).filter((n) => /_OAUTH_CLIENT_(ID|SECRET)$/.test(n));
+}
+
 export function ConnectorsPanel() {
   const [data, setData] = useState<ConnectorsResponse | null>(null);
   const [audit, setAudit] = useState<VaultAuditEntry[]>([]);
@@ -45,6 +54,11 @@ export function ConnectorsPanel() {
   const [openConnect, setOpenConnect] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [oauthMode, setOauthMode] = useState<"choose" | "creds" | "manual">("choose");
+  // The client-id/secret names the OPEN connector actually declares, straight
+  // from oauth-start's 409 `needs`. These were once hardcoded to GOOGLE_* — back
+  // when Google was the only OAuth connector — so every other provider's form
+  // posted Google's keys and /connect rejected them as out-of-scope.
+  const [oauthNeeds, setOauthNeeds] = useState<string[]>([]);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -75,6 +89,7 @@ export function ConnectorsPanel() {
     setOpenConnect(c.id);
     setForm({});
     setOauthMode("choose");
+    setOauthNeeds([]); // never carry one connector's key names into another's form
     setNotice(null);
   };
 
@@ -122,7 +137,9 @@ export function ConnectorsPanel() {
       const res = await fetch(`/api/connectors/${encodeURIComponent(id)}/oauth-start`);
       const j = await res.json();
       if (res.status === 409) {
-        // Client credentials not set — reveal the creds form.
+        // Client credentials not set — reveal the creds form, labelled with the
+        // secret names THIS connector declares (409 body carries them).
+        setOauthNeeds(Array.isArray(j.needs) ? j.needs.filter((n: unknown) => typeof n === "string") : []);
         setOauthMode("creds");
         return;
       }
@@ -284,13 +301,13 @@ export function ConnectorsPanel() {
                   {c.auth === "oauth2" && oauthMode === "creds" && (
                     <ConnectFields
                       title="Enter your OAuth app credentials (one-time). Register this redirect URI in your provider app, then Authorize."
-                      labels={["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"]}
+                      labels={credKeysFor(c, oauthNeeds)}
                       form={form}
                       setForm={setForm}
                       busy={busy === c.id}
                       saveLabel="Save & authorize"
                       onSave={async () => {
-                        if (await submitSecrets(c.id, ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"])) {
+                        if (await submitSecrets(c.id, credKeysFor(c, oauthNeeds))) {
                           await startOAuthRedirect(c.id);
                         }
                       }}
