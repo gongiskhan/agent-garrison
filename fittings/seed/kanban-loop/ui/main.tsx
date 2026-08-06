@@ -302,6 +302,14 @@ function localInputFromIso(iso: string | null | undefined): string {
 
 // File -> base64 payload for the JSON-base64 upload wire (same shape as the
 // gateway's /attachments).
+// A clipboard image has no filename, so invent a stable, sortable, extension-
+// correct one rather than sending "" (which the server rejects).
+function pastedFileName(file: File): string {
+  const ext = (file.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "").slice(0, 5) || "png";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `pasted-${stamp}.${ext}`;
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -508,6 +516,267 @@ function DrillBlock({ drill, compact = false }: { drill: DrillStamp; compact?: b
   );
 }
 
+// A textarea that starts one line tall and grows with its content, and whose
+// Enter key does what the button beside it does.
+//
+// Both halves are deliberate. The fixed `rows={4}`/`rows={6}` boxes these replace
+// reserved four to six empty lines for a one-line item and still needed an inner
+// scrollbar for a long one, so the box was wrong at both ends. And requiring
+// Cmd/Ctrl+Enter to submit meant the obvious key did nothing at all - Enter just
+// inserted a newline into a field whose whole job was one item. Enter now
+// submits; Shift+Enter (and Cmd/Ctrl+Enter, which people have in their fingers)
+// still inserts a newline, so multi-paragraph text is still reachable.
+function AutoTextarea({
+  value,
+  onChange,
+  onSubmit,
+  onCancel,
+  maxRows = 16,
+  ...rest
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onSubmit?: () => void;
+  onCancel?: () => void;
+  maxRows?: number;
+} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange" | "rows" | "style">) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  // Measured, not counted: a soft-wrapped long line occupies several rows that
+  // splitting on "\n" would miss, which is exactly the case that used to scroll.
+  const resize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const line = Number.parseFloat(getComputedStyle(el).lineHeight) || 18;
+    el.style.height = `${Math.min(el.scrollHeight, Math.round(line * maxRows))}px`;
+  }, [maxRows]);
+  useEffect(resize, [value, resize]);
+  return (
+    <textarea
+      {...rest}
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === "Escape" && onCancel) { e.preventDefault(); onCancel(); return; }
+        if (e.key !== "Enter") return;
+        if (e.shiftKey || e.metaKey || e.ctrlKey) return; // deliberate newline
+        if (!onSubmit) return;
+        e.preventDefault();
+        onSubmit();
+      }}
+      style={{ width: "100%", minWidth: 0, resize: "none", overflowY: "auto" }}
+    />
+  );
+}
+
+// Which actions a card offers, derived from the card + the list it sits on.
+//
+// Pure and shared, because the card front and the opened card both render the
+// SAME action row (CardActions). Two copies of these booleans is exactly how the
+// two surfaces would drift into offering different things for one card.
+function cardActionFlags(card: CardSummary, list: ListView) {
+  const engineOwned = list.kind === "agent" && !list.interactive;
+  const scheduled = list.id === "scheduled";
+  // Archived is a terminal parking column: cards land there via Archive and leave
+  // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
+  const archived = list.id === "archived";
+  const running = card.status === "running";
+  const inferring = card.inferState === "running";
+  return {
+    engineOwned,
+    scheduled,
+    archived,
+    running,
+    inferring,
+    // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a
+    // card ENTERS the automated flow (To Do → Plan) or is re-sent after parking.
+    // Discuss (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
+    canAdvance: !scheduled && list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0,
+    startLabel: "Advance",
+    // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
+    // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
+    // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
+    canMarkDone: !scheduled && !engineOwned && !list.terminal,
+    // "Archive": get a card out of the way. Available on any human-held column, not
+    // just Done and needs-attention - a Backlog item you have decided against is the
+    // most common thing you want to file away, and it previously had no Archive at
+    // all. Still withheld from engine-owned cards (the API rejects a hand-move of a
+    // card an autonomous list owns) and from the Archived column itself.
+    canArchive: !scheduled && !engineOwned && !archived,
+    // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
+    // inline reason, so a failed dispatch shows on the CARD.
+    dispatchErr: card.lastDispatchError,
+    // RUN: start a card's activity on demand on ANY agent list (Plan…Validate, incl. the
+    // batched/scheduler-beat Test) — no need to wait for a trigger/tick. Shows on a
+    // non-running agent-list card that isn't parked (a parked card is recovered via the
+    // needs-attention column's Advance/Move, and the batch path skips needs-attention
+    // cards, so offering Run there would be a no-op); reads "Retry" after a dispatch error.
+    canRun: list.kind === "agent" && !list.interactive && !running && card.status !== "needs-attention",
+    // Why a parked card is in the needs-attention column.
+    parked: card.status === "needs-attention",
+    // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
+    // the user asked for — also lets them re-try if it came back blank).
+    canInfer: !scheduled && !card.project && !card.runId && !inferring && !running
+  };
+}
+
+// Every action a card offers, in one row. Rendered by BOTH the card front and the
+// bottom of the opened card, so the two can never offer different things.
+interface CardActionHandlers {
+  onStart: (c: CardSummary) => void;
+  onMove: (c: CardSummary) => void;
+  onQuickMove: (c: CardSummary, listId: string) => void;
+  onDelete: (c: CardSummary) => void;
+  onWatch: (c: CardSummary) => void;
+  onTerminal: (c: CardSummary) => void;
+  onInfer: (c: CardSummary) => void;
+  onDiscuss: (c: CardSummary) => void;
+  onContinue: (c: CardSummary) => void;
+  onDrill: (c: CardSummary) => void;
+  onFeedback: (c: CardSummary) => void;
+  onRunSchedule: (c: CardSummary) => void;
+}
+
+function CardActions({
+  card,
+  list,
+  busy,
+  withId = false,
+  handlers
+}: {
+  card: CardSummary;
+  list: ListView;
+  busy: boolean;
+  withId?: boolean;
+  handlers: CardActionHandlers;
+}) {
+  const {
+    canAdvance, startLabel, archived, canMarkDone, canArchive,
+    dispatchErr, canRun, canInfer, engineOwned, scheduled
+  } = cardActionFlags(card, list);
+  const h = handlers;
+  return (
+    <div className="btns">
+      {scheduled && card.schedule && (
+        <button className="btn primary small" disabled={busy} title={card.schedule.kind === "cron" ? "create an extra occurrence without changing the next regular run" : "release this card to run now"} onClick={() => h.onRunSchedule(card)}>
+          <PlayIcon /> Run now
+        </button>
+      )}
+      {/* Mark done: skip the pipeline and call a human-held card finished in one
+          click — the "just a button on the card" path. */}
+      {canMarkDone && (
+        <button className="btn small ok" disabled={busy} title="mark this card done" onClick={() => h.onQuickMove(card, "done")}>
+          <CheckIcon /> Done
+        </button>
+      )}
+      {canAdvance && (
+        <button className="btn primary small" disabled={busy} onClick={() => h.onStart(card)}>
+          <PlayIcon /> {startLabel}
+        </button>
+      )}
+      {canRun && (
+        <button
+          className="btn primary small"
+          disabled={busy}
+          title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
+          onClick={() => h.onStart(card)}
+        >
+          <PlayIcon /> {dispatchErr ? "Retry" : "Run"}
+        </button>
+      )}
+      {canInfer && !engineOwned && (
+        <button className="btn small" disabled={busy} title="infer the project from the description" onClick={() => h.onInfer(card)}>
+          <SparkIcon /> Infer
+        </button>
+      )}
+      {!engineOwned && !scheduled && (
+        <button className="btn small" disabled={busy} onClick={() => h.onMove(card)}>
+          <MoveIcon /> Move
+        </button>
+      )}
+      {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
+      {list.interactive ? (
+        <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => h.onDiscuss(card)}>
+          <ChatIcon /> Discuss
+        </button>
+      ) : (
+        <>
+          <button className="btn small" onClick={() => h.onWatch(card)}>
+            <WatchIcon /> Watch
+          </button>
+          {/* Terminal opens in the card's real project, or in the dedicated
+              personal workspace when a personal card has no project. */}
+          {(card.project || card.scope === "personal") && (
+            <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
+              <TerminalIcon /> Terminal
+            </button>
+          )}
+        </>
+      )}
+      {/* Feedback: write a note and send THIS card back through the pipeline with the
+          same context (runDir + prior logs preserved). The "it reached the end but
+          forgot part of the feature — send it back to fix it" path. Shown once a card
+          has stopped: on Done (terminal) or parked in needs-attention. */}
+      {((list.terminal && !archived) || card.status === "needs-attention") && (
+        <button className="btn small" disabled={busy} title="write feedback and send this card back through the pipeline with the same context" onClick={() => h.onFeedback(card)}>
+          <MailIcon /> Feedback
+        </button>
+      )}
+      {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
+          seeded from this card's handoff packet. */}
+      {list.terminal && !archived && (
+        <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => h.onContinue(card)}>
+          <PlayIcon /> Continue
+        </button>
+      )}
+      {canArchive && (
+        <button className="btn small" disabled={busy} title="move this card to the Archived column" onClick={() => h.onQuickMove(card, "archived")}>
+          <ArchiveIcon /> Archive
+        </button>
+      )}
+      {/* Unarchive: bring an archived card back onto the board (To Do). */}
+      {archived && (
+        <button className="btn small" disabled={busy} title="move this card back to To Do" onClick={() => h.onQuickMove(card, "todo")}>
+          <UnarchiveIcon /> Unarchive
+        </button>
+      )}
+      {/* Send to Drill: plan the checks for THIS card's change, run them, and
+          notify when the verdict lands. Only on done (there is no landed change
+          to test before that) and only with a project (nothing to test in). */}
+      {list.terminal && !archived && card.project && (
+        <button
+          className="btn small"
+          disabled={busy || card.drill?.state === "planning" || card.drill?.state === "running"}
+          title={
+            card.drill?.state === "planning" || card.drill?.state === "running"
+              ? "a drill is already running for this card"
+              : "plan a test for this card's change, run it, and notify when it's done"
+          }
+          onClick={() => h.onDrill(card)}
+        >
+          <DrillIcon /> {card.drill ? "Re-drill" : "Send to Drill"}
+        </button>
+      )}
+      <ShareCardButton card={card} withId={withId} />
+      {/* Delete is last and never `primary`: it is the one irreversible action in
+          this row, so it should be the hardest to hit by accident. */}
+      <button
+        className="btn small danger"
+        disabled={busy}
+        title="delete this card and its run history"
+        onClick={() => h.onDelete(card)}
+      >
+        <CloseIcon /> Delete
+      </button>
+      {/* Item 5: the Open button is gone — clicking the card body opens it (see the
+          card root's onClick above). */}
+    </div>
+  );
+}
+
 // ── card front ──────────────────────────────────────────────────────────────
 function Card({
   card,
@@ -515,6 +784,7 @@ function Card({
   onStart,
   onMove,
   onQuickMove,
+  onDelete,
   onWatch,
   onTerminal,
   onOpen,
@@ -536,6 +806,7 @@ function Card({
   // Direct one-click move to a named list (Mark done → done, Archive → archived,
   // Unarchive → todo). Distinct from onMove, which asks when there is a choice.
   onQuickMove: (c: CardSummary, listId: string) => void;
+  onDelete: (c: CardSummary) => void;
   onWatch: (c: CardSummary) => void;
   onTerminal: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
@@ -605,37 +876,10 @@ function Card({
       setSavingTitle(false);
     }
   }
-  // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a card
-  // ENTERS the automated flow (To Do → Plan) or is re-sent after parking. Discuss
-  // (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
-  const canAdvance = !scheduled && list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0;
-  const startLabel = "Advance";
-  // Archived is a terminal parking column: cards land there via Archive and leave
-  // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
-  const archived = list.id === "archived";
-  // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
-  // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
-  // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
-  const canMarkDone = !scheduled && !engineOwned && !list.terminal;
-  // "Archive": get a finished (Done) or given-up (needs-attention) card out of the
-  // way. Both are manual columns, so this never hits an engine-owned card.
-  const canArchive = list.id === "done" || list.id === "needs-attention";
-  // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
-  // inline reason, so a failed dispatch shows on the CARD.
-  const dispatchErr = card.lastDispatchError;
-  const running = card.status === "running";
-  // RUN: start a card's activity on demand on ANY agent list (Plan…Validate, incl. the
-  // batched/scheduler-beat Test) — no need to wait for a trigger/tick. Shows on a
-  // non-running agent-list card that isn't parked (a parked card is recovered via the
-  // needs-attention column's Advance/Move, and the batch path skips needs-attention
-  // cards, so offering Run there would be a no-op); reads "Retry" after a dispatch error.
-  const canRun = list.kind === "agent" && !list.interactive && !running && card.status !== "needs-attention";
-  // Why a parked card is in the needs-attention column.
-  const parked = card.status === "needs-attention";
-  const inferring = card.inferState === "running";
-  // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
-  // the user asked for — also lets them re-try if it came back blank).
-  const canInfer = !scheduled && !card.project && !card.runId && !inferring && !running;
+  const {
+    canAdvance, startLabel, archived, canMarkDone, canArchive,
+    dispatchErr, running, canRun, parked, inferring, canInfer
+  } = cardActionFlags(card, list);
   const lastEv = card.lastEvent;
   return (
     <div
@@ -880,113 +1124,52 @@ function Card({
         </div>
       )}
 
-      <div className="btns">
-        {scheduled && card.schedule && (
-          <button className="btn primary small" disabled={busy} title={card.schedule.kind === "cron" ? "create an extra occurrence without changing the next regular run" : "release this card to run now"} onClick={() => onRunSchedule(card)}>
-            <PlayIcon /> Run now
-          </button>
-        )}
-        {/* Mark done: skip the pipeline and call a human-held card finished in one
-            click — the "just a button on the card" path. */}
-        {canMarkDone && (
-          <button className="btn small ok" disabled={busy} title="mark this card done" onClick={() => onQuickMove(card, "done")}>
-            <CheckIcon /> Done
-          </button>
-        )}
-        {canAdvance && (
-          <button className="btn primary small" disabled={busy} onClick={() => onStart(card)}>
-            <PlayIcon /> {startLabel}
-          </button>
-        )}
-        {canRun && (
-          <button
-            className="btn primary small"
-            disabled={busy}
-            title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
-            onClick={() => onStart(card)}
-          >
-            <PlayIcon /> {dispatchErr ? "Retry" : "Run"}
-          </button>
-        )}
-        {canInfer && !engineOwned && (
-          <button className="btn small" disabled={busy} title="infer the project from the description" onClick={() => onInfer(card)}>
-            <SparkIcon /> Infer
-          </button>
-        )}
-        {!engineOwned && !scheduled && (
-          <button className="btn small" disabled={busy} onClick={() => onMove(card)}>
-            <MoveIcon /> Move
-          </button>
-        )}
-        {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
-        {list.interactive ? (
-          <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => onDiscuss(card)}>
-            <ChatIcon /> Discuss
-          </button>
-        ) : (
-          <>
-            <button className="btn small" onClick={() => onWatch(card)}>
-              <WatchIcon /> Watch
-            </button>
-            {/* Terminal opens in the card's real project, or in the dedicated
-                personal workspace when a personal card has no project. */}
-            {(card.project || card.scope === "personal") && (
-              <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => onTerminal(card)}>
-                <TerminalIcon /> Terminal
-              </button>
-            )}
-          </>
-        )}
-        {/* Feedback: write a note and send THIS card back through the pipeline with the
-            same context (runDir + prior logs preserved). The "it reached the end but
-            forgot part of the feature — send it back to fix it" path. Shown once a card
-            has stopped: on Done (terminal) or parked in needs-attention. */}
-        {((list.terminal && !archived) || parked) && (
-          <button className="btn small" disabled={busy} title="write feedback and send this card back through the pipeline with the same context" onClick={() => onFeedback(card)}>
-            <MailIcon /> Feedback
-          </button>
-        )}
-        {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
-            seeded from this card's handoff packet. */}
-        {list.terminal && !archived && (
-          <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => onContinue(card)}>
-            <PlayIcon /> Continue
-          </button>
-        )}
-        {/* Archive: park a finished (Done) or given-up (needs-attention) card in the
-            Archived column so the board stays legible. */}
-        {canArchive && (
-          <button className="btn small" disabled={busy} title="move this card to the Archived column" onClick={() => onQuickMove(card, "archived")}>
-            <ArchiveIcon /> Archive
-          </button>
-        )}
-        {/* Unarchive: bring an archived card back onto the board (To Do). */}
-        {archived && (
-          <button className="btn small" disabled={busy} title="move this card back to To Do" onClick={() => onQuickMove(card, "todo")}>
-            <UnarchiveIcon /> Unarchive
-          </button>
-        )}
-        {/* Send to Drill: plan the checks for THIS card's change, run them, and
-            notify when the verdict lands. Only on done (there is no landed change
-            to test before that) and only with a project (nothing to test in). */}
-        {list.terminal && !archived && card.project && (
-          <button
-            className="btn small"
-            disabled={busy || card.drill?.state === "planning" || card.drill?.state === "running"}
-            title={
-              card.drill?.state === "planning" || card.drill?.state === "running"
-                ? "a drill is already running for this card"
-                : "plan a test for this card's change, run it, and notify when it's done"
-            }
-            onClick={() => onDrill(card)}
-          >
-            <DrillIcon /> {card.drill ? "Re-drill" : "Send to Drill"}
-          </button>
-        )}
-        {/* Item 5: the Open button is gone — clicking the card body opens it (see the
-            card root's onClick above). */}
-      </div>
+      <CardActions
+        card={card}
+        list={list}
+        busy={busy}
+        handlers={{
+          onStart, onMove, onQuickMove, onDelete, onWatch, onTerminal,
+          onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule
+        }}
+      />
     </div>
+  );
+}
+
+// The card's stable id, shown so it can be quoted to an agent, plus a link that
+// reopens the board with this card's modal already open. One control: clicking
+// copies the link, and the id itself is selectable text for the "paste the uid
+// into a prompt" case that motivated it.
+function ShareCardButton({ card, withId = false }: { card: CardSummary; withId?: boolean }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  async function share() {
+    // Built from the CURRENT location so it is right in every context the board
+    // runs in - direct on its own port, embedded in Garrison, or over the tailnet.
+    // A hardcoded host would be unreachable from the phone that most often
+    // receives one of these links.
+    const url = new URL(window.location.href);
+    url.searchParams.set("card", card.id);
+    const link = url.toString();
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied("Link copied");
+    } catch {
+      // Clipboard is unavailable on an insecure origin or without permission;
+      // showing the link still lets it be copied by hand rather than failing mute.
+      window.prompt("Copy this card's link:", link);
+      setCopied(null);
+      return;
+    }
+    setTimeout(() => setCopied(null), 1600);
+  }
+  return (
+    <>
+      {withId && <code className="card-uid" title="this card's id — quote it to an agent">{card.id}</code>}
+      <button className="btn small" title="copy a link that opens this card" onClick={share}>
+        <LinkIcon /> {copied ?? "Share"}
+      </button>
+    </>
   );
 }
 
@@ -2119,7 +2302,7 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
   );
 }
 
-function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void }) {
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -2163,6 +2346,8 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
   const [savingSched, setSavingSched] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const occurrenceCards = useMemo(() => {
     if (!detail?.card.id) return [] as CardSummary[];
@@ -2469,16 +2654,46 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     for (const f of files) {
       try {
         const b64 = await fileToBase64(f);
-        await api.uploadAttachment(detail.card.id, f.name, b64);
-      } catch {
-        failed.push(f.name);
+        // A pasted image arrives as a File with an empty name; the server rejects
+        // a blank filename, which read as "attach silently does nothing".
+        const name = f.name && f.name.trim() ? f.name : pastedFileName(f);
+        await api.uploadAttachment(detail.card.id, name, b64);
+      } catch (e) {
+        // Say WHY. This used to swallow the reason and report only the filename,
+        // so an over-cap file, a rejected name and an unreachable board were all
+        // the same unactionable "Upload failed for: x".
+        failed.push(`${f.name || "pasted image"} (${e instanceof Error ? e.message : String(e)})`);
       }
     }
-    if (failed.length) setActionErr(`Upload failed for: ${failed.join(", ")}`);
+    if (failed.length) setActionErr(`Upload failed for: ${failed.join("; ")}`);
     await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
     onChanged();
     setUploading(false);
   }
+
+  // Paste an image straight onto the open card.
+  //
+  // Bound to the document while the sheet is open rather than to a drop target,
+  // because the natural gesture is "the card is open, hit Cmd+V" without first
+  // clicking a particular box. Typing into a field still wins: a paste with any
+  // text on the clipboard, or one aimed at an input/textarea, is left alone so
+  // this can never eat a normal text paste.
+  useEffect(() => {
+    async function onPaste(e: ClipboardEvent) {
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("input, textarea, [contenteditable='true']")) return;
+      if (cd.getData("text")?.trim()) return;
+      const files = Array.from(cd.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (!files.length) return;
+      e.preventDefault();
+      await uploadFiles(files);
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.card.id]);
 
   async function removeAttachment(name: string) {
     if (!detail) return;
@@ -2990,13 +3205,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           </div>
           {descDraft !== null ? (
             <div>
-              <textarea
+              <AutoTextarea
+                aria-label="Edit description"
                 value={descDraft}
-                rows={Math.min(14, Math.max(4, descDraft.split("\n").length + 1))}
                 autoFocus
-                onChange={(e) => setDescDraft(e.target.value)}
-                onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void saveDescription(); if (e.key === "Escape") setDescDraft(null); }}
-                style={{ width: "100%" }}
+                onChange={setDescDraft}
+                onSubmit={() => void saveDescription()}
+                onCancel={() => setDescDraft(null)}
               />
               <div className="row" style={{ gap: 8, marginTop: 6 }}>
                 <button className="btn small primary" disabled={savingEdit} onClick={() => void saveDescription()}>Save</button>
@@ -3039,15 +3254,12 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                 />
                 {checkDraft?.id === item.id ? (
                   <div className="cl-editor">
-                    <textarea
+                    <AutoTextarea
                       aria-label="Edit checklist item"
-                      rows={6}
                       value={checkDraft.text}
-                      onChange={(e) => setCheckDraft({ id: item.id, text: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setCheckDraft(null);
-                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveCheckItem();
-                      }}
+                      onChange={(text) => setCheckDraft({ id: item.id, text })}
+                      onSubmit={() => void saveCheckItem()}
+                      onCancel={() => setCheckDraft(null)}
                     />
                     <div className="row" style={{ gap: 6 }}>
                       <button className="btn tiny primary" disabled={!checkDraft.text.trim()} onClick={() => void saveCheckItem()}>Save item</button>
@@ -3088,38 +3300,67 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             ))}
           </ul>
         )}
-        <div className="row" style={{ gap: 8 }}>
-          <textarea
+        {/* The input takes the card's full width on its own row and the Add button
+            sits under it. Sharing a flex row with the button is what made it
+            narrow, and a fixed 4 rows made it tall - the opposite of what a
+            mostly-one-line field wants. */}
+        <div className="cl-add">
+          <AutoTextarea
             aria-label="New checklist item"
             value={checkText}
-            rows={4}
-            placeholder="Add an item. Multi-paragraph task briefs are supported."
-            onChange={(e) => setCheckText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addCheckItem(); }}
-            style={{ flex: 1, minWidth: 0 }}
+            placeholder="Add an item. Enter adds it; Shift+Enter for a new line."
+            onChange={setCheckText}
+            onSubmit={addCheckItem}
           />
-          <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
-            <PlusIcon /> Add
-          </button>
+          <div className="row" style={{ gap: 8, marginTop: 6 }}>
+            <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
+              <PlusIcon /> Add
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ATTACHMENTS - card-owned uploads (deletable, folded into the dispatch
           prompt as context) plus the legacy ClaudeChat description-block files.
           Images render inline (click to enlarge); other files link out. */}
-      <div className="evidence">
+      <div
+        className={`evidence${dragOver ? " drag-over" : ""}`}
+        onDragOver={(e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer?.files?.length) return;
+          e.preventDefault();
+          setDragOver(false);
+          void uploadFiles(Array.from(e.dataTransfer.files));
+        }}
+      >
         <div className="dd-title">
           Attachments
-          <label className={`btn tiny${uploading ? " disabled" : ""}`} title="attach a file - the operative reads it as context when the card runs">
+          {/* A real button that opens the picker programmatically, rather than a
+              <label> wrapping a hidden input. Implicit label activation is the
+              part that does not survive every context this board runs in - the
+              board is framed cross-origin inside Garrison, and WebKit in
+              particular declines to open a picker that way, which is what "attach
+              is not working" looked like. Clicking the input directly always
+              works. Drag-and-drop onto this panel and Cmd+V paste are the other
+              two routes in, so a blocked picker is no longer a dead end. */}
+          <button
+            type="button"
+            className="btn tiny"
+            disabled={uploading}
+            title="attach a file - the operative reads it as context when the card runs. You can also drop files here or paste an image."
+            onClick={() => fileInputRef.current?.click()}
+          >
             {uploading ? "uploading…" : "attach"}
-            <input
-              type="file"
-              multiple
-              style={{ display: "none" }}
-              disabled={uploading}
-              onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
-            />
-          </label>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            disabled={uploading}
+            onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
+          />
         </div>
         {attachments.length > 0 ? (
           <div className="ev-grid">
@@ -3228,6 +3469,18 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           ))
         )}
       </div>
+
+      {/* The same action row the card front carries, at the bottom of the opened
+          card - so everything you can do to a card is reachable from wherever you
+          are looking at it. Literally the same component, not a copy, and it
+          brings the card's id with it (withId) for quoting into an agent prompt.
+          `list` comes from the board; without it there is nothing to derive the
+          available actions from, so the row is simply omitted. */}
+      {actions && cardList && (
+        <div className="detail-actions detail-actions-footer">
+          <CardActions card={card} list={cardList} busy={false} withId handlers={actions} />
+        </div>
+      )}
 
       <div className="danger-zone">
         {/* Abandon (S2, Q7): prepare a revert of the card's committed work + park it.
@@ -4280,6 +4533,25 @@ function App() {
     }
   }
 
+  // Delete straight from the card front. Irreversible and it takes the card's run
+  // directory with it, so it always asks first and names the card in the prompt -
+  // the board is a grid of near-identical tiles and "are you sure?" is not enough
+  // to tell you which one you are about to destroy.
+  async function onDelete(card: CardSummary) {
+    if (!window.confirm(`Delete "${card.title || card.id}"? This removes the card and its run history for good.`)) return;
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      await api.del(card.id);
+      await load();
+      setNotice("Card deleted");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
   // WS2 (D7): continue a DONE card's work in one click — create a successor card
   // (continues=<id>, its prompt seeded from the predecessor's handoff packet) and
   // move it to plan so the run dispatches. A fresh backlog card is not engine-owned,
@@ -4674,6 +4946,7 @@ function App() {
                               setOverlay({ kind: "move", card: c });
                             }}
                             onQuickMove={onQuickMove}
+                            onDelete={onDelete}
                             onWatch={(c) => setOverlay({ kind: "watch", card: c })}
                             onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
                             onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
@@ -4756,6 +5029,21 @@ function App() {
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
           onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
           onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
+          actions={{
+            onStart,
+            onMove: (c) => setOverlay({ kind: "move", card: c }),
+            onQuickMove,
+            // The sheet is showing the card that just went away, so close it.
+            onDelete: async (c) => { await onDelete(c); setOverlay(null); },
+            onWatch: (c) => setOverlay({ kind: "watch", card: c }),
+            onTerminal: (c) => setOverlay({ kind: "terminal", card: c }),
+            onInfer,
+            onDiscuss,
+            onContinue,
+            onDrill,
+            onFeedback: (c) => setOverlay({ kind: "feedback", card: c }),
+            onRunSchedule
+          }}
         />
       )}
       {overlay?.kind === "watch" && (

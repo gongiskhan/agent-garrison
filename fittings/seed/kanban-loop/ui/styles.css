@@ -1215,6 +1215,30 @@ body {
 
 /* ── evidence bundle (screenshots + log) — the proof, surfaced prominently ── */
 .evidence { margin-bottom: 18px; }
+/* Drop target feedback for attach-by-drag. Outline rather than border so the
+   panel does not shift by a pixel when it lights up. */
+.evidence.drag-over {
+  outline: 2px dashed var(--accent, #6b7a4a);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+/* The card's id, shown in the opened card so it can be quoted to an agent. */
+.card-uid {
+  font-size: 11px;
+  color: var(--mute);
+  background: var(--paper-2, rgba(0, 0, 0, 0.04));
+  padding: 2px 6px;
+  border-radius: 3px;
+  user-select: all;
+  align-self: center;
+}
+/* The shared action row repeated at the bottom of the opened card. A rule above
+   it separates it from the content it acts on. */
+.detail-actions-footer {
+  border-top: 1px solid var(--rule, rgba(0, 0, 0, 0.12));
+  padding-top: 12px;
+  margin-top: 4px;
+}
 .ev-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .ev-shot {
   display: flex;
@@ -1998,8 +2022,15 @@ button:active, .btn:active { transform: translateY(1px); }
 }
 .checklist .cl-edit:hover { color: var(--ink); }
 .checklist .cl-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+/* These fields size themselves to their content (AutoTextarea), so they must NOT
+   carry a min-height: 7.5em reserved seven empty lines for a one-line item and
+   was the whole reason the box looked wrong. */
 .checklist .cl-editor textarea,
-.checklist > .row textarea { min-height: 7.5em; resize: vertical; white-space: pre-wrap; }
+.checklist .cl-add textarea { white-space: pre-wrap; }
+/* Full width of the card area, with the Add button on its own row underneath -
+   sharing a flex row with the button is what kept the field narrow. */
+.checklist .cl-add { display: block; }
+.checklist .cl-add textarea { width: 100%; }
 .checklist .cl-del {
   border: none;
   background: transparent;
