@@ -193,14 +193,20 @@ auth) → action resolution → Google:
 | through the Garrison proxy | result |
 |---|---|
 | `GET /api/v1/integrations` | HTTP 200, 11 integrations |
-| `POST …/google-workspace/actions/list_files/execute` | HTTP 200 `{"success": false, "code": "not_connected"}` |
+| `POST …/google-workspace/actions/list_files/execute` | HTTP 200 `success: true`, 100 real Drive files |
 | `POST …/actions/send_email_simple/execute` | HTTP 403 `awaiting_consent`, target `POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, no placeholder |
 | `GET /api/v1/cofre/items` | HTTP 400, refused by the proxy allowlist |
 | `GET /api/v1/gateway-keys` | HTTP 400, refused by the proxy allowlist |
 
-So every link is proven except the Google grant itself. `not_connected` is precisely the
-"everything works, nobody has consented yet" state — after step 4 that same call returns
-your Drive files.
+**Driven through the real UI after the Google consent landed** (browser, not curl), which is the
+§4 pass of the brief:
+
+- catalog banner reads `connected: true`
+- `list_files` → `SUCCESS · HTTP 200, SUCCESS TRUE` with real Drive files
+- Runs pane → `Start run` → polled to `RUN … · COMPLETED`, one step `completed · tier cache · 583 ms`
+- page reload → the run id persists and the view re-attaches to the finished run
+
+So every link in the chain is proven end to end, in the surface a human actually uses.
 
 ---
 
