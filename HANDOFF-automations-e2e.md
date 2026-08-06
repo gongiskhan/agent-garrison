@@ -127,7 +127,9 @@ The fitting is **not** equipped, and that part is yours to do:
 2. **Compose** → equip **cortex-automations** → set its `base_url` to `http://127.0.0.1:4111`
    (loopback is correct here: Garrison calls Cortex server-to-server on the same box, and the
    browser never sees this value. Do not put a loopback URL anywhere the browser consumes.)
-3. The **Session** view then appears under Fittings.
+3. Open the Session view at **`/fitting/cortex-automations/session`**. The sidebar's Fittings
+   entry links a Fitting's ROOT route only, so this one has to be typed (or bookmarked) — the
+   root lands you on the connector view instead.
 
 I did equip it in `compositions/default/apm.yml` while proving the chain, and then reverted
 it, because the fitting's own suite asserts that no `compositions/default*` composition may
@@ -290,3 +292,14 @@ the UI should call itself live.
   mine. My commits name only my own files; do not assume a clean tree.
 - The stack's ephemeral-by-default database means that if you start it *without*
   `EKOA_DEV_DB_PATH`, you will redo the Google consent on every restart.
+- **The Ekoa automations editor's Save does nothing server-side** (logged OPEN in
+  `docs/findings.md` as `the-automation-editors-save-sends-steps-the-api-never-reads`, found while
+  auditing the step-field drop, read from code and NOT reproduced live). The editor sends a
+  top-level `steps` while `patchAutomation` reads only `patch.plan?.steps`, and the two layers
+  disagree on the step shape as well (`{id, description, type}` vs `{stepId, description, tool}`),
+  so editing a step and saving changes nothing and the edit visibly reverts. No spec presses
+  Guardar, which is why nothing caught it. Untouched here — the brief put the Ekoa automations UI
+  out of scope — but it is the same decision as the step-field widening, and in that order:
+  the editor already lets a user pick an `integrationKey.actionName` and then throws it away.
+- **The sidebar cannot reach a Fitting's non-root view.** It links the root route only, so the
+  Session view has to be typed. Worth a small shell fix if this rig gets used often.
