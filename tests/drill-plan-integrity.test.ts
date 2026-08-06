@@ -743,3 +743,106 @@ describe("Book-level lifecycle boundaries", () => {
     expect(inFlightPlanConflict(existing, null)).toBe(false);
   });
 });
+
+// A route whose purpose is to forward elsewhere (e.g. /settings landing on
+// /settings/platform) can never satisfy the finalPath === page.path receipt
+// contract, so its checks were structurally stuck in vision/quarantine. The
+// typed redirectsTo declaration names the ONE landing the Book expects;
+// receipts must land exactly there, and an undeclared bounce stays rejected.
+describe("redirecting routes (redirectsTo)", () => {
+  it("changing or adding redirectsTo invalidates the verification fingerprint", () => {
+    const book = { app: { url: "http://fixture.invalid" }, viewports: ["desktop"] };
+    const basePage = page([]);
+    const base = step("answer", { assertion: { kind: "visible", role: "heading", name: "Summary" } });
+    const fingerprint = verificationFingerprint(book, basePage, base);
+    expect(verificationFingerprint(book, { ...basePage, redirectsTo: "/dashboard/home" }, base)).not.toBe(fingerprint);
+  });
+
+  it("accepts snapshot evidence that landed on the declared redirect target", async () => {
+    const root = tempRoot();
+    await seed(root, [], { page: { redirectsTo: "/dashboard/home" } });
+    const baseline = await capturePlanBaseline(root);
+    await savePage("dashboard", {
+      redirectsTo: "/dashboard/home",
+      steps: [step("landed", {
+        description: "The dashboard home tab remains legible at desktop width",
+        authoringObservation: { kind: "snapshot", receipts: ["obs-current"] }
+      })]
+    }, root);
+    const landed: any = receipt({ root });
+    landed.url = "http://fixture.invalid/dashboard/home";
+    landed.conditions.finalPath = "/dashboard/home";
+    const result = await applyPlanIntegrity({
+      root,
+      baseline,
+      startedAt: STARTED_AT,
+      evidence: { getObservation: async (id: string) => id === "obs-current" ? landed : null }
+    });
+    const saved = await getPage("dashboard", root);
+    expect(result.needsAttention).toBe(false);
+    expect(saved.steps[0].enabled).toBe(true);
+    expect(saved.steps[0].authoringObservation.conditions[0]).toMatchObject({
+      requestedPath: "/dashboard",
+      finalPath: "/dashboard/home"
+    });
+  });
+
+  it("still rejects evidence that landed anywhere other than the declared target", async () => {
+    const root = tempRoot();
+    await seed(root, [], { page: { redirectsTo: "/dashboard/home" } });
+    const baseline = await capturePlanBaseline(root);
+    await savePage("dashboard", {
+      redirectsTo: "/dashboard/home",
+      steps: [step("bounced", {
+        description: "The dashboard home tab remains legible at desktop width",
+        authoringObservation: { kind: "snapshot", receipts: ["obs-current"] }
+      })]
+    }, root);
+    const bounced: any = receipt({ root });
+    bounced.url = "http://fixture.invalid/login";
+    bounced.conditions.finalPath = "/login";
+    await applyPlanIntegrity({
+      root,
+      baseline,
+      startedAt: STARTED_AT,
+      evidence: { getObservation: async () => bounced }
+    });
+    expect((await getPage("dashboard", root)).steps[0]).toMatchObject({
+      enabled: false,
+      planGuard: { status: "quarantined", reason: "observation-receipt-mismatch" }
+    });
+  });
+
+  it("asks the assertion receipt store for the declared landing path, not the requested route", async () => {
+    const root = tempRoot();
+    const assertion = { kind: "url-matches", pattern: "/dashboard/home" };
+    await seed(root, [
+      step("redirect-lands", { mode: "e2e", assertion, assertionSource: "proven", spec: "old.spec.ts" })
+    ], { page: { redirectsTo: "/dashboard/home" } });
+    const baseline = await capturePlanBaseline(root);
+    const planned = await getPage("dashboard", root);
+    planned.steps[0].description = "Navigating to /dashboard forwards to the home tab";
+    await savePage("dashboard", { steps: planned.steps }, root);
+
+    const calls: any[] = [];
+    await applyPlanIntegrity({
+      root,
+      baseline,
+      startedAt: STARTED_AT,
+      evidence: {
+        hasPassedAssertion: async (candidate: any, constraints: any) => {
+          calls.push(constraints);
+          return true;
+        }
+      }
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    for (const constraints of calls) {
+      expect(constraints).toMatchObject({ path: "/dashboard", finalPath: "/dashboard/home" });
+    }
+    expect((await getPage("dashboard", root)).steps[0]).toMatchObject({
+      assertionSource: "authored",
+      assertion
+    });
+  });
+});

@@ -44,6 +44,7 @@ export function verificationFingerprint(book, page, step) {
   return stable({
     appUrl: book?.app?.url ?? "",
     path: page?.path ?? "",
+    redirectsTo: page?.redirectsTo ?? null,
     description: step?.description ?? "",
     state: step?.state ?? "default",
     reachPath: stateReachPath(page, step),
@@ -219,7 +220,12 @@ function observationMatchesStep(observation, { root, startedAt, book, page, step
     ?? observation.url
   );
   const expectedPath = pathOnly(page?.path ?? "/");
-  if (observedPath !== expectedPath || pathOnly(conditions.finalPath ?? observation.url) !== expectedPath) return false;
+  // A page may declare its route forwards elsewhere (redirectsTo); the receipt
+  // must then have LANDED exactly there. Without the declaration the landing
+  // must be the requested route itself, so a bounce (e.g. to a login screen)
+  // can never bless evidence for the page it bounced away from.
+  const expectedFinalPath = pathOnly(page?.redirectsTo ?? page?.path ?? "/");
+  if (observedPath !== expectedPath || pathOnly(conditions.finalPath ?? observation.url) !== expectedFinalPath) return false;
   const expectedOrigin = webOrigin(book?.app?.url);
   if (expectedOrigin && (
     conditions.requestedOrigin !== expectedOrigin
@@ -369,7 +375,7 @@ async function exactAssertionWasObserved(step, context, evidence) {
     const passed = await evidence.hasPassedAssertion(step.assertion, {
       since: context.startedAt,
       path: context.page?.path ?? "/",
-      finalPath: context.page?.path ?? "/",
+      finalPath: context.page?.redirectsTo ?? context.page?.path ?? "/",
       appUrl: context.book?.app?.url ?? null,
       pristine: true,
       ...(viewport ? { viewport } : {})
