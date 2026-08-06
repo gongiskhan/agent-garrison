@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -21,9 +22,23 @@ function freshId() {
   return id;
 }
 
+// What the repo SHIPS is what is tracked. A pre-upgrade runtime still
+// regenerates the retired soul.md into a developer's working tree (it is
+// gitignored, and the identity migration deletes it on first read), so scanning
+// the raw filesystem here would fail purely because a live instance is running.
+function trackedFiles(): Set<string> {
+  const out = execFileSync("git", ["ls-files", "-z", "compositions"], {
+    cwd: path.resolve(__dirname, ".."),
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024
+  });
+  return new Set(out.split("\0").filter(Boolean));
+}
+
 describe("composition identity source retirement", () => {
   it("ships no declared legacy identity source or Verity-bearing composition prompt", async () => {
     const compositionsDir = path.resolve(__dirname, "..", "compositions");
+    const tracked = trackedFiles();
     const entries = await fs.readdir(compositionsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
@@ -38,7 +53,10 @@ describe("composition identity source retirement", () => {
         manifest?.["x-garrison"]?.composition?.prompt_sources?.soul,
         `${entry.name} must not declare the retired soul prompt`
       ).toBeUndefined();
+      const legacyRel = `compositions/${entry.name}/.garrison/prompts/soul.md`;
+      expect(tracked.has(legacyRel), `${entry.name} must not ship the retired soul prompt`).toBe(false);
       const legacyPath = path.join(compositionsDir, entry.name, ".garrison", "prompts", "soul.md");
+      if (!tracked.has(legacyRel)) continue;
       try {
         const legacy = await fs.readFile(legacyPath, "utf8");
         expect(legacy, `${entry.name} must not carry the retired Verity identity`).not.toMatch(/\bVerity\b/);

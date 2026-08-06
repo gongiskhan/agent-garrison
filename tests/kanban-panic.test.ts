@@ -231,10 +231,8 @@ describe("Panic engine semantics", () => {
 });
 
 describe("POST /cards/:id/panic", () => {
-  it("stops and releases a remote claim while preserving placement and partial evidence", async () => {
-    const root = tempRoot();
-    await saveBoard(board(), root);
-    const id = "R".repeat(26);
+  // Seeds a card holding a live remote claim plus one piece of partial evidence.
+  async function remoteClaimCard(root: string, id: string) {
     const evidence = path.join(root, "cards", id, "dispatch", "partial.txt");
     mkdirSync(path.dirname(evidence), { recursive: true });
     writeFileSync(evidence, "partial remote proof\n");
@@ -254,19 +252,101 @@ describe("POST /cards/:id/panic", () => {
         state: "running"
       }
     });
+    return evidence;
+  }
+
+  it("releases a remote claim once the worker acknowledges, preserving placement and partial evidence", async () => {
+    const root = tempRoot();
+    await saveBoard(board(), root);
+    const id = "R".repeat(26);
+    const evidence = await remoteClaimCard(root, id);
     const server = http.createServer(makeRequestHandler({ root, cwd: root, gatewayUrl: null, cap: 10 }, root));
     const base = `http://127.0.0.1:${await listen(server)}`;
     try {
-      const response = await fetch(`${base}/cards/${id}/panic`, { method: "POST" });
+      const panic = fetch(`${base}/cards/${id}/panic`, { method: "POST" });
+
+      // Stand in for the Outpost worker: wait for Panic to publish the
+      // `cancelling` request, then acknowledge that the process group stopped.
+      // The ack carries the claim identity AND the current rev, so this also
+      // exercises the ownership + CAS gates on the acknowledgement route.
+      let acked: Response | null = null;
+      for (let attempt = 0; attempt < 100 && !acked; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const card = await loadCard(root, id);
+        if (card.dispatch?.cancellation?.state !== "requested") continue;
+        acked = await fetch(`${base}/cards/${id}/dispatch-cancel`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-garrison-engine": "worker" },
+          body: JSON.stringify({
+            machine: "studio",
+            workerId: "worker-one",
+            runId: "remote-run",
+            routingToken: "route-one",
+            stopped: true,
+            rev: card.rev ?? 0,
+            summary: "remote process group stopped"
+          })
+        });
+      }
+      expect(acked?.status).toBe(200);
+
+      const response = await panic;
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true, stopped: true, remote: true });
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        stopped: true,
+        acknowledged: true,
+        remote: true
+      });
       expect(await loadCard(root, id)).toMatchObject({
         list: "needs-attention",
         status: "needs-attention",
         parkedFrom: "plan",
         placement: { target: "studio" },
-        dispatch: { machine: "studio", state: "failed" }
+        dispatch: { machine: "studio", state: "failed", cancellation: { state: "acknowledged" } }
       });
+      expect(existsSync(evidence)).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  // The lease is the only thing stopping a second machine picking this card up
+  // while the first may still be executing it, so an unacknowledged stop must
+  // NOT release it. Fail closed: report pending and keep the claim locked.
+  it("keeps the lease and placement locked when the worker never acknowledges", async () => {
+    const root = tempRoot();
+    await saveBoard(board(), root);
+    const id = "S".repeat(26);
+    const evidence = await remoteClaimCard(root, id);
+    const server = http.createServer(
+      makeRequestHandler({ root, cwd: root, gatewayUrl: null, cap: 10, remoteCancelWaitMs: 400 }, root)
+    );
+    const base = `http://127.0.0.1:${await listen(server)}`;
+    try {
+      const response = await fetch(`${base}/cards/${id}/panic`, { method: "POST" });
+      expect(response.status).toBe(504);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        stopped: false,
+        acknowledged: false,
+        released: false,
+        pending: true,
+        remote: true,
+        code: "remote-cancel-timeout"
+      });
+      const card = await loadCard(root, id);
+      expect(card).toMatchObject({
+        status: "running",
+        placement: { target: "studio" },
+        dispatch: {
+          machine: "studio",
+          runId: "remote-run",
+          state: "cancelling",
+          cancellation: { state: "timeout" }
+        }
+      });
+      expect(card.dispatch.releasedAt).toBeUndefined();
       expect(existsSync(evidence)).toBe(true);
     } finally {
       await close(server);

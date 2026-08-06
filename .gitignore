@@ -31,6 +31,10 @@ compositions/*/.garrison/orchestrator-authored.json
 compositions/*/.garrison/owner.json
 compositions/*/.garrison/routing.json.*.bak
 compositions/*/.garrison/souls/
+# Retired identity source. No composition ships one any more, but a pre-upgrade
+# runtime still regenerates it into the working tree; the identity migration
+# deletes it on first read. Never let one be committed back in.
+compositions/*/.garrison/prompts/soul.md
 compositions/*/.garrison/switch-log.jsonl
 compositions/*/.garrison/run-evidence.json
 compositions/*/.garrison/mcp.json

@@ -50,11 +50,14 @@ describe("Kanban Watch Panic UI", () => {
     expect(watch).toContain("api.panic(card.id)");
     expect(watch).toContain("Partial output will be kept but ignored");
     expect(watch).toContain("Review routing &amp; retry");
-    expect(watch).toContain('const hasRemoteReplay = Boolean(card.dispatch?.runId);');
+    // Earlier remote phases stay replayable, so a finished dispatch still opens
+    // on the rich Log rather than falling back to Raw.
+    expect(watch).toContain('const hasRemoteReplay = Boolean(card.dispatch?.runId || card.dispatchRuns?.length);');
     expect(watch).toContain('const hasSession = card.status === "running" || hasRemoteReplay || (card.sessionIds?.length ?? 0) > 0;');
     expect(watch).toContain('useState<"session" | "raw">(hasSession ? "session" : "raw")');
     expect(watch).toContain('live={card.status === "running" && live !== false && !done}');
-    expect(watch).toContain('remote={hasRemoteReplay}');
+    expect(watch).toContain('dispatch={card.dispatch}');
+    expect(watch).toContain('dispatchRuns={card.dispatchRuns ?? []}');
     expect(detail).toContain("Save & Retry");
     expect(detail).toContain("initialOpen={parked}");
     expect(detail).toContain("patchCard({ routing:");
