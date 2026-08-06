@@ -163,19 +163,6 @@ describe("orchestrator policy core (S1)", () => {
     expect(exception.via).toBe("exception");
   });
 
-  it("computeLadder bias preserves v1 routingBias behavior", async () => {
-    const mod = await core();
-    const ladder = ["cc-haiku-low", "cc-sonnet-med", "cc-opus-high"];
-    // Joe: expert floor raises everything on the ladder
-    expect(mod.biasTarget("cc-haiku-low", { floor: "expert", prefer: "expert" }, ladder)).toBe("cc-opus-high");
-    // Gary: standard-toward-fast dials the standard resolution down
-    expect(mod.biasTarget("cc-sonnet-med", { floor: "fast", prefer: "fast" }, ladder)).toBe("cc-haiku-low");
-    // A genuinely hard task keeps its tier (never lowered by floor)
-    expect(mod.biasTarget("cc-opus-high", { floor: "standard", prefer: "expert" }, ladder)).toBe("cc-opus-high");
-    // Off-ladder targets are never biased
-    expect(mod.biasTarget("sec-gemini", { floor: "expert", prefer: "expert" }, ladder)).toBe("sec-gemini");
-  });
-
   it("v1 configs migrate to v2 preserving effective routes", async () => {
     const mod = await core();
     const v1 = {
@@ -398,7 +385,6 @@ describe("primaryRuntime in the policy (P3/D4)", () => {
     expect(pol.providers.map((x: { id: string }) => x.id)).toEqual([
       "anthropic-plan",
       "anthropic",
-      "ollama-local",
       "deepseek",
       "zai-glm",
       "openai",

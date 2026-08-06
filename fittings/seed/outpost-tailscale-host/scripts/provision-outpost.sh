@@ -5,11 +5,10 @@
 # The server prepends `export GARRISON_HOST/GARRISON_TOKEN/GARRISON_MACHINE` so this runs
 # with the pairing credentials already in the environment.
 #
-# It idempotently installs the garrison-outpost-bridge agent (clone, build, config,
-# launchd). It is a self-contained mirror of scripts/bootstrap-outpost.sh (which lives on
-# the Garrison host, not the remote), NOT a re-run of it. Steps that cannot be done purely
-# over SSH (task-capable skills bundle, per-runtime prerequisites) are printed as honest
-# TODO / skipped lines rather than silently omitted.
+# It idempotently installs both the external garrison-outpost-bridge agent and
+# Garrison's versioned pull worker. It is a self-contained mirror of
+# scripts/bootstrap-outpost.sh (which lives on the Garrison host), NOT a re-run
+# of it. Model credentials remain local to the Mac and are never copied here.
 set -euo pipefail
 
 BRIDGE_REPO="https://github.com/gongiskhan/garrison-outpost-bridge.git"
@@ -43,6 +42,7 @@ echo "    bridge:  $BRIDGE_URL"
 # --- Prerequisites ---
 echo "==> Checking prerequisites"
 command -v git >/dev/null 2>&1 || fail "git is not installed on the remote"
+command -v curl >/dev/null 2>&1 || fail "curl is not installed on the remote"
 command -v node >/dev/null 2>&1 || fail "node is not installed on the remote (Node.js 20+ required)"
 node_major=$(node -e "process.stdout.write(process.version.slice(1).split('.')[0])" 2>/dev/null || echo 0)
 [ "$node_major" -ge 20 ] 2>/dev/null || fail "Node.js 20+ required (found major v${node_major})"
@@ -51,7 +51,7 @@ if ! command -v tailscale >/dev/null 2>&1; then
 fi
 
 # --- Clone or update ---
-mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 if [ -d "$INSTALL_DIR/.git" ]; then
   echo "==> Updating bridge at $INSTALL_DIR"
   git -C "$INSTALL_DIR" pull --ff-only || fail "git pull failed"
@@ -87,15 +87,24 @@ if [ -f "$INSTALL_DIR/launchd/io.garrison.outpost.plist" ]; then
     > "$PLIST_PATH"
   echo "==> Loading service"
   launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
+  # A prior `launchctl disable` is sticky across reinstalls; clear it before
+  # bootstrap so Enable/Repair is genuinely idempotent.
+  launchctl enable "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH" || echo "    WARNING: launchctl bootstrap failed — start it manually"
 else
   echo "    WARNING: no launchd plist shipped by the bridge — skipping service install"
 fi
 
-# --- Task-capable extras (honest TODOs; not doable purely over SSH here) ---
-echo "==> Task-capable outpost extras"
-echo "    TODO: skills bundle — skipped (needs Armory path; not implementable purely over SSH)"
-echo "    TODO: per-runtime prerequisites (Claude Code / uv / language toolchains) — skipped (needs Armory path)"
+# --- Garrison-owned task runner ---
+[ -n "${GARRISON_DISPATCH_URL:-}" ] || fail "GARRISON_DISPATCH_URL not set by provisioner"
+[ -n "${GARRISON_WORKER_ASSET_BASE:-}" ] || fail "GARRISON_WORKER_ASSET_BASE not set by provisioner"
+echo "==> Installing/repairing Garrison task runner"
+curl -fsSL "${GARRISON_WORKER_ASSET_BASE%/}/install.sh" | \
+  GARRISON_DISPATCH_URL="$GARRISON_DISPATCH_URL" \
+  GARRISON_TOKEN="$GARRISON_TOKEN" \
+  GARRISON_MACHINE="$MACHINE_NAME" \
+  GARRISON_WORKER_ASSET_BASE="$GARRISON_WORKER_ASSET_BASE" \
+  bash
 
 # --- Wait for ready ---
 echo "==> Waiting for bridge to connect (up to 60s)…"

@@ -26,7 +26,7 @@ const seedIds = [
   "monitor-default",
   "browser-default",
   "file-browser",
-  "garrison-orchestrator",
+  "orchestrator",
   "taste",
   "opencode-runtime",
   "cursor-runtime",
@@ -121,13 +121,13 @@ describe("seed Fittings", () => {
     expect(metadata.setup?.[0]?.command).toContain("install-hooks");
   });
 
-  it("garrison-orchestrator provides the orchestrator capability (spawn retired)", async () => {
-    const metadata = await loadSeed("garrison-orchestrator");
+  it("the layered Orchestrator provides the canonical orchestrator and identity capabilities", async () => {
+    const metadata = await loadSeed("orchestrator");
     expect(metadata.faculty).toBe("orchestrator");
     expect(metadata.component_shape).toBe("system-prompt");
-    expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "garrison-orchestrator" });
-    expect(metadata.consumes).toEqual([]); // souls dispatch + mcp-gateway consume removed
-    expect(metadata.spawn).toBeUndefined();
+    expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "orchestrator" });
+    expect(metadata.provides).toContainEqual({ kind: "identity", name: "authored" });
+    expect(metadata.provides).toContainEqual({ kind: "duty", name: "dispatch" });
   });
 
   it("the full survivor stack resolves capabilities cleanly", async () => {

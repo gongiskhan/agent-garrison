@@ -122,7 +122,7 @@ async function claimFromChild(cardsDir: string, kind: string, maxPending: number
   });
 }
 
-async function startGateway(mode: "pty" | "souls") {
+async function startGateway(mode: "pty" | "entrypoint") {
   const home = mkdtempSync(path.join(tmpdir(), `garrison-job-${mode}-`));
   roots.push(home);
   // Exercise the supported board-root override. The ingress guard must resolve
@@ -133,7 +133,7 @@ async function startGateway(mode: "pty" | "souls") {
   mkdirSync(cardsDir, { recursive: true });
   mkdirSync(path.join(compositionDir, ".garrison"), { recursive: true });
   const port = await freePort();
-  const script = path.join(gatewayScriptsDir, mode === "souls" ? "gateway.mjs" : "gateway-pty.mjs");
+  const script = path.join(gatewayScriptsDir, mode === "entrypoint" ? "gateway.mjs" : "gateway-pty.mjs");
   let logs = "";
   const child = spawn(process.execPath, [script], {
     env: {
@@ -146,10 +146,7 @@ async function startGateway(mode: "pty" | "souls") {
       GARRISON_JOB_DEDUPE_TTL_MS: String(3 * 60 * 60 * 1000),
       GARRISON_ROUTING: "0",
       // Never let this wiring test discover or start a real local runtime.
-      GARRISON_CLAUDE_BINARY: "/definitely/missing/garrison-claude",
-      GARRISON_SOULS_CONFIG: mode === "souls"
-        ? JSON.stringify({ orchestratorFittingId: "orchestrator", orchestrator: null, souls: {} })
-        : ""
+      GARRISON_CLAUDE_BINARY: "/definitely/missing/garrison-claude"
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -697,7 +694,7 @@ describe("scheduled job ingress dedupe", () => {
   });
 });
 
-describe.each(["pty", "souls"] as const)("%s gateway scheduled-job HTTP ingress", (mode) => {
+describe.each(["pty", "entrypoint"] as const)("%s gateway scheduled-job HTTP ingress", (mode) => {
   it("persists an accepted job key before acknowledging and keeps replay retryable until retained", async () => {
     const { baseUrl, cardsDir } = await startGateway(mode);
     const body = { kind: "heartbeat-tick", instructions: `durable-${mode}` };
@@ -708,17 +705,6 @@ describe.each(["pty", "souls"] as const)("%s gateway scheduled-job HTTP ingress"
     });
 
     const accepted = await post();
-    if (mode === "souls") {
-      // This fixture deliberately provides no operative binary. A durable
-      // reservation is not enough to acknowledge the producer: queue admission
-      // fails, the exact generation is released, and the producer receives a
-      // retryable response instead of a false 202.
-      expect(accepted.status).toBe(503);
-      await expect(accepted.json()).resolves.toMatchObject({ ack: false, retryable: true });
-      const receiptDir = path.join(path.dirname(cardsDir), "job-ingress");
-      expect(readdirSync(receiptDir).filter((name) => name.endsWith(".json"))).toHaveLength(0);
-      return;
-    }
     expect(accepted.status).toBe(202);
     await expect(accepted.json()).resolves.toMatchObject({ ack: true, deduped: false });
 

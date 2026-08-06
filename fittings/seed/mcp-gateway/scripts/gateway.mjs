@@ -23,12 +23,6 @@ import {
   checkProbe,
   callClassifyTier,
   callRunTests,
-  isGarrisonControlEnabled,
-  callTalkTo,
-  callWaitFor,
-  callListActiveSessions,
-  callEndSession,
-  callListWorkdirs,
   automationsAvailable,
   callListAutomations,
   callRunAutomation,
@@ -155,8 +149,13 @@ async function discoverTools() {
             card: { type: "string", description: "Card ref: full ULID, ULID suffix (>= 3 chars, e.g. the short ref '7Q2M' from a reminder), or a title fragment." },
             until: { type: "string", description: "ISO date-time to schedule for (pass exactly one of until / in_minutes)." },
             in_minutes: { type: "number", description: "Relative schedule: minutes from now (pass exactly one of until / in_minutes)." },
+            cron: { type: "string", description: "Five-field cron for a recurring Scheduled template (exclusive with until/in_minutes)." },
+            timezone: { type: "string", description: "IANA timezone for cron schedules (default Europe/Lisbon)." },
+            target_list: { type: "string", description: "List the one-shot or each recurring occurrence enters when due." },
             action: { type: "string", enum: ["notify", "run"], description: "What happens at the scheduled instant: notify the user (default) or auto-run the card." },
-            clear: { type: "boolean", description: "true = clear the card's schedule instead of setting one (until/in_minutes are ignored)." }
+            clear: { type: "boolean", description: "true = clear the card's schedule instead of setting one." },
+            pause: { type: "boolean", description: "Pause an existing schedule without deleting it." },
+            resume: { type: "boolean", description: "Resume an existing schedule." }
           },
           required: ["card"]
         }
@@ -203,71 +202,6 @@ async function discoverTools() {
     }
   });
 
-  if (isGarrisonControlEnabled()) {
-    tools.push(
-      {
-        name: "talk_to",
-        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass project (or an explicit cwd) to run the session at that repo root on its current branch; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            soul: { type: "string", description: "engineer | architect | assistant | researcher | companion" },
-            message: { type: "string", description: "What the Soul should do." },
-            project: { type: "string", description: "Project label (e.g. 'agent-garrison') resolved to its repo root under the dev-root; the session runs there on the current branch." },
-            mode: { type: "string", enum: ["headless", "interactive"], description: "Override the origin-derived default." },
-            tier_hint: { type: "object", description: "Result of classify_tier — { model, effort, needs_testing, needs_agents_team }." },
-            task_title: { type: "string", description: "Short human-readable summary for UI display." },
-            channel: { type: "string", description: "Channel id (default 'main')." },
-            cwd: { type: "string", description: "Absolute working-directory override (wins over project)." }
-          },
-          required: ["soul", "message"]
-        }
-      },
-      {
-        name: "wait_for",
-        description: "Block until a sub-session's current turn completes. Times out (chunked) so you can call again on long work.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            session_id: { type: "string" },
-            timeout_seconds: { type: "number", description: "Max wait (default 30, max 300)." }
-          },
-          required: ["session_id"]
-        }
-      },
-      {
-        name: "list_active_sessions",
-        description: "Enumerate active Soul sub-sessions. Optional filters: parent, mode, soul.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            parent: { type: "string" },
-            mode: { type: "string" },
-            soul: { type: "string" }
-          }
-        }
-      },
-      {
-        name: "end_session",
-        description: "Kill the active sub-session for a Soul (SIGTERM).",
-        inputSchema: {
-          type: "object",
-          properties: { soul: { type: "string" } },
-          required: ["soul"]
-        }
-      },
-      {
-        name: "list_workdirs",
-        description: "List directories under a Soul's configured base_path. Use to pick a cwd before talk_to.",
-        inputSchema: {
-          type: "object",
-          properties: { soul: { type: "string" } },
-          required: ["soul"]
-        }
-      }
-    );
-  }
-
   return tools;
 }
 
@@ -284,11 +218,6 @@ async function dispatchTool(name, input) {
   if (name === "schedule_card") return callScheduleCard(input);
   if (name === "run_card") return callRunCard(input);
   if (name === "list_scheduled_cards") return callListScheduledCards(input);
-  if (name === "talk_to") return callTalkTo(input);
-  if (name === "wait_for") return callWaitFor(input);
-  if (name === "list_active_sessions") return callListActiveSessions(input);
-  if (name === "end_session") return callEndSession(input);
-  if (name === "list_workdirs") return callListWorkdirs(input);
   throw new Error(`unknown tool: ${name}`);
 }
 

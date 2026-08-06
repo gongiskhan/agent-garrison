@@ -194,9 +194,40 @@ export class OmiStore {
     return thread;
   }
 
-  appendThreadMessages(id, messages, { cap = 200 } = {}) {
+  threadDelivery(id, idempotencyKey) {
+    if (typeof idempotencyKey !== "string" || !idempotencyKey.trim()) return null;
+    const thread = readJSON(this.threadFile(id), null);
+    return (Array.isArray(thread?.messageDeliveries) ? thread.messageDeliveries : [])
+      .find((entry) => entry?.key === idempotencyKey.trim().slice(0, 200)) ?? null;
+  }
+
+  completeThreadDelivery(id, idempotencyKey, receipts) {
+    const key = typeof idempotencyKey === "string" ? idempotencyKey.trim().slice(0, 200) : "";
+    if (!key) return null;
+    const file = this.threadFile(id);
+    const thread = readJSON(file, null);
+    if (!thread) return null;
+    const rows = Array.isArray(thread.messageDeliveries) ? thread.messageDeliveries : [];
+    const index = rows.findIndex((entry) => entry?.key === key);
+    if (index < 0) return null;
+    rows[index] = {
+      ...rows[index],
+      status: "complete",
+      completedAt: new Date().toISOString(),
+      receipts: Array.isArray(receipts) ? receipts.slice(0, 12) : []
+    };
+    thread.messageDeliveries = rows.slice(-512);
+    atomicWriteJSON(file, thread);
+    return rows[index];
+  }
+
+  appendThreadMessages(id, messages, { cap = 200, idempotencyKey = null } = {}) {
     const file = this.threadFile(id);
     const thread = readJSON(file, null) ?? this.ensureThread({ id });
+    const key = typeof idempotencyKey === "string" ? idempotencyKey.trim().slice(0, 200) : "";
+    if (key && (Array.isArray(thread.messageDeliveries) ? thread.messageDeliveries : []).some((entry) => entry?.key === key)) {
+      return [];
+    }
     const clean = (Array.isArray(messages) ? messages : [])
       .map((m) => ({
         role: typeof m?.role === "string" ? m.role : "assistant",
@@ -204,7 +235,14 @@ export class OmiStore {
         at: new Date().toISOString()
       }))
       .filter((m) => m.text.length > 0);
+    if (clean.length === 0) return [];
     thread.messages = [...(thread.messages ?? []), ...clean].slice(-cap);
+    if (key) {
+      thread.messageDeliveries = [
+        ...(Array.isArray(thread.messageDeliveries) ? thread.messageDeliveries : []),
+        { key, status: "pending", appendedAt: new Date().toISOString(), receipts: [] }
+      ].slice(-512);
+    }
     atomicWriteJSON(file, thread);
     return clean;
   }

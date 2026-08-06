@@ -6,17 +6,19 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
+import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 
 // U1 — a REAL prompt THROUGH the gateway HTTP surface (live-route-ok /
 // live-switch-ok). Boots the actual gateway-pty.mjs as a child process with the
 // documented runtime stub (GARRISON_GATEWAY_RUNTIME_STUB) so the path is real —
-// HTTP → classify → resolve → decisions.jsonl → pool serves → honored token —
+// HTTP → Orchestrator dispatch → resolve → decisions.jsonl → pool serves → honored token —
 // but deterministic and free (no live model). The live-claude counterpart is
 // scripts/probe-live-gateway.mjs. Runs in the normal suite.
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GATEWAY = path.join(REPO_ROOT, "fittings", "seed", "http-gateway", "scripts", "gateway-pty.mjs");
 const STUB = path.join(REPO_ROOT, "tests", "fixtures", "gateway-runtime-stub.mjs");
+const AGENT_SDK_STUB = path.join(REPO_ROOT, "tests", "fixtures", "gateway-agent-sdk-runtime");
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -79,6 +81,8 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
     port = await freePort();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "garrison-gw-route-"));
     fs.mkdirSync(path.join(tmp, ".garrison"), { recursive: true });
+    const kanbanRoot = path.join(tmp, "kanban-empty");
+    writeGatewayV4ExecutionModel(tmp, kanbanRoot);
     proc = spawn("node", [GATEWAY], {
       env: {
         ...process.env,
@@ -93,7 +97,8 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
         GARRISON_HOME: tmp,
         // ...and the duty-cells merge (applyDutyCells) from the machine's real
         // kanban model.json, which would repoint the fixture matrix.
-        GARRISON_KANBAN_DIR: path.join(tmp, "kanban-empty"),
+        GARRISON_KANBAN_DIR: kanbanRoot,
+        GARRISON_AGENT_SDK_DIR: AGENT_SDK_STUB,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -115,7 +120,7 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
     expect(j.pty_status).toBe("ready");
   });
 
-  it("live-route-ok: classifies, resolves, logs, serves, and the reply honors the route", async () => {
+  it("live-route-ok: dispatches, resolves, logs, serves, and the reply honors the route", async () => {
     // Post-D19 a plain code turn from a channel becomes a card; to exercise the
     // inline routing + honored-token path we drive it the way the run engine does
     // — card-originated (channel: kanban) — so the turn runs on the operative.
@@ -130,8 +135,9 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
     expect(decisions.length).toBeGreaterThanOrEqual(1);
     const d = decisions[decisions.length - 1];
     expect(d.targetId).toBe("cc-sonnet-med");
-    expect(d.profile).toBe("balanced");
-    expect(d.role).toBe("standard");
+    expect(d.profile).toBe("composition-v4");
+    expect(d.role).toBe("code");
+    expect(d.ruleId).toBe("duty:code/L1/code");
   }, 20_000);
 
   it("live-switch-ok: a trivial prompt resolves to a different model and lands on it", async () => {
@@ -175,10 +181,13 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
     fs.writeFileSync(boardStatus, JSON.stringify({ url: `http://127.0.0.1:${boardPort}` }));
 
     try {
-      const before = readDecisions(path.join(tmp, ".garrison", "decisions.jsonl")).length;
+      const decisionFile = path.join(tmp, ".garrison", "decisions.jsonl");
+      const routedDecisionCount = () => readDecisions(decisionFile)
+        .filter((decision) => decision.kind === "duty-route").length;
+      const before = routedDecisionCount();
       const body = {
         kind: "heartbeat-tick",
-        // Force the deterministic classifier stub onto a significant code route.
+        // Force deterministic routing onto a significant code route.
         // System-owned channel identity, not content, must prevent carding.
         instructions: "fix the failing login unit test"
       };
@@ -194,7 +203,7 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
       let settled = false;
       const deadline = Date.now() + 10_000;
       while (Date.now() < deadline) {
-        const decisions = readDecisions(path.join(tmp, ".garrison", "decisions.jsonl")).length;
+        const decisions = routedDecisionCount();
         const retained = fs.existsSync(receiptsDir) && fs.readdirSync(receiptsDir)
           .filter((name) => name.endsWith(".json"))
           .some((name) => {
@@ -221,7 +230,7 @@ describe("U1 — real prompt through the gateway HTTP surface (stub runtime)", (
       expect(replay.status).toBe(202);
       await expect(replay.json()).resolves.toMatchObject({ ack: true, deduped: true });
       await new Promise((resolve) => setTimeout(resolve, 75));
-      expect(readDecisions(path.join(tmp, ".garrison", "decisions.jsonl"))).toHaveLength(before + 1);
+      expect(routedDecisionCount()).toBe(before + 1);
       expect(boardRequests).toEqual([]);
     } finally {
       fs.rmSync(boardStatus, { force: true });

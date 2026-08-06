@@ -406,13 +406,17 @@ export async function setThreadRouting(id, routing, { nowIso } = {}) {
  * `overrides` (the pins in force) on a user message. Stamps each with a timestamp
  * and bumps updatedAt. Returns the updated thread meta.
  */
-export async function appendMessages(id, messages, { nowIso } = {}) {
+export async function appendMessages(id, messages, { nowIso, idempotencyKey = null } = {}) {
   const safe = safeThreadId(id);
   if (!safe) throw new Error("appendMessages: invalid thread id");
   const now = nowIso ?? new Date().toISOString();
   let thread = await readThreadFile(safe);
   if (!thread) {
     thread = { id: safe, title: "", source: "chat", mode: null, routing: null, createdAt: now, updatedAt: now, messages: [] };
+  }
+  const deliveryKey = cleanString(idempotencyKey, 200);
+  if (deliveryKey && Array.isArray(thread.messageKeys) && thread.messageKeys.includes(deliveryKey)) {
+    return toMeta(thread);
   }
   const clean = (Array.isArray(messages) ? messages : [])
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.text === "string")
@@ -439,6 +443,7 @@ export async function appendMessages(id, messages, { nowIso } = {}) {
     });
   if (!clean.length) return toMeta(thread);
   thread.messages.push(...clean);
+  if (deliveryKey) thread.messageKeys = [...(Array.isArray(thread.messageKeys) ? thread.messageKeys : []), deliveryKey].slice(-512);
   thread.updatedAt = now;
   if (!thread.title) thread.title = deriveTitle(thread);
   await atomicWriteJson(threadPath(safe), thread);

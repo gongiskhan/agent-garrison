@@ -127,29 +127,55 @@ export async function materialize(
   const wanted = branch || loadout.default_branch;
   const dirty = await run(`git status --porcelain`, { cwd: target });
   steps.push(step("status", dirty));
-  if (dirty.exitCode === 0 && dirty.stdout.trim()) {
+  if (dirty.exitCode !== 0) return fail("status");
+  if (dirty.stdout.trim()) {
     steps.push({
       name: "branch",
       command: `(skipped)`,
-      exitCode: 0,
-      ok: true,
-      stdout: `working tree is dirty — staying on the current branch rather than discarding changes`,
-      stderr: ""
+      exitCode: 75,
+      ok: false,
+      stdout: "",
+      stderr: `working tree is dirty — refusing to run on an unverified branch; commit, stash, or clean it explicitly`
     });
+    return fail("dirty checkout");
   } else {
     // Create the branch from the remote's default when it does not exist yet,
     // otherwise just switch. `git switch -c <b> --track` fails if it exists, so
     // try a plain switch first.
-    const sw = await run(
-      `git switch ${shellQuote(wanted)} 2>/dev/null || git switch -c ${shellQuote(wanted)}`,
-      { cwd: target }
-    );
+    let sw = await run(`git switch ${shellQuote(wanted)}`, { cwd: target });
     steps.push(step("branch", sw));
-    if (sw.exitCode !== 0) return fail("branch");
+    if (sw.exitCode !== 0) {
+      // A new machine branch starts from the authored remote default, never
+      // from whichever local HEAD happened to be checked out.
+      sw = await run(
+        `git switch -c ${shellQuote(wanted)} ${shellQuote(`origin/${loadout.default_branch}`)}`,
+        { cwd: target }
+      );
+      steps.push(step("branch create", sw));
+      if (sw.exitCode !== 0) return fail("branch");
+    }
+    const current = await run(`git branch --show-current`, { cwd: target });
+    steps.push(step("branch verify", current));
+    if (current.exitCode !== 0 || current.stdout.trim() !== wanted) return fail("branch verify");
     // Fast-forward only. A merge or rebase here could conflict, and resolving a
     // conflict is not a materializer's job.
-    const pull = await run(`git pull --ff-only 2>&1 || true`, { cwd: target });
-    steps.push(step("pull", pull));
+    if (wanted === loadout.default_branch) {
+      const pull = await run(`git pull --ff-only origin ${shellQuote(loadout.default_branch)}`, { cwd: target });
+      steps.push(step("pull", pull));
+      if (pull.exitCode !== 0) return fail("pull");
+    } else {
+      // A long-lived per-machine dispatch branch may legitimately be ahead of
+      // and diverged from the default branch. Fetch it for human integration,
+      // but never auto-merge/rebase machine work here.
+      steps.push({
+        name: "pull",
+        command: `(not applicable on ${wanted})`,
+        exitCode: 0,
+        ok: true,
+        stdout: "dispatch branches are not automatically merged with the default branch",
+        stderr: ""
+      });
+    }
   }
 
   // 3. Secrets. Written BEFORE install/setup, because those steps commonly read

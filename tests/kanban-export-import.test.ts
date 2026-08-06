@@ -83,7 +83,7 @@ const FUTURE = "2099-01-01T00:00:00.000Z";
 describe("Item 4 — export / import a list of cards", () => {
   let sourceId = "";
 
-  it("creates a fully-loaded source card in Backlog", async () => {
+  it("creates a fully-loaded source card in Scheduled", async () => {
     const create = await jsend("POST", "/cards", {
       title: "Ship the widget",
       description: "build + wire + test the widget",
@@ -101,10 +101,11 @@ describe("Item 4 — export / import a list of cards", () => {
     // The source really does carry a dispatchCommand — so proving it doesn't travel is meaningful.
     const detail = await jget(`/cards/${sourceId}`);
     expect(detail.body.card.dispatchCommand).toBe("echo do-not-travel");
+    expect(detail.body.card.list).toBe("scheduled");
   });
 
   it("exports the list as a bundle carrying the ALLOW-LIST and nothing else", async () => {
-    const r = await fetch(base + "/cards/export?list=backlog");
+    const r = await fetch(base + "/cards/export?list=scheduled");
     expect(r.status).toBe(200);
     const bundle = (await r.json()) as any;
     expect(bundle.kind).toBe("garrison.kanban.cards");
@@ -123,6 +124,13 @@ describe("Item 4 — export / import a list of cards", () => {
     expect(exported.routing).toMatchObject({ tier: "T1-standard", model: "sonnet" });
     expect(exported.checklist.map((i: any) => i.text)).toEqual(["wire the handler", "add a test"]);
     expect(exported.scheduledFor).toBe(FUTURE);
+    expect(exported.schedule).toMatchObject({
+      kind: "once",
+      action: "run",
+      at: FUTURE,
+      nextAt: FUTURE,
+      targetList: "backlog"
+    });
 
     // Identity / lifecycle / evidence / coordination / the dispatchCommand must NOT travel.
     for (const forbidden of [
@@ -138,7 +146,7 @@ describe("Item 4 — export / import a list of cards", () => {
     // Every key present is either an allow-listed content field or a source marker.
     const allowed = new Set([
       "title", "description", "project", "scope", "acceptance", "goalMode", "checklist",
-      "routing", "workKind", "tier", "phases", "scheduledFor", "scheduleAction",
+      "routing", "workKind", "tier", "phases", "scheduledFor", "scheduleAction", "schedule",
       "sourceList", "created"
     ]);
     for (const k of Object.keys(exported)) expect(allowed.has(k)).toBe(true);
@@ -187,7 +195,7 @@ describe("Item 4 — export / import a list of cards", () => {
   });
 
   it("round-trip import creates FRESH-ULID cards on the target list and downgrades run→notify", async () => {
-    const exp = await fetch(base + "/cards/export?list=backlog");
+    const exp = await fetch(base + "/cards/export?list=scheduled");
     const bundle = await exp.json();
     const imp = await jsend("POST", "/cards/import", { bundle, targetList: "todo" });
     expect(imp.status).toBe(201);
@@ -196,13 +204,13 @@ describe("Item 4 — export / import a list of cards", () => {
     expect(imp.body.warnings.some((w: string) => /run.*notify|notify.*run/i.test(w))).toBe(true);
 
     const board = await jget("/board");
-    const todo = board.body.lists.find((l: any) => l.id === "todo");
-    const landed = todo.cards.find((c: any) => c.title === "Ship the widget");
+    const scheduled = board.body.lists.find((l: any) => l.id === "scheduled");
+    const landed = scheduled.cards.find((c: any) => c.title === "Ship the widget" && c.id !== sourceId);
     expect(landed).toBeTruthy();
     // Fresh identity — NOT the source id.
     expect(landed.id).not.toBe(sourceId);
     expect(landed.rev).toBe(0);
-    expect(landed.list).toBe("todo");
+    expect(landed.list).toBe("scheduled");
     // Content survived the round trip.
     expect(landed.project).toBe("garrison");
     expect(landed.scope).toBe("project");
@@ -211,6 +219,13 @@ describe("Item 4 — export / import a list of cards", () => {
     // The scheduled RUN is downgraded to a reminder — an imported card never auto-runs.
     expect(landed.scheduledFor).toBe(FUTURE);
     expect(landed.scheduleAction).toBe("notify");
+    expect(landed.schedule).toMatchObject({
+      kind: "once",
+      action: "notify",
+      at: FUTURE,
+      nextAt: FUTURE,
+      targetList: "todo"
+    });
     // The dispatchCommand never made it across.
     const detail = await jget(`/cards/${landed.id}`);
     expect(detail.body.card.dispatchCommand).toBeNull();
@@ -220,7 +235,7 @@ describe("Item 4 — export / import a list of cards", () => {
   });
 
   it("refuses to import onto an agent list (would auto-dispatch runs)", async () => {
-    const exp = await fetch(base + "/cards/export?list=backlog");
+    const exp = await fetch(base + "/cards/export?list=scheduled");
     const bundle = await exp.json();
     const bad = await jsend("POST", "/cards/import", { bundle, targetList: "plan" });
     expect(bad.status).toBe(400);

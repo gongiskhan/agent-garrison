@@ -1,7 +1,7 @@
 "use client";
 
 // The Muster Decisions panel (S5c, D12; verdicts added by RUN-SPEC-V1): the most
-// recent routing decisions the Dispatcher + gateway logged for this composition,
+// recent routing decisions Orchestrator + gateway logged for this composition,
 // and the place to say whether each one was right.
 //
 // The feed was read-only in both directions — the orchestrator decided, the user
@@ -240,7 +240,7 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
     <section className={styles.section} data-testid="decisions-panel">
       <div className={styles.panelHead}>
         <span className={styles.panelLead}>
-          The evidence feed: every routing decision the Dispatcher and gateway logged for this
+          The evidence feed: every routing decision Orchestrator and the gateway logged for this
           composition - which duty, at which level, to which target. Newest first. Say whether a
           call was right and the Improver learns what to choose next time.
         </span>
@@ -255,7 +255,7 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
           </div>
         ) : decisions.length === 0 ? (
           <div className={styles.panelState} data-testid="decisions-empty">
-            No routing decisions logged yet. When the operative routes a request, the Dispatcher
+            No routing decisions logged yet. When the operative routes a request, Orchestrator
             records the <b>duty</b>, <b>level</b>, and <b>target</b> it chose here.
           </div>
         ) : (

@@ -21,6 +21,7 @@ import { resolveModel } from "./resolver";
 import { buildOrchestratorPreview, type OrchestratorPreview } from "./orchestrator-sections";
 import type { AuthoredSectionId } from "./orchestrator-authored-defaults";
 import { AUTHORED_SECTION_IDS } from "./orchestrator-authored-defaults";
+import { AUTHORED_IDENTITY_REL, migrateLegacyIdentityOverride } from "./identity-migration";
 
 // RC3 — project Garrison's orchestrator prompt INTO the real ~/.claude as an
 // APM-managed instructions primitive. This is how "the Operative folds into your
@@ -48,24 +49,20 @@ export const ORCHESTRATOR_RULE_REL = `rules/${ORCHESTRATOR_PRIMITIVE_ID}.md`;
 
 export interface OrchestratorPromptInputs {
   orchestrator: string; // the orchestrator prompt (may contain {{capabilities}} / {{routing}})
-  soul?: string; // identity prompt, folded in ahead of behavior
+  /** @deprecated Identity is an authored Orchestrator section; ignored. */
+  soul?: string;
   entries: LibraryEntry[]; // resolved providers for {{capabilities}} substitution
   routingSection?: string | null; // compiled Model Router section for {{routing}} (BRIEF v4 MR1b)
 }
 
-// Pure: fold soul (identity) + orchestrator (behavior) and substitute the
-// {{capabilities}} + {{routing}} placeholders. Identity leads so it lands before
-// the long behavior section buries it (mirrors runner.assembleSystemPrompt's
-// ordering). {{routing}} is always substituted (stripped when no section) so the
-// placeholder never leaks into the projected rule.
+// Pure compatibility assembler for legacy callers. Identity is deliberately not
+// injected here: it is an authored Orchestrator section and must appear exactly
+// once in the layered document. {{routing}} is always substituted (stripped when
+// no section) so the placeholder never leaks into the projected rule.
 export function buildOrchestratorInstructions(inputs: OrchestratorPromptInputs): string {
   const withCaps = substituteCapabilitiesPlaceholder(inputs.orchestrator, inputs.entries);
   const behavior = substituteRoutingPlaceholder(withCaps, inputs.routingSection ?? null).trim();
-  const parts: string[] = [];
-  const soul = inputs.soul?.trim();
-  if (soul) parts.push(soul, "");
-  parts.push(behavior);
-  return `${parts.join("\n")}\n`;
+  return `${behavior}\n`;
 }
 
 function depToInput(dep: ApmLockDepView): ApmDependencyInput | null {
@@ -225,7 +222,8 @@ export async function projectPrimaryContext(opts: {
 // {sectionId: markdown} JSON. The Muster editor writes it; the locked blocks
 // are ALWAYS regenerated from the resolved model, never read from disk.
 
-export const AUTHORED_OVERRIDES_REL = ".garrison/orchestrator-authored.json";
+export const AUTHORED_OVERRIDES_REL = AUTHORED_IDENTITY_REL;
+export const ASSEMBLED_ORCHESTRATOR_REL = ".garrison/assembled-system-prompt.md";
 
 // Read the authored-section overrides for a composition directory. Returns {}
 // when the file is absent or unreadable, and keeps ONLY known authored section
@@ -233,23 +231,10 @@ export const AUTHORED_OVERRIDES_REL = ".garrison/orchestrator-authored.json";
 export async function readAuthoredOverrides(
   compositionDir: string
 ): Promise<Partial<Record<AuthoredSectionId, string>>> {
-  let raw: string;
-  try {
-    raw = await fsp.readFile(path.join(compositionDir, AUTHORED_OVERRIDES_REL), "utf8");
-  } catch {
-    return {};
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.warn(`[garrison] ${AUTHORED_OVERRIDES_REL} is not valid JSON — using authored defaults`);
-    return {};
-  }
-  if (!parsed || typeof parsed !== "object") return {};
+  const { document: parsed } = await migrateLegacyIdentityOverride(compositionDir);
   const known = new Set<string>(AUTHORED_SECTION_IDS);
   const overrides: Partial<Record<AuthoredSectionId, string>> = {};
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(parsed)) {
     if (known.has(key) && typeof value === "string" && value.trim().length > 0) {
       overrides[key as AuthoredSectionId] = value;
     }
@@ -275,4 +260,18 @@ export async function loadOrchestratorPreview(
   });
   const authored = await readAuthoredOverrides(composition.directory);
   return buildOrchestratorPreview({ model, entries, authored });
+}
+
+// Materialize the exact layered preview consumed by the live runtime. Keeping
+// preview and runtime on this one function prevents the editor from showing a
+// policy the Operative never receives. Atomic replacement also gives a warm
+// gateway a complete old-or-new file at every turn boundary.
+export async function writeAssembledOrchestratorPrompt(
+  compositionId: string = DEFAULT_COMPOSITION_ID
+): Promise<{ path: string; preview: OrchestratorPreview }> {
+  const composition = await readComposition(compositionId);
+  const preview = await loadOrchestratorPreview(compositionId);
+  const target = path.join(composition.directory, ASSEMBLED_ORCHESTRATOR_REL);
+  await writeFileAtomic(target, preview.assembled);
+  return { path: target, preview };
 }

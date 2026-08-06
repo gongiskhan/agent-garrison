@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs core typed by routing-core.d.mts
 import { compilePolicy } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+import { AUTHORED_SECTION_DEFAULTS } from "@/lib/orchestrator-authored-defaults";
 
 // GARRISON-FLOW-V2 S4 / D13: the `security-review` phase is a bindable,
 // opt-in phase. It must exist as a phase + binding + matrix cell, be absent
@@ -13,10 +14,7 @@ const ROOT = join(__dirname, "..");
 const SEED = JSON.parse(
   readFileSync(join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8")
 );
-const PROMPT = readFileSync(
-  join(ROOT, "fittings/seed/orchestrator/.apm/prompts/orchestrator.prompt.md"),
-  "utf8"
-);
+const PROMPT = AUTHORED_SECTION_DEFAULTS["execution-policy"].content;
 
 describe("security opt-in (S4 / D13)", () => {
   const policy = compilePolicy(SEED, "balanced");

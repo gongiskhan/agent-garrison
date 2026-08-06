@@ -536,9 +536,9 @@ async function handleDeleteSession(req, res, sessionId) {
 }
 
 // Ask Garrison's orchestrator front door to place a session: returns
-// { mode, promptPath, model, effort, role }. Base URL overridable via
+// { identity, promptPath }. Base URL overridable via
 // GARRISON_BASE_URL (default the local Garrison Next app on the base port 7777).
-async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
+async function placeViaOrchestrator({ channel = "dev-env" } = {}) {
   const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
   // forward the active composition when we know it (GARRISON_COMPOSITION_ID), so a
   // non-default composition is placed against ITS live modes/routing; the route
@@ -547,7 +547,7 @@ async function placeViaOrchestrator({ channel = "dev-env", mode } = {}) {
   const res = await fetch(`${base}/api/orchestrator/place`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ channel, ...(mode ? { mode } : {}), ...(composition ? { composition } : {}) }),
+    body: JSON.stringify({ channel, ...(composition ? { composition } : {}) }),
     signal: AbortSignal.timeout(5000)
   });
   if (!res.ok) throw new Error(`orchestrator place failed: HTTP ${res.status}`);
@@ -588,11 +588,11 @@ async function handleCreateSession(req, res) {
     if (!externalNow) {
       const wantContinue = body.continue === true || body.resume === true;
       // GARRISON-UNIFY-V1 S7 (D22): the ORCHESTRATED path is the DEFAULT —
-      // every new session carries the composed mode prompt + model from
+      // every new session carries the authoritative Orchestrator prompt from
       // /api/orchestrator/place. A plain, unorchestrated session remains
       // available behind ONE explicit action (body.plain === true — the UI
       // labels it "plain claude, for debugging Garrison itself") and its use
-      // is LOGGED. Any placement failure (Garrison down, modes not installed)
+      // is LOGGED. Any placement failure (Garrison down or prompt unavailable)
       // still falls back cleanly to a bare session — Garrison's own failures
       // must be debuggable from inside dev-env.
       let orchestrated = null;
@@ -602,10 +602,7 @@ async function handleCreateSession(req, res) {
         console.log(`[dev-env] PLAIN session requested for ${session.projectPath} (unorchestrated escape hatch, D22) — logged`);
       } else {
         try {
-          const spec = await placeViaOrchestrator({
-            channel: "dev-env",
-            mode: typeof body.mode === "string" ? body.mode : undefined
-          });
+          const spec = await placeViaOrchestrator({ channel: "dev-env" });
           // Only thread the composed prompt into `claude` if it is a READABLE REGULAR
           // FILE — a 200 with a bad path (missing, a directory, or unreadable) would
           // otherwise launch claude with a broken --append-system-prompt-file. existsSync
@@ -636,7 +633,7 @@ async function handleCreateSession(req, res) {
       if (orchestrated && placementSpec) {
         try {
           await setSessionPlacement(session.id, {
-            mode: placementSpec.mode ?? null,
+            mode: placementSpec.identity ?? "operative",
             model: placementSpec.model ?? null,
             role: placementSpec.role ?? null,
             targetId: placementSpec.targetId ?? null,

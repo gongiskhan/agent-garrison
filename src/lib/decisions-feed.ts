@@ -1,8 +1,8 @@
 // Decisions feed reader for the Muster Decisions panel (S5c, D12).
 //
-// The Dispatcher and the gateway append routing decisions to a composition's
+// Orchestrator routing inference and the gateway append routing decisions to a composition's
 // `.garrison/decisions.jsonl` (one JSON object per line). The records are
-// heterogeneous - a Dispatcher `dispatch` record carries {duty, level}, a
+// heterogeneous - an Orchestrator `dispatch` record carries {duty, level}, a
 // gateway `route`/placement record carries {taskType, tier, role, targetId}. This
 // module reads the TAIL and normalizes each into ONE small, safe view the panel
 // renders: {at, kind, duty, level, target, reason}.
@@ -10,7 +10,7 @@
 // SECURITY (read-only, no leak): normalization is a strict WHITELIST of scalar
 // fields - never the raw line, never a file path, never an arbitrary field. The
 // persisted records already carry a prompt/message DIGEST, never the user's text
-// (the dispatcher's free-text reason is dropped at write time, codex S3d), so a
+// (routing inference's free-text reason is dropped at write time, codex S3d), so a
 // digest is safe to surface but adds nothing here and is left out. A stored
 // free-text `reason` is trusted ONLY for a `dispatch` record (code-composed at
 // write time); every other kind gets a reason composed here from safe scalars.
@@ -63,6 +63,12 @@ export interface DecisionView {
   // A host-supplied display label for that session. Whitelisted like every other
   // field and length-capped, since unlike the id it is human-authored.
   sessionTitle: string | null;
+  /** Orchestrator inference telemetry (dispatch records only). */
+  source: string | null;
+  inferenceUsed: boolean | null;
+  dispatchOk: boolean | null;
+  latencyMs: number | null;
+  failureCode: string | null;
 }
 
 // Session titles are user/host authored, so they get the same defensive
@@ -78,7 +84,7 @@ function sanitizeTitle(title: string | null): string | null {
 }
 
 // Defensively redact path/secret/raw-message-shaped content from a reason before
-// it reaches the feed (codex finding): even though the dispatcher now writes a
+// it reaches the feed (codex finding): even though routing inference now writes a
 // code-composed reason, an old or hand-edited decisions.jsonl line could carry
 // raw user text. Strip absolute/home paths + secret-looking tokens and cap
 // length so a stray raw message can't be displayed verbatim.
@@ -174,7 +180,7 @@ export function normalizeDecision(raw: unknown, seq?: number): DecisionView | nu
     taskType: str(r.taskType),
     via: str(r.via),
     classifierSkipped: typeof r.classifierSkipped === "boolean" ? r.classifierSkipped : null,
-    // The gateway/placement records name the engine as `targetId`; the dispatcher
+    // The gateway/placement records name the engine as `targetId`; routing inference
     // leaves it implicit (target lives on the duty cell), so fall back cleanly.
     target: str(r.target) ?? str(r.targetId),
     reason: sanitizeReason(rawReason),
@@ -182,8 +188,53 @@ export function normalizeDecision(raw: unknown, seq?: number): DecisionView | nu
     // Writers name this differently by lane (the channel calls it a thread), so
     // accept both spellings rather than forcing one at every write site.
     sessionId: str(r.sessionId) ?? str(r.session_id) ?? str(r.thread) ?? str(r.threadId),
-    sessionTitle: sanitizeTitle(str(r.sessionTitle) ?? str(r.threadTitle))
+    sessionTitle: sanitizeTitle(str(r.sessionTitle) ?? str(r.threadTitle)),
+    source: str(r.source),
+    inferenceUsed: typeof r.inferenceUsed === "boolean" ? r.inferenceUsed : null,
+    dispatchOk: typeof r.dispatchOk === "boolean" ? r.dispatchOk : null,
+    latencyMs: num(r.latencyMs),
+    failureCode: str(r.failureCode)
   };
+}
+
+export interface RoutingInferenceStatus {
+  total: number;
+  fallbackCount: number;
+  degraded: boolean;
+  latest: Pick<
+    DecisionView,
+    "at" | "source" | "dispatchOk" | "latencyMs" | "failureCode" | "runtime" | "model"
+  > | null;
+}
+
+// Scan the append-only file once so fallbackCount is cumulative, not merely the
+// last page of the Decisions feed. Only normalized whitelist fields leave here.
+export async function readRoutingInferenceStatus(compositionDir: string): Promise<RoutingInferenceStatus> {
+  const file = path.join(compositionDir, DECISIONS_REL);
+  const { exists, text } = await readFileTolerant(file);
+  if (!exists || !text.trim()) return { total: 0, fallbackCount: 0, degraded: false, latest: null };
+  let total = 0;
+  let fallbackCount = 0;
+  let latest: RoutingInferenceStatus["latest"] = null;
+  for (const [seq, line] of text.split("\n").entries()) {
+    if (!line.trim()) continue;
+    let raw: unknown;
+    try { raw = JSON.parse(line); } catch { continue; }
+    const view = normalizeDecision(raw, seq);
+    if (!view || view.kind !== "dispatch") continue;
+    total += 1;
+    if (view.source === "fallback" || view.dispatchOk === false) fallbackCount += 1;
+    latest = {
+      at: view.at,
+      source: view.source,
+      dispatchOk: view.dispatchOk,
+      latencyMs: view.latencyMs,
+      failureCode: view.failureCode,
+      runtime: view.runtime,
+      model: view.model
+    };
+  }
+  return { total, fallbackCount, degraded: latest?.source === "fallback" || latest?.dispatchOk === false, latest };
 }
 
 function clampLimit(limit: number | undefined): number {

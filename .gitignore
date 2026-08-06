@@ -35,6 +35,8 @@ compositions/*/.garrison/switch-log.jsonl
 compositions/*/.garrison/run-evidence.json
 compositions/*/.garrison/mcp.json
 compositions/*/.garrison/basic-memory-kanban-capture
+# Written by the Improver fitting at runtime (improver/scripts/server.mjs).
+compositions/*/.garrison/knowledge-memory.md
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/

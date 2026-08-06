@@ -25,11 +25,6 @@ export const facultyIds = [
   "observability",
   "sessions",
   "surfaces",
-  // modes: the operative's identity/persona layer (Gary/Joe/James souls +
-  // shared voice + name-based mode switching) composed into the orchestrator's
-  // system prompt. A real Fitting (the `modes` fitting) needs this slot and none
-  // of the other roles fit it — the sanctioned trigger for a new faculty.
-  "modes",
   // Optional capability faculties (2026-06-24) — the homes the promoted Claude
   // Code primitives (skills/agent-tools/plugins, recorded only as an internal
   // `component_shape`) fill. Named by what the capability is FOR in plain terms,
@@ -57,7 +52,7 @@ export type FacultyId = (typeof facultyIds)[number];
  * deliberately separate from `faculty`.
  *
  * `faculty` is the CONTRACT: which role slot a Fitting fills, what it
- * provides/consumes, its cardinality, which modes activate it. Seventeen slots
+ * provides/consumes, and its cardinality. Sixteen slots
  * make a precise type system and an unusable menu, so faculty is no longer the
  * grouping axis — it survives as a per-Fitting label rendered on the card.
  *
@@ -81,7 +76,6 @@ export type FittingCategory = (typeof fittingCategories)[number];
 export const CATEGORY_BY_FACULTY: Record<FacultyId, FittingCategory> = {
   orchestrator: "Core",
   gateway: "Core",
-  modes: "Core",
   memory: "Core",
   channels: "Interfaces",
   surfaces: "Interfaces",
@@ -129,17 +123,9 @@ export type FittingShape = (typeof fittingShapes)[number];
 // explicitly.
 export const capabilityKinds = [
   "orchestrator",
-  // modes: added 2026-06-22 — the identity/persona layer (souls + shared voice +
-  // per-mode routing bias + mode switching) the `modes` Fitting provided.
-  // SUPERSEDED 2026-07-13 (MARATHON-V3 D7) by `identity`: modes die (the bias/
-  // pin/sticky-switching/CRUD machinery is removed; James/Joe decompose into
-  // duties). Kept in the vocabulary for back-compat with any lingering manifest;
-  // no seed Fitting provides it after the modes fitting's retirement.
-  "modes",
-  // identity (2026-07-13, MARATHON-V3 D7): the persona + tone layer of the
-  // system prompt, provided by the single Identity Fitting (default persona:
-  // Gary). Replaces `modes` as the live persona slot — "Hey Gary" addresses the
-  // operative, full stop. A composition-readiness rule (D10) requires one.
+  // identity: the editable persona + tone section authored by Orchestrator.
+  // It replaces the retired persona/modes fitting path; "Hey Gary" addresses
+  // the one routed Operative. A composition-readiness rule requires one.
   "identity",
   "memory-store",
   // data-source: dropped 2026-06-26 — superseded by `connector`, which is
@@ -155,10 +141,10 @@ export const capabilityKinds = [
   // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
   "runtime",
   // mcp-gateway: re-added 2026-07-10 - the per-session stdio/HTTP MCP sidecar
-  // (talk_to, wait_for, ...) the http-gateway spawns for orchestrator/soul mode.
+  // that exposes installed Faculty tools to Operative sessions.
   // Dropped in the Quarters pivot, re-added on the automation-runner precedent
   // (add a kind only when a real Fitting needs one): the mcp-gateway Fitting
-  // provides it and `modes` cannot express the dependency without it.
+  // provides it and the runtime dependency cannot be expressed without it.
   "mcp-gateway",
   "channel",
   "vault",
@@ -173,7 +159,7 @@ export const capabilityKinds = [
   // duty (2026-07-13, MARATHON-V3 D2): a unit of work with a start and an end,
   // provided by a Fitting, owning a skill. Duties + per-duty Levels replace the
   // former task-type/tier/phase/mode vocabulary. Honesty-Test: real Fittings
-  // (the Dispatcher, the per-duty work Fittings) cannot be expressed without
+  // (Orchestrator routing inference and per-duty work Fittings) cannot be expressed without
   // it. Discovery is the derived-view pattern: consume kind:duty with
   // cardinality `any`. A Fitting provides ONE duty as the norm (multi allowed,
   // discouraged); the provision's `name` is the duty id and MUST match a
@@ -199,7 +185,6 @@ export interface CapabilityConsumption {
 
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
-  "modes",
   "vault",
   "dev-env",
   "screen-share",
@@ -225,11 +210,10 @@ export interface FacultyDefinition {
   essential?: boolean;
   // Display tier (2026-06-24): which Compose header the faculty sits under —
   // "agent" (everyday base operative, always available) or "dev" (only relevant
-  // while doing development work, the kind of capability a dev mode activates).
+  // while doing development work).
   // ORTHOGONAL to `essential`: an optional faculty can be Agent; an essential
   // faculty can sit under either header. Purely presentational; does not affect
-  // capability resolution. Anchored on the modes config (the dev mode, Joe,
-  // activates the dev-tier faculties).
+  // capability resolution. Development duties consume the dev-tier faculties.
   tier?: "agent" | "dev";
 }
 
@@ -364,7 +348,7 @@ export interface DutySequenceEntry {
 // A duty level: leaf (cell) XOR composite (sequence) — exactly one is set,
 // enforced at parse time (metadata.ts dutyLevelSchema superRefine); both stay
 // optional here because zod's inferred output can't carry the union.
-// `description` is the one-line summary the Dispatcher reads
+// `description` is the one-line summary Orchestrator routing inference reads
 // ("level 1: quick fix, no plan").
 export interface DutyLevel {
   description: string;

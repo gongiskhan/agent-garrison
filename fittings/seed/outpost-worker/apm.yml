@@ -1,5 +1,5 @@
 name: outpost-worker
-version: 0.1.0
+version: 0.2.0
 description: >-
   Pull-based dispatch worker for a Garrison outpost. Runs ON a remote machine,
   polls the host for cards placed on it, claims one, runs it, heartbeats, and

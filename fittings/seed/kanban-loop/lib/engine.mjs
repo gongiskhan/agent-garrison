@@ -25,7 +25,7 @@ import path from "node:path";
 import { hostname } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, saveCardCASWithHooks, updateCardLockedWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
+import { saveCard, saveCardCAS, saveCardCASWithHooks, updateCardLockedWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, createCard, updateCardCAS, withFileLock, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -88,6 +88,13 @@ import {
 } from "./resolved-model.mjs";
 import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mjs";
 import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, deliverScheduleReminder } from "./notify-origin.mjs";
+import {
+  normaliseCardSchedule,
+  nextCronOccurrence,
+  latestCronOccurrence,
+  occurrenceKey as scheduleOccurrenceKey,
+  zonedMinute
+} from "./schedules.mjs";
 import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
 
 // Exact v4 identity carried over the gateway wire. A legacy card (or v1 model)
@@ -294,7 +301,7 @@ export function readBriefContext(cwd, briefPath, max = 6000) {
 }
 
 // Read the CARD-OWNED Discuss brief (<root>/cards/<id>/brief.md) — the deterministic
-// location James is told (an absolute path) to write to during Discuss. Best-effort +
+// location the Discuss duty is told (an absolute path) to write to. Best-effort +
 // size-capped: a miss returns null and the prompt simply omits the brief section.
 export function readCardBrief(root, cardId, max = 6000) {
   if (!root || !cardId || typeof cardId !== "string") return null;
@@ -420,7 +427,7 @@ export function isInteractive(list) {
 // is interactive - the discuss duty runs as a normal agent session (ask 1-3 scoping
 // questions, write the brief, advance to plan). The gate marker is card.clarity ===
 // "needs-discuss" (stamped by the gateway/API carding); it only applies on the
-// interactive Discuss list, so a HUMAN-initiated (James-mode) discuss card - no
+// interactive Discuss list, so a human-initiated discuss card - no
 // marker - stays interactive/manual with zero regression.
 export function isGatedDiscuss(card, list) {
   return Boolean(card && card.clarity === "needs-discuss" && isInteractive(list));
@@ -512,7 +519,7 @@ export function replySnippet(reply, max = 280) {
 // ("· claude-code/opus (T2-deep)") appended to the event message. `phase` is the
 // engine's own phase name (always known) so the card-front chip can read "plan @ opus"
 // even when the gateway's own taskType echo is null. Returns { route: null, suffix: "" }
-// when NO routing metadata flowed (souls mode / a non-routed turn) — a run must NEVER
+// when NO routing metadata flowed (a legacy non-routed turn) — a run must NEVER
 // fail, and an event must never grow noise, for want of attribution that isn't there.
 export function routeStamp(route, phase = null) {
   if (!route || typeof route !== "object") return { route: null, suffix: "" };
@@ -687,7 +694,7 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
     parts.push("", "## Checklist ([x] done, [ ] still open — address the open items that fall inside this phase)", "");
     for (const item of card.checklist) parts.push(`- [${item.done ? "x" : " "}] ${item.text}`);
   }
-  // The Discuss step's RESULT (the brief James wrote) — the agreed direction the
+  // The Discuss step's RESULT (the brief it wrote) — the agreed direction the
   // downstream phases must build from. Injected verbatim so plan/implement/review have
   // the decisions/approach/open-questions/acceptance the discussion settled on.
   if (discussionContext && String(discussionContext).trim()) {
@@ -792,7 +799,7 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   }
   // S3d (D9b): the DISCUSS duty session (a clarity-gated card runs this before plan).
   // Talk the scope through in the origin thread, settle, write the brief, then advance.
-  // Human (James-mode) discuss never dispatches, so this only reaches a gated card.
+  // Human Discuss never auto-dispatches, so this only reaches a gated card.
   if (phase === "discuss") {
     const briefTarget = briefPath || (card.id ? `cards/${card.id}/brief.md` : "brief.md");
     parts.push(
@@ -976,7 +983,7 @@ async function applyPendingRevisit(root, card, board, now = () => new Date().toI
 // Fire the gateway's duty-boundary compact check (S1b) after a card advances a
 // duty. Best-effort: onDutyBoundary is fire-and-forget-with-timeout and a failure
 // must never affect the advance. No-op when the caller wired no boundary fn (tests,
-// souls mode) or the card did not move.
+// a legacy non-routed runtime) or the card did not move.
 async function fireDutyBoundary(onDutyBoundary, card, phase, outcome) {
   if (typeof onDutyBoundary !== "function" || outcome?.status !== "moved") return;
   try {
@@ -1152,7 +1159,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const list = getList(board, card.list);
   // S3d (D9b): a clarity-gated discuss card is dispatched THROUGH the interactive
   // Discuss list (the discuss duty session) - the exemption below lets it past both
-  // the interactive skip and the agent-kind guard; a James-mode discuss card (no
+  // the interactive skip and the agent-kind guard; a human Discuss card (no
   // gate marker) still skips.
   const gatedDiscuss = isGatedDiscuss(card, list);
   // An interactive list (Discuss — kind "agent-interactive") is never auto-dispatched:
@@ -1331,10 +1338,17 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // below, which resolves the target and then falls through and runs the card
   // LOCALLY anyway — a card pinned to a connected Mac silently ran on the host.
   // Placement never does that: not-ours means not-ours.
-  const placementTarget =
+  const explicitPlacementTarget =
     card.placement && typeof card.placement.target === "string" && card.placement.target.trim()
       ? card.placement.target.trim()
       : "host";
+  // One-way migration for pre-worker cards: the older `outpost` affinity was a
+  // broken push path. Treat it as placement when no non-host placement exists;
+  // the claim API persists the migrated shape when a worker takes it.
+  const legacyOutpost = typeof card.outpost === "string" ? card.outpost.trim() : "";
+  const placementTarget = explicitPlacementTarget === "host" && legacyOutpost
+    ? legacyOutpost
+    : explicitPlacementTarget;
   if (placementTarget !== "host") {
     const held = card.dispatch && card.dispatch.state !== "done" && card.dispatch.state !== "failed";
     return {
@@ -1346,74 +1360,6 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
           : `placed on ${placementTarget} — awaiting its worker`
       }
     };
-  }
-  // Mint runId + runDir on the card's FIRST agent-list entry, and fold the mint into
-  // OUTPOST AFFINITY (D27): a card naming an outpost runs its phase sessions
-  // there; a NAMED-BUT-OFFLINE outpost parks the card in needs-attention with
-  // that reason (never silently runs locally against the card's affinity).
-  // The resolution seam lives in ./outpost-dispatch.mjs (single-outpost only).
-  if (card.outpost) {
-    try {
-      const { resolveOutpostDispatch } = await import("./outpost-dispatch.mjs");
-      // The daemon URL is INSTANCE-SPECIFIC (each profile shifts the port).
-      // It arrives as the composition's `outpost_host_url` for this fitting,
-      // already port-shifted by applyPortOffsetToConfig and projected as
-      // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. GARRISON_OUTPOST_URL stays as a
-      // manual override. There is deliberately NO literal fallback: the old one
-      // named the codex port, so the probe always failed on dev and prod and
-      // EVERY affinity card parked with "outpost offline".
-      const daemon = (process.env.GARRISON_OUTPOST_URL
-        || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
-        || "").trim();
-      if (!daemon) throw new Error("outpost affinity: no outpost_host_url configured for this instance");
-      let outposts = [];
-      try {
-        const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });
-        if (r.ok) outposts = (await r.json()).outposts || [];
-      } catch { /* daemon down → treated as offline below */ }
-      const disp = resolveOutpostDispatch(card, outposts);
-      if (!disp.ok) {
-        const reason = `Outpost affinity "${card.outpost}" is not dispatchable: ${disp.reason || "offline"}. Parked until the outpost is back (or clear the affinity from needs-attention).`;
-        const res = await saveCardCAS(root, {
-          ...card,
-          ...parkFields(card, card.list, reason),
-          events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost ${card.outpost} offline`, detail: reason })
-        }, baseRev, now());
-        if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-        return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-offline" } };
-      }
-      // RESOLVED AND CONNECTED — and we still refuse to run. Remote card
-      // execution is NOT implemented: `outpostRunFn` is imported by nothing but
-      // its test, the host relay's RPC ceiling is 10s (no Claude turn fits), and
-      // the payload carries no cwd, repo, routing or account. Falling through
-      // here is what the placement guard above warns about: the card would run
-      // LOCALLY, on the wrong machine, against the wrong checkout, under the
-      // wrong account, while reporting success. Park instead - honest and
-      // recoverable beats silently-wrong. Delete this branch only in the same
-      // change that actually wires the dispatch.
-      const reason =
-        `Outpost affinity "${card.outpost}" resolved (the machine is online), but running a card on an ` +
-        `outpost is not implemented yet. Refusing to run it here, because that would use this machine's ` +
-        `checkout and account instead. Clear the affinity (PATCH the card with {"outpost": null}) to run it here.`;
-      const res = await saveCardCAS(root, {
-        ...card,
-        ...parkFields(card, card.list, reason),
-        events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost execution not implemented`, detail: reason })
-      }, baseRev, now());
-      if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-      return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-not-implemented" } };
-    } catch {
-      // The seam is absent (outposts not built/installed) — an affinity card
-      // cannot honor its affinity; park honestly rather than run locally.
-      const reason = `Outpost affinity "${card.outpost}" cannot be resolved (outpost dispatch unavailable). Parked.`;
-      const res = await saveCardCAS(root, {
-        ...card,
-        ...parkFields(card, card.list, reason),
-        events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost dispatch unavailable`, detail: reason })
-      }, baseRev, now());
-      if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-      return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-unavailable" } };
-    }
   }
   // A card created WITHOUT a project kicks a fire-and-forget project inference, and
   // an immediate dispatch beats it: the run mints its runDir under `runs/no-project/`
@@ -1766,7 +1712,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   await closeLiveSessionWrites();
   const reply = out?.reply ?? out?.text ?? String(out ?? "");
   // Per-turn routing attribution (the gateway's `done` event surfaces which
-  // runtime/model/tier actually served THIS phase turn; null in souls mode / a
+  // runtime/model/tier actually served THIS phase turn; null for a legacy
   // non-routed turn). Fall the tier back to the card's own tier so the stamp reflects
   // the routed tier even when the gateway omits its echo. Never load-bearing — a
   // missing route just means no attribution stamp on the routed event.
@@ -2214,7 +2160,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       }
       // Per-phase runtime/model attribution: stamp the route object + append a
       // "· claude-code/opus (T2-deep)" suffix to the human message when the gateway
-      // reported a route for this turn (inert in souls mode).
+      // reported a route for this turn (inert for legacy non-routed turns).
       const { route: routeObj, suffix: routeSuffix } = routeStamp(routeMeta, phase);
       let events = withEvent(runningCard, {
         at: now(),
@@ -2585,74 +2531,352 @@ export async function sweepOrphanedRuns(root, { now = () => new Date().toISOStri
 // Unparseable scheduledFor values are left alone - scheduleHolds() already
 // holds them (fail closed), and rewriting a value the human typed would hide
 // the mistake instead of surfacing it in the UI.
-export async function sweepDueSchedules(root, board, { now = () => new Date().toISOString(), at = () => Date.now() } = {}) {
+function runTargetForSchedule(board, card, targetList) {
+  const target = getList(board, targetList);
+  if (target && target.kind === AGENT_KIND && !isInteractive(target)) return target.id;
+  const seqHead = Array.isArray(card.sequence) && card.sequence.length ? card.sequence[0] : null;
+  if (seqHead) {
+    const list = getList(board, seqHead);
+    if (list && list.kind === AGENT_KIND && !isInteractive(list)) return seqHead;
+  }
+  return (validNextFor(board, targetList) || []).find((id) => {
+    const list = getList(board, id);
+    return list && list.kind === AGENT_KIND && !isInteractive(list);
+  }) ?? null;
+}
+
+function occurrenceInput(template, list, key, scheduledAt) {
+  return {
+    title: template.title,
+    description: template.description ?? "",
+    project: template.project ?? null,
+    scope: template.scope ?? null,
+    list,
+    goalMode: Boolean(template.goalMode),
+    acceptance: template.acceptance ?? null,
+    workKind: template.workKind ?? null,
+    phases: template.phases ?? null,
+    tier: template.tier ?? null,
+    routing: template.routing ?? null,
+    origin: "scheduler",
+    originChannel: template.originChannel ?? null,
+    duty: template.duty ?? null,
+    level: template.level ?? null,
+    sequence: Array.isArray(template.sequence) ? template.sequence : null,
+    placement: template.placement ?? null,
+    checklist: template.checklist ?? null,
+    scheduleTemplateId: template.id,
+    scheduleSystemKey: template.systemKey ?? null,
+    occurrenceKey: key,
+    occurrenceAt: scheduledAt,
+    origin_id: `schedule:${template.id}`
+  };
+}
+
+function pendingScheduleDelivery(id, { started = false, at = new Date().toISOString() } = {}) {
+  return {
+    id,
+    status: "pending",
+    started: Boolean(started),
+    createdAt: at,
+    attempts: 0,
+    lastAttemptAt: null,
+    deliveredAt: null,
+    lastError: null,
+    receipts: []
+  };
+}
+
+async function flushScheduleDeliveriesUnlocked(root, {
+  now = () => new Date().toISOString(),
+  deliverReminder = deliverScheduleReminder
+} = {}) {
   const cards = await loadAllCards(root);
-  const swept = [];
-  for (const card of cards) {
-    if (!card.scheduledFor) continue;
-    const t = Date.parse(card.scheduledFor);
-    if (!Number.isFinite(t) || t > at()) continue; // future or unparseable: still held
-    if (card.status === "running") continue;
-    const wantRun = card.scheduleAction === "run";
-    const list = getList(board, card.list);
-    // The run target for a manual-list card: its resolved rail's first phase,
-    // else the first non-interactive agent exit of the current list.
-    let runTarget = null;
-    if (wantRun && list && list.kind !== AGENT_KIND) {
-      const seqHead = Array.isArray(card.sequence) && card.sequence.length ? card.sequence[0] : null;
-      if (seqHead && getList(board, seqHead)) runTarget = seqHead;
-      else {
-        runTarget = (validNextFor(board, card.list) || []).find((id) => {
-          const l = getList(board, id);
-          return l && l.kind === AGENT_KIND && !isInteractive(l);
-        }) ?? null;
-      }
+  const results = [];
+  for (const snapshot of cards) {
+    const delivery = snapshot.scheduleDelivery;
+    if (!delivery || delivery.status !== "pending" || typeof delivery.id !== "string") continue;
+    const attemptedAt = now();
+    let outcome;
+    try {
+      outcome = await deliverReminder(root, snapshot, {
+        started: delivery.started === true,
+        idempotencyKey: delivery.id
+      });
+    } catch (error) {
+      outcome = { ok: false, error: String(error?.message ?? error) };
     }
-    const runnable = wantRun && (runTarget !== null || (list && list.kind === AGENT_KIND && !isInteractive(list)));
-    // updateCardCAS returns the CURRENT card (truthy) when the mutator opts
-    // out, so "did we act" needs its own flag - reset on EVERY invocation
-    // (the mutator re-runs on a CAS retry against a fresh read).
+    const ok = outcome?.ok === true;
+    const error = ok
+      ? null
+      : String(outcome?.error ?? outcome?.reason ?? "no delivery channel accepted the reminder").slice(0, 500);
     let acted = false;
-    const res = await updateCardCAS(root, card.id, (c) => {
+    const updated = await updateCardCAS(root, snapshot.id, (current) => {
       acted = false;
-      // Re-check under the lock: a snooze/edit/run since the read wins.
-      if (!c.scheduledFor || c.scheduledFor !== card.scheduledFor || c.status === "running") return null;
-      if (!runnable && c.scheduleNotifiedAt) return null; // reminder already sent
+      const live = current.scheduleDelivery;
+      if (!live || live.id !== delivery.id || live.status !== "pending") return null;
       acted = true;
-      const stamp = now();
-      if (runnable) {
-        const moved = runTarget && c.list === card.list;
-        return {
-          ...c,
-          scheduledFor: null,
-          scheduleAction: null,
-          scheduleNotifiedAt: null,
-          ...(moved ? { list: runTarget, status: "ok" } : {}),
-          events: withEvent(c, {
-            at: stamp,
-            kind: "moved",
-            message: moved
-              ? `Scheduled time reached - advanced ${card.list} to ${runTarget} to run`
-              : "Scheduled time reached - released for dispatch"
-          })
-        };
-      }
+      const attempts = Math.max(0, Number(live.attempts) || 0) + 1;
+      const nextDelivery = {
+        ...live,
+        status: ok ? "delivered" : "pending",
+        attempts,
+        lastAttemptAt: attemptedAt,
+        deliveredAt: ok ? attemptedAt : null,
+        lastError: error,
+        receipts: Array.isArray(outcome?.receipts) ? outcome.receipts.slice(0, 24) : []
+      };
       return {
-        ...c,
-        scheduleNotifiedAt: stamp,
-        events: withEvent(c, {
-          at: stamp,
-          kind: "moved",
-          message: "Scheduled time reached - reminder sent (tell Gary to run or snooze it)"
+        ...current,
+        scheduleDelivery: nextDelivery,
+        scheduleNotifiedAt: ok && live.started !== true ? attemptedAt : current.scheduleNotifiedAt ?? null,
+        events: withEvent(current, {
+          at: attemptedAt,
+          kind: ok ? "schedule-delivered" : "schedule-delivery-pending",
+          message: ok
+            ? `Scheduled ${live.started ? "start notice" : "reminder"} delivered`
+            : `Scheduled ${live.started ? "start notice" : "reminder"} pending retry: ${error}`
         })
       };
     });
-    if (res && acted) {
-      swept.push({ id: card.id, action: runnable ? "run" : "notify" });
-      deliverScheduleReminder(root, res, { started: runnable });
-    }
+    if (acted) results.push({ id: snapshot.id, deliveryId: delivery.id, ok, card: updated });
   }
-  return swept;
+  return results;
+}
+
+// Public recovery seam for setup/startup callers. Normal ticks call the
+// unlocked variant while already holding the schedule lock.
+export async function reconcileScheduleDeliveries(root, options = {}) {
+  return withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", () =>
+    flushScheduleDeliveriesUnlocked(root, options)
+  );
+}
+
+async function materialiseOccurrenceUnlocked(root, board, template, scheduledAt, key, { manual = false } = {}) {
+  const all = await loadAllCards(root);
+  const existing = all.find((card) => card.occurrenceKey === key);
+  const schedule = template.schedule;
+  const targetList = getList(board, schedule.targetList) ? schedule.targetList : "backlog";
+  const runTarget = schedule.action === "run" ? runTargetForSchedule(board, template, targetList) : null;
+  const runnable = schedule.action === "run" && Boolean(runTarget);
+  if (existing) return { card: existing, created: false, runnable };
+  const destination = runnable ? runTarget : targetList;
+  const card = await createCard(root, occurrenceInput(template, destination, key, scheduledAt));
+  const stamp = new Date().toISOString();
+  const stamped = await updateCardCAS(root, card.id, (current) => ({
+    ...current,
+    scheduleNotifiedAt: null,
+    scheduleDelivery: runnable
+      ? null
+      : pendingScheduleDelivery(`schedule:${key}:reminder`, { started: false, at: stamp }),
+    events: withEvent(current, {
+      at: stamp,
+      kind: manual ? "schedule-run-now" : "schedule-occurrence",
+      message: `${manual ? "Run now" : "Scheduled occurrence"} from ${template.id}${runnable ? ` - queued on ${destination}` : " - reminder queued"}`
+    })
+  }));
+  const result = stamped || card;
+  return { card: result, created: true, runnable };
+}
+
+// Create an extra occurrence without changing a recurring template's next regular
+// instant. This is the server/MCP/UI "Run now" seam.
+export async function runScheduleNow(root, board, templateId, { now = () => new Date().toISOString() } = {}) {
+  return withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", async () => {
+    const template = await loadCard(root, templateId);
+    if (template.list !== "scheduled" || template.schedule?.kind !== "cron") {
+      throw new Error("run now is only available for recurring templates in Scheduled");
+    }
+    const stamp = now();
+    const key = `${template.id}:manual:${stamp}:${ulid()}`;
+    const materialised = await materialiseOccurrenceUnlocked(root, board, { ...template, schedule: { ...template.schedule, action: "run" } }, stamp, key, { manual: true });
+    let verified = false;
+    const updatedTemplate = await updateCardCAS(root, template.id, (current) => {
+      verified = false;
+      if (current.list !== "scheduled" || current.schedule?.kind !== "cron") return null;
+      verified = true;
+      return {
+        ...current,
+        schedule: {
+          ...current.schedule,
+          runNowVerification: {
+            occurrenceId: materialised.card.id,
+            occurrenceKey: key,
+            verifiedAt: stamp
+          }
+        },
+        events: withEvent(current, {
+          at: stamp,
+          kind: "schedule-run-now-verified",
+          message: `Run now created occurrence ${materialised.card.id}`
+        })
+      };
+    });
+    if (!updatedTemplate || !verified) throw new Error("Run now occurrence was created but its verification receipt could not be persisted");
+    return { ...materialised, template: updatedTemplate };
+  });
+}
+
+export async function sweepDueSchedules(root, board, {
+  now = () => new Date().toISOString(),
+  at = () => Date.now(),
+  deliverReminder = deliverScheduleReminder,
+  afterScheduleIntent = null
+} = {}) {
+  return withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", async () => {
+    // Recovery comes first: a process may have died after committing a due
+    // transition but before (or just after) the channel accepted its stable key.
+    await flushScheduleDeliveriesUnlocked(root, { now, deliverReminder });
+    const cards = await loadAllCards(root);
+    const swept = [];
+    for (const original of cards) {
+      const schedule = original.schedule ?? normaliseCardSchedule(null, {
+        scheduledFor: original.scheduledFor,
+        scheduleAction: original.scheduleAction,
+        targetList: original.list,
+        now: original.created ?? now()
+      });
+      if (!schedule || schedule.enabled === false || !schedule.nextAt) continue;
+      const nextMs = Date.parse(schedule.nextAt);
+      if (!Number.isFinite(nextMs) || nextMs > at() || original.status === "running") continue;
+
+      if (schedule.kind === "cron") {
+        // A stale nextAt after downtime represents the schedule being behind, not a
+        // replay order. Select the latest due wall minute and create only that one.
+        const latest = latestCronOccurrence(schedule.cron, schedule.timezone, new Date(at()).toISOString());
+        const scheduledAt = latest && Date.parse(latest.at) >= nextMs ? latest.at : schedule.nextAt;
+        const key = scheduleOccurrenceKey(original.id, scheduledAt, schedule.timezone);
+        // Durable intent before creation. A crash here leaves a visible receipt;
+        // the next sweep resumes it. A crash after creation finds occurrenceKey
+        // and advances without creating a duplicate.
+        let intentWritten = false;
+        const intentCard = await updateCardCAS(root, original.id, (current) => {
+          intentWritten = false;
+          const live = current.schedule;
+          if (!live || live.kind !== "cron" || live.enabled === false || live.nextAt !== schedule.nextAt) return null;
+          intentWritten = true;
+          return { ...current, schedule: { ...live, pending: { occurrenceKey: key, at: scheduledAt } } };
+        });
+        // updateCardCAS returns the current card when the mutator opts out. The
+        // explicit flag is therefore the proof that this sweep owns the intent;
+        // without it, materialising would resurrect a just-paused/rescheduled run.
+        if (!intentCard || !intentWritten) continue;
+        if (typeof afterScheduleIntent === "function") await afterScheduleIntent({ template: intentCard, key, scheduledAt });
+        const liveIntent = await loadCard(root, original.id).catch(() => null);
+        if (
+          !liveIntent?.schedule ||
+          liveIntent.schedule.kind !== "cron" ||
+          liveIntent.schedule.enabled === false ||
+          liveIntent.schedule.nextAt !== schedule.nextAt ||
+          liveIntent.schedule.pending?.occurrenceKey !== key
+        ) continue;
+        const materialised = await materialiseOccurrenceUnlocked(root, board, { ...liveIntent, schedule: liveIntent.schedule }, scheduledAt, key);
+        const wallKey = zonedMinute(new Date(scheduledAt), schedule.timezone).key;
+        const skippedWallTimes = [];
+        const following = nextCronOccurrence(schedule.cron, schedule.timezone, scheduledAt, {
+          excludeWallKey: wallKey,
+          onSkip: (skip) => skippedWallTimes.push({ ...skip, recordedAt: now() })
+        });
+        let acted = false;
+        const updated = await updateCardCAS(root, original.id, (current) => {
+          acted = false;
+          const live = current.schedule;
+          if (!live || live.kind !== "cron" || live.enabled === false || live.nextAt !== schedule.nextAt) return null;
+          acted = true;
+          const nextSchedule = {
+            ...live,
+            lastAt: scheduledAt,
+            nextAt: following?.at ?? null,
+            pending: null,
+            snoozedUntil: null,
+            ...(skippedWallTimes.length
+              ? {
+                  skippedWallTimes: [
+                    ...(Array.isArray(live.skippedWallTimes) ? live.skippedWallTimes : []),
+                    ...skippedWallTimes
+                  ].slice(-24)
+                }
+              : {}),
+            ...(following ? { lastError: null } : { enabled: false, lastError: "no next occurrence found within 370 days" })
+          };
+          let events = withEvent(current, {
+            at: now(),
+            kind: "schedule-advanced",
+            message: `Created occurrence ${materialised.card.id}; next ${nextSchedule.nextAt ?? "disabled"}`
+          });
+          for (const skipped of skippedWallTimes) {
+            events = withEvent({ ...current, events }, {
+              at: skipped.recordedAt,
+              kind: "schedule-dst-skip",
+              message: `Skipped nonexistent wall time ${skipped.wallTime} (${skipped.timezone})`
+            });
+          }
+          return {
+            ...current,
+            schedule: nextSchedule,
+            scheduledFor: nextSchedule.nextAt,
+            scheduleAction: nextSchedule.action,
+            events
+          };
+        });
+        if (updated && acted) swept.push({
+          id: original.id,
+          action: materialised.runnable ? "run" : "notify",
+          occurrenceId: materialised.card.id,
+          recurring: true
+        });
+        continue;
+      }
+
+      const targetList = getList(board, schedule.targetList) ? schedule.targetList : "backlog";
+      // A one-shot `run` enters the normal Start path from its release target.
+      // A resolved rail/non-interactive agent exit is runnable immediately; a
+      // capture-only target such as Backlog falls back to its manual first edge
+      // (Backlog → To Do) rather than degrading into a reminder.
+      const runTarget = schedule.action === "run"
+        ? runTargetForSchedule(board, original, targetList) ?? (validNextFor(board, targetList) || [])[0]
+        : null;
+      const runnable = schedule.action === "run" && Boolean(runTarget);
+      let acted = false;
+      const updated = await updateCardCAS(root, original.id, (current) => {
+        acted = false;
+        const live = current.schedule ?? normaliseCardSchedule(null, {
+          scheduledFor: current.scheduledFor,
+          scheduleAction: current.scheduleAction,
+          targetList: current.list
+        });
+        if (!live || live.kind !== "once" || live.nextAt !== schedule.nextAt || current.status === "running") return null;
+        acted = true;
+        const stamp = now();
+        const destination = runnable ? runTarget : targetList;
+        return {
+          ...current,
+          list: destination,
+          status: "ok",
+          schedule: { ...live, enabled: false, lastAt: schedule.nextAt, nextAt: null, pending: null },
+          scheduledFor: null,
+          scheduleAction: null,
+          scheduleNotifiedAt: null,
+          scheduleDelivery: pendingScheduleDelivery(
+            `schedule:${current.id}:${schedule.nextAt}:${runnable ? "started" : "reminder"}`,
+            { started: runnable, at: stamp }
+          ),
+          events: withEvent(current, {
+            at: stamp,
+            kind: "schedule-due",
+            message: runnable
+              ? `Scheduled time reached - moved to ${destination} to run`
+              : `Scheduled time reached - moved to ${destination}; reminder sent`
+          })
+        };
+      });
+      if (updated && acted) {
+        swept.push({ id: original.id, action: runnable ? "run" : "notify" });
+      }
+    }
+    await flushScheduleDeliveriesUnlocked(root, { now, deliverReminder });
+    return swept;
+  });
 }
 
 // Reclaim cards whose remote worker went silent (Outpost Dispatch).

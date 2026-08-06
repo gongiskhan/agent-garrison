@@ -51,8 +51,7 @@ function writeFixture(): void {
           { id: "oneshot", runtime: "garrison-call", model: "none" }
         ],
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }

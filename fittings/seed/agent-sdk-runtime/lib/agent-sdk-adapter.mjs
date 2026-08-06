@@ -174,6 +174,13 @@ export class AgentSdkAdapter {
       permissionMode: session.config.permissionMode ?? "bypassPermissions"
     };
     if (session.model) opts.model = session.model;
+    // Dispatch inference is deliberately a fast, non-reasoning classification
+    // turn. Keep the accepted surface narrow: callers may explicitly disable
+    // extended thinking, but cannot smuggle arbitrary thinking budgets through
+    // the generic runtime config.
+    if (session.config.thinking?.type === "disabled") {
+      opts.thinking = { type: "disabled" };
+    }
     if (session.effort != null && session.capabilities?.effort === "supported") {
       opts.effort = session.effort;
     }

@@ -5,7 +5,7 @@
  * The operative is a single, persistent INTERACTIVE `claude` TUI driven via
  * @garrison/claude-pty (node-pty + @xterm/headless). This replaces the
  * in-process Agent SDK (gateway-legacy.mjs). Real Claude Code: slash
- * commands, skills, hooks, status line, modes — all available.
+ * commands, skills, hooks, and status line — all available.
  *
  * Endpoint surface is byte-compatible with gateway-legacy.mjs so the
  * web-channel and slack-channel relays work unchanged:
@@ -103,7 +103,7 @@ let lastMaterialized = null; // S3b: last web materialized turn (introspection e
 let ptyStatus = "spawning"; // spawning | ready | failed
 let ptyError = null;
 let inflight = null; // promise chain — turns serialize
-let router = null; // Stage-A live routing layer (BRIEF U1), null = legacy single-session
+let router = null; // pre-session routing layer, null = legacy single-session
 const jobIngress = createJobIngressGuard();
 let readyResolve;
 const readyPromise = new Promise((resolve) => {
@@ -558,74 +558,8 @@ async function loadStubSpawnFn() {
 // Build + start the routing layer. Returns true when the operative is served by
 // the routing pool; false when routing is unavailable (caller falls back to the
 // legacy single-session spawn).
-// Wire the Dispatcher (D6/D9b) for the CLARITY judgment and steering's model
-// path: { core, model, call, callOpts } for RoutedGateway opts.dispatcher.
-// judgeClarity is the ONLY dispatchRoute caller, so wiring this changes no
-// routing behavior beyond clarity + steer classification. Best-effort: any
-// missing piece (dispatcher/garrison-call fittings, the control model) logs
-// dispatcher-not-wired and returns null - short-circuits + default-clear
-// remain, exactly the pre-wire behavior.
-async function loadDispatcher() {
-  try {
-    const dispatcherDir = path.join(COMPOSITION_DIR, "apm_modules", "_local", "dispatcher");
-    const core = await import(pathToFileURL(path.join(dispatcherDir, "lib", "dispatch-core.mjs")).href);
-    const callScript = path.join(COMPOSITION_DIR, "apm_modules", "_local", "garrison-call", "scripts", "call.mjs");
-    await fs.access(callScript);
-    const { spawn } = await import("node:child_process");
-    // The same spawn-and-pipe invoker the dispatcher CLI uses; never throws.
-    const call = (spec) =>
-      new Promise((resolve) => {
-        let child;
-        try {
-          child = spawn(process.execPath, [callScript], { stdio: ["pipe", "pipe", "pipe"] });
-        } catch (err) {
-          resolve({ ok: false, error: `spawn garrison-call failed: ${err?.message || String(err)}` });
-          return;
-        }
-        let out = "";
-        let errOut = "";
-        child.stdout.on("data", (d) => (out += d.toString()));
-        child.stderr.on("data", (d) => (errOut += d.toString()));
-        child.on("error", (err) => resolve({ ok: false, error: `garrison-call error: ${err?.message || String(err)}` }));
-        child.on("close", () => {
-          try {
-            resolve(JSON.parse(out.trim()));
-          } catch {
-            resolve({ ok: false, error: `garrison-call returned non-JSON: ${(out || errOut).slice(0, 200)}` });
-          }
-        });
-        child.stdin.write(JSON.stringify(spec));
-        child.stdin.end();
-      });
-    // The DispatchModel (duties w/ descriptions + selection) from the runner's
-    // garrison-control read model - the same source Muster and the board trust.
-    const controlBase =
-      process.env.GARRISON_CONTROL_URL ??
-      process.env.GARRISON_BASE_URL ??
-      `http://127.0.0.1:${process.env.GARRISON_APP_PORT ?? "7777"}`;
-    const r = await fetch(`${controlBase}/api/garrison-control`, { signal: AbortSignal.timeout(3000) });
-    if (!r.ok) throw new Error(`garrison-control ${r.status}`);
-    const j = await r.json();
-    if (!j?.duties || !Array.isArray(j?.selectedDuties)) throw new Error("garrison-control returned no dispatch model");
-    const model = { duties: j.duties, selectedDuties: j.selectedDuties };
-    const callOpts = {
-      shape: process.env.GARRISON_DISPATCH_SHAPE ?? "ollama",
-      provider: process.env.GARRISON_DISPATCH_PROVIDER ?? "ollama-local",
-      model: process.env.GARRISON_DISPATCH_MODEL ?? "qwen2.5:3b",
-      maxTokens: Number(process.env.GARRISON_DISPATCH_MAX_TOKENS) || 256,
-      timeoutMs: Number(process.env.GARRISON_DISPATCH_TIMEOUT_MS) || 30000,
-      ...(process.env.GARRISON_DISPATCH_CLARITY_RUBRIC ? { clarityRubric: process.env.GARRISON_DISPATCH_CLARITY_RUBRIC } : {}),
-    };
-    logEvent("stdout", { kind: "dispatcher-wired", duties: Object.keys(model.duties).length, model: callOpts.model });
-    return { core, model, call, callOpts };
-  } catch (err) {
-    logEvent("stdout", { kind: "dispatcher-not-wired", reason: String(err?.message ?? err) });
-    return null;
-  }
-}
-
 // Write/refresh the shared stdio MCP config for spawned claude sessions (the
-// routed twin of the souls-mode writeSharedMcpConfig: same file, same contract).
+// routed gateway's shared MCP config: same file, same contract).
 // Returns the claude extraArgs, or [] when the mcp-gateway fitting is absent.
 async function writeRoutedMcpConfig() {
   const gatewayScriptPath = path.join(COMPOSITION_DIR, "apm_modules", "_local", "mcp-gateway", "scripts", "gateway.mjs");
@@ -665,11 +599,10 @@ async function initRouting() {
   }
   await fs.mkdir(path.join(COMPOSITION_DIR, ".garrison"), { recursive: true });
   // garrison-control MCP for the operative (WS5 prep): write/refresh the shared
-  // stdio mcp.json (same contract as the souls-mode gateway) and pass it at
+  // stdio mcp.json and pass it at
   // spawn so duty sessions can call fetch_evidence / create_continuation /
   // poll_origin_events. Graceful: no installed mcp-gateway -> no extra args.
   const mcpExtraArgs = await writeRoutedMcpConfig();
-  const dispatcher = await loadDispatcher();
   const spawnFn = await loadStubSpawnFn();
   const continueSession = await hasPriorSession();
   router = await createRoutedGateway({
@@ -678,10 +611,6 @@ async function initRouting() {
     appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
     permissionMode: PERMISSION_MODE,
     decisionsFile: path.join(COMPOSITION_DIR, ".garrison", "decisions.jsonl"),
-    // Prefer the projected v4 Dispatcher built by createRoutedGateway below.
-    // The control-plane loader remains a compatibility fallback when no
-    // projected execution model is available.
-    ...(dispatcher ? { fallbackDispatcher: dispatcher } : {}),
     spawnFn,
     // Production front door: load the runner-projected v4 execution manifest and
     // wire the Dispatcher. Pure routing tests leave this opt-in unset.
@@ -716,11 +645,6 @@ async function initRouting() {
       claudeBinary: CLAUDE_BINARY,
     },
     initialTarget: { provider: PRIMARY_PROVIDER, model: MODEL, effort: null },
-    // Pin the ROUTING BRAIN (Stage-A classification + the Dispatcher's
-    // single-shot call) to the PRIMARY engine (gateway fitting config
-    // `routing_on_primary`). Unset = the historical cheap claude-code haiku
-    // classifier + garrison-call dispatch, byte-for-byte.
-    ...(process.env.GARRISON_ROUTING_ON_PRIMARY === "1" ? { routingOnPrimary: true } : {}),
     logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
   });
   await router.start();
@@ -1261,7 +1185,7 @@ export function buildRouteOptions() {
   };
 }
 
-/** Run one turn through Stage-A routing: classify → resolve → log → switch →
+/** Run one turn through pre-session routing: infer → resolve → log → switch →
  *  turn → honored check. The operative session is served by the routing pool.
  *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
  *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity;
@@ -1540,7 +1464,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // D19: a quick card runs inline; advance it Implement→Done now that the turn
   // finished — but ONLY if it finished honestly. An EMPTY reply is a FAILURE, not
   // a pass: route it to needs-attention with the failure contract instead of Done
-  // (parity with the souls-mode completeQuickTurnCard). Either way, release the
+  // Either way, release the
   // session slot so the next task starts a fresh card.
   if (quickCard) {
     if (isEmptyQuickReply(result?.reply)) {
@@ -2378,6 +2302,28 @@ const server = http.createServer(async (request, response) => {
     // turn runs).
     if (request.method === "GET" && url.pathname === "/route/options") {
       return sendJson(response, 200, buildRouteOptions());
+    }
+
+    // Authored Orchestrator changes take effect on the next turn. Queue a warm
+    // session rebuild on the same serialized boundary as turns so an in-flight
+    // response is never interrupted and no later turn can observe the old prompt.
+    if (request.method === "POST" && url.pathname === "/control/reload-prompt") {
+      if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
+      enqueue(async () => {
+        ptyStatus = "starting";
+        try {
+          await Promise.resolve(router?.shutdown?.());
+          router = null;
+          session = null;
+          await initRouting();
+          logEvent("stdout", { kind: "orchestrator-prompt-reloaded" });
+        } catch (err) {
+          ptyStatus = "failed";
+          ptyError = err?.message || String(err);
+          logEvent("stderr", { kind: "orchestrator-prompt-reload-failed", error: ptyError });
+        }
+      }).catch(() => {});
+      return sendJson(response, 202, { ok: true, status: "queued" });
     }
 
     // §9: stop the in-flight turn for one conversation. The turn then settles

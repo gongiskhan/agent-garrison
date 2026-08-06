@@ -18,8 +18,8 @@ without `own_port` is precisely why it never runs. The runner projects
 `GARRISON_GATEWAY_URL`, `GARRISON_BASE_URL`, `GARRISON_COMPOSITION_ID/DIR`,
 and the `secret_scope` vault keys (`OMI_APP_ID`, `OMI_APP_SECRET`,
 `OMI_IMPORT_API_KEY`, `OMI_WEBHOOK_SECRET`) into the spawn env. All feature
-flags are `config_schema` booleans defaulting false (`routing_on_primary`
-precedent: off = byte-identical, inert server).
+flags are `config_schema` booleans defaulting false (off = byte-identical,
+inert server).
 
 ## Ingress: Tailscale Funnel on port 8443 (decided)
 

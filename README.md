@@ -48,7 +48,7 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
 |---|---|
 | **Garrison** | The platform - this app. Composes, runs, observes, and manages Quarters. |
 | **Operative** | The running autonomous agent - a real, long-running coding-CLI session (Claude Code by default, or Codex / Gemini / the Agent SDK). |
-| **Faculty** | A role slot in a composition. 9 core roles (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`), 7 optional capability faculties, and `connectors`. |
+| **Faculty** | A role slot in a composition. 8 core roles (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`), 7 optional capability faculties, and `connectors`. |
 | **Fitting** | The part you install into a slot. A git-backed APM package with an `x-garrison` block. It does not just "fill" a role: a Fitting is the actual capability - a runtime that hosts the agent loop, a channel that carries messages, a connector that calls a live API, a memory store, a scheduler, a browser, a routing policy. |
 | **Runtime** | The coding CLI that hosts the agent loop, provided by a Fitting under the `runtimes` role. One is primary; the rest are `delegate()` targets the Orchestrator routes work to. |
 | **APM** | [Microsoft Agent Package Manager](https://github.com/microsoft/apm). Owns manifest, install, audit, lockfile. Garrison adds `x-garrison`. |
@@ -64,7 +64,7 @@ Platforms like OpenClaw and Hermes make reasonable defaults for newcomers, but p
 
 ### Transparency that makes customisation practical
 
-Most of what an Operative does lives in natural language - skills, prompts, the Soul, the assembled system prompt. Garrison's outputs are readable and auditable end to end. Open `assembled-system-prompt.md` after every run and see exactly what the agent was told. Edit a Fitting's prompt, save, and the dev watcher restarts the Operative in seconds.
+Most of what an Operative does lives in natural language - skills, Fitting guidance, and the layered Orchestrator document. Garrison's outputs are readable and auditable end to end. Open `assembled-system-prompt.md` after every run and see exactly what the agent was told. Edit Orchestrator Identity or routing doctrine, save, and the next turn receives the updated prompt.
 
 ### Deployability for builders who need governance
 
@@ -125,11 +125,11 @@ The whole surface is yours and on your own devices: no account, no third-party s
 
 ### Faculties - roles, not primitives
 
-Post-2026-06-07 Quarters pivot, Faculties are **roles** a Fitting fills. The former flat 24-Faculty list collapsed into **9 core roles**:
+Post-2026-06-07 Quarters pivot, Faculties are **roles** a Fitting fills. The former flat 24-Faculty list collapsed into **8 core roles**:
 
 ```
    orchestrator   channels        gateway     runtimes   memory
-   observability  sessions        surfaces    modes
+   observability  sessions        surfaces
 ```
 
 plus **7 optional capability faculties** (2026-06-24 - homes for the promoted Claude Code primitives, named by what they are *for*): `knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`; plus the **`connectors`** faculty (2026-06-26) for authenticated, Vault-sealed connections to external services.
@@ -161,10 +161,8 @@ APM is the single writer for package-file surface. Garrison autosaves every chan
 
 A Fitting is not a config entry - it is a working part that *does something*. The seed set (registered in `data/library.json`, each a self-contained APM package under `fittings/seed/<id>/`) groups by what it does:
 
-**Orchestration & personas** - decide what runs where, and who the Operative is
-- `model-router` - the visible routing policy (Exceptions → Matrix → Continuations) that picks runtime, model, effort, and skill per task
-- `garrison-orchestrator` - a thin delegating Orchestrator that routes work to specialist Soul sub-sessions
-- `modes` - one Operative, three faces: Gary (personal assistant), Joe (dev, dispatches code to a native session), James (product/architect); shared voice, shared memory, name-based switching
+**Orchestration & identity** - decide what runs where, and who the Operative is
+- `orchestrator` - the authoritative editable Identity and routing surface. Its pre-session inference selects duty/level/target; its layered document is the live runtime prompt.
 
 **Runtimes** - host the agent loop (the CLI-agnostic core)
 - `claude-code-runtime` - default primary; the node-pty engine driving the real interactive Claude Code CLI
@@ -228,11 +226,10 @@ Full breakdown: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#
    3. setup hooks                  → side-effect prep (clone repos, uv sync, ...)
    4. verify hooks                 → read-only sanity check; no verify = no ship
    5. start own-port Fittings      → dev-env, monitor, browser, web-channel, etc.
-   6. assemble system prompt       → Orchestrator + active Mode (soul) +
-                                     {{capabilities}} (each provider's
-                                     for_consumers indented under its capability
-                                     line); handed to the gateway as the
-                                     Operative's system prompt
+   6. assemble system prompt       → layered Orchestrator Identity/doctrine +
+                                     generated capabilities, duties, and
+                                     readiness; handed to the gateway as the
+                                     Operative's single system prompt
    7. spawn the primary runtime    → the Runtime Fitting named by primary_runtime
                                      (default claude-code-runtime: node-pty +
                                      headless xterm driving the real CLI) via the
@@ -265,7 +262,7 @@ consumes:
   - { kind: voice, cardinality: optional-one }
 ```
 
-The `cardinality: any` literal is how the Orchestrator **discovers installed Fittings without hardcoding** - declare `consumes: [{ kind: connector, cardinality: any }]` and every stationed connector shows up. Add a new Fitting → it appears in the Orchestrator's `{{capabilities}}` block automatically. No Garrison code change. The live kinds are `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`, `runtime`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, and the derived `view`.
+The `cardinality: any` literal is how the Orchestrator **discovers installed Fittings without hardcoding** - declare `consumes: [{ kind: connector, cardinality: any }]` and every stationed connector shows up. Add a new Fitting → it appears in the generated capabilities block automatically. No Garrison code change. The live kinds are `orchestrator`, `identity`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `duty`, and the derived `view`.
 
 Each provider Fitting can ship a `for_consumers` markdown block - usage guidance the runner injects under its line in the Orchestrator prompt at assembly time. Locality principle: the Fitting that ships a capability also ships the doc on how to use it.
 
@@ -319,7 +316,7 @@ Garrison is in active development. The live journal is [`docs/GARRISON_ROADMAP.m
 | **4 - Replace claude.ai discussions** | PM/Architect hat, document-during-conversation, chat UX for long-form | Substrate shipped (Documents + Artifact Store); behaviour missing |
 | **5 - Autonomous loop** | Tasks Faculty, heartbeat-driven pickup, plan-then-approve gate, evidence return | Depends on Stages 2–4 |
 
-The **Quarters pivot** (2026-06-07) also shipped: the flat 24-Faculty list collapsed into roles (now 9 core roles, plus the 7 optional capability faculties and `connectors` added since); a Quarters config surface over `~/.claude`; APM as single package writer via a symlink-confined global composition; and the **Runtime Faculty** (2026-06-14) that makes Claude Code one runtime among several behind a uniform adapter. The orchestrator rules-file projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but not yet wired into `up()`; at runtime the assembled prompt is handed to the gateway instead. RC4 (hosted-session launcher) is deferred; the runner still genuinely spawns a process (via the primary Runtime Fitting) until it lands.
+The **Quarters pivot** (2026-06-07) also shipped: the flat 24-Faculty list collapsed into roles (now 8 core roles, plus the 7 optional capability faculties and `connectors` added since); a Quarters config surface over `~/.claude`; APM as single package writer via a symlink-confined global composition; and the **Runtime Faculty** (2026-06-14) that makes Claude Code one runtime among several behind a uniform adapter. The orchestrator rules-file projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but not yet wired into `up()`; at runtime the assembled prompt is handed to the gateway instead. RC4 (hosted-session launcher) is deferred; the runner still genuinely spawns a process (via the primary Runtime Fitting) until it lands.
 
 Some things **not implemented yet**:
 

@@ -21,7 +21,7 @@ process.env.GARRISON_RUNS_DIR = RUNS_DIR;
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore - pure .mjs
-import * as dispatchCore from "../fittings/seed/dispatcher/lib/dispatch-core.mjs";
+import * as dispatchCore from "../fittings/seed/orchestrator/lib/dispatch-core.mjs";
 // @ts-ignore - pure .mjs
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore - pure .mjs

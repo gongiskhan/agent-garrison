@@ -34,7 +34,26 @@
       "when": "report"
     }
   ],
-  "defaultWorkKind": null,
+  "coordination": {
+    "enabled": true,
+    "exclusiveLeases": [
+      "apm.lock.yaml",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock"
+    ],
+    "fences": {
+      "enabled": true,
+      "trailer": "Garrison-Card"
+    },
+    "leaseTtlMinutes": 60,
+    "serializeWhenUnavailable": true,
+    "thresholds": {
+      "heavyFiles": 3,
+      "heavyRatio": 0.5
+    }
+  },
+  "defaultWorkKind": "full-feature",
   "discipline": {
     "T0-trivial": {
       "distribution": "none",
@@ -85,93 +104,123 @@
       "id": "ex-test",
       "targetId": "cc-sonnet-med",
       "when": "write tests or a test suite for code"
+    },
+    {
+      "id": "automation-vision",
+      "targetId": "cc-sonnet-med",
+      "when": "caller-asserted (matchedException) by the automations vision route - live vision resolution; the image matrix cell routes to sec-gemini which is unauthenticated on this box"
+    },
+    {
+      "id": "automation-vision-drill",
+      "targetId": "cc-sonnet-med",
+      "when": "caller-asserted (matchedException) - Drill run vision/judge calls"
+    },
+    {
+      "id": "automation-vision-drill-adversarial",
+      "targetId": "cc-opus-high",
+      "when": "caller-asserted (matchedException) - blind adversarial Drill pass on a DIFFERENT model than the normal pass (R12)"
+    },
+    {
+      "id": "ex-automation-vision",
+      "targetId": "cc-sonnet-med",
+      "when": "caller-asserted (matchedException) by the automations vision route since 30e5545 - live vision resolution (the legacy automation-vision* ids above stay for older callers; without this entry the call falls through to the unauthenticated sec-gemini image row)"
+    },
+    {
+      "id": "ex-automation-vision-adversarial",
+      "targetId": "cc-opus-high",
+      "when": "caller-asserted (matchedException) - blind adversarial Drill pass on a DIFFERENT model than the normal pass (R12)"
+    },
+    {
+      "id": "ex-drill-curation",
+      "targetId": "cc-sonnet-med",
+      "when": "caller-asserted (matchedException) - Drill Spotter evidence curation: batch keep/drop + annotation judging of captured frames (Debrief reel)"
     }
   ],
   "matrix": {
     "adversarial-review": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
-        "type": "runtime-target"
+        "effort": "medium",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:adversarial-review/L1",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
-        "type": "runtime-target"
+        "effort": "xhigh",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:adversarial-review/L2",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
-        "type": "runtime-target"
+        "effort": "max",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:adversarial-review/L3",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       }
     },
     "adversarial-test": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
-        "type": "runtime-target"
+        "effort": "medium",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:adversarial-test/L1",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
-        "type": "runtime-target"
+        "effort": "high",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:adversarial-test/L2",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
-        "type": "runtime-target"
+        "effort": "high",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:adversarial-test/L2",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       }
     },
     "code": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "claude-haiku-4-5",
+        "effort": "high",
+        "model": "sonnet",
         "provider": "anthropic",
-        "rule": "cell:code/T0-trivial",
+        "rule": "duty:code/L1",
         "runtime": "agent-sdk",
-        "targetId": "sdk-haiku-low",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "cell:code/T1-standard",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:code/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
+        "effort": "max",
         "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "cell:code/T2-deep",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "provider": "anthropic",
+        "rule": "duty:code/L3",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
@@ -179,28 +228,28 @@
       "T0-trivial": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:codex-checkpoint/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:codex-checkpoint/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:codex-checkpoint/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       }
     },
@@ -209,7 +258,7 @@
         "effort": null,
         "model": "gemini-2.5-flash",
         "provider": null,
-        "rule": "row:image",
+        "rule": "duty:image/L1",
         "runtime": "gemini",
         "targetId": "sec-gemini",
         "type": "secondary"
@@ -218,7 +267,7 @@
         "effort": null,
         "model": "gemini-2.5-flash",
         "provider": null,
-        "rule": "row:image",
+        "rule": "duty:image/L1",
         "runtime": "gemini",
         "targetId": "sec-gemini",
         "type": "secondary"
@@ -227,7 +276,7 @@
         "effort": null,
         "model": "gemini-2.5-flash",
         "provider": null,
-        "rule": "row:image",
+        "rule": "duty:image/L1",
         "runtime": "gemini",
         "targetId": "sec-gemini",
         "type": "secondary"
@@ -235,146 +284,146 @@
     },
     "implement": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "row:implement",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "effort": "xhigh",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:implement/L1",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "row:implement",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "effort": "xhigh",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:implement/L1",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "row:implement",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "effort": "xhigh",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:implement/L1",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
         "type": "runtime-target"
       }
     },
     "ops": {
       "T0-trivial": {
-        "effort": "low",
+        "effort": "high",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:ops",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:ops/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:ops",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:ops/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:ops",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "xhigh",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:ops/L3",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
     "other": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "claude-haiku-4-5",
+        "effort": "medium",
+        "model": "sonnet",
         "provider": "anthropic",
-        "rule": "cell:other/T0-trivial",
+        "rule": "duty:other/L1",
         "runtime": "agent-sdk",
-        "targetId": "sdk-haiku-low",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:other",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:other/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:other",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:other/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
     "plan": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "row:plan",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "effort": "high",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:plan/L1",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "row:plan",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "effort": "xhigh",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:plan/L2",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "row:plan",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "effort": "max",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:plan/L3",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
         "type": "runtime-target"
       }
     },
     "probe-question": {
       "T0-trivial": {
         "effort": "low",
-        "model": "qwen2.5:3b",
-        "provider": "ollama-local",
-        "rule": "row:probe-question",
+        "model": "sonnet",
+        "provider": "anthropic",
+        "rule": "duty:probe-question/L1",
         "runtime": "agent-sdk",
-        "targetId": "sdk-ollama-probe",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "low",
-        "model": "qwen2.5:3b",
-        "provider": "ollama-local",
-        "rule": "row:probe-question",
+        "model": "sonnet",
+        "provider": "anthropic",
+        "rule": "duty:probe-question/L1",
         "runtime": "agent-sdk",
-        "targetId": "sdk-ollama-probe",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "low",
-        "model": "qwen2.5:3b",
-        "provider": "ollama-local",
-        "rule": "row:probe-question",
+        "model": "sonnet",
+        "provider": "anthropic",
+        "rule": "duty:probe-question/L1",
         "runtime": "agent-sdk",
-        "targetId": "sdk-ollama-probe",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       }
     },
@@ -382,57 +431,57 @@
       "T0-trivial": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:report/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:report/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:report/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       }
     },
     "research": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "claude-haiku-4-5",
+        "effort": "high",
+        "model": "sonnet",
         "provider": "anthropic",
-        "rule": "cell:research/T0-trivial",
+        "rule": "duty:research/L1",
         "runtime": "agent-sdk",
-        "targetId": "sdk-haiku-low",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:research",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:research/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
+        "effort": "max",
         "model": "opus",
-        "provider": "anthropic-plan",
-        "rule": "cell:research/T2-deep",
-        "runtime": "claude-code",
-        "targetId": "cc-opus-high",
+        "provider": "anthropic",
+        "rule": "duty:research/L3",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
@@ -440,28 +489,28 @@
       "T0-trivial": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:review",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:review/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
+        "effort": "medium",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:review",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:review/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:review",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:review/L3",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
@@ -469,57 +518,57 @@
       "T0-trivial": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:test",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:test/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:test",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:test/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:test",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "xhigh",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:test/L3",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
     "ux-qa": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "medium",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:ux-qa/L1",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:ux-qa/L2",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "xhigh",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:ux-qa/L3",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
         "type": "runtime-target"
       }
     },
@@ -527,28 +576,28 @@
       "T0-trivial": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:validate/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:validate/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "low",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:validate/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       }
     },
@@ -557,7 +606,7 @@
         "effort": null,
         "model": "gemini-2.5-flash",
         "provider": null,
-        "rule": "row:video",
+        "rule": "duty:video/L1",
         "runtime": "gemini",
         "targetId": "sec-gemini",
         "type": "secondary"
@@ -566,7 +615,7 @@
         "effort": null,
         "model": "gemini-2.5-flash",
         "provider": null,
-        "rule": "row:video",
+        "rule": "duty:video/L1",
         "runtime": "gemini",
         "targetId": "sec-gemini",
         "type": "secondary"
@@ -575,7 +624,7 @@
         "effort": null,
         "model": "gemini-2.5-flash",
         "provider": null,
-        "rule": "row:video",
+        "rule": "duty:video/L1",
         "runtime": "gemini",
         "targetId": "sec-gemini",
         "type": "secondary"
@@ -583,66 +632,160 @@
     },
     "walkthrough": {
       "T0-trivial": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:walkthrough/L1",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:walkthrough/L1",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "default",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "effort": "high",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:walkthrough/L1",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
         "type": "runtime-target"
       }
     },
     "writing": {
       "T0-trivial": {
-        "effort": "low",
+        "effort": "medium",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:writing",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:writing/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "low",
+        "effort": "high",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:writing",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:writing/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "low",
+        "effort": "high",
         "model": "sonnet",
-        "provider": "anthropic-plan",
-        "rule": "row:writing",
-        "runtime": "claude-code",
-        "targetId": "cc-sonnet-med",
+        "provider": "anthropic",
+        "rule": "duty:writing/L2",
+        "runtime": "agent-sdk",
+        "targetId": "cc-sonnet",
         "type": "runtime-target"
       }
     }
   },
-  "phasePlans": {},
+  "phasePlans": {
+    "full": {
+      "evidence": "video",
+      "phases": [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "ux-qa",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ]
+    },
+    "full-copy": {
+      "evidence": "video",
+      "phases": [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "ux-qa",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ]
+    },
+    "full-copy-2": {
+      "evidence": "video",
+      "phases": [
+        "plan",
+        "implement",
+        "review",
+        "adversarial-review",
+        "test",
+        "adversarial-test",
+        "ux-qa",
+        "walkthrough",
+        "validate",
+        "codex-checkpoint",
+        "report"
+      ]
+    },
+    "implement-only-logs": {
+      "evidence": "logs",
+      "phases": [
+        "implement"
+      ]
+    },
+    "implement-only-text": {
+      "evidence": "text",
+      "phases": [
+        "implement"
+      ]
+    },
+    "implement-test": {
+      "evidence": "logs",
+      "phases": [
+        "implement",
+        "test"
+      ]
+    },
+    "manual-only": {
+      "evidence": "none",
+      "phases": []
+    },
+    "ui-change": {
+      "evidence": "video",
+      "phases": [
+        "implement",
+        "review",
+        "ux-qa",
+        "walkthrough"
+      ]
+    }
+  },
   "phaseSkills": {
-    "bindings": {},
+    "bindings": {
+      "adversarial-review": "garrison-adversarial-review",
+      "adversarial-test": "garrison-adversarial-test",
+      "codex-checkpoint": "garrison-codex-checkpoint",
+      "implement": "garrison-implement",
+      "plan": "garrison-plan",
+      "report": "garrison-report",
+      "review": "garrison-review",
+      "security-review": "garrison-security-review",
+      "test": "garrison-test",
+      "ux-qa": "garrison-ux-qa",
+      "validate": "garrison-validate",
+      "walkthrough": "garrison-walkthrough"
+    },
     "overrides": {}
   },
   "phases": [
@@ -652,6 +795,7 @@
     "adversarial-review",
     "test",
     "adversarial-test",
+    "security-review",
     "ux-qa",
     "walkthrough",
     "validate",
@@ -660,8 +804,15 @@
   ],
   "policyVersion": 2,
   "preRoute": "on",
-  "primaryRuntime": "claude-code-runtime",
-  "projects": {},
+  "primaryRuntime": "agent-sdk-runtime",
+  "projects": {
+    "agent-garrison": {
+      "profile": {
+        "conventions": "Garrison itself: typecheck with `npm run typecheck`; the dev app runs on 127.0.0.1:27777; use the run-garrison skill to launch, screenshot, and smoke-test the UI; never create git branches; permission mode is bypassPermissions."
+      },
+      "security_sensitive": false
+    }
+  },
   "providers": [
     {
       "baseUrl": null,
@@ -674,13 +825,6 @@
       "id": "anthropic",
       "kind": "anthropic-plan",
       "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
-    },
-    {
-      "baseUrl": "http://localhost:11434",
-      "dummyToken": "ollama",
-      "id": "ollama-local",
-      "kind": "local",
-      "notes": "local Ollama Anthropic-compatible endpoint"
     },
     {
       "baseUrl": "https://api.deepseek.com/anthropic",
@@ -700,42 +844,49 @@
       "effort": "low",
       "id": "cc-haiku-low",
       "model": "haiku",
-      "provider": "anthropic-plan",
-      "runtime": "claude-code",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
       "type": "runtime-target"
     },
-    "cc-ollama-deepseek": {
-      "effort": "medium",
-      "id": "cc-ollama-deepseek",
-      "model": "deepseek-coder-v2",
-      "provider": "ollama-local",
-      "runtime": "claude-code",
-      "type": "runtime-target"
-    },
-    "cc-ollama-qwen": {
-      "effort": "medium",
-      "id": "cc-ollama-qwen",
-      "model": "qwen2.5-coder",
-      "provider": "ollama-local",
-      "runtime": "claude-code",
+    "cc-opus": {
+      "id": "cc-opus",
+      "maxTurns": 100,
+      "model": "opus",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
       "type": "runtime-target"
     },
     "cc-opus-high": {
       "_effortWas": "high",
       "effort": "low",
       "id": "cc-opus-high",
+      "maxTurns": 100,
       "model": "opus",
-      "provider": "anthropic-plan",
-      "runtime": "claude-code",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "cc-sonnet": {
+      "id": "cc-sonnet",
+      "maxTurns": 100,
+      "model": "sonnet",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
       "type": "runtime-target"
     },
     "cc-sonnet-med": {
       "_effortWas": "medium",
-      "effort": "low",
+      "effort": "high",
       "id": "cc-sonnet-med",
+      "maxTurns": 100,
       "model": "sonnet",
-      "provider": "anthropic-plan",
-      "runtime": "claude-code",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
       "type": "runtime-target"
     },
     "classifier": {
@@ -743,8 +894,89 @@
       "id": "classifier",
       "model": "haiku",
       "pinned": true,
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "fable": {
+      "authMode": "subscription",
+      "effort": "high",
+      "id": "fable",
+      "maxTurns": 100,
+      "model": "claude-fable-5",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "fitted-agent-sdk-runtime": {
+      "derivedFrom": "agent-sdk-runtime",
+      "id": "fitted-agent-sdk-runtime",
+      "runtime": "agent-sdk",
+      "type": "secondary"
+    },
+    "fitted-claude-code-runtime": {
+      "derivedFrom": "claude-code-runtime",
+      "id": "fitted-claude-code-runtime",
+      "model": "opus",
       "provider": "anthropic-plan",
       "runtime": "claude-code",
+      "type": "runtime-target"
+    },
+    "fitted-codex-runtime": {
+      "derivedFrom": "codex-runtime",
+      "id": "fitted-codex-runtime",
+      "runtime": "codex",
+      "type": "secondary"
+    },
+    "fitted-garrison-call": {
+      "derivedFrom": "garrison-call",
+      "id": "fitted-garrison-call",
+      "runtime": "garrison-call",
+      "type": "secondary"
+    },
+    "fitted-gemini-runtime": {
+      "derivedFrom": "gemini-runtime",
+      "id": "fitted-gemini-runtime",
+      "runtime": "gemini",
+      "type": "secondary"
+    },
+    "fitted-huggingface-runtime": {
+      "derivedFrom": "huggingface-runtime",
+      "id": "fitted-huggingface-runtime",
+      "runtime": "huggingface",
+      "type": "secondary"
+    },
+    "fitted-opencode-runtime": {
+      "derivedFrom": "opencode-runtime",
+      "id": "fitted-opencode-runtime",
+      "runtime": "opencode",
+      "type": "secondary"
+    },
+    "fitted-openrouter-runtime": {
+      "derivedFrom": "openrouter-runtime",
+      "id": "fitted-openrouter-runtime",
+      "runtime": "openrouter",
+      "type": "secondary"
+    },
+    "opus": {
+      "id": "opus",
+      "maxTurns": 100,
+      "model": "claude-opus-4-8",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
+    "opus-high": {
+      "authMode": "subscription",
+      "effort": "high",
+      "id": "opus-high",
+      "maxTurns": 100,
+      "model": "claude-opus-4-8",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
       "type": "runtime-target"
     },
     "sdk-haiku-low": {
@@ -753,33 +985,6 @@
       "id": "sdk-haiku-low",
       "model": "claude-haiku-4-5",
       "provider": "anthropic",
-      "runtime": "agent-sdk",
-      "type": "runtime-target"
-    },
-    "sdk-ollama-build": {
-      "id": "sdk-ollama-build",
-      "leanPrompt": "You output JavaScript source code ONLY, as a single fenced code block. Example request: \"a function add that sums two numbers\". Example reply (this exact shape, nothing else):\n```js\nexport function add(a, b) {\n  return a + b;\n}\n```\nRules: reply with ONLY one ```js fenced block containing the implementation. Never output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a tool. No prose before or after. No imports unless explicitly requested.",
-      "maxTurns": 2,
-      "model": "qwen2.5-coder:7b",
-      "promptMode": "lean",
-      "provider": "ollama-local",
-      "runtime": "agent-sdk",
-      "type": "runtime-target"
-    },
-    "sdk-ollama-chat": {
-      "id": "sdk-ollama-chat",
-      "model": "qwen3:0.6b",
-      "promptMode": "lean",
-      "provider": "ollama-local",
-      "runtime": "agent-sdk",
-      "type": "runtime-target"
-    },
-    "sdk-ollama-probe": {
-      "effort": "low",
-      "id": "sdk-ollama-probe",
-      "model": "qwen2.5:3b",
-      "promptMode": "lean",
-      "provider": "ollama-local",
       "runtime": "agent-sdk",
       "type": "runtime-target"
     },
@@ -793,6 +998,15 @@
       "id": "sec-gemini",
       "model": "gemini-2.5-flash",
       "runtime": "gemini",
+      "type": "secondary"
+    },
+    "sol": {
+      "authMode": "api-key",
+      "effort": "high",
+      "id": "sol",
+      "model": "gpt-5.6-sol",
+      "provider": "anthropic",
+      "runtime": "codex",
       "type": "secondary"
     }
   },
@@ -830,5 +1044,44 @@
   "uxQa": {
     "severityThreshold": "major"
   },
-  "workKinds": {}
+  "workKinds": {
+    "api-change": {
+      "description": "API/backend change with tests, no walkthrough",
+      "phasePlan": "implement-test"
+    },
+    "channel": {
+      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge",
+      "evidence": false,
+      "phasePlan": "manual-only"
+    },
+    "docs-change": {
+      "description": "Documentation or prose-only change",
+      "phasePlan": "implement-only-text"
+    },
+    "full-feature": {
+      "description": "Feature work through the full gated pipeline",
+      "phasePlan": "full"
+    },
+    "full-feature-copy": {
+      "description": "Feature work through the full gated pipeline (copy)",
+      "phasePlan": "full-copy"
+    },
+    "full-feature-copy-2": {
+      "description": "Feature work through the full gated pipeline (copy)",
+      "phasePlan": "full-copy-2"
+    },
+    "personal": {
+      "description": "Personal task - rides backlog/todo/done by hand, no agent phases",
+      "evidence": false,
+      "phasePlan": "manual-only"
+    },
+    "ui-change": {
+      "description": "UI change through review + UX QA + a walkthrough",
+      "phasePlan": "ui-change"
+    },
+    "video-edit": {
+      "description": "Video production/edit work",
+      "phasePlan": "implement-only-logs"
+    }
+  }
 }

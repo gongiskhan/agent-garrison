@@ -34,7 +34,7 @@ interface ListLike {
 /** Imports are content transfer only; they must never target a run-owning list. */
 export function isManualImportTarget(list: ListLike): boolean {
   const kind = typeof list?.kind === "string" && list.kind ? list.kind : "manual";
-  return kind !== "agent" && kind !== "agent-interactive" && list?.interactive !== true;
+  return list?.id !== "scheduled" && kind !== "agent" && kind !== "agent-interactive" && list?.interactive !== true;
 }
 
 interface BoardLike {
@@ -56,6 +56,9 @@ export function deriveMoveTargets(board: BoardLike, card: CardLike): MoveTarget[
   const out: MoveTarget[] = [];
   for (const l of lists) {
     if (!l || typeof l.id !== "string" || !l.id) continue;
+    // Scheduled is managed by the schedule editor: a raw manual move would
+    // create a card with no due instant or release target.
+    if (l.id === "scheduled") continue;
     if (l.id === currentList) continue;
     const kind = typeof l.kind === "string" && l.kind ? l.kind : "manual";
     const interactive = kind === "agent-interactive" || l.interactive === true;

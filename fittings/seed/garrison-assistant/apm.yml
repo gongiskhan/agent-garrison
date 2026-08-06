@@ -22,8 +22,8 @@ x-garrison:
     one adaptive question at a time and, when it has enough, files each candidate
     as a proposal into the Improver review queue with provenance `assistant`. The
     Assistant NEVER edits an artifact directly; every change flows through the
-    Improver's propose-then-approve queue. Model calls (optional) use the local
-    ollama-local provider, never an Anthropic endpoint.
+    Improver's propose-then-approve queue. Answers are grounded directly in the
+    local index; this Fitting makes no model or network call.
   config_schema:
     - key: port
       type: integer
@@ -37,10 +37,6 @@ x-garrison:
       type: string
       default: docs
       description: The docs directory indexed for Answer mode (relative to the repo root).
-    - key: model
-      type: string
-      default: ollama-local/qwen2.5:3b
-      description: Optional local model for Answer synthesis (provider/model); never an Anthropic endpoint.
   provides: []
   consumes:
     - kind: memory-store

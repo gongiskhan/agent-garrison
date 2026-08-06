@@ -82,9 +82,12 @@ describe("U4 — buildContextCarryover (the fallback summary)", () => {
     expect(buildContextCarryover(big, { maxChars: 200 }).length).toBeLessThan(400);
   });
 
-  it("buildRespawnOpts flags providerLaunch for a non-anthropic provider", () => {
-    const ollama = buildRespawnOpts({ provider: "ollama-local", model: "qwen2.5-coder" }, { baseEnv: {}, secrets: {}, providers: SEED_PROVIDERS });
-    expect(ollama.providerLaunch).toBe(true);
+  it("buildRespawnOpts flags providerLaunch for an explicitly configured non-primary provider", () => {
+    const zAi = buildRespawnOpts(
+      { provider: "zai-glm", model: "glm-5" },
+      { baseEnv: {}, secrets: { ZAI_API_KEY: "test-key" }, providers: SEED_PROVIDERS }
+    );
+    expect(zAi.providerLaunch).toBe(true);
     const plan = buildRespawnOpts({ provider: "anthropic-plan", model: "opus" }, { baseEnv: {}, providers: SEED_PROVIDERS });
     expect(plan.providerLaunch).toBe(false);
   });
@@ -93,14 +96,26 @@ describe("U4 — buildContextCarryover (the fallback summary)", () => {
 describe("U4 — RoutedGateway re-injects carryover on a respawn (soul-switch-ok)", () => {
   it("a provider switch respawns and the next turn's annotation carries prior context", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-soul-gw-"));
-    // economy: expert → cc-ollama-qwen (ollama-local provider) ⇒ respawn-resume
-    const config = { ...SEED, activeProfile: "economy" };
+    // Use an explicitly authored alternate provider: defaults remain
+    // Anthropic-only, while Stage-B still supports a user's opt-in target.
+    const config = JSON.parse(JSON.stringify({ ...SEED, activeProfile: "economy" }));
+    config.targets.push({
+      id: "test-zai",
+      type: "runtime-target",
+      runtime: "claude-code",
+      provider: "zai-glm",
+      model: "glm-5",
+      effort: "high",
+      authMode: "api-key"
+    });
+    config.profiles.economy.matrix.rows.code.cells["T2-deep"] = "test-zai";
     const gw = await createRoutedGateway({
       compositionDir: tmp,
       config,
       decisionsFile: join(tmp, "decisions.jsonl"),
       spawnFn: (cfg: any) => Promise.resolve(new FakeSession(cfg)),
       initialTarget: { provider: "anthropic-plan", model: "sonnet", effort: null },
+      secrets: { ZAI_API_KEY: "test-key" },
       logFn: () => {},
     });
     await gw.start();
@@ -111,9 +126,9 @@ describe("U4 — RoutedGateway re-injects carryover on a respawn (soul-switch-ok
       { role: "assistant", text: "stored" },
     ];
 
-    // a deep prompt → expert → cc-ollama-qwen (ollama) ⇒ provider change ⇒ respawn
+    // a deep prompt → explicit Z.ai target ⇒ provider change ⇒ respawn
     const pre = await gw.preRoute("do a deep refactor of the auth subsystem");
-    expect(pre.route.targetId).toBe("cc-ollama-qwen");
+    expect(pre.route.targetId).toBe("test-zai");
     expect(pre.plan.path).toBe("respawn-resume");
     expect(pre.carried).toBe(true);
     expect(pre.annotation).toContain("context carried over");

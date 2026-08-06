@@ -27,13 +27,14 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
     messages: ThreadMessage[];
     claudeSessionId?: string | null;
     routing?: unknown;
+    messageKeys?: string[];
   }
   export function safeThreadId(raw: unknown): string | null;
   export function newThreadId(): string;
   export function listThreads(): Promise<ThreadMeta[]>;
   export function getThread(id: string): Promise<Thread | null>;
   export function ensureThread(opts: { id?: string; title?: string; source?: string; mode?: string; context?: unknown; nowIso?: string }): Promise<Thread>;
-  export function appendMessages(id: string, messages: ThreadMessage[], opts?: { nowIso?: string }): Promise<ThreadMeta>;
+  export function appendMessages(id: string, messages: ThreadMessage[], opts?: { nowIso?: string; idempotencyKey?: string }): Promise<ThreadMeta>;
   export function deleteThread(id: string): Promise<boolean>;
   export function threadExistsSync(id: string): boolean;
   export function setThreadSession(id: string, sessionId: string): Promise<ThreadMeta | null>;

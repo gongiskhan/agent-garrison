@@ -6,8 +6,8 @@ loop, and every routing target is a GLM target, so no turn can silently land on
 Claude Code, Codex, Gemini, Cursor or the Agent SDK. Nothing here bills an
 Anthropic plan.
 
-Stationed: `orchestrator`, `http-gateway`, `dispatcher`, `openai-agents-runtime`,
-`basic-memory`, `web-channel-default`, `identity-gary` — the seven that satisfy
+Stationed: `orchestrator`, `http-gateway`, `openai-agents-runtime`,
+`basic-memory`, `web-channel-default`, `orchestrator` — the fittings that satisfy
 every readiness rule (an orchestrator, a runtime, a channel, a memory store, a
 gateway, an identity, a dispatch duty). Deliberately nothing beyond them: every
 extra Fitting is another setup + verify hook between you and a running operative.
@@ -53,7 +53,7 @@ profile offset (8083 on prod).
 4. `up` the composition. Ports follow the usual profile offsets (gateway 4777 on
    dev, 5777 on prod).
 
-## The four targets
+## The three targets
 
 All four ride the same endpoint and the same checkpoint — one box serves one
 model — so they differ only in **harness shape**, which is the real cost knob
@@ -61,10 +61,9 @@ here:
 
 | target | promptMode | maxTurns | for |
 |---|---|---|---|
-| `glm-fast` | lean | 4 | one-shot answers, classification, probes |
+| `glm-fast` | lean | 4 | one-shot answers, Orchestrator routing inference, probes |
 | `glm-standard` | full | 12 | ordinary bounded work, with the file toolset |
 | `glm-deep` | full | 24 | wide-blast-radius work; more loop headroom |
-| `glm-classifier` | lean | 2 | Stage-A routing classification |
 
 `lean` disables the cwd-confined file tools and uses a minimal prompt (lowest
 token floor); `full` enables `read_file` / `write_file` / `list_dir`, confined to
@@ -77,12 +76,9 @@ the session's working directory.
   `effortApplied: false`. Escalating means a bigger harness (`glm-deep`), not
   raising a knob. Duty cells here declare no `effort` at all.
 
-- **`routing_on_primary: true` is load-bearing, not a preference.** Both halves
-  of the routing brain would otherwise reach off this composition: the classifier
-  defaults to a cheap Claude Code haiku PTY *whatever the primary is* (putting
-  every turn's Stage-A back on the Anthropic plan), and the Dispatcher calls
-  through `garrison-call`, whose default-deny provider table does not list this
-  endpoint. The flag pins both to the primary's own adapter.
+- **Routing stays native.** The explicit `dispatch` duty targets `glm-fast`, so
+  this composition never needs a legacy primary-routing flag or a separate
+  Anthropic classifier.
 
 - **Session continuity is in-memory only.** This adapter carries the
   `@openai/agents` history thread across turns on a warm session, but there is no

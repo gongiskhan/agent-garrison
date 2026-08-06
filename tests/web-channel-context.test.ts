@@ -47,7 +47,7 @@ function recordingTransport() {
 }
 
 describe("web-channel generic context contract — server", () => {
-  it("absent context/mode → EXACTLY { message, channel: 'web' }", () => {
+  it("absent context → EXACTLY { message, channel: 'web' }", () => {
     expect(buildGatewayChatBody({ message: "hello" })).toEqual({
       message: "hello",
       channel: "web",
@@ -63,24 +63,15 @@ describe("web-channel generic context contract — server", () => {
     });
   });
 
-  it("forwards mode when present (trimmed)", () => {
-    expect(buildGatewayChatBody({ message: "hi", mode: "  james  " })).toEqual({
-      message: "hi",
-      channel: "web",
-      mode: "james",
-    });
-  });
-
-  it("forwards both context and mode together", () => {
-    expect(buildGatewayChatBody({ message: "go", context: [1, 2, 3], mode: "joe" })).toEqual({
+  it("does not forward the retired mode field", () => {
+    expect(buildGatewayChatBody({ message: "go", context: [1, 2, 3], mode: "james" })).toEqual({
       message: "go",
       channel: "web",
       context: [1, 2, 3],
-      mode: "joe",
     });
   });
 
-  it("does NOT forward null/empty values (stays backward-compatible)", () => {
+  it("does NOT forward null/empty values", () => {
     expect(buildGatewayChatBody({ message: "hi", context: null, mode: "" })).toEqual({
       message: "hi",
       channel: "web",
@@ -93,11 +84,10 @@ describe("web-channel generic context contract — server", () => {
 
   it("forwards a routing classification hint when present (the Discuss no-thinking pin)", () => {
     expect(
-      buildGatewayChatBody({ message: "hi", mode: "james", classification: { taskType: "other", tier: "T0-trivial" } })
+      buildGatewayChatBody({ message: "hi", classification: { taskType: "other", tier: "T0-trivial" } })
     ).toEqual({
       message: "hi",
       channel: "web",
-      mode: "james",
       classification: { taskType: "other", tier: "T0-trivial" },
     });
     // Absent hint stays backward-compatible (no classification key).

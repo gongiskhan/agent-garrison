@@ -48,13 +48,6 @@
       "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
     },
     {
-      "id": "ollama-local",
-      "kind": "local",
-      "baseUrl": "http://localhost:11434",
-      "dummyToken": "ollama",
-      "notes": "local Ollama Anthropic-compatible endpoint"
-    },
-    {
       "id": "deepseek",
       "kind": "cloud-oss",
       "baseUrl": "https://api.deepseek.com/anthropic",
@@ -170,24 +163,6 @@
       "authMode": "subscription"
     },
     {
-      "id": "cc-ollama-qwen",
-      "type": "runtime-target",
-      "runtime": "claude-code",
-      "provider": "ollama-local",
-      "model": "qwen2.5-coder",
-      "effort": "medium",
-      "authMode": "local"
-    },
-    {
-      "id": "cc-ollama-deepseek",
-      "type": "runtime-target",
-      "runtime": "claude-code",
-      "provider": "ollama-local",
-      "model": "deepseek-coder-v2",
-      "effort": "medium",
-      "authMode": "local"
-    },
-    {
       "id": "sec-gemini",
       "type": "secondary",
       "runtime": "gemini",
@@ -206,26 +181,6 @@
       "model": "gpt-5.5",
       "effort": "high",
       "authMode": "api-key"
-    },
-    {
-      "id": "classifier",
-      "type": "runtime-target",
-      "runtime": "claude-code",
-      "provider": "anthropic-plan",
-      "model": "haiku",
-      "effort": "low",
-      "pinned": true,
-      "authMode": "subscription"
-    },
-    {
-      "id": "sdk-ollama-probe",
-      "type": "runtime-target",
-      "runtime": "agent-sdk",
-      "provider": "ollama-local",
-      "model": "qwen2.5:3b",
-      "promptMode": "lean",
-      "effort": "low",
-      "authMode": "local"
     }
   ],
   "profiles": {
@@ -293,7 +248,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "sdk-ollama-probe",
+            "default": "agent-sdk-haiku-fast",
             "cells": {}
           },
           "code": {
@@ -348,10 +303,10 @@
       "preRoute": "on",
       "matrix": {
         "defaults": {
-          "target": "cc-ollama-qwen"
+          "target": "cc-haiku-low"
         },
         "columns": {
-          "T2-deep": "cc-ollama-qwen"
+          "T2-deep": "cc-haiku-low"
         },
         "rows": {
           "plan": {
@@ -359,7 +314,7 @@
             "cells": {}
           },
           "implement": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
@@ -405,17 +360,17 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "sdk-ollama-probe",
+            "default": "agent-sdk-haiku-fast",
             "cells": {}
           },
           "code": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
           },
           "research": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {}
           },
           "image": {
@@ -427,19 +382,19 @@
             "cells": {}
           },
           "writing": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
           },
           "ops": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
           },
           "other": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
@@ -448,8 +403,8 @@
       },
       "computeLadder": [
         "cc-haiku-low",
-        "cc-ollama-qwen",
-        "cc-ollama-qwen"
+        "cc-haiku-low",
+        "cc-haiku-low"
       ],
       "disciplineOverrides": {
         "T2-deep": {
@@ -524,7 +479,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "sdk-ollama-probe",
+            "default": "agent-sdk-haiku-fast",
             "cells": {}
           },
           "code": {
@@ -749,6 +704,11 @@
   },
   "uxQa": {
     "severityThreshold": "major"
+  },
+  "dispatchInference": {
+    "timeoutMs": 8000,
+    "maxTokens": 256,
+    "clarityRubric": "Judge whether the ask has a clear goal, scope, and hard constraints. If materially underspecified, mark it needs-discuss; otherwise clear."
   },
   "coordination": {
     "enabled": true,

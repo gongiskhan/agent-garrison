@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCompositionDirectory, DEFAULT_COMPOSITION_ID } from "@/lib/compositions";
 import { writeAuthoredOverride, isAuthoredSectionId } from "@/lib/orchestrator-authored-store";
-import { loadOrchestratorPreview } from "@/lib/orchestrator-projection";
+import { writeAssembledOrchestratorPrompt } from "@/lib/orchestrator-projection";
+import { getGatewayBaseUrl } from "@/lib/runner";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -35,10 +36,24 @@ export async function POST(request: NextRequest) {
     }
 
     await writeAuthoredOverride(getCompositionDirectory(composition), sectionId, content);
-    // Re-derive the whole preview so the client gets fresh locked blocks + the
-    // updated assembled prompt in one round-trip (the Muster autosave contract).
-    const preview = await loadOrchestratorPreview(composition);
-    return NextResponse.json(preview);
+    // Re-derive and atomically materialize the exact prompt the runtime reads.
+    // Then queue a warm-session rebuild at a turn boundary, so the next real
+    // turn sees the authored Identity/policy without requiring an operator restart.
+    const { preview } = await writeAssembledOrchestratorPrompt(composition);
+    let runtimeRefresh: "queued" | "not-running" | "failed" = "not-running";
+    const gateway = getGatewayBaseUrl(composition);
+    if (gateway) {
+      try {
+        const response = await fetch(`${gateway}/control/reload-prompt`, {
+          method: "POST",
+          signal: AbortSignal.timeout(2_000)
+        });
+        runtimeRefresh = response.ok ? "queued" : "failed";
+      } catch {
+        runtimeRefresh = "failed";
+      }
+    }
+    return NextResponse.json({ ...preview, runtimeRefresh });
   } catch (error) {
     return jsonError(error, 400);
   }

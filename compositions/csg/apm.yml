@@ -8,10 +8,8 @@ dependencies:
     - path: ../../fittings/seed/coord-agentmail
     - path: ../../fittings/seed/cursor-runtime
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/orchestrator
@@ -52,10 +50,6 @@ x-garrison:
             bind_host: 127.0.0.1
             compact_enabled: false
             compact_threshold_pct: 60
-            routing_on_primary: true
-        - id: dispatcher
-          config:
-            evidence_file: .garrison/decisions.jsonl
       runtimes:
         - id: cursor-runtime
           config:
@@ -116,13 +110,8 @@ x-garrison:
           config:
             root: ~/.garrison/files
             port: 27091
-      modes:
-        - id: identity-gary
-          config:
-            user_name: the user
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md
     duties:
       - id: code
         title: Code

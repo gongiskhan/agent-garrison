@@ -1,19 +1,16 @@
 # Agent Garrison Faculties
 
-## Current model: 17 faculties (9 core roles + 7 capability faculties + connectors)
+## Current model: 16 faculties (8 core roles + 7 capability faculties + connectors)
 
 Faculties are now **roles only**. The flat 24-Faculty list was collapsed to six
 roles in the 2026-06-07 Quarters pivot; on 2026-06-18 the overloaded `sessions`
 role was split into three (sessions / runtimes / surfaces), bringing the total
-to eight; `modes` was added 2026-06-22, bringing the core roles to **nine**.
+to eight. `modes` was briefly added as a ninth role in 2026 and has since been
+removed; legacy selections are discarded by composition migration.
 On 2026-06-24 seven optional capability faculties landed (`knowledge`,
 `research`, `building`, `code-intelligence`, `design`, `browser-qa`,
-`coordination`) and on 2026-06-26 `connectors` — **17 in total**, enforced by
+`coordination`) and on 2026-06-26 `connectors` — **16 in total**, enforced by
 `facultyIds` in `src/lib/types.ts`:
-
-> Note: the `modes` faculty's capability was superseded by `identity`
-> (2026-07-13, MARATHON-V3 D7). The faculty id remains; the Fitting that fills
-> it is `identity-gary`, not a `modes` Fitting.
 
 - **orchestrator** — the governing behaviour spine; projected to
   `~/.claude/rules/garrison-orchestrator.md` as an APM instructions primitive
@@ -40,11 +37,6 @@ On 2026-06-24 seven optional capability faculties landed (`knowledge`,
   Each is detected via the `own_port` flag and linked from the sidebar Fittings
   group. `screen-share`, `browser`, and `outposts` are deprecation aliases for
   this role.
-- **modes** — the operative's identity/persona layer (added 2026-06-22): the
-  souls (Gary/Joe/James), the shared voice, the per-mode routing bias, and
-  name-based mode switching, composed into the orchestrator's system prompt.
-  One operative, three faces, one shared memory. Provided by the `modes` Fitting
-  and consumed by the orchestrator.
 
 ## Optional capability faculties (2026-06-24)
 
@@ -55,9 +47,8 @@ internal `component_shape`; users never compose a "skill" or an "MCP", they
 station a Fitting into one of these purpose-named **optional capability
 faculties**. Each is named for what the capability is *for*, never the primitive
 behind it, and carries a display **tier** — `agent` (everyday base operative) or
-`dev` (only relevant while doing development work, anchored on the modes config:
-the dev mode, Joe, is what activates the dev-tier faculties). The tier is
-orthogonal to essential/optional and only drives the Compose grid's two headers.
+`dev` (only relevant while doing development work). The tier is orthogonal to
+essential/optional and only drives the Compose grid's two headers.
 
 Agent-tier (everyday):
 
@@ -122,7 +113,7 @@ deprecation aliases. The sessions split is recorded in
 
 The sections below describe the **previous** flat-Faculty model. They are kept
 for the long-form intent and failure-mode notes (still useful for the surviving
-own-port Fittings), but the named faculties below — except the six roles above —
+own-port Fittings), but the named faculties below — except the eight roles above —
 are no longer selectable; they fold into the roles via aliases.
 
 ## 1. Heartbeat

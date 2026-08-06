@@ -9,7 +9,7 @@ export interface DispatchError {
 }
 
 // Per-turn routing attribution (the gateway's `done` event surfaces which
-// runtime/model/tier actually served a routed phase turn; null in souls mode). Stamped
+// runtime/model/tier actually served a routed phase turn; null for legacy non-routed turns). Stamped
 // on a `routed` event by the engine and surfaced on the card front as `lastRoute`.
 // Every field is nullable — attribution is best-effort, never load-bearing.
 export interface RouteStamp {
@@ -110,6 +110,36 @@ export interface PreparedRevertSummary {
 // been assigned yet.
 export type CardScope = "personal" | "project" | "unscoped";
 
+export interface CardSchedule {
+  kind: "once" | "cron";
+  action: "notify" | "run";
+  at?: string;
+  cron?: string;
+  timezone: string;
+  enabled: boolean;
+  targetList: string;
+  nextAt: string | null;
+  lastAt: string | null;
+  lastError?: string | null;
+  snoozedUntil?: string | null;
+  cutoverPending?: boolean;
+  desiredEnabled?: boolean;
+}
+
+export interface DispatchRunProvenance {
+  runId: string;
+  machine: string;
+  workerId?: string | null;
+  phase?: string | null;
+  state: "done" | "failed" | "cancelled" | string;
+  claimedAt?: string | null;
+  completedAt?: string | null;
+  logIndex?: number | null;
+  sessionId?: string | null;
+  logCursor?: number | null;
+  evidenceManifest?: Array<{ name: string; bytes: number; sha256: string }>;
+}
+
 export interface CardSummary {
   id: string;
   title: string;
@@ -136,6 +166,28 @@ export interface CardSummary {
    *  fully-automatic card, which is every card by default. */
   routing?: CardRouting | null;
   origin?: string | null;
+  placement?: { target: string; not_before?: string | null } | null;
+  dispatch?: {
+    machine: string;
+    workerId?: string | null;
+    runId?: string | null;
+    phase?: string | null;
+    state: "claimed" | "running" | "cancelling" | "done" | "failed" | string;
+    claimedAt?: string | null;
+    heartbeatAt?: string | null;
+    releasedAt?: string | null;
+    sessionId?: string | null;
+    cancellation?: {
+      state: "requested" | "timeout" | "acknowledged" | string;
+      requestedAt?: string | null;
+      deadlineAt?: string | null;
+      acknowledgedAt?: string | null;
+      detail?: string | null;
+    } | null;
+  } | null;
+  /** Immutable provenance for every settled remote phase. Unlike `dispatch`,
+   * these entries survive the next claim and keep completed Watch streams reachable. */
+  dispatchRuns?: DispatchRunProvenance[];
   // D19: a quick card is a trivial-plan task the gateway ran inline and
   // auto-advanced to Done. The Done column groups quick cards under a collapsed
   // "quick tasks" strip.
@@ -175,7 +227,7 @@ export interface CardSummary {
   lastReply?: string | null;
   lastEvent?: CardEvent | null;
   // Per-phase runtime/model attribution for the card front: the most recent routed
-  // event's route stamp, or null when no turn has routed yet / souls mode. The board
+  // event's route stamp, or null when no turn has routed yet / a legacy non-routed runtime. The board
   // renders a small "<phase> @ <model>" chip from it.
   lastRoute?: RouteStamp | null;
   // What the card WILL run on, resolved from its (duty, level) + current phase
@@ -200,6 +252,18 @@ export interface CardSummary {
   scheduledFor?: string | null;
   scheduleAction?: "notify" | "run" | null;
   scheduleNotifiedAt?: string | null;
+  schedule?: CardSchedule | null;
+  scheduleTemplateId?: string | null;
+  scheduleSystemKey?: string | null;
+  occurrenceKey?: string | null;
+  occurrenceAt?: string | null;
+  systemKey?: string | null;
+  morningBriefDelivery?: {
+    completedAt?: string | null;
+    calendar?: { status: string; detail?: string | null };
+    web?: { status: string; detail?: string | null; threadId?: string | null };
+    omi?: { status: string; detail?: string | null; threadId?: string | null };
+  } | null;
   // Within-list ordering: explicit position (drag-reorder) or null = created order.
   position?: number | null;
   // Checklist progress for the card-front chip (full items on the detail).
@@ -268,6 +332,7 @@ export interface ListView {
   phase?: string | null;
   terminal: boolean;
   notifyOnEntry: boolean;
+  system?: boolean;
   validNext: string[];
   cards: CardSummary[];
 }
@@ -321,6 +386,7 @@ export interface ListConfig {
   beatCron: string | null;
   interactive: boolean;
   terminal: boolean;
+  system?: boolean;
   // D15: skill/taskType/tier/mode are GONE — a list maps to a phase name and
   // nothing else; resolution lives in the compiled Orchestrator policy.
   phase?: string | null;
@@ -457,11 +523,54 @@ export interface MachineOption {
   connected: boolean;
   pending?: boolean;
   isHost: boolean;
+  bridge?: "connected" | "offline";
+  worker?: {
+    state: "ready" | "busy" | "degraded" | "offline";
+    ready: boolean;
+    stale?: boolean;
+    detail?: string | null;
+    error?: string | null;
+    runtimes?: string[];
+    currentCardId?: string | null;
+    workerVersion?: string | null;
+    protocolVersion?: string | null;
+  };
+}
+export interface RemoteRuntimeRequirement {
+  key: string;
+  targetId: string;
+  runtime: string;
+  provider: string | null;
+  model?: string | null;
+  duty: string;
+  level: number;
+  phase: string;
 }
 export interface MachinesView {
   machines: MachineOption[];
   outpostsAvailable: boolean;
   reason?: string;
+  defaultRuntime?: RemoteRuntimeRequirement | null;
+}
+
+export interface LoadoutEditorValue {
+  id: string;
+  repo_remote: string;
+  default_branch: string;
+  apm_manifest_path?: string;
+  setup_commands: string[];
+  env_vars: string[];
+  verify_command: string;
+  projects_root_override?: string;
+}
+
+export interface LoadoutReadiness {
+  project: string;
+  ready: boolean;
+  status: "ready" | "missing" | "missing-vault-values" | "vault-locked" | "invalid" | "unavailable" | "unknown-project";
+  detail: string;
+  missing?: string[];
+  editor?: LoadoutEditorValue;
 }
 
 export const api = {
@@ -497,7 +606,7 @@ export const api = {
   // `placement` (brief D6) is WHERE the card runs: { target: "host" } (the
   // default) or a paired machine name. Absent means host, so an untouched picker
   // sends nothing at all.
-  create: (body: { title?: string; description?: string; project?: string; scope?: CardScope; targetList?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
+  create: (body: { title?: string; description?: string; project?: string; scope?: CardScope; targetList?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; schedule?: CardSchedule | Omit<CardSchedule, "nextAt" | "lastAt">; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   // Card scheduling: push the schedule out (or set one from now). The server
   // re-arms the due reminder; action defaults to the card's current one.
@@ -505,6 +614,10 @@ export const api = {
     jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}/snooze`, {
       method: "POST",
       body: JSON.stringify(body)
+    }),
+  runScheduleNow: (id: string) =>
+    jfetch<{ card: CardSummary; occurrence: boolean; created: boolean }>(`/cards/${encodeURIComponent(id)}/run-now`, {
+      method: "POST"
     }),
   // Card-owned attachment upload (JSON base64, 10 MB cap). The file lands under
   // cards/<id>/attachments/ and is folded into the operative's dispatch prompt.
@@ -544,6 +657,13 @@ export const api = {
   // `reason` when the outpost daemon is unreachable, so the picker is never an
   // unexplained empty menu.
   machines: () => jfetch<MachinesView>("/machines"),
+  loadoutReadiness: (project: string) =>
+    jfetch<LoadoutReadiness>(`/loadouts/${encodeURIComponent(project)}`),
+  saveLoadout: (project: string, body: LoadoutEditorValue) =>
+    jfetch<{ loadout: LoadoutEditorValue }>(`/loadouts/${encodeURIComponent(project)}`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
   // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
   policy: () => jfetch<PolicyView>("/policy"),

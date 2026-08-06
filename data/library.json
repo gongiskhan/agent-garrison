@@ -221,21 +221,7 @@
     "name": "Discuss Automation",
     "repo": "local:fittings/seed/discuss-automation",
     "localPath": "fittings/seed/discuss-automation",
-    "summary": "The \"Discuss an automation\" skill — opens a James conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
-    "id": "dispatcher",
-    "name": "Dispatcher",
-    "repo": "local:fittings/seed/dispatcher",
-    "localPath": "fittings/seed/dispatcher",
-    "summary": "The routing brain, duties-and-levels edition. One single-shot STRUCTURED garrison-call on a small fast model turns a message + the composition's selected duties/levels into a (duty, level) + confidenc",
+    "summary": "The \"Discuss an automation\" skill — opens a Discuss-duty conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
     "platforms": [
       "claude-code"
     ],
@@ -537,20 +523,6 @@
     }
   },
   {
-    "id": "identity-gary",
-    "name": "Identity Gary",
-    "repo": "local:fittings/seed/identity-gary",
-    "localPath": "fittings/seed/identity-gary",
-    "summary": "The operative's resting identity — Gary, the base persona. Conversational and prose-first; knows the user, handles the day, tasks, calendar, and questions, and hands work off to the right duty rather ",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
     "id": "improver",
     "name": "Improver",
     "repo": "local:fittings/seed/improver",
@@ -584,7 +556,7 @@
     "name": "Kanban Loop",
     "repo": "local:fittings/seed/kanban-loop",
     "localPath": "fittings/seed/kanban-loop",
-    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI (own-port :27089, embedded at /embed/kanban-loop). Full garrison-* pipeline: Backlog → To Do → Discuss → Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate → Done (+ needs-attention). File-per-card (ULID, atomic, per-card lock); agent-lists run their garrison-* skill + send the execute+router prompt through the orchestrator (preRoute, hint honored in both gateway modes); the router output exact-matches a valid next list or the card parks. Per-card runId/runDir; cards link artifacts, never duplicate. Goal-mode prepends /goal; the guard is the per-card iteration cap. The two adversarial lists are cross-model Codex passes. Discuss is James-mode web chat producing a brief.",
+    "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI. Discuss opens a web thread explicitly pinned to the Discuss duty; agent phases use the composition's duty/level routing and produce linked evidence without duplicating artifacts.",
     "platforms": [
       "claude-code"
     ],
@@ -613,7 +585,7 @@
     "name": "MCP gateway",
     "repo": "local:fittings/seed/mcp-gateway",
     "localPath": "fittings/seed/mcp-gateway",
-    "summary": "MCP sidecar for orchestrator/soul-mode sessions. Spawned per session by the http-gateway as a stdio MCP child; hosts the garrison-control tool set (talk_to, wait_for, session and worktree management).",
+    "summary": "MCP sidecar that exposes installed Faculty tools to interactive sessions. Delegation belongs to the active runtime and Orchestrator, not persona-named Soul sessions.",
     "platforms": [
       "claude-code"
     ],
@@ -686,7 +658,7 @@
     "name": "OpenCode runtime",
     "repo": "local:fittings/seed/opencode-runtime",
     "localPath": "fittings/seed/opencode-runtime",
-    "summary": "Runtime Faculty (secondary) - drives `opencode run` (stateless subprocess, prompt via stdin, JSON event stream, `-s` session resume) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:opencode` tasks here; the primary calls the bridge and OpenCode does the work in its own loop against any configured provider (hosted `opencode/*` or a local Ollama).",
+    "summary": "Runtime Faculty (secondary) - drives `opencode run` (stateless subprocess, prompt via stdin, JSON event stream, `-s` session resume) behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. OpenCode uses its own explicitly configured provider and default model; Garrison does not seed one.",
     "platforms": [
       "all"
     ],
@@ -716,7 +688,7 @@
     "name": "Orchestrator",
     "repo": "local:fittings/seed/orchestrator",
     "localPath": "fittings/seed/orchestrator",
-    "summary": "Orchestrator Faculty - the single brain. Owns the compiled policy (task types, matrix, phase plans, work kinds, skill bindings), the preRoute (task-type + tier + execution) and the {{routing}} injection; configured from the Muster Orchestrator tab. Absorbs the former Model Router.",
+    "summary": "Orchestrator Faculty - the single routing and identity brain. Owns deterministic-first duty/level inference, the bounded dispatch target, editable Identity, the compiled execution policy, and the layered runtime prompt; configured from the Muster Orchestrator tab.",
     "platforms": [
       "claude-code"
     ],

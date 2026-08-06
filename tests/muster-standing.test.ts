@@ -66,7 +66,7 @@ function fixtureManifest() {
         })),
         selected_duties: [],
         targets: [],
-        prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md", soul: ".garrison/prompts/soul.md" }
+        prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md" }
       }
     }
   };

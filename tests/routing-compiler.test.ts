@@ -38,8 +38,9 @@ describe("routing compiler (MR1a)", () => {
     expect(economy).toBe(compileRouting(config, "economy")); // byte-stable
     expect(economy).not.toBe(balanced); // profiles differ
     expect(economy).toContain(routingMarkerV2("economy"));
-    // economy routes code at cc-ollama-qwen; balanced at cc-opus-high for T2
-    expect(economy).toContain("cc-ollama-qwen");
+    // economy routes code at Haiku; balanced at Opus for T2
+    expect(economy).toContain("cc-haiku-low");
+    expect(economy).not.toMatch(/ollama|qwen/i);
     expect(balanced).toContain("cc-opus-high");
   });
 
@@ -132,9 +133,9 @@ describe("routing resolver (MR1c core — pure code)", () => {
     const balanced = resolveRoute(config, "balanced", cls);
     const economy = resolveRoute(config, "economy", cls);
     expect(balanced.targetId).toBe("cc-opus-high");
-    expect(economy.targetId).toBe("cc-ollama-qwen");
+    expect(economy.targetId).toBe("cc-haiku-low");
     expect((balanced.target as RuntimeTarget)?.provider).toBe("anthropic-plan");
-    expect((economy.target as RuntimeTarget)?.provider).toBe("ollama-local");
+    expect((economy.target as RuntimeTarget)?.provider).toBe("anthropic-plan");
   });
 
   it("resolves discipline with profile overrides", () => {

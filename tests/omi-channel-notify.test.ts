@@ -180,6 +180,20 @@ describe("Notifier routing and degrade path", () => {
     expect(posted).toBeTruthy();
   });
 
+  it("can suppress Web fallback when the caller delivers Web independently", async () => {
+    const before = webStub.received.length;
+    const { notifier } = makeNotifier({ notifyEnabled: false });
+    const receipts = await notifier.send({
+      template: "relay",
+      params: { text: "independent web delivery" },
+      suppressWebFallback: true
+    });
+    expect(receipts[0]).toMatchObject({ means: "omi-push", ok: false, skipped: "notify disabled" });
+    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: false });
+    expect(String(receipts[1].skipped)).toMatch(/suppressed/);
+    expect(webStub.received.length).toBe(before);
+  });
+
   it("falls back when the Omi API keeps failing, with the failure in the receipt", async () => {
     const { notifier } = makeNotifier({}, [500, 500, 500]);
     const receipts = await notifier.send({ template: "tip", params: { text: "x" } });

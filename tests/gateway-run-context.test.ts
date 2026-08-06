@@ -21,10 +21,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { dutyEfforts } from "../src/lib/types";
+import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 // @ts-ignore — pure .mjs routing layer, no .d.ts
 import { applyTurnOverride, effortControllable, listVaultAccounts, resolveVaultAccount, readMaterializedSecrets, anthropicAccountEnv, createRoutedGateway, RoutedGateway, TURN_EFFORTS, AGENT_SDK_SESSION_CAP } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
 const ROOT = path.resolve(__dirname, "..");
+const AGENT_SDK_STUB = path.join(ROOT, "tests", "fixtures", "gateway-agent-sdk-runtime");
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -388,9 +390,9 @@ const CONFIG = {
   targets: [
     { id: "cc-sonnet-med", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "sonnet", effort: "medium" },
     { id: "cc-opus-high", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "opus", effort: "high" },
-    { id: "sdk-ollama-chat", type: "runtime-target", runtime: "agent-sdk", provider: "ollama-local", model: "qwen3:0.6b", promptMode: "lean" },
+    { id: "sdk-haiku-chat", type: "runtime-target", runtime: "agent-sdk", provider: "anthropic", model: "claude-haiku-4-5", promptMode: "lean" },
     { id: "gemini-flash", type: "runtime-target", runtime: "gemini", provider: "google", model: "gemini-2.5-flash" },
-    { id: "classifier", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "haiku", pinned: true }
+    { id: "dispatch-fast", type: "runtime-target", runtime: "agent-sdk", provider: "anthropic", model: "claude-haiku-4-5", pinned: true }
   ],
   profiles: {
     demo: {
@@ -420,12 +422,12 @@ function routeFixture() {
 describe("applyTurnOverride — the pin reaches the route, refusals carry a reason (§7)", () => {
   it("swaps the whole target coherently and stamps via/ruleId", () => {
     const route: any = routeFixture();
-    const out = applyTurnOverride(CONFIG, route, { target: "sdk-ollama-chat" });
+    const out = applyTurnOverride(CONFIG, route, { target: "sdk-haiku-chat" });
     expect(out.applied).toEqual(["target"]);
-    expect(route.targetId).toBe("sdk-ollama-chat");
-    expect(route.target).toMatchObject({ runtime: "agent-sdk", provider: "ollama-local", model: "qwen3:0.6b" });
+    expect(route.targetId).toBe("sdk-haiku-chat");
+    expect(route.target).toMatchObject({ runtime: "agent-sdk", provider: "anthropic", model: "claude-haiku-4-5" });
     expect(route.via).toBe("turn-override");
-    expect(route.ruleId).toBe("override:sdk-ollama-chat");
+    expect(route.ruleId).toBe("override:sdk-haiku-chat");
   });
 
   it("never mutates the config's own target record", () => {
@@ -453,9 +455,8 @@ describe("applyTurnOverride — the pin reaches the route, refusals carry a reas
     ]);
     expect(gemini.target.effort).toBeUndefined();
 
-    // agent-sdk marks effort:false for every non-Anthropic provider.
-    const sdk: any = { targetId: "sdk-ollama-chat", target: CONFIG.targets[2], via: "matrix" };
-    expect(applyTurnOverride(CONFIG, sdk, { effort: "high" }).rejected[0].reason).toBe("provider-has-no-effort-control");
+    const sdk: any = { targetId: "sdk-haiku-chat", target: CONFIG.targets[2], via: "matrix" };
+    expect(applyTurnOverride(CONFIG, sdk, { effort: "high" }).applied).toEqual(["effort"]);
     expect(effortControllable({ runtime: "agent-sdk", provider: "anthropic" })).toBe(true);
     expect(effortControllable({ runtime: "codex" })).toBe(true);
     // Cursor bakes effort into its model ids (gpt-5.3-codex-low vs -high), so an
@@ -487,13 +488,13 @@ describe("applyTurnOverride — the pin reaches the route, refusals carry a reas
       { field: "account", reason: "account-not-found-in-vault" }
     ]);
 
-    // An Anthropic token does nothing for an ollama endpoint: refused, not shown.
-    const sdk: any = { targetId: "sdk-ollama-chat", target: CONFIG.targets[2], via: "matrix" };
-    const mismatch = applyTurnOverride(CONFIG, sdk, { account: "work" }, {
+    // An Anthropic token does nothing for a Google runtime: refused, not shown.
+    const gemini: any = { targetId: "gemini-flash", target: CONFIG.targets[3], via: "matrix" };
+    const mismatch = applyTurnOverride(CONFIG, gemini, { account: "work" }, {
       resolveAccount: () => ({ name: "work", platform: "anthropic", token: "t" })
     });
     expect(mismatch.rejected).toEqual([{ field: "account", reason: "account-platform-mismatch" }]);
-    expect(sdk.target.account).toBeUndefined();
+    expect(gemini.target.account).toBeUndefined();
 
     const claude: any = routeFixture();
     const honored = applyTurnOverride(CONFIG, claude, { account: "work" }, {
@@ -511,6 +512,9 @@ describe("applyTurnOverride — the pin reaches the route, refusals carry a reas
 });
 
 // ── the pin must change the LANE, not the label ───────────────────────────────
+// The pure helper cases below deliberately retain a routing.json-v1 fixture to
+// cover the isolated compatibility path. The real-process fixture later in the
+// file projects schema-v4 dispatch-fast through a v2 execution model.
 class FakeSession {
   cfg: any;
   keys: string[] = [];
@@ -567,7 +571,7 @@ describe("a pinned target changes the resolved LANE, not just the badge (§7)", 
     try {
       const pre = await gateway.preRoute("add a test for the login flow", {
         channel: "web",
-        routing: { target: "sdk-ollama-chat" }
+        routing: { target: "sdk-haiku-chat" }
       });
       // The lane: an agent-sdk plan, NOT the claude-code PTY switch the matrix
       // resolved to. This is the difference between honoring a pin and labelling it.
@@ -582,7 +586,7 @@ describe("a pinned target changes the resolved LANE, not just the badge (§7)", 
         .filter(Boolean)
         .map((l) => JSON.parse(l));
       const last = decisions[decisions.length - 1];
-      expect(last).toMatchObject({ targetId: "sdk-ollama-chat", runtime: "agent-sdk", overrides: ["target"] });
+      expect(last).toMatchObject({ targetId: "sdk-haiku-chat", runtime: "agent-sdk", overrides: ["target"] });
       // The PTY operative was never switched for a pin that left the Claude lane.
       expect(gateway.getOperativeSession().keys.join("")).toBe("");
     } finally {
@@ -824,7 +828,7 @@ class FakeAgentSdk {
 }
 
 function sdkRoute() {
-  return { targetId: "sdk-ollama-chat", target: { ...CONFIG.targets[2] } };
+  return { targetId: "sdk-haiku-chat", target: { ...CONFIG.targets[2] } };
 }
 
 function bareGateway(agentSdk: any) {
@@ -1162,6 +1166,8 @@ describe("GET /route/options + POST /chat/interrupt over real HTTP, while the op
     dir = mkdtempSync(path.join(tmpdir(), "gar-runctx-http-"));
     mkdirSync(path.join(dir, ".garrison"), { recursive: true });
     writeFileSync(path.join(dir, ".garrison", "routing.json"), JSON.stringify(CONFIG));
+    const kanbanRoot = path.join(dir, "kanban-loop");
+    writeGatewayV4ExecutionModel(dir, kanbanRoot);
     // A hermetic dev-root: one git repo, one plain dir. Only the repo may be offered.
     const devRoot = path.join(dir, "dev");
     mkdirSync(path.join(devRoot, "repo-a", ".git"), { recursive: true });
@@ -1178,6 +1184,8 @@ describe("GET /route/options + POST /chat/interrupt over real HTTP, while the op
         GARRISON_GATEWAY_PORT: String(port),
         GARRISON_COMPOSITION_DIR: dir,
         GARRISON_HOME: dir,
+        GARRISON_KANBAN_DIR: kanbanRoot,
+        GARRISON_AGENT_SDK_DIR: AGENT_SDK_STUB,
         GARRISON_GATEWAY_RUNTIME_STUB: stub,
         GARRISON_GATEWAY_NO_LISTEN: "0"
       },
@@ -1223,9 +1231,9 @@ describe("GET /route/options + POST /chat/interrupt over real HTTP, while the op
     expect(options.targets.map((t: any) => t.id)).toEqual([
       "cc-sonnet-med",
       "cc-opus-high",
-      "sdk-ollama-chat",
+      "sdk-haiku-chat",
       "gemini-flash"
-    ]); // the pinned classifier target is infrastructure, never offered
+    ]); // the pinned dispatch target is infrastructure, never offered
     expect(options.efforts).toEqual([...dutyEfforts]);
     expect(options.projects).toEqual(["repo-a"]); // confined: the non-repo is not offered
     expect(options.activeProfile).toBe("demo");

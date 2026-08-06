@@ -37,7 +37,7 @@ import { loadResolvedModel, resolveCardSequence } from "../fittings/seed/kanban-
 // @ts-ignore — pure .mjs gateway routing layer (door 1)
 import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs dispatch core (door 1's real dispatch path)
-import * as dispatchCore from "../fittings/seed/dispatcher/lib/dispatch-core.mjs";
+import * as dispatchCore from "../fittings/seed/orchestrator/lib/dispatch-core.mjs";
 
 // The develop composite (level 2 = the full inner pipeline) + its leaf steps.
 const leaf = (id: string): DutySpec => ({

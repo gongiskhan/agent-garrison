@@ -5,16 +5,16 @@
 // Move. This module is the PLUMBING for that hand-off — it does NOT advance the
 // card and writes no brief itself:
 //
-//   buildDiscussUrl — the James-mode web-channel URL carrying the card as an
+//   buildDiscussUrl — the Discuss-duty web-channel URL carrying the card as an
 //     OPAQUE context blob the GENERIC web channel forwards verbatim to the
-//     gateway. James (the operative) decodes it and writes the brief to disk.
+//     gateway. The Operative decodes it and writes the brief to disk.
 //   briefSlug       — a clean kebab filename stem from the card title.
 //   recordBrief     — CAS-link the resulting brief PATH onto the card (a
 //     pointer, never the brief body — FINDING 10), validated for traversal.
 //
 // The web channel stays generic: it never learns about kanban. It un-wraps a
 // base64 TRANSPORT layer (iff it round-trips) and forwards the JSON string
-// verbatim; James interprets it. We therefore base64-wrap the JSON so the
+// verbatim; the Operative interprets it. We therefore base64-wrap the JSON so the
 // channel's decodeContext hands the gateway exactly our JSON string back, and
 // url-encode the base64 so it survives the query string.
 
@@ -59,7 +59,7 @@ export function briefStem(card) {
 // The conventional relative path where a card's Discuss brief lives — the SAME
 // (briefsPath, suggestedSlug = briefStem) buildDiscussUrl hands the channel. The
 // board looks here on Move-out-of-Discuss to auto-link the brief onto the card, so
-// a brief James wrote shows up without a manual POST. Pure (no node imports) so
+// a brief the Discuss duty wrote shows up without a manual POST. Pure (no node imports) so
 // the UI bundle + tests can call it.
 export function briefRelPath(card, { briefsPath = "./briefs/" } = {}) {
   const dir = String(briefsPath).replace(/^\.\/+/, "").replace(/\/+$/, "");
@@ -82,12 +82,9 @@ function encodeContext(obj) {
   return encodeString(JSON.stringify(obj));
 }
 
-// The opening message the Discuss session AUTO-SENDS to start the conversation. It
-// LEADS WITH "James," so the gateway's parseLeadingMode switches the operative to the
-// James face (the gateway resolves the mode from the message text, not body.mode), and
-// it carries the card title + description IN THE MESSAGE (the gateway does not inject
-// body.context, so the description must be in the text James actually reads). It tells
-// James to analyse + ask clarifying questions, then write the brief to the SAME path
+// The opening message the Discuss session AUTO-SENDS to start the conversation.
+// The host thread pins the explicit Discuss duty; the message carries the card
+// title + description and tells the Operative to write the brief to the SAME path
 // the board auto-links on Move-out-of-Discuss (briefRelPath), so the discussion result
 // becomes the card's downstream context. Pure (no node imports) → bundles into the UI.
 export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
@@ -96,11 +93,11 @@ export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
   const desc = (typeof card?.description === "string" && card.description.trim())
     ? card.description.trim()
     : "(no description was provided — ask Goncalo what this card is about before going further)";
-  // The EXACT card-owned brief path James must write to — absolute when the board
+  // The exact card-owned brief path the Operative must write to — absolute when the board
   // supplies it (so his working dir is irrelevant), else a card-relative fallback.
   const briefPath = briefAbsPath || (card?.id ? `cards/${card.id}/brief.md` : "brief.md");
   return [
-    `James, let's talk this work item through before it goes to planning. Match your effort to the work — a small change needs a light touch, not an interrogation.`,
+    `Let's talk this work item through before it goes to planning. Match your effort to the work — a small change needs a light touch, not an interrogation.`,
     ``,
     `# Card: ${title}`,
     `Project: ${project}`,
@@ -115,11 +112,11 @@ export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
   ].join("\n");
 }
 
-// Build the James-mode web-channel URL for a Discuss card. The card is encoded
-// as an OPAQUE context blob — the channel forwards it untouched; James reads
+// Build the Discuss-duty web-channel URL for a card. The card is encoded as an
+// opaque context blob; the channel stores it alongside a duty-pinned thread.
 // { source, cardId, title, project, briefsPath, suggestedSlug } and writes the
 // brief under briefsPath. We pass briefsPath + a suggested slug so the brief
-// James writes lands where recordBrief can later link it.
+// the Discuss duty writes lands where recordBrief can later link it.
 //
 // webChannelBase defaults to Garrison's embed route for the seed web channel —
 // the fitting id is `web-channel-default` (NOT `web-channel`), so the embed route
@@ -130,7 +127,7 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
   const stem = briefStem(card);
   // The card-owned brief's ABSOLUTE path: <cardsAbsDir>/<cardId>/brief.md. cardsAbsDir
   // is the board's kanban-store cards dir (from /board/runtime). Deterministic + shared
-  // by James's write, the Brief editor, and the engine's build read.
+  // by the Discuss duty's write, the Brief editor, and the engine's build read.
   const briefAbsPath = (cardsAbsDir && card?.id)
     ? `${String(cardsAbsDir).replace(/\/+$/, "")}/${card.id}/brief.md`
     : null;
@@ -157,7 +154,7 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
   // channel persists this Discuss as its own session and REOPENING the card returns
   // to the same conversation + history instead of starting blank. base64 + url-encoded
   // so they survive the query string and the channel's round-trip decode unwraps them.
-  const parts = [`mode=james`, `context=${encoded}`, `kickoff=${kickoff}`];
+  const parts = [`source=discuss`, `context=${encoded}`, `kickoff=${kickoff}`];
   if (card?.id) parts.push(`thread=${encodeURIComponent(encodeString(`kanban-${card.id}`))}`);
   if (card?.title) parts.push(`title=${encodeURIComponent(encodeString(String(card.title)))}`);
   // A prominent "Back to the board" target: the Garrison embed route for the kanban

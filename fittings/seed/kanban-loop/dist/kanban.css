@@ -1260,6 +1260,11 @@ body {
   max-height: 100%;
 }
 .list.agent { border-left-color: var(--sage); }
+.list.scheduled {
+  border-left-color: var(--brass);
+  background: color-mix(in srgb, var(--paper) 92%, var(--warn-soft));
+}
+.list.scheduled .lname-text { color: var(--brass); }
 .list.codex { border-left-color: var(--brass); }
 .list.manual { border-left-color: var(--rule-2); }
 .list.interactive { border-left-color: var(--sage); border-left-style: dashed; }
@@ -2509,6 +2514,62 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   color: var(--mute);
 }
 
+.loadout-panel {
+  grid-column: 1 / -1;
+  margin: 10px 0 2px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--sage);
+  background: var(--sage-soft);
+}
+.loadout-panel.blocked {
+  border-left-color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.loadout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.loadout-panel p {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.loadout-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.loadout-editor label {
+  display: grid;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.loadout-editor input,
+.loadout-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: 12px/1.45 var(--mono);
+  color: var(--ink);
+  background: white;
+  border: 1px solid var(--rule);
+  padding: 8px;
+}
+.loadout-editor textarea { min-height: 68px; resize: vertical; }
+.loadout-editor input:focus,
+.loadout-editor textarea:focus { outline: 2px solid var(--brass); outline-offset: 1px; }
+
 /* D19 — the Done column groups quick cards (trivial-plan inline tasks the gateway
    auto-advanced to Done) under a collapsed strip so the real runs stay legible.
    Native <details>: the summary is the always-visible header; the body reveals on
@@ -3031,6 +3092,27 @@ button:active, .btn:active { transform: translateY(1px); }
 /* Schedule rows */
 .sched-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .sched-inline input[type="datetime-local"] { min-width: 0; }
+.sched-inline input[type="text"] { min-width: 180px; font-family: var(--mono); }
+.sched-advanced, .sched-editor { display: grid; gap: 8px; margin-top: 8px; }
+.sched-advanced { grid-template-columns: minmax(0, 1fr); font-size: 11px; }
+.sched-advanced > input, .sched-editor input[aria-label="Schedule timezone"] { font-family: var(--mono); }
+.sched-presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sched-presets .btn.tiny { margin-left: 0; }
+.schedule-link { margin-top: 8px; font-size: 11px; }
+.schedule-card-ref {
+  color: var(--brass-2);
+  font-family: var(--mono);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.schedule-card-ref:hover { color: var(--sage-2); }
+.schedule-card-ref:focus-visible {
+  outline: 2px solid var(--brass-2);
+  outline-offset: 2px;
+}
+.schedule-occurrences { line-height: 1.75; }
+.morning-delivery { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .sched-block .row { align-items: center; }
 
 /* Attachment item: the serve link/thumbnail + a remove control for uploads */

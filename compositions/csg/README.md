@@ -6,8 +6,8 @@ Cursor target, so no turn can silently land on Claude Code, Codex, Gemini or the
 Agent SDK. Model variety comes from Cursor's own multi-lab catalog — one
 subscription, one CLI, one credential.
 
-Stationed: `orchestrator`, `http-gateway`, `dispatcher`, `cursor-runtime`,
-`basic-memory`, `web-channel-default`, `identity-gary` — the seven that satisfy
+Stationed: `orchestrator`, `http-gateway`, `cursor-runtime`,
+`basic-memory`, `web-channel-default`, `orchestrator` — the fittings that satisfy
 every readiness rule (an orchestrator, a runtime, a channel, a memory store, a
 gateway, an identity, a dispatch duty). Deliberately nothing beyond them: every
 extra Fitting is another setup + verify hook between you and a running operative.
@@ -28,7 +28,7 @@ composition's 7083 shifted by the profile offset (8083 on prod).
 2. **Install the cursor-only routing policy.** `.garrison/routing.json` is
    machine-local (gitignored), so it seeds from the orchestrator Fitting's
    default — which names `claude-code-runtime` as primary and carries the stock
-   Claude/Codex/Gemini/ollama targets. Copy the committed cursor-only policy over
+   hosted runtime targets. Copy the committed cursor-only policy over
    it before the first `up`:
 
    ```bash
@@ -62,27 +62,9 @@ composition's 7083 shifted by the profile offset (8083 on prod).
   Garrison AccountPlatform for it, so the Fitting exposes no `account` key and its
   targets declare no `provider`. All instances on the box share the one Cursor
   identity.
-- **The routing brain runs on Cursor too.** Both halves of it default to a second
-  engine. The classifier defaults to a cheap Claude Code haiku session regardless
-  of primary, gated on a PATH probe that says nothing about whether that CLI can
-  spawn — on a box where it cannot (this instance's Claude config dir isn't logged
-  in) the classifier fails to warm and *every* turn falls through unclassified to
-  the default route, silently, unless you read the gateway log for
-  `classify-failed`. And the Dispatcher calls through `garrison-call`, which
-  speaks HTTP wire shapes only and so cannot reach a CLI engine at all. This
-  composition sets the gateway's `routing_on_primary: true`, which pins both to
-  the Cursor adapter. Verified live: prompts classified to `plan` / `code` /
-  `other` and routed to `cursor-opus` / `cursor-fast` / `cursor-codex`.
-- **The `dispatch` duty is declared, and the classifier is what actually routes.**
-  The composition overrides the dispatcher Fitting's shipped `dispatch` duty
-  (whose cell targets a `garrison-call` target this composition has no equivalent
-  of) and repoints it at `cursor-fast`. Note the gateway's *v4 Dispatcher lane*
-  additionally needs a projected execution model, which comes from the
-  `kanban-loop` Fitting — not stationed here, so the gateway logs no
-  `dispatcher-wired` and Stage-A classification remains the live routing path.
-  That is the documented default anyway (MARATHON-V3 D6 retains the classifier
-  session pending a live accuracy comparison); station `kanban-loop` if you want
-  the board-driven duty pipeline.
+- **Routing stays native.** The explicit `dispatch` duty targets `cursor-fast`,
+  so deterministic rules and ambiguous-request inference use this composition's
+  own Cursor adapter without a legacy gateway flag or a second classifier.
 - **Enforcement is advisory.** As with any non-Claude primary, PostToolUse/gate
   hooks become prompt guidance and resume is adapter-native (`--resume <chatId>`).
   See `docs/RUNTIME_DEGRADATIONS.md`.

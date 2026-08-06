@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import http from "node:http";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -231,6 +231,48 @@ describe("Panic engine semantics", () => {
 });
 
 describe("POST /cards/:id/panic", () => {
+  it("stops and releases a remote claim while preserving placement and partial evidence", async () => {
+    const root = tempRoot();
+    await saveBoard(board(), root);
+    const id = "R".repeat(26);
+    const evidence = path.join(root, "cards", id, "dispatch", "partial.txt");
+    mkdirSync(path.dirname(evidence), { recursive: true });
+    writeFileSync(evidence, "partial remote proof\n");
+    await putCard(root, id, {
+      status: "running",
+      placement: { target: "studio" },
+      dispatch: {
+        machine: "studio",
+        workerId: "worker-one",
+        runId: "remote-run",
+        routingToken: "route-one",
+        phase: "plan",
+        logIndex: 1,
+        claimRevision: 1,
+        claimedAt: new Date().toISOString(),
+        heartbeatAt: new Date().toISOString(),
+        state: "running"
+      }
+    });
+    const server = http.createServer(makeRequestHandler({ root, cwd: root, gatewayUrl: null, cap: 10 }, root));
+    const base = `http://127.0.0.1:${await listen(server)}`;
+    try {
+      const response = await fetch(`${base}/cards/${id}/panic`, { method: "POST" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, stopped: true, remote: true });
+      expect(await loadCard(root, id)).toMatchObject({
+        list: "needs-attention",
+        status: "needs-attention",
+        parkedFrom: "plan",
+        placement: { target: "studio" },
+        dispatch: { machine: "studio", state: "failed" }
+      });
+      expect(existsSync(evidence)).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("sends an exact card-bound interrupt and leaves the running CAS to the engine", async () => {
     const root = tempRoot();
     const b = board();

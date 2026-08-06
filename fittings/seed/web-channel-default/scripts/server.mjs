@@ -707,21 +707,17 @@ async function handleBriefPut(req, res) {
 }
 
 // Build the gateway /chat/stream body from a channel request. GENERIC by
-// design: a fitting hands this channel an OPAQUE `context` blob and a `mode`
-// string and the channel forwards them verbatim — it never inspects or
-// interprets them (a card, a Dev Env session, James/Joe/Gary, anything). The
-// gateway's souls-mode honors `mode` + a classification hint; the channel just
-// passes through.
+// design: a fitting hands this channel an opaque `context` blob and optional
+// explicit routing fields; the channel forwards them without interpreting the
+// card or domain payload.
 //
 // Backward-compat contract (asserted by tests/web-channel-context.test.ts):
-//   - context/mode absent     → EXACTLY { message, channel: "web" }
+//   - context absent          → EXACTLY { message, channel: "web" }
 //   - context present          → adds `context` (forwarded untouched)
-//   - mode present (non-empty) → adds `mode`
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, mode, classification, sessionId, routing, turnSeq } = {}) {
+export function buildGatewayChatBody({ message, context, classification, sessionId, routing, turnSeq } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
-  if (typeof mode === "string" && mode.trim()) body.mode = mode.trim();
   // D19: the conversation's thread id, forwarded as the gateway's session key so a
   // multi-turn thread attaches to ONE card instead of registering a duplicate per
   // turn. Absent → the gateway falls back to the channel name.
@@ -900,12 +896,11 @@ async function handleChat(req, res, opts) {
       console.error(`[web-channel] failed to persist user turn into thread ${threadId}: ${err.message}`);
     }
   }
-  // Forward the assembled context + mode + optional routing hint through to the gateway.
+  // Forward assembled context and explicit routing through to the gateway.
   const payload = JSON.stringify(
     buildGatewayChatBody({
       message,
       context: assembledContext ?? body?.context,
-      mode: body?.mode,
       classification: body?.classification,
       sessionId: threadId,
       routing,
@@ -1164,7 +1159,9 @@ async function handleThreadAppend(req, res, id) {
   let body;
   try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
   try {
-    jsonRes(res, 200, { thread: await appendMessages(id, body?.messages) });
+    jsonRes(res, 200, {
+      thread: await appendMessages(id, body?.messages, { idempotencyKey: body?.idempotencyKey ?? null })
+    });
   } catch (err) {
     jsonRes(res, 400, { error: err.message });
   }

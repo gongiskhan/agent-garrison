@@ -590,7 +590,7 @@
 .levelBody {
   min-width: 0;
 }
-/* The level's routing criterion - editable in place (the Dispatcher routes by
+/* The level's routing criterion - editable in place (Orchestrator routing inference uses
    it). Reads as text at rest; reveals itself as a field on hover/focus. */
 .levelDescInput {
   display: block;

@@ -11,7 +11,6 @@ dependencies:
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
@@ -20,14 +19,12 @@ dependencies:
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/huggingface-runtime
-    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/morning-briefing
     - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
@@ -103,11 +100,6 @@ x-garrison:
             compact_threshold_pct: 60
         - id: mcp-gateway
           config: {}
-        - id: dispatcher
-          config:
-            dispatch_provider: ollama-local
-            dispatch_shape: ollama
-            dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
           config:
@@ -211,10 +203,6 @@ x-garrison:
             state_dir: data/improver
             proposal_namespace: improver
             require_unlocked_vault: true
-        - id: morning-briefing
-          config:
-            briefing_time: '08:00'
-            weekdays_only: true
       surfaces:
         - id: screen-share-default
           config:
@@ -244,10 +232,6 @@ x-garrison:
             port: 7082
             bind_host: 127.0.0.1
             outpost_host_url: http://127.0.0.1:3702
-      modes:
-        - id: identity-gary
-          config:
-            user_name: the user
       knowledge:
         - id: roadmaps
           config: {}
@@ -275,7 +259,6 @@ x-garrison:
           config: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md
     duties:
       - id: code
         title: Code
@@ -333,11 +316,11 @@ x-garrison:
             cell:
               target: fable
               effort: medium
-          - description: 'level 2: deeper than level 1 - describe when the Dispatcher should pick this level'
+          - description: 'level 2: deeper than level 1 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: fable
               effort: high
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+          - description: 'level 3: deeper than level 2 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: fable
               effort: xhigh
@@ -349,11 +332,11 @@ x-garrison:
             cell:
               target: fable
               effort: high
-          - description: 'level 2: deeper than level 1 - describe when the Dispatcher should pick this level'
+          - description: 'level 2: deeper than level 1 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: fable
               effort: xhigh
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+          - description: 'level 3: deeper than level 2 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: fable
               effort: max
@@ -436,7 +419,7 @@ x-garrison:
             cell:
               target: cc-opus
               effort: high
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+          - description: 'level 3: deeper than level 2 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: cc-opus
               effort: xhigh
@@ -480,7 +463,7 @@ x-garrison:
             cell:
               target: sol
               effort: xhigh
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+          - description: 'level 3: deeper than level 2 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: sol
               effort: max
@@ -508,7 +491,7 @@ x-garrison:
             cell:
               target: fable
               effort: high
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+          - description: 'level 3: deeper than level 2 - describe when Orchestrator routing inference should pick this level'
             cell:
               target: fable
               effort: xhigh
@@ -561,7 +544,7 @@ x-garrison:
               model — the default dispatch cell.
             cell:
               target: dispatch-fast
-              effort: medium
+              effort: low
     selected_duties:
       - code
       - other
@@ -582,11 +565,15 @@ x-garrison:
       - dispatch
     targets:
       - id: dispatch-fast
-        runtime: garrison-call
-        model: qwen2.5:3b
-        provider: ollama-local
+        runtime: agent-sdk
+        model: claude-haiku-4-5
+        provider: anthropic
         params:
-          type: single-shot
+          type: runtime-target
+          authMode: subscription
+          promptMode: lean
+          maxTurns: 1
+          timeoutMs: 8000
       - id: cc-haiku
         runtime: agent-sdk
         model: haiku
@@ -594,18 +581,6 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-      - id: cc-ollama-qwen
-        runtime: agent-sdk
-        model: qwen2.5-coder
-        provider: ollama-local
-        params:
-          type: runtime-target
-      - id: cc-ollama-deepseek
-        runtime: agent-sdk
-        model: deepseek-coder-v2
-        provider: ollama-local
-        params:
-          type: runtime-target
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash
@@ -616,43 +591,6 @@ x-garrison:
         model: gpt-5-codex
         params:
           type: secondary
-      - id: classifier
-        runtime: agent-sdk
-        model: haiku
-        provider: anthropic
-        params:
-          type: runtime-target
-          pinned: true
-      - id: sdk-ollama-chat
-        runtime: agent-sdk
-        model: qwen3:0.6b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-      - id: sdk-ollama-build
-        runtime: agent-sdk
-        model: qwen2.5-coder:7b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-          maxTurns: 2
-          leanPrompt: >-
-            You output JavaScript source code ONLY, as a single fenced code block. Example request:
-            "a function add that sums two numbers". Example reply (this exact shape, nothing else):
-
-            ```js
-
-            export function add(a, b) {
-              return a + b;
-            }
-
-            ```
-
-            Rules: reply with ONLY one ```js fenced block containing the implementation. Never
-            output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
-            tool. No prose before or after. No imports unless explicitly requested.
       - id: cc-opus
         runtime: agent-sdk
         model: opus
@@ -676,13 +614,6 @@ x-garrison:
         params:
           type: runtime-target
           authMode: api-key
-      - id: sdk-ollama-probe
-        runtime: agent-sdk
-        model: qwen2.5:3b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
       - id: sol
         runtime: codex
         model: gpt-5.6-sol

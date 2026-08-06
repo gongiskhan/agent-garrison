@@ -67,7 +67,7 @@ async function writeFixture(selectedDuties: string[], targets: CompositionTarget
         duties: [developDuty, choreDuty, pipelineDuty],
         selected_duties: selectedDuties,
         targets,
-        prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md", soul: ".garrison/prompts/soul.md" }
+        prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md" }
       }
     }
   };

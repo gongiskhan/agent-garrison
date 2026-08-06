@@ -1,261 +1,61 @@
-// Orchestrator placement (deliverable #3, "place at birth").
-//
-// Front door for starting a session THROUGH the orchestrator: given a channel
-// (e.g. "dev-env") and an optional explicit mode, pick the face (channel default
-// — dev-env → joe — or the explicit mode), compose that mode's system prompt
-// (shared voice + soul), pick the model/effort from the mode's routing bias, and
-// return the spec. The Dev Env then spawns Claude Code with the composed prompt +
-// model instead of a bare session. This is a live Garrison API (it does NOT
-// depend on the gateway's orchestrator/soul mode being booted).
+// Dev Env placement now uses the same authored-and-generated Orchestrator
+// document as every other session. The former mode picker composed a separate
+// persona-mode prompt and selected a model from a persona bias; that path is
+// retired. Model/duty routing happens per request in the gateway.
 import { promises as fs } from "node:fs";
-import { existsSync } from "node:fs";
 import path from "node:path";
-import { composeSoulPrompt } from "./souls";
-import { ROOT_DIR, COMPOSITIONS_DIR } from "./paths";
+import { writeAssembledOrchestratorPrompt } from "./orchestrator-projection";
 
-// A composition id is joined into a filesystem path, so it must be a safe slug — a
-// traversal-y value (path separators / "..") is rejected back to "default".
 export function safeComposition(id: unknown): string {
   return typeof id === "string" && /^[a-z0-9_-]+$/i.test(id) ? id : "default";
 }
 
-// Resolve the placement config from the LIVE installed composition when it exists, so
-// placement reflects the user's actual modes.json / composition-scoped routing.json
-// rather than the repo seed defaults (which can diverge). Falls back to the seed when a
-// piece is not installed in the named composition.
-export function resolvePlacementPaths(
-  composition: string,
-  // Roots are injectable so the resolution logic can be exercised against controlled
-  // fixtures. In production both default to the repo's real dirs; the installed-state
-  // they probe (apm_modules/_local/modes, .garrison/routing.json) is local + gitignored,
-  // so a test must never assert against the real COMPOSITIONS_DIR (its content varies by
-  // machine — see tests/orchestrator-placement.test.ts).
-  roots: { compositionsDir?: string; rootDir?: string } = {}
-): { modesDir: string; routingConfigPath: string } {
-  const comp = safeComposition(composition);
-  const compositionsDir = roots.compositionsDir ?? COMPOSITIONS_DIR;
-  const rootDir = roots.rootDir ?? ROOT_DIR;
-  const compDir = path.join(compositionsDir, comp);
-  const installedModes = path.join(compDir, "apm_modules", "_local", "modes");
-  const scopedRouting = path.join(compDir, ".garrison", "routing.json");
-  return {
-    // The modes seed fitting was retired (D7 — modes/souls replaced by the
-    // identity fitting). The installed-modes path still resolves when a
-    // composition carries a legacy modes package; otherwise this points at the
-    // (now absent) seed dir, whose missing modes.json makes the caller fall back
-    // to a bare session — the correct post-retirement outcome.
-    modesDir: existsSync(path.join(installedModes, "modes.json"))
-      ? installedModes
-      : path.join(rootDir, "fittings/seed/modes"),
-    routingConfigPath: existsSync(scopedRouting)
-      ? scopedRouting
-      : path.join(rootDir, "fittings/seed/orchestrator/config/routing.seed.json")
-  };
-}
-
 export interface PlacementResult {
-  mode: string;
+  identity: "operative";
   promptPath: string;
-  model: string | null;
-  effort: string | null;
-  role: string;
-  // The resolved routing target, surfaced so callers (the Dev Env) can display
-  // and persist what the session was placed as. Null when the routing config
-  // has no target for the resolved role (placement still succeeds — the mode
-  // prompt is composed — but there is no model override).
-  targetId: string | null;
-  runtime: string | null;
-  provider: string | null;
+  model: null;
+  effort: null;
+  role: null;
+  targetId: null;
+  runtime: null;
+  provider: null;
 }
 
 export interface PlacementOptions {
-  channel: string;
-  mode?: string | null;
-  modesDir: string; // the modes fitting dir (souls + voice + modes.json)
-  routingConfigPath: string; // routing.json / routing.seed.json (role → target)
-  outDir: string; // where the composed mode prompt is written
-  // Optional: the composition's `.garrison/decisions.jsonl`. When set, the
-  // routing decision is appended here at placement time (best-effort telemetry).
-  // Omitted callers (and every existing test) place with no telemetry side effect.
+  composition: string;
+  channel?: string;
   decisionsPath?: string;
 }
 
-// Placement telemetry record — mirrors the field names of the orchestrator
-// fitting's decisionRecord (fittings/seed/orchestrator/lib/routing-telemetry.mjs)
-// so both write the same shape into decisions.jsonl, but kept as a local TS type
-// so src/lib stays self-contained (no import of the fitting's .mjs).
-interface PlacementDecisionRecord {
-  at: string;
-  promptDigest: string | null;
-  taskType: string;
-  tier: string | null;
-  role: string;
-  ruleId: string | null;
-  targetId: string | null;
-  profile: string;
-  via: string;
-  runtime: string | null;
-  provider: string | null;
-  model: string | null;
-  channel: string;
-  mode: string;
-}
-
-// Append one decision record as a JSON line. Best-effort: a telemetry failure
-// must never break session placement, so any error is swallowed (with a warn).
-async function appendPlacementDecision(filePath: string, record: PlacementDecisionRecord): Promise<void> {
-  try {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.appendFile(filePath, JSON.stringify(record) + "\n", "utf8");
-  } catch (err) {
-    console.warn(`[placement] telemetry append failed: ${(err as Error)?.message ?? String(err)}`);
-  }
-}
-
-// ── Mode bias (pure TS mirror of routing-core.mjs biasRole/modeBiasFor) ──────
-// Inlined here, NOT dynamic-imported from the .mjs: a runtime import() of an
-// external .mjs by file URL fails inside the Next server runtime (it works under
-// vitest, which is why a unit test wouldn't catch it). The logic is tiny and
-// covered by tests on both sides; keep the two in sync.
-const COMPUTE_RANK: Record<string, number> = { fast: 0, standard: 1, expert: 2 };
-const RANK_ROLE = ["fast", "standard", "expert"];
-
-function biasRole(role: string, bias: { floor?: string; prefer?: string } | null): string {
-  if (!(role in COMPUTE_RANK) || !bias) return role;
-  let rank = COMPUTE_RANK[role];
-  if (role === "standard" && bias.prefer && bias.prefer in COMPUTE_RANK && COMPUTE_RANK[bias.prefer] < rank) {
-    rank = COMPUTE_RANK[bias.prefer];
-  }
-  if (bias.floor && bias.floor in COMPUTE_RANK && COMPUTE_RANK[bias.floor] > rank) {
-    rank = COMPUTE_RANK[bias.floor];
-  }
-  return RANK_ROLE[rank];
-}
-
-function modeBiasFor(
-  mode: string,
-  modesJson: { modes?: Record<string, { routingBias?: string }>; routingBias?: Record<string, { floor?: string; prefer?: string }> }
-): { floor?: string; prefer?: string } | null {
-  const biasName = modesJson?.modes?.[mode]?.routingBias;
-  return (biasName && modesJson.routingBias?.[biasName]) || null;
-}
-
-// Resolve the face for a new session: an explicit valid mode wins; else the
-// channel default (dev-env → joe, slack → gary); else the configured default.
-export function resolvePlacementMode(
-  channel: string,
-  explicit: string | null | undefined,
-  names: string[],
-  channelDefaults: Record<string, string>,
-  defaultMode: string
-): string {
-  if (explicit && names.includes(explicit)) return explicit;
-  const fromChannel = channelDefaults[channel];
-  if (fromChannel && names.includes(fromChannel)) return fromChannel;
-  return names.includes(defaultMode) ? defaultMode : names[0];
-}
-
-export async function placeOrchestratedSession(opts: PlacementOptions): Promise<PlacementResult | null> {
-  let modesJson: {
-    sharedVoiceRef: string;
-    defaultMode?: string;
-    channelDefaults?: Record<string, string>;
-    routingBias?: Record<string, { floor?: string; prefer?: string }>;
-    modes: Record<string, { soulRef: string; routingBias?: string }>;
-  };
-  try {
-    modesJson = JSON.parse(await fs.readFile(path.join(opts.modesDir, "modes.json"), "utf8"));
-  } catch {
-    return null;
-  }
-  const names = Object.keys(modesJson.modes || {});
-  if (names.length === 0) return null;
-
-  const mode = resolvePlacementMode(
-    opts.channel,
-    opts.mode,
-    names,
-    modesJson.channelDefaults ?? {},
-    modesJson.defaultMode ?? names[0]
-  );
-
-  // Mode ids come from modes.json keys (config, not request input) but are still
-  // untrusted for filesystem purposes: a malformed modes.json key with path
-  // separators / ".." would let `${mode}.md` escape outDir. Require a safe id and
-  // confine the resolved prompt path under outDir before writing.
-  if (!/^[a-z0-9_-]+$/i.test(mode)) return null;
-
-  // Compose the mode's identity prompt (shared voice + soul). A placed Dev Env
-  // session is a native code session, so its identity is the voice + soul (the
-  // Dev Env appends its own browser-pane guidance).
-  const sharedVoice = await fs.readFile(path.join(opts.modesDir, modesJson.sharedVoiceRef), "utf8");
-  const stance = await fs.readFile(path.join(opts.modesDir, modesJson.modes[mode].soulRef), "utf8");
-  const prompt = composeSoulPrompt({ sharedVoice, stance, capabilitiesBlock: "", routingSection: null });
-  await fs.mkdir(opts.outDir, { recursive: true });
-  const promptPath = path.join(opts.outDir, `${mode}.md`);
-  // belt-and-braces: the written path must stay inside outDir
-  if (path.relative(path.resolve(opts.outDir), path.resolve(promptPath)).startsWith("..")) return null;
-  await fs.writeFile(promptPath, prompt, "utf8");
-
-  // Model/effort from the mode's routing bias → compute rank → routing target.
-  // v1 configs map the rank label through the profile roleMap; v2 configs (the
-  // policy schema) index the profile's computeLadder [fast, standard, expert].
-  let role = "standard";
-  let model: string | null = null;
-  let effort: string | null = null;
-  let targetId: string | null = null;
-  let runtime: string | null = null;
-  let provider: string | null = null;
-  let profileName = "balanced";
-  try {
-    const bias = modeBiasFor(mode, modesJson);
-    role = bias ? biasRole("standard", bias) : "standard";
-    const routing = JSON.parse(await fs.readFile(opts.routingConfigPath, "utf8")) as {
-      version?: number;
-      activeProfile?: string;
-      profiles?: Record<string, { roleMap?: Record<string, string>; computeLadder?: string[] }>;
-      targets?: Array<{ id: string; model?: string; effort?: string; runtime?: string; provider?: string }>;
-    };
-    profileName = routing.activeProfile ?? "balanced";
-    const profile = (routing.profiles ?? {})[profileName] ?? {};
-    const resolvedTargetId =
-      routing.version === 2
-        ? (profile.computeLadder ?? [])[COMPUTE_RANK[role] ?? 1]
-        : (profile.roleMap ?? {})[role];
-    targetId = resolvedTargetId ?? null;
-    const target = (routing.targets ?? []).find((t) => t.id === targetId) ?? null;
-    model = target?.model ?? null;
-    effort = target?.effort ?? null;
-    runtime = target?.runtime ?? null;
-    provider = target?.provider ?? null;
-  } catch {
-    // leave target/model/effort null — the caller falls back to its default
-  }
-
-  // Placement telemetry (best-effort): record this routing decision to the
-  // composition's decisions.jsonl. Reached only when placement SUCCEEDS (a mode
-  // resolved + prompt written); the earlier null-returns (no modes, unsafe id)
-  // never write a row, so a bare-session fallback stays silent. `tier` is null —
-  // placement is mode-based, not tier-classified; `ruleId` is null — no routing
-  // rule was matched (the mode's bias picked the role directly).
+export async function placeOrchestratedSession(opts: PlacementOptions): Promise<PlacementResult> {
+  const composition = safeComposition(opts.composition);
+  const assembled = await writeAssembledOrchestratorPrompt(composition);
   if (opts.decisionsPath) {
-    await appendPlacementDecision(opts.decisionsPath, {
-      at: new Date().toISOString(),
-      promptDigest: null,
-      taskType: "dev-env-session",
-      tier: null,
-      role,
-      ruleId: null,
-      targetId,
-      profile: profileName,
-      via: "placement",
-      runtime,
-      provider,
-      model,
-      channel: opts.channel,
-      mode
-    });
+    try {
+      await fs.mkdir(path.dirname(opts.decisionsPath), { recursive: true });
+      await fs.appendFile(
+        opts.decisionsPath,
+        `${JSON.stringify({
+          at: new Date().toISOString(),
+          kind: "session-placement",
+          via: "orchestrator-authored-prompt",
+          channel: opts.channel ?? "dev-env",
+          composition
+        })}\n`,
+        "utf8"
+      );
+    } catch (error) {
+      console.warn(`[placement] telemetry append failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-
-  return { mode, promptPath, model, effort, role, targetId, runtime, provider };
+  return {
+    identity: "operative",
+    promptPath: assembled.path,
+    model: null,
+    effort: null,
+    role: null,
+    targetId: null,
+    runtime: null,
+    provider: null
+  };
 }

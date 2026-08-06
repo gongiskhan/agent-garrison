@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,16 +24489,13 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/outpost-tailscale-host/ui/main.tsx
 var import_react = __toESM(require_react());
 var import_client = __toESM(require_client());
 var import_jsx_runtime = __toESM(require_jsx_runtime());
-var HEARTBEAT_FRESH_MS = 3e4;
 var POLL_MS = 15e3;
 function isOnline(o) {
-  if (!o.connected || !o.lastHeartbeat) return false;
-  const t = Date.parse(o.lastHeartbeat);
-  return Number.isFinite(t) && Date.now() - t < HEARTBEAT_FRESH_MS;
+  return o.bridge ? o.bridge === "connected" : Boolean(o.connected);
 }
 function fmtAgo(iso) {
   if (!iso) return "never";
@@ -24513,8 +24510,21 @@ function fmtAgo(iso) {
 function tailnetHost(o) {
   return o.tailscaleIp || o.hostname || "";
 }
-function OutpostCard({ o, onRemove }) {
+function decodeBase64Text(value) {
+  if (typeof value !== "string" || !value) return "";
+  try {
+    const binary = window.atob(value);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "[invalid base64 output]";
+  }
+}
+function OutpostCard({ o, onRemove, onChanged }) {
   const online = isOnline(o);
+  const bridgeState = o.bridge ?? (online ? "connected" : "offline");
+  const workerState = o.worker?.state ?? "offline";
+  const workerCanTakeTasks = Boolean(o.worker?.ready && !o.worker?.stale);
   const [pingMs, setPingMs] = (0, import_react.useState)(null);
   const [pinging, setPinging] = (0, import_react.useState)(false);
   const [pingErr, setPingErr] = (0, import_react.useState)(null);
@@ -24524,6 +24534,8 @@ function OutpostCard({ o, onRemove }) {
   const [logOpen, setLogOpen] = (0, import_react.useState)(false);
   const [log, setLog] = (0, import_react.useState)([]);
   const [logLoading, setLogLoading] = (0, import_react.useState)(false);
+  const [repairBusy, setRepairBusy] = (0, import_react.useState)(false);
+  const [repairMessage, setRepairMessage] = (0, import_react.useState)(null);
   const host = tailnetHost(o);
   async function ping() {
     setPinging(true);
@@ -24564,7 +24576,7 @@ function OutpostCard({ o, onRemove }) {
         setRunOut(`error: ${data?.error ?? `HTTP ${res.status}`}`);
       } else {
         const p = data?.result?.payload ?? {};
-        const out = [p.stdout, p.stderr].filter(Boolean).join("\n") || p.output || "(no output)";
+        const out = [decodeBase64Text(p.stdout), decodeBase64Text(p.stderr)].filter(Boolean).join("\n") || p.output || "(no output)";
         const exit = typeof p.exit_code === "number" ? `
 [exit ${p.exit_code}]` : "";
         setRunOut(String(out) + exit);
@@ -24593,21 +24605,70 @@ function OutpostCard({ o, onRemove }) {
     setLogOpen(next);
     if (next) void loadLog();
   }
+  async function repairWorker() {
+    setRepairBusy(true);
+    setRepairMessage(null);
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(o.name)}/worker/repair`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.jobId) {
+        setRepairMessage([data?.error, data?.requirement].filter(Boolean).join(" \u2014 ") || `HTTP ${res.status}`);
+        setRepairBusy(false);
+        return;
+      }
+      const es = new EventSource(`/provision/${encodeURIComponent(data.jobId)}/stream`);
+      es.onmessage = (event) => {
+        try {
+          const line = JSON.parse(event.data)?.line;
+          if (typeof line === "string") setRepairMessage(line);
+        } catch {
+        }
+      };
+      es.addEventListener("done", () => {
+        es.close();
+        setRepairBusy(false);
+        setRepairMessage("Repair finished; waiting for the worker readiness pulse.");
+        onChanged();
+      });
+      es.onerror = () => {
+        es.close();
+        setRepairBusy(false);
+        setRepairMessage("Repair stream disconnected; refresh to check worker state.");
+      };
+    } catch (error) {
+      setRepairBusy(false);
+      setRepairMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+  function sendTask() {
+    window.top?.postMessage({
+      type: "garrison:navigate-fitting",
+      fittingId: "kanban-loop",
+      params: { new: "1", placement: o.name }
+    }, "*");
+  }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card" + (online ? "" : " card-offline"), children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card-head", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot " + (online ? "sage" : o.pending ? "brass" : "alarm") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot " + (bridgeState === "connected" ? "sage" : o.pending ? "brass" : "alarm") }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "card-name", children: o.name }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "state-label", children: online ? "online" : o.pending ? "pending" : "offline" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "state-label", children: [
+        "bridge: ",
+        bridgeState
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: `worker-pill worker-${workerState}`, children: [
+        "worker: ",
+        workerState
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "grow" }),
       host && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "host", children: host })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "meta-grid", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Agent" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Bridge version" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: o.agentVersion ?? "unknown" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Last seen" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Bridge seen" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: fmtAgo(o.lastHeartbeat) })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
@@ -24615,12 +24676,31 @@ function OutpostCard({ o, onRemove }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: pinging ? "pinging\u2026" : pingMs != null ? `${pingMs} ms` : pingErr ? `error` : "\u2014" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Registered" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: fmtAgo(o.registeredAt) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Worker version" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: o.worker?.workerVersion ?? "not installed" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Worker seen" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: fmtAgo(o.worker?.lastSeenAt) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Current card" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v mono", children: o.worker?.currentCardId ?? "\u2014" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Protocol" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: o.worker?.protocolVersion ?? "\u2014" })
       ] })
     ] }),
     o.pending && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "note", children: "Pending \u2014 waiting for this Mac's bridge to connect for the first time." }),
     pingErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert small", children: pingErr }),
+    o.worker?.detail && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: workerCanTakeTasks ? "worker-note" : "note", children: o.worker.detail }),
+    o.worker?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert small", children: o.worker.error }),
+    repairMessage && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "note", children: repairMessage }),
+    o.worker?.runtimes && o.worker.runtimes.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "verbs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Task runtimes" }),
+      o.worker.runtimes.map((runtime) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "verb", children: runtime }, runtime))
+    ] }),
     o.verbs && o.verbs.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "verbs", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Verbs" }),
       o.verbs.map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "verb", children: v }, v))
@@ -24644,6 +24724,8 @@ function OutpostCard({ o, onRemove }) {
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "actions", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", disabled: !online || pinging, onClick: () => void ping(), children: "Ping now" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", onClick: toggleLog, children: logOpen ? "Hide log" : "Show log" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn primary", disabled: !workerCanTakeTasks, title: workerCanTakeTasks ? "Open a new card on this Mac" : o.worker?.detail || "Enable/repair the task runner first", onClick: sendTask, children: "Send task" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn", disabled: !online || repairBusy || o.repairAvailable === false, title: o.repairRequirement || "Reinstall the versioned task runner", onClick: () => void repairWorker(), children: repairBusy ? "Repairing\u2026" : "Enable/Repair task runner" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "grow" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "btn danger", onClick: () => onRemove(o.name), children: "Remove" })
     ] }),
@@ -24989,7 +25071,7 @@ function App() {
     ] }),
     error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "alert", children: error }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AddOutpost, { onChanged: refresh }),
-    outposts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "No outposts registered. Pair a Mac or provision one over SSH above." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cards", children: outposts.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OutpostCard, { o, onRemove: remove }, o.name)) }),
+    outposts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "No outposts registered. Pair a Mac or provision one over SSH above." }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "cards", children: outposts.map((o) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OutpostCard, { o, onRemove: remove, onChanged: refresh }, o.name)) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ConfigSync, {})
   ] });
 }

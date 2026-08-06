@@ -518,7 +518,7 @@ function DutyRow({
                   onChange={(e) => actions.describeLevel(duty.id, index + 1, e.target.value)}
                   spellCheck={false}
                   aria-label={`Level ${index + 1} routing criterion`}
-                  title="The Dispatcher routes by this description - say when this depth is the right one"
+                  title="Orchestrator routing inference uses this description - say when this depth is the right one"
                   data-testid={`level-desc-${duty.id}-${index + 1}`}
                 />
                 {level.cell ? (

@@ -3,9 +3,13 @@
 > **STALE — pre-pivot narrative.** This document still describes 21 top-level
 > Faculties, `soul` and `artifact-store` capabilities, Soul Fittings
 > (`soul-engineer`, `personal-operative`) and a live `/armory` surface. All of
-> those were removed or folded: Faculties are roles (17), `/armory` redirects
+> those were removed or folded: Faculties are roles (16), `/armory` redirects
 > to `/compose`, and Quarters is the `~/.claude` control surface. Kept for the
 > long-form explanation of intent; do not treat its inventories as current.
+> In the live design, Orchestrator owns both routing inference and editable Gary
+> Identity, its layered document is the only runtime prompt source, and Morning
+> briefing is a recurring Kanban Scheduled template. There is no standalone
+> Dispatcher/Identity Fitting, modes engine, Soul injection, or Morning raw job.
 > Start from [`../CLAUDE.md`](../CLAUDE.md) and
 > [`architecture.md`](./architecture.md).
 
@@ -28,7 +32,7 @@ A single-document primer covering everything Garrison is, what it does, and how 
 9. [UI surfaces (Views)](#9-ui-surfaces-views)
 10. [The runner lifecycle](#10-the-runner-lifecycle)
 11. [The Vault](#11-the-vault)
-12. [The full Fitting catalogue](#12-the-full-fitting-catalogue)
+12. [Historical pre-pivot Fitting catalogue](#12-historical-pre-pivot-fitting-catalogue)
 13. [Putting it together: a worked example](#13-putting-it-together-a-worked-example)
 14. [Glossary](#14-glossary)
 
@@ -703,9 +707,11 @@ Secrets never leave the user's machine.
 
 ---
 
-## 12. The full Fitting catalogue
+## 12. Historical pre-pivot Fitting catalogue
 
-The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/armory` in the running app) browses these and any community Fittings registered in `data/library.json`.
+This is the original seed catalogue, retained for design history. It is not the
+live registry and several entries below no longer exist. Use
+`data/library.json` and Composition for the current selectable inventory.
 
 ### The agent's brain: Orchestrators and Souls
 
@@ -727,7 +733,7 @@ The seed Fittings shipped in this repo, grouped by what they do. The Armory (`/a
 | `tier-classifier` | classifier | Tier 1–7 routing floor. T3+ forces plan-then-reclassify-then-route. |
 | `loop-heartbeat` | heartbeat | Scheduled loop. Default 40-min cadence. Dispatches via the gateway. |
 | `scheduler` | scheduler | Cron-style job scheduler. Add/remove/list/run-now via CLI. |
-| `morning-briefing` | automations | Scheduled cron Fitting that posts the day's plan to the report channel. |
+| Morning briefing template | Kanban Scheduled | Weekday recurring card whose occurrences summarize Calendar and board focus, then record Web/Omi delivery status. |
 
 ### Memory & knowledge
 

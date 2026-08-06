@@ -42,6 +42,22 @@ declare module "*/omi-channel/lib/config.mjs" {
 }
 
 declare module "*/omi-channel/scripts/server.mjs" {
+  export type OmiGatewayProbe = {
+    state: "ready" | "offline" | "degraded" | "missing" | "configured";
+    label: string;
+    tone: "ok" | "alarm" | "warning" | "neutral";
+    detail: string;
+    latencyMs?: number;
+  };
+  export function probeGateway(
+    cfg: unknown,
+    opts?: { fetchImpl?: typeof fetch; timeoutMs?: number }
+  ): Promise<OmiGatewayProbe>;
+  export function statusPage(
+    cfg: unknown,
+    counters?: Record<string, unknown>,
+    state?: { pinnedUid?: string | null; gateway?: OmiGatewayProbe | null }
+  ): string;
   export function repairDoubleEncodedQuery(
     query: Record<string, unknown>,
     counters?: unknown,
@@ -116,6 +132,14 @@ declare module "*/omi-channel/lib/store.mjs" {
     getEvent(id: string): OmiCaptureEvent | null;
     listEvents(status?: string | null): OmiCaptureEvent[];
     updateEvent(id: string, mutate: (ev: OmiCaptureEvent) => OmiCaptureEvent): OmiCaptureEvent | null;
+    ensureThread(args: { id: string; title?: string | null; source?: string | null }): Record<string, unknown>;
+    threadDelivery(id: string, idempotencyKey: string): Record<string, unknown> | null;
+    completeThreadDelivery(id: string, idempotencyKey: string, receipts: Array<Record<string, unknown>>): Record<string, unknown> | null;
+    appendThreadMessages(
+      id: string,
+      messages: Array<{ role?: string; text?: string }>,
+      options?: { cap?: number; idempotencyKey?: string | null }
+    ): Array<{ role: string; text: string; at: string }>;
   }
 }
 
@@ -304,7 +328,7 @@ declare module "*/omi-channel/lib/notify.mjs" {
     });
     cardUrl(cardId: string | null): Promise<string | null>;
     sentToday(): number;
-    send(args: { template: string; params?: Record<string, unknown> }): Promise<OmiNotifyReceipt[]>;
+    send(args: { template: string; params?: Record<string, unknown>; suppressWebFallback?: boolean }): Promise<OmiNotifyReceipt[]>;
     drainTips(): Promise<Array<{ tip: string; receipts: OmiNotifyReceipt[] }>>;
   }
 }

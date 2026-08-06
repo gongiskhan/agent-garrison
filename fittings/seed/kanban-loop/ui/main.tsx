@@ -34,6 +34,7 @@ import {
   type BoardView,
   type BoardRuntime,
   type CardSummary,
+  type CardSchedule,
   type CardDetail,
   type CardEvent,
   type ChecklistItem,
@@ -47,6 +48,9 @@ import {
   type CardRouting,
   type RouteOptionsView,
   type MachinesView,
+  type MachineOption,
+  type LoadoutReadiness,
+  type LoadoutEditorValue,
   type WaitingOn,
   type DrillStamp
 } from "./api";
@@ -83,7 +87,7 @@ import {
 } from "./card-click";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
-// the card as an OPAQUE context blob; James (the operative) reads it.
+// the card as an OPAQUE context blob; the Discuss duty reads it.
 // @ts-expect-error — plain ESM .mjs sibling, no .d.ts; esbuild bundles it.
 import { buildDiscussUrl } from "../scripts/discuss.mjs";
 
@@ -181,6 +185,7 @@ function stripAttachmentBlock(description: string): string {
 }
 
 function listClass(list: ListView): string {
+  if (list.id === "scheduled") return "list scheduled";
   if (list.id === "archived") return "list manual archived";
   if (list.id === "needs-attention") return "list attn";
   if (list.interactive) return "list interactive";
@@ -251,10 +256,31 @@ function fmtSchedule(iso: string | null | undefined): string {
 
 // Is the card's schedule instant already past (due)? Unparseable counts as due
 // so the amber chip surfaces the mistake instead of hiding it.
+function scheduleAt(card: CardSummary): string | null {
+  return card.schedule?.nextAt ?? card.scheduledFor ?? null;
+}
+
 function scheduleDue(card: CardSummary): boolean {
-  if (!card.scheduledFor) return false;
-  const t = Date.parse(card.scheduledFor);
+  const at = scheduleAt(card);
+  if (!at || card.schedule?.enabled === false) return false;
+  const t = Date.parse(at);
   return !Number.isFinite(t) || t <= Date.now();
+}
+
+function scheduleChip(card: CardSummary): string {
+  const schedule = card.schedule;
+  if (schedule?.kind === "cron") {
+    if (!schedule.enabled) return `paused · ${schedule.cron}`;
+    return `${fmtSchedule(schedule.nextAt)} · repeats`;
+  }
+  return fmtSchedule(scheduleAt(card));
+}
+
+// Stable card-detail URL used by schedule provenance links. The click is
+// handled in-place when the board is already open, while the href keeps the
+// relationship navigable in a new tab and after a reload.
+function scheduleCardHref(cardId: string): string {
+  return `?card=${encodeURIComponent(cardId)}`;
 }
 
 // ISO from a datetime-local input value (local wall time -> instant).
@@ -499,6 +525,7 @@ function Card({
   onContinue,
   onDrill,
   onFeedback,
+  onRunSchedule,
   dragJustEnded,
   busy
 }: {
@@ -519,6 +546,7 @@ function Card({
   onContinue: (c: CardSummary) => void;
   onDrill: (c: CardSummary) => void;
   onFeedback: (c: CardSummary) => void;
+  onRunSchedule: (c: CardSummary) => void;
   // Item 5: the drag-just-ended flag from App, so the card-body click handler can
   // suppress the trailing click a completed drag synthesises.
   dragJustEnded: MutableRefObject<boolean>;
@@ -534,6 +562,7 @@ function Card({
   // human touchpoint on the autonomous side; interactive + manual lists stay
   // fully editable.
   const engineOwned = list.kind === "agent" && !list.interactive;
+  const scheduled = list.id === "scheduled";
 
   function markTitleEditEnded() {
     titleEditJustEnded.current = true;
@@ -579,7 +608,7 @@ function Card({
   // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a card
   // ENTERS the automated flow (To Do → Plan) or is re-sent after parking. Discuss
   // (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
-  const canAdvance = list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0;
+  const canAdvance = !scheduled && list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0;
   const startLabel = "Advance";
   // Archived is a terminal parking column: cards land there via Archive and leave
   // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
@@ -587,7 +616,7 @@ function Card({
   // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
   // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
   // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
-  const canMarkDone = !engineOwned && !list.terminal;
+  const canMarkDone = !scheduled && !engineOwned && !list.terminal;
   // "Archive": get a finished (Done) or given-up (needs-attention) card out of the
   // way. Both are manual columns, so this never hits an engine-owned card.
   const canArchive = list.id === "done" || list.id === "needs-attention";
@@ -606,7 +635,7 @@ function Card({
   const inferring = card.inferState === "running";
   // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
   // the user asked for — also lets them re-try if it came back blank).
-  const canInfer = !card.project && !card.runId && !inferring && !running;
+  const canInfer = !scheduled && !card.project && !card.runId && !inferring && !running;
   const lastEv = card.lastEvent;
   return (
     <div
@@ -726,16 +755,18 @@ function Card({
           <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
-        {card.scheduledFor && (
+        {(card.schedule || card.scheduledFor) && (
           <span
             className={`chip sched${scheduleDue(card) ? " due" : ""}`}
             title={
               scheduleDue(card)
-                ? `scheduled for ${card.scheduledFor} - due${card.scheduleNotifiedAt ? ", reminder sent" : ""}`
-                : `held until ${card.scheduledFor} (${card.scheduleAction === "run" ? "runs automatically" : "notifies"})`
+                ? `scheduled for ${scheduleAt(card)} - due${card.scheduleNotifiedAt ? ", reminder sent" : ""}`
+                : card.schedule?.kind === "cron"
+                  ? `${card.schedule.enabled ? "recurring" : "paused"}: ${card.schedule.cron} (${card.schedule.timezone})`
+                  : `held until ${scheduleAt(card)} (${card.scheduleAction === "run" ? "runs automatically" : "notifies"})`
             }
           >
-            <ClockIcon /> {fmtSchedule(card.scheduledFor)}{card.scheduleAction === "run" ? " · auto" : ""}
+            <ClockIcon /> {scheduleChip(card)}{card.scheduleAction === "run" ? " · auto" : ""}
           </span>
         )}
         {(card.checklistTotal ?? 0) > 0 && (
@@ -850,6 +881,11 @@ function Card({
       )}
 
       <div className="btns">
+        {scheduled && card.schedule && (
+          <button className="btn primary small" disabled={busy} title={card.schedule.kind === "cron" ? "create an extra occurrence without changing the next regular run" : "release this card to run now"} onClick={() => onRunSchedule(card)}>
+            <PlayIcon /> Run now
+          </button>
+        )}
         {/* Mark done: skip the pipeline and call a human-held card finished in one
             click — the "just a button on the card" path. */}
         {canMarkDone && (
@@ -877,15 +913,14 @@ function Card({
             <SparkIcon /> Infer
           </button>
         )}
-        {!engineOwned && (
+        {!engineOwned && !scheduled && (
           <button className="btn small" disabled={busy} onClick={() => onMove(card)}>
             <MoveIcon /> Move
           </button>
         )}
-        {/* Discuss list (interactive) gets a dedicated Discuss button that opens a
-            James-mode session seeded with this card; everything else gets Watch (logs). */}
+        {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
         {list.interactive ? (
-          <button className="btn small primary" title="open a James-mode discussion seeded with this card" onClick={() => onDiscuss(card)}>
+          <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => onDiscuss(card)}>
             <ChatIcon /> Discuss
           </button>
         ) : (
@@ -994,7 +1029,7 @@ function SpecSelect({
   hint: string;
   value: string;
   disabled?: string | null;
-  options: { value: string; label: string; detail?: string }[];
+  options: { value: string; label: string; detail?: string; disabled?: boolean }[];
   onChange: (v: string) => void;
 }) {
   return (
@@ -1003,7 +1038,7 @@ function SpecSelect({
       <select id={id} value={value} disabled={Boolean(disabled)} onChange={(e) => onChange(e.target.value)}>
         <option value={AUTO}>Automatic{hint ? ` — ${hint}` : ""}</option>
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
             {o.detail ? ` — ${o.detail}` : ""}
           </option>
@@ -1149,7 +1184,159 @@ function RunSpec({
   );
 }
 
-function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function normaliseLoadoutEditor(value: LoadoutEditorValue): LoadoutEditorValue {
+  return {
+    id: value.id,
+    repo_remote: value.repo_remote || "",
+    default_branch: value.default_branch || "",
+    ...(value.apm_manifest_path ? { apm_manifest_path: value.apm_manifest_path } : {}),
+    setup_commands: Array.isArray(value.setup_commands) ? value.setup_commands : [],
+    env_vars: Array.isArray(value.env_vars) ? value.env_vars : [],
+    verify_command: value.verify_command || "",
+    ...(value.projects_root_override ? { projects_root_override: value.projects_root_override } : {})
+  };
+}
+
+function routeRuntimeRequirement(route: RouteStamp | null | undefined) {
+  if (!route?.runtime) return null;
+  return {
+    key: `${route.runtime}:${route.provider || "unknown"}`,
+    targetId: route.targetId || "resolved target",
+    runtime: route.runtime,
+    provider: route.provider || null,
+    model: route.model || null
+  };
+}
+
+function machineSupportsRuntime(machine: MachineOption | null | undefined, requirement: { key: string } | null | undefined) {
+  if (!machine?.worker?.ready || machine.worker.stale === true) return false;
+  return Boolean(requirement && Array.isArray(machine.worker.runtimes) && machine.worker.runtimes.includes(requirement.key));
+}
+
+/** Remote placement preflight. The host resolves vault NAMES and repository
+ * facts; this form never receives or accepts a secret value. */
+function LoadoutPanel({ project, active, onReady }: {
+  project: string;
+  active: boolean;
+  onReady: (ready: boolean | null) => void;
+}) {
+  const [readiness, setReadiness] = useState<LoadoutReadiness | null>(null);
+  const [draft, setDraft] = useState<LoadoutEditorValue | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+
+  useEffect(() => {
+    let alive = true;
+    if (!active || !project.trim()) {
+      setReadiness(null);
+      setDraft(null);
+      setEditing(false);
+      setError(null);
+      onReadyRef.current(null);
+      return () => { alive = false; };
+    }
+    setLoading(true);
+    setError(null);
+    onReadyRef.current(null);
+    api.loadoutReadiness(project.trim())
+      .then((value) => {
+        if (!alive) return;
+        setReadiness(value);
+        if (value.editor) setDraft(normaliseLoadoutEditor(value.editor));
+        onReadyRef.current(value.ready);
+      })
+      .catch((reason) => {
+        if (!alive) return;
+        const message = reason instanceof Error ? reason.message : String(reason);
+        setReadiness({ project, ready: false, status: "unavailable", detail: message });
+        setDraft(null);
+        onReadyRef.current(false);
+      })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [active, project, reload]);
+
+  async function save() {
+    if (!draft) return;
+    if (!draft.repo_remote.trim() || !draft.default_branch.trim() || !draft.verify_command.trim()) {
+      setError("Repository remote, default branch, and an explicit verify command are required. Garrison will not guess them.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.saveLoadout(project, {
+        ...draft,
+        id: project,
+        repo_remote: draft.repo_remote.trim(),
+        default_branch: draft.default_branch.trim(),
+        setup_commands: draft.setup_commands.map((line) => line.trim()).filter(Boolean),
+        env_vars: draft.env_vars.map((line) => line.trim()).filter(Boolean),
+        verify_command: draft.verify_command.trim()
+      });
+      setEditing(false);
+      setReload((value) => value + 1);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!active || !project.trim()) return null;
+  return (
+    <div className={`loadout-panel ${readiness?.ready ? "ready" : "blocked"}`} aria-live="polite">
+      <div className="loadout-head">
+        <b>Project Loadout</b>
+        <span className={`chip ${readiness?.ready ? "ok" : "alarm"}`}>
+          {loading ? "checking" : readiness?.ready ? "ready" : "blocked"}
+        </span>
+      </div>
+      <p>{loading ? `Checking ${project} on the host…` : readiness?.detail || "Loadout readiness has not been proven."}</p>
+      {readiness?.missing?.length ? (
+        <div className="spec-note">Missing vault names: {readiness.missing.join(", ")}</div>
+      ) : null}
+      {draft && !editing && (
+        <button type="button" className="btn small" onClick={() => setEditing(true)}>
+          {readiness?.ready ? "Edit Loadout" : "Create / fix Loadout"}
+        </button>
+      )}
+      {editing && draft && (
+        <div className="loadout-editor">
+          <label>Repository remote
+            <input value={draft.repo_remote} onChange={(event) => setDraft({ ...draft, repo_remote: event.target.value })} />
+          </label>
+          <label>Default branch
+            <input value={draft.default_branch} onChange={(event) => setDraft({ ...draft, default_branch: event.target.value })} />
+          </label>
+          <label>Setup commands <span className="muted">(one per line; blank is allowed)</span>
+            <textarea value={draft.setup_commands.join("\n")} onChange={(event) => setDraft({ ...draft, setup_commands: event.target.value.split("\n") })} />
+          </label>
+          <label>Verify command <span className="muted">(required; never guessed)</span>
+            <input value={draft.verify_command} onChange={(event) => setDraft({ ...draft, verify_command: event.target.value })} />
+          </label>
+          <label>Vault variable names <span className="muted">(one NAME per line; never values)</span>
+            <textarea value={draft.env_vars.join("\n")} onChange={(event) => setDraft({ ...draft, env_vars: event.target.value.split("\n") })} />
+          </label>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn small primary" disabled={saving} onClick={() => void save()}>
+              {saving ? "Saving…" : "Save and recheck"}
+            </button>
+            <button type="button" className="btn small" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {error && <div className="dispatch-err">{error}</div>}
+    </div>
+  );
+}
+
+function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { board?: BoardView | null; initialPlacement?: string; onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
   // Project picker: "auto" = leave blank (the server infers it from the description);
   // "pick" = a repo chosen from the dev-root list; "custom" = a free-typed name/path.
@@ -1166,14 +1353,20 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [spec, setSpec] = useState<CardRouting>({});
   const [options, setOptions] = useState<RouteOptionsView | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
-  // Placement (brief D6): WHERE the card runs. "" = the host, which is the
-  // default and sends no placement at all. Only CONNECTED outposts are offered:
-  // pinning a card to a sleeping Mac just parks it in needs-attention.
+  // Placement: WHERE the card runs. "" = the host. A bridge connection is not
+  // task readiness: remote options stay disabled until their pull worker has
+  // published a fresh, runtime-capable readiness pulse.
   const [machines, setMachines] = useState<MachinesView | null>(null);
-  const [placement, setPlacement] = useState("");
-  // Card scheduling: hold the card until this local wall time, then notify
-  // (default) or run automatically.
+  const [placement, setPlacement] = useState(initialPlacement);
+  const [loadoutReady, setLoadoutReady] = useState<boolean | null>(null);
+  // Card scheduling: one-time release or a timezone-aware recurring template.
+  const [scheduleKind, setScheduleKind] = useState<"none" | "once" | "cron">("none");
   const [scheduleAt, setScheduleAt] = useState("");
+  const [scheduleCron, setScheduleCron] = useState("0 8 * * 1-5");
+  const [scheduleTimezone, setScheduleTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
+  );
+  const [scheduleTarget, setScheduleTarget] = useState("backlog");
   const [scheduleAction, setScheduleAction] = useState<"notify" | "run">("notify");
   // Files attached at creation: uploaded right AFTER the card exists (the
   // upload endpoint is card-scoped), before the sheet closes.
@@ -1213,12 +1406,50 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const routing = Object.fromEntries(
       Object.entries(spec).filter(([, v]) => v !== null && v !== undefined && v !== "")
     ) as CardRouting;
-    const scheduledFor = scheduleAt ? isoFromLocalInput(scheduleAt) : null;
-    if (scheduleAt && !scheduledFor) {
+    const scheduledFor = scheduleKind === "once" && scheduleAt ? isoFromLocalInput(scheduleAt) : null;
+    if (scheduleKind === "once" && (!scheduleAt || !scheduledFor)) {
       setErr("The schedule time did not parse - pick it again.");
       setSaving(false);
       return;
     }
+    if (scheduleKind === "cron" && !scheduleCron.trim()) {
+      setErr("Add a five-field cron expression for the recurring schedule.");
+      setSaving(false);
+      return;
+    }
+    const selectedMachine = placement ? machines?.machines.find((machine) => machine.name === placement) : null;
+    const selectedTarget = spec.target ? options?.targets.find((target) => target.id === spec.target) : null;
+    const requiredRuntime = selectedTarget?.runtime
+      ? { key: `${selectedTarget.runtime}:${selectedTarget.provider || "unknown"}`, targetId: selectedTarget.id }
+      : machines?.defaultRuntime ?? null;
+    if (placement && !machineSupportsRuntime(selectedMachine, requiredRuntime)) {
+      setErr(selectedMachine?.worker?.ready && requiredRuntime
+        ? `${selectedMachine.label} does not advertise ${requiredRuntime.key}, required by ${requiredRuntime.targetId}.`
+        : selectedMachine?.worker?.detail || "Enable/Repair the task runner on this Mac before assigning work to it.");
+      setSaving(false);
+      return;
+    }
+    if (placement && !proj && !personal) {
+      setErr("Choose the project explicitly before assigning this card to an Outpost, so its Loadout can be verified.");
+      setSaving(false);
+      return;
+    }
+    if (placement && proj && loadoutReady !== true) {
+      setErr("This project is blocked from remote placement until its Loadout and vault preflight pass.");
+      setSaving(false);
+      return;
+    }
+    const schedule: Omit<CardSchedule, "nextAt" | "lastAt"> | undefined = scheduleKind === "once"
+      ? {
+          kind: "once", action: scheduleAction, at: scheduledFor!, timezone: scheduleTimezone,
+          enabled: true, targetList: scheduleTarget
+        }
+      : scheduleKind === "cron"
+        ? {
+            kind: "cron", action: scheduleAction, cron: scheduleCron.trim(), timezone: scheduleTimezone,
+            enabled: true, targetList: scheduleTarget
+          }
+        : undefined;
     try {
       const created = await api.create({
         title: title.trim() || undefined,
@@ -1230,7 +1461,7 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         // Absent placement IS "host" on the wire — never send { target: "host" },
         // or every card carries a pin it did not ask for.
         ...(placement ? { placement: { target: placement } } : {}),
-        ...(scheduledFor ? { scheduledFor, scheduleAction } : {})
+        ...(schedule ? { schedule } : {})
       });
       // Upload any files picked at creation. Best-effort per file: a failed
       // upload names the file (the card itself is already created) and keeps
@@ -1260,6 +1491,14 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   }
 
   const selectValue = projectMode === "custom" ? PROJECT_CUSTOM : projectMode === "auto" ? "" : project;
+  const selectedProject = projectMode === "auto" ? "" : project.trim();
+  const remotePlacementBlocked = Boolean(
+    placement && ((!selectedProject && !personal) || (selectedProject && loadoutReady !== true))
+  );
+  const selectedTarget = spec.target ? options?.targets.find((target) => target.id === spec.target) : null;
+  const requiredRuntime = selectedTarget?.runtime
+    ? { key: `${selectedTarget.runtime}:${selectedTarget.provider || "unknown"}`, targetId: selectedTarget.id }
+    : machines?.defaultRuntime ?? null;
 
   return (
     <Sheet title="New card → Backlog" onClose={onClose}>
@@ -1327,20 +1566,44 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
           goalMode (attach acceptance + bounded iterations)
         </label>
       </div>
-      <div className="field">
-        <label htmlFor="nc-sched">Schedule <span className="muted" style={{ fontWeight: 400 }}>(optional - holds the card until then)</span></label>
+      <div className="field sched-create">
+        <label htmlFor="nc-sched-kind">Schedule <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <div className="sched-inline">
-          <input id="nc-sched" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
-          <select value={scheduleAction} disabled={!scheduleAt} onChange={(e) => setScheduleAction(e.target.value === "run" ? "run" : "notify")}>
+          <select id="nc-sched-kind" value={scheduleKind} onChange={(e) => setScheduleKind(e.target.value as "none" | "once" | "cron")}>
+            <option value="none">not scheduled</option>
+            <option value="once">one time</option>
+            <option value="cron">recurring</option>
+          </select>
+          {scheduleKind === "once" && (
+            <input id="nc-sched" aria-label="Scheduled time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+          )}
+          {scheduleKind === "cron" && (
+            <input id="nc-sched-cron" aria-label="Five-field cron" type="text" value={scheduleCron} placeholder="0 8 * * 1-5" onChange={(e) => setScheduleCron(e.target.value)} />
+          )}
+          <select aria-label="Schedule action" value={scheduleAction} disabled={scheduleKind === "none"} onChange={(e) => setScheduleAction(e.target.value === "run" ? "run" : "notify")}>
             <option value="notify">notify me (tell Gary to run/snooze)</option>
             <option value="run">run automatically</option>
           </select>
-          {scheduleAt && (
-            <button className="btn small" type="button" title="clear the schedule" onClick={() => setScheduleAt("")}>
-              <CloseIcon />
-            </button>
+          {scheduleKind !== "none" && (
+            <select aria-label="Schedule target list" value={scheduleTarget} onChange={(e) => setScheduleTarget(e.target.value)}>
+              {(board?.lists ?? []).filter((list) => list.kind === "manual" && !list.terminal).map((list) => (
+                <option key={list.id} value={list.id}>then move to {list.title}</option>
+              ))}
+            </select>
           )}
         </div>
+        {scheduleKind === "cron" && (
+          <div className="sched-advanced">
+            <div className="sched-presets" aria-label="Schedule presets">
+              <button className="btn tiny" type="button" onClick={() => setScheduleCron("0 8 * * *")}>Daily 08:00</button>
+              <button className="btn tiny" type="button" onClick={() => setScheduleCron("0 8 * * 1-5")}>Weekdays 08:00</button>
+              <button className="btn tiny" type="button" onClick={() => setScheduleCron("0 9 * * 1")}>Mondays 09:00</button>
+            </div>
+            <label htmlFor="nc-sched-timezone">Timezone</label>
+            <input id="nc-sched-timezone" type="text" value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} />
+            <span className="muted">Five fields: minute, hour, day, month, weekday.</span>
+          </div>
+        )}
       </div>
       <div className="field">
         <label htmlFor="nc-files">Attachments <span className="muted" style={{ fontWeight: 400 }}>(optional - context files the operative reads)</span></label>
@@ -1370,15 +1633,30 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
             .map((m) => ({
               value: m.name,
               label: m.label,
-              // Say the state plainly: a card pinned to an offline machine parks
-              // in needs-attention until that machine comes back.
-              detail: m.connected ? "online" : m.pending ? "pairing not finished" : "offline - card will park"
+              detail: [
+                `bridge ${m.bridge ?? (m.connected ? "connected" : "offline")}`,
+                `worker ${m.worker?.state ?? "offline"}`,
+                m.worker?.detail,
+                requiredRuntime && !machineSupportsRuntime(m, requiredRuntime) ? `needs ${requiredRuntime.key}` : null
+              ].filter(Boolean).join(" · "),
+              disabled: !machineSupportsRuntime(m, requiredRuntime)
             }))}
           onChange={setPlacement}
         />
       </div>
+      {placement && !selectedProject && !personal && (
+        <div className="loadout-panel blocked" role="status">
+          <div className="loadout-head"><b>Project Loadout</b><span className="chip alarm">blocked</span></div>
+          <p>Choose the project explicitly before assigning this card to an Outpost. Auto-inference happens too late to prove remote readiness.</p>
+        </div>
+      )}
+      <LoadoutPanel
+        project={selectedProject}
+        active={Boolean(placement && selectedProject)}
+        onReady={setLoadoutReady}
+      />
       {err && <div className="banner">{err}</div>}
-      <button className="btn primary" disabled={saving} onClick={() => void submit()}>
+      <button className="btn primary" disabled={saving || remotePlacementBlocked || Boolean(placement && !machineSupportsRuntime(machines?.machines.find((machine) => machine.name === placement), requiredRuntime))} onClick={() => void submit()}>
         {saving ? "Creating…" : "Create card"}
       </button>
     </Sheet>
@@ -1841,7 +2119,7 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
   );
 }
 
-function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void }) {
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1863,6 +2141,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null);
   const [savingRouting, setSavingRouting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [machines, setMachines] = useState<MachinesView | null>(null);
+  const [placementDraft, setPlacementDraft] = useState("host");
+  const [savingPlacement, setSavingPlacement] = useState(false);
+  const [detailLoadoutReady, setDetailLoadoutReady] = useState<boolean | null>(null);
   // Trello-style in-place editing: title + description drafts (null = not
   // editing), the checklist add-input, the schedule picker drafts, and the
   // attachment upload state.
@@ -1872,9 +2154,22 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   const [checkText, setCheckText] = useState("");
   const [checkDraft, setCheckDraft] = useState<{ id: string; text: string } | null>(null);
   const [schedDraft, setSchedDraft] = useState<string | null>(null);
+  const [schedKindDraft, setSchedKindDraft] = useState<"once" | "cron">("once");
+  const [schedCronDraft, setSchedCronDraft] = useState("0 8 * * 1-5");
+  const [schedTimezoneDraft, setSchedTimezoneDraft] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
+  );
+  const [schedTargetDraft, setSchedTargetDraft] = useState("backlog");
   const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
   const [savingSched, setSavingSched] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  const occurrenceCards = useMemo(() => {
+    if (!detail?.card.id) return [] as CardSummary[];
+    return (board?.cards ?? [])
+      .filter((candidate) => candidate.scheduleTemplateId === detail.card.id)
+      .sort((left, right) => Date.parse(right.occurrenceAt ?? right.created ?? "") - Date.parse(left.occurrenceAt ?? left.created ?? ""));
+  }, [board?.cards, detail?.card.id]);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
@@ -1891,6 +2186,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
 
   useEffect(() => { setProjectDraft(null); }, [cardId]);
   useEffect(() => { setRoutingDraft(null); }, [cardId]);
+  useEffect(() => { setPlacementDraft("host"); }, [cardId]);
   useEffect(() => {
     let alive = true;
     api.routeOptions()
@@ -1901,6 +2197,14 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   useEffect(() => {
     if (detail && routingDraft === null) setRoutingDraft({ ...(detail.card.routing ?? {}) });
   }, [detail, routingDraft]);
+  useEffect(() => {
+    if (detail) setPlacementDraft(detail.card.placement?.target || "host");
+  }, [detail?.card.id, detail?.card.placement?.target]);
+  useEffect(() => {
+    let alive = true;
+    api.machines().then((value) => { if (alive) setMachines(value); }).catch(() => { if (alive) setMachines(null); });
+    return () => { alive = false; };
+  }, [cardId]);
 
   async function saveProjectScope() {
     if (!detail) return;
@@ -1962,6 +2266,46 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
       setActionErr(e instanceof Error ? e.message : String(e));
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function savePlacement(target = placementDraft, retry = false) {
+    if (!detail) return;
+    if (target !== "host" && !detail.card.project && detail.card.scope !== "personal") {
+      setActionErr("Assign a project before placing this card on an Outpost, so its Loadout can be verified.");
+      return;
+    }
+    if (target !== "host" && detail.card.project && detailLoadoutReady !== true) {
+      setActionErr("Remote placement is blocked until this project's Loadout and vault preflight pass.");
+      return;
+    }
+    const targetMachine = target === "host" ? null : machines?.machines.find((machine) => machine.name === target);
+    const targetRequirement = routeRuntimeRequirement(detail.card.expectedRoute) || machines?.defaultRuntime || null;
+    if (target !== "host" && !machineSupportsRuntime(targetMachine, targetRequirement)) {
+      setActionErr(targetMachine?.worker?.ready && targetRequirement
+        ? `${targetMachine.label} does not advertise ${targetRequirement.key}, required by ${targetRequirement.targetId}.`
+        : targetMachine?.worker?.detail || "Enable/Repair the task runner before assigning this card.");
+      return;
+    }
+    setSavingPlacement(true);
+    setActionErr(null);
+    try {
+      const next = await api.patch(detail.card.id, {
+        placement: { target: target || "host" },
+        rev: detail.card.rev
+      });
+      setDetail((current) => current ? { ...current, card: next.card } : current);
+      setPlacementDraft(target || "host");
+      if (retry) {
+        await api.start(detail.card.id);
+        await api.card(cardId).then((value) => setDetail(value));
+      }
+      onChanged();
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : String(error));
+      await api.card(cardId).then((value) => setDetail(value)).catch(() => {});
+    } finally {
+      setSavingPlacement(false);
     }
   }
 
@@ -2038,11 +2382,83 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
     if (saved) setCheckDraft(null);
   }
 
-  async function setSchedule(iso: string | null, action: "notify" | "run") {
+  function scheduleTarget(card: CardSummary): string {
+    return card.schedule?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list);
+  }
+
+  function beginScheduleEdit(card: CardSummary) {
+    const current = card.schedule;
+    setSchedKindDraft(current?.kind === "cron" ? "cron" : "once");
+    setSchedDraft(localInputFromIso(current?.kind === "once" ? current.at ?? current.nextAt : null));
+    setSchedCronDraft(current?.cron ?? "0 8 * * 1-5");
+    setSchedTimezoneDraft(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Lisbon");
+    setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list));
+    setSchedActionDraft(current?.action ?? (card.scheduleAction === "run" ? "run" : "notify"));
+  }
+
+  async function saveScheduleDraft(card: CardSummary) {
+    const onceAt = schedKindDraft === "once" ? isoFromLocalInput(schedDraft ?? "") : null;
+    if (schedKindDraft === "once" && !onceAt) {
+      setActionErr("Pick a valid date and time.");
+      return;
+    }
+    const schedule = schedKindDraft === "once"
+      ? {
+          kind: "once", action: schedActionDraft, at: onceAt, timezone: schedTimezoneDraft,
+          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
+        }
+      : {
+          kind: "cron", action: schedActionDraft, cron: schedCronDraft.trim(), timezone: schedTimezoneDraft,
+          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
+        };
     setSavingSched(true);
-    await patchCard(iso ? { scheduledFor: iso, scheduleAction: action } : { scheduledFor: null });
+    const saved = await patchCard({ schedule });
     setSavingSched(false);
-    setSchedDraft(null);
+    if (saved) setSchedDraft(null);
+  }
+
+  async function clearSchedule() {
+    setSavingSched(true);
+    const saved = await patchCard({ schedule: null });
+    setSavingSched(false);
+    if (saved) setSchedDraft(null);
+  }
+
+  async function snoozeSchedule(until: string, action: "notify" | "run") {
+    if (!detail) return;
+    setSavingSched(true);
+    setActionErr(null);
+    try {
+      const next = await api.snooze(detail.card.id, { until, action });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      onChanged();
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingSched(false);
+    }
+  }
+
+  async function toggleSchedule(card: CardSummary) {
+    if (!card.schedule) return;
+    setSavingSched(true);
+    await patchCard({ schedule: { ...card.schedule, enabled: !card.schedule.enabled } });
+    setSavingSched(false);
+  }
+
+  async function runScheduledNow(card: CardSummary) {
+    setSavingSched(true);
+    setActionErr(null);
+    try {
+      const result = await api.runScheduleNow(card.id);
+      await api.card(cardId).then((d) => setDetail(d));
+      onChanged();
+      setActionErr(result.occurrence ? `Created occurrence ${result.card.id}.` : "Released the one-time schedule to run now.");
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingSched(false);
+    }
   }
 
   async function uploadFiles(files: File[]) {
@@ -2152,6 +2568,15 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
   // The description body without the ClaudeChat attachment block (which renders in
   // its own Attachments section below).
   const descBody = card.description ? stripAttachmentBlock(card.description) : "";
+  const claimActive = card.dispatch?.state === "claimed" || card.dispatch?.state === "running" || card.dispatch?.state === "cancelling";
+  const selectedMachine = placementDraft === "host"
+    ? machines?.machines.find((machine) => machine.isHost)
+    : machines?.machines.find((machine) => machine.name === placementDraft);
+  const placementProjectReady = placementDraft === "host" || (card.project ? detailLoadoutReady === true : card.scope === "personal");
+  const placementRuntime = routeRuntimeRequirement(card.expectedRoute) || machines?.defaultRuntime || null;
+  const placementReady = placementDraft === "host" || Boolean(
+    machineSupportsRuntime(selectedMachine, placementRuntime) && placementProjectReady
+  );
   return (
     <Sheet title={card.title} onClose={onClose} size="mid">
       {/* In-place title edit (Trello-style). Locked on an engine-owned card. */}
@@ -2275,6 +2700,67 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
           {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
         </div>
       )}
+      <div className="detail-desc placement-control">
+        <div className="dd-title">Execution location</div>
+        <p className="muted routing-help">
+          Placement chooses the machine; runtime and model remain controlled by Run routing. Project work is claimed only after its Loadout and vault requirements validate.
+        </p>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            aria-label="Execution location"
+            value={placementDraft}
+            disabled={claimActive || savingPlacement}
+            onChange={(event) => setPlacementDraft(event.target.value)}
+          >
+            <option value="host">This machine (Garrison host)</option>
+            {(machines?.machines ?? []).filter((machine) => !machine.isHost).map((machine) => (
+              <option
+                key={machine.name}
+                value={machine.name}
+                disabled={!machineSupportsRuntime(machine, placementRuntime)}
+              >
+                {machine.label} — bridge {machine.bridge ?? (machine.connected ? "connected" : "offline")} · worker {machine.worker?.state ?? "offline"}{placementRuntime && !machineSupportsRuntime(machine, placementRuntime) ? ` · needs ${placementRuntime.key}` : ""}
+              </option>
+            ))}
+          </select>
+          {!parked && (
+            <button className="btn small" disabled={claimActive || savingPlacement || !placementReady} onClick={() => void savePlacement()}>
+              {savingPlacement ? "Saving…" : "Save location"}
+            </button>
+          )}
+          {parked && (
+            <>
+              <button className="btn small primary" disabled={claimActive || savingPlacement || !placementReady} onClick={() => void savePlacement(placementDraft, true)}>
+                {savingPlacement ? "Starting…" : placementDraft === (card.placement?.target || "host") ? "Retry here" : "Choose this location & retry"}
+              </button>
+              {placementDraft !== "host" && (
+                <button className="btn small" disabled={claimActive || savingPlacement} onClick={() => void savePlacement("host", true)}>
+                  Run on host
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        {claimActive ? (
+          <div className="spec-note">Claimed by {card.dispatch?.machine || card.placement?.target}; use Stop &amp; reroute in Watch before changing placement.</div>
+        ) : placementDraft !== "host" && selectedMachine ? (
+          <div className="spec-note">
+            {selectedMachine.worker?.detail || `Worker ${selectedMachine.worker?.state ?? "offline"}`}
+            {selectedMachine.worker?.error ? ` — ${selectedMachine.worker.error}` : ""}
+          </div>
+        ) : null}
+        {placementDraft !== "host" && !card.project && card.scope !== "personal" && (
+          <div className="loadout-panel blocked" role="status">
+            <div className="loadout-head"><b>Project Loadout</b><span className="chip alarm">blocked</span></div>
+            <p>Assign the project before choosing an Outpost. Project inference cannot substitute for a pre-placement Loadout check.</p>
+          </div>
+        )}
+        <LoadoutPanel
+          project={card.project || ""}
+          active={placementDraft !== "host" && Boolean(card.project)}
+          onReady={setDetailLoadoutReady}
+        />
+      </div>
       {!lockedCard && !running && routingDraft !== null && (
         <div className="detail-desc routing-recovery">
           <div className="dd-title">Run routing</div>
@@ -2348,53 +2834,146 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
         </div>
       )}
 
-      {/* SCHEDULE - hold the card until an instant, then notify (tell Gary to
-          run/snooze) or run automatically. Benign patch: editable even on an
-          engine-owned card; refused only while running. */}
+      {/* SCHEDULE — one-time hold or recurring template. The fixed Scheduled
+          column owns placement; targetList is where an occurrence/release goes. */}
       <div className="detail-desc sched-block">
         <div className="dd-title">Schedule</div>
-        {card.scheduledFor && schedDraft === null && (
+        {(card.schedule || card.scheduledFor) && schedDraft === null && (
           <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span className={`chip sched${scheduleDue(card) ? " due" : ""}`}>
-              <ClockIcon /> {fmtSchedule(card.scheduledFor)}{card.scheduleAction === "run" ? " · auto-run" : " · notify"}
+              <ClockIcon /> {scheduleChip(card)}{card.scheduleAction === "run" ? " · auto-run" : " · notify"}
             </span>
+            {card.schedule?.kind === "cron" && <span className="chip muted">{card.schedule.cron} · {card.schedule.timezone}</span>}
+            {card.schedule?.targetList && <span className="chip muted">to {card.schedule.targetList}</span>}
+            {card.schedule?.cutoverPending && (
+              <span className="chip attn" title="Verify with Run now, remove the legacy scheduler job, then rerun Kanban setup">
+                legacy cutover pending
+              </span>
+            )}
+            {card.schedule?.lastAt && <span className="chip muted" title={card.schedule.lastAt}>last {fmtSchedule(card.schedule.lastAt)}</span>}
             {card.scheduleNotifiedAt && <span className="chip muted" title={card.scheduleNotifiedAt}>reminder sent</span>}
-            <button className="btn small" disabled={running || savingSched} onClick={() => { setSchedDraft(localInputFromIso(card.scheduledFor)); setSchedActionDraft(card.scheduleAction === "run" ? "run" : "notify"); }}>
+            <button className="btn small" disabled={running || savingSched} onClick={() => beginScheduleEdit(card)}>
               Change
             </button>
-            <button className="btn small" disabled={running || savingSched} title="push the schedule out one hour" onClick={() => void setSchedule(new Date(Date.now() + 3600_000).toISOString(), card.scheduleAction === "run" ? "run" : "notify")}>
+            {card.schedule?.kind === "cron" && (
+              <button
+                className="btn small"
+                disabled={running || savingSched || card.schedule.cutoverPending === true}
+                title={card.schedule.cutoverPending ? "Run now to verify; recurring activation happens after the legacy job is removed" : undefined}
+                onClick={() => void toggleSchedule(card)}
+              >
+                {card.schedule.enabled ? "Pause" : "Resume"}
+              </button>
+            )}
+            <button className="btn small primary" disabled={running || savingSched} onClick={() => void runScheduledNow(card)}>
+              Run now
+            </button>
+            <button className="btn small" disabled={running || savingSched} title="defer the next occurrence/release one hour" onClick={() => void snoozeSchedule(new Date(Date.now() + 3600_000).toISOString(), card.scheduleAction === "run" ? "run" : "notify")}>
               +1h
             </button>
-            <button className="btn small" disabled={running || savingSched} title="snooze until tomorrow 09:00" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); void setSchedule(d.toISOString(), card.scheduleAction === "run" ? "run" : "notify"); }}>
+            <button className="btn small" disabled={running || savingSched} title="defer the next occurrence/release until tomorrow 09:00" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); void snoozeSchedule(d.toISOString(), card.scheduleAction === "run" ? "run" : "notify"); }}>
               Tomorrow 9
             </button>
-            <button className="btn small" disabled={running || savingSched} onClick={() => void setSchedule(null, "notify")}>
+            <button className="btn small" disabled={running || savingSched} onClick={() => void clearSchedule()}>
               Clear
             </button>
           </div>
         )}
-        {!card.scheduledFor && schedDraft === null && (
+        {!card.schedule && !card.scheduledFor && schedDraft === null && (
           <div className="row" style={{ gap: 8 }}>
-            <button className="btn small" disabled={running} title={running ? "the card is running" : "hold this card until a date/time"} onClick={() => { setSchedDraft(""); setSchedActionDraft("notify"); }}>
+            <button className="btn small" disabled={running} title={running ? "the card is running" : "hold or repeat this card on a schedule"} onClick={() => beginScheduleEdit(card)}>
               <ClockIcon /> Set a schedule
             </button>
           </div>
         )}
         {schedDraft !== null && (
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <input type="datetime-local" value={schedDraft} onChange={(e) => setSchedDraft(e.target.value)} />
+          <div className="sched-editor">
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <select aria-label="Schedule kind" value={schedKindDraft} onChange={(e) => setSchedKindDraft(e.target.value === "cron" ? "cron" : "once")}>
+              <option value="once">one time</option>
+              <option value="cron">recurring</option>
+            </select>
+            {schedKindDraft === "once" ? (
+              <input aria-label="Scheduled time" type="datetime-local" value={schedDraft} onChange={(e) => setSchedDraft(e.target.value)} />
+            ) : (
+              <input aria-label="Five-field cron" type="text" value={schedCronDraft} placeholder="0 8 * * 1-5" onChange={(e) => setSchedCronDraft(e.target.value)} />
+            )}
             <select value={schedActionDraft} onChange={(e) => setSchedActionDraft(e.target.value === "run" ? "run" : "notify")}>
               <option value="notify">notify me (tell Gary to run/snooze)</option>
               <option value="run">run automatically</option>
             </select>
+            <input aria-label="Schedule timezone" type="text" value={schedTimezoneDraft} onChange={(e) => setSchedTimezoneDraft(e.target.value)} />
+            <select aria-label="Schedule target list" value={schedTargetDraft} onChange={(e) => setSchedTargetDraft(e.target.value)}>
+              {(board?.lists ?? []).filter((list) => list.kind === "manual" && !list.terminal).map((list) => (
+                <option key={list.id} value={list.id}>then move to {list.title}</option>
+              ))}
+            </select>
             <button
               className="btn small primary"
-              disabled={savingSched || !schedDraft || !isoFromLocalInput(schedDraft)}
-              onClick={() => { const iso = isoFromLocalInput(schedDraft); if (iso) void setSchedule(iso, schedActionDraft); }}
+              disabled={savingSched || (schedKindDraft === "once" ? !schedDraft || !isoFromLocalInput(schedDraft) : !schedCronDraft.trim())}
+              onClick={() => void saveScheduleDraft(card)}
             >
               {savingSched ? "Saving…" : "Set"}
             </button>
             <button className="btn small" onClick={() => setSchedDraft(null)}>Cancel</button>
+            </div>
+            {schedKindDraft === "cron" && (
+              <div className="sched-presets">
+                <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 8 * * *")}>Daily 08:00</button>
+                <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 8 * * 1-5")}>Weekdays 08:00</button>
+                <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 9 * * 1")}>Mondays 09:00</button>
+                <span className="muted">minute · hour · day · month · weekday</span>
+              </div>
+            )}
+          </div>
+        )}
+        {card.schedule?.lastError && <div className="dispatch-err">Schedule degraded: {card.schedule.lastError}</div>}
+        {card.scheduleTemplateId && (
+          <div className="muted schedule-link">
+            Occurrence of template{" "}
+            <a
+              className="schedule-card-ref"
+              href={scheduleCardHref(card.scheduleTemplateId)}
+              onClick={(event) => {
+                if (!onOpenCard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onOpenCard(card.scheduleTemplateId!);
+              }}
+            >
+              {board?.cards.find((candidate) => candidate.id === card.scheduleTemplateId)?.title ?? card.scheduleTemplateId}
+            </a>{" "}
+            at {card.occurrenceAt ? fmtSchedule(card.occurrenceAt) : "an unsupplied instant"}.
+          </div>
+        )}
+        {card.schedule?.kind === "cron" && (
+          <div className="schedule-link schedule-occurrences">
+            <span className="muted">Occurrences:</span>{" "}
+            {occurrenceCards.length === 0 ? (
+              <span className="muted">none yet</span>
+            ) : occurrenceCards.map((occurrence, index) => (
+              <span key={occurrence.id}>
+                {index > 0 && " · "}
+                <a
+                  className="schedule-card-ref"
+                  href={scheduleCardHref(occurrence.id)}
+                  onClick={(event) => {
+                    if (!onOpenCard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    onOpenCard(occurrence.id);
+                  }}
+                  title={occurrence.occurrenceAt ?? occurrence.created ?? undefined}
+                >
+                  {fmtSchedule(occurrence.occurrenceAt ?? occurrence.created) || occurrence.title}
+                </a>
+              </span>
+            ))}
+          </div>
+        )}
+        {card.morningBriefDelivery && (
+          <div className="morning-delivery" aria-label="Morning briefing delivery status">
+            <span className={`chip ${card.morningBriefDelivery.web?.status === "delivered" ? "ok" : "attn"}`}>Web: {card.morningBriefDelivery.web?.status ?? "pending"}</span>
+            <span className={`chip ${card.morningBriefDelivery.omi?.status === "delivered" ? "ok" : "attn"}`}>Omi: {card.morningBriefDelivery.omi?.status ?? "pending"}</span>
+            <span className={`chip ${card.morningBriefDelivery.calendar?.status === "reported" ? "ok" : "attn"}`}>Calendar: {card.morningBriefDelivery.calendar?.status ?? "pending"}</span>
           </div>
         )}
       </div>
@@ -2681,10 +3260,43 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal }:
 // renderer as Web Channel (grouped turns, live tool progress, screenshot modal,
 // related tasks and retry). This wrapper only supplies card-scoped stream URLs
 // and the historical/live session picker.
-function SessionViewer({ cardId, sessionIds, live }: { cardId: string; sessionIds: string[]; live: boolean }) {
+function SessionViewer({
+  cardId,
+  sessionIds,
+  live,
+  dispatch,
+  dispatchRuns
+}: {
+  cardId: string;
+  sessionIds: string[];
+  live: boolean;
+  dispatch: CardSummary["dispatch"];
+  dispatchRuns: NonNullable<CardSummary["dispatchRuns"]>;
+}) {
+  const recordedRunIds = new Set(dispatchRuns.map((run) => run.runId));
+  const remoteEntries = dispatchRuns.map((run, index) => ({
+    key: `outpost-${run.runId}`,
+    label: `Outpost ${index + 1}${run.phase ? ` · ${run.phase}` : ""}${run.machine ? ` · ${run.machine}` : ""}`,
+    url: `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(run.runId)}`,
+    live: false
+  }));
+  if (dispatch?.runId && !recordedRunIds.has(dispatch.runId)) {
+    const dispatchLive = live && ["claimed", "running", "cancelling"].includes(dispatch.state);
+    remoteEntries.push({
+      key: `outpost-${dispatch.runId}`,
+      label: dispatchLive ? "Live · Outpost" : `Outpost run${dispatch.phase ? ` · ${dispatch.phase}` : ""}`,
+      url: dispatchLive
+        ? `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`
+        : `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(dispatch.runId)}`,
+      live: dispatchLive
+    });
+  }
   const entries = [
     ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Session ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
-    ...(live ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }] : [])
+    ...remoteEntries,
+    ...(!dispatch?.runId && live
+      ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }]
+      : [])
   ];
   const count = entries.length;
   const [selected, setSelected] = useState<number>(count > 0 ? count - 1 : 0);
@@ -2779,7 +3391,7 @@ function TerminalModal({ card, onClose }: { card: CardSummary; onClose: () => vo
 // The Log tab renders the operative's rich session transcript(s); the Raw tab
 // keeps the card's phase log over SSE (the fallback for cards with no session
 // yet). The live operative TERMINAL moved to its own Terminal modal. The
-// interactive Discuss list does NOT use this — it opens a James-mode session.
+// Interactive Discuss uses its duty-pinned conversation instead.
 function WatchSheet({
   card,
   onClose,
@@ -2791,7 +3403,8 @@ function WatchSheet({
   onChanged: () => void;
   onReviewRouting: () => void;
 }) {
-  const hasSession = card.status === "running" || (card.sessionIds?.length ?? 0) > 0;
+  const hasRemoteReplay = Boolean(card.dispatch?.runId || card.dispatchRuns?.length);
+  const hasSession = card.status === "running" || hasRemoteReplay || (card.sessionIds?.length ?? 0) > 0;
   // Default to the rich Log (session transcript) when the card has a session;
   // otherwise the Raw phase log. The live operative TERMINAL moved to its own
   // Terminal modal.
@@ -2803,10 +3416,13 @@ function WatchSheet({
   const [panicResult, setPanicResult] = useState<{ message: string; affectedCardIds: string[] } | null>(null);
   const [panicError, setPanicError] = useState<string | null>(null);
   const scrRef = useRef<HTMLDivElement | null>(null);
+  const remoteRun = (card.placement?.target || "host") !== "host" &&
+    ["claimed", "running", "cancelling"].includes(card.dispatch?.state || "");
 
   async function panic() {
-    if (!window.confirm(
-      "Stop this card's active agent turn? Partial output will be kept but ignored, and the card will park in Needs attention. If this is a shared batch, every card in that runtime turn will stop."
+    if (!window.confirm(remoteRun
+      ? "Request that the Outpost stop this remote process group? The card stays locked until the worker confirms cancellation; then its partial evidence is preserved and it returns to Needs attention."
+      : "Stop this card's active agent turn? Partial output will be kept but ignored, and the card will park in Needs attention. If this is a shared batch, every card in that runtime turn will stop."
     )) return;
     setPanicking(true);
     setPanicError(null);
@@ -2867,10 +3483,10 @@ function WatchSheet({
         <div className="panic-bar">
           <div>
             <b>Need to stop this run?</b>
-            <span> Panic interrupts only the active turn proven to contain this card.</span>
+            <span>{remoteRun ? " Stop & reroute asks the worker to stop its process group. The claim stays locked until the worker acknowledges cancellation, and partial evidence is preserved." : " Panic interrupts only the active turn proven to contain this card."}</span>
           </div>
           <button className="btn danger small" disabled={panicking} onClick={() => void panic()}>
-            {panicking ? "Stopping…" : "Panic"}
+            {panicking ? "Stopping…" : remoteRun ? "Stop & reroute" : "Panic"}
           </button>
         </div>
       )}
@@ -2880,7 +3496,7 @@ function WatchSheet({
           <button className="btn small" onClick={onReviewRouting}>Review routing &amp; retry</button>
         </div>
       )}
-      {panicError && <div className="dispatch-err panic-error">Panic did not stop anything: {panicError}</div>}
+      {panicError && <div className="dispatch-err panic-error">{remoteRun ? "Stop & reroute" : "Panic"} did not stop anything: {panicError}</div>}
       <div className="watch">
         <div className="wbar">
           <span className="wtabs">
@@ -2901,6 +3517,8 @@ function WatchSheet({
             cardId={card.id}
             sessionIds={card.sessionIds ?? []}
             live={card.status === "running" && live !== false && !done}
+            dispatch={card.dispatch}
+            dispatchRuns={card.dispatchRuns ?? []}
           />
         ) : (
           <div className="wscr" ref={scrRef}>
@@ -3274,7 +3892,7 @@ function Sheet({ title, onClose, children, size = "default" }: { title: string; 
 
 // ── app ─────────────────────────────────────────────────────────────────────
 type Overlay =
-  | { kind: "new" }
+  | { kind: "new"; placement?: string }
   | { kind: "move"; card: CardSummary }
   | { kind: "detail"; cardId: string }
   | { kind: "watch"; card: CardSummary }
@@ -3284,6 +3902,16 @@ type Overlay =
   | { kind: "addlist" }
   | { kind: "import" }
   | null;
+
+function initialOverlayFromLocation(): Overlay {
+  if (typeof window === "undefined") return null;
+  const query = new URLSearchParams(window.location.search);
+  const cardId = (query.get("card") || "").trim();
+  if (cardId) return { kind: "detail", cardId };
+  if (query.get("new") !== "1") return null;
+  const placement = (query.get("placement") || "").trim();
+  return { kind: "new", ...(placement ? { placement } : {}) };
+}
 
 // ── add-list sheet ──────────────────────────────────────────────────────────
 // A new column IS a new composition-local duty: the sheet says so plainly and
@@ -3316,7 +3944,7 @@ function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
       </div>
       <div className="field">
         <label htmlFor="al-desc">When should the operative pick this list? <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
-        <textarea id="al-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="describes the new duty so the Dispatcher can route work to it" />
+        <textarea id="al-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="describes the new duty so Orchestrator routing inference can route work to it" />
       </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
         Creating a list creates a matching duty in the composition (a new agent
@@ -3483,7 +4111,8 @@ function ImportSheet({
 function SortableCardWrap({ card, listId, children }: { card: CardSummary; listId: string; children: ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
-    data: { type: "card", card, listId }
+    data: { type: "card", card, listId },
+    disabled: listId === "scheduled"
   });
   return (
     <div
@@ -3500,7 +4129,7 @@ function SortableCardWrap({ card, listId, children }: { card: CardSummary; listI
 
 // The column body is itself a drop target so a card can land in an EMPTY list.
 function ListBodyDroppable({ listId, children }: { listId: string; children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `body:${listId}`, data: { type: "body", listId } });
+  const { setNodeRef, isOver } = useDroppable({ id: `body:${listId}`, data: { type: "body", listId }, disabled: listId === "scheduled" });
   return (
     <div ref={setNodeRef} className={`lbody${isOver ? " drop-over" : ""}`}>
       {children}
@@ -3513,7 +4142,8 @@ function ListBodyDroppable({ listId, children }: { listId: string; children: Rea
 function SortableColumn({ list, className, header, children }: { list: ListView; className: string; header: ReactNode; children: ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `col:${list.id}`,
-    data: { type: "column", listId: list.id }
+    data: { type: "column", listId: list.id },
+    disabled: list.id === "scheduled"
   });
   return (
     <section ref={setNodeRef} style={{ transform: DndCSS.Transform.toString(transform), transition }} className={`${className}${isDragging ? " drag-source" : ""}`}>
@@ -3529,7 +4159,7 @@ function App() {
   const [board, setBoard] = useState<BoardView | null>(null);
   const [runtime, setRuntime] = useState<BoardRuntime | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [overlay, setOverlay] = useState<Overlay>(initialOverlayFromLocation);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // ── drag state ────────────────────────────────────────────────────────────
@@ -3615,6 +4245,22 @@ function App() {
     }
   }
 
+  async function onRunSchedule(card: CardSummary) {
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      const result = await api.runScheduleNow(card.id);
+      await load();
+      setNotice(result.occurrence
+        ? `${result.created ? "Created" : "Found"} scheduled occurrence ${result.card.id.slice(-6)}`
+        : "Released the one-time schedule to run now");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
   // One-click move to a named list (Mark done → done, Archive → archived,
   // Unarchive → todo). A manual move: the server clears any parked status and
   // records the move on the card's timeline; CAS on the card's rev keeps it from
@@ -3663,7 +4309,7 @@ function App() {
     }
   }
 
-  // Open a James-mode Discuss session seeded with this card. buildDiscussUrl carries
+  // Open a Discuss-duty conversation seeded with this card. buildDiscussUrl carries
   // the card context + an auto-sent kickoff (analyse the description, ask questions,
   // write the brief). Crossing fittings: the board runs embedded (/embed/kanban-loop),
   // so when embedded we ask the Garrison shell to swap the embedded view (its
@@ -3768,7 +4414,11 @@ function App() {
         return { ...l, cards: ids.map((id) => cardById.get(id)).filter(Boolean) as CardSummary[] };
       });
     }
-    return lists;
+    return [...lists].sort((a, b) => {
+      if (a.id === "scheduled") return -1;
+      if (b.id === "scheduled") return 1;
+      return 0;
+    });
   }, [board, colOrderOverride, cardOrderOverride, cardById]);
 
   // A card on an autonomous agent list is engine-owned: it may REORDER inside
@@ -3962,17 +4612,21 @@ function App() {
                       <div className="lname">
                         <span className="lname-text">{list.title}</span>
                         <span className="count">{list.cards.length}</span>
-                        <button
-                          className="gear"
-                          title={`Configure ${list.title}`}
-                          aria-label={`Configure ${list.title}`}
-                          onClick={() => setOverlay({ kind: "config", listId: list.id })}
-                        >
-                          <GearIcon />
-                        </button>
+                        {!list.system && (
+                          <button
+                            className="gear"
+                            title={`Configure ${list.title}`}
+                            aria-label={`Configure ${list.title}`}
+                            onClick={() => setOverlay({ kind: "config", listId: list.id })}
+                          >
+                            <GearIcon />
+                          </button>
+                        )}
                       </div>
                       <div className="lkind">
-                        {list.kind === "agent" && !list.interactive ? (
+                        {list.id === "scheduled" ? (
+                          "system · schedules"
+                        ) : list.kind === "agent" && !list.interactive ? (
                           <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
                             phase: {list.phase ?? list.id}
                           </span>
@@ -3997,7 +4651,9 @@ function App() {
                         onCreated={() => void load()}
                       />
                     )}
-                    {list.cards.length === 0 && !canAddCardDirectly(list.id) && <div className="lempty">empty</div>}
+                    {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
+                      <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
+                    )}
                     {(() => {
                       const renderCard = (card: CardSummary, sortable = true) => {
                         const inner = (
@@ -4025,6 +4681,7 @@ function App() {
                             onContinue={onContinue}
                             onDrill={onDrill}
                             onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                            onRunSchedule={onRunSchedule}
                             dragJustEnded={dragJustEndedRef}
                           />
                         );
@@ -4084,19 +4741,21 @@ function App() {
       </div>
 
       {overlay?.kind === "new" && (
-        <NewCardSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
+        <NewCardSheet board={board} initialPlacement={overlay.placement} onClose={() => setOverlay(null)} onCreated={() => void load()} />
       )}
       {overlay?.kind === "move" && board && (
         <MoveSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onMoved={() => void load()} />
       )}
       {overlay?.kind === "detail" && (
         <DetailSheet
+          key={overlay.cardId}
           cardId={overlay.cardId}
           board={board}
           onClose={() => setOverlay(null)}
           onChanged={() => void load()}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
           onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+          onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
         />
       )}
       {overlay?.kind === "watch" && (

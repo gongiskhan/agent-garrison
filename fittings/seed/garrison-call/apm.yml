@@ -20,8 +20,8 @@ x-garrison:
   # an agentic target). Declaring kind:runtime would wrongly make it primary-/
   # cell-selectable. `automation-runner` is the scheduler/improver trigger kind, not
   # this. So per the "add no kind speculatively" rule it provides nothing and
-  # consumers invoke scripts/call.mjs by name (the Dispatcher duty cell + the
-  # probe-question repoint reference it as a call target, outside the capability graph).
+  # consumers invoke scripts/call.mjs by name as an explicit structured-call
+  # target outside the capability graph.
   component_shape: script
   ui:
     views:

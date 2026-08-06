@@ -48,8 +48,7 @@ function writeFixture(): void {
         selected_duties: ["develop"],
         targets: [{ id: "cc-sonnet", runtime: "claude-code", model: "sonnet" }],
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }
@@ -61,7 +60,6 @@ function writeFixture(): void {
     path.join(FIXTURE_DIR, ".garrison", "prompts", "orchestrator.md"),
     "authored orchestrator prompt\n"
   );
-  fs.writeFileSync(path.join(FIXTURE_DIR, ".garrison", "prompts", "soul.md"), "authored soul\n");
   fs.writeFileSync(
     path.join(FIXTURE_DIR, ".garrison", "routing.json"),
     `${JSON.stringify({ policyVersion: 2, primaryRuntime: "codex-runtime" }, null, 2)}\n`
@@ -148,7 +146,6 @@ test("(b) the downloaded bundle carries the authored files and no secret", async
   const paths = (bundle.files as Array<{ path: string }>).map((f) => f.path).sort();
   expect(paths).toEqual([
     ".garrison/prompts/orchestrator.md",
-    ".garrison/prompts/soul.md",
     ".garrison/routing.json",
     "profile.md"
   ]);

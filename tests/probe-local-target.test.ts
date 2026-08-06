@@ -3,17 +3,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// WS7 hard constraint: the Improver Probe's question-generation target must be
-// the LOCAL non-Anthropic model. This test compiles the composition routing
-// config the same way the runner does and asserts the probe-question cell
-// resolves to a local (ollama) agent-sdk target — never an Anthropic endpoint.
+// The Improver Probe follows the active Anthropic-only Orchestrator seed. This
+// compiles the config the same way the runner does and guards against a stale
+// local-daemon target being reintroduced.
 const REPO = path.resolve(__dirname, "..");
 const ROUTING_CORE = path.join(REPO, "fittings/seed/orchestrator/lib/routing-core.mjs");
 const PROBE_CORE = path.join(REPO, "fittings/seed/improver/lib/probe-core.mjs");
 const COMP_ROUTING = path.join(REPO, "fittings/seed/orchestrator/config/routing.seed.json");
 
-describe("probe-question routes to the LOCAL model (never Anthropic) — WS7", () => {
-  it("the seed routing config seeds a probe-question row → an ollama-local agent-sdk target", async () => {
+describe("probe-question routes to subscription Haiku", () => {
+  it("the seed routing config seeds a probe-question row → an Anthropic agent-sdk target", async () => {
     const core = await import(pathToFileURL(ROUTING_CORE).href);
     const cfg = JSON.parse(readFileSync(COMP_ROUTING, "utf8"));
     expect(cfg.taskTypes).toContain("probe-question");
@@ -27,32 +26,24 @@ describe("probe-question routes to the LOCAL model (never Anthropic) — WS7", (
     expect(row, "compiled policy must carry a probe-question row").toBeTruthy();
     const cell = row[Object.keys(row)[0]];
     expect(cell.runtime).toBe("agent-sdk");
-    expect(cell.provider).toBe("ollama-local");
-    // the constraint: never an Anthropic endpoint for probe questions
-    expect(cell.provider).not.toBe("anthropic");
-    expect(cell.targetId).toBeTruthy();
+    expect(cell.provider).toBe("anthropic");
+    expect(cell.model).toBe("claude-haiku-4-5");
+    expect(cell.targetId).toBe("agent-sdk-haiku-fast");
   });
 
-  it("resolveProbeTarget resolves the local target from the compiled policy (probe is not dead)", async () => {
+  it("resolveProbeTarget resolves the active target from the compiled policy (probe is not dead)", async () => {
     const core = await import(pathToFileURL(ROUTING_CORE).href);
     const pc = await import(pathToFileURL(PROBE_CORE).href);
     const cfg = JSON.parse(readFileSync(COMP_ROUTING, "utf8"));
     const policy = core.compilePolicy(cfg, cfg.activeProfile ?? null);
     const t = pc.resolveProbeTarget(policy);
-    expect(t.provider).toBe("ollama-local");
-    expect(t.provider).not.toBe("anthropic");
+    expect(t.provider).toBe("anthropic");
     expect(t.runtime).toBe("agent-sdk");
+    expect(t.targetId).toBe("agent-sdk-haiku-fast");
   });
 
-  it("ollama-local resolves to a LOOPBACK base URL and never a remote/Anthropic host (the default-deny fence)", async () => {
-    const providers = await import(pathToFileURL(path.join(REPO, "fittings/seed/agent-sdk-runtime/lib/providers.mjs")).href);
-    const spec = providers.SDK_PROVIDERS["ollama-local"];
-    // The real fence invariant: the probe host is loopback (localhost === 127.0.0.1)
-    // and is NEVER a remote endpoint — so probe questions can only reach the local
-    // ollama, never Anthropic (or any other off-box host).
-    const url = new URL(spec.baseUrl);
-    expect(["localhost", "127.0.0.1", "[::1]"]).toContain(url.hostname);
-    expect(url.hostname).not.toMatch(/anthropic|\.com$|\.ai$|\.io$/);
-    expect(url.protocol).toBe("http:"); // plain local http, not a TLS remote
+  it("the shipped policy retains no Ollama provider or Qwen target", () => {
+    const raw = readFileSync(COMP_ROUTING, "utf8");
+    expect(raw).not.toMatch(/ollama|qwen/i);
   });
 });

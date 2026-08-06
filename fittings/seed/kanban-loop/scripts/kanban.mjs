@@ -13,13 +13,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
+import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
+import { normaliseCardSchedule } from "../lib/schedules.mjs";
 import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
+import { MORNING_BRIEF_SYSTEM_KEY, reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
 import {
@@ -82,8 +84,12 @@ export { migrateBoard } from "../lib/board.mjs";
 
 export function seedBoard() {
   return {
-    version: 4,
+    version: 5,
     lists: [
+      {
+        id: "scheduled", title: "Scheduled", order: -1, userOrder: -1,
+        kind: "scheduled", trigger: "scheduler-beat", system: true, validNext: []
+      },
       {
         id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual",
         // On entry: infer the title eagerly; apply the project only at >=70% confidence,
@@ -197,6 +203,186 @@ export function seedBoard() {
     ],
     projects: {}
   };
+}
+
+// Move the legacy scheduledFor/scheduleAction shape into the v5 Scheduled
+// column. The aliases remain on every card for older clients, but the schedule
+// object becomes authoritative. Already-delivered reminders are converted to a
+// completed one-shot and never sent again.
+export async function migrateLegacyCardSchedules(root, board) {
+  const cards = await loadAllCards(root);
+  const migrated = [];
+  for (const card of cards) {
+    if (card.schedule || !card.scheduledFor) continue;
+    const schedule = normaliseCardSchedule(null, {
+      scheduledFor: card.scheduledFor,
+      scheduleAction: card.scheduleAction,
+      targetList: card.list,
+      now: card.created ?? new Date().toISOString()
+    });
+    if (!schedule) continue;
+    const reminderAlreadySent = Boolean(card.scheduleNotifiedAt);
+    const updated = await updateCardCAS(root, card.id, (current) => {
+      if (current.schedule || current.scheduledFor !== card.scheduledFor) return null;
+      if (reminderAlreadySent) {
+        return {
+          ...current,
+          schedule: { ...schedule, enabled: false, lastAt: schedule.nextAt, nextAt: null },
+          scheduledFor: null,
+          scheduleAction: null
+        };
+      }
+      return {
+        ...current,
+        list: getList(board, "scheduled") ? "scheduled" : current.list,
+        schedule,
+        scheduledFor: schedule.nextAt,
+        scheduleAction: schedule.action
+      };
+    });
+    if (updated) migrated.push(card.id);
+  }
+  return migrated;
+}
+
+async function legacyMorningBriefJob(root) {
+  const file = process.env.GARRISON_SCHEDULER_JOBS || path.join(path.dirname(root), "scheduler-jobs.json");
+  try {
+    const jobs = JSON.parse(await fs.readFile(file, "utf8"));
+    if (!Array.isArray(jobs)) {
+      return { state: "unreadable", file, error: "scheduler jobs registry is not an array" };
+    }
+    const job = jobs.find((entry) => entry?.id === "morning-briefing") ?? null;
+    return job ? { state: "present", file, job } : { state: "absent", file, job: null };
+  } catch (error) {
+    // Match the scheduler daemon's own contract: a registry that has never
+    // existed is an empty registry, not a read failure. The daemon reloads the
+    // file on every tick, so there is no in-memory legacy job hiding behind
+    // ENOENT. Other I/O and parse failures remain uncertain and fail closed.
+    if (error?.code === "ENOENT") return { state: "absent", file, job: null };
+    // Apart from the scheduler-defined ENOENT-as-empty case above, absence is a
+    // positive cutover signal only when the registry itself was read and parsed
+    // successfully. Corrupt JSON and permission/I/O failures are operational
+    // uncertainty: treating them as "job removed" can run the old raw job and
+    // the new Scheduled template at the same time.
+    return {
+      state: "unreadable",
+      file,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Seed the replacement while the legacy job is still live, but PAUSED. This lets
+// the operator inspect it and exercise Run now before cutover without creating a
+// second regular delivery. The first setup after the raw job is removed enables
+// it according to the legacy job's recorded enabled state.
+export async function ensureMorningBriefTemplate(root, board, { force = false, now = new Date().toISOString() } = {}) {
+  const cards = await loadAllCards(root);
+  const existing = cards.find((card) => card.systemKey === MORNING_BRIEF_SYSTEM_KEY);
+  const legacyState = await legacyMorningBriefJob(root);
+  const legacy = legacyState.state === "present" ? legacyState.job : null;
+  if (existing) {
+    if (legacyState.state === "absent" && existing.schedule?.cutoverPending) {
+      const desiredEnabled = existing.schedule.desiredEnabled !== false;
+      const verification = existing.schedule.runNowVerification;
+      const verifiedOccurrence = verification && cards.find((card) =>
+        card.id === verification.occurrenceId &&
+        card.scheduleTemplateId === existing.id &&
+        (!verification.occurrenceKey || card.occurrenceKey === verification.occurrenceKey)
+      );
+      // Removing the legacy job is not itself proof that the replacement
+      // works. An enabled cadence stays paused until Run now has successfully
+      // materialised an occurrence and persisted a receipt on this template.
+      if (desiredEnabled && !verifiedOccurrence) {
+        return {
+          card: existing,
+          created: false,
+          cutoverPending: true,
+          cutoverBlocked: true,
+          skippedLegacy: false,
+          error: "Legacy Morning briefing job is absent, but activation is blocked until Run now creates a verified occurrence."
+        };
+      }
+      const schedule = normaliseCardSchedule({
+        ...existing.schedule,
+        enabled: desiredEnabled,
+        nextAt: desiredEnabled ? null : existing.schedule.nextAt,
+        cutoverPending: false,
+        desiredEnabled: undefined
+      }, { targetList: existing.schedule.targetList, now });
+      const updated = await updateCardCAS(root, existing.id, (current) => ({
+        ...current,
+        schedule,
+        scheduledFor: schedule?.enabled ? schedule.nextAt : null,
+        scheduleAction: schedule?.action ?? null,
+        events: withEvent(current, {
+          at: now,
+          kind: "schedule-cutover",
+          message: desiredEnabled
+            ? `Legacy morning-briefing job removed; recurring template enabled for ${schedule?.nextAt}`
+            : "Legacy morning-briefing job removed; template preserved paused"
+        })
+      }));
+      return { card: updated ?? existing, created: false, cutover: true, skippedLegacy: false };
+    }
+    return {
+      card: existing,
+      created: false,
+      cutoverPending: Boolean(existing.schedule?.cutoverPending),
+      skippedLegacy: false,
+      ...(legacyState.state === "unreadable"
+        ? { cutoverBlocked: true, error: `Cannot verify legacy Morning briefing job state: ${legacyState.error}` }
+        : {})
+    };
+  }
+  if (legacyState.state === "unreadable" && !force) {
+    throw new Error(
+      `Cannot safely seed Morning briefing: scheduler registry ${legacyState.file} could not be read and parsed (${legacyState.error})`
+    );
+  }
+  const other = getList(board, "other");
+  const fallback = (board.lists || []).find((list) => list.kind === "agent" && !isInteractive(list));
+  const executionList = other?.id ?? fallback?.id ?? null;
+  const pendingCutover = Boolean(legacy && !force);
+  const desiredEnabled = legacy ? legacy.enabled !== false : true;
+  const legacyCron = typeof legacy?.cron === "string" && normaliseCardSchedule({
+    kind: "cron", action: "run", cron: legacy.cron, timezone: "Europe/Lisbon",
+    enabled: false, targetList: "todo"
+  }, { now })
+    ? legacy.cron
+    : "0 8 * * 1-5";
+  const card = await createCard(root, {
+    title: "Morning briefing",
+    description:
+      "Prepare today's morning briefing. Read today's Google Calendar events when the connector is available; " +
+      "summarise active and due Kanban work, blocked cards, and Needs attention; then recommend a concise focus for the day. " +
+      "After the actual Google connector call, write its machine-readable receipt to <runDir>/morning-briefing-evidence.json " +
+      "as {\"calendar\":{\"connector\":\"google\",\"action\":\"calendar.list_events\",\"ok\":true|false," +
+      "\"checkedAt\":\"ISO timestamp\",\"eventCount\":0,\"reason\":\"failure reason when not ok\"}}; prose is not evidence. " +
+      "Deliver the completed briefing to the stable Garrison Web thread and directly to Omi when it is available. " +
+      "Record a missing Calendar or Omi connection as a visibly degraded section/delivery result; never invent unavailable data, " +
+      "and do not duplicate the Web delivery through Omi's fallback.",
+    scope: "personal",
+    list: "scheduled",
+    origin: "scheduler",
+    origin_id: "schedule:morning-briefing",
+    duty: other ? "other" : null,
+    level: other ? 1 : null,
+    sequence: executionList ? [executionList] : null,
+    systemKey: MORNING_BRIEF_SYSTEM_KEY,
+    schedule: {
+      kind: "cron",
+      action: "run",
+      cron: legacyCron,
+      timezone: "Europe/Lisbon",
+      enabled: pendingCutover ? false : desiredEnabled,
+      ...(pendingCutover ? { cutoverPending: true, desiredEnabled } : {}),
+      targetList: "todo"
+    },
+    at: now
+  });
+  return { card, created: true, cutoverPending: pendingCutover, skippedLegacy: false, legacyEnabled: legacy?.enabled !== false };
 }
 
 // The canonical per-phase list configs (prompts, trigger, gate flags), indexed
@@ -423,6 +609,13 @@ async function setup() {
       console.log("kanban-loop: board exists at", boardFile);
     }
   }
+  const board = await loadBoard(root);
+  const legacySchedules = await migrateLegacyCardSchedules(root, board);
+  if (legacySchedules.length) console.log(`kanban-loop: migrated ${legacySchedules.length} one-shot schedule(s) into Scheduled`);
+  const morning = await ensureMorningBriefTemplate(root, board);
+  if (morning.created && morning.cutoverPending) console.log(`kanban-loop: seeded PAUSED Morning briefing template ${morning.card.id}; verify with Run now, remove the legacy job, then rerun setup to enable it`);
+  else if (morning.created) console.log(`kanban-loop: seeded recurring Morning briefing card ${morning.card.id}`);
+  else if (morning.cutover) console.log(`kanban-loop: completed Morning briefing cutover (${morning.card.id})`);
   await registerTick();
   await registerSchedulerBeats();
   await registerWeeklyReview();
@@ -444,6 +637,13 @@ async function probe() {
     process.exit(1);
   }
   console.log("KANBAN-OK");
+}
+
+async function seedMorningBrief() {
+  const root = kanbanRoot();
+  const board = await loadBoard(root);
+  const result = await ensureMorningBriefTemplate(root, board);
+  console.log(`kanban-loop: Morning briefing ${result.created ? `created (${result.card.id})` : result.cutover ? `cut over (${result.card.id})` : `already exists (${result.card.id})`}${result.cutoverPending ? " — paused pending legacy-job removal" : ""}`);
 }
 
 // Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs,
@@ -564,15 +764,35 @@ async function gatewayReachable(url) {
 // Process due IMMEDIATE agent-list cards. Skips scheduler-beat (Test runs on its own
 // beat), manual, and interactive lists.
 async function tick() {
+  const root = kanbanRoot();
   const gatewayUrl = resolveGatewayUrl();
   // Release lost runs FIRST, and do it whether or not a gateway is reachable: an
   // orphaned card is wedged regardless, and the sweep needs no operative.
-  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
+  const orphans = await sweepOrphanedRuns(root).catch(() => []);
   for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
   // Same beat, the cross-machine case: a dispatched card whose worker stopped
   // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
-  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
+  const reclaimed = await sweepExpiredDispatchClaims(root).catch(() => []);
   for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
+  // Scheduling is clock work, not model work. Create due occurrences and send
+  // reminders even while the operative is down; auto-run occurrences simply wait
+  // on their agent list until a later tick can reach the gateway.
+  const board = await loadBoard(root);
+  const due = await sweepDueSchedules(root, board).catch((error) => {
+    console.log(`kanban-loop: schedule sweep failed: ${error?.message || error}`);
+    return [];
+  });
+  for (const d of due) console.log(`kanban-loop: scheduled card ${d.id} came due → ${d.action}${d.occurrenceId ? ` (${d.occurrenceId})` : ""}`);
+  const morning = await reconcileMorningBriefDeliveries(root).catch((error) => ({
+    checked: 0,
+    completed: 0,
+    skipped: 0,
+    errors: [{ cardId: "unknown", error: String(error?.message ?? error) }]
+  }));
+  if (morning.completed) console.log(`kanban-loop: repaired ${morning.completed} Morning briefing delivery receipt(s)`);
+  for (const failure of morning.errors) {
+    console.log(`kanban-loop: Morning briefing reconciliation failed for ${failure.cardId}: ${failure.error}`);
+  }
   if (!gatewayUrl) {
     // Distinct from "the gateway is down": this instance never told the tick WHICH
     // gateway is its own, so dispatching would be a guess. Silently logging
@@ -588,18 +808,12 @@ async function tick() {
     console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (immediate cards wait for an operative).`);
     return;
   }
-  const root = kanbanRoot();
-  const board = await loadBoard(root);
   const cap = Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10);
   // Coordination (GARRISON-FLOW-V2 S1): release any waiting cards whose blocker
   // reached its release point BEFORE dispatching, then reload so released cards
   // are seen on their new list this same tick.
   const cards0 = await loadAllCards(root);
   await reevaluateWaiting({ root, board, cards: cards0 }).catch(() => {});
-  // Card scheduling: fire due reminders / auto-starts BEFORE the dispatch scan,
-  // then reload so a schedule-released card dispatches on this same tick.
-  const due = await sweepDueSchedules(root, board).catch(() => []);
-  for (const d of due) console.log(`kanban-loop: scheduled card ${d.id} came due → ${d.action}`);
   const cards = await loadAllCards(root);
   const coordCfg = coordinationConfig(loadPolicy());
   const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;
@@ -717,5 +931,6 @@ if (invokedDirectly) {
   else if (arg === "--tick") await tick();
   else if (arg === "--tick-list") await tickList(process.argv[3]);
   else if (arg === "--review") await review();
-  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id> | --review");
+  else if (arg === "--seed-morning-brief") await seedMorningBrief();
+  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id> | --review | --seed-morning-brief");
 }

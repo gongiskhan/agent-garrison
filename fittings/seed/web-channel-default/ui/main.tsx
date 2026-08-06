@@ -62,7 +62,7 @@ function extractBriefPath(ctx: unknown): string | undefined {
 }
 // claude-chat.css is concatenated into web-channel.css by ui/build.mjs.
 
-// ── Generic context/mode/thread from the URL ───────────────────────────────
+// ── Generic context/source/thread from the URL ─────────────────────────────
 function decodeContext(raw: string | null): unknown {
   if (!raw) return undefined;
   if (typeof atob === "function" && typeof btoa === "function") {
@@ -80,7 +80,7 @@ function decodeContext(raw: string | null): unknown {
 
 interface UrlState {
   context: unknown;
-  mode: string | undefined;
+  source: string | undefined;
   kickoff: string | undefined;
   thread: string | undefined;
   title: string | undefined;
@@ -113,10 +113,10 @@ function goBackToHost(): void {
 
 function readUrl(): UrlState {
   if (typeof window === "undefined") {
-    return { context: undefined, mode: undefined, kickoff: undefined, thread: undefined, title: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
+    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
   }
   const q = new URLSearchParams(window.location.search);
-  const modeRaw = q.get("mode");
+  const sourceRaw = q.get("source");
   const kickoffRaw = decodeContext(q.get("kickoff"));
   const kickoff = typeof kickoffRaw === "string" && kickoffRaw.trim() ? kickoffRaw : undefined;
   const threadRaw = decodeContext(q.get("thread"));
@@ -129,7 +129,7 @@ function readUrl(): UrlState {
   const returnLabel = typeof returnLabelRaw === "string" && returnLabelRaw.trim() ? returnLabelRaw.trim() : undefined;
   return {
     context: decodeContext(q.get("context")),
-    mode: modeRaw && modeRaw.trim() ? modeRaw.trim() : undefined,
+    source: sourceRaw && sourceRaw.trim() ? sourceRaw.trim() : undefined,
     kickoff,
     thread,
     title,
@@ -208,7 +208,7 @@ async function apiGetThread(id: string): Promise<Thread | null> {
     return d.thread ?? null;
   } catch { return null; }
 }
-async function apiEnsureThread(payload: { id?: string; title?: string; source?: string; mode?: string; context?: unknown }): Promise<Thread | null> {
+async function apiEnsureThread(payload: { id?: string; title?: string; source?: string; context?: unknown }): Promise<Thread | null> {
   try {
     const r = await fetch("/api/threads", {
       method: "POST",
@@ -524,23 +524,29 @@ function ThreadedApp({ url }: { url: UrlState }) {
         const ensured = await apiEnsureThread({
           id: url.thread,
           title: url.title,
-          source: url.mode === "james" ? "discuss" : "chat",
-          mode: url.mode,
+          source: url.source === "discuss" || Boolean(url.kickoff) ? "discuss" : "chat",
           context: url.context,
         });
         if (!alive) return;
         const id = ensured?.id ?? url.thread;
+        if (url.source === "discuss" || Boolean(url.kickoff)) {
+          await apiSetRouting(id, { duty: "discuss", level: 1 });
+        }
         await openThread(id, { kickoff: Boolean(url.kickoff) });
-      } else if (url.context !== undefined || url.mode !== undefined || url.kickoff !== undefined) {
+      } else if (url.context !== undefined || url.source !== undefined || url.kickoff !== undefined) {
         // Context-driven but no stable key → a fresh ad-hoc thread carrying it.
         const ensured = await apiEnsureThread({
           title: url.title,
-          source: url.mode === "james" ? "discuss" : "chat",
-          mode: url.mode,
+          source: url.source === "discuss" || Boolean(url.kickoff) ? "discuss" : "chat",
           context: url.context,
         });
         if (!alive) return;
-        if (ensured) await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
+        if (ensured) {
+          if (url.source === "discuss" || Boolean(url.kickoff)) {
+            await apiSetRouting(ensured.id, { duty: "discuss", level: 1 });
+          }
+          await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
+        }
       } else if (list.length > 0) {
         await openThread(list[0].id);
       } else {
@@ -630,8 +636,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
     if (!activeThread) return [] as HistoryExchange[];
     const h: HistoryExchange[] = toHistory(activeThread.messages);
     // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
-    // hide its user bubble so the transcript starts with James's question, not the prompt.
-    const isDiscuss = activeThread.mode === "james" || activeThread.source === "discuss";
+    // hide its user bubble so the transcript starts with the Discuss duty's question, not the prompt.
+    const isDiscuss = activeThread.source === "discuss";
     if (isDiscuss && h.length > 0) h[0] = { ...h[0], hideUser: true };
     return h;
   }, [activeThread]);
@@ -658,7 +664,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
     return () => { alive = false; };
   }, [briefPath]);
 
-  // After a turn settles, re-check the brief; if James just wrote or updated it, auto-open
+  // After a turn settles, re-check the brief; if the Discuss duty just wrote or updated it, auto-open
   // the editor and re-mount it so it shows the fresh content.
   const checkBriefAfterTurn = useCallback(async () => {
     if (!briefPath) return;
@@ -677,7 +683,6 @@ function ThreadedApp({ url }: { url: UrlState }) {
     } catch { /* best effort - auto-open is a convenience */ }
   }, [briefPath]);
 
-  const mode = activeThread?.mode ?? url.mode;
   const kickoff = activeId && kickoffFor === activeId ? url.kickoff : undefined;
   const refreshAfterResume = useCallback(async () => {
     if (!activeId) return;
@@ -841,7 +846,6 @@ function ThreadedApp({ url }: { url: UrlState }) {
             placeholder={narrowComposer ? "Message…" : undefined}
             composerAdornment={voiceAdornment}
             context={ctx}
-            mode={mode}
             initialMessage={kickoff}
             initialMessageHidden={Boolean(kickoff)}
             initialHistory={history}

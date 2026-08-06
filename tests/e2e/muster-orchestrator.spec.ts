@@ -41,8 +41,7 @@ function writeFixture(): void {
         selected_duties: ["develop"],
         targets: [{ id: "cc-sonnet", runtime: "claude-code", model: "sonnet" }],
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }

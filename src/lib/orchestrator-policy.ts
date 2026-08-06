@@ -46,6 +46,7 @@ export type PolicyConfig = Record<string, unknown> & {
   workKinds?: Record<string, { phasePlan?: string; description?: string }>;
   projects?: Record<string, { security_sensitive?: boolean }>;
   uxQa?: { severityThreshold?: string };
+  dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
 };
 
 interface RoutingCore {
@@ -134,7 +135,7 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
 // bindings reference seed phases (e.g. security-review), so filling one member
 // against a config's own phase list produces a config that fails its own
 // validation.
-const INDEPENDENT_SECTIONS = ["coordination", "uxQa", "projects"] as const;
+const INDEPENDENT_SECTIONS = ["dispatchInference", "coordination", "uxQa", "projects"] as const;
 const PHASE_GROUP = ["phases", "workKinds", "phasePlans", "phaseSkills", "defaultWorkKind"] as const;
 
 function sectionEmpty(value: unknown): boolean {

@@ -13,9 +13,9 @@
 // revocation, so NO machine-wide serialization lock is needed — concurrent opencode
 // processes are safe. See codex-runtime/scripts/bridge.mjs for the shared shape.
 //
-// Provider/model come from opencode's native config (~/.config/opencode/opencode.json):
-// `model` is provider/model (default a LOCAL ollama model, so delegation is bill-free
-// once the provider is configured there — see the fitting's for_consumers).
+// Provider/model come from opencode's native config (~/.config/opencode/opencode.json).
+// An explicit task or OPENCODE_MODEL override may select provider/model; otherwise
+// OpenCode uses its own configured default. Garrison never starts a local provider.
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -29,9 +29,9 @@ const DATA_DIR =
   path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison"), "opencode-runtime");
 const DECISIONS = path.join(DATA_DIR, "decisions.jsonl");
 const ARTIFACTS_DIR = path.join(DATA_DIR, "artifacts");
-const DEFAULT_MODEL = process.env.OPENCODE_MODEL || "ollama-local/qwen2.5:3b";
+const DEFAULT_MODEL = process.env.OPENCODE_MODEL || "";
 // `provider/model` — a provider slug + a model id that may itself carry colons/slashes
-// (e.g. "ollama-local/qwen2.5:3b"). The delegate model comes from the task spec, else default.
+// The delegate model comes from the task spec, then the optional environment override.
 const MODEL_ALLOWLIST = /^[a-z0-9][a-z0-9._-]*\/.+/i;
 
 function readStdin() {

@@ -386,7 +386,7 @@ export async function setCellTarget(
 
 // ── Level management (add / remove / describe) ────────────────────────────────
 // A duty's level ladder is editable: levels can be appended, removed, and have
-// their descriptions rewritten. The Dispatcher reads level DESCRIPTIONS to pick
+// their descriptions rewritten. Orchestrator routing inference reads level descriptions to pick
 // a depth, so the description is first-class here, not cosmetic. All three
 // writers materialise the duty spec into the composition (the composition file
 // wins, D8) exactly like setCellTarget, then write atomically.
@@ -417,7 +417,7 @@ function bumpedEffort(prev?: DutyEffort): DutyEffort {
 // Append a level to a duty. The new level clones the last one's shape (a leaf
 // cell keeps its skill + target with a bumped effort; a composite keeps its
 // sequence) under a placeholder description that tells the operator to write
-// the real routing criterion — the Dispatcher picks levels BY description.
+// the real routing criterion — Orchestrator routing inference picks levels by description.
 export async function addDutyLevel(
   compositionId: string | undefined,
   dutyId: string,
@@ -431,7 +431,7 @@ export async function addDutyLevel(
   const n = duty.levels.length + 1;
   const desc =
     description?.trim() ||
-    `level ${n}: deeper than level ${n - 1} - describe when the Dispatcher should pick this level`;
+    `level ${n}: deeper than level ${n - 1} - describe when Orchestrator routing inference should pick this level`;
   const next: DutyLevel = last?.cell
     ? { description: desc, cell: { ...structuredClone(last.cell), effort: bumpedEffort(last.cell.effort) } }
     : { description: desc, sequence: structuredClone(last?.sequence ?? []) };
@@ -479,7 +479,7 @@ export async function removeDutyLevel(
   return assembleMusterModel(id);
 }
 
-// Rewrite one level's description — the Dispatcher's routing criterion for
+// Rewrite one level's description — Orchestrator routing inference's criterion for
 // that depth. Autosaved from the Muster UI (debounced), never a Save button.
 export async function describeDutyLevel(
   compositionId: string | undefined,
@@ -489,7 +489,7 @@ export async function describeDutyLevel(
 ): Promise<MusterModel> {
   const id = await resolveCompositionId(compositionId);
   const desc = description.trim();
-  if (!desc) throw new Error("a level description cannot be empty - the Dispatcher routes by it");
+  if (!desc) throw new Error("a level description cannot be empty - Orchestrator routing inference uses it");
   const model = await assembleMusterModel(id);
   const duty = model.duties[dutyId];
   if (!duty) throw new Error(`unknown duty "${dutyId}"`);

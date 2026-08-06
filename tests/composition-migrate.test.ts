@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
 import { migrateCompositionV3ToV4, unifiedDiff } from "@/lib/composition-migrate";
+import { migrateLegacyRoutingOnPrimaryManifest } from "@/lib/compositions";
 
 const DUMP_OPTS = { lineWidth: 100, noRefs: true, sortKeys: false } as const;
 
@@ -165,6 +166,107 @@ describe("migrateCompositionV3ToV4", () => {
   it("throws on a file with no x-garrison.composition block", async () => {
     await fs.writeFile(path.join(dir, "apm.yml"), yaml.dump({ name: "x", version: "1" }), "utf8");
     await expect(migrateCompositionV3ToV4(dir)).rejects.toThrow(/composition block/i);
+  });
+});
+
+describe("routing_on_primary compatibility migration", () => {
+  it("replaces the flag once with an explicit dispatch target", () => {
+    const manifest: any = fixtureManifest({
+      gateway: [{ id: "http-gateway", config: { routing_on_primary: true } }],
+      runtimes: [{ id: "agent-sdk-runtime", config: { provider: "anthropic", model: "claude-haiku-4-5" } }]
+    });
+    manifest["x-garrison"].composition.schema = 4;
+    const first = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: "agent-sdk-runtime" });
+    expect(first.changed).toBe(true);
+    const composition = manifest["x-garrison"].composition;
+    expect(composition.selections.gateway[0].config.routing_on_primary).toBeUndefined();
+    expect(composition.targets.find((target: any) => target.id === "dispatch-fast")).toMatchObject({
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      params: { authMode: "subscription", promptMode: "lean", maxTurns: 1, timeoutMs: 8000 }
+    });
+    expect(composition.duties.find((duty: any) => duty.id === "dispatch")).toBeTruthy();
+    expect(migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: "agent-sdk-runtime" }).changed).toBe(false);
+  });
+
+  it("migrates the policy primary in a multi-runtime composition and replaces stale target identity", () => {
+    const manifest: any = fixtureManifest({
+      gateway: [{ id: "http-gateway", config: { routing_on_primary: true } }],
+      runtimes: [
+        { id: "claude-code-runtime", config: { provider: "anthropic-plan", model: "sonnet" } },
+        { id: "agent-sdk-runtime", config: { provider: "anthropic", model: "claude-haiku-4-5" } }
+      ]
+    });
+    const block = manifest["x-garrison"].composition;
+    block.schema = 4;
+    block.targets = [{ id: "dispatch-fast", runtime: "agent-sdk", provider: "anthropic", model: "stale-model" }];
+
+    const result = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: "agent-sdk-runtime" });
+    expect(result).toEqual({ changed: true });
+    expect(block.targets).toContainEqual(expect.objectContaining({
+      id: "dispatch-fast",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5"
+    }));
+    expect(block.targets.find((target: any) => target.id === "dispatch-fast").model).not.toBe("stale-model");
+    expect(block.selections.gateway[0].config.routing_on_primary).toBeUndefined();
+  });
+
+  it("falls back to dispatch-fast Haiku and removes the flag when the policy primary is incomplete", () => {
+    const manifest: any = fixtureManifest({
+      gateway: [{ id: "http-gateway", config: { routing_on_primary: true } }],
+      runtimes: [{ id: "agent-sdk-runtime", config: { provider: "anthropic" } }]
+    });
+    const result = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: "agent-sdk-runtime" });
+    expect(result.changed).toBe(true);
+    expect(result.warning).toMatch(/migrated to dispatch-fast on Claude Haiku 4\.5/);
+    const composition = manifest["x-garrison"].composition;
+    expect(composition.selections.gateway[0].config.routing_on_primary).toBeUndefined();
+    expect(composition.targets).toContainEqual(expect.objectContaining({
+      id: "dispatch-fast",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      params: expect.objectContaining({ authMode: "subscription", timeoutMs: 8000 })
+    }));
+  });
+
+  it("falls back without a policy primary, retargets an existing dispatch duty, and is idempotent", () => {
+    const manifest: any = fixtureManifest({
+      gateway: [{ id: "http-gateway", config: { routing_on_primary: "true" } }]
+    });
+    const block = manifest["x-garrison"].composition;
+    block.duties = [{
+      id: "dispatch",
+      title: "Dispatch",
+      description: "legacy dispatch",
+      levels: [{ description: "legacy", cell: { target: "old-primary", effort: "high" } }]
+    }];
+    block.targets = [{ id: "old-primary", runtime: "ollama", model: "qwen2.5:3b" }];
+
+    const first = migrateLegacyRoutingOnPrimaryManifest(manifest);
+    expect(first).toMatchObject({ changed: true });
+    expect(first.warning).toMatch(/no resolvable policy primary/);
+    expect(block.selections.gateway[0].config).not.toHaveProperty("routing_on_primary");
+    expect(block.duties[0].levels[0].cell).toMatchObject({ target: "dispatch-fast", effort: "low" });
+    expect(block.targets.find((target: any) => target.id === "dispatch-fast")).toMatchObject({
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5"
+    });
+    expect(migrateLegacyRoutingOnPrimaryManifest(manifest)).toEqual({ changed: false });
+  });
+
+  it("removes a present false flag without creating a dispatch target", () => {
+    const manifest: any = fixtureManifest({
+      gateway: [{ id: "http-gateway", config: { routing_on_primary: false } }]
+    });
+    expect(migrateLegacyRoutingOnPrimaryManifest(manifest)).toEqual({ changed: true });
+    const composition = manifest["x-garrison"].composition;
+    expect(composition.selections.gateway[0].config).not.toHaveProperty("routing_on_primary");
+    expect(composition.targets).toBeUndefined();
   });
 });
 

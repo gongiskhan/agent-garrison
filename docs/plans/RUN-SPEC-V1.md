@@ -79,10 +79,9 @@ This is an **EXTEND**, not a build. Ground truth from a 12-reader sweep:
 
 ## Decisions taken
 
-1. **Duty is the persona.** There is exactly one identity fitting (`identity-gary`)
-   and the multi-face souls engine is dormant, so a persona dropdown would have one
-   option. `duty` already carries per-run behaviour, is already pinnable, and already
-   skips the classifier. No new persona dimension.
+1. **Identity is not a run pin.** Gary is authored once in Orchestrator; `duty`
+   carries per-run behaviour, is pinnable, and can bypass model inference. No
+   persona dropdown or selectable persona Fitting exists.
 2. **Expose both phase mechanisms, do not merge them.** The duty/level resolved
    sequence decides list ORDER; the workKind phase plan decides ON/OFF. One control
    surface, two underlying knobs, no engine refactor.

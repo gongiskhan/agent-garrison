@@ -19,7 +19,7 @@ x-garrison:
     Watch, pendant). Inbound conversations and day summaries are triaged into
     Kanban cards and memories by the fitting's heartbeat, NOT by you; treat Omi
     structured data as input evidence only and never surface Omi-generated
-    prose as your own output. Wake-word commands ("Gary, ...") arrive as
+    prose as your own output. Wake-word commands arrive as
     regular turns on channel "omi". Short confirmations and tips are delivered
     to the user's devices via Omi direct notifications; message text is always
     generated on our side. Do not write tasks into Omi or any Omi-connected

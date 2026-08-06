@@ -97,6 +97,10 @@ export function ensureOriginRecord(root, { origin_id, transport = null, address 
 export function appendOriginEvent(root, origin_id, event) {
   try {
     if (!origin_id) return false;
+    if (typeof event?.idempotencyKey === "string" && event.idempotencyKey) {
+      const duplicate = readOriginEvents(root, origin_id).some((row) => row?.idempotencyKey === event.idempotencyKey);
+      if (duplicate) return true;
+    }
     mkdirSync(originsDir(root), { recursive: true });
     appendFileSync(originEventsFile(root, origin_id), JSON.stringify(event) + "\n", "utf8");
     return true;

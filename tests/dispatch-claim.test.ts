@@ -13,6 +13,7 @@ import {
   selectClaimable,
   buildJob,
   buildDutyPrompt,
+  claimRevisionMatches,
   DISPATCH_LEASE_SECONDS,
   type CardDispatch,
   type ClaimableCard
@@ -26,7 +27,10 @@ function card(over: Partial<ClaimableCard> = {}): ClaimableCard {
     id: "01KY000000000000000000001",
     title: "stub",
     list: "implement",
+    level: 2,
+    sequence: ["implement", "review", "done"],
     project: "garrison",
+    scope: "project",
     rev: 3,
     placement: { target: MACHINE },
     dispatch: null,
@@ -187,10 +191,12 @@ describe("findExpiredClaims", () => {
 
 describe("buildJob", () => {
   it("carries the command and the lease terms", () => {
-    const job = buildJob(card())!;
+    const job = buildJob(card(), { claimRevision: 4 })!;
     expect(job.run).toEqual({ kind: "command", command: "echo hi" });
     expect(job.leaseSeconds).toBe(DISPATCH_LEASE_SECONDS);
     expect(job.heartbeatSeconds).toBeLessThan(job.leaseSeconds);
+    expect(job.claimRevision).toBe(4);
+    expect(job.scope).toBe("project");
   });
 
   // A literal command was once the ONLY runnable payload: buildJob returned null
@@ -217,6 +223,21 @@ describe("buildJob", () => {
     // The zero-token stub lane stays the cheapest way to smoke test a machine.
     const job = buildJob(card({ command: "echo probe", duty: "implement" }))!;
     expect(job.run).toEqual({ kind: "command", command: "echo probe" });
+  });
+
+  it("carries personal scope so the worker selects its managed workspace", () => {
+    const job = buildJob(card({ project: null, scope: "personal", command: null, duty: "plan" }))!;
+    expect(job.scope).toBe("personal");
+    expect(job.project).toBeNull();
+  });
+});
+
+describe("claim revision identity", () => {
+  it("accepts only the revision tracked by the active claim", () => {
+    const dispatch = claim({ claimRevision: 7 });
+    expect(claimRevisionMatches(7, dispatch)).toBe(true);
+    expect(claimRevisionMatches(8, dispatch)).toBe(false);
+    expect(claimRevisionMatches(7, claim({ claimRevision: undefined }))).toBe(false);
   });
 });
 

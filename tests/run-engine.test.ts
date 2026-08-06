@@ -122,7 +122,7 @@ describe("policy resolution (D15)", () => {
     expect(classificationForPhase(policy, "implement", { tier: "bogus" })!.tier).toBe("T1-standard");
   });
 
-  it("v2 boards migrate through v4: pins stripped, phase stamped, Archived added", () => {
+  it("v2 boards migrate through v5: pins stripped, phase stamped, Scheduled and Archived added", () => {
     const v2 = {
       version: 2,
       lists: [
@@ -130,15 +130,22 @@ describe("policy resolution (D15)", () => {
         { id: "todo", kind: "manual", validNext: ["plan"] }
       ]
     };
-    const v4 = migrateBoard(v2);
-    expect(v4.version).toBe(4);
-    const plan = v4.lists[0];
+    const v5 = migrateBoard(v2);
+    expect(v5.version).toBe(5);
+    expect(v5.lists[0]).toMatchObject({
+      id: "scheduled",
+      order: -1,
+      userOrder: -1,
+      kind: "scheduled",
+      system: true
+    });
+    const plan = v5.lists[1];
     expect(plan.skill).toBeUndefined();
     expect(plan.taskType).toBeUndefined();
     expect(plan.tier).toBeUndefined();
     expect(plan.mode).toBeUndefined();
     expect(plan.phase).toBe("plan");
-    expect(v4.lists.at(-1)).toMatchObject({
+    expect(v5.lists.at(-1)).toMatchObject({
       id: "archived",
       kind: "manual",
       terminal: true,
@@ -146,10 +153,10 @@ describe("policy resolution (D15)", () => {
       validNext: []
     });
     // idempotent
-    expect(migrateBoard(v4)).toBe(v4);
+    expect(migrateBoard(v5)).toBe(v5);
   });
 
-  it("v3 boards receive the v4 Archived tail without disturbing existing lists", () => {
+  it("v3 boards receive the v5 system columns without disturbing existing lists", () => {
     const v3 = {
       version: 3,
       lists: [
@@ -158,12 +165,13 @@ describe("policy resolution (D15)", () => {
       ],
       custom: { retained: true }
     };
-    const v4 = migrateBoard(v3);
-    expect(v4).not.toBe(v3);
-    expect(v4.version).toBe(4);
-    expect(v4.custom).toEqual({ retained: true });
-    expect(v4.lists.slice(0, 2)).toEqual(v3.lists);
-    expect(v4.lists[2]).toMatchObject({
+    const v5 = migrateBoard(v3);
+    expect(v5).not.toBe(v3);
+    expect(v5.version).toBe(5);
+    expect(v5.custom).toEqual({ retained: true });
+    expect(v5.lists[0]).toMatchObject({ id: "scheduled", system: true, order: -1 });
+    expect(v5.lists.slice(1, 3)).toEqual(v3.lists);
+    expect(v5.lists[3]).toMatchObject({
       id: "archived",
       order: 12,
       terminal: true,

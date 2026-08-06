@@ -11,7 +11,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries, type CompositionV4 } from "./compositions";
-import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import {
   listSpawnRecordIds,
   ownPortConfigEnv,
@@ -33,7 +32,11 @@ import {
   type RuntimeEntry
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
-import { PRIMARY_CONTEXT_FILES, projectPrimaryContext } from "./orchestrator-projection";
+import {
+  PRIMARY_CONTEXT_FILES,
+  projectPrimaryContext,
+  writeAssembledOrchestratorPrompt
+} from "./orchestrator-projection";
 import {
   clearKanbanResolvedModel,
   computeKanbanResolvedModel,
@@ -541,66 +544,6 @@ async function upUnlocked(
     }
     const promptPath = await assembleSystemPrompt(compositionId);
 
-    // Modes (souls): when a `modes` provider is selected, compose one prompt per
-    // mode (Gary/Joe/James) and hand the gateway a GARRISON_SOULS_CONFIG, which
-    // activates its orchestrator/soul mode. No modes provider → undefined → the
-    // gateway runs its normal single-operative routed mode (the default comp).
-    let gatewayExtraEnv: Record<string, string> | undefined;
-    const modesEntry = findModesEntry(soulEntries);
-    if (modesEntry) {
-      // Orchestrator/soul mode drives souls through the mcp-gateway sidecar
-      // (talk_to / spawn-soul). Without it, booting orchestrator mode yields an
-      // orchestrator that can't reach its souls — so only activate when present;
-      // otherwise warn and stay in the working single-operative routed mode.
-      if (await mcpGatewayPresent(composition.directory)) {
-        const modesDir = path.join(composition.directory, "apm_modules", "_local", modesEntry.id);
-        const soulsConfig = await assembleSouls({
-          compositionDir: composition.directory,
-          modesDir,
-          orchestratorPromptPath: promptPath,
-          orchestratorFittingId: findOrchestratorEntryId(soulEntries) ?? "orchestrator",
-          capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
-          routingSection: await resolveRoutingSection(
-            composition.directory,
-            buildRuntimeEntries(soulEntries, composition.selections),
-            (message) => appendLog(compositionId, "stderr", `routing: ${message}`),
-            safeKanbanModel(composition, soulEntries)
-          ),
-          routingCorePath: ROUTING_CORE_PATH
-        });
-        if (soulsConfig) {
-          // gateway.mjs reads BOTH GARRISON_SOULS_CONFIG and the orchestrator
-          // fitting id from GARRISON_ORCHESTRATOR_FITTING_ID (it does not read
-          // soulsConfig.orchestratorFittingId), so project the id explicitly or
-          // the orchestrator session would mislabel as the bare "orchestrator".
-          gatewayExtraEnv = {
-            GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
-            GARRISON_ORCHESTRATOR_FITTING_ID: soulsConfig.orchestratorFittingId
-          };
-          appendLog(
-            compositionId,
-            "runner",
-            `modes: composed ${Object.keys(soulsConfig.souls).length} soul prompt(s) → gateway orchestrator/soul mode`
-          );
-        } else {
-          // modes + mcp-gateway are both present but assembleSouls returned null
-          // (modes.json missing/empty/malformed). Do NOT silently downgrade to
-          // routed mode without a trace — the operator selected modes.
-          appendLog(
-            compositionId,
-            "stderr",
-            `modes (${modesEntry.id}) is selected and mcp-gateway is present, but souls assembly produced no config (modes.json missing/empty/malformed) — staying in normal routed mode. Check apm_modules/_local/${modesEntry.id}/modes.json.`
-          );
-        }
-      } else {
-        appendLog(
-          compositionId,
-          "stderr",
-          `modes (${modesEntry.id}) is selected but the mcp-gateway fitting is not installed — orchestrator/soul mode needs it for talk_to; running normal gateway mode. Add the mcp-gateway fitting to enable Gary/Joe/James.`
-        );
-      }
-    }
-
     // Resolve the PRIMARY runtime — the Runtime-Faculty fitting that hosts the
     // orchestrator loop. Defaults to claude-code-runtime; its model + provider
     // (ollama/deepseek/zai base-url swap) are threaded into the orchestrator
@@ -906,7 +849,6 @@ async function upUnlocked(
         promptPath,
         gateway,
         {
-          ...(gatewayExtraEnv ?? {}),
           ...runtimeAccountEnv,
           ...(namedPrimaryAccount?.env ?? {}),
           ...primaryEnv,
@@ -1620,55 +1562,9 @@ async function startDevWatcher(compositionId: string): Promise<void> {
   appendLog(compositionId, "runner", `Dev mode watching ${watchPaths.length} local fitting path(s)`);
 }
 
-async function assembleSystemPrompt(compositionId: string): Promise<string> {
-  const composition = await readCompositionWithDerivedTasks(compositionId);
-  const entries = await selectedLibraryEntries(composition.selections);
-  const orchestratorRaw = await readPromptForFaculty(entries, "orchestrator");
-  const fallbackOrchestrator = await fs.readFile(
-    path.join(composition.directory, ".garrison", "prompts", "orchestrator.md"),
-    "utf8"
-  );
-  // Identity/soul prompt comes from the composition default file (.garrison/
-  // prompts/soul.md). Since the spawn path was retired, there is no separate
-  // soul Faculty; identity folds into the assembled prompt ahead of behavior.
-  const fallbackSoul = await fs.readFile(
-    path.join(composition.directory, ".garrison", "prompts", "soul.md"),
-    "utf8"
-  );
-  const orchestratorSource = orchestratorRaw ?? fallbackOrchestrator;
-  // Loud, not silent: provider for_consumers reaches the Operative ONLY
-  // through the {{capabilities}} placeholder, and prompt rewrites have
-  // shipped without it before (the 2026-06 Quarters pivot's routing prompt).
-  // We warn rather than auto-append the block so prompt authors keep control
-  // of where it lands.
-  const placeholderWarning = capabilitiesPlaceholderWarning(orchestratorSource);
-  if (placeholderWarning) {
-    appendLog(compositionId, "stderr", placeholderWarning);
-  }
-  const orchestrator = substituteCapabilitiesPlaceholder(orchestratorSource, entries);
-  // BRIEF v4 MR1b: inject the compiled Model Router policy via {{routing}}.
-  // No-op when the orchestrator prompt has no placeholder (e.g. the live
-  // garrison-orchestrator), so the default composition is untouched.
-  const routingDiagnostics: string[] = [];
-  const routingSection = await resolveRoutingSection(
-    composition.directory,
-    buildRuntimeEntries(entries, composition.selections),
-    (message) => routingDiagnostics.push(message),
-    safeKanbanModel(composition, entries)
-  );
-  if (orchestrator.includes("{{routing}}") && routingSection == null) {
-    for (const message of routingDiagnostics) {
-      appendLog(compositionId, "stderr", `routing: ${message}`);
-    }
-    appendLog(compositionId, "stderr", MISSING_ROUTING_CONFIG_WARNING);
-  }
-  const orchestratorRouted = substituteRoutingPlaceholder(orchestrator, routingSection);
-  // Identity first, Orchestrator (behavior) second — identity lands before the
-  // long behavior section buries it.
-  const prompt = [fallbackSoul, "", orchestratorRouted].join("\n");
-  const promptPath = path.join(composition.directory, ".garrison", "assembled-system-prompt.md");
-  await fs.writeFile(promptPath, prompt, "utf8");
-  appendLog(compositionId, "runner", `Assembled system prompt at ${path.relative(ROOT_DIR, promptPath)}`);
+export async function assembleSystemPrompt(compositionId: string): Promise<string> {
+  const { path: promptPath } = await writeAssembledOrchestratorPrompt(compositionId);
+  appendLog(compositionId, "runner", `Assembled layered Orchestrator prompt at ${path.relative(ROOT_DIR, promptPath)}`);
   return promptPath;
 }
 
@@ -2069,31 +1965,6 @@ function compactEnv(config: Record<string, unknown>): Record<string, string> {
     }
   }
   return env;
-}
-
-// Project the gateway fitting's `routing_on_primary` config into its spawn env.
-// It pins the whole ROUTING BRAIN — Stage-A classification AND the Dispatcher's
-// single-shot call — to the primary runtime's own adapter. One key, because
-// splitting them invites a composition that routes half on the primary and half
-// on a second engine.
-//
-// Why it exists, from two real failures on an all-Cursor composition:
-//   - the classifier defaults to a cheap Claude Code haiku PTY regardless of
-//     primary, and "is claude-code available" is a PATH probe that says nothing
-//     about whether that CLI can spawn (an instance with its own
-//     CLAUDE_CONFIG_DIR may be unauthenticated). When the spawn fails, the warm
-//     pool half-starts and EVERY turn logs classify-failed and falls through to
-//     the default route — silently.
-//   - the Dispatcher calls through garrison-call, which speaks HTTP wire shapes
-//     only, so it cannot reach a CLI engine at all: dispatch would always take
-//     the deterministic keyword fallback.
-//
-// Absent/false → byte-identical to the historical behaviour.
-function routingBrainEnv(config: Record<string, unknown>): Record<string, string> {
-  const raw = config.routing_on_primary;
-  if (raw === undefined || raw === null) return {};
-  const on = raw === true || String(raw).trim().toLowerCase() === "true";
-  return on ? { GARRISON_ROUTING_ON_PRIMARY: "1" } : {};
 }
 
 // ── gateway pid records ─────────────────────────────────────────────────────
@@ -2518,7 +2389,6 @@ async function spawnGateway(
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
     ...compactEnv(gateway.config),
-    ...routingBrainEnv(gateway.config),
     ...(extraEnv ?? {})
   };
 

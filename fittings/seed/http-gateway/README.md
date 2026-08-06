@@ -109,25 +109,17 @@ one primary `operative` runtime plus one `classifier` secondary
   The routed gateway (`gateway-pty.mjs`) slash-injects `/model` and
   `/effort` via `stage-b.mjs` before the turn. This path **never respawns**
   on a model change; it re-tunes the live session in place.
-- **BOOT set** (needs a fresh session) — `{system prompt / soul identity}`.
-  In the dormant orchestrator/soul mode (`gateway.mjs`, activated by
-  `GARRISON_SOULS_CONFIG`) each face (gary/joe/james) is a **separate soul
-  session** keyed in the registry; within a soul, `shouldRespawnForTier`
-  respawns-with-resume on a model change so the conversation id (and thus
-  context) is preserved. **These are two distinct paths** — the routed
-  gateway keeps model HOT; only the soul mode respawns, and only to carry a
-  BOOT-level change across a fresh process. A mode switch is realized by
-  routing to a different soul session, not by re-keying the pool.
+- **BOOT set** (needs a fresh session) — `{system prompt}`. Identity is an
+  authored Orchestrator section and is assembled exactly once into that prompt;
+  editing it invalidates the warm session before the next turn.
 - **Shared memory** ("one operative, one memory") — the Basic Memory faculty
-  (the vault) is shared across all three faces by construction: every soul
-  session reads and writes the same store. This is the persistent memory
-  store, not a shared Claude transcript.
+  remains the persistent store. It is not a shared Claude transcript.
 
 **Known gap (no `/config` spike, decided under Q4):** permission-mode,
 allowed-tools, and the MCP allowlist are **not** hot-swapped — they would
 need `/config key=value` (CC 2.1.181), which this build does not exercise.
-Identity/mode switches rely on respawn (safe); per-turn permission/tool
-swaps are out of scope and recorded here so the cap is not silent.
+Per-turn permission/tool swaps are out of scope and recorded here so the cap is
+not silent.
 
 ## Verify
 

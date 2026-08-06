@@ -48,13 +48,6 @@
       "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
     },
     {
-      "id": "ollama-local",
-      "kind": "local",
-      "baseUrl": "http://localhost:11434",
-      "dummyToken": "ollama",
-      "notes": "local Ollama Anthropic-compatible endpoint"
-    },
-    {
       "id": "deepseek",
       "kind": "cloud-oss",
       "baseUrl": "https://api.deepseek.com/anthropic",

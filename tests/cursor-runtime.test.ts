@@ -511,17 +511,7 @@ describe("CSG composition — cursor-only routing policy", () => {
   });
 });
 
-// Both halves of the routing brain reached for a second engine on a non-Claude
-// primary, found by running CSG live:
-//   - the classifier defaulted to a cheap Claude Code haiku PTY, because
-//     "claude-code resolvable" is a PATH probe that says nothing about whether
-//     that CLI can spawn. When it could not, the warm pool half-started and EVERY
-//     turn logged classify-failed and fell through to the default route, silently.
-//   - the Dispatcher called through garrison-call, which speaks HTTP wire shapes
-//     only and so cannot reach a CLI engine at all.
-// `routing_on_primary` is the single opt-out for both; default-off keeps every
-// existing composition byte-identical.
-describe("routing_on_primary (single-engine routing brain)", () => {
+describe("explicit dispatch target (single-engine routing brain)", () => {
   const ctx = (opts: any = {}) => ({
     primary: { adapter: { id: "cursor" }, spawnConfig: { compositionDir: "/tmp/x", model: "auto" }, claude: false },
     primaryEngine: "cursor",
@@ -529,18 +519,6 @@ describe("routing_on_primary (single-engine routing brain)", () => {
     classifierSpawnConfig: { compositionDir: "/tmp/x", model: "haiku" },
     opts,
     logFn: (_event: any) => {}
-  });
-
-  it("pins the classifier to the primary adapter when set, and says so in the log", async () => {
-    // @ts-ignore — pure .mjs
-    const { resolveClassifierAdapter } = await import("../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs");
-    const events: any[] = [];
-    const c = ctx({ routingOnPrimary: true });
-    c.logFn = (e: any) => void events.push(e);
-    const r = resolveClassifierAdapter(c);
-    expect(r.adapter).toBe(c.primary.adapter);
-    expect(r.spawnConfig).toBe(c.primary.spawnConfig);
-    expect(events.map((e) => e.kind)).toContain("classifier-on-primary");
   });
 
   it("without it, a non-claude primary still takes the claude-code classifier when the CLI resolves (unchanged default)", async () => {
@@ -551,10 +529,12 @@ describe("routing_on_primary (single-engine routing brain)", () => {
     expect(r.spawnConfig.model).toBe("haiku");
   });
 
-  it("CSG turns it on, and the gateway fitting documents it as a default-off boolean", async () => {
+  it("CSG names its Cursor dispatch target explicitly and the gateway exposes no legacy flag", async () => {
     const comp = await readYamlFile<any>(path.resolve(__dirname, "..", "compositions", "csg", "apm.yml"));
     const gw = comp["x-garrison"].composition.selections.gateway.find((g: any) => g.id === "http-gateway");
-    expect(gw.config.routing_on_primary).toBe(true);
+    expect(gw.config.routing_on_primary).toBeUndefined();
+    const duty = comp["x-garrison"].composition.duties.find((d: any) => d.id === "dispatch");
+    expect(duty.levels[0].cell.target).toBe("cursor-fast");
 
     const fitting = await readYamlFile<{ "x-garrison"?: unknown }>(
       path.resolve(__dirname, "..", "fittings", "seed", "http-gateway", "apm.yml")
@@ -562,7 +542,7 @@ describe("routing_on_primary (single-engine routing brain)", () => {
     const field = parseGarrisonMetadata(fitting!["x-garrison"]).config_schema?.find(
       (f) => f.key === "routing_on_primary"
     );
-    expect(field).toMatchObject({ type: "boolean", default: false });
+    expect(field).toBeUndefined();
   });
 
   // The Dispatcher half. garrison-call is HTTP-only, so on a CLI-only composition
@@ -612,6 +592,22 @@ describe("routing_on_primary (single-engine routing brain)", () => {
 
     // No adapter at all is a loud-but-safe refusal, never a throw.
     expect(await makeAdapterCallInvoker(null)({ prompt: "x" })).toMatchObject({ ok: false });
+  });
+
+  it("bounds a stuck dispatch turn and cancels its adapter session", async () => {
+    // @ts-ignore — pure .mjs
+    const { makeAdapterCallInvoker } = await import("../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs");
+    let cancelled = 0;
+    const call = makeAdapterCallInvoker({
+      spawn: async () => ({}),
+      awaitReady: async () => {},
+      sendTurn: async () => {},
+      awaitResponse: async () => new Promise(() => {}),
+      cancel: async () => { cancelled += 1; },
+      teardown: async () => {}
+    });
+    await expect(call({ prompt: "x", timeoutMs: 5 })).resolves.toMatchObject({ ok: false, code: "timeout" });
+    expect(cancelled).toBe(1);
   });
 });
 

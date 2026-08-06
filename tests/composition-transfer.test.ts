@@ -50,8 +50,7 @@ const SOURCE_MANIFEST = {
       selected_duties: ["implement"],
       targets: [{ id: "sonnet", runtime: "claude-code-runtime", model: "sonnet" }],
       prompt_sources: {
-        orchestrator: ".garrison/prompts/orchestrator.md",
-        soul: ".garrison/prompts/soul.md"
+        orchestrator: ".garrison/prompts/orchestrator.md"
       }
     }
   }
@@ -63,7 +62,8 @@ async function writeSource(): Promise<void> {
   await fs.mkdir(path.join(SOURCE_DIR, ".garrison", "prompts"), { recursive: true });
   await fs.writeFile(path.join(SOURCE_DIR, "apm.yml"), yaml.dump(SOURCE_MANIFEST), "utf8");
 
-  // Authored — must travel.
+  // Authored — must travel. The legacy identity file is migrated into the
+  // canonical authored Orchestrator document before export, then excluded.
   await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "prompts", "orchestrator.md"), "authored prompt\n");
   await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "prompts", "soul.md"), "authored soul\n");
   await fs.writeFile(
@@ -110,8 +110,7 @@ describe("compositionExportPathAllowed", () => {
       "routing.cursor-only.json",
       ".garrison/routing.json",
       ".garrison/orchestrator-authored.json",
-      ".garrison/prompts/orchestrator.md",
-      ".garrison/prompts/soul.md"
+      ".garrison/prompts/orchestrator.md"
     ]) {
       expect(compositionExportPathAllowed(allowed), allowed).toBe(true);
     }
@@ -124,6 +123,7 @@ describe("compositionExportPathAllowed", () => {
       "apm.lock.yaml",
       "apm.yml",
       ".garrison/souls/gary.md",
+      ".garrison/prompts/soul.md",
       ".garrison/decisions.jsonl",
       ".garrison/owner.json",
       ".garrison/policy.json",
@@ -153,13 +153,15 @@ describe("buildCompositionBundle", () => {
     expect(bundlePaths(bundle)).toEqual([
       ".garrison/orchestrator-authored.json",
       ".garrison/prompts/orchestrator.md",
-      ".garrison/prompts/soul.md",
       ".garrison/routing.json",
       "profile.md",
       "routing.cursor-only.json"
     ]);
     const routing = bundle.files.find((f) => f.path === ".garrison/routing.json");
     expect(JSON.parse(routing?.contents ?? "{}")).toMatchObject({ primaryRuntime: "codex-runtime" });
+    const authored = bundle.files.find((f) => f.path === ".garrison/orchestrator-authored.json");
+    expect(JSON.parse(authored?.contents ?? "{}")).toMatchObject({ mission: "authored", identity: "authored soul" });
+    await expect(fs.access(path.join(SOURCE_DIR, ".garrison", "prompts", "soul.md"))).rejects.toThrow();
     // The manifest travels whole: duties, targets and per-fitting config too.
     const block = (bundle.manifest["x-garrison"] as { composition: Record<string, unknown> }).composition;
     expect(block.duties).toHaveLength(1);

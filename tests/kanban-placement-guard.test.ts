@@ -165,34 +165,24 @@ describe("engine outpost affinity guard", () => {
     }
   }
 
-  it("refuses to run locally when the pinned outpost is CONNECTED", async () => {
+  it("migrates legacy outpost input to worker placement and never runs locally", async () => {
     const root = tmp();
     const card = await createCard(root, { title: "pinned work", list: "implement", outpost: "goncalos-mac-mini-1" });
-    expect(card.outpost).toBe("goncalos-mac-mini-1");
+    expect(card.outpost).toBeNull();
+    expect(card.placement.target).toBe("goncalos-mac-mini-1");
 
-    const { card: after, outcome } = await withFakeDaemon<{ card: { status: string; events?: Array<{ kind: string }> }; outcome: { status: string; reason: string } }>(
-      [{ name: "goncalos-mac-mini-1", connected: true }],
-      () => processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root })
-    );
-
-    expect(outcome.status).toBe("needs-attention");
-    expect(outcome.reason).toBe("outpost-not-implemented");
-    expect(after.status).toBe("needs-attention");
-    // The park must SAY why, and name a remedy that now actually exists.
-    const parked = (after.events ?? []).filter((e) => e.kind === "parked");
-    expect(parked.length).toBeGreaterThan(0);
-    expect(JSON.stringify(parked)).toMatch(/not implemented/i);
+    const { outcome } = await processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root });
+    expect(outcome.status).toBe("skipped");
+    expect(outcome.reason).toMatch(/awaiting its worker/i);
   });
 
-  it("still parks a pinned-but-OFFLINE outpost with the offline reason", async () => {
+  it("migrates an on-disk legacy affinity even when placement still says host", async () => {
     const root = tmp();
-    const card = await createCard(root, { title: "offline work", list: "implement", outpost: "goncalos-mac-mini-1" });
-    const { outcome } = await withFakeDaemon<{ outcome: { status: string; reason: string } }>(
-      [{ name: "goncalos-mac-mini-1", connected: false }],
-      () => processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root })
-    );
-    expect(outcome.status).toBe("needs-attention");
-    expect(outcome.reason).toBe("outpost-offline");
+    const created = await createCard(root, { title: "legacy work", list: "implement" });
+    const legacy = { ...created, outpost: "goncalos-mac-mini-1", placement: { target: "host" } };
+    const { outcome } = await processCard({ root, board, card: legacy, runFn: forbiddenRunFn, cwd: root });
+    expect(outcome.status).toBe("skipped");
+    expect(outcome.reason).toMatch(/goncalos-mac-mini-1/);
   });
 
   it("leaves a card with NO affinity running locally", async () => {

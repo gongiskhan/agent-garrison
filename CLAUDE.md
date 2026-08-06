@@ -21,9 +21,10 @@ and spawns Claude Code via the Anthropic Agent SDK in-process.
 > **2026-06-07 Quarters pivot (largely shipped).** Garrison is now a
 > transparent **control plane over the user's real `~/.claude`**: APM is
 > the single package writer; the owned/loose/parked state model and 6 roles
-> (down from the prior flat-Faculty list) are live; the Orchestrator prompt
-> is assembled (soul + orchestrator + `{{capabilities}}`/`{{routing}}`) and
-> handed to the gateway at launch. The `projectOrchestrator` rules-file
+> (down from the prior flat-Faculty list) are live; the layered Orchestrator
+> document (editable Identity/routing doctrine plus generated capabilities,
+> duties, and readiness) is the one runtime prompt source and is handed to the
+> gateway at launch. The `projectOrchestrator` rules-file
 > projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but
 > not yet wired into `up()` — RC3 dormant. The
 > hosted-session launcher (RC4) is **not yet wired**, so the runner still
@@ -47,7 +48,7 @@ npm test                                               # vitest run
 npm test -- tests/runner-setup.test.ts                 # single test file
 npm run check:integration                              # live SDK + composition smoke
 npm run test:integration                               # GARRISON_INTEGRATION=1 vitest run on orchestrator-integration
-npm run refresh:prompts                                # regenerate default Orchestrator/Soul prompts
+npm run refresh:prompts                                # regenerate default Orchestrator prompts
 tsx scripts/validate-fitting.ts fittings/seed/<id>     # four-check validation pipeline
 make remote-doctor                                     # Mac: verify guarded dev-madrid workflow
 make remote-check                                      # Mac: snapshot locally edited code, validate on VM
@@ -72,7 +73,7 @@ Garrison host.
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. **17 in total** (`facultyIds` in `src/lib/types.ts`): **9 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers — orthogonal to essential/optional, anchored on the modes config.
+- **Faculty** — a **role** slot in a composition. **16 in total** (`facultyIds` in `src/lib/types.ts`): **8 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers. Legacy `modes` selections are removed during composition migration; live identity is authored inside Orchestrator.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **Fittings (sidebar group)** — auto-populated for the current composition; lists EVERY equipped Fitting (2026-07-29 refit: every Fitting has a view). Embedded views open at `/fitting/<id>` (the view IS the page — the old per-fitting overview/config page is gone); own-port live links embed at `/embed/<id>` (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
 - **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
@@ -160,11 +161,11 @@ no built-in Chat surface. Operative interaction goes through Channel
 Fittings; observability is the runtime log on the dashboard plus per-Fitting
 logs under `/fitting/<id>`.
 
-### Faculties — 9 roles (Quarters pivot + 2026-06-18 sessions split + 2026-06-22 modes)
+### Faculties — 8 core roles (Quarters pivot + 2026-06-18 sessions split)
 
 Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):
 `orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`,
-`sessions`, `surfaces`, `modes`. The 2026-06-18 split carved the overloaded `sessions`
+`sessions`, `surfaces`. The 2026-06-18 split carved the overloaded `sessions`
 role into three: `sessions` keeps the Dev Env surface + artifact store,
 `runtimes` holds the alternative execution engines (Agent SDK / Codex / Gemini /
 OpenCode / Cursor),
@@ -197,14 +198,13 @@ single writer for package files; Garrison owns orphan-cleanup on park.
 when content actually changes). `state-transitions.ts` — promote/park/unpark
 with orphan cleanup.
 
-`orchestrator-projection.ts` — `buildOrchestratorInstructions` (soul +
-orchestrator + `{{capabilities}}` fold) + `projectOrchestrator` (APM
+`orchestrator-projection.ts` — layered authored/generated Orchestrator assembly
++ `projectOrchestrator` (APM
 instructions primitive → `~/.claude/rules/garrison-orchestrator.md`;
 **implemented but not called by `up()` — RC3 dormant**) +
 `orchestratorAppendSystemPrompt` (per-launch fallback via
 `--append-system-prompt`). At runtime `up()` assembles the prompt and hands it
-to the gateway (`GARRISON_SYSTEM_PROMPT_PATH` / souls config), not the rules
-file.
+to the gateway through `GARRISON_SYSTEM_PROMPT_PATH`, not the rules file.
 
 ### Capabilities
 
@@ -215,14 +215,14 @@ Orchestrator uses to **discover installed Fittings without
 hardcoding** — no Garrison code change is needed when a new Fitting
 is added.
 
-Current kinds — **17**, per `capabilityKinds` in `src/lib/types.ts`:
-`orchestrator`, `modes`, `identity`, `memory-store`, `automation-runner`,
+Current kinds — **16**, per `capabilityKinds` in `src/lib/types.ts`:
+`orchestrator`, `identity`, `memory-store`, `automation-runner`,
 `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`,
 `screen-share`, `outpost`, `monitor`, `voice`, `duty`, `view` (`view` is
 derived by the resolver from `ui.views[]` / `own_port`, never declared in
-`provides`). `modes` is **superseded (2026-07-13, MARATHON-V3 D7) by
-`identity`** — no seed Fitting provides `modes`; the persona Fitting is
-`identity-gary`, and `duty` carries the per-duty behaviour. Dropped:
+`provides`). There is no persona Fitting: the Orchestrator provides `identity`,
+its editable Identity section owns Gary, and `duty` carries per-work behaviour.
+Dropped:
 `data-source` (2026-06-26, superseded by `connector`) and `artifact-store`
 (the file-browser Fitting is the artifact surface).
 
@@ -247,7 +247,7 @@ config, duties, targets, global config), each authored side-file inline, a
   authored file type needs a rule here or it silently will not travel.**
 - **What never travels**: `.env`, vault values, `local.yml` (the machine-local
   overlay — home paths and machine ports), `apm.lock.yaml`, `apm_modules/`,
-  `.claude/`, `.garrison/souls/`, the assembled prompt, session ids, decisions,
+  `.claude/`, legacy `.garrison/souls/`, the assembled prompt, session ids, decisions,
   run evidence, `owner.json`. Secrets are **named, never carried**; the importing
   machine reports which of those keys are unset there.
 - **The same predicate validates an untrusted bundle on import**, so a hostile
@@ -294,17 +294,16 @@ targets declare no `provider` (the routing validator only knows providers from
 the policy's `providers` section). `compositions/csg/` is the all-Cursor
 composition: `primaryRuntime: cursor-runtime` plus a cursor-only target set.
 
-**`routing_on_primary` (http-gateway config, added with Cursor, default off).**
-Pins the whole routing brain — Stage-A classification AND the Dispatcher's
-single-shot call — to the primary runtime's own adapter. One key, because
-splitting them invites a composition that routes half on the primary and half on
-a second engine. Both halves otherwise reach elsewhere: the classifier defaults
-to a cheap Claude Code haiku PTY *whatever the primary is* (and
-`claudeCodeResolvable` is only a PATH probe — on an instance whose
-`CLAUDE_CONFIG_DIR` is not logged in the pool half-starts and every turn logs
-`classify-failed` and falls through, silently), while the Dispatcher calls
-through `garrison-call`, which speaks HTTP wire shapes only and cannot reach a
-CLI engine at all. Default-off keeps every existing composition byte-identical.
+**Routing inference.** The gateway calls Orchestrator before opening the
+Operative turn because the result selects its duty, level, and target. Explicit
+pins, already-routed cards, schedules/internal jobs, and clear deterministic
+phrasing bypass inference. Ambiguous human requests use the composition's
+explicit `dispatch` duty target; the default is a bounded, tool-free, one-turn
+Anthropic Agent SDK call to Claude Haiku 4.5. Failure falls back
+deterministically and records degraded reason, latency, and fallback count. The
+retired `routing_on_primary` flag is accepted only by the one-time composition
+migration that converts it to an explicit dispatch target; it is not a gateway
+setting. Schema-v4 traffic never calls the former Stage-A classifier.
 
 ### The runner (`src/lib/runner.ts`)
 
@@ -315,9 +314,10 @@ CLI engine at all. Default-off keeps every existing composition byte-identical.
 3. For each Fitting with `x-garrison.setup`: run the setup command in the
    Fitting's installed dir. Non-zero exit aborts `up`.
 4. For each Fitting: run `x-garrison.verify`. No verify hook = hard failure.
-5. Assemble the system prompt: soul + orchestrator + `{{capabilities}}` (each
-   provider's `for_consumers` markdown indented under its capability line,
-   falls back to `summary`). Write `assembled-system-prompt.md`.
+5. Assemble the layered Orchestrator document: editable Identity/routing
+   doctrine plus generated capabilities, duties/levels, and readiness (provider
+   `for_consumers` markdown falls back to `summary`). Write
+   `assembled-system-prompt.md`. Legacy `soul.md` is never injected.
    (The `projectOrchestrator` rules-file projection exists but is **not**
    called here yet — RC3 dormant.)
 6. Spawn the Operative via the Anthropic Agent SDK in-process.

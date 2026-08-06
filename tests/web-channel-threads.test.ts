@@ -22,7 +22,7 @@ interface ThreadsRunContext {
   sanitizeRouteMeta(raw: unknown): Loose | null;
   sanitizeRouting(raw: unknown): Loose | null;
   setThreadRouting(id: string, routing: unknown, opts?: { nowIso?: string }): Promise<Loose | null>;
-  appendMessages(id: string, messages: Loose[], opts?: { nowIso?: string }): Promise<Loose>;
+  appendMessages(id: string, messages: Loose[], opts?: { nowIso?: string; idempotencyKey?: string }): Promise<Loose>;
   ensureThread(opts: Loose): Promise<Loose>;
   getThread(id: string): Promise<Loose | null>;
   listThreads(): Promise<Loose[]>;
@@ -80,6 +80,21 @@ describe("web-channel threads store", () => {
     ]);
     const t2 = await threads.getThread(id);
     expect(t2?.messages).toHaveLength(4);
+  });
+
+  it("deduplicates an append by its durable idempotency key", async () => {
+    const id = "chat-idempotent";
+    await threads.appendMessages(id, [{ role: "assistant", text: "once" }], {
+      idempotencyKey: "morning:occurrence:web",
+      nowIso: "2000-01-01T00:00:00.000Z"
+    } as any);
+    await threads.appendMessages(id, [{ role: "assistant", text: "once" }], {
+      idempotencyKey: "morning:occurrence:web",
+      nowIso: "2000-01-01T00:00:01.000Z"
+    } as any);
+    const stored = await threads.getThread(id);
+    expect(stored?.messages).toHaveLength(1);
+    expect(stored?.messageKeys).toEqual(["morning:occurrence:web"]);
   });
 
   it("listThreads returns metas sorted by most-recent activity, deleteThread removes", async () => {

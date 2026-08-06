@@ -53,7 +53,7 @@ stays modest).
 |---|---|---|---|---|---|
 | backlog | manual | manual | — | — | todo |
 | todo | manual | manual | — | — | discuss, plan |
-| discuss | agent-interactive | manual | (James mode) | — | plan |
+| discuss | agent-interactive | manual | Discuss duty | discuss · L1 | plan |
 | plan | agent | immediate | garrison-plan | code · T2-deep | implement |
 | implement | agent | immediate | garrison-implement | code · T2-deep | review |
 | review | agent | immediate | garrison-review | review · T1 | adversarial-review, implement |

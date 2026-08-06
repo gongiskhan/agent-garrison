@@ -13,6 +13,15 @@ import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
 import { markSteeringApplied } from "./steering.mjs";
 import { emitPersonalCompletionAfterDone, isPersonalDoneTransition } from "./personal-memory-outbox.mjs";
+import {
+  SCHEDULE_ACTIONS,
+  normaliseScheduleAction,
+  normaliseScheduledFor,
+  normaliseCardSchedule,
+  scheduleNextAt
+} from "./schedules.mjs";
+
+export { SCHEDULE_ACTIONS, normaliseScheduleAction, normaliseScheduledFor, normaliseCardSchedule } from "./schedules.mjs";
 
 export function kanbanRoot() {
   const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -34,7 +43,7 @@ async function readJSON(file) {
 
 // The current on-disk board schema version. Bumped whenever a migration below
 // must run once on load for EVERY existing board (not just model-driven ones).
-export const BOARD_VERSION = 4;
+export const BOARD_VERSION = 5;
 
 // One-shot board migration. Idempotent; unknown fields survive.
 //   v2→v3 (D15): strip dead per-list skill/taskType/tier/mode pins and stamp each
@@ -43,6 +52,7 @@ export const BOARD_VERSION = 4;
 //     for boards that predate the resolved-model reconcile too (a composition with
 //     no model.json is otherwise never rebuilt), so every live board picks up the
 //     Archived column on the next load regardless of how it was seeded.
+//   v4→v5 (2026-08-05): add the fixed Scheduled system column at the far left.
 export function migrateBoard(board) {
   if (!board || typeof board !== "object") return board;
   if ((board.version || 0) >= BOARD_VERSION) return board;
@@ -60,6 +70,20 @@ export function migrateBoard(board) {
       ...lists,
       { id: "archived", title: "Archived", order: maxOrder + 1, kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] }
     ];
+  }
+  if (!lists.some((l) => l.id === "scheduled")) {
+    lists = [
+      {
+        id: "scheduled", title: "Scheduled", order: -1, userOrder: -1,
+        kind: "scheduled", trigger: "scheduler-beat", system: true,
+        validNext: []
+      },
+      ...lists
+    ];
+  } else {
+    lists = lists.map((list) => list.id === "scheduled"
+      ? { ...list, order: -1, userOrder: -1, kind: "scheduled", trigger: "scheduler-beat", system: true, validNext: [] }
+      : list);
   }
   return { ...board, version: BOARD_VERSION, lists };
 }
@@ -83,7 +107,7 @@ export async function saveBoard(board, root = kanbanRoot()) {
 const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 
 // The card-owned Discuss brief: a markdown file next to the card's card.json. This is
-// the DETERMINISTIC, card-scoped brief location — James writes it here (told the absolute
+// the DETERMINISTIC, card-scoped brief location — the Discuss duty writes it here (told the absolute
 // path in the Discuss kickoff), the web-channel Brief editor reads/writes it, and the
 // engine folds it into the build prompt. Decoupled from any project working dir, so the
 // three never disagree on where the brief lives.
@@ -120,12 +144,13 @@ export function listCardAttachments(root, id) {
 // the fleet". `not_before` is carried verbatim so the claim path can decide (and
 // refuse an unparseable value) rather than this silently dropping a schedule.
 export const HOST_PLACEMENT_TARGET = "host";
-export function normalisePlacement(raw) {
-  if (!raw || typeof raw !== "object") return { target: HOST_PLACEMENT_TARGET };
+export function normalisePlacement(raw, legacyOutpost = null) {
+  const legacy = typeof legacyOutpost === "string" ? legacyOutpost.trim() : "";
+  if (!raw || typeof raw !== "object") return { target: legacy || HOST_PLACEMENT_TARGET };
   const target = typeof raw.target === "string" ? raw.target.trim() : "";
   const notBefore = typeof raw.not_before === "string" ? raw.not_before.trim() : "";
   return {
-    target: target || HOST_PLACEMENT_TARGET,
+    target: target && target !== HOST_PLACEMENT_TARGET ? target : legacy || target || HOST_PLACEMENT_TARGET,
     ...(notBefore ? { not_before: notBefore } : {})
   };
 }
@@ -137,19 +162,10 @@ export function normalisePlacement(raw) {
 // An unparseable value HOLDS the card (same fail-closed rule as placement
 // not_before in claimability): a scheduled card that runs early is worse than
 // one that waits for a human.
-export const SCHEDULE_ACTIONS = ["notify", "run"];
-export function normaliseScheduleAction(raw) {
-  return SCHEDULE_ACTIONS.includes(raw) ? raw : "notify";
-}
-export function normaliseScheduledFor(raw) {
-  if (typeof raw !== "string") return null;
-  const s = raw.trim();
-  return s || null;
-}
 // True when the card is held by a future (or unparseable — fail closed)
 // schedule. Every dispatch seam funnels through this one predicate.
 export function scheduleHolds(card, now = Date.now()) {
-  const at = card?.scheduledFor;
+  const at = scheduleNextAt(card);
   if (!at) return false;
   const t = Date.parse(at);
   if (!Number.isFinite(t)) return true; // unparseable holds, never releases early
@@ -237,7 +253,7 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, scheduledFor = null, scheduleAction = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // Personal is an independent label and may coexist with a project (for example,
   // a private task whose implementation still belongs to a real repository).
@@ -263,6 +279,12 @@ export async function createCard(root, { title, description = "", project = null
       /* unknown predecessor - the successor stays bare */
     }
   }
+  const cardSchedule = normaliseCardSchedule(schedule, {
+    scheduledFor: normaliseScheduledFor(scheduledFor),
+    scheduleAction,
+    targetList: list,
+    now: at
+  });
   const card = {
     id,
     title: title ?? "(untitled)",
@@ -315,20 +337,17 @@ export async function createCard(root, { title, description = "", project = null
     duty: typeof duty === "string" && duty ? duty : null,
     level: Number.isInteger(level) ? level : null,
     sequence: Array.isArray(sequence) && sequence.every((s) => typeof s === "string") ? sequence : null,
-    // S3d (D9b): the dispatcher's specification-clarity verdict. A "needs-discuss"
+    // S3d (D9b): routing inference's specification-clarity verdict. A "needs-discuss"
     // card is dispatched through the Discuss duty first (the engine's gated-discuss
     // exemption keys on this); anything else is null (a clear card runs straight).
     clarity: clarity === "needs-discuss" ? "needs-discuss" : null,
-    // D27: single-outpost affinity — the run engine dispatches this card's
-    // phase sessions to the named outpost; offline → needs-attention.
-    outpost: typeof outpost === "string" && outpost ? outpost : null,
+    // Legacy `outpost` is migrated into the worker-owned placement below. New
+    // cards never retain two contradictory remote-routing fields.
+    outpost: null,
     // ── Outpost Dispatch (pull-based) ─────────────────────────────────────
-    // WHERE this card runs. Defaults to the host, i.e. exactly the behaviour
-    // every card had before dispatch existed. Distinct from `outpost` above:
-    // that is the older PUSH affinity (host relays an RPC to a Mac), this is
-    // the machine a WORKER pulls the card to. `dispatch` is the claim ledger,
-    // written only by the dispatch API — never by a human edit.
-    placement: normalisePlacement(placement),
+    // WHERE this card runs. The older `outpost` create input is accepted only
+    // as a compatibility alias and immediately materialized here.
+    placement: normalisePlacement(placement, outpost),
     dispatch: null,
     // ── scheduling (see scheduleHolds above) ──────────────────────────────
     // scheduledFor holds dispatch until the instant passes; scheduleAction
@@ -337,9 +356,19 @@ export async function createCard(root, { title, description = "", project = null
     // fire once (cleared by snooze/reschedule). position orders the card
     // within its list (null = created order); checklist is the in-card
     // task list. All new keys — pre-existing cards read them as undefined.
-    scheduledFor: normaliseScheduledFor(scheduledFor),
-    scheduleAction: scheduledFor ? normaliseScheduleAction(scheduleAction) : null,
+    schedule: cardSchedule,
+    // Compatibility aliases for existing clients and Omi/MCP commands. The
+    // schedule object is authoritative; aliases always mirror its next action.
+    scheduledFor: cardSchedule?.nextAt ?? null,
+    scheduleAction: cardSchedule?.action ?? null,
     scheduleNotifiedAt: null,
+    scheduleTemplateId: typeof scheduleTemplateId === "string" && scheduleTemplateId ? scheduleTemplateId : null,
+    scheduleSystemKey: typeof scheduleSystemKey === "string" && scheduleSystemKey ? scheduleSystemKey : null,
+    occurrenceKey: typeof occurrenceKey === "string" && occurrenceKey ? occurrenceKey : null,
+    occurrenceAt: typeof occurrenceAt === "string" && Number.isFinite(Date.parse(occurrenceAt))
+      ? new Date(occurrenceAt).toISOString()
+      : null,
+    systemKey: typeof systemKey === "string" && systemKey ? systemKey : null,
     // Within-list float order. A finite `position` (from drag-reorder, or a
     // creation asking to land at the top of a list) wins; null = created order.
     // Threaded through createCard so the single creation door can stamp a
@@ -372,7 +401,7 @@ export async function createCard(root, { title, description = "", project = null
     runDir: null,       // docs/autothing/runs/<runId>, project-relative
     sliceId: null,      // the FLOW_PLAN slice this card is building
     sessionIds: [],     // Claude Code transcript ids for each run (pointers)
-    briefPath: null,    // James-mode brief produced in Discuss (under briefs_path)
+    briefPath: null,    // brief produced by the interactive Discuss duty
     videoUrl: null,     // walkthrough gallery link (set by the Walkthrough list)
     // ── coordination fields (GARRISON-FLOW-V2 S1, Q4) ──────────────────────
     // Same-branch multi-run coordination. waitingOn holds the wait descriptor
@@ -744,7 +773,9 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
     next.coordinationSeq = coordinationSeqForWrite(disk, next);
     await atomicWriteJSON(cardFile(root, id), next);
     if (isPersonalDoneTransition(disk, next)) personalCompletionEdge = { prev: disk, next };
-    if (next.list === "done" && (disk?.list ?? null) !== "done") doneHandoffEdge = { prev: disk, next };
+    if (next.list === "done" && (disk?.list ?? null) !== "done") {
+      doneHandoffEdge = { prev: disk, next, summary: hooks.terminalSummary ?? null };
+    }
     // Feedback to the originating channel on a terminal transition (done /
     // needs-attention). saveCardCAS is the one write path every mover uses
     // (engine, server PATCH, batch), so the edge fires exactly once per
@@ -778,7 +809,19 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
   // fail-open side effects outside the lifecycle lock; the engine continuation
   // therefore writes its final duty summary before either callback runs, and
   // FIFO immediate ordering lets the packet snapshot the finished handoff.
-  if (doneHandoffEdge) generateHandoffIfDone(root, doneHandoffEdge.prev, doneHandoffEdge.next);
+  if (doneHandoffEdge) {
+    generateHandoffIfDone(root, doneHandoffEdge.prev, doneHandoffEdge.next);
+    // Morning occurrences have an explicit dual-channel completion contract.
+    // Load it lazily to keep the neutral board store independent of channel
+    // implementations and outside the card lifecycle lock.
+    void import("./morning-briefing.mjs")
+      .then(({ scheduleMorningBriefDelivery }) => scheduleMorningBriefDelivery(
+        root,
+        doneHandoffEdge.next,
+        { summary: doneHandoffEdge.summary }
+      ))
+      .catch((err) => console.error(`[kanban] Morning briefing delivery bootstrap failed: ${err?.message ?? err}`));
+  }
   if (!personalCompletionEdge) return result;
   try {
     const memoryCapture = emitPersonalCompletionAfterDone(

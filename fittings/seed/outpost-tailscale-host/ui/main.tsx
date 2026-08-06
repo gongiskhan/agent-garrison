@@ -18,6 +18,7 @@ interface LogEntry {
 interface Outpost {
   name: string;
   connected: boolean;
+  bridge?: "connected" | "offline";
   pending?: boolean;
   registeredAt?: string;
   lastHeartbeat?: string | null;
@@ -25,15 +26,26 @@ interface Outpost {
   hostname?: string | null;
   tailscaleIp?: string | null;
   verbs?: string[];
+  repairAvailable?: boolean;
+  repairRequirement?: string | null;
+  worker?: {
+    state: "ready" | "busy" | "degraded" | "offline";
+    ready?: boolean;
+    stale?: boolean;
+    lastSeenAt?: string | null;
+    workerVersion?: string | null;
+    protocolVersion?: string | null;
+    runtimes?: string[];
+    currentCardId?: string | null;
+    detail?: string | null;
+    error?: string | null;
+  };
 }
 
-const HEARTBEAT_FRESH_MS = 30_000;
 const POLL_MS = 15_000;
 
 function isOnline(o: Outpost): boolean {
-  if (!o.connected || !o.lastHeartbeat) return false;
-  const t = Date.parse(o.lastHeartbeat);
-  return Number.isFinite(t) && Date.now() - t < HEARTBEAT_FRESH_MS;
+  return o.bridge ? o.bridge === "connected" : Boolean(o.connected);
 }
 
 function fmtAgo(iso: string | null | undefined): string {
@@ -51,12 +63,26 @@ function tailnetHost(o: Outpost): string {
   return o.tailscaleIp || o.hostname || "";
 }
 
+function decodeBase64Text(value: unknown): string {
+  if (typeof value !== "string" || !value) return "";
+  try {
+    const binary = window.atob(value);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "[invalid base64 output]";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // One outpost card — owns its ping / run / log ephemeral state
 // ---------------------------------------------------------------------------
 
-function OutpostCard({ o, onRemove }: { o: Outpost; onRemove: (name: string) => void }) {
+function OutpostCard({ o, onRemove, onChanged }: { o: Outpost; onRemove: (name: string) => void; onChanged: () => void }) {
   const online = isOnline(o);
+  const bridgeState = o.bridge ?? (online ? "connected" : "offline");
+  const workerState = o.worker?.state ?? "offline";
+  const workerCanTakeTasks = Boolean(o.worker?.ready && !o.worker?.stale);
   const [pingMs, setPingMs] = useState<number | null>(null);
   const [pinging, setPinging] = useState(false);
   const [pingErr, setPingErr] = useState<string | null>(null);
@@ -68,6 +94,8 @@ function OutpostCard({ o, onRemove }: { o: Outpost; onRemove: (name: string) => 
   const [logOpen, setLogOpen] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [logLoading, setLogLoading] = useState(false);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairMessage, setRepairMessage] = useState<string | null>(null);
 
   const host = tailnetHost(o);
 
@@ -111,7 +139,7 @@ function OutpostCard({ o, onRemove }: { o: Outpost; onRemove: (name: string) => 
         setRunOut(`error: ${data?.error ?? `HTTP ${res.status}`}`);
       } else {
         const p = data?.result?.payload ?? {};
-        const out = [p.stdout, p.stderr].filter(Boolean).join("\n") || p.output || "(no output)";
+        const out = [decodeBase64Text(p.stdout), decodeBase64Text(p.stderr)].filter(Boolean).join("\n") || p.output || "(no output)";
         const exit = typeof p.exit_code === "number" ? `\n[exit ${p.exit_code}]` : "";
         setRunOut(String(out) + exit);
         void loadLog(); // the run just landed in the invocation log
@@ -142,32 +170,89 @@ function OutpostCard({ o, onRemove }: { o: Outpost; onRemove: (name: string) => 
     if (next) void loadLog();
   }
 
+  async function repairWorker() {
+    setRepairBusy(true);
+    setRepairMessage(null);
+    try {
+      const res = await fetch(`/outposts/${encodeURIComponent(o.name)}/worker/repair`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.jobId) {
+        setRepairMessage([data?.error, data?.requirement].filter(Boolean).join(" — ") || `HTTP ${res.status}`);
+        setRepairBusy(false);
+        return;
+      }
+      const es = new EventSource(`/provision/${encodeURIComponent(data.jobId)}/stream`);
+      es.onmessage = (event) => {
+        try {
+          const line = JSON.parse(event.data)?.line;
+          if (typeof line === "string") setRepairMessage(line);
+        } catch { /* keep last useful line */ }
+      };
+      es.addEventListener("done", () => {
+        es.close();
+        setRepairBusy(false);
+        setRepairMessage("Repair finished; waiting for the worker readiness pulse.");
+        onChanged();
+      });
+      es.onerror = () => {
+        es.close();
+        setRepairBusy(false);
+        setRepairMessage("Repair stream disconnected; refresh to check worker state.");
+      };
+    } catch (error) {
+      setRepairBusy(false);
+      setRepairMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function sendTask() {
+    window.top?.postMessage({
+      type: "garrison:navigate-fitting",
+      fittingId: "kanban-loop",
+      params: { new: "1", placement: o.name }
+    }, "*");
+  }
+
   return (
     <div className={"card" + (online ? "" : " card-offline")}>
       <div className="card-head">
-        <span className={"dot " + (online ? "sage" : o.pending ? "brass" : "alarm")} />
+        <span className={"dot " + (bridgeState === "connected" ? "sage" : o.pending ? "brass" : "alarm")} />
         <span className="card-name">{o.name}</span>
-        <span className="state-label">{online ? "online" : o.pending ? "pending" : "offline"}</span>
+        <span className="state-label">bridge: {bridgeState}</span>
+        <span className={`worker-pill worker-${workerState}`}>worker: {workerState}</span>
         <span className="grow" />
         {host && <code className="host">{host}</code>}
       </div>
 
       <div className="meta-grid">
-        <div><span className="k">Agent</span><span className="v">{o.agentVersion ?? "unknown"}</span></div>
-        <div><span className="k">Last seen</span><span className="v">{fmtAgo(o.lastHeartbeat)}</span></div>
+        <div><span className="k">Bridge version</span><span className="v">{o.agentVersion ?? "unknown"}</span></div>
+        <div><span className="k">Bridge seen</span><span className="v">{fmtAgo(o.lastHeartbeat)}</span></div>
         <div>
           <span className="k">Latency</span>
           <span className="v">
             {pinging ? "pinging…" : pingMs != null ? `${pingMs} ms` : pingErr ? `error` : "—"}
           </span>
         </div>
-        <div><span className="k">Registered</span><span className="v">{fmtAgo(o.registeredAt)}</span></div>
+        <div><span className="k">Worker version</span><span className="v">{o.worker?.workerVersion ?? "not installed"}</span></div>
+        <div><span className="k">Worker seen</span><span className="v">{fmtAgo(o.worker?.lastSeenAt)}</span></div>
+        <div><span className="k">Current card</span><span className="v mono">{o.worker?.currentCardId ?? "—"}</span></div>
+        <div><span className="k">Protocol</span><span className="v">{o.worker?.protocolVersion ?? "—"}</span></div>
       </div>
 
       {o.pending && (
         <div className="note">Pending — waiting for this Mac's bridge to connect for the first time.</div>
       )}
       {pingErr && <div className="alert small">{pingErr}</div>}
+      {o.worker?.detail && <div className={workerCanTakeTasks ? "worker-note" : "note"}>{o.worker.detail}</div>}
+      {o.worker?.error && <div className="alert small">{o.worker.error}</div>}
+      {repairMessage && <div className="note">{repairMessage}</div>}
+
+      {o.worker?.runtimes && o.worker.runtimes.length > 0 && (
+        <div className="verbs">
+          <span className="k">Task runtimes</span>
+          {o.worker.runtimes.map((runtime) => <code key={runtime} className="verb">{runtime}</code>)}
+        </div>
+      )}
 
       {o.verbs && o.verbs.length > 0 && (
         <div className="verbs">
@@ -195,6 +280,10 @@ function OutpostCard({ o, onRemove }: { o: Outpost; onRemove: (name: string) => 
       <div className="actions">
         <button type="button" className="btn" disabled={!online || pinging} onClick={() => void ping()}>Ping now</button>
         <button type="button" className="btn" onClick={toggleLog}>{logOpen ? "Hide log" : "Show log"}</button>
+        <button type="button" className="btn primary" disabled={!workerCanTakeTasks} title={workerCanTakeTasks ? "Open a new card on this Mac" : (o.worker?.detail || "Enable/repair the task runner first")} onClick={sendTask}>Send task</button>
+        <button type="button" className="btn" disabled={!online || repairBusy || o.repairAvailable === false} title={o.repairRequirement || "Reinstall the versioned task runner"} onClick={() => void repairWorker()}>
+          {repairBusy ? "Repairing…" : "Enable/Repair task runner"}
+        </button>
         <span className="grow" />
         <button type="button" className="btn danger" onClick={() => onRemove(o.name)}>Remove</button>
       </div>
@@ -633,7 +722,7 @@ function App() {
       ) : (
         <div className="cards">
           {outposts.map((o) => (
-            <OutpostCard key={o.name} o={o} onRemove={remove} />
+            <OutpostCard key={o.name} o={o} onRemove={remove} onChanged={refresh} />
           ))}
         </div>
       )}

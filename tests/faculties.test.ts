@@ -14,9 +14,9 @@ async function seedFaculty(id: string): Promise<string> {
 }
 
 describe("faculty definitions", () => {
-  it("renders the 9 role Faculties, the 7 optional capability faculties, then connectors, in order", () => {
+  it("renders the 8 role Faculties, the 7 optional capability faculties, then connectors, in order", () => {
     expect(faculties.map((faculty) => faculty.id)).toEqual([
-      // 9 role faculties (the Quarters pivot)
+      // 8 role faculties (identity is authored inside Orchestrator)
       "orchestrator",
       "channels",
       "gateway",
@@ -25,7 +25,6 @@ describe("faculty definitions", () => {
       "observability",
       "sessions",
       "surfaces",
-      "modes",
       // 7 optional capability faculties (2026-06-24)
       "knowledge",
       "research",
@@ -39,9 +38,9 @@ describe("faculty definitions", () => {
     ]);
   });
 
-  it("assigns each faculty a unique sequential order 1..17", () => {
+  it("assigns each faculty a unique sequential order 1..16", () => {
     expect(faculties.map((f) => f.order)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
     ]);
   });
 
@@ -107,11 +106,11 @@ describe("Agent vs Dev display tier (2026-06-24)", () => {
   it("classifies the everyday-operative faculties as Agent", () => {
     const agent = faculties.filter((f) => f.tier === "agent").map((f) => f.id).sort();
     expect(agent).toEqual(
-      ["channels", "connectors", "gateway", "knowledge", "memory", "modes", "orchestrator", "research"].sort()
+      ["channels", "connectors", "gateway", "knowledge", "memory", "orchestrator", "research"].sort()
     );
   });
 
-  it("classifies the development-only faculties as Dev (runtimes confirmed by the modes config)", () => {
+  it("classifies the development-only faculties as Dev", () => {
     const dev = faculties.filter((f) => f.tier === "dev").map((f) => f.id).sort();
     expect(dev).toEqual(
       [

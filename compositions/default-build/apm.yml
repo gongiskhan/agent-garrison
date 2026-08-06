@@ -15,7 +15,6 @@ dependencies:
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/gemini-runtime
     - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/monitor-default
@@ -81,7 +80,7 @@ x-garrison:
           config: {}
         - id: agent-sdk-runtime
           config:
-            provider: ollama-local
+            provider: anthropic
             model: ''
             promptMode: full
             maxTurns: 12
@@ -177,10 +176,6 @@ x-garrison:
             port: 7082
             bind_host: 127.0.0.1
             outpost_host_url: http://127.0.0.1:3702
-      modes:
-        - id: identity-gary
-          config:
-            user_name: the user
       connectors:
         - id: deepgram-voice
           config:
@@ -193,7 +188,6 @@ x-garrison:
             board_id: vl1Z8KFH
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md
     duties:
       - id: code
         title: Code
@@ -203,7 +197,7 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-ollama-build
+              target: cc-sonnet
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
@@ -224,7 +218,7 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-ollama-build
+              target: cc-sonnet
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
@@ -311,7 +305,7 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-ollama-build
+              target: cc-sonnet
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
@@ -393,7 +387,7 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-ollama-build
+              target: cc-sonnet
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
@@ -414,7 +408,7 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-ollama-build
+              target: cc-sonnet
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
@@ -589,21 +583,22 @@ x-garrison:
               trivial - A one-shot answer or a single mechanical edit: a rename, a typo, a fact
               lookup, a one-line config tweak.
             cell:
-              target: sdk-ollama-probe
+              target: dispatch-fast
               effort: low
           - description: >-
               standard - Ordinary day-to-day work: a bounded feature, a localized bug fix, a focused
               refactor, a normal review.
             cell:
-              target: sdk-ollama-probe
+              target: dispatch-fast
               effort: low
           - description: >-
               deep - High-stakes or wide-blast-radius work: architecture, a tricky bug with unclear
               cause, a security-sensitive change, a multi-subsystem migration.
             cell:
-              target: sdk-ollama-probe
+              target: dispatch-fast
               effort: low
     selected_duties:
+      - dispatch
       - code
       - other
       - research
@@ -614,22 +609,20 @@ x-garrison:
       - ops
       - probe-question
     targets:
+      - id: dispatch-fast
+        runtime: agent-sdk
+        model: claude-haiku-4-5
+        provider: anthropic
+        params:
+          type: runtime-target
+          authMode: subscription
+          promptMode: lean
+          maxTurns: 1
+          timeoutMs: 8000
       - id: cc-haiku
         runtime: claude-code
         model: haiku
         provider: anthropic-plan
-        params:
-          type: runtime-target
-      - id: cc-ollama-qwen
-        runtime: claude-code
-        model: qwen2.5-coder
-        provider: ollama-local
-        params:
-          type: runtime-target
-      - id: cc-ollama-deepseek
-        runtime: claude-code
-        model: deepseek-coder-v2
-        provider: ollama-local
         params:
           type: runtime-target
       - id: sec-gemini
@@ -642,43 +635,6 @@ x-garrison:
         model: gpt-5-codex
         params:
           type: secondary
-      - id: classifier
-        runtime: claude-code
-        model: haiku
-        provider: anthropic-plan
-        params:
-          type: runtime-target
-          pinned: true
-      - id: sdk-ollama-chat
-        runtime: agent-sdk
-        model: qwen3:0.6b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-      - id: sdk-ollama-build
-        runtime: agent-sdk
-        model: qwen2.5-coder:7b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-          maxTurns: 2
-          leanPrompt: >-
-            You output JavaScript source code ONLY, as a single fenced code block. Example request:
-            "a function add that sums two numbers". Example reply (this exact shape, nothing else):
-
-            ```js
-
-            export function add(a, b) {
-              return a + b;
-            }
-
-            ```
-
-            Rules: reply with ONLY one ```js fenced block containing the implementation. Never
-            output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
-            tool. No prose before or after. No imports unless explicitly requested.
       - id: cc-opus
         runtime: claude-code
         model: opus
@@ -698,13 +654,6 @@ x-garrison:
         params:
           type: runtime-target
           authMode: api-key
-      - id: sdk-ollama-probe
-        runtime: agent-sdk
-        model: qwen2.5:3b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
       - id: sol
         runtime: codex
         model: gpt-5.6-sol

@@ -40,8 +40,7 @@ export const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 export const EXECUTIONS = ["interactive", "autonomous"];
 
 // Ladder labels, cheap→expensive. A profile's computeLadder holds target ids
-// in this order; modes routingBias {floor, prefer} moves along it (the
-// behavior-preserving replacement for v1 role bias).
+// in this order.
 export const LADDER_LABELS = ["fast", "standard", "expert"];
 
 export function isV2(config) {
@@ -54,14 +53,15 @@ export function isV2(config) {
 // baseUrl (null for the plan path and configurable OpenAI-compatible slots),
 // vaultKey for the auth credential (or dummyToken for local endpoints that ignore
 // auth), notes. Migration seeds these so a runtime fitting's documented provider
-// ids are valid policy data even before a composition authors its own registry.
+// ids used by shipped cloud targets are valid policy data even before a
+// composition authors its own registry. Local providers remain supported when
+// explicitly authored, but are not silently retained or seeded.
 export const SEED_PROVIDERS = [
   { id: "anthropic-plan", kind: "anthropic-plan", baseUrl: null, notes: "Max OAuth, no base URL, no key" },
   // The agent-sdk runtime's historical id for the same Max-OAuth endpoint —
   // live seed targets (agent-sdk-haiku-fast) reference it, so migration seeds
   // it too (brief said four; reality's target space needs this fifth id).
   { id: "anthropic", kind: "anthropic-plan", baseUrl: null, notes: "agent-sdk id for the Anthropic Max OAuth endpoint" },
-  { id: "ollama-local", kind: "local", baseUrl: "http://localhost:11434", dummyToken: "ollama", notes: "local Ollama Anthropic-compatible endpoint" },
   { id: "deepseek", kind: "cloud-oss", baseUrl: "https://api.deepseek.com/anthropic", vaultKey: "DEEPSEEK_API_KEY" },
   { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" },
   { id: "openai", kind: "openai-compatible", baseUrl: "https://api.openai.com/v1", vaultKey: "OPENAI_API_KEY", notes: "OpenAI cloud endpoint for OpenAI-shaped runtimes" },
@@ -292,23 +292,6 @@ export function resolveRouteV2(config, profile, classification) {
   const target = base && cellEffort ? { ...base, effort: cellEffort } : base;
   const role = ladderLabelFor(config, name, targetId) || (classification || {}).taskType || null;
   return { profile: name, role, ruleId, via, targetId: targetId || null, target, effort: target?.effort ?? cellEffort ?? null };
-}
-
-// ── Mode bias on the ladder (behavior-preserving v1 biasRole port) ──────────
-// `floor` raises a too-cheap target up; a "standard" resolution with a cheaper
-// `prefer` dials down. Targets off the ladder (image/video/secondary/etc.) are
-// never biased. Mirrors routing-core.biasRole exactly, on target ids.
-export function biasTarget(targetId, bias, computeLadder) {
-  const ladder = computeLadder || [];
-  const rank = ladder.indexOf(targetId);
-  if (rank === -1 || !bias) return targetId;
-  const rankOf = (label) => LADDER_LABELS.indexOf(label);
-  let r = rank;
-  const preferRank = rankOf(bias.prefer);
-  const floorRank = rankOf(bias.floor);
-  if (LADDER_LABELS[rank] === "standard" && preferRank >= 0 && preferRank < r) r = preferRank;
-  if (floorRank >= 0 && floorRank > r) r = floorRank;
-  return ladder[Math.min(r, ladder.length - 1)] ?? targetId;
 }
 
 // ── Discipline (unchanged semantics) ────────────────────────────────────────
@@ -732,7 +715,7 @@ export function resolvePhaseTarget(policy, phase, tier) {
 // autonomous marker (the web-channel toggle, the garrison doorway) is
 // autonomous; a multi-step cross-app automation shape is autonomous; otherwise
 // THE CLASSIFIER decides (its reply now carries an `execution` field — see
-// buildClassifierPrompt), with Gary-mode conversation flooring to interactive.
+// buildClassifierPrompt).
 // NOTE (rev-s2 finding #2): there is deliberately NO task-type fallback here —
 // the live classifier vocabulary is the general kinds, so keying autonomy on
 // pipeline-verb task types was dead code with one false-positive ("review this
@@ -746,7 +729,7 @@ const BUILD_VERBS = new Set([
   "ux-qa", "walkthrough", "validate", "codex-checkpoint"
 ]);
 
-export function classifyExecution({ channel, explicitAutonomous, mode, message, classification } = {}) {
+export function classifyExecution({ channel, explicitAutonomous, message, classification } = {}) {
   if (explicitAutonomous === true) return "autonomous";
   if (channel && AUTONOMOUS_CHANNELS.has(String(channel).toLowerCase())) return "autonomous";
   if (
@@ -756,7 +739,6 @@ export function classifyExecution({ channel, explicitAutonomous, mode, message, 
   ) {
     return "autonomous";
   }
-  if (mode === "gary") return "interactive";
   // The classifier's own read (buildClassifierPrompt asks for it; an absent or
   // out-of-vocab value means interactive).
   if (classification?.execution === "autonomous") return "autonomous";

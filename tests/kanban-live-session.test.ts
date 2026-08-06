@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import http from "node:http";
+import { createHash } from "node:crypto";
 
 // @ts-ignore — source-only fitting module.
 import {
@@ -161,6 +162,154 @@ describe("card session-stream route", () => {
       expect(frames[0]).toMatchObject({ type: "init", available: true, live: true });
       expect(JSON.stringify(frames[0].events)).toContain("The journal is visible");
       expect(frames.at(-1)).toEqual({ type: "end" });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("opens a running remote card on the rich default stream and receives ordered Outpost chunks", async () => {
+    const root = tempRoot();
+    const card = await createCard(root, { title: "Remote live route", list: "plan", project: "garrison" });
+    const runId = "remote-run-1";
+    const acquired = await saveCardCAS(root, {
+      ...card,
+      status: "running",
+      placement: { target: "studio-mac" },
+      dispatch: {
+        machine: "studio-mac",
+        workerId: "worker-1",
+        runId,
+        routingToken: "route-1",
+        phase: "plan",
+        logIndex: 1,
+        claimedAt: "2026-08-05T18:00:00.000Z",
+        heartbeatAt: "2026-08-05T18:00:01.000Z",
+        state: "running"
+      }
+    }, card.rev);
+    expect(acquired.ok).toBe(true);
+    const key = createHash("sha256").update(runId).digest("hex").slice(0, 32);
+    const streams = path.join(root, "cards", card.id, "dispatch", "streams", key);
+    mkdirSync(streams, { recursive: true });
+    writeFileSync(path.join(streams, "0000000002.json"), JSON.stringify({ eventId: 2, channel: "status", text: "second", at: "2026-08-05T18:00:03.000Z" }));
+    writeFileSync(path.join(streams, "0000000001.json"), JSON.stringify({ eventId: 1, channel: "status", text: "first", at: "2026-08-05T18:00:02.000Z" }));
+    writeFileSync(path.join(streams, "0000000003.json"), JSON.stringify({
+      eventId: 3,
+      channel: "journal",
+      text: JSON.stringify({
+        role: "assistant",
+        blocks: [{ type: "tool_use", toolUseId: "vision-1", name: "browser.snapshot", input: "{}" }]
+      }),
+      at: "2026-08-05T18:00:04.000Z"
+    }));
+    writeFileSync(path.join(streams, "0000000004.json"), JSON.stringify({
+      eventId: 4,
+      channel: "journal",
+      text: JSON.stringify({
+        role: "user",
+        blocks: [{
+          type: "tool_result",
+          toolUseId: "vision-1",
+          text: "snapshot captured",
+          images: [{ mediaType: "image/png", data: "aGVsbG8=" }]
+        }]
+      }),
+      at: "2026-08-05T18:00:05.000Z"
+    }));
+
+    const server = http.createServer(makeRequestHandler({ root, cwd: root, gatewayUrl: null, cap: 10 }, root));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as any).port;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/cards/${card.id}/session-stream?live=1`);
+      expect(response.status).toBe(200);
+      const running = await loadCard(root, card.id);
+      expect((running as any).dispatch.runId).toBe(runId);
+      const settled = await saveCardCAS(root, { ...running, status: "ok" }, running.rev);
+      expect(settled.ok).toBe(true);
+      const frames = (await response.text())
+        .split("\n\n")
+        .filter((frame) => frame.startsWith("data: "))
+        .map((frame) => JSON.parse(frame.slice("data: ".length)));
+      expect(frames[0]).toMatchObject({
+        type: "init",
+        available: true,
+        live: true,
+        title: "Outpost · studio-mac"
+      });
+      expect(frames[0].events.slice(0, 2).map((event: any) => event.blocks[0].text)).toEqual([
+        "[status] first",
+        "[status] second"
+      ]);
+      expect(frames[0].events[2]).toMatchObject({
+        role: "assistant",
+        blocks: [{ type: "tool_use", toolUseId: "vision-1", name: "browser.snapshot" }]
+      });
+      expect(frames[0].events[3]).toMatchObject({
+        role: "user",
+        toolResultsOnly: true,
+        blocks: [{
+          type: "tool_result",
+          toolUseId: "vision-1",
+          images: [{ mediaType: "image/png", data: "aGVsbG8=" }]
+        }]
+      });
+      expect(frames.at(-1)).toEqual({ type: "end" });
+
+      // The immutable host journal remains the card's rich Watch source after
+      // completion; screenshots/tool results are not a running-only view.
+      const replay = await fetch(`http://127.0.0.1:${port}/cards/${card.id}/session-stream?live=1`);
+      const replayFrames = (await replay.text())
+        .split("\n\n")
+        .filter((frame) => frame.startsWith("data: "))
+        .map((frame) => JSON.parse(frame.slice("data: ".length)));
+      expect(replayFrames[0]).toMatchObject({ type: "init", available: true, live: false });
+      expect(replayFrames[0].events[3].blocks[0]).toMatchObject({
+        type: "tool_result",
+        images: [{ mediaType: "image/png", data: "aGVsbG8=" }]
+      });
+      expect(replayFrames.at(-1)).toEqual({ type: "end" });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("tails the active dispatch log index instead of a higher losing reservation", async () => {
+    const root = tempRoot();
+    const card = await createCard(root, { title: "Exact remote log", list: "plan", project: "garrison" });
+    writeFileSync(path.join(root, "cards", card.id, "log-1.md"), "owned remote stream\n");
+    writeFileSync(path.join(root, "cards", card.id, "log-2.md"), "losing claim reservation\n");
+    const acquired = await saveCardCAS(root, {
+      ...card,
+      status: "running",
+      placement: { target: "studio-mac" },
+      dispatch: {
+        machine: "studio-mac",
+        workerId: "worker-1",
+        runId: "owned-run",
+        routingToken: "route-1",
+        phase: "plan",
+        logIndex: 1,
+        claimedAt: "2026-08-05T18:00:00.000Z",
+        heartbeatAt: "2026-08-05T18:00:01.000Z",
+        state: "running"
+      }
+    }, card.rev);
+    expect(acquired.ok).toBe(true);
+
+    const server = http.createServer(makeRequestHandler({ root, cwd: root, gatewayUrl: null, cap: 10 }, root));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as any).port;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/cards/${card.id}/watch`);
+      const current = await loadCard(root, card.id);
+      const settled = await saveCardCAS(root, { ...current, status: "ok" }, current.rev);
+      expect(settled.ok).toBe(true);
+      const text = await response.text();
+      expect(text).toContain('"live":true');
+      expect(text).toContain('"n":1');
+      expect(text).toContain("owned remote stream");
+      expect(text).not.toContain("losing claim reservation");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

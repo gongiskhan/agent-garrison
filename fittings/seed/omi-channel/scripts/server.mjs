@@ -35,6 +35,12 @@ const BACKFEED_INTERVAL_MS = 30 * 60 * 1000;
 const BACKFEED_BOOT_DELAY_MS = 2 * 60 * 1000;
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const STATUS_CSS_FILE = path.resolve(
+  path.dirname(url.fileURLToPath(import.meta.url)),
+  "..",
+  "ui",
+  "styles.css"
+);
 
 function jsonRes(res, status, body) {
   res.statusCode = status;
@@ -195,9 +201,76 @@ function secretsPresence(cfg) {
   };
 }
 
-function statusPage(cfg, counters = {}) {
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function statusBadge(label, state) {
+  const tone = ["ok", "muted", "warn", "alarm"].includes(state) ? state : "muted";
+  return `<span class="status status--${tone}"><span class="status__mark" aria-hidden="true"></span>${escapeHtml(label)}</span>`;
+}
+
+function summaryItem(label, value, state, detail) {
+  const tone = ["ok", "muted", "warn", "alarm"].includes(state) ? state : "muted";
+  return `<div class="summary__item">
+    <span class="summary__label">${escapeHtml(label)}</span>
+    <strong class="summary__value">${escapeHtml(value)}</strong>
+    <span class="summary__detail summary__detail--${tone}">${escapeHtml(detail)}</span>
+  </div>`;
+}
+
+export async function probeGateway(cfg, { fetchImpl = fetch, timeoutMs = 1500 } = {}) {
+  if (!cfg.gatewayUrl) {
+    return { state: "missing", label: "Missing", tone: "alarm", detail: "not configured" };
+  }
+  let healthUrl;
+  try {
+    healthUrl = new URL("/health", cfg.gatewayUrl).toString();
+  } catch {
+    return { state: "degraded", label: "Degraded", tone: "alarm", detail: "invalid gateway URL" };
+  }
+  try {
+    const response = await fetchImpl(healthUrl, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) {
+      return {
+        state: "degraded",
+        label: "Degraded",
+        tone: "alarm",
+        detail: `health returned HTTP ${response.status}`
+      };
+    }
+    const body = await response.json().catch(() => null);
+    if (body?.ok === false) {
+      return { state: "degraded", label: "Degraded", tone: "alarm", detail: "health reported not ready" };
+    }
+    return { state: "ready", label: "Ready", tone: "ok", detail: "health check passed" };
+  } catch (error) {
+    const timedOut = /abort|timeout/i.test(String(error?.name ?? "") + " " + String(error?.message ?? error));
+    return {
+      state: "offline",
+      label: "Offline",
+      tone: "alarm",
+      detail: timedOut ? "health check timed out" : "health check failed"
+    };
+  }
+}
+
+export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = null } = {}) {
   const flags = flagSummary(cfg);
   const secrets = secretsPresence(cfg);
+  const enabledCount = Object.values(flags).filter(Boolean).length;
+  const secretCount = Object.values(secrets).filter(Boolean).length;
+  const gatewayState = gateway ?? (
+    cfg.gatewayUrl
+      ? { state: "unknown", label: "Configured", tone: "warn", detail: "health not checked" }
+      : { state: "missing", label: "Missing", tone: "alarm", detail: "not configured" }
+  );
+  const wearerPinned = Boolean(pinnedUid);
   // Counters per pipe (spec M7) - the always-available metrics surface next
   // to /health. Wake counters are counts only; no transcript content exists
   // anywhere in this fitting's observability (I5).
@@ -205,53 +278,114 @@ function statusPage(cfg, counters = {}) {
     .filter((k) => k !== "updatedAt")
     .sort();
   const counterRows = counterKeys
-    .map((k) => `<tr><td>${k}</td><td>${counters[k]}</td></tr>`)
+    .map((k) => `<tr><th scope="row"><code>${escapeHtml(k)}</code></th><td>${escapeHtml(counters[k])}</td></tr>`)
     .join("\n");
   const row = (k, v) =>
-    `<tr><td>${k}</td><td class="${v ? "on" : "off"}">${v ? "on" : "off"}</td></tr>`;
+    `<tr><th scope="row">${escapeHtml(k)}</th><td>${statusBadge(v ? "Enabled" : "Disabled", v ? "ok" : "muted")}</td></tr>`;
   const srow = (k, v) =>
-    `<tr><td>${k}</td><td class="${v ? "on" : "off"}">${v ? "sealed" : "missing"}</td></tr>`;
+    `<tr><th scope="row"><code>${escapeHtml(k)}</code></th><td>${statusBadge(v ? "Sealed" : "Missing", v ? "ok" : "warn")}</td></tr>`;
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Omi channel</title>
+<html lang="en"><head><meta charset="utf-8"><title>Omi channel · Garrison</title>
+<meta name="description" content="Read-only health and activity for Garrison's Omi wearable channel.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #101418; color: #d7dde3; margin: 2rem; }
-  h1 { font-size: 1.1rem; } h2 { font-size: 0.95rem; margin-top: 1.6rem; }
-  table { border-collapse: collapse; } td { padding: 2px 14px 2px 0; }
-  .on { color: #7dcf85; } .off { color: #8a939c; }
-  p.note { color: #8a939c; max-width: 46rem; }
-</style></head>
+<link rel="stylesheet" href="/styles.css">
+</head>
 <body>
-<h1>Omi channel</h1>
-<p class="note">Bidirectional Omi wearable channel. Pipes are independently
-flag-gated and default off; enable them per pipe in the fitting config.
-Ingress endpoints live under /omi/.</p>
-<h2>Pipes</h2>
-<table>
-${row("ingress (webhooks)", flags.ingress)}
-${row("triage (heartbeat)", flags.triage)}
-${row("wake bus", flags.wake)}
-${row("outbound notifications", flags.notify)}
-${row("chat tool (ask_gary)", flags.chat)}
-${row("backfeed", flags.backfeed)}
-${row("tips", flags.tips)}
-</table>
-<h2>Vault secrets</h2>
-<table>
-${srow("OMI_APP_ID", secrets.appId)}
-${srow("OMI_APP_SECRET", secrets.appSecret)}
-${srow("OMI_IMPORT_API_KEY", secrets.importApiKey)}
-${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
-</table>
-<h2>Counters</h2>
-<table>
-${counterRows || "<tr><td>(none yet)</td><td></td></tr>"}
-</table>
+<a class="skip-link" href="#main">Skip to status</a>
+<div class="shell">
+  <header class="hero">
+    <p class="eyebrow">Channel · wearable</p>
+    <div class="hero__title-row">
+      <h1>Omi channel</h1>
+      ${statusBadge(cfg.enabled ? "Receiving" : "Standby", cfg.enabled ? "ok" : "muted")}
+    </div>
+    <p class="hero__copy">Bidirectional capture, triage, wake commands, and personal notifications. Configuration stays in the Fitting editor; this page reports what is ready now.</p>
+  </header>
+
+  <main id="main">
+    <section class="summary" aria-label="Channel summary">
+      ${summaryItem("Pipes", `${enabledCount} / ${Object.keys(flags).length}`, enabledCount ? "ok" : "muted", enabledCount ? "enabled" : "all paused")}
+      ${summaryItem("Credentials", `${secretCount} / ${Object.keys(secrets).length}`, secretCount === Object.keys(secrets).length ? "ok" : "warn", secretCount === Object.keys(secrets).length ? "sealed" : "incomplete")}
+      ${summaryItem("Gateway", gatewayState.label, gatewayState.tone, gatewayState.detail)}
+      ${summaryItem("Wearer", wearerPinned ? "Pinned" : "Unpinned", wearerPinned ? "ok" : "warn", wearerPinned ? "identity masked" : "waiting for ingress")}
+    </section>
+
+    <div class="status-grid">
+      <section class="panel" aria-labelledby="pipes-title">
+        <div class="panel__heading">
+          <div><p class="section-kicker">Live paths</p><h2 id="pipes-title">Pipes</h2></div>
+          <span class="panel__meta">independent gates</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Omi channel pipe readiness</caption>
+            <tbody>
+              ${row("Ingress webhooks", flags.ingress)}
+              ${row("Heartbeat triage", flags.triage)}
+              ${row("Wake bus", flags.wake)}
+              ${row("Outbound notifications", flags.notify)}
+              ${row("Chat tool — ask_gary", flags.chat)}
+              ${row("Memory backfeed", flags.backfeed)}
+              ${row("Tips", flags.tips)}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="credentials-title">
+        <div class="panel__heading">
+          <div><p class="section-kicker">Vault presence</p><h2 id="credentials-title">Credentials</h2></div>
+          <span class="panel__meta">values never shown</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Required Omi credentials</caption>
+            <tbody>
+              ${srow("OMI_APP_ID", secrets.appId)}
+              ${srow("OMI_APP_SECRET", secrets.appSecret)}
+              ${srow("OMI_IMPORT_API_KEY", secrets.importApiKey)}
+              ${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel panel--activity" aria-labelledby="activity-title">
+      <div class="panel__heading">
+        <div><p class="section-kicker">Since last reset</p><h2 id="activity-title">Activity</h2></div>
+        <span class="panel__meta">counts only · no transcript content</span>
+      </div>
+      <div class="table-wrap">
+        <table class="activity-table">
+          <caption>Omi channel activity counters</caption>
+          <tbody>
+            ${counterRows || '<tr class="empty-row"><td colspan="2">No activity has been recorded yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Ingress endpoints</span><code>/omi/</code><span aria-hidden="true">·</span><span>read-only diagnostics</span>
+  </footer>
+</div>
 </body></html>`;
 }
 
 export function makeRequestHandler(ctx) {
   const { cfg, store, counters, ingress, notifier = null, chatTool = null } = ctx;
+  let gatewayCache = { at: 0, value: null };
+  const gatewayStatus = async () => {
+    const now = Date.now();
+    if (gatewayCache.value && now - gatewayCache.at < 5000) return gatewayCache.value;
+    const value = ctx.gatewayProbe
+      ? await ctx.gatewayProbe(cfg)
+      : await probeGateway(cfg, { fetchImpl: ctx.fetchImpl ?? fetch });
+    gatewayCache = { at: now, value };
+    return value;
+  };
   return async (req, res) => {
     try {
       const parsed = url.parse(req.url || "/", true);
@@ -261,6 +395,7 @@ export function makeRequestHandler(ctx) {
 
       if (pathname === "/health" || pathname === "/api/health") {
         const pinned = store.pinnedUid();
+        const gateway = await gatewayStatus();
         return jsonRes(res, 200, {
           ok: true,
           fittingId: FITTING_ID,
@@ -269,15 +404,30 @@ export function makeRequestHandler(ctx) {
           flags: flagSummary(cfg),
           secrets: secretsPresence(cfg),
           gatewayConfigured: Boolean(cfg.gatewayUrl),
+          gateway,
           pinnedUid: pinned ? `${pinned.slice(0, 4)}...` : null,
           counters: mergedCounters(store.root)
         });
       }
 
       if (pathname === "/" && method === "GET") {
+        const gateway = await gatewayStatus();
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.end(statusPage(cfg, mergedCounters(store.root)));
+        return res.end(statusPage(cfg, mergedCounters(store.root), { pinnedUid: store.pinnedUid(), gateway }));
+      }
+
+      if (pathname === "/styles.css" && method === "GET") {
+        try {
+          const css = await readFile(STATUS_CSS_FILE, "utf8");
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/css; charset=utf-8");
+          res.setHeader("Cache-Control", "public, max-age=300");
+          res.setHeader("X-Content-Type-Options", "nosniff");
+          return res.end(css);
+        } catch {
+          return jsonRes(res, 404, { error: "status stylesheet unavailable" });
+        }
       }
 
       // ---- Ingress surface. Everything under /omi/ (the public Funnel mount
@@ -343,8 +493,70 @@ export function makeRequestHandler(ctx) {
             return jsonRes(res, 400, { error: "invalid JSON" });
           }
           const threadId = decodeURIComponent(m[1]);
-          const appended = store.appendThreadMessages(threadId, body?.messages);
+          const idempotencyKey = typeof body?.idempotencyKey === "string"
+            ? body.idempotencyKey.trim().slice(0, 200)
+            : null;
+          const previousDelivery = idempotencyKey ? store.threadDelivery(threadId, idempotencyKey) : null;
+          const appended = store.appendThreadMessages(threadId, body?.messages, { idempotencyKey });
           counters.bump("thread_messages_in", appended.length || 0);
+          // A caller that also owns an independent Web delivery (Morning
+          // briefing) must be able to ask for Omi-direct-or-degraded, not Omi's
+          // usual Omi→Web fallback. Await that delivery so the caller receives
+          // honest per-means receipts it can persist on its occurrence card.
+          if (body?.suppressWebFallback === true && notifier) {
+            if (previousDelivery?.status === "complete") {
+              return jsonRes(res, 200, {
+                ok: true,
+                appended: 0,
+                deduplicated: true,
+                deliveryReceipts: previousDelivery.receipts ?? []
+              });
+            }
+            if (previousDelivery && appended.length === 0) {
+              const deliveryReceipts = [{
+                means: "omi-push",
+                ok: false,
+                skipped: "an earlier idempotent append has an incomplete delivery receipt; duplicate push suppressed"
+              }];
+              if (idempotencyKey) store.completeThreadDelivery(threadId, idempotencyKey, deliveryReceipts);
+              return jsonRes(res, 200, { ok: true, appended: 0, deduplicated: true, deliveryReceipts });
+            }
+            const deliveryReceipts = [];
+            for (const msg of appended) {
+              deliveryReceipts.push(...await notifier.send({
+                template: "relay",
+                params: { text: msg.text },
+                suppressWebFallback: true
+              }));
+            }
+            if (idempotencyKey) store.completeThreadDelivery(threadId, idempotencyKey, deliveryReceipts);
+            return jsonRes(res, 200, { ok: true, appended: appended.length, deliveryReceipts });
+          }
+          if (idempotencyKey && notifier) {
+            if (previousDelivery?.status === "complete") {
+              return jsonRes(res, 200, {
+                ok: true,
+                appended: 0,
+                deduplicated: true,
+                deliveryReceipts: previousDelivery.receipts ?? []
+              });
+            }
+            if (previousDelivery && appended.length === 0) {
+              const deliveryReceipts = [{
+                means: "omi-push",
+                ok: false,
+                skipped: "an earlier idempotent append has an incomplete delivery receipt; duplicate relay suppressed"
+              }];
+              store.completeThreadDelivery(threadId, idempotencyKey, deliveryReceipts);
+              return jsonRes(res, 200, { ok: true, appended: 0, deduplicated: true, deliveryReceipts });
+            }
+            const deliveryReceipts = [];
+            for (const msg of appended) {
+              deliveryReceipts.push(...await notifier.send({ template: "relay", params: { text: msg.text } }));
+            }
+            store.completeThreadDelivery(threadId, idempotencyKey, deliveryReceipts);
+            return jsonRes(res, 200, { ok: true, appended: appended.length, deliveryReceipts });
+          }
           // Ack first, relay after - the caller (kanban) is fire-and-forget.
           jsonRes(res, 200, { ok: true, appended: appended.length });
           if (notifier) {

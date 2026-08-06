@@ -23,6 +23,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   kanbanRoot,
   loadBoard,
@@ -33,6 +35,7 @@ import {
   createCard,
   saveCardCAS,
   saveCardCASWithHooks,
+  withFileLock,
   withCardOrderLock,
   deleteCard,
   deriveMembership,
@@ -65,6 +68,7 @@ import {
   processCard,
   processChain,
   processBatch,
+  advanceCardPhase,
   recoverInterruptedRuns,
   triggerFor,
   isInteractive,
@@ -73,8 +77,11 @@ import {
   replySnippet,
   parkFields,
   consumeStartOverrides,
-  ATTENTION_LIST
+  ATTENTION_LIST,
+  sweepDueSchedules
 } from "../lib/engine.mjs";
+import { runScheduleNow } from "../lib/engine.mjs";
+import { scheduleValidationError, normaliseCardSchedule, nextCronOccurrence } from "../lib/schedules.mjs";
 import {
   kanbanModelFile,
   loadResolvedModel,
@@ -104,6 +111,7 @@ import { prepareRevert, executeRevert } from "../lib/fences.mjs";
 import { listProjects, readDevRoot, resolveProjectName, listSkills } from "../lib/discover.mjs";
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { reconcilePersonalCompletionOutbox } from "../lib/personal-memory-outbox.mjs";
+import { reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
 import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
 // WS2: the artifact-ref vocabulary lives in lib/links.mjs (shared with the handoff
 // packet generator). Re-exported below so existing importers (tests) keep working.
@@ -233,7 +241,11 @@ export function buildBoardView(board, cards) {
     // userOrder is the OPERATOR-owned column order (drag-reorder writes it;
     // reconcile preserves it because it is not engine-owned). Falls back to
     // the engine's spine order for untouched boards and freshly added lists.
-    .sort((a, b) => (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0))
+    .sort((a, b) => {
+      if (a.id === "scheduled") return -1;
+      if (b.id === "scheduled") return 1;
+      return (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0);
+    })
     .map((list) => ({
       id: list.id,
       title: list.title,
@@ -245,6 +257,7 @@ export function buildBoardView(board, cards) {
       phase: list.phase ?? (list.kind === "agent" ? list.id : null),
       terminal: Boolean(list.terminal),
       notifyOnEntry: Boolean(list.notifyOnEntry),
+      system: Boolean(list.system),
       validNext: Array.isArray(list.validNext) ? list.validNext : [],
       cards: (membership[list.id] || [])
         .map((id) => byId.get(id))
@@ -308,6 +321,83 @@ export function expectedRouteFor(card, model) {
   };
 }
 
+// Runtime capability required before a card may be placed remotely. When the
+// card already carries its resolved duty/level/sequence, inspect that exact
+// phase cell. A hand-authored card has not been routed yet, so use the active
+// composition's first runnable phase as the explicit default instead of merely
+// asking whether the worker is generically "ready".
+export function remoteRuntimeRequirement(input = {}, model = null) {
+  if (typeof input?.dispatchCommand === "string" && input.dispatchCommand.trim()) return null;
+  if (!hasExecutionModel(model)) return null;
+  const explicitDuty = typeof input?.duty === "string" && input.duty.trim()
+    ? input.duty.trim()
+    : typeof input?.routing?.duty === "string" && input.routing.duty.trim()
+      ? input.routing.duty.trim()
+      : null;
+  const fallbackDuty = (Array.isArray(model.kanbanLists) ? model.kanbanLists : [])
+    .find((candidate) => model.steps?.[candidate]?.["1"]?.length);
+  const duty = explicitDuty || fallbackDuty || null;
+  if (!duty) return null;
+  const requestedLevel = Number.isInteger(input?.level) && input.level > 0
+    ? input.level
+    : Number.isInteger(input?.routing?.level) && input.routing.level > 0
+      ? input.routing.level
+      : 1;
+  const sequence = Array.isArray(input?.sequence) && input.sequence.length
+    ? input.sequence
+    : model.sequences?.[duty]?.[String(requestedLevel)] || [];
+  const requestedPhase = typeof input?.phase === "string" && input.phase.trim()
+    ? input.phase.trim()
+    : typeof input?.list === "string" && sequence.includes(input.list)
+      ? input.list
+      : null;
+  const phase = requestedPhase || sequence[0] || duty;
+  const stepIndex = sequence.indexOf(phase);
+  const route = executionRouteFor({
+    duty,
+    level: requestedLevel,
+    phase,
+    stepIndex: stepIndex >= 0 ? stepIndex : null
+  }, model);
+  if (!route?.target?.runtime) return null;
+  const provider = typeof route.target.provider === "string" && route.target.provider
+    ? route.target.provider
+    : null;
+  return {
+    key: `${route.target.runtime}:${provider || "unknown"}`,
+    targetId: route.targetId,
+    runtime: route.target.runtime,
+    provider,
+    model: route.target.model ?? null,
+    duty,
+    level: requestedLevel,
+    phase
+  };
+}
+
+export function appendDispatchRunProvenance(card, run) {
+  if (!run || typeof run.runId !== "string" || !run.runId.trim()) {
+    return Array.isArray(card?.dispatchRuns) ? card.dispatchRuns : [];
+  }
+  const entry = {
+    runId: run.runId.trim(),
+    machine: typeof run.machine === "string" ? run.machine.slice(0, 160) : "remote",
+    workerId: typeof run.workerId === "string" ? run.workerId.slice(0, 160) : null,
+    phase: typeof run.phase === "string" ? run.phase.slice(0, 80) : null,
+    state: ["done", "failed", "cancelled"].includes(run.state) ? run.state : "failed",
+    claimedAt: typeof run.claimedAt === "string" ? run.claimedAt : null,
+    completedAt: typeof run.completedAt === "string" ? run.completedAt : new Date().toISOString(),
+    logIndex: Number.isInteger(run.logIndex) ? run.logIndex : null,
+    sessionId: typeof run.sessionId === "string" ? run.sessionId.slice(0, 200) : null,
+    logCursor: Number.isSafeInteger(run.logCursor) && run.logCursor >= 0 ? run.logCursor : 0,
+    evidenceManifest: Array.isArray(run.evidenceManifest) ? run.evidenceManifest.slice(0, 64) : []
+  };
+  const previous = Array.isArray(card?.dispatchRuns)
+    ? card.dispatchRuns.filter((candidate) => candidate?.runId !== entry.runId)
+    : [];
+  return [...previous, entry].slice(-100);
+}
+
 export function cardSummary(card) {
   // The card's LATEST commit fence (S2, Q5) — the board shows only the most recent
   // one as a subtle chip; the full chain lives on the card, not in this projection.
@@ -344,11 +434,14 @@ export function cardSummary(card) {
     // has to be answerable from the card.)
     routing: card.routing ?? null,
     origin: card.origin ?? null,
-    outpost: card.outpost ?? null,
     // Outpost Dispatch: WHERE the card runs, and the live claim ledger. Both
     // are surfaced so the board can show the machine a running card is on.
-    placement: normalisePlacement(card.placement),
+    placement: normalisePlacement(card.placement, card.outpost),
     dispatch: card.dispatch ?? null,
+    // Immutable per-claim provenance. `dispatch` is only the current/latest
+    // claim and is overwritten by the next phase; these entries keep every
+    // prior rich Outpost stream reachable from Watch.
+    dispatchRuns: Array.isArray(card.dispatchRuns) ? card.dispatchRuns : [],
     dispatchCommand: card.dispatchCommand ?? null,
     // D15 (S4a): the card's resolved-model journey — its duty + level and the
     // cached ordered leaf phase lists it visits (skipping the rest).
@@ -423,7 +516,7 @@ export function cardSummary(card) {
     // Per-phase runtime/model attribution for the card front: the most recent routed
     // event's route stamp ({ targetId, runtime, provider, model, effort,
     // effortApplied, tier, phase }), or
-    // null when no turn has routed yet / souls mode. The board renders a small
+    // null when no turn has routed yet / a legacy non-routed runtime. The board renders a small
     // "<phase> @ <model>" chip from it.
     lastRoute: lastRouteOf(card),
     // What this card WILL run on (resolved from its duty/level + the current phase),
@@ -444,6 +537,13 @@ export function cardSummary(card) {
     scheduledFor: card.scheduledFor ?? null,
     scheduleAction: card.scheduleAction ?? null,
     scheduleNotifiedAt: card.scheduleNotifiedAt ?? null,
+    schedule: card.schedule ?? null,
+    scheduleTemplateId: card.scheduleTemplateId ?? null,
+    scheduleSystemKey: card.scheduleSystemKey ?? null,
+    occurrenceKey: card.occurrenceKey ?? null,
+    occurrenceAt: card.occurrenceAt ?? null,
+    systemKey: card.systemKey ?? null,
+    morningBriefDelivery: card.morningBriefDelivery ?? null,
     // Within-list ordering (drag-reorder writes position; null = created order).
     position: typeof card.position === "number" && Number.isFinite(card.position) ? card.position : null,
     // Checklist progress for the card-front chip; the full items ride the detail.
@@ -484,7 +584,8 @@ export const EXPORT_CARD_FIELDS = [
   "tier",
   "phases",
   "scheduledFor",
-  "scheduleAction"
+  "scheduleAction",
+  "schedule"
 ];
 
 export const CARDS_BUNDLE_KIND = NATIVE_CARD_BUNDLE_KIND;
@@ -1502,7 +1603,21 @@ async function handleCreateCard(req, res, opts) {
   if (body.targetList != null && (typeof body.targetList !== "string" || !body.targetList.trim())) {
     return jsonRes(res, 400, { error: "targetList must be a non-empty list id" });
   }
-  const targetListId = typeof body.targetList === "string" ? body.targetList.trim() : "backlog";
+  const scheduleInput = body.schedule ?? (body.scheduledFor != null
+    ? {
+        kind: "once",
+        action: body.scheduleAction ?? "notify",
+        at: body.scheduledFor,
+        timezone: "Europe/Lisbon",
+        enabled: true,
+        targetList: typeof body.targetList === "string" ? body.targetList.trim() : "backlog"
+      }
+    : null);
+  const scheduleError = scheduleValidationError(scheduleInput);
+  if (scheduleError) return jsonRes(res, 400, { error: scheduleError });
+  const targetListId = scheduleInput && typeof scheduleInput.targetList === "string"
+    ? scheduleInput.targetList.trim()
+    : typeof body.targetList === "string" ? body.targetList.trim() : "backlog";
   if (!isValidListId(targetListId)) return jsonRes(res, 400, { error: "invalid target list id" });
   const board = await loadBoard(opts.root);
   const targetList = getList(board, targetListId);
@@ -1511,6 +1626,16 @@ async function handleCreateCard(req, res, opts) {
     return jsonRes(res, 400, {
       error: `cards can only be created directly in an active manual list: ${targetListId}`
     });
+  }
+  const cardSchedule = normaliseCardSchedule(scheduleInput, {
+    scheduledFor: body.scheduledFor ?? null,
+    scheduleAction: body.scheduleAction ?? null,
+    targetList: targetListId
+  });
+  if (scheduleInput && !cardSchedule) return jsonRes(res, 400, { error: "schedule could not be normalised" });
+  const storageListId = cardSchedule ? "scheduled" : targetListId;
+  if (cardSchedule && !getList(board, storageListId)) {
+    return jsonRes(res, 503, { error: "Scheduled column is missing; rerun kanban setup to migrate the board" });
   }
   const requestedScope = body.scope == null ? null : body.scope;
   if (requestedScope !== null && !CARD_SCOPES.includes(requestedScope)) {
@@ -1526,6 +1651,24 @@ async function handleCreateCard(req, res, opts) {
   const explicitWorkspace = suppliedProject || requestedScope === "personal"
     ? null
     : explicitWorkspaceFromCard({ title, description });
+  const createPlacement = normalisePlacement(body.placement);
+  const placementPreflight = await remotePlacementPreflight({
+    placement: createPlacement,
+    project: suppliedProject,
+    scope: requestedScope ?? (suppliedProject ? "project" : "unscoped"),
+    dispatchCommand: typeof body.dispatchCommand === "string" ? body.dispatchCommand.trim() : "",
+    duty: typeof body.duty === "string" ? body.duty : null,
+    level: Number.isInteger(body.level) ? body.level : null,
+    sequence: Array.isArray(body.sequence) ? body.sequence : null,
+    routing: body.routing && typeof body.routing === "object" ? body.routing : null,
+    list: storageListId
+  }, opts);
+  if (!placementPreflight.ok) {
+    return jsonRes(res, placementPreflight.status, {
+      error: placementPreflight.code,
+      message: placementPreflight.detail
+    });
+  }
   // A supplied schedule must parse NOW - storing an unparseable instant would
   // hold the card forever (the engine's fail-closed rule) over a typo.
   if (body.scheduledFor != null && (typeof body.scheduledFor !== "string" || !Number.isFinite(Date.parse(body.scheduledFor)))) {
@@ -1541,13 +1684,13 @@ async function handleCreateCard(req, res, opts) {
   // midpoint is supplied. Positions trend negative over time; the sort is
   // float-based and the server 400s non-finite values. Empty list starts at zero.
   const card = await withCardOrderLock(opts.root, async () => {
-    const topPosition = await topOfListPosition(opts.root, targetListId);
+    const topPosition = await topOfListPosition(opts.root, storageListId);
     return createCard(opts.root, {
     title,
     description,
     project: suppliedProject || explicitWorkspace,
     scope: requestedScope,
-    list: targetListId,
+    list: storageListId,
     goalMode: body.goalMode === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
     // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
@@ -1586,7 +1729,6 @@ async function handleCreateCard(req, res, opts) {
       Array.isArray(body.sequence) && body.sequence.every((item) => typeof item === "string")
         ? body.sequence
         : null,
-    outpost: typeof body.outpost === "string" && body.outpost.trim() ? body.outpost.trim() : null,
     // Outpost Dispatch: which machine pulls this card (default host), and the
     // literal command for a stub/no-model dispatched run.
     placement: body.placement ?? null,
@@ -1610,6 +1752,7 @@ async function handleCreateCard(req, res, opts) {
     // Card scheduling: hold until this instant, then notify (default) or run.
     // A supplied-but-unparseable instant is a caller mistake worth failing fast
     // on at the API door (the engine's hold is fail-closed for on-disk values).
+    schedule: cardSchedule,
     scheduledFor: body.scheduledFor ?? null,
     scheduleAction: body.scheduleAction ?? null,
     // The in-card checklist (normalised by createCard).
@@ -1819,6 +1962,18 @@ async function handleImportCards(req, res, opts) {
       picked.phases = null;
     }
     const label = String(c.title || "").slice(0, 40);
+    if (picked.schedule != null) {
+      const importedSchedule = { ...picked.schedule, targetList };
+      if (importedSchedule.action === "run") {
+        importedSchedule.action = "notify";
+        warnings.push(`card ${i + 1} ("${label}"): recurring/one-shot auto-run downgraded to "notify" on import`);
+      }
+      const scheduleError = scheduleValidationError(importedSchedule);
+      picked.schedule = scheduleError ? null : normaliseCardSchedule(importedSchedule, { targetList });
+      if (scheduleError) warnings.push(`card ${i + 1} ("${label}"): dropped invalid schedule (${scheduleError})`);
+      picked.scheduledFor = picked.schedule?.nextAt ?? null;
+      picked.scheduleAction = picked.schedule?.action ?? null;
+    }
     // Fail-closed schedule: an unparseable scheduledFor would hold the imported card
     // forever (scheduleHolds treats it as "never releases"). Drop it and warn.
     if (picked.scheduledFor != null) {
@@ -1900,7 +2055,7 @@ async function handleImportCards(req, res, opts) {
         description: p.description,
         project: p.project,
         scope: p.scope,
-        list: targetList,
+        list: p.schedule ? "scheduled" : targetList,
         goalMode: p.goalMode,
         acceptance: p.acceptance,
         checklist: p.checklist,
@@ -1908,6 +2063,7 @@ async function handleImportCards(req, res, opts) {
         workKind: p.workKind,
         tier: p.tier,
         phases: p.phases,
+        schedule: p.schedule ?? null,
         scheduledFor: p.scheduledFor ?? null,
         scheduleAction: p.scheduleAction ?? null,
         origin: "import",
@@ -2198,7 +2354,7 @@ async function handlePatchCard(req, res, opts, id) {
   // within-list position, checklist) never rewrites what the engine is
   // executing, so it is allowed even on an engine-owned card — snoozing a
   // queued agent-list card is precisely the point of the schedule.
-  const BENIGN_PATCH_KEYS = new Set(["rev", "scheduledFor", "scheduleAction", "position", "checklist"]);
+  const BENIGN_PATCH_KEYS = new Set(["rev", "schedule", "scheduledFor", "scheduleAction", "position", "checklist"]);
   const benignPatch = Object.keys(body).length > 0 && Object.keys(body).every((k) => BENIGN_PATCH_KEYS.has(k));
   if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch) {
     return jsonRes(res, 403, {
@@ -2215,6 +2371,12 @@ async function handlePatchCard(req, res, opts, id) {
   const next = { ...card };
   if (typeof body.list === "string") {
     if (!getList(board, body.list)) return jsonRes(res, 400, { error: `unknown list: ${body.list}` });
+    if ((body.list === "scheduled" || card.list === "scheduled") && !isEngineRequest(req)) {
+      return jsonRes(res, 400, {
+        error: "schedule-owned",
+        message: "Use the Schedule controls to place a card in Scheduled or release it to its target list."
+      });
+    }
     next.list = body.list;
     next.status = "ok"; // a manual Move clears a parked/needs-attention status
     // Record the manual move on the timeline so the activity feed shows human moves
@@ -2241,14 +2403,14 @@ async function handlePatchCard(req, res, opts, id) {
       }
     }
     // Auto-link a Discuss brief: when a card LEAVES the interactive Discuss list,
-    // look for the brief James was asked to write (briefs/<slug>.md — the
+    // look for the brief the Discuss duty was asked to write (briefs/<slug>.md — the
     // buildDiscussUrl convention) and link it onto the card if present + not already
     // linked. The card LINKS the brief (FINDING 10); it never inlines it. This keeps
     // the web channel generic — the BOARD does the linking, not the channel — so a
     // brief shows on the card without a manual POST /cards/:id/brief.
     const fromList = getList(board, card.list);
     if (body.list !== card.list && fromList && isInteractive(fromList) && !next.briefPath) {
-      // The brief is card-owned + deterministic (<root>/cards/<id>/brief.md). If James
+      // The brief is card-owned + deterministic (<root>/cards/<id>/brief.md). If Discuss
       // wrote it during Discuss, mark it on the card (a root-relative pointer) so the
       // card shows a brief link and the engine folds it into the build.
       const abs = cardBriefFile(kanbanRoot(), card.id);
@@ -2363,59 +2525,109 @@ async function handlePatchCard(req, res, opts, id) {
         message: `Card is claimed by ${card.dispatch.machine} — placement cannot change mid-run. Wait for it to finish, or resolve it from needs-attention.`
       });
     }
-    next.placement = normalisePlacement(body.placement);
-  }
-  // `outpost` affinity was create-only, so a card pinned to a machine could never
-  // be repinned OR unpinned - while the engine's park message told the user to
-  // "clear the affinity from needs-attention", a remedy that did not exist. The
-  // only recovery was hand-editing cards/<id>/card.json. Accept null/"" to clear
-  // and a non-empty string to repin. Guarded like `placement`: not mid-claim.
-  if (body.outpost !== undefined) {
-    const heldByWorker = card.dispatch && card.dispatch.state !== "done" && card.dispatch.state !== "failed";
-    if (heldByWorker && !isEngineRequest(req)) {
-      return jsonRes(res, 409, {
-        error: "dispatch-held",
-        message: `Card is claimed by ${card.dispatch.machine} — outpost affinity cannot change mid-run. Wait for it to finish, or resolve it from needs-attention.`
-      });
+    const requestedPlacement = normalisePlacement(body.placement);
+    if (!isEngineRequest(req)) {
+      const placementPreflight = await remotePlacementPreflight({
+        placement: requestedPlacement,
+        project: typeof next.project === "string" ? next.project : null,
+        scope: cardScope(next),
+        dispatchCommand: typeof next.dispatchCommand === "string" ? next.dispatchCommand : "",
+        duty: next.duty ?? null,
+        level: next.level ?? null,
+        sequence: next.sequence ?? null,
+        routing: next.routing ?? null,
+        list: next.list
+      }, opts);
+      if (!placementPreflight.ok) {
+        return jsonRes(res, placementPreflight.status, {
+          error: placementPreflight.code,
+          message: placementPreflight.detail
+        });
+      }
     }
-    if (body.outpost === null || (typeof body.outpost === "string" && !body.outpost.trim())) {
-      next.outpost = null;
-    } else if (typeof body.outpost === "string") {
-      next.outpost = body.outpost.trim();
-    } else {
-      return jsonRes(res, 400, { error: "bad-outpost", message: "outpost must be a non-empty string or null" });
-    }
+    next.placement = requestedPlacement;
+    // A placement edit completes the one-way compatibility migration.
+    next.outpost = null;
   }
-  // Card scheduling: set/clear the hold-until instant + what happens when it
-  // arrives. Refused while the card is RUNNING (there is nothing left to hold);
-  // a reschedule re-arms the reminder by clearing scheduleNotifiedAt.
-  if (body.scheduledFor !== undefined) {
+  // Card scheduling. `schedule` is authoritative; scheduledFor/scheduleAction
+  // remain a one-shot compatibility alias. Setting a schedule moves the card to
+  // the fixed Scheduled column and remembers its release target. Clearing moves
+  // it back to that target. Refused while running: there is nothing left to hold.
+  if (body.schedule !== undefined || body.scheduledFor !== undefined) {
     if (card.status === "running") {
       return jsonRes(res, 409, { error: "running", message: "the card is running — a schedule can only hold a card that has not started" });
     }
-    if (body.scheduledFor === null || body.scheduledFor === "") {
+    if (body.list !== undefined) {
+      return jsonRes(res, 400, { error: "change list and schedule in separate requests" });
+    }
+    const clearing = body.schedule === null || body.scheduledFor === null || body.scheduledFor === "";
+    if (clearing) {
+      const release = card.schedule?.targetList;
+      if (card.list === "scheduled") next.list = release && getList(board, release) ? release : "backlog";
+      next.schedule = null;
       next.scheduledFor = null;
       next.scheduleAction = null;
       next.scheduleNotifiedAt = null;
-      if (card.scheduledFor) {
-        next.events = withEvent(next, { at: new Date().toISOString(), kind: "moved", message: "Schedule cleared" });
-      }
-    } else if (typeof body.scheduledFor === "string" && Number.isFinite(Date.parse(body.scheduledFor))) {
-      next.scheduledFor = normaliseScheduledFor(body.scheduledFor);
-      next.scheduleAction = normaliseScheduleAction(body.scheduleAction ?? card.scheduleAction);
-      next.scheduleNotifiedAt = null;
-      if (next.scheduledFor !== card.scheduledFor) {
-        next.events = withEvent(next, {
-          at: new Date().toISOString(),
-          kind: "moved",
-          message: `Scheduled for ${next.scheduledFor} (${next.scheduleAction === "run" ? "auto-run" : "notify"})`
-        });
+      next.scheduleDelivery = null;
+      if (card.schedule || card.scheduledFor) {
+        next.events = withEvent(next, { at: new Date().toISOString(), kind: "schedule-cleared", message: `Schedule cleared${card.list === "scheduled" ? `; returned to ${next.list}` : ""}` });
       }
     } else {
-      return jsonRes(res, 400, { error: "scheduledFor must be a parseable ISO date-time string, or null to clear" });
+      const releaseTarget = card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list;
+      const rawSchedule = body.schedule !== undefined
+        ? body.schedule
+        : {
+            kind: "once",
+            action: body.scheduleAction ?? card.schedule?.action ?? card.scheduleAction ?? "notify",
+            at: body.scheduledFor,
+            timezone: card.schedule?.timezone ?? "Europe/Lisbon",
+            enabled: true,
+            targetList: releaseTarget
+          };
+      // The Morning briefing replacement is deliberately seeded paused while
+      // the legacy raw scheduler job still exists. It may be exercised through
+      // Run now, but must not be resumed through the generic editor: doing so
+      // would create two regular deliveries during the verification window.
+      // `kanban.mjs --setup` is the only cutover seam; after the old job is
+      // removed it clears this receipt and restores the legacy enabled state.
+      if (card.schedule?.cutoverPending === true && rawSchedule?.enabled !== false) {
+        return jsonRes(res, 409, {
+          error: "schedule-cutover-pending",
+          message: "Morning briefing is paused while the legacy scheduler job is still present. Verify it with Run now, remove the legacy job, then rerun kanban setup to activate the recurring template."
+        });
+      }
+      const error = scheduleValidationError(rawSchedule);
+      if (error) return jsonRes(res, 400, { error });
+      const scheduleTarget = getList(board, rawSchedule.targetList);
+      if (!scheduleTarget || scheduleTarget.id === "scheduled" || scheduleTarget.kind !== "manual" || scheduleTarget.terminal) {
+        return jsonRes(res, 400, { error: `unknown or invalid schedule target list: ${rawSchedule.targetList}` });
+      }
+      const schedule = normaliseCardSchedule(rawSchedule, {
+        scheduledFor: body.scheduledFor ?? null,
+        scheduleAction: body.scheduleAction ?? null,
+        targetList: releaseTarget
+      });
+      if (!schedule) return jsonRes(res, 400, { error: "schedule could not be normalised" });
+      next.schedule = schedule;
+      next.scheduledFor = schedule.enabled ? schedule.nextAt : null;
+      next.scheduleAction = schedule.action;
+      next.scheduleNotifiedAt = null;
+      next.scheduleDelivery = null;
+      next.list = "scheduled";
+      next.status = "ok";
+      next.events = withEvent(next, {
+        at: new Date().toISOString(),
+        kind: schedule.kind === "cron" ? "schedule-recurring" : "schedule-set",
+        message: schedule.kind === "cron"
+          ? `Recurring schedule ${schedule.cron} (${schedule.timezone}); next ${schedule.nextAt ?? "paused"}`
+          : `Scheduled for ${schedule.nextAt} (${schedule.action === "run" ? "auto-run" : "notify"})`
+      });
     }
-  } else if (body.scheduleAction !== undefined && card.scheduledFor) {
-    next.scheduleAction = normaliseScheduleAction(body.scheduleAction);
+  } else if (body.scheduleAction !== undefined && (card.schedule || card.scheduledFor)) {
+    const action = normaliseScheduleAction(body.scheduleAction);
+    next.scheduleAction = action;
+    if (card.schedule) next.schedule = { ...card.schedule, action };
+    next.scheduleDelivery = null;
   }
   // Within-list ordering: the drag-reorder writes ONE card's position (a float
   // midpoint between its new neighbours). Null resets to created order.
@@ -2435,6 +2647,9 @@ async function handlePatchCard(req, res, opts, id) {
   if (isEngineRequest(req) && body.dispatch !== undefined) {
     next.dispatch = body.dispatch === null ? null : body.dispatch;
   }
+  if (isEngineRequest(req) && body.dispatchRun && typeof body.dispatchRun === "object") {
+    next.dispatchRuns = appendDispatchRunProvenance(next, body.dispatchRun);
+  }
   // A claimed card must READ as running on the board, or a card being worked on
   // by a Mac looks idle here. Safe to set only because isOrphanedRun now skips a
   // card held by a live dispatch claim — otherwise the local orphan sweep would
@@ -2447,11 +2662,25 @@ async function handlePatchCard(req, res, opts, id) {
   if (isEngineRequest(req) && body.runningSince !== undefined) {
     next.runningSince = typeof body.runningSince === "string" ? body.runningSince : null;
   }
+  if (isEngineRequest(req) && body.runDir !== undefined) {
+    next.runDir = typeof body.runDir === "string" ? body.runDir : null;
+  }
   if (isEngineRequest(req) && typeof body.attentionReason === "string") {
     next.attentionReason = body.attentionReason;
   }
   if (isEngineRequest(req) && typeof body.attentionKind === "string") {
     next.attentionKind = body.attentionKind;
+  }
+  if (isEngineRequest(req) && body.parkedFrom !== undefined) {
+    next.parkedFrom = typeof body.parkedFrom === "string" ? body.parkedFrom : null;
+  }
+  if (isEngineRequest(req) && typeof body.retryKeepsContext === "boolean") {
+    next.retryKeepsContext = body.retryKeepsContext;
+  }
+  if (isEngineRequest(req) && body.lastDispatchError !== undefined) {
+    next.lastDispatchError = body.lastDispatchError && typeof body.lastDispatchError === "object"
+      ? body.lastDispatchError
+      : null;
   }
   if (isEngineRequest(req) && body.routeEvidence) {
     const event = quickRouteEvent(body.routeEvidence);
@@ -2483,9 +2712,16 @@ async function handlePatchCard(req, res, opts, id) {
     });
   };
   const needsOrderLock = needsImplicitMovePosition || (typeof body.position === "number" && Number.isFinite(body.position));
-  const result = needsOrderLock
-    ? await withCardOrderLock(root, commitPatch)
-    : await commitPatch();
+  const commitWithOrder = () => needsOrderLock
+    ? withCardOrderLock(root, commitPatch)
+    : commitPatch();
+  const touchesSchedule = body.schedule !== undefined || body.scheduledFor !== undefined || body.scheduleAction !== undefined;
+  // Schedule mutation and the due sweep share one lock. The card CAS remains
+  // authoritative, but this closes the final intent-check -> occurrence-create
+  // window where a pause could otherwise commit between those two operations.
+  const result = touchesSchedule
+    ? await withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", commitWithOrder)
+    : await commitWithOrder();
   if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
   if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
@@ -2504,7 +2740,7 @@ async function handlePatchCard(req, res, opts, id) {
   // dispatched (the discuss duty runs a scope-Q&A session → brief → plan). This is
   // the intended run, so it fires even for an engine-header move (the gateway's
   // carding move carries x-garrison-engine) - unlike a normal engine move, which the
-  // doorway drives itself. A James-mode discuss card (no gate marker) still just
+  // doorway drives itself. A human Discuss card (no gate marker) still just
   // moves (shouldAutoDispatch is false for the interactive list).
   const movedToGatedDiscuss =
     typeof body.list === "string" && isGatedDiscuss(result.card, getList(board, body.list));
@@ -2923,7 +3159,7 @@ async function handleRevertCard(req, res, opts, id) {
   });
 }
 
-// POST /cards/:id/brief — record the James-mode Discuss brief PATH onto the card
+// POST /cards/:id/brief — record the Discuss brief path onto the card
 // (the link-never-duplicate write side: the card LINKS the brief, never inlines
 // its body — FINDING 10). Body: { briefPath } — a relative path under briefs_path.
 // recordBrief validates the path is safe (relative, no `..`/absolute escape) and
@@ -2960,38 +3196,90 @@ async function handleBriefCard(req, res, opts, id) {
 // Works on a card with no schedule too (snooze = schedule from now).
 async function handleSnoozeCard(req, res, opts, id) {
   if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin snooze rejected" });
-  const body = (await readBody(req)) || {};
-  const root = opts.root;
+  return withFileLock(path.join(opts.root, ".schedule-sweep.lock"), "schedule sweep", async () => {
+    const body = (await readBody(req)) || {};
+    const root = opts.root;
+    let card;
+    try { card = await loadCard(root, id); }
+    catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+    card.id = id;
+    if (card.status === "running") {
+      return jsonRes(res, 409, { error: "running", message: "the card is running - snooze can only hold a card that has not started" });
+    }
+    let untilIso = null;
+    if (typeof body.until === "string" && Number.isFinite(Date.parse(body.until))) {
+      untilIso = new Date(Date.parse(body.until)).toISOString();
+    } else if (Number.isFinite(Number(body.minutes)) && Number(body.minutes) > 0) {
+      // Cap a relative snooze at one year - a typo'd "200000 minutes" should not
+      // quietly bury a card into 2027.
+      untilIso = new Date(Date.now() + Math.min(Number(body.minutes), 60 * 24 * 366) * 60000).toISOString();
+    }
+    if (!untilIso) return jsonRes(res, 400, { error: "pass minutes (a positive number) or until (a parseable ISO date-time)" });
+    const action = normaliseScheduleAction(body.action ?? card.schedule?.action ?? card.scheduleAction);
+    const targetList = card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list;
+    const updated = await updateCard(root, id, (c) => ({
+      ...c,
+      list: "scheduled",
+      status: "ok",
+      schedule: c.schedule?.kind === "cron"
+        ? { ...c.schedule, action, enabled: true, nextAt: untilIso, snoozedUntil: untilIso }
+        : normaliseCardSchedule({
+            kind: "once", action, at: untilIso, timezone: c.schedule?.timezone ?? "Europe/Lisbon",
+            enabled: true, targetList
+          }),
+      scheduledFor: untilIso,
+      scheduleAction: action,
+      scheduleNotifiedAt: null,
+      scheduleDelivery: null,
+      events: withEvent(c, {
+        at: new Date().toISOString(),
+        kind: "moved",
+        message: `Snoozed until ${untilIso} (${action === "run" ? "auto-run" : "notify"})`
+      })
+    }));
+    if (!updated) return jsonRes(res, 409, { error: "card changed under you" });
+    return jsonRes(res, 200, { card: cardSummary(updated) });
+  });
+}
+
+// POST /cards/:id/run-now — recurring templates create an extra linked
+// occurrence without moving their regular nextAt. A one-shot is pulled due and
+// released through the same sweep as the scheduler tick.
+async function handleRunScheduleNow(req, res, opts, id) {
   let card;
-  try { card = await loadCard(root, id); }
+  try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
-  card.id = id;
-  if (card.status === "running") {
-    return jsonRes(res, 409, { error: "running", message: "the card is running - snooze can only hold a card that has not started" });
+  const board = await loadBoard(opts.root);
+  if (card.schedule?.kind === "cron") {
+    try {
+      const result = await runScheduleNow(opts.root, board, id);
+      return jsonRes(res, 200, { card: cardSummary(result.card), occurrence: true, created: result.created });
+    } catch (error) {
+      return jsonRes(res, 409, { error: error instanceof Error ? error.message : String(error) });
+    }
   }
-  let untilIso = null;
-  if (typeof body.until === "string" && Number.isFinite(Date.parse(body.until))) {
-    untilIso = new Date(Date.parse(body.until)).toISOString();
-  } else if (Number.isFinite(Number(body.minutes)) && Number(body.minutes) > 0) {
-    // Cap a relative snooze at one year - a typo'd "200000 minutes" should not
-    // quietly bury a card into 2027.
-    untilIso = new Date(Date.now() + Math.min(Number(body.minutes), 60 * 24 * 366) * 60000).toISOString();
+  if (card.schedule?.kind === "once" || card.scheduledFor) {
+    const stamp = new Date().toISOString();
+    await updateCard(opts.root, id, (current) => {
+      const schedule = current.schedule ?? normaliseCardSchedule(null, {
+        scheduledFor: current.scheduledFor,
+        scheduleAction: "run",
+        targetList: current.list
+      });
+      if (!schedule) return current;
+      return {
+        ...current,
+        schedule: { ...schedule, action: "run", enabled: true, nextAt: stamp },
+        scheduledFor: stamp,
+        scheduleAction: "run",
+        scheduleNotifiedAt: null
+      };
+    });
+    await sweepDueSchedules(opts.root, board, { now: () => stamp, at: () => Date.parse(stamp) });
+    const updated = await loadCard(opts.root, id);
+    return jsonRes(res, 200, { card: cardSummary(updated), occurrence: false, created: false });
   }
-  if (!untilIso) return jsonRes(res, 400, { error: "pass minutes (a positive number) or until (a parseable ISO date-time)" });
-  const action = normaliseScheduleAction(body.action ?? card.scheduleAction);
-  const updated = await updateCard(root, id, (c) => ({
-    ...c,
-    scheduledFor: untilIso,
-    scheduleAction: action,
-    scheduleNotifiedAt: null,
-    events: withEvent(c, {
-      at: new Date().toISOString(),
-      kind: "moved",
-      message: `Snoozed until ${untilIso} (${action === "run" ? "auto-run" : "notify"})`
-    })
-  }));
-  if (!updated) return jsonRes(res, 409, { error: "card changed under you" });
-  return jsonRes(res, 200, { card: cardSummary(updated) });
+  return jsonRes(res, 409, { error: "card has no active schedule" });
 }
 
 // POST /cards/:id/attachments { filename, content_base64 } - card-owned upload
@@ -3117,7 +3405,7 @@ async function handleStartCard(req, res, opts, id) {
   // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
   // a Start cannot skip the brief-to-disk hand-off. EXCEPTION (S3d): a clarity-gated
   // discuss card runs the discuss duty as a real session, so Start dispatches it
-  // like any agent list; a James-mode discuss card (no gate marker) stays manual.
+  // like any agent list; a human Discuss card (no gate marker) stays manual.
   if (isInteractive(list) && !isGatedDiscuss(card, list)) {
     return jsonRes(res, 400, {
       error: "interactive list (Discuss) advances by manual Move, not Start — open the web chat, then Move when ready"
@@ -3282,6 +3570,100 @@ async function handlePanicCard(req, res, opts, id) {
       message
     });
   }
+  const remoteClaim = card.dispatch
+    && typeof card.dispatch === "object"
+    && card.dispatch.state !== "done"
+    && card.dispatch.state !== "failed"
+    && typeof card.dispatch.machine === "string";
+  if (remoteClaim) {
+    const waitMs = Number.isFinite(opts?.remoteCancelWaitMs) && opts.remoteCancelWaitMs > 0
+      ? Math.min(30_000, Math.max(250, opts.remoteCancelWaitMs))
+      : 12_000;
+    const runId = String(card.dispatch.runId || "");
+    const requestedAt = new Date().toISOString();
+    const existingCancellation = card.dispatch.state === "cancelling" && card.dispatch.cancellation
+      ? card.dispatch.cancellation
+      : null;
+    const deadlineAt = existingCancellation?.deadlineAt || new Date(Date.now() + waitMs).toISOString();
+    if (!existingCancellation) {
+      const requested = {
+        ...card,
+        dispatch: {
+          ...card.dispatch,
+          state: "cancelling",
+          detail: "Stop & reroute requested; waiting for the worker to confirm its process group stopped",
+          cancellation: { state: "requested", requestedAt, deadlineAt }
+        },
+        events: withEvent(card, {
+          at: requestedAt,
+          kind: "interrupt-requested",
+          message: `Requested stop of remote run on ${card.dispatch.machine}`,
+          detail: "Placement and lease remain locked until the worker acknowledges process termination."
+        })
+      };
+      const saved = await saveCardCASWithHooks(opts.root, requested, card.rev ?? 0, requestedAt);
+      if (!saved.ok) return jsonRes(res, 409, { error: "card changed while requesting stop", card: cardSummary(saved.card || card) });
+      card = saved.card;
+    }
+
+    const deadline = Date.parse(deadlineAt);
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      let fresh;
+      try { fresh = await loadCard(opts.root, id); }
+      catch { return jsonRes(res, 404, { error: `card not found while waiting for cancellation: ${id}` }); }
+      if (fresh.dispatch?.runId !== runId) {
+        return jsonRes(res, 409, { error: "dispatch claim changed while waiting for cancellation acknowledgement", card: cardSummary(fresh) });
+      }
+      if (fresh.dispatch?.cancellation?.state === "acknowledged" && fresh.dispatch?.releasedAt) {
+        const message = `Stopped remote run on ${fresh.dispatch.machine}; the worker acknowledged process termination and the card is ready to reroute.`;
+        return jsonRes(res, 200, {
+          ok: true,
+          stopped: true,
+          acknowledged: true,
+          remote: true,
+          machine: fresh.dispatch.machine,
+          card: cardSummary(fresh),
+          message
+        });
+      }
+    }
+
+    // Timeout is a durable, fail-closed state — NOT a lease release. The worker
+    // may still acknowledge later, but until it does this card cannot be placed
+    // or reclaimed onto another machine.
+    let timedOut = await loadCard(opts.root, id).catch(() => card);
+    if (timedOut.dispatch?.runId === runId && timedOut.dispatch?.state === "cancelling") {
+      const at = new Date().toISOString();
+      const next = {
+        ...timedOut,
+        dispatch: {
+          ...timedOut.dispatch,
+          cancellation: {
+            ...(timedOut.dispatch.cancellation || { requestedAt, deadlineAt }),
+            state: "timeout",
+            detail: "worker did not acknowledge process termination before the bounded wait expired"
+          },
+          detail: "Cancellation acknowledgement timed out; lease remains locked"
+        }
+      };
+      const saved = await saveCardCASWithHooks(opts.root, next, timedOut.rev ?? 0, at);
+      if (saved.ok) timedOut = saved.card;
+    }
+    const message = `The worker on ${card.dispatch.machine} did not acknowledge cancellation in ${Math.ceil(waitMs / 1000)}s. Its lease and placement remain locked to prevent overlapping work.`;
+    return jsonRes(res, 504, {
+      ok: false,
+      stopped: false,
+      acknowledged: false,
+      released: false,
+      pending: true,
+      remote: true,
+      code: "remote-cancel-timeout",
+      error: message,
+      message,
+      card: cardSummary(timedOut)
+    });
+  }
   if (!opts.gatewayUrl) {
     const message = "No gateway is configured for this board, so there is no runtime turn to stop.";
     return jsonRes(res, 503, {
@@ -3335,6 +3717,165 @@ async function handlePanicCard(req, res, opts, id) {
   });
 }
 
+// Host-authoritative completion seam for a pull-based Outpost worker. The
+// Next host API has already authenticated the machine and verified the evidence
+// manifest; this board-side seam rechecks the durable claim identity and then
+// uses advanceCardPhase so remote work cannot bypass gate, evidence,
+// coordination, cleanup, or terminal hooks.
+async function handleDispatchComplete(req, res, opts, id) {
+  if (!isEngineRequest(req)) return jsonRes(res, 403, { error: "engine authentication required" });
+  const body = (await readBody(req)) || {};
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  const dispatch = card.dispatch && typeof card.dispatch === "object" ? card.dispatch : null;
+  if (!dispatch || dispatch.runId !== body.runId || dispatch.routingToken !== body.routingToken) {
+    return jsonRes(res, 409, { error: "dispatch claim identity changed" });
+  }
+  if (dispatch.releasedAt || dispatch.state === "done" || dispatch.state === "failed") {
+    return jsonRes(res, 409, { error: "dispatch claim is no longer active" });
+  }
+  if (dispatch.phase !== body.phase || card.list !== body.phase) {
+    return jsonRes(res, 409, { error: `card phase changed from ${body.phase || "unknown"} to ${card.list}` });
+  }
+  if (!Number.isInteger(dispatch.claimRevision)
+      || !Number.isInteger(body.rev)
+      || body.rev !== dispatch.claimRevision
+      || body.rev !== (card.rev ?? 0)) {
+    return jsonRes(res, 409, { error: "card revision changed", card: cardSummary(card) });
+  }
+  if (typeof body.verdict !== "string" || !body.verdict.trim()) {
+    return jsonRes(res, 400, { error: "verdict is required" });
+  }
+  const summary = typeof body.summary === "string" ? body.summary.trim().slice(0, 2000) : "completed on outpost";
+  const evidenceRunKey = createHash("sha256").update(String(body.runId)).digest("hex").slice(0, 32);
+  const completed = {
+    ...card,
+    // Absolute and host-owned. The evidence endpoint writes the phase sidecar
+    // and tangible evidence here before this request is accepted.
+    runDir: path.join(opts.root, "cards", id, "dispatch", "runs", evidenceRunKey),
+    lastReply: summary || card.lastReply || null,
+    dispatch: {
+      ...dispatch,
+      state: "done",
+      heartbeatAt: new Date().toISOString(),
+      detail: summary || "completed on outpost",
+      requestedTransition: body.verdict,
+      ...(typeof body.sessionId === "string" && body.sessionId ? { sessionId: body.sessionId } : {}),
+      logCursor: Number.isSafeInteger(body.logCursor) ? body.logCursor : 0,
+      evidenceManifest: Array.isArray(body.evidenceManifest) ? body.evidenceManifest : []
+    },
+    dispatchRuns: appendDispatchRunProvenance(card, {
+      runId: body.runId,
+      machine: dispatch.machine,
+      workerId: dispatch.workerId,
+      phase: body.phase,
+      state: "done",
+      claimedAt: dispatch.claimedAt,
+      completedAt: new Date().toISOString(),
+      logIndex: dispatch.logIndex,
+      sessionId: body.sessionId,
+      logCursor: body.logCursor,
+      evidenceManifest: body.evidenceManifest
+    })
+  };
+  const result = await advanceCardPhase({
+    root: opts.root,
+    board: await loadBoard(opts.root),
+    card: completed,
+    verdict: body.verdict.trim(),
+    cwd: opts.cwd,
+    onDutyBoundary: opts.gatewayUrl ? compactBoundaryFn(opts.gatewayUrl) : undefined
+  });
+  if (result?.outcome?.status !== "moved") {
+    return jsonRes(res, 422, {
+      error: `remote phase was not advanced: ${result?.outcome?.reason || result?.outcome?.status || "unknown"}`,
+      outcome: result?.outcome || null,
+      card: result?.card ? cardSummary(result.card) : cardSummary(card)
+    });
+  }
+  return jsonRes(res, 200, {
+    ok: true,
+    advanced: result.outcome.to,
+    outcome: result.outcome,
+    card: cardSummary(result.card)
+  });
+}
+
+async function handleDispatchCancelAck(req, res, opts, id) {
+  if (!isEngineRequest(req)) return jsonRes(res, 403, { error: "engine authentication required" });
+  const body = (await readBody(req)) || {};
+  let card;
+  try { card = await loadCard(opts.root, id); }
+  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
+  const dispatch = card.dispatch && typeof card.dispatch === "object" ? card.dispatch : null;
+  const owned = dispatch
+    && dispatch.machine === body.machine
+    && dispatch.workerId === body.workerId
+    && dispatch.runId === body.runId
+    && dispatch.routingToken === body.routingToken;
+  if (!owned || dispatch.state !== "cancelling" || !dispatch.cancellation) {
+    return jsonRes(res, 409, { error: "dispatch cancellation identity changed or is no longer pending" });
+  }
+  if (body.stopped !== true) return jsonRes(res, 400, { error: "stopped:true acknowledgement is required" });
+  if (!Number.isInteger(body.rev) || body.rev !== (card.rev ?? 0)) {
+    return jsonRes(res, 409, { error: "card revision changed while acknowledging cancellation", card: cardSummary(card) });
+  }
+  const at = new Date().toISOString();
+  const phase = dispatch.phase || card.list;
+  const evidenceRunKey = createHash("sha256").update(String(dispatch.runId || "")).digest("hex").slice(0, 32);
+  const summary = typeof body.summary === "string" && body.summary.trim()
+    ? body.summary.trim().slice(0, 1000)
+    : "remote process group stopped";
+  const next = {
+    ...card,
+    list: ATTENTION_LIST,
+    status: "needs-attention",
+    runningSince: null,
+    ...(dispatch.runId ? { runDir: path.join(opts.root, "cards", id, "dispatch", "runs", evidenceRunKey) } : {}),
+    parkedFrom: phase,
+    retryKeepsContext: true,
+    attentionKind: "interrupted",
+    attentionReason: `Stopped remote run on ${dispatch.machine}; process termination was acknowledged and partial evidence was retained.`,
+    dispatch: {
+      ...dispatch,
+      state: "failed",
+      releasedAt: at,
+      heartbeatAt: at,
+      detail: "stopped by user; choose a placement and retry",
+      logCursor: Number.isSafeInteger(body.logCursor) ? body.logCursor : 0,
+      evidenceManifest: Array.isArray(body.evidenceManifest) ? body.evidenceManifest : [],
+      cancellation: {
+        ...dispatch.cancellation,
+        state: "acknowledged",
+        acknowledgedAt: at,
+        detail: summary
+      }
+    },
+    dispatchRuns: appendDispatchRunProvenance(card, {
+      runId: dispatch.runId,
+      machine: dispatch.machine,
+      workerId: dispatch.workerId,
+      phase,
+      state: "cancelled",
+      claimedAt: dispatch.claimedAt,
+      completedAt: at,
+      logIndex: dispatch.logIndex,
+      logCursor: body.logCursor,
+      evidenceManifest: body.evidenceManifest
+    }),
+    events: withEvent(card, {
+      at,
+      kind: "interrupted",
+      message: `Stopped remote run on ${dispatch.machine}`,
+      detail: "Worker acknowledged process termination; lease released for rerouting."
+    })
+  };
+  const saved = await saveCardCASWithHooks(opts.root, next, card.rev ?? 0, at);
+  if (!saved.ok) return jsonRes(res, 409, { error: "card changed while acknowledging cancellation", card: cardSummary(saved.card || card) });
+  return jsonRes(res, 200, { ok: true, stopped: true, acknowledged: true, card: cardSummary(saved.card) });
+}
+
 // Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs)
 // so the board + the scheduler tick use one wire shape + one failure classification (a
 // transient gateway failure must REVERT a card, not park it).
@@ -3362,7 +3903,18 @@ async function handleWatchCard(req, res, opts, id) {
     try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
   };
 
-  const n = latestCardLogNumber(root, card);
+  const latestN = latestCardLogNumber(root, card);
+  const activeRemoteLog = card.status === "running"
+    && card.dispatch
+    && (card.dispatch.state === "claimed" || card.dispatch.state === "running")
+    && Number.isInteger(card.dispatch.logIndex)
+    && card.dispatch.logIndex > 0
+      ? card.dispatch.logIndex
+      : null;
+  // A losing claim reservation can leave a higher empty log-N. For an active
+  // remote claim, its durable dispatch.logIndex is authoritative; max(filename)
+  // is only the historical/static fallback.
+  const n = activeRemoteLog ?? latestN;
   const live = card.status === "running" && n > 0;
   const logFile = path.join(root, "cards", id, `log-${n}.md`);
 
@@ -3370,7 +3922,7 @@ async function handleWatchCard(req, res, opts, id) {
     // Nothing running: replay every linked static log, then close. (link-never-
     // duplicate: these are the card's own log-N.md files, read in place.)
     send("mode", { live: false, status: card.status ?? "ok" });
-    for (let i = 1; i <= n; i++) {
+    for (let i = 1; i <= latestN; i++) {
       const f = path.join(root, "cards", id, `log-${i}.md`);
       if (isReadableFile(f)) {
         const text = await readFile(f, "utf8").catch(() => "");
@@ -3526,6 +4078,9 @@ async function handleSessionStream(req, res, opts, id, i) {
   if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin session read rejected" });
   const query = url.parse(req.url || "", true).query;
   const wantsLive = query.live === "1";
+  const requestedRemoteRunId = typeof query.run === "string" && query.run.trim()
+    ? query.run.trim()
+    : null;
   const publicTaskId = typeof query.task === "string" ? query.task : null;
   let card;
   try { card = await loadCard(opts.root, id); }
@@ -3557,6 +4112,136 @@ async function handleSessionStream(req, res, opts, id, i) {
     emit({ type: "end" });
     try { res.end(); } catch { /* already closed */ }
   };
+
+  // Remote Agent SDK output already arrives as ordered, immutable dispatch
+  // events. Adapt those events to the SAME default-message SessionStream wire
+  // contract Web Channel renders, so Watch opens on a live rich Log instead of
+  // an empty session tab that forces the user over to Raw.
+  const currentRemoteDispatch = card.dispatch
+    && typeof card.dispatch === "object"
+    && typeof card.dispatch.runId === "string"
+    ? card.dispatch
+    : null;
+  const durableRemoteRuns = Array.isArray(card.dispatchRuns) ? card.dispatchRuns : [];
+  const remoteDispatch = requestedRemoteRunId
+    ? durableRemoteRuns.find((run) => run?.runId === requestedRemoteRunId)
+      || (currentRemoteDispatch?.runId === requestedRemoteRunId ? currentRemoteDispatch : null)
+    : wantsLive
+      ? currentRemoteDispatch
+      : null;
+  if (remoteDispatch) {
+    const remoteLive = currentRemoteDispatch?.runId === remoteDispatch.runId
+      && card.status === "running"
+      && ["claimed", "running", "cancelling"].includes(currentRemoteDispatch.state);
+    const key = createHash("sha256").update(remoteDispatch.runId).digest("hex").slice(0, 32);
+    const dir = path.join(opts.root, "cards", id, "dispatch", "streams", key);
+    let lastEncoded = null;
+    const readRemoteEvents = () => {
+      let names = [];
+      try { names = readdirSync(dir).filter((name) => /^\d{10}\.json$/.test(name)).sort(); } catch {}
+      const items = [];
+      for (const name of names) {
+        try {
+          const item = JSON.parse(readFileSync(path.join(dir, name), "utf8"));
+          if (typeof item.text !== "string") continue;
+          items.push(item);
+        } catch {}
+      }
+      const hasJournal = items.some((item) => item.channel === "journal");
+      const events = [];
+      for (const item of items) {
+        const eventId = Number.isSafeInteger(Number(item.eventId)) ? Number(item.eventId) : events.length + 1;
+        const at = Date.parse(item.at || "");
+        const id = `outpost-${remoteDispatch.runId}-${eventId}`;
+        if (item.channel === "journal") {
+          let journal;
+          try { journal = JSON.parse(item.text); } catch { continue; }
+          if (!journal || !Array.isArray(journal.blocks)) continue;
+          const blocks = journal.blocks.map((block) => {
+            if (!block || typeof block !== "object") return null;
+            if (block.type === "text" || block.type === "thinking") {
+              return { type: block.type, text: typeof block.text === "string" ? block.text.slice(0, 20_000) : "" };
+            }
+            if (block.type === "tool_use") {
+              return {
+                type: "tool_use",
+                toolUseId: typeof block.toolUseId === "string" ? block.toolUseId.slice(0, 160) : null,
+                name: typeof block.name === "string" ? block.name.slice(0, 160) : "tool",
+                input: typeof block.input === "string" ? block.input.slice(0, 20_000) : ""
+              };
+            }
+            if (block.type === "tool_result") {
+              const images = Array.isArray(block.images) ? block.images.flatMap((image) => {
+                const mediaType = typeof image?.mediaType === "string" ? image.mediaType : "";
+                const data = typeof image?.data === "string" ? image.data : "";
+                return /^(image\/(png|jpeg|webp|gif))$/.test(mediaType) && /^[A-Za-z0-9+/=\r\n]+$/.test(data)
+                  ? [{ mediaType, data }]
+                  : [];
+              }) : [];
+              return {
+                type: "tool_result",
+                toolUseId: typeof block.toolUseId === "string" ? block.toolUseId.slice(0, 160) : null,
+                isError: block.isError === true,
+                text: typeof block.text === "string" ? block.text.slice(0, 20_000) : "",
+                images
+              };
+            }
+            return null;
+          }).filter(Boolean);
+          if (!blocks.length) continue;
+          events.push({
+            id,
+            role: journal.role === "user" ? "user" : "assistant",
+            ts: Number.isFinite(at) ? at : null,
+            ...(blocks.every((block) => block.type === "tool_result") ? { toolResultsOnly: true } : {}),
+            blocks
+          });
+          continue;
+        }
+        // Agent stdout duplicates assistant text already carried in the rich
+        // journal. Keep it as the Raw log, but avoid doubling it in Log.
+        if (hasJournal && item.channel === "stdout") {
+          // Replace a stdout fallback that may have been emitted before the
+          // first journal row arrived; mergeSessionEvents is id-based.
+          events.push({ id, role: "assistant", ts: Number.isFinite(at) ? at : null, blocks: [{ type: "text", text: "" }] });
+          continue;
+        }
+        const prefix = item.channel === "stderr" ? "[stderr] " : item.channel === "status" ? "[status] " : "";
+        events.push({
+          id,
+          role: "assistant",
+          ts: Number.isFinite(at) ? at : null,
+          blocks: [{ type: "text", text: prefix + item.text }]
+        });
+      }
+      return events;
+    };
+    const initial = readRemoteEvents();
+    emit({
+      type: "init",
+      title: `Outpost · ${remoteDispatch.machine || "remote"}`,
+      events: initial,
+      live: remoteLive,
+      available: true
+    });
+    lastEncoded = JSON.stringify(initial);
+    if (!remoteLive) return finish();
+    while (!closed) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (closed) break;
+      const event = readRemoteEvents();
+      const encoded = JSON.stringify(event);
+      if (encoded !== lastEncoded) {
+        emit({ type: "events", events: event });
+        lastEncoded = encoded;
+      }
+      try {
+        const fresh = await loadCard(opts.root, id);
+        if (fresh.status !== "running" || fresh.dispatch?.runId !== remoteDispatch.runId) break;
+      } catch { break; }
+    }
+    return finish();
+  }
 
   const pointer = wantsLive ? await readLiveSessionPointer(opts.root, card) : null;
   const durableIds = Array.isArray(card.sessionIds) ? card.sessionIds : [];
@@ -3817,6 +4502,7 @@ async function handleGetLists(req, res, opts) {
       beatCron: l.beatCron ?? null,
       interactive: Boolean(isInteractive(l)),
       terminal: Boolean(l.terminal),
+      system: Boolean(l.system),
       // D15: a list maps to a phase name and nothing else; skill/taskType/
       // tier/mode resolve from the compiled Orchestrator policy.
       phase: l.phase ?? (l.kind === "agent" ? l.id : null),
@@ -3836,6 +4522,7 @@ async function handleGetLists(req, res, opts) {
 // 400 with the validator's message.
 async function handlePatchList(req, res, opts, listId) {
   if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list config rejected" });
+  if (listId === "scheduled") return jsonRes(res, 400, { error: "Scheduled is a fixed system column and cannot be configured" });
   const body = (await readBody(req)) || {};
   // `rev` is the optimistic-concurrency token, NOT a list field — split it out
   // before applyListConfig (which would reject an unknown field on a manual list).
@@ -3868,6 +4555,259 @@ function handleProjects(req, res) {
   let projects = [];
   try { projects = listProjects(devRoot); } catch { projects = []; }
   jsonRes(res, 200, { devRoot, projects });
+}
+
+// A remote project card is not placeable until the host can prove its Loadout
+// is complete and every declared vault name resolves.  The authoring seed is
+// deliberately conservative: Git supplies only facts it already knows (the
+// origin URL and origin/HEAD).  Setup, verification and env-var names stay
+// blank rather than being guessed from package files or copied from a shell.
+function gitFact(repo, args) {
+  try {
+    return execFileSync("git", ["-C", repo, ...args], {
+      encoding: "utf8",
+      timeout: 1500,
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function projectLoadoutPrefill(projectId, { devRoot = readDevRoot() } = {}) {
+  const repo = resolveProjectName(projectId, { devRoot });
+  if (!repo) return null;
+  const repoRemote = gitFact(repo, ["remote", "get-url", "origin"]);
+  const remoteHead = gitFact(repo, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  const defaultBranch = remoteHead.startsWith("origin/") ? remoteHead.slice("origin/".length) : "";
+  return {
+    id: projectId,
+    repo_remote: repoRemote,
+    default_branch: defaultBranch,
+    setup_commands: [],
+    env_vars: [],
+    verify_command: ""
+  };
+}
+
+function loadoutAppUrl(opts) {
+  return String(opts?.appUrl || process.env.GARRISON_APP_URL || "").trim().replace(/\/+$/, "");
+}
+
+// Placement is a security/execution boundary, so the browser's readiness UI is
+// advisory only. Recheck the worker pulse and the host-side Loadout/vault dry
+// run on every create or placement PATCH before persisting a remote target.
+export async function remotePlacementPreflight(input, opts = {}) {
+  const placement = normalisePlacement(input?.placement);
+  if (placement.target === "host") return { ok: true, status: 200, code: "ready", detail: "host placement" };
+
+  const isCommand = typeof input?.dispatchCommand === "string" && input.dispatchCommand.trim().length > 0;
+  const project = typeof input?.project === "string" && input.project.trim() ? input.project.trim() : null;
+  const personalWorkspace = input?.scope === "personal" && !project;
+  if (!project && !isCommand && !personalWorkspace) {
+    return {
+      ok: false,
+      status: 409,
+      code: "remote-project-required",
+      detail: "Choose the project explicitly before assigning this card to an Outpost, so its Loadout can be verified."
+    };
+  }
+
+  const runtimeRequirement = isCommand
+    ? null
+    : remoteRuntimeRequirement(input, resolvedModelCached(opts?.root || kanbanRoot()));
+  if (!isCommand && !runtimeRequirement) {
+    return {
+      ok: false,
+      status: 409,
+      code: "remote-runtime-unresolved",
+      detail: "The active composition has no resolved execution cell for this card's next phase; choose Run on host or fix its duty/level routing."
+    };
+  }
+
+  const appUrl = loadoutAppUrl(opts);
+  if (!appUrl) {
+    return { ok: false, status: 503, code: "remote-preflight-unavailable", detail: "Remote placement is unavailable until GARRISON_APP_URL is projected." };
+  }
+  let machinesResponse;
+  try {
+    machinesResponse = await fetch(`${appUrl}/api/dispatch/machines`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(3000)
+    });
+  } catch (error) {
+    return { ok: false, status: 503, code: "worker-preflight-unavailable", detail: `Worker readiness could not be checked: ${String(error?.message || error).slice(0, 180)}` };
+  }
+  let machinesBody = {};
+  try { machinesBody = await machinesResponse.json(); } catch { machinesBody = {}; }
+  const machine = Array.isArray(machinesBody?.machines)
+    ? machinesBody.machines.find((candidate) => candidate?.name === placement.target)
+    : null;
+  const worker = machine?.worker;
+  if (!machinesResponse.ok || !worker || worker.ready !== true || worker.stale === true) {
+    return {
+      ok: false,
+      status: 409,
+      code: "worker-not-ready",
+      detail: worker?.detail || `Enable/Repair the task runner on ${placement.target} before assigning work to it.`
+    };
+  }
+  if (runtimeRequirement && (!Array.isArray(worker.runtimes) || !worker.runtimes.includes(runtimeRequirement.key))) {
+    return {
+      ok: false,
+      status: 409,
+      code: "worker-runtime-unsupported",
+      detail: `${placement.target} does not advertise ${runtimeRequirement.key}, required by ${runtimeRequirement.duty}/L${runtimeRequirement.level}/${runtimeRequirement.phase} (${runtimeRequirement.targetId}).`
+    };
+  }
+  if (!project) {
+    return {
+      ok: true,
+      status: 200,
+      code: "ready",
+      detail: personalWorkspace ? "worker ready; the card will use its managed personal workspace" : "command worker ready"
+    };
+  }
+
+  if (!resolveProjectName(project, { devRoot: opts?.devRoot || readDevRoot() })) {
+    return { ok: false, status: 409, code: "unknown-project", detail: "Choose a Git repository under the configured dev root before assigning an Outpost." };
+  }
+  let loadoutResponse;
+  try {
+    loadoutResponse = await fetch(`${appUrl}/api/loadouts/${encodeURIComponent(project)}?dryRun=1`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(3000)
+    });
+  } catch (error) {
+    return { ok: false, status: 503, code: "loadout-preflight-unavailable", detail: `Loadout preflight could not reach the host API: ${String(error?.message || error).slice(0, 180)}` };
+  }
+  let loadoutBody = {};
+  try { loadoutBody = await loadoutResponse.json(); } catch { loadoutBody = {}; }
+  if (!loadoutResponse.ok) {
+    return {
+      ok: false,
+      status: 409,
+      code: loadoutResponse.status === 404 ? "loadout-missing" : loadoutResponse.status === 409 ? "loadout-vault-locked" : "loadout-invalid",
+      detail: loadoutBody?.detail || loadoutBody?.error || `Loadout preflight failed (HTTP ${loadoutResponse.status}).`
+    };
+  }
+  const missing = Array.isArray(loadoutBody?.missing) ? loadoutBody.missing.filter((name) => typeof name === "string") : [];
+  if (missing.length) {
+    return { ok: false, status: 409, code: "loadout-incomplete", detail: `Vault values are missing for: ${missing.join(", ")}.` };
+  }
+  return { ok: true, status: 200, code: "ready", detail: "worker and Loadout preflight passed" };
+}
+
+async function handleLoadoutReadiness(req, res, opts, projectId) {
+  const prefill = projectLoadoutPrefill(projectId, { devRoot: opts?.devRoot || readDevRoot() });
+  if (!prefill) {
+    return jsonRes(res, 404, {
+      project: projectId,
+      ready: false,
+      status: "unknown-project",
+      detail: "Choose a Git repository under the configured dev root before assigning an Outpost."
+    });
+  }
+  const appUrl = loadoutAppUrl(opts);
+  if (!appUrl) {
+    return jsonRes(res, 503, {
+      project: projectId,
+      ready: false,
+      status: "unavailable",
+      detail: "Loadout preflight is unavailable until this composition projects GARRISON_APP_URL.",
+      editor: prefill
+    });
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(`${appUrl}/api/loadouts/${encodeURIComponent(projectId)}?dryRun=1`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(3000)
+    });
+  } catch (error) {
+    return jsonRes(res, 503, {
+      project: projectId,
+      ready: false,
+      status: "unavailable",
+      detail: `Loadout preflight could not reach the host API: ${String(error?.message || error).slice(0, 180)}`,
+      editor: prefill
+    });
+  }
+
+  let body = {};
+  try { body = await upstream.json(); } catch { body = {}; }
+  if (upstream.status === 404) {
+    const missingFacts = [
+      !prefill.repo_remote ? "origin remote" : null,
+      !prefill.default_branch ? "origin default branch" : null
+    ].filter(Boolean);
+    return jsonRes(res, 200, {
+      project: projectId,
+      ready: false,
+      status: "missing",
+      detail: missingFacts.length
+        ? `No Loadout is authored, and Git does not expose: ${missingFacts.join(", ")}. Fill those fields explicitly; Garrison will not guess them.`
+        : "No Loadout is authored. Confirm the repository facts, add explicit setup/verify instructions, and declare vault variable names only.",
+      missing: [],
+      editor: prefill
+    });
+  }
+
+  const authored = body?.loadout && typeof body.loadout === "object" ? body.loadout : prefill;
+  if (upstream.status === 409) {
+    return jsonRes(res, 200, {
+      project: projectId,
+      ready: false,
+      status: "vault-locked",
+      detail: body?.detail || "Unlock the host vault before assigning this project to an Outpost.",
+      missing: [],
+      editor: authored
+    });
+  }
+  if (!upstream.ok) {
+    return jsonRes(res, 200, {
+      project: projectId,
+      ready: false,
+      status: "invalid",
+      detail: typeof body?.error === "string" ? body.error : `Loadout validation failed (HTTP ${upstream.status}).`,
+      missing: [],
+      editor: authored
+    });
+  }
+
+  const missing = Array.isArray(body?.missing) ? body.missing.filter((name) => typeof name === "string") : [];
+  return jsonRes(res, 200, {
+    project: projectId,
+    ready: missing.length === 0,
+    status: missing.length === 0 ? "ready" : "missing-vault-values",
+    detail: missing.length === 0
+      ? "Loadout and vault preflight passed for remote execution."
+      : `Vault values are missing for: ${missing.join(", ")}. Add them in Vault; values never enter this editor.`,
+    missing,
+    editor: authored
+  });
+}
+
+async function handleSaveLoadout(req, res, opts, projectId) {
+  const repo = resolveProjectName(projectId, { devRoot: opts?.devRoot || readDevRoot() });
+  if (!repo) return jsonRes(res, 404, { error: "project is not a Git repository under the configured dev root" });
+  const appUrl = loadoutAppUrl(opts);
+  if (!appUrl) return jsonRes(res, 503, { error: "Loadout authoring is unavailable until this composition projects GARRISON_APP_URL" });
+  const body = (await readBody(req)) || {};
+  try {
+    const upstream = await fetch(`${appUrl}/api/loadouts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...body, id: projectId }),
+      signal: AbortSignal.timeout(3000)
+    });
+    let response = {};
+    try { response = await upstream.json(); } catch { response = {}; }
+    return jsonRes(res, upstream.status, response);
+  } catch (error) {
+    return jsonRes(res, 503, { error: `Loadout authoring could not reach the host API: ${String(error?.message || error).slice(0, 180)}` });
+  }
 }
 
 // Same-origin proxy of the gateway's route-options vocabulary (RUN-SPEC-V1).
@@ -3984,7 +4924,7 @@ async function handleBoardRuntime(req, res, opts) {
   const channel = await readWebChannelStatus();
   // Absolute kanban-store cards dir, so the board can hand the web channel an absolute,
   // card-owned briefAbsPath (<cardsAbsDir>/<cardId>/brief.md) for the Brief editor — the
-  // same file James writes and the engine reads. Deterministic; no project-dir guessing.
+  // same file the Discuss duty writes and the engine reads. Deterministic; no project-dir guessing.
   const cardsAbsDir = path.join(kanbanRoot(), "cards");
   jsonRes(res, 200, {
     webChannelEmbedId: channel.id,
@@ -4119,32 +5059,53 @@ export function makeRequestHandler(opts, distDir) {
       // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. No literal fallback: the old one
       // named the codex port and every probe silently failed.
       if (pathname === "/machines" && method === "GET") {
-        const host = { name: "host", label: "This machine (Garrison host)", connected: true, isHost: true };
+        const defaultRuntime = remoteRuntimeRequirement({}, resolvedModelCached(opts.root || kanbanRoot()));
+        const host = { name: "host", label: "This machine (Garrison host)", connected: true, isHost: true, bridge: "connected", worker: { state: "ready", ready: true, runtimes: [] } };
         const daemon = (process.env.GARRISON_OUTPOST_URL
           || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
           || "").trim();
-        if (!daemon) {
-          return jsonRes(res, 200, { machines: [host], outpostsAvailable: false, reason: "no outpost_host_url configured for this instance" });
-        }
+        const appUrl = (process.env.GARRISON_APP_URL || "").trim();
+        if (!daemon && !appUrl) return jsonRes(res, 200, { machines: [host], outpostsAvailable: false, defaultRuntime, reason: "outpost registry is not configured for this instance" });
         try {
-          const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });
-          if (!r.ok) throw new Error(`daemon ${r.status}`);
-          const list = (await r.json()).outposts || [];
-          const machines = [host, ...list.map((o) => ({
-            name: o.name,
-            label: o.name,
-            connected: Boolean(o.connected),
-            pending: Boolean(o.pending),
-            isHost: false
-          }))];
-          return jsonRes(res, 200, { machines, outpostsAvailable: true });
+          const [bridgeResponse, workerResponse] = await Promise.all([
+            daemon
+              ? fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) }).catch(() => null)
+              : Promise.resolve(null),
+            appUrl
+              ? fetch(`${appUrl.replace(/\/+$/, "")}/api/dispatch/machines`, { signal: AbortSignal.timeout(3000) }).catch(() => null)
+              : Promise.resolve(null)
+          ]);
+          const bridges = bridgeResponse?.ok ? ((await bridgeResponse.json()).outposts || []) : [];
+          const dispatchMachines = workerResponse?.ok ? ((await workerResponse.json()).machines || []) : [];
+          const bridgeByName = new Map(bridges.map((machine) => [machine.name, machine]));
+          const dispatchByName = new Map(dispatchMachines.map((machine) => [machine.name, machine]));
+          const names = [...new Set([...bridgeByName.keys(), ...dispatchByName.keys()])].filter((name) => typeof name === "string" && name !== "host").sort();
+          const machines = [host, ...names.map((name) => {
+            const bridge = bridgeByName.get(name);
+            const dispatchMachine = dispatchByName.get(name);
+            const worker = dispatchMachine?.worker || {
+              state: "offline", ready: false, stale: true, runtimes: [],
+              detail: "Task runner has not checked in", error: null
+            };
+            return {
+              name,
+              label: name,
+              connected: Boolean(bridge?.connected),
+              bridge: bridge?.connected ? "connected" : "offline",
+              pending: Boolean(bridge?.pending ?? dispatchMachine?.pending),
+              worker,
+              isHost: false
+            };
+          })];
+          return jsonRes(res, 200, { machines, outpostsAvailable: true, defaultRuntime });
         } catch (e) {
           // The daemon being down must not break card creation — degrade to
           // host-only and SAY why, rather than rendering an empty picker.
           return jsonRes(res, 200, {
             machines: [host],
             outpostsAvailable: false,
-            reason: `outpost daemon unreachable: ${e instanceof Error ? e.message : String(e)}`
+            defaultRuntime,
+            reason: `outpost registry unavailable: ${e instanceof Error ? e.message : String(e)}`
           });
         }
       }
@@ -4172,6 +5133,17 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/route-options" && method === "GET") return await handleRouteOptions(req, res, opts);
       if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
       if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
+      // Project Loadout preflight/authoring stays same-origin. The browser sees
+      // readiness and secret NAMES only; the host API remains the authority for
+      // vault resolution and never returns a secret value.
+      const loadoutMatch = pathname.match(/^\/loadouts\/([^/]+)$/);
+      if (loadoutMatch && (method === "GET" || method === "POST")) {
+        let projectId;
+        try { projectId = decodeURIComponent(loadoutMatch[1]); }
+        catch { return jsonRes(res, 400, { error: "invalid project id" }); }
+        if (method === "GET") return await handleLoadoutReadiness(req, res, opts, projectId);
+        return await handleSaveLoadout(req, res, opts, projectId);
+      }
       // Same-origin SSE proxy of the gateway's live operative terminal screen
       // (Watch's Terminal tab). Proxied rather than CORS-opened: the board
       // deliberately serves and fetches everything on this one port.
@@ -4283,7 +5255,7 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/lists/reorder" && method === "POST") {
         if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin reorder rejected" });
         const body = (await readBody(req)) || {};
-        const order = Array.isArray(body.order) ? body.order.filter((x) => typeof x === "string") : null;
+        const order = Array.isArray(body.order) ? body.order.filter((x) => typeof x === "string" && x !== "scheduled") : null;
         if (!order || !order.length) return jsonRes(res, 400, { error: "pass order: [listId, ...]" });
         const expectedRev = Number.isInteger(body.rev) ? body.rev : null;
         const root = opts.root;
@@ -4291,7 +5263,7 @@ export function makeRequestHandler(opts, distDir) {
         if (expectedRev !== null && (board.rev ?? 0) !== expectedRev) {
           return jsonRes(res, 409, { error: "board changed under you" });
         }
-        const rank = new Map(order.map((id, i) => [id, i]));
+        const rank = new Map([["scheduled", -1], ...order.map((id, i) => [id, i])]);
         const current = (board.lists || [])
           .slice()
           .sort((a, b) => (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0));
@@ -4301,7 +5273,7 @@ export function makeRequestHandler(opts, distDir) {
           if (!rank.has(list.id)) rank.set(list.id, tail++);
         }
         const saved = await saveBoardCAS(root, board.rev ?? 0, (b) => ({
-          board: { ...b, lists: (b.lists || []).map((l) => ({ ...l, userOrder: rank.get(l.id) ?? 0 })) }
+          board: { ...b, lists: (b.lists || []).map((l) => ({ ...l, userOrder: l.id === "scheduled" ? -1 : rank.get(l.id) ?? 0 })) }
         }));
         if (!saved.ok) return jsonRes(res, 409, { error: saved.error || "board changed under you" });
         return jsonRes(res, 200, { ok: true, order: [...rank.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id) });
@@ -4310,12 +5282,13 @@ export function makeRequestHandler(opts, distDir) {
       // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
       // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
       // board root via loadCard/saveCardCAS/appendCardLog.
-      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachments|\/attachment|\/session-stream|\/start|\/panic|\/snooze|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
+      const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachments|\/attachment|\/session-stream|\/start|\/panic|\/dispatch-complete|\/dispatch-cancel|\/snooze|\/run-now|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
         if (!isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
         if (sub === "/snooze" && method === "POST") return await handleSnoozeCard(req, res, opts, id);
+        if (sub === "/run-now" && method === "POST") return await handleRunScheduleNow(req, res, opts, id);
         if (sub === "/attachments" && method === "POST") return await handleAttachmentUpload(req, res, opts, id);
         if (sub === "/attachments" && method === "DELETE") return await handleAttachmentRemove(req, res, opts, id, parsed.query.name);
         if (sub === "/artifact" && method === "GET") return await handleArtifact(req, res, opts, id, parsed.query.ref);
@@ -4324,6 +5297,8 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "/session-stream" && method === "GET") return await handleSessionStream(req, res, opts, id, Number(parsed.query.i ?? 0));
         if (sub === "/start" && method === "POST") return await handleStartCard(req, res, opts, id);
         if (sub === "/panic" && method === "POST") return await handlePanicCard(req, res, opts, id);
+        if (sub === "/dispatch-complete" && method === "POST") return await handleDispatchComplete(req, res, opts, id);
+        if (sub === "/dispatch-cancel" && method === "POST") return await handleDispatchCancelAck(req, res, opts, id);
         if (sub === "/abandon" && method === "POST") return await handleAbandonCard(req, res, opts, id);
         if (sub === "/revert" && method === "POST") return await handleRevertCard(req, res, opts, id);
         if (sub === "/brief" && method === "POST") return await handleBriefCard(req, res, opts, id);
@@ -4378,6 +5353,22 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     }
   } catch (err) {
     console.error("[kanban-loop] personal completion reconciliation failed:", err?.message || err);
+  }
+
+  // The terminal transition deliberately does not wait for channel I/O. Repair
+  // any process-death window from the durable per-channel receipts before this
+  // server starts accepting new board work. Every delivery uses a destination-
+  // scoped idempotency key, so replay cannot append a second message.
+  try {
+    const repaired = await reconcileMorningBriefDeliveries(liveOpts.root);
+    if (repaired.completed) {
+      console.log(`[kanban-loop] repaired ${repaired.completed} Morning briefing delivery receipt(s)`);
+    }
+    for (const failure of repaired.errors) {
+      console.error(`[kanban-loop] Morning briefing reconcile failed for ${failure.cardId}: ${failure.error}`);
+    }
+  } catch (err) {
+    console.error("[kanban-loop] Morning briefing reconciliation failed:", err?.message || err);
   }
 
   // Re-register the scheduler tick from HERE, where this instance's gateway URL is

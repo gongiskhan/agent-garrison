@@ -133,7 +133,7 @@ export function routeFromDone(done) {
 // D5b): { contextPct, peakContextPct, compactions:{count,last} } for the operative
 // session that ran the turn. Fold it into a compact, validated object the engine can
 // stamp onto the card's routed event, or null when NOTHING context-related flowed
-// (souls mode / a non-PTY runtime → contextPct null, no compactions). Never
+// (a non-PTY runtime → contextPct null, no compactions). Never
 // load-bearing: a missing context object just means no telemetry stamp.
 export function contextFromDone(done) {
   if (!done || typeof done !== "object") return null;
@@ -510,7 +510,7 @@ export function gatewayRunFn(gatewayUrl) {
       e.transport = true;
       throw e;
     }
-    // Return the reply text, the per-turn route metadata (null in souls mode), the
+    // Return the reply text, the per-turn route metadata (null for legacy non-routed turns), the
     // per-turn context telemetry (null when none flowed), AND the operative session id
     // (WS2 — the engine appends it to card.sessionIds so transcript links resolve). The
     // shape stays an object every call site already destructures (`out?.reply`), so the

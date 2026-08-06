@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Exposes installed Faculties as MCP tools to interactive (UI-tab-launched) Claude Code sessions. Hosts the garrison-control tool set (talk_to, wait_for, …) when GARRISON_HTTP_GATEWAY_BASE_URL is set.
+  summary: Exposes installed Faculties as MCP tools to interactive (UI-tab-launched) Claude Code sessions.
   config_schema:
     - key: bind_host
       type: string
@@ -38,11 +38,10 @@ x-garrison:
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    Orchestrator/soul-mode sidecar - not invoked directly by the Operative.
-    The http-gateway spawns it per soul session as a stdio MCP child (no port of
-    its own); remote outpost sessions connect over HTTP MCP instead. Hosts the
-    garrison-control tool set (present when GARRISON_HTTP_GATEWAY_BASE_URL is
-    set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs.
+    Faculty-tool sidecar - not invoked directly by the Operative. Interactive
+    sessions use it as a stdio MCP child (no port of its own); remote outpost
+    sessions connect over HTTP MCP instead. Delegation is owned by the active
+    runtime/orchestration layer, not by persona-named Soul sessions.
 
     Kanban run-engine tools (WS2, present when the kanban-loop board is live at
     ~/.garrison/ui-fittings/kanban-loop.json):

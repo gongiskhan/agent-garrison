@@ -2,7 +2,7 @@
 
 // The Muster Orchestrator panel (S5c, D11/D12): the layered orchestrator prompt.
 // Two classes of section render differently:
-//   - AUTHORED doctrine (routing philosophy, escalation, when-to-ask-vs-proceed,
+//   - AUTHORED doctrine (routing philosophy, execution policy, escalation, when-to-ask-vs-proceed,
 //     identity hand-off) - an editable, autosaving textarea each. A debounced
 //     write persists ONE section to the composition's authored overrides.
 //   - GENERATED + LOCKED blocks (capabilities, duties-and-levels, readiness) -

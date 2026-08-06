@@ -7,6 +7,7 @@ import { deriveMoveTargets, isManualImportTarget } from "../fittings/seed/kanban
 
 const board = {
   lists: [
+    { id: "scheduled", title: "Scheduled", kind: "scheduled" },
     { id: "backlog", title: "Backlog", kind: "manual" },
     { id: "todo", title: "To Do", kind: "manual" },
     { id: "plan", title: "Plan", kind: "agent", trigger: "immediate" },
@@ -65,5 +66,10 @@ describe("deriveMoveTargets — move offers every list except the current one", 
 
   it("only allows human-held lists as import destinations", () => {
     expect(board.lists.filter(isManualImportTarget).map((list) => list.id)).toEqual(["backlog", "todo", "done"]);
+  });
+
+  it("never offers the system Scheduled column as a raw move target", () => {
+    expect(deriveMoveTargets(board as any, { list: "todo" }).map((target) => target.id)).not.toContain("scheduled");
+    expect(isManualImportTarget(board.lists[0])).toBe(false);
   });
 });

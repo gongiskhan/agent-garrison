@@ -1,9 +1,6 @@
 // autonomous-cards.mjs — D19: "EVERY task-shaped turn is a card."
 //
-// The ONE gateway↔board card client, shared by BOTH gateway entries:
-//   - gateway-pty.mjs (PTY routing mode) via the RoutedGateway wrappers in
-//     gateway-routing.mjs, and
-//   - gateway.mjs (orchestrator + souls mode) via CardRegistrar.
+// The gateway↔board card client used by the routed gateway entry.
 //
 // Every function takes its dependencies explicitly (buildPayload, logFn) and
 // resolves them at CALL time, so a RoutedGateway created off the prototype in
@@ -37,31 +34,6 @@ export const CARD_ORIGINATED_CHANNELS = new Set(["kanban", "scheduler", "board",
 
 export function isCardOriginatedChannel(channel) {
   return CARD_ORIGINATED_CHANNELS.has(String(channel || "").toLowerCase());
-}
-
-// Deterministic fallback classifier for souls mode, which has no warm LLM
-// classifier session. Mirrors heuristicClassify in the orchestrator fitting's
-// scripts/lib/router-core.mjs (kept in sync by tests/gateway-souls-cards.test.ts).
-// The keyword-exception fast-path (classifyByKeywords, gateway-routing.mjs)
-// runs FIRST at the call site; this is the everything-else fallback.
-export function heuristicClassify(prompt) {
-  const text = String(prompt || "");
-  const lower = text.toLowerCase();
-  let taskType = "other";
-  if (/\b(review|diff|pr|pull request)\b/.test(lower)) taskType = "review";
-  else if (/\b(research|find|latest|source|cite)\b/.test(lower)) taskType = "research";
-  else if (/\b(image|photo|picture|render|illustration)\b/.test(lower)) taskType = "image";
-  else if (/\b(video|walkthrough|recording)\b/.test(lower)) taskType = "video";
-  else if (/\b(write|draft|copy|email|doc)\b/.test(lower)) taskType = "writing";
-  else if (/\b(deploy|ops|cron|incident|server|scheduler)\b/.test(lower)) taskType = "ops";
-  else if (/\b(code|implement|fix|test|bug|refactor|typescript|python|api|add|build|create|update|change)\b/.test(lower)) taskType = "code";
-  const tier =
-    text.length < 120 && !/\b(deep|architecture|migration|end-to-end|e2e|full)\b/.test(lower)
-      ? "T0-trivial"
-      : /\b(deep|architecture|migration|security|full|e2e|end-to-end|critical)\b/.test(lower) || text.length > 1200
-        ? "T2-deep"
-        : "T1-standard";
-  return { taskType, tier, matchedException: null };
 }
 
 // Resolve the board's base URL from the kanban-loop status file. Returns the
@@ -179,8 +151,7 @@ export async function createAutonomousCard({ message, classification, opts = {},
 // Returns true when the card reaches Done. Never throws (a stranded quick card
 // is a visible board state, not a turn failure).
 // Convert a settled routed gateway result into the small, secret-free evidence
-// object the board accepts on an engine-context quick-card completion. Null for
-// souls/non-routed turns, which keeps their historical move-only behavior.
+// object the board accepts on an engine-context quick-card completion.
 export function quickRouteEvidence(result) {
   if (!result || typeof result !== "object") return null;
   const targetId = result.route ?? result.targetId ?? null;
@@ -377,52 +348,5 @@ export async function cardIsLive(cardId) {
     return true;
   } catch {
     return false;
-  }
-}
-
-// Souls-mode card surface: the same D19 semantics gateway-pty implements via
-// RoutedGateway, packaged for gateway.mjs. Owns the per-conversation card
-// memory (session key → live card) with the same liveness-gated attach.
-export class CardRegistrar {
-  constructor({ buildPayload = null, logFn = () => {} } = {}) {
-    this.buildPayload = buildPayload;
-    this.logFn = logFn;
-    this._sessionCards = new Map(); // sessionKey -> { cardId, quick, taskType }
-  }
-
-  async createAutonomousCard(message, classification, opts = {}) {
-    return createAutonomousCard({ message, classification, opts, buildPayload: this.buildPayload, logFn: this.logFn });
-  }
-
-  async completeQuickCard(id, result = null) {
-    return completeQuickCard({ id, result, logFn: this.logFn });
-  }
-
-  // D19: route a failed/empty quick card to needs-attention instead of Done.
-  async parkQuickCard(id, reason) {
-    return parkQuickCard({ id, reason, logFn: this.logFn });
-  }
-
-  // D19 session→card memory, liveness-gated (S7 review F1): a stale card
-  // (done / parked / abandoned / absent) is forgotten so a genuinely new
-  // same-type turn registers fresh instead of attaching to a corpse.
-  async attachedCard(sessionKey, classification) {
-    if (!sessionKey) return null; // no conversation identity → never attach (F1c)
-    const entry = this._sessionCards.get(sessionKey);
-    if (!entry) return null;
-    if (classification && entry.taskType && entry.taskType !== classification.taskType) return null;
-    if (!(await cardIsLive(entry.cardId))) {
-      this.forgetCard(sessionKey);
-      return null;
-    }
-    return entry;
-  }
-
-  rememberCard(sessionKey, entry) {
-    if (sessionKey) this._sessionCards.set(sessionKey, entry);
-  }
-
-  forgetCard(sessionKey) {
-    if (sessionKey) this._sessionCards.delete(sessionKey);
   }
 }

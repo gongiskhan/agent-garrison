@@ -601,9 +601,21 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
 
   it("has the full pipeline in order with the exact list ids", () => {
     expect(seeded.lists.map((l: any) => l.id)).toEqual([
-      "backlog", "todo", "discuss", "plan", "implement", "review", "adversarial-review",
+      "scheduled", "backlog", "todo", "discuss", "plan", "implement", "review", "adversarial-review",
       "test", "adversarial-test", "walkthrough", "validate", "done", "needs-attention", "archived"
     ]);
+  });
+
+  it("keeps Scheduled as the fixed system column at the far left", () => {
+    expect(seeded.lists[0]).toMatchObject({
+      id: "scheduled",
+      order: -1,
+      userOrder: -1,
+      kind: "scheduled",
+      trigger: "scheduler-beat",
+      system: true,
+      validNext: []
+    });
   });
 
   it("every list carries a trigger (immediate | manual | scheduler-beat)", () => {

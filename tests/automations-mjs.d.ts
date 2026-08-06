@@ -60,7 +60,15 @@ declare module "*/automations/lib/discuss.mjs" {
   export function automationBriefPath(slug: string): string;
   export function buildAutomationKickoff(opts?: any): string;
   export function buildAutomationDiscussUrl(opts?: any): string;
-  export function buildDiscussParams(opts?: any): { mode: string; context: string; kickoff: string; thread: string; title?: string };
+  export function buildDiscussParams(opts?: any): {
+    source: "discuss";
+    context: string;
+    kickoff: string;
+    thread: string;
+    returnUrl: string;
+    returnLabel: string;
+    title?: string;
+  };
 }
 declare module "*/automations/lib/command-shape.mjs" {
   export function computeCommandShape(argv: string[]): string;

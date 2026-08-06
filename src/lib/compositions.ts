@@ -9,6 +9,7 @@ import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
 import { facultyIds, dutyEfforts, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 import { z } from "zod";
+import { resolvePrimaryFromPolicy } from "./routing-primary";
 
 export const DEFAULT_COMPOSITION_ID = "default";
 
@@ -57,21 +58,6 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   ""
 ].join("\n");
 
-const DEFAULT_SOUL_PROMPT = [
-  "# Agent Garrison Soul",
-  "",
-  "You are called **Verity**. When asked your name, identify yourself as Verity.",
-  "",
-  "Your character:",
-  "",
-  "- Direct and transparent. Prefer inspectable steps over hidden behavior.",
-  "- Local-first and dogfood-oriented; you live on the user's machine, not in the cloud.",
-  "- You do not perform enthusiasm and do not over-apologize.",
-  "- You push back kindly when it matters — when a request looks like it'll cause harm, waste effort, or rest on a wrong premise.",
-  "- You keep the user informed without theatrics.",
-  ""
-].join("\n");
-
 interface CompositionManifest {
   name: string;
   version: string;
@@ -96,7 +82,9 @@ interface CompositionManifest {
       targets?: unknown;
       prompt_sources?: {
         orchestrator: string;
-        soul: string;
+        // Read-only compatibility for pre-v4 manifests. New and rewritten v4
+        // compositions author identity inside Orchestrator and never emit it.
+        soul?: string;
       };
     };
     [key: string]: unknown;
@@ -132,6 +120,127 @@ export interface CompositionV4 extends Composition {
   duties: DutySpec[];
   selectedDuties: string[];
   targets: CompositionTarget[];
+}
+
+const LEGACY_RUNTIME_ENGINE: Record<string, string> = {
+  "agent-sdk-runtime": "agent-sdk",
+  "claude-code-runtime": "claude-code",
+  "openai-agents-runtime": "openai-agents",
+  "codex-runtime": "codex",
+  "gemini-runtime": "gemini",
+  "cursor-runtime": "cursor",
+  "opencode-runtime": "opencode"
+};
+
+const DEFAULT_DISPATCH_TARGET = {
+  runtime: "agent-sdk",
+  provider: "anthropic",
+  model: "claude-haiku-4-5"
+} as const;
+
+/**
+ * One-time compatibility migration for the retired gateway flag. The old flag
+ * meant "run routing on whatever the primary happens to be"; v4 records that
+ * choice explicitly on dispatch-fast instead. When the old primary cannot be
+ * reconstructed, migration deliberately lands on the supported Haiku target:
+ * the retired flag must never remain public just because an old composition is
+ * incomplete. A present false flag is removed without authoring a new target.
+ */
+export function migrateLegacyRoutingOnPrimaryManifest(
+  manifest: CompositionManifest,
+  opts: { primaryRuntimeId?: string | null } = {}
+): { changed: boolean; warning?: string } {
+  const block = manifest["x-garrison"]?.composition as (CompositionBlock & Record<string, unknown>) | undefined;
+  const selections = block?.selections as FittingSelectionMap | undefined;
+  const gateways = selections?.gateway ?? [];
+  const gateway = gateways.find((item) => item.id === "http-gateway");
+  if (!gateway || !block || !Object.prototype.hasOwnProperty.call(gateway.config ?? {}, "routing_on_primary")) {
+    return { changed: false };
+  }
+  const raw = gateway?.config?.routing_on_primary;
+  const enabled = raw === true || String(raw ?? "").trim().toLowerCase() === "true";
+  if (!enabled) {
+    delete gateway.config.routing_on_primary;
+    return { changed: true };
+  }
+
+  const primaryRuntimeId = typeof opts.primaryRuntimeId === "string" ? opts.primaryRuntimeId.trim() : "";
+  const runtimeSelection = primaryRuntimeId
+    ? (selections?.runtimes ?? []).find((selection) => selection.id === primaryRuntimeId)
+    : undefined;
+  const engine = runtimeSelection ? LEGACY_RUNTIME_ENGINE[runtimeSelection.id] : null;
+  const duties = Array.isArray(block.duties) ? block.duties as Array<Record<string, unknown>> : [];
+  const dispatchDuty = duties.find((duty) => duty.id === "dispatch");
+  const targetId = "dispatch-fast";
+  const targets = Array.isArray(block.targets) ? block.targets as Array<Record<string, unknown>> : [];
+  const targetIndex = targets.findIndex((target) => target.id === targetId);
+  const legacyModel = typeof runtimeSelection?.config?.model === "string" && runtimeSelection.config.model.trim()
+    ? runtimeSelection.config.model.trim()
+    : null;
+  const legacyProvider = typeof runtimeSelection?.config?.provider === "string" && runtimeSelection.config.provider.trim()
+    ? runtimeSelection.config.provider.trim()
+    : undefined;
+  const resolved = engine && legacyModel
+    ? { runtime: engine, model: legacyModel, ...(legacyProvider ? { provider: legacyProvider } : {}) }
+    : DEFAULT_DISPATCH_TARGET;
+  const warning = engine && legacyModel
+    ? undefined
+    : primaryRuntimeId
+      ? `legacy routing_on_primary=true could not resolve a model for policy primary "${primaryRuntimeId}"; migrated to dispatch-fast on Claude Haiku 4.5`
+      : "legacy routing_on_primary=true had no resolvable policy primary; migrated to dispatch-fast on Claude Haiku 4.5";
+  const replacement: Record<string, unknown> = {
+    id: targetId,
+    ...resolved,
+    params: {
+      type: "runtime-target",
+      promptMode: "lean",
+      maxTurns: 1,
+      timeoutMs: 8000,
+      ...((resolved.runtime === "agent-sdk" || ("provider" in resolved && resolved.provider === "anthropic"))
+        ? { authMode: "subscription" }
+        : {})
+    }
+  };
+  if (targetIndex >= 0) targets[targetIndex] = replacement;
+  else targets.push(replacement);
+  block.targets = targets;
+  if (!dispatchDuty) {
+    duties.push({
+      id: "dispatch",
+      title: "Dispatch",
+      description: "Read an inbound task and route it to the right duty and level.",
+      levels: [{
+        description: "Bounded routing inference on the explicitly migrated dispatch target.",
+        cell: { target: targetId, effort: "low" }
+      }]
+    });
+    block.duties = duties;
+  } else {
+    const levels = Array.isArray(dispatchDuty.levels) ? dispatchDuty.levels as Array<Record<string, unknown>> : [];
+    const first = levels[0];
+    if (first) {
+      first.cell = {
+        ...((first.cell && typeof first.cell === "object") ? first.cell as Record<string, unknown> : {}),
+        target: targetId,
+        effort: "low"
+      };
+      delete first.sequence;
+    } else {
+      dispatchDuty.levels = [{
+        description: "Bounded routing inference on the explicitly migrated dispatch target.",
+        cell: { target: targetId, effort: "low" }
+      }];
+    }
+  }
+  delete gateway.config.routing_on_primary;
+  return { changed: true, ...(warning ? { warning } : {}) };
+}
+
+function hasLegacyRoutingOnPrimary(manifest: CompositionManifest): boolean {
+  const selections = manifest["x-garrison"]?.composition?.selections;
+  const gateway = (selections?.gateway ?? []).find((item) => item.id === "http-gateway");
+  const raw = gateway?.config?.routing_on_primary;
+  return raw === true || String(raw ?? "").trim().toLowerCase() === "true";
 }
 
 // A machine-local overlay (local.yml beside apm.yml, gitignored). A partial
@@ -294,6 +403,12 @@ export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<Comp
   if (!manifest) {
     throw new Error(`Missing manifest for composition ${id}`);
   }
+  const policyPrimary = hasLegacyRoutingOnPrimary(manifest)
+    ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
+    : null;
+  const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
+  if (legacy.changed) await writeYamlFile(manifestPath, manifest);
+  if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   return manifestToComposition(id, applyLocalOverlay(manifest, overlay));
 }
@@ -354,8 +469,7 @@ export async function writeComposition(
       // simply takes every default stays byte-clean in the diff.
       ...(nextUnfitted.length ? { unfitted: nextUnfitted } : {}),
       prompt_sources: {
-        orchestrator: ".garrison/prompts/orchestrator.md",
-        soul: ".garrison/prompts/soul.md"
+        orchestrator: ".garrison/prompts/orchestrator.md"
       }
     }
   };
@@ -504,25 +618,18 @@ export async function ensureComposition(id: string): Promise<void> {
     await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
   }
 
-  const soulPath = path.join(compositionDir, ".garrison", "prompts", "soul.md");
-  if (!(await pathExists(soulPath))) {
-    await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
-  }
-
   const manifestPath = getCompositionManifestPath(id);
   if (!(await pathExists(manifestPath))) {
     await writeYamlFile(manifestPath, createManifest(id, "Dogfood Operative"));
   }
 }
 
-export async function refreshDefaultPrompts(id: string): Promise<{ orchestratorPath: string; soulPath: string }> {
+export async function refreshDefaultPrompts(id: string): Promise<{ orchestratorPath: string }> {
   const compositionDir = getCompositionDirectory(id);
   await ensureDir(path.join(compositionDir, ".garrison", "prompts"));
   const orchestratorPath = path.join(compositionDir, ".garrison", "prompts", "orchestrator.md");
-  const soulPath = path.join(compositionDir, ".garrison", "prompts", "soul.md");
   await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
-  await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
-  return { orchestratorPath, soulPath };
+  return { orchestratorPath };
 }
 
 function createManifest(id: string, name: string): CompositionManifest {
@@ -540,8 +647,7 @@ function createManifest(id: string, name: string): CompositionManifest {
         global_config: defaultGlobalConfig(),
         selections: {},
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }
@@ -578,6 +684,12 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
   if (!manifest) {
     throw new Error(`Missing manifest for composition ${id}`);
   }
+  const policyPrimary = hasLegacyRoutingOnPrimary(manifest)
+    ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
+    : null;
+  const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
+  if (legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
+  if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   const composition = manifestToComposition(id, applyLocalOverlay(manifest, overlay));
   // Station every default-fit Fitting the composition has not unfitted, BEFORE

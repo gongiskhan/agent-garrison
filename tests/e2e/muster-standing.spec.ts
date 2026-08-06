@@ -48,8 +48,7 @@ function writeFixture(): void {
         selected_duties: [],
         targets: [],
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }

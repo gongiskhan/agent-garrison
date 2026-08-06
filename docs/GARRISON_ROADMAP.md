@@ -123,9 +123,10 @@ work.
   gateway uses `@anthropic-ai/claude-agent-sdk` in-process and
   resumes the same session by id. Auth is the Max account; no API
   key billing.
-- **Orchestrator + Soul concatenation already works.** The runner
-  reads both prompt files and writes `assembled-system-prompt.md`,
-  passed to the SDK as `append`.
+- **The layered Orchestrator document is the one runtime prompt source.** Its
+  editable Identity section owns Gary; routing doctrine plus generated duties,
+  capabilities, and readiness are assembled into
+  `assembled-system-prompt.md`. Legacy `soul.md` is not injected.
 - **Permission mode is `bypassPermissions` for now.** Anything
   stricter hangs because the UI has no permission-prompt surface
   yet.
@@ -295,8 +296,8 @@ Two flavors:
 
 - **Option (a) — advisory/validation.** Composition stays
   deterministic. An assembler agent runs at apply time, reads the
-  selected Fittings + their `for_consumers` + soul + orchestrator
-  + capability graph, and produces warnings, recommendations, and
+  authored Orchestrator document, selected Fittings and their
+  `for_consumers`, duties, readiness, and capability graph, then produces warnings, recommendations, and
   friction reports. The human accepts or rejects.
 - **Option (b) — synthesis.** The runner asks an LLM to *write* the
   assembled system prompt. Risks: non-reproducibility, cost,
@@ -702,11 +703,10 @@ for long-form discussion.
 
 ### Scope
 
-1. **PM/Architect hat in Soul + Orchestrator.** Soul declares the
-   hat exists and what it sounds like. Orchestrator detects when
-   to engage it (project mentioned, code in message, dev-flavored
-   verbs). The detection logic lives in the orchestrator, not the
-   soul — already decided 2026-05-05.
+1. **Product/architecture register in the Discuss duty.** Orchestrator routing
+   detects discussion language before the Operative turn and selects Discuss;
+   the duty owns the work-specific register. Gary remains the single authored
+   Identity rather than switching to a second persona.
 1. **Document-during-conversation discipline.** Operative
    proactively writes documents into the Documents Fitting when a
    discussion has converged on something worth capturing. The
@@ -870,6 +870,16 @@ Skills evolution direction) feeds detailed planning.
 -----
 
 ## Decision log (live)
+
+- **2026-08-05** — Orchestrator became the single routing and identity surface.
+  Pre-session routing uses deterministic bypasses and a bounded explicit
+  `dispatch` target for ambiguous human requests; schema-v4 no longer starts
+  Stage-A. Gary lives once in editable Orchestrator Identity; modes, selectable
+  persona Fittings, and unconditional Soul injection are retired. User
+  schedules live in Kanban's fixed Scheduled column, with Morning briefing
+  migrating from its raw job to a recurring template and receipt-backed
+  Web/Omi delivery. Older hat/Soul/classifier entries below are historical and
+  superseded by this decision.
 
 Append-only. Each decision dated and short.
 

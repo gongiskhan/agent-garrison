@@ -21,4 +21,3 @@ x-garrison:
     selections: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md

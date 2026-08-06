@@ -19,7 +19,7 @@ process.env.GARRISON_RUNS_DIR = RUNS_DIR;
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore
-import { classifySteering, parseSteering, steeringShortCircuit, steeringEvidence } from "../fittings/seed/dispatcher/lib/steer-core.mjs";
+import { classifySteering, parseSteering, steeringShortCircuit, steeringEvidence } from "../fittings/seed/orchestrator/lib/steer-core.mjs";
 // @ts-ignore
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore
@@ -84,6 +84,25 @@ describe("steer-core classification", () => {
     expect(unknown).toMatchObject({ action: "acknowledge", reason: "unclassifiable" });
     const revisit = await classifySteering({ message: "x", card: CARD(), call: async () => ({ ok: true, structured: { action: "revisit", revisit_duty: "plan" } }) });
     expect(revisit).toMatchObject({ action: "revisit", revisitDuty: "plan" });
+  });
+
+  it("uses the bounded Orchestrator Haiku target by default, never Ollama", async () => {
+    let seen: any = null;
+    await classifySteering({
+      message: "please account for the new constraint",
+      card: CARD(),
+      call: async (spec: any) => {
+        seen = spec;
+        return { ok: true, structured: { action: "absorb", confidence: "high" } };
+      }
+    });
+    expect(seen).toMatchObject({
+      shape: "anthropic",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      timeoutMs: 8000
+    });
+    expect(JSON.stringify(seen)).not.toMatch(/ollama|qwen/i);
   });
 
   it("routing evidence carries the digest, never the raw message", () => {

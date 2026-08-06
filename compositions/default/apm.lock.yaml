@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-31T21:29:50.833023+00:00'
+generated_at: '2026-08-06T02:30:28.543349+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -60,12 +60,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
-- repo_url: _local/dispatcher
-  name: dispatcher
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/dispatcher
 - repo_url: _local/drill
   name: drill
   version: 0.1.0
@@ -128,12 +122,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/huggingface-runtime
-- repo_url: _local/identity-gary
-  name: identity-gary
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/identity-gary
 - repo_url: _local/improver
   name: improver
   version: 0.1.0
@@ -174,17 +162,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/monitor-default
-- repo_url: _local/morning-briefing
-  name: morning-briefing
-  version: 0.1.0
-  package_type: apm_package
-  deployed_files:
-  - .claude/skills/morning-briefing
-  - .claude/skills/morning-briefing/SKILL.md
-  deployed_file_hashes:
-    .claude/skills/morning-briefing/SKILL.md: sha256:ea80774e2730d9f9dbbdcec6110961508361fc92902677a971a8eb7323806091
-  source: local
-  local_path: ../../fittings/seed/morning-briefing
 - repo_url: _local/omi-channel
   name: omi-channel
   version: 0.1.0
@@ -210,12 +187,12 @@ dependencies:
   deployed_files:
   - .claude/commands/orchestrator.md
   deployed_file_hashes:
-    .claude/commands/orchestrator.md: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+    .claude/commands/orchestrator.md: sha256:89c156c3c5902d384f5c81f6ce9846a11e909007a82ed27a6ffb076a660d8e1c
   source: local
   local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/outpost-tailscale-host
   name: outpost-tailscale-host
-  version: 0.3.0
+  version: 0.4.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/outpost-tailscale-host

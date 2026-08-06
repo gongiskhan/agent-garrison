@@ -83,7 +83,7 @@ function runningFittingBases() {
  * reached through the origin chain.
  */
 export async function fanOutNotification(
-  { title, text, actions = [], link = null, tag = null },
+  { title, text, actions = [], link = null, tag = null, idempotencyKey = null },
   { skipFittingIds = [], fetchImpl = fetch } = {}
 ) {
   const skip = new Set(skipFittingIds.filter(Boolean));
@@ -96,7 +96,7 @@ export async function fanOutNotification(
           const res = await fetchImpl(`${base}/notify`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ title, text, actions, link, tag }),
+            body: JSON.stringify({ title, text, actions, link, tag, idempotencyKey }),
             signal: AbortSignal.timeout(8000)
           });
           // 404 = not a notify-capable channel. Anything else is a real outcome.
@@ -267,22 +267,33 @@ export function routeBrief(root, card, { brief, gate } = {}) {
 // Fire-and-forget POST of an assistant message to a channel fitting's thread
 // (the shared thread-append contract). Extracted so every channel-transport
 // delivery uses one path; the channel id picks the fitting via CHANNEL_FITTINGS.
-function deliverChannelMessage(channel, threadId, text) {
+async function postChannelMessage(channel, threadId, text, { idempotencyKey = null, fetchImpl = fetch } = {}) {
   const fittingId = CHANNEL_FITTINGS[channel];
-  if (!fittingId || !threadId || !text) return;
+  if (!fittingId || !threadId || !text) return { ok: false, channel, fittingId, reason: "invalid channel message" };
   const base = statusFileUrl(fittingId);
-  if (!base) return;
-  void fetch(`${base}/api/threads/${encodeURIComponent(threadId)}/messages`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ messages: [{ role: "assistant", text }] })
-  })
-    .then((res) => {
-      if (!res.ok) console.error(`[kanban] origin event → HTTP ${res.status} (${channel} thread ${threadId})`);
-    })
-    .catch((err) => {
-      console.error(`[kanban] origin event delivery failed: ${err?.message || err}`);
+  if (!base) return { ok: false, channel, fittingId, reason: `${fittingId} is not running` };
+  try {
+    const response = await fetchImpl(`${base}/api/threads/${encodeURIComponent(threadId)}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "assistant", text }],
+        ...(idempotencyKey ? { idempotencyKey } : {})
+      }),
+      signal: AbortSignal.timeout(8_000)
     });
+    return response.ok
+      ? { ok: true, channel, fittingId, threadId, status: response.status }
+      : { ok: false, channel, fittingId, threadId, status: response.status, reason: `HTTP ${response.status}` };
+  } catch (error) {
+    return { ok: false, channel, fittingId, threadId, reason: String(error?.message ?? error).slice(0, 300) };
+  }
+}
+
+function deliverChannelMessage(channel, threadId, text) {
+  void postChannelMessage(channel, threadId, text).then((receipt) => {
+    if (!receipt.ok) console.error(`[kanban] origin event delivery failed: ${receipt.reason}`);
+  });
 }
 
 // Board-level notice (the weekly review) — not tied to any card or origin, so it
@@ -292,12 +303,12 @@ function deliverChannelMessage(channel, threadId, text) {
 // resolves false when the channel is down (the report file + stdout still land).
 const BOARD_NOTICE_THREAD = "kanban-board-review";
 
-export async function deliverBoardNotice(title, text) {
+export async function deliverBoardNotice(title, text, { idempotencyKey = null, fetchImpl = fetch } = {}) {
   try {
     if (!text) return false;
     const base = statusFileUrl(CHANNEL_FITTINGS.web);
     if (!base) return false;
-    const ensured = await fetch(`${base}/api/threads`, {
+    const ensured = await fetchImpl(`${base}/api/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: BOARD_NOTICE_THREAD, title: title || "Board review", source: "kanban-loop" })
@@ -306,10 +317,13 @@ export async function deliverBoardNotice(title, text) {
       console.error(`[kanban] board notice → thread ensure HTTP ${ensured.status}`);
       return false;
     }
-    const posted = await fetch(`${base}/api/threads/${BOARD_NOTICE_THREAD}/messages`, {
+    const posted = await fetchImpl(`${base}/api/threads/${BOARD_NOTICE_THREAD}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "assistant", text }] })
+      body: JSON.stringify({
+        messages: [{ role: "assistant", text }],
+        ...(idempotencyKey ? { idempotencyKey } : {})
+      })
     });
     if (!posted.ok) {
       console.error(`[kanban] board notice → HTTP ${posted.status}`);
@@ -339,7 +353,10 @@ export function routeOriginEvent(root, disk, card, event) {
       cardId: card.id,
       title: card.title ?? null,
       message: event.message ?? null,
-      ...(event.detail !== undefined && event.detail !== null ? { detail: event.detail } : {})
+      ...(event.detail !== undefined && event.detail !== null ? { detail: event.detail } : {}),
+      ...(typeof event.idempotencyKey === "string" && event.idempotencyKey
+        ? { idempotencyKey: event.idempotencyKey }
+        : {})
     });
     // Transport delivery. Web posts the message into the originating thread (quick
     // cards excluded — their outcome was the inline channel reply). board/skill/
@@ -434,7 +451,11 @@ export function scheduleReminderMessage(card, { started = false } = {}) {
 // web board-notice thread so the reminder is never silently dropped.
 const OMI_REMINDER_THREAD = "omi-reports";
 
-export function deliverScheduleReminder(root, card, { started = false } = {}) {
+export async function deliverScheduleReminder(root, card, {
+  started = false,
+  idempotencyKey = null,
+  fetchImpl = fetch
+} = {}) {
   try {
     const text = scheduleReminderMessage(card, { started });
     // Fan out to every notify-capable channel IN ADDITION to the origin chain
@@ -451,38 +472,57 @@ export function deliverScheduleReminder(root, card, { started = false } = {}) {
       : statusFileUrl(CHANNEL_FITTINGS.omi)
         ? CHANNEL_FITTINGS.omi
         : null;
-    void fanOutNotification(
+    const fanout = await fanOutNotification(
       {
         title: started ? "Scheduled card started" : "Card due",
         text,
         link: boardCardUrl(card.id),
         tag: `card-${card.id}`,
-        actions: started ? [] : [{ label: "Open card", url: boardCardUrl(card.id) }]
+        actions: started ? [] : [{ label: "Open card", url: boardCardUrl(card.id) }],
+        idempotencyKey
       },
-      { skipFittingIds: [chainFittingId] }
+      { skipFittingIds: [chainFittingId], fetchImpl }
     );
+    let chain;
     if (card.originChannel?.channel && card.originChannel?.threadId) {
       routeOriginEvent(root, null, card, {
         kind: "schedule-due",
-        message: text,
-        detail: { scheduledFor: card.scheduledFor ?? null, started }
+        message: null,
+        detail: { scheduledFor: card.scheduledFor ?? null, started },
+        idempotencyKey
       });
-      return;
-    }
-    // No originating thread (board-created card): record the event, then push
-    // through omi when its fitting is up, else the web board-notice thread.
-    routeOriginEvent(root, null, card, {
-      kind: "schedule-due",
-      message: null,
-      detail: { scheduledFor: card.scheduledFor ?? null, started }
-    });
-    if (statusFileUrl(CHANNEL_FITTINGS.omi)) {
-      deliverChannelMessage("omi", OMI_REMINDER_THREAD, text);
+      chain = await postChannelMessage(
+        String(card.originChannel.channel).toLowerCase(),
+        card.originChannel.threadId,
+        text,
+        { idempotencyKey, fetchImpl }
+      );
     } else {
-      void deliverBoardNotice("Scheduled cards", text);
+      // No originating thread (board-created card): record the event, then push
+      // through omi when its fitting is up, else the web board-notice thread.
+      routeOriginEvent(root, null, card, {
+        kind: "schedule-due",
+        message: null,
+        detail: { scheduledFor: card.scheduledFor ?? null, started },
+        idempotencyKey
+      });
+      if (statusFileUrl(CHANNEL_FITTINGS.omi)) {
+        chain = await postChannelMessage("omi", OMI_REMINDER_THREAD, text, { idempotencyKey, fetchImpl });
+      } else {
+        const delivered = await deliverBoardNotice("Scheduled cards", text, { idempotencyKey, fetchImpl });
+        chain = delivered
+          ? { ok: true, channel: "web", fittingId: CHANNEL_FITTINGS.web, threadId: BOARD_NOTICE_THREAD }
+          : { ok: false, channel: "web", fittingId: CHANNEL_FITTINGS.web, reason: "no running reminder channel" };
+      }
     }
-  } catch {
-    /* reminders are best-effort - never break the tick */
+    const receipts = [...fanout, chain].filter(Boolean);
+    return {
+      ok: chain?.ok === true,
+      receipts,
+      ...(chain?.ok === true ? {} : { error: chain?.reason ?? "no running reminder channel" })
+    };
+  } catch (error) {
+    return { ok: false, receipts: [], error: String(error?.message ?? error).slice(0, 500) };
   }
 }
 

@@ -69,6 +69,7 @@ type Cfg = Omit<
   workKinds: Record<string, { phasePlan: string; description?: string }>;
   phasePlans: Record<string, PhasePlan>;
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
+  dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
 };
 type Producer = (draft: Cfg) => Cfg;
 
@@ -651,6 +652,76 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
+type InferenceStatus = {
+  target: null | { id: string; runtime: string; provider: string | null; model: string; promptMode: string | null; maxTurns: number | null; timeoutMs: number; authMode: string | null };
+  total: number;
+  fallbackCount: number;
+  degraded: boolean;
+  latest: null | { at: string | null; source: string | null; dispatchOk: boolean | null; latencyMs: number | null; failureCode: string | null };
+};
+
+function InferenceSurface({ config, commit, compositionId }: { config: Cfg; commit: (p: Producer) => void; compositionId: string }) {
+  const [status, setStatus] = useState<InferenceStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/orchestrator/routing-status?composition=${encodeURIComponent(compositionId)}`)
+      .then((r) => r.json())
+      .then((value) => { if (live) setStatus(value); })
+      .catch(() => { if (live) setStatus(null); });
+    return () => { live = false; };
+  }, [compositionId]);
+  const inference = config.dispatchInference ?? {};
+  const update = (key: "timeoutMs" | "maxTokens" | "clarityRubric", value: number | string) =>
+    commit((draft) => {
+      draft.dispatchInference = draft.dispatchInference ?? {};
+      (draft.dispatchInference as Record<string, number | string>)[key] = value;
+      return draft;
+    });
+  return (
+    <section className={styles.surface} data-testid="policy-routing-inference">
+      <div className={styles.surfaceHeadRow}>
+        <h3 className={styles.surfaceHead}>Routing inference</h3>
+        <span className={`${styles.status} ${status?.degraded ? styles.statusBad : styles.statusSaved}`}>
+          {status?.degraded ? "degraded" : "ready"}
+        </span>
+      </div>
+      <p className={styles.surfaceHint}>
+        Deterministic rules run first. Only ambiguous, unpinned human requests use the bounded one-turn target below.
+      </p>
+      <div className={styles.ctlGrid}>
+        <div className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Target</span>
+          <span className={styles.pill}>{status?.target ? `${status.target.runtime} / ${status.target.model}` : "not resolved"}</span>
+          <span className={styles.ctlNote}>
+            {status?.target ? `${status.target.provider || "default provider"}; ${status.target.promptMode || "default"}; ${status.target.authMode || "default auth"}; ${status.target.maxTurns ?? 1} turn` : "configure the dispatch duty target"}
+          </span>
+        </div>
+        <div className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Timeout</span>
+          <input className={styles.ctlNum} type="number" min={1000} max={30000} value={inference.timeoutMs ?? 8000} onChange={(e) => update("timeoutMs", Math.max(1000, Number(e.target.value) || 8000))} />
+          <span className={styles.ctlNote}>milliseconds; a timeout falls back deterministically and is recorded</span>
+        </div>
+        <div className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Max tokens</span>
+          <input className={styles.ctlNum} type="number" min={64} max={1024} value={inference.maxTokens ?? 256} onChange={(e) => update("maxTokens", Math.max(64, Number(e.target.value) || 256))} />
+          <span className={styles.ctlNote}>structured duty/level response only; no tools or extended thinking</span>
+        </div>
+        <label className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Clarity rubric</span>
+          <textarea value={inference.clarityRubric ?? ""} onChange={(e) => update("clarityRubric", e.target.value)} rows={3} />
+          <span className={styles.ctlNote}>editable policy folded into the lean dispatch prompt</span>
+        </label>
+      </div>
+      <div className={styles.tryitChain} aria-label="routing inference telemetry">
+        <span className={styles.pill}>last: {status?.latest?.source ?? "none"}</span>
+        <span className={styles.pill}>latency: {status?.latest?.latencyMs == null ? "—" : `${status.latest.latencyMs} ms`}</span>
+        <span className={styles.pill}>fallbacks: {status?.fallbackCount ?? 0}</span>
+        {status?.latest?.failureCode ? <span className={styles.pill}>reason: {status.latest.failureCode}</span> : null}
+      </div>
+    </section>
+  );
+}
+
 function CoordinationSurface({ config, commit }: { config: Cfg; commit: (p: Producer) => void }) {
   const v = coordView(config);
   const [newLease, setNewLease] = useState("");
@@ -954,7 +1025,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
       </div>
       <p className={styles.surfaceHint}>
         Deterministic dry-run: a heuristic classifier resolves the rail here. The real live
-        classifier runs at the gateway.
+        Orchestrator inference runs in the gateway before the Operative.
       </p>
       {result?.error ? <div className={styles.tryitError}>{result.error}</div> : null}
       {result && !result.error ? (
@@ -1081,9 +1152,9 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
     <section className={styles.section} data-testid="policy-panel">
       <div className={styles.panelHead}>
         <span className={styles.panelLead}>
-          The routing policy: which phases each work kind runs, how concurrent runs coordinate,
-          and the quality gates. Every edit autosaves and recompiles the policy the run engine
-          reads.
+          Routing inference and execution policy: how a request becomes a duty and level, which
+          phases each work kind runs, and the quality gates. Every edit autosaves and recompiles
+          the policy the gateway and run engine read.
         </span>
         <StatusPill state={saveState} />
       </div>
@@ -1112,6 +1183,8 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
           </button>
         </div>
       ) : null}
+
+      <InferenceSurface config={config} commit={commit} compositionId={compositionId} />
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />

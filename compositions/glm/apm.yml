@@ -4,9 +4,7 @@ target: claude
 dependencies:
   apm:
     - path: ../../fittings/seed/basic-memory
-    - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/openai-agents-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/web-channel-default
@@ -45,15 +43,6 @@ x-garrison:
             bind_host: 127.0.0.1
             compact_enabled: false
             compact_threshold_pct: 60
-            # Pins BOTH halves of the routing brain to the primary's own adapter.
-            # Without it the classifier defaults to a Claude Code haiku PTY -
-            # which would put this composition back on the Anthropic plan for
-            # every turn's Stage-A - and the Dispatcher would call through
-            # garrison-call, whose default-deny table does not list this endpoint.
-            routing_on_primary: true
-        - id: dispatcher
-          config:
-            evidence_file: .garrison/decisions.jsonl
       runtimes:
         - id: openai-agents-runtime
           config:
@@ -74,13 +63,8 @@ x-garrison:
             project_name: main
             capture_enabled: true
             register_codex_gemini: false
-      modes:
-        - id: identity-gary
-          config:
-            user_name: the user
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md
     duties:
       - id: dispatch
         title: Dispatch
@@ -224,11 +208,3 @@ x-garrison:
           type: secondary
           promptMode: full
           maxTurns: 24
-      - id: glm-classifier
-        runtime: openai-agents
-        model: glm-5.2
-        provider: glm
-        params:
-          type: secondary
-          promptMode: lean
-          maxTurns: 2

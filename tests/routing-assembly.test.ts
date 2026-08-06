@@ -18,20 +18,17 @@ const PROMPT = readFileSync(
   join(ROOT, "fittings/seed/orchestrator/.apm/prompts/orchestrator.prompt.md"),
   "utf8"
 );
+const LEGACY_TEMPLATE = "{{routing}}\n\n{{capabilities}}\n\n[orchestrator-active]\n";
 const SEED = JSON.parse(
   readFileSync(join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8")
 );
 
 describe("routing assembly (MR1b — assembly-ok)", () => {
-  it("the model-router orchestrator prompt template SOURCE carries BOTH placeholders (s0 acceptance: {{routing}} + {{capabilities}} reach the model-router prompt)", () => {
-    // The whole point of s0 is that the model-router orchestrator prompt — the
-    // default front-door orchestrator — carries the {{routing}} placeholder (so the
-    // compiled policy + discipline land) AND keeps {{capabilities}} (so provider
-    // for_consumers reach the operative). A regression dropping EITHER placeholder
-    // from the template would otherwise be invisible to the assembly tests below,
-    // which feed a hand-built prompt.
-    expect(PROMPT).toContain("{{routing}}");
-    expect(PROMPT).toContain("{{capabilities}}");
+  it("the retired raw prompt is only a pointer to the layered runtime source", () => {
+    expect(PROMPT).toContain("layered Orchestrator document");
+    expect(PROMPT).not.toContain("{{routing}}");
+    expect(PROMPT).not.toContain("{{capabilities}}");
+    expect(PROMPT).not.toMatch(/Verity|Joe|James/);
   });
 
   it("the {{capabilities}} fold actually delivers provider for_consumers text into the prompt (sentinel provider)", () => {
@@ -57,7 +54,7 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
   it("the assembled orchestrator instructions contain the routing section AND [orchestrator-active], with no leaked placeholders", () => {
     const section = compileRouting(SEED, "balanced");
     const out = buildOrchestratorInstructions({
-      orchestrator: PROMPT,
+      orchestrator: LEGACY_TEMPLATE,
       soul: "# Verity\nYou are Verity, the operative's identity.",
       entries: [],
       routingSection: section
@@ -67,8 +64,8 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
     expect(out).toContain("Routing policy");
     // [orchestrator-active] preserved (load-bearing for integration-check + tests)
     expect(out).toContain("[orchestrator-active]");
-    // identity folded in ahead (integration-check looks for "Verity")
-    expect(out).toContain("Verity");
+    // Retired soul input is never injected alongside the authored Identity section.
+    expect(out).not.toContain("Verity");
     // no placeholder leaks
     expect(out).not.toContain("{{routing}}");
     expect(out).not.toContain("{{capabilities}}");
@@ -85,7 +82,7 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
     expect(section).toContain("Discipline");
     expect(section).toContain("Continuations");
     const out = buildOrchestratorInstructions({
-      orchestrator: PROMPT,
+      orchestrator: LEGACY_TEMPLATE,
       soul: "# Verity\nYou are Verity, the operative's identity.",
       entries: [],
       routingSection: section
@@ -127,7 +124,8 @@ describe("routing assembly (MR1b — assembly-ok)", () => {
     writeFileSync(join(dir, ".garrison", "routing.json"), JSON.stringify(scoped), "utf8");
     const section = await resolveRoutingSection(dir);
     expect(section).toContain(routingMarkerV2("economy"));
-    expect(section).toContain("cc-ollama-qwen"); // economy's matrix routes code at ollama
+    expect(section).toContain("cc-haiku-low"); // economy's matrix routes code to Anthropic Haiku
+    expect(section).not.toMatch(/ollama|qwen/i);
   });
 
   it("resolveRoutingSection returns null for an invalid config (caller warns, no leak)", async () => {

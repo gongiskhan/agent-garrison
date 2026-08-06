@@ -97,15 +97,17 @@ export class Notifier {
   }
 
   // -> receipts [{ means, ok, target? , skipped?, error? }]
-  async send({ template, params = {} }) {
+  async send({ template, params = {}, suppressWebFallback = false }) {
     const message = renderTemplate(template, params);
     if (!message) return [{ means: "none", ok: false, skipped: "empty message" }];
 
     const receipts = [];
     const omi = await this.sendOmi(message);
     receipts.push(omi);
-    if (!omi.ok) {
+    if (!omi.ok && !suppressWebFallback) {
       receipts.push(await this.sendWebChannelFallback(message));
+    } else if (!omi.ok && suppressWebFallback) {
+      receipts.push({ means: "web-channel", ok: false, skipped: "fallback suppressed by caller (Web delivery is independent)" });
     }
     const line = receipts
       .map((r) => `${r.means}:${r.ok ? "ok" : (r.skipped ?? r.error ?? "failed")}`)

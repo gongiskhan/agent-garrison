@@ -53,11 +53,6 @@ describe("headless-mode exclusion guard (claude -p stays banned as a capability 
     expect(trackedSourceFiles().length).toBeGreaterThan(50);
   });
 
-  // The ONE sanctioned exception: outpost dispatch pipes a prompt into
-  // `claude -p` on a REMOTE outpost host, where the exec API offers no PTY.
-  // The local capability exclusion stands; this file may not grow more usages.
-  const REMOTE_DISPATCH_EXCEPTION = "fittings/seed/kanban-loop/lib/outpost-dispatch.mjs";
-
   it("contains no banned headless-invocation patterns in production source", () => {
     const offenders: string[] = [];
     for (const rel of trackedSourceFiles()) {
@@ -72,7 +67,6 @@ describe("headless-mode exclusion guard (claude -p stays banned as a capability 
         .join("\n");
       for (const { label, re } of BANNED) {
         if (!re.test(code)) continue;
-        if (rel === REMOTE_DISPATCH_EXCEPTION && label.includes("short flag")) continue;
         offenders.push(`${rel} :: ${label} (${re})`);
       }
     }

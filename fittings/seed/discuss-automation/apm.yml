@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - all
-  summary: The "Discuss an automation" skill — opens a James conversation ("What would you like to automate?"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/<slug>.md, then drives the Router-routed planner to turn the brief into reviewable, editable steps. Reuses the Kanban Discuss -> web-channel handoff; the plain-English goal box is replaced by this flow.
+  summary: The "Discuss an automation" skill — opens a Discuss-duty conversation ("What would you like to automate?"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/<slug>.md, then drives the routed planner to turn the brief into reviewable, editable steps. Reuses the Kanban Discuss -> web-channel handoff; the plain-English goal box is replaced by this flow.
   config_schema: []
   provides: []
   consumes:
@@ -33,7 +33,7 @@ x-garrison:
     timeout_ms: 10000
   for_consumers: |
     To author an automation by conversation, invoke "Discuss an automation":
-    open the web-channel in James mode with the kickoff "What would you like to
+    open a web-channel thread pinned to the Discuss duty with the kickoff "What would you like to
     automate?" (the Automations view's Discuss button builds the URL via
     lib/discuss.mjs). Ask the user the clarifying questions, then write the brief
     to ~/.garrison/automations/briefs/<slug>.md. Hand it to the planner:

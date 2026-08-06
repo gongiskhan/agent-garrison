@@ -179,9 +179,10 @@ describe("list_scheduled_cards - filtering", () => {
     const unscheduled = await createCard(KANBAN_DIR, { list: "backlog", title: "Never scheduled", project: "garrison" });
     await callScheduleCard({ card: scheduled.id, in_minutes: 30 });
     const out = await callListScheduledCards();
-    // exactly the cards the board reports with scheduledFor set
+    // exactly the cards the board reports with an authoritative v5 schedule
+    // (paused recurring templates intentionally have no scheduledFor alias).
     const all = ((await (await fetch(`${base}/cards`)).json()) as any).cards;
-    const expected = all.filter((c: any) => c.scheduledFor != null);
+    const expected = all.filter((c: any) => c.schedule != null || c.scheduledFor != null);
     expect(out.count).toBe(expected.length);
     expect(out.count).toBeGreaterThanOrEqual(1);
     expect(out.result).toContain(scheduled.id.slice(-4));

@@ -874,24 +874,22 @@ describe("Codex secondary-instance isolation", () => {
       path.join(ROOT, "fittings", "seed", "kanban-loop", "lib", "engine.mjs"),
       "utf8"
     );
-    const dispatch = readFileSync(
-      path.join(ROOT, "fittings", "seed", "kanban-loop", "lib", "outpost-dispatch.mjs"),
+    const boardServer = readFileSync(
+      path.join(ROOT, "fittings", "seed", "kanban-loop", "scripts", "server.mjs"),
       "utf8"
     );
     const hostDaemon = readFileSync(path.join(ROOT, "scripts", "outpost-host.mjs"), "utf8");
 
     // No profile-specific literal survives in code any profile executes.
-    for (const [name, source] of [
-      ["engine.mjs", engine],
-      ["outpost-dispatch.mjs", dispatch]
-    ] as const) {
+    for (const [name, source] of [["engine.mjs", engine]] as const) {
       expect(source.includes("23702"), `${name} hardcodes the codex outpost port`).toBe(false);
       expect(source.includes("4702"), `${name} hardcodes the prod outpost port`).toBe(false);
       expect(source.includes("3702"), `${name} hardcodes an outpost port`).toBe(false);
     }
 
-    // The engine reads the projected composition key.
-    expect(engine).toContain("GARRISON_KANBANLOOP_OUTPOST_HOST_URL");
+    // Placement discovery (now owned by the board server; the engine never
+    // pushes remote work) reads the projected composition key.
+    expect(boardServer).toContain("GARRISON_KANBANLOOP_OUTPOST_HOST_URL");
 
     // The bare-run fallback in the daemon is the BASE of the family (dev), per
     // instance-profile.ts's "an unset profile IS dev" doctrine — not codex.

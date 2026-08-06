@@ -1,4 +1,4 @@
-// gateway-routing.mjs — Stage-A live routing for the PTY gateway (BRIEF U1).
+// gateway-routing.mjs — pre-session routing for the PTY gateway.
 //
 // The gateway pre-routes EVERY inbound message: the warm classifier (a pooled
 // runtime session) returns {taskType, tier}; pure code in the model-router
@@ -404,15 +404,13 @@ export function resolveKanbanLoopDir(compositionDir) {
   return null;
 }
 
-// Locate the dispatcher fitting dir so the gateway can run the SAME steering
-// classifier and dispatch/clarity core the composition ships. Callers that load
-// a particular module pass its filename so a partial/older fitting cannot be
-// selected for a core it does not contain.
-export function resolveDispatcherDir(compositionDir, requiredModule = "steer-core.mjs") {
+// Routing inference belongs to Orchestrator. Legacy composition manifests are
+// migrated before this resolver is called.
+export function resolveOrchestratorRoutingDir(compositionDir, requiredModule = "steer-core.mjs") {
   const candidates = [
-    process.env.GARRISON_DISPATCHER_DIR,
-    compositionDir && path.join(compositionDir, "apm_modules", "_local", "dispatcher"),
-    path.resolve(HERE, "..", "..", "..", "dispatcher"),
+    process.env.GARRISON_ORCHESTRATOR_DIR,
+    compositionDir && path.join(compositionDir, "apm_modules", "_local", "orchestrator"),
+    path.resolve(HERE, "..", "..", "..", "orchestrator")
   ].filter(Boolean);
   for (const c of candidates) {
     try {
@@ -426,6 +424,7 @@ export function resolveDispatcherDir(compositionDir, requiredModule = "steer-cor
   }
   return null;
 }
+
 
 // Unlike pure code modules, garrison-call is an executable capability and must
 // actually be composed. Do not fall back to the repo seed when a composition is
@@ -502,33 +501,88 @@ export async function buildOllamaVisionSpec(target, message, imagePaths, { fsImp
 // are ignored here; `spec.maxTokens`/`spec.timeoutMs` cannot be honored by a CLI
 // engine, so they are not silently claimed either. Each call is a fresh one-shot
 // session: dispatch must never inherit or pollute conversational context.
-export function makeAdapterCallInvoker(adapter, spawnConfig = {}) {
+export function makeAdapterCallInvoker(adapter, spawnConfig = {}, opts = {}) {
   if (!adapter) {
-    return async () => ({ ok: false, error: "routing_on_primary is set but no primary adapter is available for dispatch" });
+    return async () => ({ ok: false, code: "unavailable", error: "dispatch runtime adapter is unavailable" });
   }
   return async (spec) => {
     let session = null;
-    try {
-      session = await adapter.spawn({
-        ...spawnConfig,
-        ...(spec?.model ? { model: spec.model } : {})
-      });
-      await adapter.awaitReady?.(session);
-      await adapter.sendTurn(session, spec?.prompt ?? "");
-      const out = await adapter.awaitResponse(session);
-      return { ok: true, text: out?.text ?? "" };
-    } catch (err) {
-      // Never throw: dispatch() treats a failed call as the documented fallback.
-      return { ok: false, error: `dispatch on the primary adapter failed: ${err?.message || String(err)}` };
-    } finally {
-      if (session) {
-        try {
-          await adapter.teardown?.(session);
-        } catch {
-          /* best effort */
-        }
+    let timer = null;
+    let timedOut = false;
+    let cancelPromise = null;
+    let teardownPromise = null;
+    const timeoutResult = { ok: false, code: "timeout", error: "dispatch inference timed out" };
+    const cancel = () => {
+      if (!session) return Promise.resolve();
+      if (!cancelPromise) {
+        cancelPromise = (async () => {
+          try { await adapter.cancel?.(session); } catch { /* best effort */ }
+        })();
       }
+      return cancelPromise;
+    };
+    const cleanup = (cancelFirst) => {
+      if (!session) return Promise.resolve();
+      // Cancellation and teardown are tracked independently. A normal completion
+      // may already have entered teardown when the timeout wins the race; in that
+      // case a later cleanup(true) must still issue the missing cancellation.
+      // Start cancellation first, but do not await it before invoking teardown:
+      // an adapter with a wedged cancel must not retain the process forever.
+      if (cancelFirst) void cancel();
+      if (!teardownPromise) {
+        teardownPromise = (async () => {
+          try { await adapter.teardown?.(session); } catch { /* best effort */ }
+        })();
+      }
+      return cancelFirst
+        ? Promise.allSettled([cancel(), teardownPromise]).then(() => undefined)
+        : teardownPromise;
+    };
+    const stopIfTimedOut = async () => {
+      if (!timedOut) return false;
+      await cleanup(true);
+      return true;
+    };
+    const timeoutMs = Number.isFinite(spec?.timeoutMs)
+      ? Math.max(1, spec.timeoutMs)
+      : Number.isFinite(opts.timeoutMs) ? Math.max(1, opts.timeoutMs) : 8000;
+    const run = (async () => {
+      try {
+        session = await adapter.spawn({
+          ...spawnConfig,
+          ...(spec?.model ? { model: spec.model } : {})
+        });
+        if (await stopIfTimedOut()) return timeoutResult;
+        await adapter.awaitReady?.(session);
+        if (await stopIfTimedOut()) return timeoutResult;
+        await adapter.sendTurn(session, spec?.prompt ?? "");
+        if (await stopIfTimedOut()) return timeoutResult;
+        const out = await adapter.awaitResponse(session);
+        if (await stopIfTimedOut()) return timeoutResult;
+        return { ok: true, text: out?.text ?? "" };
+      } catch (err) {
+        return { ok: false, code: "call-failed", error: `dispatch adapter failed: ${err?.message || String(err)}` };
+      } finally {
+        // On a late spawn this is the only owner still alive after Promise.race;
+        // it observes the timeout flag and guarantees cancel + teardown.
+        if (session) await cleanup(timedOut);
+      }
+    })();
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(timeoutResult), timeoutMs);
+      timer.unref?.();
+    });
+    const result = await Promise.race([run, timeout]);
+    if (result?.code === "timeout") {
+      timedOut = true;
+      // The inference deadline is a caller-visible bound. Cleanup begins now,
+      // but a wedged adapter cannot extend the eight-second response contract.
+      if (session) void cleanup(true);
+      // Observe a late failure/settlement after the bounded caller has returned.
+      run.catch(() => {});
     }
+    if (timer) clearTimeout(timer);
+    return result;
   };
 }
 
@@ -571,20 +625,31 @@ export function makeGarrisonCallInvoker(callScript, opts = {}) {
   });
 }
 
-function dispatcherCallOpts(executionModel, resolvedLib) {
+function dispatcherCallOpts(executionModel, resolvedLib, inferenceConfig = {}) {
   const route = resolvedLib?.executionRouteFor?.({ duty: "dispatch", level: 1 }, executionModel);
   const target = route?.target ?? {};
-  const provider = target.provider ?? "ollama-local";
+  const provider = target.provider ?? "anthropic";
   const shape = target.shape ?? (
     provider === "ollama-local" ? "ollama" :
       ["openai", "deepseek", "zai-glm"].includes(provider) ? "openai" : "anthropic"
   );
   return {
+    runtime: target.runtime ?? null,
     shape,
     provider: provider === "anthropic-plan" ? "anthropic" : provider,
-    model: target.model ?? "qwen2.5:3b",
-    maxTokens: Number.isFinite(target.maxTokens) ? target.maxTokens : 256,
-    timeoutMs: Number.isFinite(target.timeoutMs) ? target.timeoutMs : 30000
+    model: target.model ?? "claude-haiku-4-5",
+    authMode: target.authMode ?? "subscription",
+    promptMode: target.promptMode ?? "lean",
+    maxTurns: 1,
+    maxTokens: Number.isFinite(inferenceConfig.maxTokens)
+      ? inferenceConfig.maxTokens
+      : Number.isFinite(target.maxTokens) ? target.maxTokens : 256,
+    timeoutMs: Number.isFinite(inferenceConfig.timeoutMs)
+      ? inferenceConfig.timeoutMs
+      : Number.isFinite(target.timeoutMs) ? target.timeoutMs : 8000,
+    ...(typeof inferenceConfig.clarityRubric === "string" && inferenceConfig.clarityRubric.trim()
+      ? { clarityRubric: inferenceConfig.clarityRubric.trim() }
+      : {})
   };
 }
 
@@ -594,36 +659,45 @@ export async function buildProductionDispatcher({
   executionModel,
   resolvedLib,
   decisionsFile,
-  spawnImpl,
-  // routing_on_primary: run the Dispatcher's single-shot call on the primary
-  // runtime's adapter instead of garrison-call. Required for a CLI-only
-  // composition, which garrison-call cannot reach over HTTP at all.
-  routingOnPrimary = false,
+  agentSdkAdapter = null,
   primaryAdapter = null,
-  primarySpawnConfig = {}
+  primaryEngine = null,
+  inferenceConfig = {}
 } = {}) {
   const model = resolvedLib?.dispatcherModelFrom?.(executionModel);
   if (!model || !model.duties?.dispatch) return null;
-  const dispatcherDir = resolveDispatcherDir(compositionDir, "dispatch-core.mjs");
+  const dispatcherDir = resolveOrchestratorRoutingDir(compositionDir, "dispatch-core.mjs");
   if (!dispatcherDir) return null;
   const core = await import(pathToFileURL(path.join(dispatcherDir, "lib", "dispatch-core.mjs")).href);
-  const callScript = routingOnPrimary ? null : resolveGarrisonCallScript(compositionDir);
-  if (routingOnPrimary) {
-    return {
-      core,
-      model: () =>
-        resolvedLib?.dispatcherModelFrom?.(
-          resolvedLib.loadResolvedModel?.(undefined, compositionId ?? null)
-        ) ?? model,
-      call: makeAdapterCallInvoker(primaryAdapter, primarySpawnConfig),
-      evidenceFile: decisionsFile,
-      callOpts: {
-        ...dispatcherCallOpts(executionModel, resolvedLib),
-        fallback: core.deterministicFallbackDispatch
-      },
-      configuredCall: primaryAdapter ? "primary-adapter" : "deterministic-fallback"
-    };
+  const callOpts = dispatcherCallOpts(executionModel, resolvedLib, inferenceConfig);
+  let adapter = null;
+  if (callOpts.runtime === "agent-sdk") {
+    adapter = agentSdkAdapter;
+    if (!adapter && primaryEngine === "agent-sdk") adapter = primaryAdapter;
+    if (!adapter) {
+      const dir = resolveAgentSdkDir(compositionDir);
+      if (dir) {
+        const mod = await import(pathToFileURL(path.join(dir, "lib", "agent-sdk-adapter.mjs")).href);
+        adapter = new mod.AgentSdkAdapter();
+      }
+    }
+  } else if (callOpts.runtime && callOpts.runtime === primaryEngine) {
+    adapter = primaryAdapter;
   }
+
+  const spawnConfig = {
+    compositionDir,
+    env: process.env,
+    provider: callOpts.provider,
+    model: callOpts.model,
+    effort: "low",
+    thinking: { type: "disabled" },
+    authMode: callOpts.authMode,
+    promptMode: "lean",
+    maxTurns: 1,
+    allowedTools: [],
+    permissionMode: "bypassPermissions"
+  };
   return {
     core,
     // Re-read at call time when possible so a runner projection refresh is seen
@@ -632,13 +706,13 @@ export async function buildProductionDispatcher({
       resolvedLib?.dispatcherModelFrom?.(
         resolvedLib.loadResolvedModel?.(undefined, compositionId ?? null)
       ) ?? model,
-    call: makeGarrisonCallInvoker(callScript, { compositionDir, spawnImpl }),
+    call: makeAdapterCallInvoker(adapter, spawnConfig, { timeoutMs: callOpts.timeoutMs }),
     evidenceFile: decisionsFile,
     callOpts: {
-      ...dispatcherCallOpts(executionModel, resolvedLib),
+      ...callOpts,
       fallback: core.deterministicFallbackDispatch
     },
-    configuredCall: callScript ? "garrison-call" : "deterministic-fallback"
+    configuredCall: adapter ? `${callOpts.runtime}-adapter` : "deterministic-fallback"
   };
 }
 
@@ -837,6 +911,7 @@ export class RoutedGateway {
     // classification-accuracy vs the haiku classifier is not, so retirement is not
     // forced (D6). dispatchRoute() is reachable only when a dispatcher is wired.
     this._dispatcher = opts.dispatcher ?? null;
+    this._legacyClassifierEnabled = opts.legacyClassifierEnabled ?? !this._dispatcher;
     // S3b: the operative spawn config (cwd / model / permission / claude binary) so a
     // WEB materialized turn can run a one-shot claude WITHOUT touching the standing
     // operative session. oneShotFn is injectable (tests); default = the real oneShotTurn.
@@ -866,8 +941,15 @@ export class RoutedGateway {
   async start() {
     await this.pool.start();
     this.operative = await this.pool.checkout(this.operativeRuntimeId);
-    this.classifier = await this.pool.checkout(this.classifierRuntimeId);
-    this.logFn({ kind: "routing-started", operative: this.operative.id, classifier: this.classifier.id });
+    if (this._legacyClassifierEnabled) {
+      this.classifier = await this.pool.checkout(this.classifierRuntimeId);
+    }
+    this.logFn({
+      kind: "routing-started",
+      operative: this.operative.id,
+      classifier: this.classifier?.id ?? null,
+      routing: this._dispatcher ? "orchestrator-dispatch" : "legacy-stage-a"
+    });
     return this;
   }
 
@@ -1475,6 +1557,9 @@ export class RoutedGateway {
   }
 
   async ensureClassifier() {
+    if (!this._legacyClassifierEnabled) {
+      throw new Error("legacy Stage-A classifier is disabled for schema-v4 routing");
+    }
     if (!this.#alive(this.classifier)) {
       this.classifier = await this.pool.checkout(this.classifierRuntimeId);
       this.logFn({ kind: "classifier-recheckout", id: this.classifier.id });
@@ -1485,7 +1570,7 @@ export class RoutedGateway {
   // Resolve the board's base URL from the kanban-loop status file (URL-link
   // contract, never a hardcoded port — the same discovery the gateway uses for
   // every fitting). Returns the base URL or null (board down / not installed).
-  // Implementation shared with souls mode: lib/autonomous-cards.mjs.
+  // Implementation lives in the shared board-card client.
   _boardBase() {
     return cards.boardBase();
   }
@@ -1544,7 +1629,7 @@ export class RoutedGateway {
   // True only when the card is STILL an active engine run: it exists and sits on
   // a non-terminal, non-parked pipeline list with no abandonment revert prepared.
   // A fetch failure counts as NOT live (safe: the caller registers fresh).
-  // Implementation shared with souls mode: lib/autonomous-cards.mjs.
+  // Implementation lives in the shared board-card client.
   async _cardIsLive(cardId) {
     return cards.cardIsLive(cardId);
   }
@@ -1621,7 +1706,7 @@ export class RoutedGateway {
   async runSteerClassification({ message, card } = {}) {
     if (this._steerFn) return this._steerFn({ message, card });
     try {
-      const dir = resolveDispatcherDir(this.compositionDir, "steer-core.mjs");
+      const dir = resolveOrchestratorRoutingDir(this.compositionDir, "steer-core.mjs");
       if (!dir) return { action: "acknowledge", reason: "no steering classifier", confidence: "low" };
       const mod = await import(pathToFileURL(path.join(dir, "lib", "steer-core.mjs")).href);
       return await mod.classifySteering({
@@ -1726,7 +1811,7 @@ export class RoutedGateway {
   async _clarityShortCircuit(message) {
     try {
       if (this._clarityScFn === undefined) {
-        const dir = resolveDispatcherDir(this.compositionDir, "dispatch-core.mjs");
+        const dir = resolveOrchestratorRoutingDir(this.compositionDir, "dispatch-core.mjs");
         const mod = dir ? await import(pathToFileURL(path.join(dir, "lib", "dispatch-core.mjs")).href) : null;
         this._clarityScFn = mod && typeof mod.clarityShortCircuit === "function" ? mod.clarityShortCircuit : null;
       }
@@ -1793,7 +1878,7 @@ export class RoutedGateway {
   // (message DIGEST, never the raw message) is logged to the decisions file.
   async dispatchRoute(message, opts = {}) {
     if (!this._dispatcher || !this._dispatcher.core || typeof this._dispatcher.core.dispatch !== "function") {
-      throw new Error("dispatchRoute: no Dispatcher wired (construct RoutedGateway with opts.dispatcher = { core, model, call })");
+      throw new Error("dispatchRoute: no Orchestrator routing inference wired (construct RoutedGateway with opts.dispatcher = { core, model, call })");
     }
     const { core, model, call, evidenceFile, callOpts } = this._dispatcher;
     const currentModel = typeof model === "function" ? await model() : model;
@@ -1802,6 +1887,7 @@ export class RoutedGateway {
       now: this.nowFn,
       evidenceFile: evidenceFile ?? this.decisionsFile,
       cardLevel: opts.cardLevel,
+      deterministicOnly: opts.deterministicOnly === true,
       ...(callOpts ?? {}),
     });
     if (result?.dispatchOk === false) {
@@ -1809,8 +1895,9 @@ export class RoutedGateway {
         kind: "dispatcher-fallback",
         duty: result.duty ?? null,
         level: result.level ?? null,
-        reason: result.reason ?? null,
-        error: result.callError ?? null
+        source: result.source ?? "fallback",
+        latencyMs: result.latencyMs ?? null,
+        failureCode: result.failureCode ?? "call-failed"
       });
     }
     // S4b (D15 acceptance 9): the dispatch now CONSULTS THE RESOLVED MODEL. Attach
@@ -1830,6 +1917,20 @@ export class RoutedGateway {
       this.logFn({ kind: "dispatch-sequence-failed", error: err?.message });
     }
     return result;
+  }
+
+  async legacyClassificationToV4(classification) {
+    if (!classification?.taskType || !classification?.tier) return null;
+    const model = await this.executionModel();
+    const duties = model?.duties ?? {};
+    const selected = Array.isArray(model?.selectedDuties) ? model.selectedDuties : Object.keys(duties);
+    let duty = selected.includes(classification.taskType) ? classification.taskType : null;
+    if (!duty && classification.taskType === "code" && selected.includes("develop")) duty = "develop";
+    if (!duty && selected.includes("other")) duty = "other";
+    if (!duty) return null;
+    const requested = classification.tier === "T0-trivial" ? 1 : classification.tier === "T2-deep" ? 3 : 2;
+    const count = Math.max(1, Array.isArray(duties[duty]?.levels) ? duties[duty].levels.length : 1);
+    return { duty, level: Math.min(requested, count) };
   }
 
   // Load the board's resolved-model helpers (loadResolvedModel + resolveCardSequence)
@@ -2073,13 +2174,33 @@ export class RoutedGateway {
         });
       }
     }
-    // Direct channel work enters through the production Dispatcher. Tests/raw
-    // internal callers with no channel, explicit legacy classifications, and old
-    // cards remain on the historical classifier path below.
+    // Compatibility migration: an explicit schema-v3 taskType/tier is already a
+    // deterministic routing decision. Translate it to the single duty/level
+    // vocabulary; never ask either Stage A or the inference model to reinterpret it.
+    if (this._dispatcher && opts.classification) {
+      const migrated = await this.legacyClassificationToV4(opts.classification);
+      if (migrated) {
+        return this.preRouteV4(message, {
+          ...migrated,
+          routing: ov,
+          sessionId: opts.sessionId ?? null,
+          sessionTitle: opts.sessionTitle ?? null,
+          rejected
+        });
+      }
+    }
+
+    // All schema-v4 work enters through Orchestrator routing inference. Internal,
+    // scheduled, and card-originated work takes deterministic policy only; only
+    // an unpinned human channel may spend the bounded Haiku call.
     const origin = String(opts.channel || "").toLowerCase();
     const cardOriginated = cards.isCardOriginatedChannel(origin);
-    if (this._dispatcher && origin && !cardOriginated && !opts.classification) {
-      const dispatched = await this.dispatchRoute(message, { cardLevel: opts.cardLevel });
+    if (this._dispatcher && !opts.classification) {
+      const internalOrigin = !origin || /^(?:internal|scheduler|scheduled|heartbeat|job|kanban)/.test(origin);
+      const dispatched = await this.dispatchRoute(message, {
+        cardLevel: opts.cardLevel,
+        deterministicOnly: cardOriginated || internalOrigin
+      });
       if (dispatched?.duty && Number.isInteger(dispatched.level)) {
         return this.preRouteV4(message, {
           duty: dispatched.duty,
@@ -2091,6 +2212,7 @@ export class RoutedGateway {
           rejected
         });
       }
+      throw new Error("Orchestrator routing inference did not return a resolvable duty/level");
     }
     // Honor an EXPLICIT {taskType,tier} classification from the caller (the Kanban Loop
     // §10 contract: each agent-list carries its own classification) instead of
@@ -2798,20 +2920,6 @@ export function resolveClassifierAdapter(ctx) {
       },
     };
   }
-  // Explicit opt-in (gateway config `routing_on_primary` →
-  // GARRISON_ROUTING_ON_PRIMARY): classify on the primary's own adapter and
-  // never reach for a second engine. A single-engine composition wants this, and
-  // so does any box where the claude CLI is on PATH but cannot actually spawn —
-  // claudeCodeResolvable below is only a PATH probe, and a classifier that fails
-  // to warm leaves the pool half-started and every turn silently unclassified.
-  if (opts.routingOnPrimary) {
-    (logFn ?? (() => {}))({
-      kind: "classifier-on-primary",
-      engine: primaryEngine,
-      reason: "routing_on_primary is set — Stage-A classification runs on the primary adapter, not a claude-code session",
-    });
-    return { adapter: primary.adapter, spawnConfig: classifierFallbackConfig(primary.spawnConfig, opts) };
-  }
   if (claudeCodeResolvable({ spawnFn, primaryEngine, opts })) {
     // non-claude primary but claude-code IS resolvable → keep the cheap haiku
     // classifier on its own ClaudeCodeAdapter (byte-identical to before).
@@ -2870,32 +2978,11 @@ export async function createRoutedGateway(opts = {}) {
     operativeSpawnConfig,
     opts
   });
-  // The classifier stays on the cheap claude-code haiku session by default; only a
-  // non-claude primary with claude-code genuinely absent falls it back to the
-  // primary adapter (logged loudly). See resolveClassifierAdapter.
-  const classifier = resolveClassifierAdapter({
-    primary,
-    primaryEngine,
-    spawnFn,
-    classifierSpawnConfig,
-    opts,
-    logFn: opts.logFn,
-  });
-  const pool =
-    opts.pool ??
-    new MultiRuntimePool({
-      maxTotal: opts.maxTotal ?? 4,
-      runtimes: [
-        { id: "operative", adapter: primary.adapter, role: "primary", size: 1, spawnConfig: primary.spawnConfig },
-        { id: "classifier", adapter: classifier.adapter, role: "secondary", size: 1, spawnConfig: classifier.spawnConfig },
-      ],
-      });
-
   const decisionsFile = opts.decisionsFile ?? path.join(compositionDir, ".garrison", "decisions.jsonl");
   let resolvedModelLib = opts.resolvedModelLib;
   let executionModel = opts.executionModel;
-  // Production gateway-pty opts into the v4 Dispatcher. Keeping the flag explicit
-  // prevents pure Stage-A tests (and old deployments with only model v1) from
+  // Production gateway-pty opts into v4 Orchestrator routing. Keeping the flag explicit
+  // prevents pre-v4 tests (and old deployments with only model v1) from
   // consulting machine-global board state by accident.
   if (opts.enableV4Dispatcher === true && !resolvedModelLib) {
     const kanbanDir = resolveKanbanLoopDir(compositionDir);
@@ -2914,23 +3001,55 @@ export async function createRoutedGateway(opts = {}) {
       executionModel,
       resolvedLib: resolvedModelLib,
       decisionsFile,
-      spawnImpl: opts.garrisonCallSpawnImpl,
-      // Same flag as the classifier: one switch means the routing brain can never
-      // end up half on the primary and half on a second engine.
-      routingOnPrimary: !!opts.routingOnPrimary,
+      agentSdkAdapter: opts.agentSdkAdapter,
       primaryAdapter: primary.adapter,
-      primarySpawnConfig: primary.spawnConfig
+      primaryEngine,
+      inferenceConfig: config?.dispatchInference ?? {}
     });
     if (dispatcher) {
       opts.logFn?.({ kind: "dispatcher-wired", source: "composition-v4", call: dispatcher.configuredCall });
-    } else {
-      opts.logFn?.({ kind: "dispatcher-unavailable", source: "composition-v4", fallback: "legacy-classifier" });
     }
   }
   if (!dispatcher && opts.fallbackDispatcher) {
     dispatcher = opts.fallbackDispatcher;
     opts.logFn?.({ kind: "dispatcher-wired", source: "control-fallback" });
   }
+
+  // Schema-v4 may never fall back to the retired task-type/tier classifier: it
+  // would reintroduce a second vocabulary and could contradict the duty model.
+  // A missing projection/Orchestrator core is a composition-readiness failure,
+  // not permission to silently route through Stage A.
+  if (opts.enableV4Dispatcher === true && !dispatcher) {
+    opts.logFn?.({
+      kind: "dispatcher-unavailable",
+      source: "composition-v4",
+      fallback: null,
+      reason: executionModel ? "Orchestrator dispatch core or dispatch duty unavailable" : "resolved v2 execution model unavailable"
+    });
+    throw new Error("schema-v4 routing requires Orchestrator dispatch inference and a resolved v2 execution model");
+  }
+
+  // Schema-v4 has one routing vocabulary and one inference call. Do not even
+  // warm the old Stage-A classifier when an Orchestrator dispatcher exists; an
+  // idle second session was both costly and a source of conflicting decisions.
+  const classifier = opts.enableV4Dispatcher === true || dispatcher ? null : resolveClassifierAdapter({
+    primary,
+    primaryEngine,
+    spawnFn,
+    classifierSpawnConfig,
+    opts,
+    logFn: opts.logFn,
+  });
+  const runtimes = [
+    { id: "operative", adapter: primary.adapter, role: "primary", size: 1, spawnConfig: primary.spawnConfig }
+  ];
+  if (classifier) {
+    runtimes.push({ id: "classifier", adapter: classifier.adapter, role: "secondary", size: 1, spawnConfig: classifier.spawnConfig });
+  }
+  const pool = opts.pool ?? new MultiRuntimePool({
+    maxTotal: opts.maxTotal ?? 4,
+    runtimes
+  });
 
   const gw = new RoutedGateway({
     core,
@@ -2953,6 +3072,7 @@ export async function createRoutedGateway(opts = {}) {
     secondaryAdapters: opts.secondaryAdapters,
     claudeDelegateAdapter: opts.claudeDelegateAdapter,
     dispatcher,
+    legacyClassifierEnabled: opts.enableV4Dispatcher !== true && !dispatcher,
     executionModel,
     resolvedModelLib,
     primaryEngine,

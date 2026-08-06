@@ -429,6 +429,25 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(unsupported).toMatchObject({ effort: "high", effortApplied: false });
   });
 
+  it("forwards only the explicit disabled-thinking option", async () => {
+    const adapter = adapterYielding([]);
+    const dispatch = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      compositionDir: "/work",
+      thinking: { type: "disabled" }
+    });
+    expect(adapter.buildQueryOptions(dispatch).thinking).toEqual({ type: "disabled" });
+
+    const arbitrary = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      compositionDir: "/work",
+      thinking: { type: "enabled", budgetTokens: 4096 }
+    });
+    expect(adapter.buildQueryOptions(arbitrary).thinking).toBeUndefined();
+  });
+
   it("setModel updates the model within the endpoint family; setEffort records unsupported", async () => {
     const adapter = adapterYielding([]);
     const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });

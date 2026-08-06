@@ -12,8 +12,8 @@
 // ready, work is never dispatched to a machine that is asleep, and a run is
 // bounded by the lease rather than by an RPC timeout.
 //
-// DEPENDENCIES: none. Node's built-in fetch and child_process only, so this can be
-// dropped onto a bare Mac with nothing but node installed.
+// DEPENDENCIES: the pinned Anthropic Agent SDK bundle installed beside this
+// file. The worker never assumes a globally installed model CLI.
 //
 // Config (env):
 //   GARRISON_DISPATCH_URL     required — host base URL (the tailnet address)
@@ -24,16 +24,45 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-const HOST = (process.env.GARRISON_DISPATCH_URL || "").replace(/\/+$/, "");
-const TOKEN = process.env.GARRISON_DISPATCH_TOKEN || "";
-const MACHINE = process.env.GARRISON_DISPATCH_MACHINE || "";
-const POLL_SECONDS = Number(process.env.GARRISON_DISPATCH_POLL_SECONDS || 15);
-const WORKDIR =
-  process.env.GARRISON_DISPATCH_WORKDIR || path.join(homedir(), ".garrison-outpost", "work");
+const DEFAULT_CONFIG = path.join(homedir(), ".garrison-outpost", "worker.json");
+const WORKER_VERSION = "0.2.0";
+const PROTOCOL_VERSION = "1.1";
+
+export function loadWorkerConfig({ argv = process.argv, env = process.env } = {}) {
+  const at = argv.indexOf("--config");
+  const configPath = env.GARRISON_DISPATCH_CONFIG || (at >= 0 ? argv[at + 1] : "") || DEFAULT_CONFIG;
+  let disk = {};
+  try {
+    if (existsSync(configPath)) disk = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw new Error(`worker config is unreadable at ${configPath}: ${error.message}`);
+  }
+  const get = (envKey, ...keys) => {
+    if (typeof env[envKey] === "string" && env[envKey].trim()) return env[envKey].trim();
+    for (const key of keys) if (typeof disk[key] === "string" && disk[key].trim()) return disk[key].trim();
+    return "";
+  };
+  return {
+    configPath,
+    dispatchUrl: get("GARRISON_DISPATCH_URL", "dispatchUrl", "dispatch_url").replace(/\/+$/, ""),
+    token: get("GARRISON_DISPATCH_TOKEN", "token"),
+    machine: get("GARRISON_DISPATCH_MACHINE", "machine", "machineName", "machine_name"),
+    workdir: get("GARRISON_DISPATCH_WORKDIR", "workdir") || path.join(homedir(), ".garrison-outpost", "work"),
+    pollSeconds: Number(env.GARRISON_DISPATCH_POLL_SECONDS || disk.pollSeconds || disk.poll_seconds || 15)
+  };
+}
+
+const CONFIG = loadWorkerConfig();
+const HOST = CONFIG.dispatchUrl;
+const TOKEN = CONFIG.token;
+const MACHINE = CONFIG.machine;
+const POLL_SECONDS = Number.isFinite(CONFIG.pollSeconds) && CONFIG.pollSeconds >= 2 ? CONFIG.pollSeconds : 15;
+const WORKDIR = CONFIG.workdir;
 
 // A fresh id per PROCESS. Ownership is (machine, workerId), so a restarted
 // worker cannot keep beating on the claim its dead predecessor held — the host
@@ -45,6 +74,10 @@ const WORKER_ID = `${MACHINE}-${randomUUID().slice(0, 8)}`;
 const MAX_RUN_MS = 60 * 60 * 1000;
 
 let stopping = false;
+let activeCancel = null;
+let activeChild = null;
+let activeJob = null;
+let workerReadiness = { ready: false, runtimes: [], detail: "starting", error: null };
 
 function log(...args) {
   console.log(`[outpost-worker ${MACHINE}]`, ...args);
@@ -52,13 +85,92 @@ function log(...args) {
 
 function requireConfig() {
   const missing = [];
-  if (!HOST) missing.push("GARRISON_DISPATCH_URL");
-  if (!TOKEN) missing.push("GARRISON_DISPATCH_TOKEN");
-  if (!MACHINE) missing.push("GARRISON_DISPATCH_MACHINE");
+  if (!HOST) missing.push("dispatchUrl");
+  if (!TOKEN) missing.push("token");
+  if (!MACHINE) missing.push("machine");
   if (missing.length) {
     console.error(`[outpost-worker] missing required config: ${missing.join(", ")}`);
     process.exit(2);
   }
+}
+
+async function pulse(activity = activeJob ? "busy" : workerReadiness.ready ? "idle" : "degraded", detail = null) {
+  return api("pulse", {
+    protocolVersion: PROTOCOL_VERSION,
+    workerVersion: WORKER_VERSION,
+    activity,
+    currentCardId: activeJob?.cardId || null,
+    runtimes: workerReadiness.runtimes,
+    ready: workerReadiness.ready,
+    detail: detail || workerReadiness.detail || null,
+    error: workerReadiness.error || null
+  });
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function stopActiveRun(reason = "stop requested") {
+  log(reason);
+  const cancel = activeCancel;
+  const child = activeChild;
+  if (typeof cancel === "function") {
+    await Promise.race([
+      Promise.resolve().then(() => cancel()).catch(() => {}),
+      wait(5_000)
+    ]);
+  }
+  if (child?.pid) {
+    let exited = child.exitCode != null || child.signalCode != null;
+    const onExit = new Promise((resolve) => {
+      if (exited) return resolve(true);
+      const done = () => { exited = true; resolve(true); };
+      child.once("close", done);
+      child.once("error", done);
+    });
+    try { process.kill(-child.pid, "SIGTERM"); }
+    catch { try { child.kill("SIGTERM"); } catch {} }
+    const pid = child.pid;
+    const killer = setTimeout(() => {
+      try { process.kill(-pid, "SIGKILL"); } catch {}
+    }, 3000);
+    killer.unref?.();
+    await Promise.race([onExit, wait(5_000)]);
+    clearTimeout(killer);
+  }
+  const deadline = Date.now() + 5_000;
+  while ((activeCancel || activeChild) && Date.now() < deadline) await wait(25);
+  return !activeCancel && !activeChild;
+}
+
+function streamSender(job) {
+  let cursor = 0;
+  let queue = Promise.resolve();
+  const send = (channel, text) => {
+    if (!text) return queue;
+    if (channel === "journal" && Buffer.byteLength(text, "utf8") > 4 * 1024 * 1024) {
+      return send("status", "a structured activity event exceeded 4 MiB and was omitted from live Watch; the durable evidence bundle is still retained");
+    }
+    // Bound each immutable wire event. Large child chunks are split without
+    // changing byte order; event IDs remain contiguous for host deduplication.
+    const step = channel === "journal" ? Math.max(1, text.length) : 48 * 1024;
+    for (let offset = 0; offset < text.length; offset += step) {
+      const chunk = text.slice(offset, offset + step);
+      const eventId = ++cursor;
+      queue = queue.then(async () => {
+        const response = await api("stream", {
+          cardId: job.cardId,
+          runId: job.runId,
+          eventId,
+          channel,
+          text: chunk,
+          at: new Date().toISOString()
+        });
+        if (!response.ok) throw new Error(`stream event ${eventId} rejected (${response.status})`);
+      }).catch((error) => log(`stream event ${eventId} failed: ${error.message}`));
+    }
+    return queue;
+  };
+  return { send, flush: () => queue, cursor: () => cursor };
 }
 
 async function api(endpoint, body, { timeoutMs = 20_000 } = {}) {
@@ -86,11 +198,15 @@ async function api(endpoint, body, { timeoutMs = 20_000 } = {}) {
 // command is written by a human as a shell one-liner, and the alternative (argv
 // with no shell) silently breaks every pipeline. This runs code the HOST sent —
 // which is exactly what an outpost is for, and why the token is the gate.
-function runCommand(command, cwd) {
+function runCommand(command, cwd, hooks = {}) {
   return new Promise((resolve) => {
     const child = spawn("/bin/sh", ["-lc", command], {
       cwd,
-      env: { ...process.env, GARRISON_OUTPOST_MACHINE: MACHINE },
+      env: {
+        ...process.env,
+        GARRISON_OUTPOST_MACHINE: MACHINE,
+        ...(hooks.evidenceDir ? { GARRISON_OUTPOST_EVIDENCE_DIR: hooks.evidenceDir } : {})
+      },
       stdio: ["ignore", "pipe", "pipe"],
       // Make the child a process-group LEADER so the timeout path below can
       // kill(-pid) the whole tree. Without this the child shares our group:
@@ -99,16 +215,21 @@ function runCommand(command, cwd) {
       // orphaned, still holding whatever port or lock the next run needs.
       detached: true
     });
+    activeChild = child;
     let stdout = "";
     let stderr = "";
     // Cap retained output. A runaway command must not exhaust the worker's heap
     // before its own timeout fires.
     const CAP = 1024 * 1024;
     child.stdout.on("data", (d) => {
-      if (stdout.length < CAP) stdout += d.toString();
+      const text = d.toString();
+      if (stdout.length < CAP) stdout += text;
+      void hooks.onChunk?.("stdout", text);
     });
     child.stderr.on("data", (d) => {
-      if (stderr.length < CAP) stderr += d.toString();
+      const text = d.toString();
+      if (stderr.length < CAP) stderr += text;
+      void hooks.onChunk?.("stderr", text);
     });
 
     const timer = setTimeout(() => {
@@ -123,73 +244,51 @@ function runCommand(command, cwd) {
 
     child.on("error", (err) => {
       clearTimeout(timer);
+      activeChild = null;
       resolve({ exitCode: -1, stdout, stderr: `${stderr}\nspawn error: ${err.message}` });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      activeChild = null;
       resolve({ exitCode: code ?? -1, stdout, stderr });
     });
   });
 }
 
-// Run an AGENTIC job: a Claude Code turn against the card's brief, in the
-// materialized checkout. Two deliberate choices, both learned from the push
-// lane's bugs (kanban-loop/lib/outpost-dispatch.mjs):
-//
-//   - the prompt goes over STDIN, never argv. A card description is arbitrary
-//     user text of arbitrary length; embedding it in a shell command line is how
-//     that lane ended up base64-piping through `sh` and tripping over quoting.
-//     stdin has no length limit and no quoting rules at all.
-//   - `claude` is spawned DIRECTLY (no shell), so nothing in the prompt can be
-//     interpreted as shell syntax.
-//
-// The permission mode matches how Garrison runs Claude Code everywhere else
-// (CLAUDE.md: bypassPermissions) - an unattended remote turn has no surface to
-// answer a permission prompt on, so anything stricter simply hangs.
-function runAgent(prompt, cwd) {
-  return new Promise((resolve) => {
-    const bin = process.env.GARRISON_DISPATCH_CLAUDE_BIN || "claude";
-    const args = ["-p", "--permission-mode", "bypassPermissions"];
-    const child = spawn(bin, args, {
-      cwd,
-      env: { ...process.env, GARRISON_OUTPOST_MACHINE: MACHINE },
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: true
+// Run an AGENTIC job through the exact runtime cell the host projected for this
+// phase. The small adapter bundle validates that target and feeds the prompt to
+// the SDK as structured input; arbitrary card text is never shell syntax.
+async function runAgent(prompt, cwd, runtimeTarget, hooks = {}) {
+  const { runResolvedTarget } = await import("./runtime-adapters.mjs");
+  const timer = setTimeout(() => { void stopActiveRun("maximum runtime exceeded"); }, MAX_RUN_MS);
+  try {
+    return await runResolvedTarget(prompt, cwd, runtimeTarget, {
+      onChunk: hooks.onChunk,
+      onJournal: hooks.onJournal,
+      isCancelled: hooks.isCancelled,
+      evidenceDir: hooks.evidenceDir,
+      onCancelHandle: (cancel) => { activeCancel = cancel; }
     });
-    let stdout = "";
-    let stderr = "";
-    const CAP = 1024 * 1024;
-    child.stdout.on("data", (d) => { if (stdout.length < CAP) stdout += d.toString(); });
-    child.stderr.on("data", (d) => { if (stderr.length < CAP) stderr += d.toString(); });
-    const timer = setTimeout(() => {
-      try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
-    }, MAX_RUN_MS);
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ exitCode: -1, stdout, stderr: `${stderr}\nspawn error: ${err.message}` });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ exitCode: code ?? -1, stdout, stderr });
-    });
-    child.stdin.on("error", () => { /* claude exited before reading; close() below still resolves */ });
-    child.stdin.end(prompt, "utf8");
-  });
+  } finally {
+    clearTimeout(timer);
+    activeCancel = null;
+  }
 }
 
-async function uploadEvidence(cardId, name, content) {
+async function uploadEvidence(job, name, content) {
   try {
     const res = await api("evidence", {
-      cardId,
+      cardId: job.cardId,
+      runId: job.runId,
       name,
       contentBase64: Buffer.from(content, "utf8").toString("base64")
     });
     if (!res.ok) log(`evidence ${name} rejected: ${res.status}`, res.body);
-    return res.ok;
+    return res.ok ? { name: res.body.name, bytes: res.body.bytes, sha256: res.body.sha256 } : null;
   } catch (err) {
     // Evidence is best-effort: losing a log must never turn a green run red.
     log(`evidence ${name} failed: ${err.message}`);
-    return false;
+    return null;
   }
 }
 
@@ -260,132 +359,204 @@ async function syncVaultMemory(mode) {
 }
 
 async function executeJob(job) {
+  activeJob = job;
+  const stream = streamSender(job);
+  const evidenceDir = path.join(WORKDIR, job.cardId, `evidence-${job.runId}`);
+  await mkdir(evidenceDir, { recursive: true });
+  await stream.send("status", `claimed by ${MACHINE} (${job.phase})`);
+  await pulse("busy", `running ${job.cardId} at ${job.phase}`).catch(() => {});
   log(`claimed ${job.cardId} — ${job.title}`);
-  // Before anything else: ingest what the other machines know.
-  await syncVaultMemory("pull").catch((err) => log(`vault pull error: ${err.message}`));
+  let stopRequested = false;
+  let cancellationRequested = false;
+  let cancellationStopPromise = null;
+  let materializeReport = null;
   let cwd = path.join(WORKDIR, job.cardId);
   await mkdir(cwd, { recursive: true });
-  let materializeReport = null;
 
-  let stopRequested = false;
-  const beat = setInterval(async () => {
+  const heartbeat = async () => {
     try {
-      const res = await api("heartbeat", { cardId: job.cardId, progress: "running" });
-      if (res.body && res.body.stop) {
-        // The host says this claim is no longer ours (reclaimed after a missed
-        // lease, or a newer worker took over). Stop, so two machines never run
-        // the same card at once.
-        log(`heartbeat says stop: ${res.body.reason}`);
+      const res = await api("heartbeat", { cardId: job.cardId, runId: job.runId, progress: "running" });
+      if (res.body?.stop) {
         stopRequested = true;
+        cancellationRequested ||= res.body.cancellation === true;
+        cancellationStopPromise ||= stopActiveRun(`host requested stop: ${res.body.reason || "claim released"}`);
       }
-    } catch (err) {
-      // A transient network blip must NOT abandon a live run. The lease is
-      // generous relative to the beat precisely so a few misses are survivable.
-      log(`heartbeat failed (continuing): ${err.message}`);
+    } catch (error) {
+      log(`heartbeat failed (continuing): ${error.message}`);
     }
-  }, Math.max(5, job.heartbeatSeconds || 30) * 1000);
+  };
+  const beat = setInterval(heartbeat, 5_000);
 
-  let result;
+  let result = { exitCode: -1, stdout: "", stderr: "run did not start" };
   try {
-    // Materialize the project environment BEFORE the run (D2). Verify must pass
-    // first, so a broken environment costs zero model tokens and reports as an
-    // environment failure rather than as a mysterious run failure.
-    if (job.loadout) {
-      log(`materializing ${job.loadout.id} on ${dispatchBranchFor(MACHINE)}`);
+    await heartbeat();
+    await syncVaultMemory("pull").catch((error) => log(`vault pull error: ${error.message}`));
+    if (job.scope === "personal" && !job.project && !stopRequested) {
+      await stream.send("status", "preparing managed personal workspace");
+      const { ensureOutpostPersonalWorkspace } = await import("./personal-workspace.mjs");
+      cwd = await ensureOutpostPersonalWorkspace({ configPath: CONFIG.configPath });
+    } else if (job.loadout && !stopRequested) {
+      await stream.send("status", `materializing Loadout ${job.loadout.id}`);
       const { materialize, materializationTranscript } = await import("./materialize.mjs");
-      const projectsRoot =
-        job.loadout.projects_root_override || path.join(homedir(), "dev");
-      const m = await materialize(job.loadout, {
+      const projectsRoot = job.loadout.projects_root_override || path.join(homedir(), "dev");
+      const materialized = await materialize(job.loadout, {
         projectsRoot,
         envContent: job.envContent ?? null,
         branch: dispatchBranchFor(MACHINE),
-        log: (msg) => log(`  ${msg}`)
+        log: (message) => {
+          log(`  ${message}`);
+          void stream.send("status", message);
+        }
       });
-      // Mask any secret VALUE that a setup/verify step echoed. The values are in
-      // memory here only because we just wrote them; they must not reach the
-      // host's evidence store in the clear.
       const secretValues = (job.envContent || "")
         .split("\n")
-        .filter((l) => l && !l.startsWith("#"))
-        .map((l) => l.slice(l.indexOf("=") + 1).replace(/^'(.*)'$/, "$1"))
+        .filter((line) => line && !line.startsWith("#"))
+        .map((line) => line.slice(line.indexOf("=") + 1).replace(/^'(.*)'$/, "$1"))
         .filter(Boolean);
-      materializeReport = materializationTranscript(m, { secretValues });
-
-      if (!m.ok) {
-        clearInterval(beat);
-        await uploadEvidence(job.cardId, "materialize.md", materializeReport);
-        const summary = `environment materialization failed at "${m.failed}" for ${job.loadout.id}`;
-        log(summary);
-        await api("status", { cardId: job.cardId, state: "failed", summary, exitCode: -1 });
-        return;
+      materializeReport = materializationTranscript(materialized, { secretValues });
+      if (!materialized.ok) {
+        result = { exitCode: -1, stdout: "", stderr: `environment materialization failed at "${materialized.failed}" for ${job.loadout.id}` };
+      } else {
+        cwd = materialized.target;
       }
-      // The run happens IN the materialized checkout, not in the scratch dir.
-      cwd = m.target;
     }
 
-    if (job.run.kind === "command") {
-      result = await runCommand(job.run.command, cwd);
-    } else if (job.run.kind === "duty") {
-      log(`running duty "${job.run.duty}" for ${job.cardId} in ${cwd}`);
-      result = await runAgent(job.run.prompt, cwd);
-    } else {
-      result = {
-        exitCode: -1,
-        stdout: "",
-        stderr: `unsupported run kind: ${job.run.kind}`
+    if (result.stderr === "run did not start" && !stopRequested) {
+      const hooks = {
+        evidenceDir,
+        isCancelled: () => stopRequested,
+        onChunk: (channel, text) => stream.send(channel, text),
+        onJournal: (event) => stream.send("journal", JSON.stringify(event))
       };
+      if (job.run.kind === "command") {
+        result = await runCommand(job.run.command, cwd, hooks);
+      } else if (job.run.kind === "duty") {
+        if (!job.runtimeTarget) throw new Error("host omitted the resolved runtime target");
+        const evidenceInstruction = [
+          job.run.prompt,
+          "",
+          "# Durable remote phase evidence",
+          `Before your final response, write ${path.join(evidenceDir, `gate-status.${job.phase}.json`)} as JSON with status and next_phase.`,
+          `If your transition is done, also write a non-empty ${path.join(evidenceDir, "evidence.md")} describing the tangible verification performed.`
+        ].join("\n");
+        result = await runAgent(evidenceInstruction, cwd, job.runtimeTarget, hooks);
+      } else {
+        result = { exitCode: -1, stdout: "", stderr: `unsupported run kind: ${job.run.kind}` };
+      }
     }
+  } catch (error) {
+    result = { exitCode: -1, stdout: "", stderr: error.message || String(error) };
   } finally {
     clearInterval(beat);
+    activeChild = null;
+    activeCancel = null;
   }
 
+  await stream.flush();
+  const lines = String(result.stdout || "").trim().split("\n").map((line) => line.trim()).filter(Boolean);
+  const requestedTransition = lines.length && job.validTransitions.includes(lines.at(-1)) ? lines.at(-1) : null;
   const transcript = [
-    `# dispatched run`,
+    "# dispatched run",
+    `run:     ${job.runId}`,
     `card:    ${job.cardId}`,
-    `title:   ${job.title}`,
+    `phase:   ${job.phase}`,
     `machine: ${MACHINE}`,
     `worker:  ${WORKER_ID}`,
-    job.run.kind === "command"
-      ? `command: ${job.run.command}`
-      : `duty:    ${job.run.duty}`,
+    job.run.kind === "command" ? `command: ${job.run.command}` : `duty:    ${job.run.duty}`,
+    `target:  ${job.runtimeTarget ? `${job.runtimeTarget.runtime}/${job.runtimeTarget.provider}/${job.runtimeTarget.model}` : "command"}`,
     `exit:    ${result.exitCode}`,
-    ``,
-    `## stdout`,
-    result.stdout || "(empty)",
-    ``,
-    `## stderr`,
-    result.stderr || "(empty)"
+    "", "## stdout", result.stdout || "(empty)", "", "## stderr", result.stderr || "(empty)"
   ].join("\n");
+  await writeFile(path.join(evidenceDir, "transcript.md"), transcript, { mode: 0o600 });
 
-  await writeFile(path.join(cwd, "transcript.md"), transcript, "utf8");
+  const manifest = [];
+  const retain = async (name, content) => {
+    const uploaded = await uploadEvidence(job, name, content);
+    if (uploaded) manifest.push(uploaded);
+  };
+  await retain("transcript.md", transcript);
+  if (materializeReport) await retain("materialize.md", materializeReport);
+
+  const gateName = `gate-status.${job.phase}.json`;
+  let gateText = "";
+  if (job.run.kind === "command" && result.exitCode === 0 && requestedTransition) {
+    gateText = `${JSON.stringify({ status: "passed", next_phase: requestedTransition, command: true })}\n`;
+  } else {
+    gateText = await readFile(path.join(evidenceDir, gateName), "utf8").catch(() => "");
+  }
+  let gateAgrees = false;
+  try {
+    const gate = JSON.parse(gateText);
+    gateAgrees = requestedTransition != null && [gate.next_phase, gate.nextPhase, gate.next].includes(requestedTransition);
+  } catch {}
+  if (gateText) await retain(gateName, gateText);
+
+  if (requestedTransition === "done") {
+    const finalEvidence = await readFile(path.join(evidenceDir, "evidence.md"), "utf8").catch(() => "");
+    if (finalEvidence.trim()) await retain("evidence.md", finalEvidence);
+  }
 
   if (stopRequested) {
-    // Do not report: we no longer own the claim, and reporting would move a card
-    // that belongs to another worker.
-    log(`abandoning ${job.cardId} — claim lost`);
+    await stream.send("status", "remote process stopped locally; awaiting host cancellation acknowledgement; partial transcript retained");
+    await stream.flush();
+    const stopped = await (cancellationStopPromise || stopActiveRun("finalising host stop request"));
+    let acknowledged = false;
+    if (cancellationRequested && stopped) {
+      for (let attempt = 1; attempt <= 3 && !acknowledged; attempt++) {
+        try {
+          const response = await api("cancel", {
+            cardId: job.cardId,
+            runId: job.runId,
+            routingToken: job.routingToken,
+            stopped: true,
+            summary: "worker confirmed the remote process group stopped",
+            logCursor: stream.cursor(),
+            evidenceManifest: manifest
+          }, { timeoutMs: 10_000 });
+          acknowledged = response.ok;
+          if (!response.ok) log(`cancellation acknowledgement rejected (${response.status})`, response.body);
+        } catch (error) {
+          log(`cancellation acknowledgement failed (attempt ${attempt}): ${error.message}`);
+        }
+        if (!acknowledged && attempt < 3) await wait(500);
+      }
+    }
+    log(`abandoning ${job.cardId} — ${acknowledged ? "cancellation acknowledged" : "claim remains host-controlled"}, evidence retained`);
+    activeJob = null;
+    await pulse().catch(() => {});
     return;
   }
 
-  // Evidence BEFORE the terminal status, so a card that reaches done/failed on
-  // the board always already has its transcript attached — never a terminal card
-  // with evidence still in flight.
-  await uploadEvidence(job.cardId, "transcript.md", transcript);
-  if (materializeReport) await uploadEvidence(job.cardId, "materialize.md", materializeReport);
+  const hasFinalEvidence = requestedTransition !== "done" || manifest.some((item) => item.name === "evidence.md");
+  const succeeded = result.exitCode === 0 && requestedTransition != null && gateAgrees && hasFinalEvidence;
+  const state = succeeded ? "done" : "failed";
+  const failure = result.exitCode !== 0
+    ? `exit ${result.exitCode}: ${(result.stderr || result.stdout || "run failed").trim().slice(0, 400)}`
+    : !requestedTransition
+      ? `the final line was not one of: ${job.validTransitions.join(", ")}`
+      : !gateAgrees
+        ? `missing or mismatched ${gateName}`
+        : "terminal evidence.md is missing";
+  const summary = succeeded ? lines.slice(0, -1).join("\n").trim().slice(-1000) || `completed ${job.phase}` : failure;
 
-  const state = result.exitCode === 0 ? "done" : "failed";
-  const summary =
-    state === "done"
-      ? (result.stdout.trim().split("\n").slice(-1)[0] || "completed").slice(0, 500)
-      : `exit ${result.exitCode}: ${(result.stderr.trim() || result.stdout.trim()).slice(0, 400)}`;
-
-  // Push what this card wrote BEFORE reporting terminal, so the moment the board
-  // shows the card done, another machine picking up the follow-up already has
-  // the memory it produced.
-  await syncVaultMemory("push").catch((err) => log(`vault push error: ${err.message}`));
-
-  const res = await api("status", { cardId: job.cardId, state, summary, exitCode: result.exitCode });
-  if (!res.ok) log(`status report failed: ${res.status}`, res.body);
-  else log(`${job.cardId} → ${state}`);
+  if (succeeded) await syncVaultMemory("push").catch((error) => log(`vault push error: ${error.message}`));
+  const response = await api("status", {
+    cardId: job.cardId,
+    runId: job.runId,
+    routingToken: job.routingToken,
+    phase: job.phase,
+    state,
+    requestedTransition,
+    summary,
+    exitCode: result.exitCode,
+    sessionId: typeof result.sessionId === "string" ? result.sessionId : null,
+    logCursor: stream.cursor(),
+    evidenceManifest: manifest
+  });
+  if (!response.ok) log(`status report failed: ${response.status}`, response.body);
+  else log(`${job.cardId} ${job.phase} → ${succeeded ? requestedTransition : "needs-attention"}`);
+  activeJob = null;
+  await pulse().catch(() => {});
 }
 
 async function pollOnce() {
@@ -415,13 +586,25 @@ async function pollOnce() {
 async function main() {
   requireConfig();
   await mkdir(WORKDIR, { recursive: true });
+  const { probeRuntimeAdapters } = await import("./runtime-adapters.mjs");
+  workerReadiness = await probeRuntimeAdapters();
+  await pulse(workerReadiness.ready ? "idle" : "degraded").catch((error) => {
+    log(`initial readiness pulse failed: ${error.message}`);
+  });
+  if (!workerReadiness.ready) {
+    log(`task runner degraded: ${workerReadiness.detail}${workerReadiness.error ? ` — ${workerReadiness.error}` : ""}`);
+  }
+  const pulseTimer = setInterval(() => {
+    void pulse().catch((error) => log(`pulse failed: ${error.message}`));
+  }, 15_000);
 
   // One cycle then exit. Two uses: a cron/launchd-interval deployment that
   // prefers a short-lived process over a resident daemon, and a bounded test
   // run (a loop that never returns cannot be asserted on).
   if (process.env.GARRISON_DISPATCH_ONCE === "1" || process.argv.includes("--once")) {
     log(`worker ${WORKER_ID} single cycle against ${HOST}`);
-    await pollOnce();
+    if (workerReadiness.ready) await pollOnce();
+    clearInterval(pulseTimer);
     log("cycle complete");
     return;
   }
@@ -434,6 +617,7 @@ async function main() {
     process.on(sig, () => {
       log(`${sig} — stopping after the current cycle`);
       stopping = true;
+      stopActiveRun(`${sig} — stopping active run`);
       // A second signal is an operator insisting; honour it immediately.
       process.once(sig, () => process.exit(130));
     });
@@ -443,7 +627,9 @@ async function main() {
   while (!stopping) {
     let waitMs = POLL_SECONDS * 1000;
     try {
-      const { backoffMs } = await pollOnce();
+      const { backoffMs } = workerReadiness.ready
+        ? await pollOnce()
+        : { backoffMs: 60_000 };
       waitMs = backoffMs;
       consecutiveErrors = 0;
     } catch (err) {
@@ -456,6 +642,7 @@ async function main() {
     if (stopping) break;
     await new Promise((r) => setTimeout(r, waitMs));
   }
+  clearInterval(pulseTimer);
   log("stopped");
 }
 
@@ -467,4 +654,4 @@ if (process.argv[1] && process.argv[1].endsWith("worker.mjs")) {
   });
 }
 
-export { runCommand, WORKER_ID };
+export { runCommand, WORKER_ID, executeJob };

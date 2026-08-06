@@ -17,7 +17,13 @@ import {
   resolveGatewayUrl,
   statusFilePath
 } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { repairDoubleEncodedQuery, startServer } from "../fittings/seed/omi-channel/scripts/server.mjs";
+import {
+  probeGateway,
+  repairDoubleEncodedQuery,
+  startServer,
+  statusPage
+} from "../fittings/seed/omi-channel/scripts/server.mjs";
+import { OmiStore } from "../fittings/seed/omi-channel/lib/store.mjs";
 
 describe("omi-channel config", () => {
   it("defaults every pipe flag to OFF with an empty env", () => {
@@ -121,6 +127,120 @@ describe("omi-channel server (sandboxed boot)", () => {
     const page = await fetch(`${base}/`);
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
+    const html = await page.text();
+    expect(html).toContain('<main id="main">');
+    expect(html).toContain("Channel summary");
+    expect(html).toContain("values never shown");
+    expect(html).toContain('<link rel="stylesheet" href="/styles.css">');
+
+    const styles = await fetch(`${base}/styles.css`);
+    expect(styles.status).toBe(200);
+    expect(styles.headers.get("content-type")).toContain("text/css");
+    const css = await styles.text();
+    expect(css).toContain("--paper: #fbf8f1");
+    expect(css).toContain("@media (max-width: 480px)");
+
+    await fetch(`${base}/api/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "morning-briefing", title: "Morning briefing" })
+    });
+    const append = () => fetch(`${base}/api/threads/morning-briefing/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "assistant", text: "Briefing" }],
+        suppressWebFallback: true,
+        idempotencyKey: "morning:occurrence-1:omi"
+      })
+    }).then((response) => response.json());
+    const firstAppend = await append();
+    const duplicateAppend = await append();
+    expect(firstAppend).toMatchObject({ ok: true, appended: 1 });
+    expect(duplicateAppend).toMatchObject({ ok: true, appended: 0, deduplicated: true });
+    expect(duplicateAppend.deliveryReceipts).toEqual(firstAppend.deliveryReceipts);
+  });
+});
+
+describe("omi-channel thread append receipts", () => {
+  it("persists one append and its completed delivery receipt per idempotency key", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "omi-thread-key-"));
+    const store = new OmiStore(dir);
+    store.ensureThread({ id: "morning-briefing" });
+    expect(store.appendThreadMessages("morning-briefing", [{ role: "assistant", text: "Briefing" }], {
+      idempotencyKey: "morning:occurrence-1:omi"
+    })).toHaveLength(1);
+    const receipts = [{ means: "omi-push", ok: true, target: "omi uid 1234..." }];
+    store.completeThreadDelivery("morning-briefing", "morning:occurrence-1:omi", receipts);
+    expect(store.appendThreadMessages("morning-briefing", [{ role: "assistant", text: "Duplicate" }], {
+      idempotencyKey: "morning:occurrence-1:omi"
+    })).toEqual([]);
+    expect(store.threadDelivery("morning-briefing", "morning:occurrence-1:omi")).toMatchObject({
+      status: "complete",
+      receipts
+    });
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("omi-channel status page", () => {
+  it("uses semantic status text, masks identity, and escapes counter content", () => {
+    const cfg = loadConfig({
+      GARRISON_OMICHANNEL_ENABLED: "true",
+      GARRISON_GATEWAY_URL: "http://127.0.0.1:4777",
+      OMI_APP_ID: "secret-app-id",
+      OMI_APP_SECRET: "secret-app-secret",
+      OMI_IMPORT_API_KEY: "secret-import-key",
+      OMI_WEBHOOK_SECRET: "secret-webhook"
+    });
+    const html = statusPage(
+      cfg,
+      { '<img src=x onerror="bad()">': '<script>bad()</script>' },
+      {
+        pinnedUid: "wearer-full-secret-uid",
+        gateway: {
+          state: "ready",
+          label: "<Ready>",
+          tone: 'ok\" onclick=\"bad()' as any,
+          detail: "health check passed"
+        }
+      }
+    );
+
+    expect(html).toContain("Omi channel pipe readiness");
+    expect(html).toContain("Receiving");
+    expect(html).toContain("Pinned");
+    expect(html).toContain("identity masked");
+    expect(html).toContain("&lt;img src=x onerror=&quot;bad()&quot;&gt;");
+    expect(html).toContain("&lt;script&gt;bad()&lt;/script&gt;");
+    expect(html).toContain("&lt;Ready&gt;");
+    expect(html).not.toContain('onclick="bad()');
+    expect(html).not.toContain('<img src=x onerror="bad()">');
+    expect(html).not.toContain("wearer-full-secret-uid");
+    expect(html).not.toContain("secret-app-secret");
+  });
+
+  it("distinguishes configured gateway health from URL presence", async () => {
+    const cfg = loadConfig({ GARRISON_GATEWAY_URL: "http://127.0.0.1:4777/jobs" });
+    const requested: string[] = [];
+    const ready = await probeGateway(cfg, {
+      fetchImpl: (async (input: string | URL | Request) => {
+        requested.push(String(input));
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }) as typeof fetch
+    });
+    expect(requested).toEqual(["http://127.0.0.1:4777/health"]);
+    expect(ready).toMatchObject({ state: "ready", label: "Ready" });
+
+    const offline = await probeGateway(cfg, {
+      fetchImpl: (async () => { throw new Error("connect ECONNREFUSED"); }) as typeof fetch
+    });
+    expect(offline).toMatchObject({ state: "offline", label: "Offline" });
+    expect(statusPage(cfg)).toContain("Configured");
+    expect(statusPage(cfg)).not.toContain("health check passed");
   });
 });
 

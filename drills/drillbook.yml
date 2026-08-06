@@ -49,3 +49,8 @@ pages:
     path: /fitting/kanban-loop
     mode: steps
     selected: true
+  - id: omi-view
+    title: Omi status
+    path: /fitting/omi-channel
+    mode: steps
+    selected: true

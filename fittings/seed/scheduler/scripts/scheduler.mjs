@@ -29,6 +29,7 @@ import path from "node:path";
 import os from "node:os";
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // Machine-global scheduler state in ~/.garrison (NOT cwd-relative): jobs are
 // registered by fitting setup hooks (cwd = the fitting dir) and fired by the
@@ -63,7 +64,7 @@ async function saveJobs(jobs) {
   await fs.writeFile(JOBS_FILE, JSON.stringify(jobs, null, 2) + "\n");
 }
 
-function parseCron(cron) {
+export function parseCron(cron) {
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) {
     throw new Error(`cron must have 5 fields, got ${parts.length}: "${cron}"`);
@@ -112,12 +113,18 @@ function fieldMatches(field, value) {
   return field.values.has(value);
 }
 
-function cronMatches(parsed, date) {
+export function cronMatches(parsed, date) {
+  const dayOfMonth = fieldMatches(parsed[2], date.getDate());
+  const dayOfWeek = fieldMatches(parsed[4], date.getDay());
+  // Standard Vixie-style cron semantics: DOM and DOW are ORed only when both
+  // are restricted. Keep the daemon and Kanban's Scheduled clock identical.
+  const dayMatches = parsed[2].kind !== "any" && parsed[4].kind !== "any"
+    ? dayOfMonth || dayOfWeek
+    : dayOfMonth && dayOfWeek;
   return fieldMatches(parsed[0], date.getMinutes())
     && fieldMatches(parsed[1], date.getHours())
-    && fieldMatches(parsed[2], date.getDate())
-    && fieldMatches(parsed[3], date.getMonth() + 1)
-    && fieldMatches(parsed[4], date.getDay());
+    && dayMatches
+    && fieldMatches(parsed[3], date.getMonth() + 1);
 }
 
 function minuteKey(date) {
@@ -489,7 +496,10 @@ async function main(argv) {
   return 2;
 }
 
-main(process.argv.slice(2)).then(
-  (code) => process.exit(code ?? 0),
-  (err) => { console.error(err.stack ?? err.message); process.exit(1); }
-);
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code ?? 0),
+    (err) => { console.error(err.stack ?? err.message); process.exit(1); }
+  );
+}

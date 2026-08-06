@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 // @ts-ignore - pure .mjs (single line so the ignore anchors to the specifier)
-import { classifyExecution, isSignificantAutonomous, biasTarget, resolvePhaseTarget } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
+import { classifyExecution, isSignificantAutonomous, resolvePhaseTarget } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 // @ts-ignore - pure .mjs (single line so the ignore anchors to the specifier)
 import { gateKeyForPhase, hasPhaseGateEvidence, classificationForPhase, skillForPhase, railForCard, phaseOnForCard } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore - pure .mjs
@@ -43,9 +43,8 @@ describe("classifyExecution boundaries (D8)", () => {
     expect(classifyExecution({ message: "archive the inbox", classification: { taskType: "ops" } })).toBe("interactive");
   });
 
-  it("gary floors to interactive BEFORE the classifier's own read", () => {
-    expect(classifyExecution({ mode: "gary", classification: { execution: "autonomous" } })).toBe("interactive");
-    expect(classifyExecution({ mode: "joe", classification: { execution: "autonomous" } })).toBe("autonomous");
+  it("the classifier's autonomous read is persona-independent", () => {
+    expect(classifyExecution({ classification: { execution: "autonomous" } })).toBe("autonomous");
     expect(classifyExecution({ classification: { execution: "AUTONOMOUS" } })).toBe("interactive"); // out-of-vocab
   });
 });
@@ -66,23 +65,6 @@ describe("isSignificantAutonomous boundaries", () => {
     expect(isSignificantAutonomous({ taskType: "ops", tier: "T2-deep" })).toBe(true);
     expect(isSignificantAutonomous({ taskType: "writing", tier: "T2-deep" })).toBe(false);
     expect(isSignificantAutonomous(null)).toBe(false);
-  });
-});
-
-describe("biasTarget ladder arithmetic", () => {
-  const ladder = ["cc-haiku-low", "cc-sonnet-med", "cc-opus-high"]; // fast, standard, expert
-
-  it("prefer only demotes FROM standard; floor always raises", () => {
-    expect(biasTarget("cc-sonnet-med", { prefer: "fast" }, ladder)).toBe("cc-haiku-low");
-    expect(biasTarget("cc-opus-high", { prefer: "fast" }, ladder)).toBe("cc-opus-high"); // not standard - prefer ignored
-    expect(biasTarget("cc-haiku-low", { floor: "expert" }, ladder)).toBe("cc-opus-high");
-    expect(biasTarget("cc-opus-high", { floor: "fast" }, ladder)).toBe("cc-opus-high"); // floor never lowers
-  });
-
-  it("unknown target or missing bias is identity; rank clamps to the ladder end", () => {
-    expect(biasTarget("not-in-ladder", { floor: "expert" }, ladder)).toBe("not-in-ladder");
-    expect(biasTarget("cc-sonnet-med", null, ladder)).toBe("cc-sonnet-med");
-    expect(biasTarget("cc-haiku-low", { floor: "expert" }, ladder.slice(0, 2))).toBe("cc-sonnet-med"); // clamp
   });
 });
 

@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 // The daemon module is guarded by an import.meta.url === argv[1] check, so importing it
 // here does NOT start the server. Its path helpers read GARRISON_HOME dynamically, so a
 // sandbox set before each call is honoured.
 // @ts-ignore — pure .mjs (repo convention for kanban/outpost lib imports); typed at call sites
 import { mintPairing, logInvocation, readInvocationLog, buildInstaller, startHost } from "../scripts/outpost-host.mjs";
-// @ts-ignore — pure .mjs; typed at call sites
-import { resolveOutpostDispatch, outpostRunFn } from "../fittings/seed/kanban-loop/lib/outpost-dispatch.mjs";
 // @ts-ignore — pure .mjs; the UI server is guarded by an entry check so importing is side-effect-free
-import { isValidSshTarget } from "../fittings/seed/outpost-tailscale-host/scripts/server.mjs";
+import { buildWorkerInstaller, isValidSshTarget, normaliseExecRpc, requestProvisionPair } from "../fittings/seed/outpost-tailscale-host/scripts/server.mjs";
 // @ts-ignore — pure .mjs config-sync lib; store fns take an explicit file arg so the sandbox is honoured
 import { buildRsyncArgs, buildDeleteProbeArgs, buildAdoptArgs, parseDeletedEntries, classifyDeletions, isSafeEntry, localEntries, PORTABLE_DIRS, PORTABLE_FILES, readTargets, upsertTarget, removeTarget, syncTarget, syncAll } from "../fittings/seed/outpost-tailscale-host/scripts/lib/config-sync.mjs";
 
@@ -94,70 +94,6 @@ describe("invocation log", () => {
   });
 });
 
-describe("resolveOutpostDispatch (card affinity)", () => {
-  it("runs locally when the card has no outpost affinity", () => {
-    expect(resolveOutpostDispatch({}, [])).toEqual({ ok: true, local: true });
-    expect(resolveOutpostDispatch({ outpost: "" }, [{ name: "dev", connected: true }]))
-      .toEqual({ ok: true, local: true });
-  });
-
-  it("dispatches when the named outpost is connected", () => {
-    const res = resolveOutpostDispatch({ outpost: "dev" }, [
-      { name: "dev", connected: true },
-      { name: "other", connected: false },
-    ]);
-    expect(res).toEqual({ ok: true, outpost: "dev" });
-  });
-
-  it("fails (park) when the named outpost is registered but offline", () => {
-    const res = resolveOutpostDispatch({ outpost: "dev" }, [{ name: "dev", connected: false }]);
-    expect(res.ok).toBe(false);
-    expect(res.outpost).toBe("dev");
-    expect(res.reason).toMatch(/offline/i);
-  });
-
-  it("fails (park) when the named outpost is unknown", () => {
-    const res = resolveOutpostDispatch({ outpost: "ghost" }, [{ name: "dev", connected: true }]);
-    expect(res.ok).toBe(false);
-    expect(res.outpost).toBe("ghost");
-    expect(res.reason).toMatch(/not registered/i);
-  });
-});
-
-describe("outpostRunFn (v1 exec.run relay)", () => {
-  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-
-  it("relays the prompt as a base64 exec.run and unwraps stdout", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ ok: true, result: { payload: { stdout: "hello from mac" } } }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const run = outpostRunFn("http://127.0.0.1:23702", "dev");
-    const out = await run({ prompt: "do the thing" });
-    expect(out).toEqual({ reply: "hello from mac" });
-
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:23702/outposts/dev/rpc");
-    const body = JSON.parse((init as { body: string }).body);
-    expect(body.type).toBe("exec.run");
-    // The prompt is base64-encoded into a `base64 -d | claude -p` pipeline.
-    const b64 = Buffer.from("do the thing", "utf8").toString("base64");
-    expect(body.payload.command).toContain(b64);
-    expect(body.payload.command).toContain("claude -p");
-  });
-
-  it("throws on an RPC-level error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ ok: false, error: "outpost 'dev' not connected" }),
-    }));
-    const run = outpostRunFn("http://127.0.0.1:23702", "dev");
-    await expect(run({ prompt: "x" })).rejects.toThrow(/not connected/);
-  });
-});
-
 describe("outpost-host HTTP (ephemeral daemon)", () => {
   let host: Awaited<ReturnType<typeof startHost>>;
 
@@ -204,6 +140,46 @@ describe("outpost-host HTTP (ephemeral daemon)", () => {
     expect(entry.verbs).toContain("exec.run");
   });
 
+  it("reuseExisting returns the registered token without rotating it or making the bridge pending", async () => {
+    const paired = await (await fetch(`http://127.0.0.1:${host.port}/registry/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "repair-mac" }),
+    })).json();
+    // Model a bridge that has completed pairing: register preserves the same
+    // token and removes the pending flag.
+    const registered = await fetch(`http://127.0.0.1:${host.port}/registry/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "repair-mac", token: paired.token }),
+    });
+    expect(registered.status).toBe(200);
+
+    const reusedResponse = await fetch(`http://127.0.0.1:${host.port}/registry/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "repair-mac", reuseExisting: true }),
+    });
+    expect(reusedResponse.status).toBe(200);
+    const reused = await reusedResponse.json();
+    expect(reused).toMatchObject({ name: "repair-mac", token: paired.token, pending: false, reused: true });
+
+    const registry = JSON.parse(readFileSync(join(sandbox, "outpost-registry.json"), "utf8"));
+    expect(registry.outposts).toHaveLength(1);
+    expect(registry.outposts[0]).toMatchObject({ name: "repair-mac", token: paired.token });
+    expect(registry.outposts[0].pending).toBeUndefined();
+  });
+
+  it("reuseExisting refuses an unknown machine instead of minting it", async () => {
+    const response = await fetch(`http://127.0.0.1:${host.port}/registry/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "not-paired", reuseExisting: true }),
+    });
+    expect(response.status).toBe(404);
+    expect(existsSync(join(sandbox, "outpost-registry.json"))).toBe(false);
+  });
+
   it("GET /outposts/:name/log returns the tailed invocation log", async () => {
     // Seed the sandbox log directly, then read it back through the HTTP endpoint.
     for (let i = 1; i <= 3; i++) {
@@ -244,6 +220,94 @@ describe("SSH target validation (S9 provisioning RCE guard)", () => {
     expect(isValidSshTarget("user", "h;rm -rf ~")).toBe(false);
     expect(isValidSshTarget("", "host")).toBe(false);
     expect(isValidSshTarget("user", "")).toBe(false);
+  });
+});
+
+describe("task-runner installation and bridge shell compatibility", () => {
+  it("does not call pair or change the bridge registration when SSH preflight fails", async () => {
+    const existing = mintPairing("air");
+    const before = readFileSync(join(sandbox, "outpost-registry.json"), "utf8");
+    let pairCalls = 0;
+    const failingSpawn = () => {
+      const child = new EventEmitter() as EventEmitter & {
+        stderr: PassThrough;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      queueMicrotask(() => {
+        child.stderr.end("ssh: connect to host air.tailnet.ts.net port 22: Operation timed out\n");
+        child.emit("close", 255);
+      });
+      return child;
+    };
+
+    const result = await requestProvisionPair({
+      outpostHostUrl: "http://127.0.0.1:1",
+      machine: "air",
+      sshUser: "ggomes",
+      sshHost: "air.tailnet.ts.net",
+      reuseExisting: true
+    }, {
+      spawnImpl: failingSpawn,
+      proxyJsonImpl: async () => {
+        pairCalls += 1;
+        return { status: 500, data: {} };
+      }
+    });
+
+    expect(result.status).toBe(502);
+    expect(result.data.error).toMatch(/left unchanged/i);
+    expect(pairCalls).toBe(0);
+    expect(readFileSync(join(sandbox, "outpost-registry.json"), "utf8")).toBe(before);
+    const after = JSON.parse(before);
+    expect(after.outposts[0]).toMatchObject({ name: "air", token: existing.token, pending: true });
+  });
+
+  it("sends a human shell command through the bridge's executable-plus-argv contract", () => {
+    expect(normaliseExecRpc({
+      type: "exec.run",
+      payload: { command: "hostname && sw_vers", timeout_ms: 5000 }
+    })).toEqual({
+      type: "exec.run",
+      payload: { command: "/bin/sh", args: ["-lc", "hostname && sw_vers"], timeout_ms: 5000 }
+    });
+  });
+
+  it("builds one valid worker installer command with credentials scoped to bash", () => {
+    const command = buildWorkerInstaller({
+      installUrl: "https://host.ts.net:8443/worker/install.sh",
+      dispatchUrl: "https://host.ts.net:8444",
+      token: "token-value",
+      machine: "studio-mac",
+      assetBase: "https://host.ts.net:8443/worker/assets"
+    });
+    expect(command).toContain("curl -fsSL 'https://host.ts.net:8443/worker/install.sh' | GARRISON_DISPATCH_URL=");
+    expect(command).toContain("GARRISON_MACHINE='studio-mac'");
+    expect(command).toMatch(/GARRISON_WORKER_ASSET_BASE=.* bash$/);
+    expect(command.match(/\|/g)).toHaveLength(1);
+  });
+
+  it("ships a versioned, pinned worker whose only launchd secret reference is the 0600 config path", () => {
+    const root = join(__dirname, "..", "fittings", "seed");
+    const installer = readFileSync(join(root, "outpost-tailscale-host", "scripts", "install-worker.sh"), "utf8");
+    const provision = readFileSync(join(root, "outpost-tailscale-host", "scripts", "provision-outpost.sh"), "utf8");
+    const worker = readFileSync(join(root, "outpost-worker", "scripts", "worker.mjs"), "utf8");
+    const lock = JSON.parse(readFileSync(join(root, "outpost-worker", "package-lock.json"), "utf8"));
+    expect(installer).toContain('WORKER_VERSION="${GARRISON_WORKER_VERSION:-0.2.0}"');
+    expect(installer).toContain("fs.chmodSync(process.env.GARRISON_WORKER_CONFIG_PATH, 0o600)");
+    expect(installer).toContain('<string>$NODE_BIN</string>');
+    expect(installer).toContain('<string>$CONFIG_PATH</string>');
+    expect(installer).toContain('launchctl enable "gui/$(id -u)/$PLIST_LABEL"');
+    expect(installer).toContain("personal-workspace.mjs");
+    expect(worker).toContain("onJournal: hooks.onJournal");
+    expect(worker).toContain('job.scope === "personal" && !job.project');
+    expect(provision).toContain('launchctl enable "gui/$(id -u)/$PLIST_LABEL"');
+    const plist = installer.slice(installer.indexOf('cat > "$PLIST_PATH"'), installer.indexOf('chmod 0644 "$PLIST_PATH"'));
+    expect(plist).not.toContain("GARRISON_TOKEN");
+    expect(lock.packages?.[""]?.dependencies?.["@anthropic-ai/claude-agent-sdk"]).toBe("0.3.179");
+    expect(provision).toContain('curl -fsSL "${GARRISON_WORKER_ASSET_BASE%/}/install.sh"');
+    expect(provision).not.toContain("TODO: per-runtime prerequisites");
   });
 });
 

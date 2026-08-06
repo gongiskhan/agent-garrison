@@ -104,10 +104,13 @@ describe("glm composition — manifest", () => {
     }
   });
 
-  it("pins routing_on_primary, without which both routing halves leave the composition", () => {
-    const gateway = manifest()["x-garrison"].composition.selections.gateway ?? [];
-    const http = gateway.find((g: any) => g.id === "http-gateway");
-    expect(http?.config?.routing_on_primary).toBe(true);
+  it("routes dispatch through an explicit native target with no legacy gateway flag", () => {
+    const composition = manifest()["x-garrison"].composition;
+    const http = composition.selections.gateway.find((g: any) => g.id === "http-gateway");
+    expect(http?.config?.routing_on_primary).toBeUndefined();
+    const duty = composition.duties.find((d: any) => d.id === "dispatch");
+    expect(duty.levels[0].cell.target).toBe("glm-fast");
+    expect(composition.targets.find((t: any) => t.id === "glm-fast")).toMatchObject({ runtime: "openai-agents", provider: "glm" });
   });
 });
 

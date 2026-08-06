@@ -104,6 +104,116 @@ async function waitForCard(id: string, predicate: (card: any) => boolean, timeou
 }
 
 describe("POST /cards — the direct manual-list quick-add contract", () => {
+  it("projects the fixed Scheduled system column first", async () => {
+    const view = await jget("/board");
+    expect(view.status).toBe(200);
+    expect(view.body.version).toBe(5);
+    expect(view.body.lists[0]).toMatchObject({ id: "scheduled", kind: "scheduled", system: true });
+  });
+
+  it("creates recurring templates in Scheduled and preserves their release target", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Weekday review",
+      project: "garrison",
+      schedule: {
+        kind: "cron", action: "run", cron: "0 8 * * 1-5", timezone: "Europe/Lisbon",
+        enabled: true, targetList: "todo"
+      }
+    });
+    expect(create.status).toBe(201);
+    expect(create.body.card).toMatchObject({
+      list: "scheduled",
+      schedule: {
+        kind: "cron", action: "run", cron: "0 8 * * 1-5", timezone: "Europe/Lisbon",
+        enabled: true, targetList: "todo"
+      }
+    });
+    expect(Date.parse(create.body.card.schedule.nextAt)).toBeGreaterThan(Date.now());
+    const view = await jget("/board");
+    expect(view.body.lists[0].cards.map((card: any) => card.id)).toContain(create.body.card.id);
+  });
+
+  it("accepts legacy scheduledFor once, but stores the authoritative v5 shape", async () => {
+    const at = new Date(Date.now() + 86_400_000).toISOString();
+    const create = await jsend("POST", "/cards", {
+      title: "Legacy client", project: "garrison", targetList: "todo",
+      scheduledFor: at, scheduleAction: "notify"
+    });
+    expect(create.status).toBe(201);
+    expect(create.body.card).toMatchObject({
+      list: "scheduled", scheduledFor: at,
+      schedule: { kind: "once", action: "notify", at, targetList: "todo" }
+    });
+  });
+
+  it("validates cron and timezone instead of storing a permanently broken template", async () => {
+    const badCron = await jsend("POST", "/cards", {
+      title: "Bad cron", project: "garrison",
+      schedule: { kind: "cron", action: "run", cron: "tomorrow", timezone: "Europe/Lisbon", enabled: true, targetList: "backlog" }
+    });
+    expect(badCron.status).toBe(400);
+    expect(String(badCron.body.error)).toMatch(/5 fields/);
+    const badTimezone = await jsend("POST", "/cards", {
+      title: "Bad timezone", project: "garrison",
+      schedule: { kind: "cron", action: "run", cron: "0 8 * * *", timezone: "Moon/Base", enabled: true, targetList: "backlog" }
+    });
+    expect(badTimezone.status).toBe(400);
+    expect(String(badTimezone.body.error)).toMatch(/IANA timezone/);
+  });
+
+  it("prevents raw moves into Scheduled and returns a cleared schedule to its target", async () => {
+    const plain = await jsend("POST", "/cards", { title: "Not schedulable by move", project: "garrison" });
+    const rawMove = await jsend("PATCH", `/cards/${plain.body.card.id}`, { list: "scheduled", rev: plain.body.card.rev });
+    expect(rawMove.status).toBe(400);
+    expect(String(rawMove.body.message ?? rawMove.body.error)).toMatch(/Schedule controls/i);
+
+    const at = new Date(Date.now() + 86_400_000).toISOString();
+    const held = await jsend("POST", "/cards", {
+      title: "Clear me", project: "garrison",
+      schedule: { kind: "once", action: "notify", at, timezone: "UTC", enabled: true, targetList: "todo" }
+    });
+    const cleared = await jsend("PATCH", `/cards/${held.body.card.id}`, { schedule: null, rev: held.body.card.rev });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.card).toMatchObject({ list: "todo", schedule: null, scheduledFor: null });
+  });
+
+  it("Run now materialises a linked occurrence without changing the regular clock", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Manual recurrence", project: "garrison",
+      schedule: {
+        kind: "cron", action: "notify", cron: "0 8 * * 1-5", timezone: "Europe/Lisbon",
+        enabled: true, targetList: "todo"
+      }
+    });
+    const regularNext = create.body.card.schedule.nextAt;
+    const run = await jsend("POST", `/cards/${create.body.card.id}/run-now`);
+    expect(run.status).toBe(200);
+    expect(run.body).toMatchObject({ occurrence: true, created: true });
+    expect(run.body.card).toMatchObject({ scheduleTemplateId: create.body.card.id });
+    expect(run.body.card.list).not.toBe("done");
+    const template = await jget(`/cards/${create.body.card.id}`);
+    expect(template.body.card.schedule.nextAt).toBe(regularNext);
+    expect(template.body.card.list).toBe("scheduled");
+  });
+
+  it("does not let the generic editor resume a Morning template before legacy cutover", async () => {
+    const create = await jsend("POST", "/cards", {
+      title: "Morning briefing", project: "garrison",
+      schedule: {
+        kind: "cron", action: "run", cron: "0 8 * * 1-5", timezone: "Europe/Lisbon",
+        enabled: false, targetList: "todo", cutoverPending: true, desiredEnabled: true
+      }
+    });
+    expect(create.status).toBe(201);
+    const resumed = await jsend("PATCH", `/cards/${create.body.card.id}`, {
+      rev: create.body.card.rev,
+      schedule: { ...create.body.card.schedule, enabled: true }
+    });
+    expect(resumed.status).toBe(409);
+    expect(resumed.body.error).toBe("schedule-cutover-pending");
+    expect(String(resumed.body.message)).toMatch(/Run now.*remove the legacy job/i);
+  });
+
   it("stores personal as an independent scope and suppresses automatic project inference", async () => {
     const create = await jsend("POST", "/cards", {
       title: "Book a dentist appointment",

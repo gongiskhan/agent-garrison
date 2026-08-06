@@ -150,6 +150,17 @@ export function mintPairing(name) {
   return entry;
 }
 
+// Return an existing pairing without rotating its bearer token or changing its
+// pending/connected lifecycle. The Outposts UI uses this only for an
+// Enable/Repair task-runner pass: reinstalling Garrison's worker must not break
+// the already-connected external bridge if SSH or installation later fails.
+// A missing name is deliberately NOT minted here; callers must use the ordinary
+// pairing flow for a genuinely new machine.
+export function reusePairing(name) {
+  const entry = loadRegistry().outposts.find((candidate) => candidate.name === name);
+  return entry?.token ? { ...entry } : null;
+}
+
 // A bridge authed with a pending token → the pairing completed. Drop the flag.
 function clearPending(name) {
   const reg = loadRegistry();
@@ -700,13 +711,21 @@ async function handleHttp(req, res) {
       const body = await parseBody(req);
       const name = (body?.name || "").trim();
       if (!name) return json(res, 400, { error: "name required" });
-      const entry = mintPairing(name);
+      const reuseExisting = body?.reuseExisting === true;
+      const entry = reuseExisting ? reusePairing(name) : mintPairing(name);
+      if (!entry) {
+        return json(res, 404, {
+          error: "no existing pairing for that machine",
+          requirement: "Pair the machine before repairing its task runner"
+        });
+      }
       const ip = detectTailnetIp();
       const host = `http://${ip}:${livePort}`;
       return json(res, 200, {
         name: entry.name,
         token: entry.token,
-        pending: true,
+        pending: !!entry.pending,
+        reused: reuseExisting,
         host,
         installer: buildInstaller(entry.name, entry.token, ip, livePort),
       });

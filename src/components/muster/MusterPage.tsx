@@ -75,7 +75,7 @@ function patchAddLevel(model: MusterModel, dutyId: string): MusterModel {
   if (!duty || duty.levels.length === 0) return model;
   const last = duty.levels[duty.levels.length - 1];
   const n = duty.levels.length + 1;
-  const description = `level ${n}: deeper than level ${n - 1} - describe when the Dispatcher should pick this level`;
+  const description = `level ${n}: deeper than level ${n - 1} - describe when Orchestrator routing inference should pick this level`;
   const bumped = dutyEfforts[Math.min(dutyEfforts.indexOf(last.cell?.effort ?? "medium") + 1, dutyEfforts.length - 1)];
   const next = last.cell
     ? { description, cell: { ...last.cell, effort: bumped } }
@@ -116,8 +116,9 @@ export function MusterPage() {
   const [armed, setArmed] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [section, setSection] = useState<SectionId>("duties");
-  // The Orchestrator tab holds two surfaces: the routing policy (the composer
-  // surfaces folded in when the own-port view retired) and the system prompt.
+  // The Orchestrator tab holds two surfaces: routing inference and execution
+  // policy (the composer surfaces folded in when the own-port view retired),
+  // plus the system prompt.
   const [orchSub, setOrchSub] = useState<"policy" | "prompt">("policy");
 
   // The composition currently viewed (from ?composition=, else the active
@@ -461,7 +462,7 @@ export function MusterPage() {
                 <div className={styles.dutiesMain}>
                   <div className={styles.stageHead}>
                     <span className={styles.stageLead}>
-                      The work this composition routes. The Dispatcher picks a duty, then a level -
+                      The work this composition routes. Orchestrator routing inference picks a duty, then a level -
                       each level&apos;s description is its routing criterion.
                     </span>
                     <span className={styles.stageTools}>
@@ -490,7 +491,7 @@ export function MusterPage() {
                 >
                   {(
                     [
-                      { id: "policy", label: "Routing policy" },
+                      { id: "policy", label: "Routing inference" },
                       { id: "prompt", label: "System prompt" }
                     ] as const
                   ).map((s) => (

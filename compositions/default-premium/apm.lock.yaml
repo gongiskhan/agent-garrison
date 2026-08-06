@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-21T18:21:56.606627+00:00'
+generated_at: '2026-08-05T21:27:28.749761+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -88,12 +88,6 @@ dependencies:
     .claude/rules/http-gateway.md: sha256:298b087deb6e7705ac4594607d5e0c3231b493ccab86f1d82d1ba1001eb210c5
   source: local
   local_path: ../../fittings/seed/http-gateway
-- repo_url: _local/identity-gary
-  name: identity-gary
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/identity-gary
 - repo_url: _local/improver
   name: improver
   version: 0.1.0
@@ -130,7 +124,7 @@ dependencies:
   local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/outpost-tailscale-host
   name: outpost-tailscale-host
-  version: 0.2.0
+  version: 0.3.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/outpost-tailscale-host

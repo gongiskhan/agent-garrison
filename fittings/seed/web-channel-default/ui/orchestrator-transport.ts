@@ -320,11 +320,6 @@ export function createOrchestratorTransport(
     const payload: Record<string, unknown> = { message: text };
     if (threadId) payload.thread = threadId;
     if (meta?.context !== undefined && meta.context !== null) payload.context = meta.context;
-    if (typeof meta?.mode === "string" && meta.mode.trim()) {
-      payload.mode = meta.mode.trim();
-      // Discuss/design chat is lightweight and deliberately avoids extended thinking.
-      payload.classification = { taskType: "other", tier: "T0-trivial" };
-    }
     if (meta?.autonomous === true) payload.autonomous = true;
     if (meta?.routing && typeof meta.routing === "object" && Object.keys(meta.routing).length > 0) {
       payload.routing = meta.routing;

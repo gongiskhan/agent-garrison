@@ -42,8 +42,8 @@ export interface ResolvedDuty extends DutySpec {
 // D10: essentials are validation rules, not a fixed tier. The default set is
 // Garrison's; a v4 composition may declare its own additions. Each rule checks
 // presence of a capability kind, a faculty, or a duty id in the resolved
-// model. `identity` is provided by the Identity Fitting (D7); `dispatch` is
-// the Dispatcher duty (D6).
+// model. Orchestrator provides both the authored identity and the `dispatch`
+// duty used by its pre-session routing inference.
 export interface ReadinessRule {
   id: string;
   description: string;
@@ -60,7 +60,7 @@ export const DEFAULT_READINESS_RULES: ReadinessRule[] = [
   { id: "memory", description: "a memory store", require: { kind: "memory-store" } },
   { id: "gateway", description: "a gateway", require: { faculty: "gateway" } },
   { id: "identity", description: "an identity", require: { kind: "identity" } },
-  { id: "dispatcher", description: "a dispatcher duty", require: { dutyId: "dispatch" } }
+  { id: "routing-inference", description: "Orchestrator routing inference", require: { dutyId: "dispatch" } }
 ];
 
 export interface RuleResult {

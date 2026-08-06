@@ -3,12 +3,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// S2b — the E11 correction: the Improver probe generator makes NO live model call
-// (questions are deterministic templates; resolveProbeTarget only resolves + logs a
-// target). So S2b changes ZERO probe behavior. This test pins that: the improver's
-// resolveProbeTarget contract still resolves its compiled matrix cell UNCHANGED
-// after garrison-call lands. No improver code is touched by this slice — a
-// regression here would mean something moved the probe-question cell.
+// The Improver probe generator makes no live model call (questions are
+// deterministic templates); resolveProbeTarget only resolves + logs a target.
+// The shipped probe cell must therefore resolve to the same fast Anthropic SDK
+// target as the rest of the no-Ollama default policy.
 const REPO = path.resolve(__dirname, "..");
 const ROUTING_CORE = path.join(REPO, "fittings/seed/orchestrator/lib/routing-core.mjs");
 const PROBE_CORE = path.join(REPO, "fittings/seed/improver/lib/probe-core.mjs");
@@ -23,20 +21,17 @@ function compileSeedPolicy() {
   return routing.compilePolicy(cfg, cfg.activeProfile ?? null);
 }
 
-describe("S2b leaves the Improver probe resolution unchanged (E11 correction)", () => {
-  it("resolveProbeTarget still resolves the seed matrix cell to the local ollama target", () => {
+describe("Improver probe resolution follows the active Orchestrator policy", () => {
+  it("resolveProbeTarget resolves the seed matrix cell to subscription Haiku", () => {
     const policy = compileSeedPolicy();
     const t = probe.resolveProbeTarget(policy);
-    // The exact contract as it resolves today — a garrison-call-backed target may
-    // later repoint this cell (RUN_SPEC assumption 1), but THIS slice must not.
     expect(t).toMatchObject({
-      targetId: "sdk-ollama-probe",
+      targetId: "agent-sdk-haiku-fast",
       runtime: "agent-sdk",
-      provider: "ollama-local",
-      model: "qwen2.5:3b"
+      provider: "anthropic",
+      model: "claude-haiku-4-5"
     });
-    // The load-bearing invariant regardless of the exact target id: local, never Anthropic.
-    expect(t.provider).not.toBe("anthropic");
+    expect(t.provider).toBe("anthropic");
     expect(t.runtime).toBe("agent-sdk");
     expect(t.targetId).toBeTruthy();
   });
@@ -46,7 +41,7 @@ describe("S2b leaves the Improver probe resolution unchanged (E11 correction)", 
     const row = policy.matrix["probe-question"];
     expect(row, "compiled policy must carry a probe-question row").toBeTruthy();
     const cell = row[Object.keys(row)[0]];
-    expect(cell.provider).toBe("ollama-local");
-    expect(cell.provider).not.toBe("anthropic");
+    expect(cell.provider).toBe("anthropic");
+    expect(JSON.stringify(policy)).not.toMatch(/ollama|qwen/i);
   });
 });

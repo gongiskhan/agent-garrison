@@ -34,6 +34,16 @@ const CHECKOUTS_FILE = path.join(GARRISON_HOME, "outpost-checkouts.json");
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const PROVISION_SCRIPT = path.resolve(HERE, "provision-outpost.sh");
+const INSTALL_WORKER_SCRIPT = path.resolve(HERE, "install-worker.sh");
+const WORKER_ROOT = path.resolve(HERE, "..", "..", "outpost-worker");
+const WORKER_ASSETS = new Map([
+  ["worker.mjs", path.join(WORKER_ROOT, "scripts", "worker.mjs")],
+  ["materialize.mjs", path.join(WORKER_ROOT, "scripts", "materialize.mjs")],
+  ["personal-workspace.mjs", path.join(WORKER_ROOT, "scripts", "personal-workspace.mjs")],
+  ["runtime-adapters.mjs", path.join(WORKER_ROOT, "scripts", "runtime-adapters.mjs")],
+  ["package.json", path.join(WORKER_ROOT, "package.json")],
+  ["package-lock.json", path.join(WORKER_ROOT, "package-lock.json")]
+]);
 
 function parseArgs(argv) {
   const out = {
@@ -45,13 +55,25 @@ function parseArgs(argv) {
     outpostHostUrl:
       process.env.GARRISON_OUTPOSTTAILSCALEHOST_OUTPOST_HOST_URL ||
       process.env.OUTPOST_HOST_URL ||
-      "http://127.0.0.1:3702"
+      "http://127.0.0.1:3702",
+    appUrl: process.env.GARRISON_APP_URL || "",
+    dispatchPublicUrl:
+      process.env.GARRISON_OUTPOSTTAILSCALEHOST_DISPATCH_PUBLIC_URL ||
+      process.env.GARRISON_DISPATCH_PUBLIC_URL ||
+      "",
+    workerAssetBase:
+      process.env.GARRISON_OUTPOSTTAILSCALEHOST_WORKER_ASSET_BASE ||
+      process.env.GARRISON_WORKER_ASSET_BASE ||
+      ""
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--port") out.port = Number(argv[++i]);
     else if (a === "--host") out.host = argv[++i];
     else if (a === "--outpost-host-url") out.outpostHostUrl = argv[++i];
+    else if (a === "--app-url") out.appUrl = argv[++i];
+    else if (a === "--dispatch-public-url") out.dispatchPublicUrl = argv[++i];
+    else if (a === "--worker-asset-base") out.workerAssetBase = argv[++i];
   }
   return out;
 }
@@ -160,13 +182,159 @@ async function proxyJson(targetUrl, init = {}) {
   }
 }
 
+function shellWord(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function validatedPublicBase(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    if (parsed.protocol !== "https:" || !isTrustedHost(parsed.hostname)) return null;
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+async function commandOutput(command, args, timeoutMs = 4000) {
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { if (stdout.length < 1024 * 1024) stdout += chunk; });
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.on("error", () => { clearTimeout(timer); resolve(""); });
+    child.on("close", () => { clearTimeout(timer); resolve(stdout); });
+  });
+}
+
+async function tailnetUrlForLoopback(baseUrl) {
+  let localPort = null;
+  try {
+    const parsed = new URL(baseUrl);
+    if (!LOOPBACK_HOSTS.has(parsed.hostname)) return validatedPublicBase(baseUrl);
+    localPort = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+  } catch { return null; }
+  if (!Number.isInteger(localPort) || localPort < 1) return null;
+  const candidates = [
+    "tailscale",
+    "/usr/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  ];
+  for (const bin of candidates) {
+    const raw = await commandOutput(bin, ["serve", "status", "--json"]);
+    if (!raw.trim().startsWith("{")) continue;
+    try {
+      const status = JSON.parse(raw);
+      for (const [hostPort, web] of Object.entries(status.Web || {})) {
+        for (const handler of Object.values(web?.Handlers || {})) {
+          let proxy;
+          try { proxy = new URL(handler?.Proxy || ""); } catch { continue; }
+          if (Number(proxy.port || (proxy.protocol === "https:" ? 443 : 80)) !== localPort) continue;
+          const found = validatedPublicBase(`https://${hostPort}`);
+          if (found) return found;
+        }
+      }
+    } catch { /* try another candidate */ }
+  }
+  return null;
+}
+
+async function resolveWorkerUrls(req, opts, body = {}) {
+  const explicitDispatch = validatedPublicBase(body.dispatchUrl || opts.dispatchPublicUrl);
+  const dispatchUrl = explicitDispatch || await tailnetUrlForLoopback(opts.appUrl);
+  const explicitAssets = validatedPublicBase(body.workerAssetBase || opts.workerAssetBase);
+  let ownPublicUrl = explicitAssets || await tailnetUrlForLoopback(`http://127.0.0.1:${opts.port}`);
+  if (!ownPublicUrl) {
+    const origin = validatedPublicBase(req.headers.origin || "");
+    const forwarded = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    const viaProxy = validatedPublicBase(`${forwarded || "https"}://${req.headers.host || ""}`);
+    ownPublicUrl = origin || viaProxy;
+  }
+  if (!dispatchUrl || !ownPublicUrl) {
+    return {
+      ok: false,
+      error: "Task runner needs public HTTPS tailnet URLs",
+      requirement: !dispatchUrl
+        ? "Expose the Garrison app with tailscale serve, or configure dispatch_public_url."
+        : "Expose this Outposts view with tailscale serve, or configure worker_asset_base."
+    };
+  }
+  return {
+    ok: true,
+    dispatchUrl,
+    assetBase: `${ownPublicUrl}/worker/assets`,
+    installUrl: `${ownPublicUrl}/worker/install.sh`
+  };
+}
+
+// The bridge's public v1 contract names the executable `command`, takes argv in
+// `args`, and returns stdout/stderr as base64. A human command line is not an
+// executable path, so route it through an explicit shell without asking the
+// external provider to special-case Garrison.
+export function normaliseExecRpc(body) {
+  if (body?.type !== "exec.run" || typeof body?.payload?.command !== "string") return body;
+  return {
+    ...body,
+    payload: {
+      ...body.payload,
+      command: "/bin/sh",
+      args: ["-lc", body.payload.command]
+    }
+  };
+}
+
+export function buildWorkerInstaller({ installUrl, dispatchUrl, token, machine, assetBase }) {
+  return `curl -fsSL ${shellWord(installUrl)} | ` +
+    `GARRISON_DISPATCH_URL=${shellWord(dispatchUrl)} ` +
+    `GARRISON_TOKEN=${shellWord(token)} ` +
+    `GARRISON_MACHINE=${shellWord(machine)} ` +
+    `GARRISON_WORKER_ASSET_BASE=${shellWord(assetBase)} bash`;
+}
+
 function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
 }
 
 async function handleListOutposts(req, res, opts) {
   const result = await proxyJson(`${opts.outpostHostUrl}/outposts`, { cache: "no-store" });
-  jsonRes(res, result.status, result.data);
+  if (result.status !== 200 || !Array.isArray(result.data?.outposts) || !opts.appUrl) {
+    return jsonRes(res, result.status, result.data);
+  }
+  const workers = await proxyJson(`${opts.appUrl.replace(/\/+$/, "")}/api/dispatch/machines`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(3000)
+  });
+  const byName = new Map((workers.data?.machines || []).map((machine) => [machine.name, machine.worker]));
+  const targets = readTargets();
+  jsonRes(res, 200, {
+    ...result.data,
+    protocol: workers.data?.protocol || "outpost-dispatch/1.1",
+    outposts: result.data.outposts.map((outpost) => ({
+      ...outpost,
+      bridge: outpost.connected ? "connected" : "offline",
+      repairAvailable: Boolean(targets[outpost.name]?.sshHost && targets[outpost.name]?.sshUser),
+      repairRequirement: targets[outpost.name]
+        ? null
+        : "Add this machine under Claude config sync with its SSH user and tailnet host to enable one-click repair.",
+      worker: byName.get(outpost.name) || {
+        state: "offline",
+        ready: false,
+        stale: true,
+        detail: "Task runner has not checked in",
+        lastSeenAt: null,
+        workerVersion: null,
+        protocolVersion: null,
+        runtimes: [],
+        currentCardId: null,
+        error: null
+      }
+    }))
+  });
 }
 
 async function handleRegisterOutpost(req, res, opts) {
@@ -187,12 +355,31 @@ async function handlePair(req, res, opts) {
   if (!body || typeof body.name !== "string" || !body.name.trim()) {
     return jsonRes(res, 400, { error: "name (string) required" });
   }
+  const workerUrls = await resolveWorkerUrls(req, opts, body);
+  if (!workerUrls.ok) return jsonRes(res, 503, workerUrls);
   const result = await proxyJson(`${opts.outpostHostUrl}/registry/pair`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: body.name.trim() })
   });
-  jsonRes(res, result.status, result.data);
+  if (result.status !== 200 || !result.data?.token || !result.data?.installer) {
+    return jsonRes(res, result.status, result.data);
+  }
+  // Environment assignments belong on the command AFTER the pipe, not as pipe
+  // segments. Keep the expanded form explicit so the copyable command is valid.
+  const workerCommand = buildWorkerInstaller({
+    installUrl: workerUrls.installUrl,
+    dispatchUrl: workerUrls.dispatchUrl,
+    token: result.data.token,
+    machine: body.name.trim(),
+    assetBase: workerUrls.assetBase
+  });
+  jsonRes(res, 200, {
+    ...result.data,
+    dispatchUrl: workerUrls.dispatchUrl,
+    workerInstaller: workerCommand,
+    installer: `${String(result.data.installer).trim()} && ${workerCommand}`
+  });
 }
 
 async function handleUnregisterOutpost(req, res, opts, name) {
@@ -211,7 +398,7 @@ async function handleRpc(req, res, opts, name) {
   const result = await proxyJson(`${opts.outpostHostUrl}/outposts/${encodeURIComponent(name)}/rpc`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-garrison-caller": "outpost-ui" },
-    body: JSON.stringify(body)
+    body: JSON.stringify(normaliseExecRpc(body))
   });
   jsonRes(res, result.status, result.data);
 }
@@ -271,8 +458,99 @@ const SSH_HOST_RE = /^(?!-)[A-Za-z0-9._-]{1,253}$|^[0-9a-fA-F:]{2,45}$/; // host
 // Exported for the regression suite (see tests/outposts-fitting.test.ts).
 export const isValidSshTarget = (user, host) => SSH_USER_RE.test(String(user || "")) && SSH_HOST_RE.test(String(host || ""));
 
-async function handleProvision(req, res, opts) {
-  const body = await readBody(req);
+const sshArgs = (target, remoteCommand) => [
+  "-o", "BatchMode=yes",
+  "-o", "StrictHostKeyChecking=accept-new",
+  "-o", "ConnectTimeout=15",
+  target,
+  remoteCommand
+];
+
+// Establish a real, read-only SSH session before asking the host broker for any
+// pairing credential. In particular, an offline Mac must fail here while its
+// existing bridge token and registry entry are still untouched.
+export async function sshProvisionPreflight(sshUser, sshHost, {
+  spawnImpl = spawn,
+  timeoutMs = 18_000
+} = {}) {
+  if (!isValidSshTarget(sshUser, sshHost)) {
+    return { ok: false, error: "invalid ssh user or host" };
+  }
+  const target = `${sshUser}@${sshHost}`;
+  return await new Promise((resolve) => {
+    let child;
+    let stderr = "";
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try { child?.kill("SIGKILL"); } catch {}
+      finish({ ok: false, error: `SSH preflight timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
+    try {
+      child = spawnImpl("ssh", sshArgs(target, "/usr/bin/true"), {
+        stdio: ["ignore", "ignore", "pipe"]
+      });
+    } catch (error) {
+      finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    child.stderr?.on("data", (chunk) => {
+      if (stderr.length < 2000) stderr += chunk.toString("utf8");
+    });
+    child.once("error", (error) => {
+      finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    });
+    child.once("close", (code) => {
+      if (code === 0) finish({ ok: true });
+      else finish({
+        ok: false,
+        error: (stderr.trim() || `SSH preflight exited with code ${code ?? "unknown"}`).slice(0, 500)
+      });
+    });
+  });
+}
+
+// Testable credential boundary: when preflight fails, proxyJsonImpl is never
+// invoked, which proves /registry/pair cannot rotate the machine token.
+export async function requestProvisionPair({
+  outpostHostUrl,
+  machine,
+  sshUser,
+  sshHost,
+  reuseExisting = false
+}, {
+  spawnImpl = spawn,
+  proxyJsonImpl = proxyJson
+} = {}) {
+  if (reuseExisting) {
+    const preflight = await sshProvisionPreflight(sshUser, sshHost, { spawnImpl });
+    if (!preflight.ok) {
+      return {
+        status: 502,
+        data: {
+          error: "SSH preflight failed; the existing bridge pairing was left unchanged",
+          details: preflight.error
+        }
+      };
+    }
+  }
+  return await proxyJsonImpl(`${outpostHostUrl}/registry/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: machine, ...(reuseExisting ? { reuseExisting: true } : {}) })
+  });
+}
+
+async function handleProvision(req, res, opts, bodyOverride = null, {
+  reuseExistingPair = false,
+  workerOnly = false
+} = {}) {
+  const body = bodyOverride || await readBody(req);
   const sshHost = (body?.host || "").trim();
   const sshUser = (body?.user || "").trim();
   const rawName = (body?.name || sshHost).trim();
@@ -287,21 +565,35 @@ async function handleProvision(req, res, opts) {
   // Machine name: a filesystem/registry-safe slug derived from the requested name/host.
   const machine = rawName.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "outpost";
 
-  // Mint a pairing token so the remote agent can authenticate back to this host.
-  const pair = await proxyJson(`${opts.outpostHostUrl}/registry/pair`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: machine })
+  const workerUrls = await resolveWorkerUrls(req, opts, body);
+  if (!workerUrls.ok) return jsonRes(res, 503, workerUrls);
+
+  // New provisioning mints normally. Repair first proves SSH connectivity, then
+  // reuses the existing token so neither an unreachable Mac nor a later install
+  // failure can invalidate the external bridge's live credential.
+  const pair = await requestProvisionPair({
+    outpostHostUrl: opts.outpostHostUrl,
+    machine,
+    sshUser,
+    sshHost,
+    reuseExisting: reuseExistingPair
   });
   if (pair.status !== 200 || !pair.data?.token || !pair.data?.host) {
-    return jsonRes(res, 502, { error: "could not mint a pairing token from outpost-host", details: pair.data });
+    return jsonRes(res, pair.status >= 400 && pair.status < 600 ? pair.status : 502, {
+      error: reuseExistingPair
+        ? "could not safely reuse the existing pairing from outpost-host"
+        : "could not mint a pairing token from outpost-host",
+      details: pair.data
+    });
   }
 
   let script;
   try {
-    script = readFileSync(PROVISION_SCRIPT, "utf8");
+    // Repair is intentionally worker-only: it must not rewrite, restart, or
+    // otherwise perturb the external bridge that is already connected.
+    script = readFileSync(workerOnly ? INSTALL_WORKER_SCRIPT : PROVISION_SCRIPT, "utf8");
   } catch (err) {
-    return jsonRes(res, 500, { error: `provision script unavailable: ${err instanceof Error ? err.message : String(err)}` });
+    return jsonRes(res, 500, { error: `${workerOnly ? "worker repair" : "provision"} script unavailable: ${err instanceof Error ? err.message : String(err)}` });
   }
 
   const jobId = randomBytes(6).toString("hex");
@@ -313,9 +605,11 @@ async function handleProvision(req, res, opts) {
   const header =
     `export GARRISON_HOST=${JSON.stringify(pair.data.host)}\n` +
     `export GARRISON_TOKEN=${JSON.stringify(pair.data.token)}\n` +
-    `export GARRISON_MACHINE=${JSON.stringify(machine)}\n`;
+    `export GARRISON_MACHINE=${JSON.stringify(machine)}\n` +
+    `export GARRISON_DISPATCH_URL=${JSON.stringify(workerUrls.dispatchUrl)}\n` +
+    `export GARRISON_WORKER_ASSET_BASE=${JSON.stringify(workerUrls.assetBase)}\n`;
 
-  pushLine(job, `==> Provisioning ${machine} on ${sshUser}@${sshHost}`);
+  pushLine(job, `==> ${workerOnly ? "Repairing task runner for" : "Provisioning"} ${machine} on ${sshUser}@${sshHost}`);
   pushLine(job, `==> Connecting over SSH (BatchMode; key auth required)…`);
 
   const target = `${sshUser}@${sshHost}`;
@@ -344,7 +638,7 @@ async function handleProvision(req, res, opts) {
     '$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"; exec bash -s\'';
   const child = spawn(
     "ssh",
-    ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15", target, loginWrap],
+    sshArgs(target, loginWrap),
     { stdio: ["pipe", "pipe", "pipe"] }
   );
 
@@ -361,8 +655,10 @@ async function handleProvision(req, res, opts) {
   child.stdout.on("data", relay);
   child.stderr.on("data", relay);
   child.on("close", async (code) => {
-    pushLine(job, code === 0 ? "==> Provisioning finished (exit 0)." : `==> Provisioning exited with code ${code}.`);
-    if (code === 0) {
+    pushLine(job, code === 0
+      ? `==> ${workerOnly ? "Task runner repair" : "Provisioning"} finished (exit 0).`
+      : `==> ${workerOnly ? "Task runner repair" : "Provisioning"} exited with code ${code}.`);
+    if (code === 0 && !workerOnly) {
       // Register this Mac as a config-sync target and push the portable
       // ~/.claude subset now (the "skills bundle" provision-outpost.sh leaves
       // as a TODO). Ongoing sync is driven by the file watcher.
@@ -391,6 +687,29 @@ async function handleProvision(req, res, opts) {
   }
 
   jsonRes(res, 200, { ok: true, jobId, machine });
+}
+
+async function handleRepairWorker(req, res, opts, name) {
+  const target = readTargets()[name];
+  if (!target?.sshHost || !target?.sshUser) {
+    return jsonRes(res, 409, {
+      error: "Cannot repair this task runner without an SSH target",
+      requirement: "Add this machine under Claude config sync with its SSH user and tailnet host, then retry Enable/Repair task runner."
+    });
+  }
+  return await handleProvision(req, res, opts, {
+    name,
+    host: target.sshHost,
+    user: target.sshUser
+  }, { reuseExistingPair: true, workerOnly: true });
+}
+
+function serveWorkerFile(res, filePath) {
+  if (!existsSync(filePath)) return jsonRes(res, 404, { error: "worker asset unavailable" });
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  createReadStream(filePath).pipe(res);
 }
 
 function handleProvisionStream(req, res, jobId) {
@@ -564,6 +883,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/outposts" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleRegisterOutpost(req, res, liveOpts); }
       if (pathname === "/registry/pair" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handlePair(req, res, liveOpts); }
       if (pathname === "/provision" && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleProvision(req, res, liveOpts); }
+      if (pathname === "/worker/install.sh" && method === "GET") return serveWorkerFile(res, INSTALL_WORKER_SCRIPT);
+
+      const workerAssetMatch = pathname.match(/^\/worker\/assets\/([^/]+)$/);
+      if (workerAssetMatch && method === "GET") {
+        const name = decodeURIComponent(workerAssetMatch[1]);
+        const asset = WORKER_ASSETS.get(name);
+        if (!asset) return jsonRes(res, 404, { error: "unknown worker asset" });
+        return serveWorkerFile(res, asset);
+      }
 
       const provStreamMatch = pathname.match(/^\/provision\/([^/]+)\/stream$/);
       if (provStreamMatch && method === "GET") return await handleProvisionStream(req, res, decodeURIComponent(provStreamMatch[1]));
@@ -575,6 +903,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (syncTargetMatch && method === "DELETE") { if (crossSiteBlocked(req, res)) return; return handleRemoveSyncTarget(req, res, decodeURIComponent(syncTargetMatch[1])); }
       const syncOneMatch = pathname.match(/^\/outposts\/([^/]+)\/sync$/);
       if (syncOneMatch && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleSyncOne(req, res, decodeURIComponent(syncOneMatch[1])); }
+
+      const repairWorkerMatch = pathname.match(/^\/outposts\/([^/]+)\/worker\/repair$/);
+      if (repairWorkerMatch && method === "POST") { if (crossSiteBlocked(req, res)) return; return await handleRepairWorker(req, res, liveOpts, decodeURIComponent(repairWorkerMatch[1])); }
 
       const logMatch = pathname.match(/^\/outposts\/([^/]+)\/log$/);
       if (logMatch && method === "GET") return await handleLog(req, res, liveOpts, decodeURIComponent(logMatch[1]), parsed.query?.limit);

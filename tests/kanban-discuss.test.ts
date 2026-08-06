@@ -42,15 +42,16 @@ function channelDecodeContext(raw: string | null): unknown {
 }
 
 describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", () => {
-  it("encodes mode=james and an opaque context the channel can decode without kanban knowledge", () => {
+  it("encodes a Discuss source and opaque context the channel can decode", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add a Discuss brief", project: "garrison" };
     const url = buildDiscussUrl(card);
 
-    // The URL targets the web channel in James mode via Garrison's embed route.
+    // The URL targets a thread whose host pins the Discuss duty.
     // The seed web-channel fitting id is `web-channel-default` (the /embed/<id>).
     expect(url.startsWith("/embed/web-channel-default?")).toBe(true);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
-    expect(q.get("mode")).toBe("james");
+    expect(q.get("source")).toBe("discuss");
+    expect(q.get("mode")).toBeNull();
 
     // The channel does exactly two things with `context`: URLSearchParams
     // url-decodes it, then decodeContext un-wraps the base64 transport layer.
@@ -60,7 +61,7 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
     const forwarded = channelDecodeContext(rawContext);
     expect(typeof forwarded).toBe("string");
 
-    // Only downstream (James) parses the blob — and it round-trips to the card.
+    // The downstream Operative can parse the blob, which round-trips to the card.
     const ctx = JSON.parse(forwarded as string);
     expect(ctx).toMatchObject({
       source: "kanban",
@@ -77,7 +78,7 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
   it("computes an absolute, card-owned briefAbsPath from cardsAbsDir", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "X", project: null };
     const url = buildDiscussUrl(card, { webChannelBase: "/fitting/web-channel/", cardsAbsDir: "/Users/x/.garrison/kanban-loop/cards" });
-    expect(url.startsWith("/fitting/web-channel?mode=james&context=")).toBe(true);
+    expect(url.startsWith("/fitting/web-channel?source=discuss&context=")).toBe(true);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
     const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
     expect(ctx.briefAbsPath).toBe("/Users/x/.garrison/kanban-loop/cards/01HZX5K3QABCDEFGHJKMNPQRS0/brief.md");
@@ -97,10 +98,10 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
 });
 
 describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)", () => {
-  it("leads with 'James,' (so the gateway switches the face) and carries the title + description + brief path", () => {
+  it("is persona-free and carries the title + description + brief path", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison", description: "Users hit a redirect loop on Safari." };
     const k = buildDiscussKickoff(card);
-    expect(k.startsWith("James,")).toBe(true);
+    expect(k).toMatch(/^Let's talk this work item through/);
     expect(k).toContain("# Card: Add SSO");
     expect(k).toContain("Project: garrison");
     expect(k).toContain("Users hit a redirect loop on Safari.");
@@ -132,13 +133,13 @@ describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)
 });
 
 describe("kanban discuss — buildDiscussUrl carries the kickoff + description", () => {
-  it("adds a kickoff param that decodes (same as context) to the James opening message", () => {
+  it("adds a kickoff param that decodes to the Discuss opening message", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "g", description: "loop on Safari" };
     const url = buildDiscussUrl(card);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
     const kickoff = channelDecodeContext(q.get("kickoff"));
     expect(typeof kickoff).toBe("string");
-    expect((kickoff as string).startsWith("James,")).toBe(true);
+    expect(kickoff).toMatch(/^Let's talk this work item through/);
     expect(kickoff).toContain("loop on Safari");
     // Non-ASCII survives the base64 transport (the em-dash in the brief instruction) —
     // a regression guard for the UTF-8 decode fix (atob alone mangled multi-byte chars).

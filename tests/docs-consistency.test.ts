@@ -5,8 +5,8 @@ import { facultyIds, capabilityKinds } from "@/lib/types";
 
 // RC5 docs-sync gate. This test derives the ground truth from SOURCE
 // (`src/lib/types.ts`) and asserts the canonical docs reflect the current
-// role model — 8 roles after the 2026-06-18 sessions split (was 24 flat
-// faculties before the Quarters pivot), the shrunk capability-kind
+// role model — 16 roles total (8 core roles after `modes` retirement, seven
+// optional capability roles, and connectors), the shrunk capability-kind
 // vocabulary, and the dropped kinds explicitly marked dropped. It is
 // code-derived (not a hardcoded string list) so it keeps catching doc drift
 // as the source evolves.
@@ -19,8 +19,9 @@ const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 // data-source left this list 2026-06-10, automation-runner left it
 // 2026-06-13 (MR wave), and mcp-gateway left it 2026-07-10 — all re-added
 // as live kinds for real Fittings (trello-data-source; the scheduler + the
-// nightly Improver; the modes Fitting's soul-mode talk_to sidecar).
-const DROPPED_KINDS = ["soul", "agent-skill"];
+// nightly Improver; the Garrison control sidecar). `modes` was added later and
+// retired when editable Identity moved into Orchestrator.
+const DROPPED_KINDS = ["soul", "agent-skill", "modes"];
 
 // The kinds the 2026-06 Dev Env consolidation retired — terminal,
 // worktree-management, and session-view collapsed into the single dev-env
@@ -35,11 +36,10 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
   it("source is the truth this test guards against: the role set + dropped kinds gone", () => {
     expect([...facultyIds].sort()).toEqual(
       [
-        // 9 role faculties (Quarters pivot + sessions split + modes)
+        // 8 core role faculties (Quarters pivot + sessions split; modes retired)
         "channels",
         "gateway",
         "memory",
-        "modes",
         "observability",
         "orchestrator",
         "runtimes",
@@ -72,15 +72,14 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
     }
   });
 
-  it("CAPABILITIES.md explicitly marks the dropped kinds as dropped", () => {
+  it("CAPABILITIES.md explicitly marks every dropped kind as dropped", () => {
     const doc = read("docs/CAPABILITIES.md");
-    const droppedLine = doc
-      .split("\n")
-      .find((line) => /dropped|removed|retired/i.test(line) && DROPPED_KINDS.every((k) => line.includes(k)));
-    expect(
-      droppedLine,
-      "CAPABILITIES.md needs one line marking all four dropped kinds as dropped/removed/retired"
-    ).toBeTruthy();
+    for (const kind of DROPPED_KINDS) {
+      const droppedLine = doc
+        .split("\n")
+        .find((line) => /dropped|removed|retired/i.test(line) && line.includes(kind));
+      expect(droppedLine, `CAPABILITIES.md must mark ${kind} dropped/removed/retired`).toBeTruthy();
+    }
   });
 
   it("CAPABILITIES.md explicitly marks the Dev Env consolidation's dropped kinds", () => {
@@ -105,7 +104,7 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
     }
   });
 
-  it("FACULTIES.md describes the 6 roles, not the retired flat-Faculty count", () => {
+  it("FACULTIES.md describes every live role, not the retired flat-Faculty count", () => {
     const doc = read("docs/FACULTIES.md");
     for (const role of facultyIds) {
       expect(doc, `FACULTIES.md must name role "${role}"`).toContain(role);
@@ -115,7 +114,7 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
     );
   });
 
-  it("CLAUDE.md names the 6 roles and drops the stale 24-faculty count", () => {
+  it("CLAUDE.md names every live role and drops the stale 24-faculty count", () => {
     const doc = read("CLAUDE.md");
     for (const role of facultyIds) {
       expect(doc, `CLAUDE.md must name role "${role}"`).toContain(role);
