@@ -22,29 +22,50 @@ export type CoreMode = "idle" | "working" | "listening" | "speaking" | "error" |
 export type BgMode = "flat" | "depth" | "grid" | "nebula";
 export const BG_MODES: BgMode[] = ["flat", "depth", "grid", "nebula"];
 
-// color stays in the red family (black-and-red skin) with a slow wobble;
-// modes shape tempo + brightness, error locks the hue to a tighter red
+// Each mode owns a WHOLE-ORB colour, not just tempo — the state must read at a
+// glance from the colour alone. modes shape tempo + brightness (FEELS) AND the
+// palette the orb lerps toward (PALETTES). The three headline states:
+//   listening → cyan blue    thinking(working) → magenta/pink    speaking → near-white blue
 interface ModeFeel {
   speed: number; // rotation/drift multiplier
   boost: number; // brightness multiplier
-  hueRate: number; // hue cycle multiplier
 }
 
 const FEELS: Record<CoreMode, ModeFeel> = {
-  idle: { speed: 1, boost: 1, hueRate: 1 },
-  working: { speed: 1.7, boost: 1.25, hueRate: 2.2 },
-  listening: { speed: 1.2, boost: 1.1, hueRate: 0.6 },
-  speaking: { speed: 1.3, boost: 1.15, hueRate: 1 },
-  error: { speed: 1.8, boost: 1.2, hueRate: 0 },
-  muted: { speed: 0.5, boost: 0.85, hueRate: 0.4 },
+  idle: { speed: 1, boost: 1 },
+  working: { speed: 1.7, boost: 1.3 },
+  listening: { speed: 1.2, boost: 1.12 },
+  speaking: { speed: 1.3, boost: 1.18 },
+  error: { speed: 1.8, boost: 1.2 },
+  muted: { speed: 0.5, boost: 0.85 },
 };
 
-const ERROR_HUE = 0.015;
-// black-and-red skin: the orb stays in the red family — no full-spectrum
-// hue voyage. BASE_HUE 0 = pure red (three.js HSL); a small wobble keeps it
-// alive without drifting into orange/green/blue.
-const BASE_HUE = 0.0;
-const HUE_WOBBLE = 0.025;
+// Per-mode palette. HSL is three.js HSL (h,s,l ∈ 0..1). `inner` is the bright
+// core tint, `outer` the darker rim, `edge` the link colour, `hue` feeds the
+// speaking shimmer so it stays in-family. The tick lerps the live uniforms
+// toward these so a mode flip cross-fades instead of snapping.
+interface ModePalette {
+  inner: [number, number, number];
+  outer: [number, number, number];
+  edge: [number, number, number];
+  hue: number;
+}
+
+// h: cyan ≈ 0.52 · blue ≈ 0.60 · magenta/pink ≈ 0.88 · red = 0.0
+const PALETTES: Record<CoreMode, ModePalette> = {
+  // idle — calm, dim cyan (a resting version of listening)
+  idle: { inner: [0.52, 0.55, 0.72], outer: [0.52, 0.7, 0.42], edge: [0.52, 0.65, 0.52], hue: 0.52 },
+  // thinking — magenta/pink
+  working: { inner: [0.88, 0.85, 0.8], outer: [0.88, 0.95, 0.55], edge: [0.88, 0.9, 0.64], hue: 0.88 },
+  // listening — cyan blue
+  listening: { inner: [0.52, 0.85, 0.8], outer: [0.52, 0.95, 0.52], edge: [0.52, 0.9, 0.62], hue: 0.52 },
+  // speaking — white with a slight blue
+  speaking: { inner: [0.6, 0.22, 0.96], outer: [0.6, 0.45, 0.82], edge: [0.6, 0.35, 0.88], hue: 0.6 },
+  // error — red
+  error: { inner: [0.0, 0.85, 0.8], outer: [0.0, 0.95, 0.48], edge: [0.0, 0.9, 0.58], hue: 0.0 },
+  // muted — desaturated grey-blue
+  muted: { inner: [0.6, 0.05, 0.7], outer: [0.6, 0.08, 0.4], edge: [0.6, 0.06, 0.5], hue: 0.6 },
+};
 
 const CLOUD_R = 1.5;
 const N_NODES = 2200;
@@ -245,10 +266,10 @@ export default function GraphCore({
         uTime: { value: 0 },
         uBoost: { value: 1 },
         uLevel: { value: 0 },
-        uHue: { value: 0.62 },
+        uHue: { value: PALETTES.idle.hue },
         uOrb: { value: 0 },
-        uInner: { value: new THREE.Color().setHSL(0.0, 0.65, 0.84) },
-        uOuter: { value: new THREE.Color().setHSL(0.0, 0.85, 0.45) },
+        uInner: { value: new THREE.Color().setHSL(...PALETTES.idle.inner) },
+        uOuter: { value: new THREE.Color().setHSL(...PALETTES.idle.outer) },
       },
       transparent: true,
       depthWrite: false,
@@ -305,7 +326,7 @@ export default function GraphCore({
     edgeAttr.setUsage(THREE.DynamicDrawUsage);
     edgeGeo.setAttribute("position", edgeAttr);
     const edgeMat = new THREE.LineBasicMaterial({
-      color: new THREE.Color().setHSL(0.0, 0.8, 0.55),
+      color: new THREE.Color().setHSL(...PALETTES.idle.edge),
       transparent: true,
       opacity: 0.14,
       blending: THREE.AdditiveBlending,
@@ -493,7 +514,9 @@ export default function GraphCore({
     const clock = new THREE.Clock();
     let level = 0;
     let speed = 1;
-    let hue = BASE_HUE; // red — see BASE_HUE/HUE_WOBBLE above
+    // current shimmer hue, eased toward the active mode's palette hue so the
+    // speaking shimmer and the palette never disagree during a cross-fade
+    let hue = PALETTES.idle.hue;
     let lastT = 0;
     // speed-integrated clock — mode changes alter velocity, never position
     // (t * speed would snap rotation/drift when speed lerps on a mode flip)
@@ -522,15 +545,11 @@ export default function GraphCore({
       speed += (feel.speed - speed) * 0.03;
       simT += dt * speed;
 
-      // gentle wobble around red (~40s per lap of the wobble), never a full
-      // spectrum voyage; speech widens the wobble slightly, error parks tighter on red
-      if (modeRef.current !== "error") {
-        hue = (1 + BASE_HUE + HUE_WOBBLE * Math.sin(simT * 0.025 * feel.hueRate + level * 0.6)) % 1;
-      }
-      const h = modeRef.current === "error" ? ERROR_HUE : hue;
-
-      // note: the hue voyage stays internal to the orb — the HUD chrome keeps
-      // its fixed palette (no --accent-h write here, unlike the reference).
+      // the active mode owns the palette; ease the shimmer hue toward it so a
+      // mode flip cross-fades the colour instead of snapping
+      const pal = PALETTES[modeRef.current];
+      hue += (pal.hue - hue) * 0.06;
+      const h = hue;
 
       // node drift — edges copy endpoints so links follow
       const ts = simT;
@@ -555,10 +574,10 @@ export default function GraphCore({
       posAttr.needsUpdate = true;
       edgeAttr.needsUpdate = true;
 
-      // palette follows the hue voyage
-      tInner.setHSL(h, 0.65, 0.84);
-      tOuter.setHSL(h, 0.85, 0.45);
-      tEdge.setHSL(h, 0.8, 0.55);
+      // palette follows the active mode — full cross-fade on a state change
+      tInner.setHSL(...pal.inner);
+      tOuter.setHSL(...pal.outer);
+      tEdge.setHSL(...pal.edge);
       (nodeMat.uniforms.uInner.value as THREE.Color).lerp(tInner, 0.06);
       (nodeMat.uniforms.uOuter.value as THREE.Color).lerp(tOuter, 0.06);
       edgeMat.color.lerp(tEdge, 0.06);
