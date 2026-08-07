@@ -1,0 +1,14 @@
+{
+  "name": "whatsapp-web-fitting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal WhatsApp channel Fitting for Agent Garrison \u2014 WhatsApp Web protocol (Baileys), no browser.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "qrcode": "^1.5.4"
+  }
+}
