@@ -331,6 +331,24 @@ export async function cardsByOrigin(origin_id) {
   }
 }
 
+// Direct card fetch by id. Discuss threads carry the card id IN the thread key
+// (the web channel thread `kanban-<cardId>`, kanban-loop's buildDiscussUrl
+// convention) and never write an origins entry, so origin lookup alone cannot
+// resolve them. Same 3s bound as cardsByOrigin: this runs on the turn path.
+export async function cardById(cardId) {
+  try {
+    const base = boardBase();
+    if (!base || !cardId) return null;
+    const r = await fetch(`${base}/cards/${encodeURIComponent(cardId)}`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return null;
+    const doc = await r.json();
+    const card = doc.card ?? doc;
+    return card && typeof card === "object" && card.id ? card : null;
+  } catch {
+    return null;
+  }
+}
+
 // True only when the card is STILL an active engine run: it exists and sits on
 // a non-terminal, non-parked pipeline list with no abandonment revert prepared.
 // A fetch failure counts as NOT live (safe: the caller registers fresh).

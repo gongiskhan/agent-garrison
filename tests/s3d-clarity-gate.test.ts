@@ -449,3 +449,60 @@ describe("brief-to-thread + gate: explicit", () => {
     expect(dutyGateExplicit(model, "plan")).toBe(false);
   });
 });
+
+// ── Part 4d: discuss-thread resolution by embedded card id (2026-08-07) ──────
+// Discuss threads carry the card id IN the web-channel thread key
+// (`kanban-<cardId>`, buildDiscussUrl) and never write an origins entry, so the
+// origin lookup alone missed and the gateway mis-carded every discuss kickoff
+// as a fresh quick task (observed twice on 2026-08-06). The resolver now honors
+// the convention directly, and a discuss-list card's thread messages are a
+// dialogue - never steering.
+describe("discuss thread resolution by embedded card id", () => {
+  const ULID = "01KZAYMB217D9XT337CFF5JEMW";
+  const boot = (card: any) =>
+    new RoutedGateway({
+      config: { taskTypes: [], tiers: [] },
+      cardsLib: {
+        cardsByOrigin: async () => [],
+        cardById: async (id: string) => (id === ULID ? card : null)
+      }
+    });
+
+  it("attaches a live discuss card named in the thread key - no origins entry needed", async () => {
+    const r = await boot({ id: ULID, list: "discuss", title: "t" }).resolveThreadCard(`web:kanban-${ULID}`);
+    expect(r?.attach?.id).toBe(ULID);
+    expect(r?.attach?.list).toBe("discuss");
+  });
+
+  it("continues from a done card; refuses parked, revert-prepared, and absent ones", async () => {
+    expect((await boot({ id: ULID, list: "done" }).resolveThreadCard(`web:kanban-${ULID}`))?.continueFrom).toBe(ULID);
+    expect(await boot({ id: ULID, list: "needs-attention" }).resolveThreadCard(`web:kanban-${ULID}`)).toBeNull();
+    expect(await boot({ id: ULID, list: "implement", preparedRevert: true }).resolveThreadCard(`web:kanban-${ULID}`)).toBeNull();
+    expect(await boot(null).resolveThreadCard(`web:kanban-${ULID}`)).toBeNull();
+  });
+
+  it("a thread key outside the convention stays null when the origin lookup is empty", async () => {
+    expect(await boot({ id: ULID, list: "discuss" }).resolveThreadCard("web:th-random")).toBeNull();
+  });
+
+  it("an origins match still wins over the embedded-id convention", async () => {
+    const gw = new RoutedGateway({
+      config: { taskTypes: [], tiers: [] },
+      cardsLib: {
+        cardsByOrigin: async () => [{ id: "OTHER", list: "implement" }],
+        cardById: async () => ({ id: ULID, list: "discuss" })
+      }
+    });
+    expect((await gw.resolveThreadCard(`web:kanban-${ULID}`))?.attach?.id).toBe("OTHER");
+  });
+
+  it("a discuss-list card never classifies as steering - its thread is the dialogue", async () => {
+    const gw = new RoutedGateway({ config: { taskTypes: [], tiers: [] } });
+    const r = await gw.classifyAttachSteering({
+      attached: { card: { id: "x", list: "discuss" } },
+      origin: "web",
+      message: "let's narrow the scope to the api only"
+    });
+    expect(r).toBeNull();
+  });
+});

@@ -942,6 +942,9 @@ export class RoutedGateway {
     this.secretsFn = opts.secretsFn ?? null;
     this._projectResolver = opts.resolveProject ?? null;
     this._accountResolver = opts.resolveAccount ?? null;
+    // Injectable board-cards lib (tests) - resolveThreadCard uses it; null =
+    // the real autonomous-cards module.
+    this._cardsLib = opts.cardsLib ?? null;
   }
 
   async start() {
@@ -1682,14 +1685,31 @@ export class RoutedGateway {
   // behavior); else the most recent DONE card -> continueFrom (a post-done follow-up
   // becomes a continuation ON THE BOARD). Returns { attach } | { continueFrom } | null.
   async resolveThreadCard(origin_id) {
-    const list = await cards.cardsByOrigin(origin_id);
-    if (!Array.isArray(list) || list.length === 0) return null;
-    const live = list.find(
-      (c) => c && c.list && c.list !== "done" && c.list !== "needs-attention" && !c.preparedRevert
-    );
-    if (live) return { attach: live };
-    const done = list.find((c) => c && c.list === "done");
-    if (done) return { continueFrom: done.id };
+    const lib = this._cardsLib ?? cards;
+    const list = await lib.cardsByOrigin(origin_id);
+    if (Array.isArray(list) && list.length > 0) {
+      const live = list.find(
+        (c) => c && c.list && c.list !== "done" && c.list !== "needs-attention" && !c.preparedRevert
+      );
+      if (live) return { attach: live };
+      const done = list.find((c) => c && c.list === "done");
+      if (done) return { continueFrom: done.id };
+      return null;
+    }
+    // Discuss threads name the card IN the thread key (`web:kanban-<cardId>`,
+    // the buildDiscussUrl convention) and never write an origins entry. Before
+    // 2026-08-07 this lookup simply missed, the kickoff classified task-shaped,
+    // and the gateway registered a fresh QUICK card that answered one-shot and
+    // self-completed while the real card sat in Discuss (observed twice on
+    // 2026-08-06). Resolve the embedded id directly, same live/done contract.
+    const threadCardId = /^web:kanban-([0-9A-HJKMNP-TV-Z]{26})$/i.exec(String(origin_id ?? ""))?.[1];
+    if (threadCardId && typeof lib.cardById === "function") {
+      const card = await lib.cardById(threadCardId);
+      if (card?.id && card.list && card.list !== "done" && card.list !== "needs-attention" && !card.preparedRevert) {
+        return { attach: card };
+      }
+      if (card?.list === "done") return { continueFrom: card.id };
+    }
     return null;
   }
 
@@ -1785,6 +1805,11 @@ export class RoutedGateway {
     if (origin !== "web" || !attached) return null;
     const card = attached.card ?? (await this.getLiveCard(attached.cardId));
     if (!card) return null;
+    // A card sitting in Discuss is a DIALOGUE, not a live run: its thread
+    // messages are the conversation itself, never steering. Classifying them
+    // as absorb/revisit would post steer directives at a card that has not
+    // started - fall through to the ordinary conversational turn instead.
+    if (card.list === "discuss") return null;
     const steer = await this.runSteerClassification({ message, card });
     return { steer, card };
   }
