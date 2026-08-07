@@ -24,6 +24,7 @@
  */
 
 import http from "node:http";
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs/promises";
 import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
@@ -102,7 +103,20 @@ let session = null;
 let lastMaterialized = null; // S3b: last web materialized turn (introspection evidence)
 let ptyStatus = "spawning"; // spawning | ready | failed
 let ptyError = null;
-let inflight = null; // promise chain — turns serialize
+// 2026-08-07: the PTY-era GLOBAL turn chain is gone. Turns now serialize per
+// execution lane: warm SDK sessions and cwd-keyed delegates queue inside
+// RoutedGateway (_onLane), exec secondaries and disposable one-shots are
+// independent by construction, and only work that touches the STANDING
+// operative session waits here. Three run-killing starvations in one week
+// (gemini flood, curation backlog, one 5-minute chat turn) all came from the
+// global chain making every lane wait on every other lane's turn.
+let operativeChain = null; // promise chain — STANDING-operative work only
+function enqueueOperative(fn) {
+  const previous = operativeChain ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => fn());
+  operativeChain = next.catch(() => {});
+  return next;
+}
 let router = null; // pre-session routing layer, null = legacy single-session
 const jobIngress = createJobIngressGuard();
 let readyResolve;
@@ -1000,13 +1014,18 @@ export function pendingRouteFrame(pre, hints, extra = {}) {
 // interrupt arriving before then reports the honest "no cancel primitive yet".
 const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled, dutyKey, cardIds }
 const INTERRUPT_FALLBACK_KEY = "operative";
-let currentTurnEntry = null;
+// Concurrent turns (2026-08-07) can no longer share one module-global "current
+// turn" cursor: each turn's registry entry rides its own async context, so a
+// lane registering its stop primitive always lands on ITS turn even while other
+// turns are mid-flight on other lanes.
+const turnContext = new AsyncLocalStorage();
 
 // Called by each lane once it owns something interruptible.
 function registerTurnStop(lane, stop) {
-  if (!currentTurnEntry) return;
-  currentTurnEntry.lane = lane;
-  currentTurnEntry.stop = stop;
+  const entry = turnContext.getStore();
+  if (!entry) return;
+  entry.lane = lane;
+  entry.stop = stop;
 }
 
 /** POST /chat/interrupt {sessionId?, cardId?} → {ok, lane} | 404 | 409.
@@ -1828,6 +1847,11 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     };
   }
 
+  // Standing-operative execution: ONE conversation, so it queues on the
+  // operative lane (2026-08-07) while routed SDK/delegate/one-shot turns run
+  // concurrently on their own lanes.
+  return await enqueueOperative(async () => {
+  session = router.getOperativeSession();
   let lastEmitted = "";
   const journal = reportJournal(
     opts,
@@ -1924,6 +1948,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     ruleId: pre.decision?.ruleId ?? null,
     profile: pre.decision?.profile ?? null,
   };
+  });
 }
 
 /** Run one turn against the live operative. Spawns/respawns on demand.
@@ -1951,12 +1976,10 @@ async function runTurn(message, onChunk, hints, opts = {}) {
     dutyKey: typeof hints?.dutyKey === "string" ? hints.dutyKey : null,
     cardIds
   };
-  const prevTurnEntry = currentTurnEntry;
-  currentTurnEntry = entry;
   activeTurns.set(turnKey, entry);
   try {
     if (router) {
-      const result = await runRoutedTurn(message, onChunk, hints, opts);
+      const result = await turnContext.run(entry, () => runRoutedTurn(message, onChunk, hints, opts));
       // A cancelled turn settles NORMALLY with its partial reply - the stop is not
       // an error path - so the done frame is where the user learns it was stopped.
       return entry.cancelled
@@ -1973,49 +1996,54 @@ async function runTurn(message, onChunk, hints, opts = {}) {
           }
         : result;
     }
-    if (!session || session.isDisposed() || !session.isAlive()) {
-      logEvent("stdout", { kind: "respawn-before-turn" });
-      ptyStatus = "spawning";
-      await spawnOperative({ resume: true });
-    }
-    let lastEmitted = "";
-    const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
-    const onScreen = () => {
-      emitScreenActivity();
-      if (!onChunk) return;
-      const current = extractReply(session.handle, message);
-      if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
-        onChunk(current.slice(lastEmitted.length));
-        lastEmitted = current;
-      } else if (current && current !== lastEmitted) {
-        // Reflow / divergence - re-emit the whole thing as a correction.
-        onChunk(current, true);
-        lastEmitted = current;
+    // Legacy single-session path: the standing PTY is one conversation, so its
+    // turns queue on the operative lane (the routed path gates its own
+    // standing-session tail the same way inside execRoutedTurn).
+    return await turnContext.run(entry, () => enqueueOperative(async () => {
+      if (!session || session.isDisposed() || !session.isAlive()) {
+        logEvent("stdout", { kind: "respawn-before-turn" });
+        ptyStatus = "spawning";
+        await spawnOperative({ resume: true });
       }
-    };
-    // The legacy single-session path is a Claude PTY too, so ESC stops it.
-    registerTurnStop("standing-pty", () => {
-      if (typeof session?.writeKeys !== "function") return false;
-      session.writeKeys("\x1b");
-      return true;
-    });
-    const journal = reportJournal(opts, sessionJournalIdentity(session));
-    const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
-    await markPriorSession();
-    return {
-      reply: outcome.reply,
-      session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
-      transcript_path: journal?.transcript_path ?? null,
-      cost_usd: null,
-      ...(entry.cancelled
-        ? {
-            stoppedByUser: true,
-            stoppedReason: "user-interrupt",
-            interruptedByCardId: entry.interruptedByCardId ?? null,
-            affectedCardIds: entry.cardIds
-          }
-        : {})
-    };
+      let lastEmitted = "";
+      const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
+      const onScreen = () => {
+        emitScreenActivity();
+        if (!onChunk) return;
+        const current = extractReply(session.handle, message);
+        if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
+          onChunk(current.slice(lastEmitted.length));
+          lastEmitted = current;
+        } else if (current && current !== lastEmitted) {
+          // Reflow / divergence - re-emit the whole thing as a correction.
+          onChunk(current, true);
+          lastEmitted = current;
+        }
+      };
+      // The legacy single-session path is a Claude PTY too, so ESC stops it.
+      registerTurnStop("standing-pty", () => {
+        if (typeof session?.writeKeys !== "function") return false;
+        session.writeKeys("\x1b");
+        return true;
+      });
+      const journal = reportJournal(opts, sessionJournalIdentity(session));
+      const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
+      await markPriorSession();
+      return {
+        reply: outcome.reply,
+        session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
+        transcript_path: journal?.transcript_path ?? null,
+        cost_usd: null,
+        ...(entry.cancelled
+          ? {
+              stoppedByUser: true,
+              stoppedReason: "user-interrupt",
+              interruptedByCardId: entry.interruptedByCardId ?? null,
+              affectedCardIds: entry.cardIds
+            }
+          : {})
+      };
+    }));
   } finally {
     // The turn ended (returned, timed out, or threw) - an unanswered question it raised
     // is now dead; drop it so it cannot answer a future thread's reply.
@@ -2024,7 +2052,6 @@ async function runTurn(message, onChunk, hints, opts = {}) {
     // Only clear the registry slot if it is still OURS (a later turn on the same
     // conversation key must not be un-cancellable because an older one finished).
     if (activeTurns.get(turnKey) === entry) activeTurns.delete(turnKey);
-    currentTurnEntry = prevTurnEntry;
   }
 }
 
@@ -2153,24 +2180,24 @@ export function routeHintsFromBody(body) {
 }
 
 function enqueueTurn(message, onChunk, hints, opts = {}) {
-  const previous = inflight ?? Promise.resolve();
-  const runP = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints, opts));
-  // Turn-boundary compaction check (S1b): chained AFTER the turn so the NEXT
-  // enqueued turn waits for any compaction, while the caller only awaits the turn
-  // result (runP). Never rejects the chain.
-  inflight = runP.then((result) => maybeCompactAtTurnBoundary(hints, result)).catch(() => {});
+  // No global chain (2026-08-07): the turn starts NOW and serializes only where
+  // its resolved lane demands it (see the per-lane queues in gateway-routing and
+  // the operative gate above).
+  const runP = runTurn(message, onChunk, hints, opts);
+  // Turn-boundary compaction check (S1b): only the standing claude-code
+  // operative accumulates context across turns (maybeCompact self-filters), so
+  // the check queues on the OPERATIVE lane - it must never overlap an operative
+  // turn, and it must not delay the caller (runP settles independently).
+  runP.then((result) => enqueueOperative(() => maybeCompactAtTurnBoundary(hints, result))).catch(() => {});
   return runP;
 }
 
 // Enqueue an arbitrary boundary action (e.g. a duty-boundary compact check) onto
-// the same serialized turn chain, so it can never overlap a turn. Returns the
-// action's promise; the chain swallows its rejection so one failure never wedges
-// the next turn.
+// the operative lane, so it can never overlap standing-operative work. Returns
+// the action's promise; the chain swallows its rejection so one failure never
+// wedges the next turn.
 function enqueue(fn) {
-  const previous = inflight ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(() => fn());
-  inflight = next.catch(() => {});
-  return next;
+  return enqueueOperative(fn);
 }
 
 // S3d review R1/R3: at the HTTP entry point (BEFORE enqueueTurn), decide whether a web

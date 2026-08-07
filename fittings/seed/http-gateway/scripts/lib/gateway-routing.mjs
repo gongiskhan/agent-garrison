@@ -890,6 +890,12 @@ export class RoutedGateway {
     // Lazily constructed; one warm session per {provider,model,promptMode}.
     this._agentSdkAdapter = opts.agentSdkAdapter ?? null;
     this._agentSdkSessions = new Map();
+    // Per-lane turn queues (2026-08-07): a warm session is ONE conversation, so
+    // turns on the same session key serialize on its own chain - and nothing
+    // else. The PTY-era GLOBAL chain lived in gateway-pty's enqueueTurn and made
+    // every lane wait for every other lane's turn; three run-killing
+    // starvations in one week came from exactly that.
+    this._laneQueues = new Map();
     // secondary runtimes (codex/gpt, gemini) executed directly by the gateway.
     this._secondaryAdapters = opts.secondaryAdapters ?? new Map();
     // A Claude target under a non-Claude primary is a delegate, not a mutation of
@@ -973,6 +979,23 @@ export class RoutedGateway {
   // Claude Agent SDK, incl. Anthropic), not the claude-code PTY operative.
   isAgentSdkTarget(route) {
     return route?.target?.runtime === "agent-sdk";
+  }
+
+  // Serialize `fn` on the named lane's promise chain. A lane is one execution
+  // resource that cannot interleave turns (a warm SDK session, a cwd-keyed
+  // delegate); turns on DIFFERENT lanes run concurrently. The chain entry is
+  // removed once its tail settles so an idle lane holds no memory.
+  _onLane(laneKey, fn) {
+    // Lazy: callers exercised via partial test doubles may bypass the constructor.
+    const queues = (this._laneQueues ??= new Map());
+    const previous = queues.get(laneKey) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(fn);
+    const tail = run.catch(() => {});
+    queues.set(laneKey, tail);
+    tail.then(() => {
+      if (queues.get(laneKey) === tail) queues.delete(laneKey);
+    });
+    return run;
   }
 
   // Lazily construct the AgentSdkAdapter from the resolved agent-sdk-runtime
@@ -1083,6 +1106,9 @@ export class RoutedGateway {
     // session - and therefore never report each other's session_id/transcript.
     const sessionKey = typeof opts.sessionKey === "string" && opts.sessionKey ? opts.sessionKey : null;
     const key = JSON.stringify({ targetId: route.targetId, sessionKey, ...spawnArgs, secrets: undefined, env: undefined });
+    // One warm SDK session is one conversation: turns on the SAME key serialize
+    // on its lane; different targets/conversations run concurrently.
+    return this._onLane(`sdk:${key}`, async () => {
     let session = this._agentSdkSessions.get(key);
     if (!session || session.alive === false) {
       session = await adapter.spawn(spawnArgs);
@@ -1200,6 +1226,7 @@ export class RoutedGateway {
       toolUses: resp.toolUses ?? [],
       stoppedReason: resp.stoppedReason ?? null,
     };
+    });
   }
 
   // Cap the warm agent-sdk session map. Conversation-keyed sessions (§12) grow
@@ -1310,6 +1337,9 @@ export class RoutedGateway {
     // project badge would assert a scope the turn never had.
     const cwd = opts.cwd ?? this.buildWorkspace ?? this.compositionDir;
     const key = `${provider}:${model}:${effort ?? "none"}:${cwd}`;
+    // A warm delegate is one Claude session: same-key turns serialize on its
+    // lane; different cwds/targets run concurrently (2026-08-07).
+    return this._onLane(`delegate:${key}`, async () => {
     let session = this._claudeDelegateSessions.get(key);
     if (!session || !this.#alive({ session })) {
       const spawnConfig = this.core.buildRespawnOpts(executableTarget, {
@@ -1384,6 +1414,7 @@ export class RoutedGateway {
       effort,
       effortApplied: effort == null ? null : session.__garrisonEffortApplied === true
     };
+    });
   }
 
   // A `workflow` routing target names a saved Claude Code workflow. We do NOT run a
@@ -1549,11 +1580,15 @@ export class RoutedGateway {
   // Re-checkout a dead operative/classifier from the pool (long-lived sessions
   // can die between turns; the pool always serves a fresh warm one).
   async ensureOperative() {
-    if (!this.#alive(this.operative)) {
-      this.operative = await this.pool.checkout(this.operativeRuntimeId);
-      this.logFn({ kind: "operative-recheckout", id: this.operative.id });
-    }
-    return this.operative.session;
+    // Serialized: concurrent turns (2026-08-07) must not race two checkouts of
+    // the singleton operative slot when both find it dead.
+    return this._onLane("operative-ensure", async () => {
+      if (!this.#alive(this.operative)) {
+        this.operative = await this.pool.checkout(this.operativeRuntimeId);
+        this.logFn({ kind: "operative-recheckout", id: this.operative.id });
+      }
+      return this.operative.session;
+    });
   }
 
   async ensureClassifier() {
