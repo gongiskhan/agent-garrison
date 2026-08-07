@@ -361,12 +361,34 @@ export function menuForField(
   const auto: RailMenuRow = {
     key: "auto",
     label: AUTO_LABEL[field],
-    patch: field === "duty" ? { duty: null, level: null } : ({ [field]: null } as PinPatch),
-    selected: current === null,
+    // The duty menu speaks for BOTH axes since they merged (2026-08-07), so its
+    // Automatic row releases the work-kind pin too.
+    patch: field === "duty"
+      ? { duty: null, level: null, workKind: null, phasesOff: null }
+      : ({ [field]: null } as PinPatch),
+    selected: field === "duty" ? current === null && pinnedValue(pins, "workKind") === null : current === null,
   };
 
   if (field === "duty") {
     rows.push(auto);
+    // Duty and work kind are ONE question ("what is this work?") that used to be
+    // asked as two sibling badges: a phased work kind spans several duty-named
+    // lists, so pinning both read as a contradiction. The duty menu now offers
+    // the phased plans first; picking one pins workKind and clears the
+    // duty/level pins (and vice versa below). The workKind badge remains as the
+    // read-only home of the phase toggles.
+    for (const k of options?.workKinds ?? []) {
+      const id = str(k.id);
+      if (!id) continue;
+      const phases = (k.phases ?? []).filter((p) => str(p));
+      rows.push({
+        key: `plan:${id}`,
+        label: str(options?.defaultWorkKind) === id ? `${id} (default plan)` : `${id} (plan)`,
+        detail: phases.length ? `plan: ${phases.join(" → ")}` : str(k.description) || undefined,
+        patch: { workKind: id, duty: null, level: null, phasesOff: null },
+        selected: pinnedValue(pins, "workKind") === id && current === null,
+      });
+    }
     for (const duty of options?.duties ?? []) {
       const id = str(duty.id);
       if (!id) continue;
@@ -376,7 +398,7 @@ export function menuForField(
           key: id,
           label: id,
           detail: str(duty.title) || undefined,
-          patch: { duty: id, level: null },
+          patch: { duty: id, level: null, workKind: null, phasesOff: null },
           selected: current === id && pinnedValue(pins, "level") === null,
         });
         continue;
@@ -389,7 +411,7 @@ export function menuForField(
           key: `${id}:${l.n}`,
           label: `${id} L${l.n}`,
           detail: str(l.description) || str(duty.title) || undefined,
-          patch: { duty: id, level: Math.trunc(l.n) },
+          patch: { duty: id, level: Math.trunc(l.n), workKind: null, phasesOff: null },
           selected: current === id && pinnedValue(pins, "level") === Math.trunc(l.n),
         });
       }

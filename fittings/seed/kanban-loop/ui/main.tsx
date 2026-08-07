@@ -1258,8 +1258,9 @@ function RunSpec({
       : null;
 
   // The phases of the SELECTED plan, in plan order. Falls back to the default work
-  // kind's plan, which is what an unpinned card actually walks.
-  const kindId = spec.workKind || options?.defaultWorkKind || "";
+  // kind's plan, which is what an unpinned card actually walks. A pinned
+  // single-turn DUTY runs no phase plan at all, so the toggles hide.
+  const kindId = spec.duty ? "" : (spec.workKind || options?.defaultWorkKind || "");
   const planPhases = (options?.workKinds ?? []).find((k) => k.id === kindId)?.phases ?? [];
   const off = new Set((spec.phasesOff ?? "").split(",").map((s) => s.trim()).filter(Boolean));
   // Serialised in PLAN order, never tap order, so the same selection always
@@ -1282,11 +1283,33 @@ function RunSpec({
       </button>
       {open && (
         <div className="spec-grid">
+          {/* Duty and work kind are ONE question ("what is this work?") asked as
+              two siblings before 2026-08-07: a phased work kind spans several
+              duty-named lists, so picking both read as a contradiction. One
+              selector now offers phased plans (work kinds) and single-turn
+              duties together; the two wire fields underneath are unchanged and
+              mutually exclusive. */}
           <SpecSelect
-            id="nc-duty" label="Duty" hint="the classifier decides"
-            value={spec.duty ?? AUTO} disabled={why}
-            options={(options?.duties ?? []).map((d) => ({ value: d.id, label: d.id, detail: d.title ?? undefined }))}
-            onChange={set("duty")}
+            id="nc-kind-of-work" label="Kind of work" hint="the classifier decides"
+            value={spec.workKind ? `kind:${spec.workKind}` : spec.duty ? `duty:${spec.duty}` : AUTO}
+            disabled={why}
+            options={[
+              ...(options?.workKinds ?? []).map((k) => ({
+                value: `kind:${k.id}`,
+                label: k.id === options?.defaultWorkKind ? `${k.id} (default plan)` : k.id,
+                detail: (k.phases?.length ? `plan: ${k.phases.join(" → ")}` : k.description) ?? undefined
+              })),
+              ...(options?.duties ?? []).map((d) => ({
+                value: `duty:${d.id}`,
+                label: d.id,
+                detail: d.title ? `single-turn duty — ${d.title}` : "single-turn duty"
+              }))
+            ]}
+            onChange={(v) => {
+              if (!v) setSpec({ ...spec, duty: undefined, workKind: undefined, phasesOff: undefined });
+              else if (v.startsWith("kind:")) setSpec({ ...spec, workKind: v.slice(5), duty: undefined, phasesOff: undefined });
+              else setSpec({ ...spec, duty: v.slice(5), workKind: undefined, phasesOff: undefined });
+            }}
           />
           <SpecSelect
             id="nc-tier" label="Tier" hint="the classifier decides"
@@ -1319,18 +1342,9 @@ function RunSpec({
             options={(options?.accounts ?? []).map((a) => ({ value: a.name, label: a.name, detail: a.platform ?? undefined }))}
             onChange={set("account")}
           />
-          <SpecSelect
-            id="nc-kind" label="Work kind" hint="inferred from the tier"
-            value={spec.workKind ?? AUTO} disabled={why}
-            options={(options?.workKinds ?? []).map((k) => ({
-              value: k.id,
-              label: k.id === options?.defaultWorkKind ? `${k.id} (default)` : k.id,
-              detail: k.description ?? undefined
-            }))}
-            // Switching plans invalidates the OFF set - those ids belong to the old
-            // plan, and carrying them over would disable phases never looked at.
-            onChange={(v) => setSpec({ ...spec, workKind: v || undefined, phasesOff: undefined })}
-          />
+          {/* The former separate "Work kind" dropdown folded into "Kind of work"
+              above (2026-08-07). The phase toggle row below still keys off the
+              selected (or default) plan. */}
           {planPhases.length > 0 && (
             <div className="spec-field spec-field-wide">
               <label>Phases</label>
