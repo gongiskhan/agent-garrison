@@ -496,7 +496,11 @@ async function appPreflight(root, { phase }) {
 // fix card (findings need real code changes + the usual review/test gates),
 // distinct from the R14 testing-only card schema (Phase 7), which instead
 // enters the roster directly at drill.
-async function dispatchBatchFixCard(record, confirmed) {
+// startList: where the created card LANDS. A human-triggered dispatch parks in
+// "todo" so the user reviews and starts it (2026-08-07 ask); the autonomous
+// heartbeat sweep keeps "code" - a card waiting in a manual list would stall an
+// unattended flow. The card's sequence stays ["code"] either way.
+async function dispatchBatchFixCard(record, confirmed, { startList = "todo" } = {}) {
   const base = await kanbanBaseUrl();
   if (!base) throw new Error("kanban-loop fitting not running (no status file)");
   // Evidence travels as links through Drill's confined evidence routes
@@ -542,16 +546,18 @@ async function dispatchBatchFixCard(record, confirmed) {
   if (!card?.id) throw new Error("kanban-loop created a card without an id");
   const cardUrl = `${base}/#/cards/${card.id}`;
 
-  // POST /cards intentionally creates in Backlog. Drill is a reviewed,
-  // autonomous dispatch door, so position the card on the first resolved duty
-  // list and explicitly hand progression to Kanban. Retry CAS conflicts after
-  // re-reading the card. If the move still cannot complete, dispatch remains
-  // successful with the card visibly in Backlog and the board's Start action
-  // as the fallback.
+  // POST /cards intentionally creates in Backlog. Position the card on the
+  // requested landing list: "todo" for a reviewed human dispatch (the user
+  // starts it from the board), or the first resolved duty list for the
+  // autonomous sweep. Retry CAS conflicts after re-reading the card. If the
+  // move still cannot complete, dispatch remains successful with the card
+  // visibly in Backlog and the board's Start action as the fallback.
   const targetList =
-    Array.isArray(card.sequence) && card.sequence.length > 0
-      ? card.sequence[0]
-      : sequence[0];
+    startList === "todo"
+      ? "todo"
+      : Array.isArray(card.sequence) && card.sequence.length > 0
+        ? card.sequence[0]
+        : sequence[0];
   let latest = card;
   let entered = card.list === targetList;
   let rev = Number.isInteger(card.rev) ? card.rev : 0;
@@ -2905,7 +2911,9 @@ async function handle(req, res) {
         });
       }
       try {
-        const card = await dispatchBatchFixCard(record, confirmed);
+        // body.startIn: "code" opts back into the immediate-start behavior;
+        // anything else (or absent) parks the reviewed dispatch in To Do.
+        const card = await dispatchBatchFixCard(record, confirmed, { startList: body.startIn === "code" ? "code" : "todo" });
         // Re-load before stamping (same as the heartbeat sweep): the kanban
         // POST is a long await, and a concurrent triage/feedback write on
         // this run must not be clobbered by saving the pre-fetch snapshot.
@@ -2913,7 +2921,7 @@ async function handle(req, res) {
         markFindingsDispatched(fresh, confirmed.map((f) => f.id), card);
         fresh.dispatch = mode;
         fresh.dispatchedAt = new Date().toISOString();
-        fresh.dispatchedCard = { id: card.id, list: card.list ?? "code" };
+        fresh.dispatchedCard = { id: card.id, list: card.list ?? "todo" };
         await saveDrillRun(fresh);
         return send(res, 200, {
           dispatched: true,
@@ -2927,7 +2935,7 @@ async function handle(req, res) {
     }
     // On-demand heartbeat sweep (also run periodically - see startServer()).
     if (pathname === "/api/heartbeat/run-once" && req.method === "POST") {
-      const results = await runHeartbeatSweep(dispatchBatchFixCard);
+      const results = await runHeartbeatSweep((r, c) => dispatchBatchFixCard(r, c, { startList: "code" }));
       return send(res, 200, { results });
     }
 
@@ -3071,7 +3079,7 @@ export async function startServer() {
   // transient kanban-loop outage must never crash the Drill server.
   const heartbeatMs = Number(process.env.DRILL_HEARTBEAT_INTERVAL_MS || 60000);
   const heartbeatTimer = setInterval(() => {
-    runHeartbeatSweep(dispatchBatchFixCard).catch((err) => console.error(`[drill] heartbeat sweep failed: ${err.message}`));
+    runHeartbeatSweep((r, c) => dispatchBatchFixCard(r, c, { startList: "code" })).catch((err) => console.error(`[drill] heartbeat sweep failed: ${err.message}`));
   }, heartbeatMs);
   heartbeatTimer.unref?.();
   const shutdown = async () => {

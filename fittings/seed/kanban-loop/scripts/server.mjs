@@ -264,7 +264,13 @@ export function buildBoardView(board, cards) {
         .filter(Boolean)
         // Within-list order: explicit position (drag-reorder) or created
         // instant — one comparator, ties broken by id so the order is total.
-        .sort((a, b) => cardPosition(a) - cardPosition(b) || (a.id < b.id ? -1 : 1))
+        // Terminal lists (done/archived) are an ARCHIVE, not a queue: newest
+        // first, or a freshly finished card lands invisibly at the bottom of
+        // dozens of old ones ("my card disappeared", 2026-08-07).
+        .sort((a, b) => {
+          const queueOrder = cardPosition(a) - cardPosition(b) || (a.id < b.id ? -1 : 1);
+          return list.terminal || list.id === "done" || list.id === "archived" ? -queueOrder : queueOrder;
+        })
         .map(cardSummary)
     }));
   return { version: board.version ?? 2, lists, cards: cards.map(cardSummary) };

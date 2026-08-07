@@ -141,23 +141,25 @@ describe("dispatch: one batch fix card carrying the report", () => {
     // Human-scannable title: page ids + finding count + a date, never the ulid alone.
     expect(receivedBody.title).toMatch(/^Drill fix: chat - 1 finding \(/);
 
-    // The dispatch entered the card at its first phase with an engine move so
-    // the loop actually runs it (a backlog-only card reads as "went nowhere").
+    // 2026-08-07: a human-triggered dispatch PARKS the reviewed card in To Do
+    // (the user starts it from the board); body.startIn: "code" opts back into
+    // the immediate-start behavior, and the autonomous heartbeat sweep keeps
+    // it. The card's duty sequence stays ["code"] either way.
     expect(receivedMoves.length).toBeGreaterThan(0);
     const move = receivedMoves[receivedMoves.length - 1];
     expect(move.engineHeader).toBe("drill-dispatch");
-    expect(move.body.list).toBe("code");
+    expect(move.body.list).toBe("todo");
     expect(receivedBody.sequence).toEqual(["code"]);
     expect(move).toMatchObject({
       id: dispatchJson.card.id,
-      body: { list: "code", rev: 0 },
+      body: { list: "todo", rev: 0 },
       engine: "drill-dispatch",
       dispatch: "auto"
     });
 
     expect(dispatchJson.card.entered).toBe(true);
     expect(dispatchJson.run.dispatchedAt).toBeTruthy();
-    expect(dispatchJson.run.dispatchedCard).toEqual({ id: dispatchJson.card.id, list: "code" });
+    expect(dispatchJson.run.dispatchedCard).toEqual({ id: dispatchJson.card.id, list: "todo" });
 
     const cardsAfterDispatch = receivedBodies.length;
     const duplicate = await fetch(`${DRILL_BASE}/api/runs/${runId}/dispatch`, {

@@ -745,6 +745,21 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
       ""
     );
   }
+  // Committed-work contract (2026-08-07): two Drill-dispatched cards finished
+  // their code phase with passing gates and left every changed file uncommitted
+  // in the project tree - invisible to later phases and one reset away from
+  // lost. The scoped commit fence cannot cover this (a plan-less card has an
+  // empty touch-set), but the operative knows exactly which files it changed.
+  if (phase && list.kind === AGENT_KIND) {
+    parts.push(
+      `Committed-work contract: if this phase changed files in the project repository and its gate ` +
+        `passes, COMMIT those changes before choosing the next list - stage the specific files you ` +
+        `touched (never \`git add -A\`) and write a commit message naming this card (${card.id}) and ` +
+        `what changed. Push only if the repository's convention says work lands by pushing; otherwise ` +
+        `commit without pushing. Work left uncommitted after a passing gate counts as unfinished.`,
+      ""
+    );
+  }
   // Retry-with-reason: a recovered card re-runs the SAME phase with the SAME prompt,
   // so without feedback it repeats the exact failure that parked it. Surface the most
   // recent park from this phase so the retry can fix the specific miss.
