@@ -233,6 +233,19 @@ export function cardWorkdir(card, opts) {
 // board.deriveMembership scans the cards). Each list carries its cards inline so
 // the phone UI renders a column per list without a second round-trip; the flat
 // `cards` array is kept too for clients that prefer it.
+// When a card last DID anything: its newest event instant, else its creation
+// instant. The archive sort key for terminal lists - a card finished today
+// belongs at the top of Done even if it was created weeks ago.
+function lastActivityInstant(card) {
+  const events = Array.isArray(card?.events) ? card.events : [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const t = Date.parse(events[i]?.at ?? "");
+    if (Number.isFinite(t)) return t;
+  }
+  const created = Date.parse(card?.created ?? "");
+  return Number.isFinite(created) ? created : 0;
+}
+
 export function buildBoardView(board, cards) {
   const membership = deriveMembership(cards);
   const byId = new Map(cards.map((c) => [c.id, c]));
@@ -264,12 +277,16 @@ export function buildBoardView(board, cards) {
         .filter(Boolean)
         // Within-list order: explicit position (drag-reorder) or created
         // instant — one comparator, ties broken by id so the order is total.
-        // Terminal lists (done/archived) are an ARCHIVE, not a queue: newest
-        // first, or a freshly finished card lands invisibly at the bottom of
-        // dozens of old ones ("my card disappeared", 2026-08-07).
+        // Terminal lists (done/archived) are an ARCHIVE, not a queue: most
+        // recently FINISHED first (last event instant - drag positions and
+        // creation order are meaningless there), or a freshly finished card
+        // lands invisibly at the bottom of dozens of old ones ("my card
+        // disappeared", 2026-08-07).
         .sort((a, b) => {
-          const queueOrder = cardPosition(a) - cardPosition(b) || (a.id < b.id ? -1 : 1);
-          return list.terminal || list.id === "done" || list.id === "archived" ? -queueOrder : queueOrder;
+          if (list.terminal || list.id === "done" || list.id === "archived") {
+            return lastActivityInstant(b) - lastActivityInstant(a) || (a.id < b.id ? 1 : -1);
+          }
+          return cardPosition(a) - cardPosition(b) || (a.id < b.id ? -1 : 1);
         })
         .map(cardSummary)
     }));
