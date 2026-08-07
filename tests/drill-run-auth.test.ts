@@ -318,6 +318,7 @@ describe("Drill authenticated runs", () => {
 describe("mid-run login-wall detection", () => {
   it("matches verdicts that name the login surface, in either language", async () => {
     const { looksLikeLoginWall } = await import(
+      // @ts-ignore -- pure .mjs server module, no .d.ts
       "../fittings/seed/drill/scripts/server.mjs"
     );
     const wall = (message: string, kind = "product-failure") => looksLikeLoginWall({ kind, message });
@@ -333,6 +334,7 @@ describe("mid-run login-wall detection", () => {
 
   it("excludes checks whose own page is the login route", async () => {
     const { jobOffLoginPage } = await import(
+      // @ts-ignore -- pure .mjs server module, no .d.ts
       "../fittings/seed/drill/scripts/server.mjs"
     );
     const book = { app: { url: "http://fixture.invalid" }, auth: { loginPath: "/login" } };

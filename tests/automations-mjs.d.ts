@@ -44,10 +44,10 @@ declare module "*/automations/lib/fingerprint.mjs" {
   export function shapeSketchFromCounts(counts: Record<string, number>): string;
 }
 declare module "*/automations/lib/cache.mjs" {
-  export function lookupActionCache(automationId: string, stepId: string, fingerprint: any): Promise<any | null>;
+  export function lookupActionCache(automationId: string, stepId: string, fingerprint: any, instruction?: string): Promise<any | null>;
   export function writeActionCache(input: any): Promise<any>;
-  export function evictAction(automationId: string, stepId: string, fingerprint: any): Promise<boolean>;
-  export function lookupAssertionCache(automationId: string, stepId: string, fingerprint: any): Promise<any | null>;
+  export function evictAction(automationId: string, stepId: string, fingerprint: any, instruction?: string): Promise<boolean>;
+  export function lookupAssertionCache(automationId: string, stepId: string, fingerprint: any, instruction?: string): Promise<any | null>;
   export function writeAssertionCache(input: any): Promise<any>;
 }
 declare module "*/automations/lib/browser-orchestrator.mjs" {

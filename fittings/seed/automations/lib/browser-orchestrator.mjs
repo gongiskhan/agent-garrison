@@ -113,11 +113,16 @@ function withEvidence(result, obs, step) {
 }
 
 async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache }) {
+  // The cache key carries the step's INSTRUCTION alongside the page
+  // fingerprint: an edited step must re-resolve, never replay what its old
+  // wording resolved to (the old fills may hold values the new wording
+  // deliberately abandoned - live-fire: real credentials).
+  const instruction = step.expectedOutcome ?? step.description ?? "";
   if (step.type === "verify") {
     // Deterministic assertion first (planner-authored or cached), else vision.
     // bypassCache (R12) ignores BOTH the shared cache store and any planner-
     // authored cachedAssertion on the step — the blind pass is blind to specs too.
-    const cached = !bypassCache && (step.cachedAssertion || (await lookupAssertionCache(automationId, step.id, fp))?.assertion);
+    const cached = !bypassCache && (step.cachedAssertion || (await lookupAssertionCache(automationId, step.id, fp, instruction))?.assertion);
     if (cached) {
       const passed = await deps.executeAssertion(cached);
       if (passed) return withEvidence({ tier: "cached", passed: true, assertion: cached }, obs, step);
@@ -131,7 +136,7 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
     // future run ever re-examines.
     const requiresInteraction = verdict.requiresInteraction === true;
     if (verdict.passed && verdict.assertion && !bypassCache && !requiresInteraction) {
-      await writeAssertionCache({ automationId, stepId: step.id, fingerprint: fp, assertion: verdict.assertion });
+      await writeAssertionCache({ automationId, stepId: step.id, fingerprint: fp, assertion: verdict.assertion, instruction });
     }
     if (!verdict.passed) {
       const err = new Error(`verify failed: ${verdict.reasoning ?? "outcome not met"}`);
@@ -175,7 +180,7 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
   //
   // Both are withheld when bypassCache is set, same as cachedAssertion.
   const pinned = bypassCache ? null : step.cachedAction ?? null;
-  const cached = pinned || bypassCache ? null : await lookupActionCache(automationId, step.id, fp);
+  const cached = pinned || bypassCache ? null : await lookupActionCache(automationId, step.id, fp, instruction);
   const deterministic = pinned ?? cached?.action ?? null;
   if (deterministic) {
     try {
@@ -185,13 +190,13 @@ async function resolvePageStep({ automationId, step, deps, obs, fp, bypassCache 
       // Stale selector. Only the fingerprint entry is ours to evict — a pin
       // lives in the caller's plan, and "recovered" below is how the caller
       // learns the pin no longer matches and re-pins the healed action.
-      if (cached) await evictAction(automationId, step.id, fp);
+      if (cached) await evictAction(automationId, step.id, fp, instruction);
     }
   }
   const action = await deps.resolveViaVision({ observation: obs, step });
   await deps.executeAction(action);
   if (!bypassCache) {
-    await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: deterministic ? "medium" : "high" });
+    await writeActionCache({ automationId, stepId: step.id, fingerprint: fp, action, confidence: deterministic ? "medium" : "high", instruction });
   }
   return withEvidence({ tier: deterministic ? "recovered" : "vision", action }, obs, step);
 }
