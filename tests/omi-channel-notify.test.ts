@@ -11,7 +11,8 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import os from "node:os";
 import path from "node:path";
 import { OmiApi } from "../fittings/seed/omi-channel/lib/omi-api.mjs";
-import { Notifier, renderTemplate } from "../fittings/seed/omi-channel/lib/notify.mjs";
+import { Notifier, RelayNotifier, renderTemplate } from "../fittings/seed/omi-channel/lib/notify.mjs";
+import { makeRequestHandler } from "../fittings/seed/omi-channel/scripts/server.mjs";
 import { OmiStore, Counters, atomicWriteJSON } from "../fittings/seed/omi-channel/lib/store.mjs";
 import { loadConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
 
@@ -286,6 +287,131 @@ describe("kanban notify-origin omi transport", () => {
       await new Promise<void>((r) => stub.server.close(() => r()));
       if (prevHome === undefined) delete process.env.GARRISON_HOME;
       else process.env.GARRISON_HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+// The triage process runs from a scheduler job that carries NO Omi secrets
+// (baking them into the job command would print them in scheduler-jobs.json
+// and ps output), so RelayNotifier hands pushes to the fitting server via
+// POST /internal/omi-push and the server answers with the real receipt.
+describe("RelayNotifier (secretless triage process -> server push relay)", () => {
+  function makeRelayHarness(relayReceipt: Record<string, unknown> | null) {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-relay-"));
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    const relayed: Array<{ path: string; body: unknown }> = [];
+    const relayStub = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      relayed.push({ path: req.url ?? "", body: JSON.parse(Buffer.concat(chunks).toString() || "{}") });
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(relayReceipt ?? {}));
+    });
+    const webStub = makeWebChannelStub();
+    return { home, relayed, relayStub, webStub };
+  }
+
+  async function listenOn(server: Server): Promise<number> {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const addr = server.address();
+    return typeof addr === "object" && addr ? addr.port : 0;
+  }
+
+  function relayNotifier(home: string) {
+    const store = new OmiStore(path.join(home, "omi"));
+    store.pinUid(UID);
+    const counters = new Counters(store.root, "test");
+    const cfg = { ...loadConfig({}), notifyEnabled: true, notifyMaxPerDay: 50 };
+    return new RelayNotifier({
+      cfg,
+      store,
+      counters,
+      omiApi: null,
+      env: { GARRISON_HOME: home },
+      log: { log: () => {}, error: () => {} }
+    });
+  }
+
+  it("relays the rendered message through /internal/omi-push and returns the server receipt", async () => {
+    const receipt = { means: "omi-push", ok: true, target: "omi uid kM7w..." };
+    const { home, relayed, relayStub, webStub } = makeRelayHarness(receipt);
+    try {
+      const relayPort = await listenOn(relayStub);
+      writeFileSync(
+        path.join(home, "ui-fittings", "omi-channel.json"),
+        JSON.stringify({ fittingId: "omi-channel", port: relayPort, url: `http://127.0.0.1:${relayPort}` })
+      );
+      const receipts = await relayNotifier(home).send({
+        template: "card_created",
+        params: { title: "Email the beta list" }
+      });
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].path).toBe("/internal/omi-push");
+      expect(relayed[0].body).toEqual({ message: "New card from Omi: Email the beta list" });
+      expect(receipts).toEqual([receipt]);
+    } finally {
+      await new Promise<void>((r) => relayStub.close(() => r()));
+      await new Promise<void>((r) => webStub.server.close(() => r()));
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("degrades to the web-channel thread when the fitting server is down", async () => {
+    const { home, relayStub, webStub } = makeRelayHarness(null);
+    try {
+      const webPort = await listenOn(webStub.server);
+      writeFileSync(
+        path.join(home, "ui-fittings", "web-channel-default.json"),
+        JSON.stringify({ fittingId: "web-channel-default", port: webPort, url: `http://127.0.0.1:${webPort}` })
+      );
+      // No omi-channel.json: the relay target is not running.
+      const receipts = await relayNotifier(home).send({
+        template: "card_created",
+        params: { title: "Email the beta list" }
+      });
+      expect(receipts[0]).toMatchObject({ means: "omi-push", ok: false });
+      expect(receipts[1]).toMatchObject({ means: "web-channel", ok: true });
+      expect(webStub.received.some((r) => r.path === "/api/threads/omi-reports/messages")).toBe(true);
+    } finally {
+      await new Promise<void>((r) => relayStub.close(() => r()));
+      await new Promise<void>((r) => webStub.server.close(() => r()));
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("server route /internal/omi-push answers the notifier receipt and 400s an empty message", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-relay-route-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    const counters = new Counters(store.root, "test");
+    const sent: string[] = [];
+    const notifierStub = {
+      sendOmi: async (message: string) => {
+        sent.push(message);
+        return { means: "omi-push", ok: true, target: "omi uid kM7w..." };
+      }
+    };
+    const cfg = { ...loadConfig({ GARRISON_HOME: home }), secrets: {} };
+    const server = createServer(
+      makeRequestHandler({ cfg, store, counters, ingress: null, notifier: notifierStub, chatTool: null })
+    );
+    try {
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      const addr = server.address();
+      const base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+      const ok = await fetch(`${base}/internal/omi-push`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "ping from triage" })
+      });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({ means: "omi-push", ok: true });
+      expect(sent).toEqual(["ping from triage"]);
+      const missing = await fetch(`${base}/internal/omi-push`, { method: "POST", body: "{}" });
+      expect(missing.status).toBe(400);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
       rmSync(home, { recursive: true, force: true });
     }
   });

@@ -76,6 +76,14 @@ export class ChatTool {
     const expected = this.cfg.secrets.webhookSecret;
     if (!expected || !secretMatches(query?.key, expected)) {
       this.counters.bump("chat_rejected_auth");
+      // Lengths only, never the secret - the ingress routes log rejects the
+      // same way, and a silent chat 401 already cost a day of "Gary is broken"
+      // (Omi caches the tools manifest, so a stale cached key 401s forever
+      // until the app is re-saved).
+      const presented = typeof query?.key === "string" ? query.key : "";
+      this.log.warn?.(
+        `[omi-channel] chat rejected bad key: presented len=${presented.length}; expected len=${expected ? expected.length : 0}`
+      );
       return { ok: false, status: 401, error: "Unauthorized." };
     }
     const appId = this.cfg.secrets.appId;

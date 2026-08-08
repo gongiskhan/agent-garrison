@@ -430,6 +430,26 @@ export function makeRequestHandler(ctx) {
         }
       }
 
+      // Loopback-only push relay: the scheduler-spawned triage process holds
+      // no Omi secrets, so it hands its pushes to this process (which does).
+      // Deliberately OUTSIDE /omi/ - the public Funnel mounts only that
+      // prefix, and the server binds loopback, so this route is never
+      // reachable off-box.
+      if (pathname === "/internal/omi-push" && method === "POST") {
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        let body = null;
+        try {
+          body = JSON.parse(bodyText);
+        } catch {
+          return jsonRes(res, 400, { error: "Invalid request." });
+        }
+        const message = typeof body?.message === "string" ? body.message.trim() : "";
+        if (!message) return jsonRes(res, 400, { error: "Missing message." });
+        if (!notifier) return jsonRes(res, 200, { means: "omi-push", ok: false, skipped: "notifier unavailable" });
+        return jsonRes(res, 200, await notifier.sendOmi(message));
+      }
+
       // ---- Ingress surface. Everything under /omi/ (the public Funnel mount
       // path); ?key= shared secret + pinned uid on every route (I8). ----
       if (pathname === "/omi/memory" && method === "POST") {

@@ -331,6 +331,9 @@ declare module "*/omi-channel/lib/notify.mjs" {
     send(args: { template: string; params?: Record<string, unknown>; suppressWebFallback?: boolean }): Promise<OmiNotifyReceipt[]>;
     drainTips(): Promise<Array<{ tip: string; receipts: OmiNotifyReceipt[] }>>;
   }
+  export class RelayNotifier extends Notifier {
+    sendOmi(message: string): Promise<OmiNotifyReceipt>;
+  }
 }
 
 declare module "*/omi-channel/lib/wake.mjs" {

@@ -16,6 +16,7 @@ import { atomicWriteJSON, readJSON } from "./store.mjs";
 import { toTailnetUrl } from "./tailnet-serve.mjs";
 
 const OMI_THREAD_ID = "omi-reports";
+const FITTING_STATUS_ID = "omi-channel";
 
 // ---- templates: every notification renders to ONE plain-text message ----
 export function renderTemplate(template, params = {}) {
@@ -190,5 +191,37 @@ export class Notifier {
       rmSync(file, { force: true });
     }
     return receiptsAll;
+  }
+}
+
+// The scheduler-spawned triage process carries NO Omi secrets - baking them
+// into the job command would print them in scheduler-jobs.json and every ps
+// listing - so its Omi pushes ride through the server process, which holds
+// them. Only the Omi means is relayed (POST /internal/omi-push on this
+// fitting's own server); the web-channel degrade path stays local, so a tick
+// that finds the server down still lands its message somewhere.
+export class RelayNotifier extends Notifier {
+  async sendOmi(message) {
+    const means = "omi-push";
+    if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
+    const base = statusFileUrl(FITTING_STATUS_ID, this.env);
+    if (!base) return { means, ok: false, skipped: "omi-channel server not running" };
+    try {
+      const res = await this.fetchImpl(`${base}/internal/omi-push`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+        signal: AbortSignal.timeout(10_000)
+      });
+      const receipt = await res.json().catch(() => null);
+      if (!res.ok || typeof receipt !== "object" || receipt === null) {
+        return { means, ok: false, error: `relay HTTP ${res.status}` };
+      }
+      // The server's Notifier produced a full receipt (cap, ledger and
+      // counters were applied THERE, against the live config).
+      return receipt;
+    } catch (err) {
+      return { means, ok: false, error: `relay: ${err?.message ?? err}` };
+    }
   }
 }

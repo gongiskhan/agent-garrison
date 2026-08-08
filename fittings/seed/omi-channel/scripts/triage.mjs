@@ -13,8 +13,7 @@ import { runTriageTick } from "../lib/triage.mjs";
 import { inferenceRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
-import { Notifier } from "../lib/notify.mjs";
-import { OmiApi } from "../lib/omi-api.mjs";
+import { RelayNotifier } from "../lib/notify.mjs";
 
 const arg = process.argv[2] ?? "--tick";
 if (arg !== "--tick") {
@@ -25,12 +24,10 @@ if (arg !== "--tick") {
 const cfg = loadConfig();
 const store = new OmiStore(omiDir());
 const counters = new Counters(store.root, "triage");
-const notifier = new Notifier({
-  cfg,
-  store,
-  counters,
-  omiApi: new OmiApi({ appId: cfg.secrets.appId, appSecret: cfg.secrets.appSecret })
-});
+// This process is spawned by the scheduler WITHOUT Omi secrets (they must not
+// be baked into the job command); the RelayNotifier hands Omi pushes to the
+// fitting server, which holds them. Web-channel degrade stays local.
+const notifier = new RelayNotifier({ cfg, store, counters, omiApi: null });
 
 const summary = await runTriageTick({
   cfg,

@@ -94,6 +94,7 @@ Rules:
 - memories: durable facts, preferences, decisions, or insights worth remembering long-term. NOT tasks. Write content in your own words; include concrete specifics.
 - tips: at most one short, immediately useful suggestion per event, only when something clearly helps the user today. Usually empty.
 - Skip completed items, small talk, and anything below the bar. Empty arrays are fine.
+- EXCEPTION to the bar: an open action item that records an explicit instruction the user spoke to their assistant (imperatives like "send a message ...", "create a task ...", "remind me ...", "tell Gary ...") is NEVER small talk - always emit its card, even when the surrounding conversation is casual or family chatter.
 
 ${blocks.join("\n\n")}`;
 }
