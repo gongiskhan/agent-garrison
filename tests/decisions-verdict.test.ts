@@ -156,11 +156,11 @@ describe("the Improver consumes a verdict", () => {
 
   it("separates a plan correction from a compute one", () => {
     const proposals = analyzeFeedbackProposals({
-      records: [verdict({ workKind: "ui-change" }), verdict({ workKind: "ui-change" })],
+      records: [verdict({ flow: "ui-change" }), verdict({ flow: "ui-change" })],
       at: "2026-07-29T12:00:00.000Z"
     });
     expect(proposals[0].id).toContain("replan");
-    expect(proposals[0].decision).toContain("workKind");
+    expect(proposals[0].decision).toContain("flow");
   });
 
   it("never proposes from agreement, and never from a single correction", () => {

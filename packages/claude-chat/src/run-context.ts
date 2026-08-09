@@ -205,22 +205,22 @@ export function railBadges(route: RouteAttribution): RailBadge[] {
   //
   // Either half is enough to badge. When the orchestrator infers the plan from the
   // tier there IS no work kind - the plan is not one of the named kinds - so the
-  // label falls back to the OFF count. Requiring `workKind` would blank the badge on
+  // label falls back to the OFF count. Requiring `flow` would blank the badge on
   // exactly the auto turns it exists to explain.
-  const workKind = str(route.workKind);
+  const flow = str(route.flow);
   const off = str(route.phasesOff)
     .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
-  if (workKind || off.length) {
+  if (flow || off.length) {
     badges.push({
-      key: "workKind",
+      key: "flow",
       // The OFF count rides the label because it is the part that changes what
       // actually runs - a plan silently missing two gates is the failure this
       // badge exists to prevent.
-      label: workKind ? (off.length ? `${workKind} -${off.length}` : workKind) : `plan -${off.length}`,
+      label: flow ? (off.length ? `${flow} -${off.length}` : flow) : `plan -${off.length}`,
       title: title(
-        workKind ? `work kind ${workKind}` : "plan inferred from the tier",
+        flow ? `work kind ${flow}` : "plan inferred from the tier",
         off.length ? `phases off: ${off.join(", ")}` : "every phase in the plan runs"
       ),
       ...(off.length ? { tone: "warn" as const } : {}),

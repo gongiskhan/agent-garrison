@@ -146,7 +146,7 @@ describe("Item 4 — export / import a list of cards", () => {
     // Every key present is either an allow-listed content field or a source marker.
     const allowed = new Set([
       "title", "description", "project", "scope", "acceptance", "goalMode", "checklist",
-      "routing", "workKind", "tier", "phases", "scheduledFor", "scheduleAction", "schedule",
+      "routing", "flow", "tier", "phases", "scheduledFor", "scheduleAction", "schedule",
       "sourceList", "created"
     ]);
     for (const k of Object.keys(exported)) expect(allowed.has(k)).toBe(true);

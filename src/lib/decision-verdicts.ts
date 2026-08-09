@@ -42,7 +42,7 @@ export const CORRECTION_FIELDS = [
   "tier",
   "account",
   "project",
-  "workKind",
+  "flow",
   "phasesOff"
 ] as const;
 export type CorrectionField = (typeof CORRECTION_FIELDS)[number];

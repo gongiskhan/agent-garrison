@@ -57,7 +57,7 @@ export function detectOverride(message) {
 }
 
 // Build the D20 override feedback record. `original`/`applied` are the prior and
-// applied resolutions ({taskType, tier, workKind, plan}); the caller supplies
+// applied resolutions ({taskType, tier, flow, plan}); the caller supplies
 // them so this stays pure/testable. session_id is optional (absent on channels
 // that don't carry one).
 export function buildOverrideRecord({ session_id, answer, original, applied, at } = {}) {

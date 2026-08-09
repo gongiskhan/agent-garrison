@@ -13,6 +13,33 @@ import os from "node:os";
 import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 
+// ── flow compat (2026-08-09 workKind -> flow rename) ────────────────────────
+// Third and last mirror of `src/lib/flow-compat.ts`. The Kanban Loop reads the
+// COMPILED policy at $GARRISON_HOME/orchestrator/policy.json, which is a different
+// file from the composition's routing.json/policy.json and can lag the rename by
+// however long it is until the next accepted policy write — at rename time both
+// the prod and dev copies still carried `workKinds`. A fitting cannot import from
+// `src/`, so this is a deliberate mirror; `tests/flow-compat-lockstep.test.ts`
+// pins all three copies to the same retired-key map so they cannot drift.
+// Read either spelling, write only the new one.
+export const RETIRED_FLOW_KEYS = Object.freeze({
+  workKinds: "flows",
+  defaultWorkKind: "defaultFlow",
+  workKind: "flow"
+});
+
+export function adoptFlowKeys(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  let out = null;
+  for (const [retired, current] of Object.entries(RETIRED_FLOW_KEYS)) {
+    if (!Object.prototype.hasOwnProperty.call(input, retired)) continue;
+    if (!out) out = { ...input };
+    if (out[current] === undefined || out[current] === null) out[current] = input[retired];
+    delete out[retired];
+  }
+  return out ?? input;
+}
+
 export function policyPath() {
   if (process.env.GARRISON_POLICY_PATH) return process.env.GARRISON_POLICY_PATH;
   const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -27,7 +54,7 @@ export function loadPolicy() {
   try {
     const st = statSync(p);
     if (_cache.path === p && _cache.mtimeMs === st.mtimeMs && _cache.policy) return _cache.policy;
-    const policy = JSON.parse(readFileSync(p, "utf8"));
+    const policy = adoptFlowKeys(JSON.parse(readFileSync(p, "utf8")));
     _cache = { path: p, mtimeMs: st.mtimeMs, policy };
     return policy;
   } catch {
@@ -80,12 +107,12 @@ export function phaseTogglesFromCsv(csv) {
   return Object.fromEntries(ids.map((id) => [id, false]));
 }
 
-// The skill bound to a phase: per-work-kind override wins over the global
+// The skill bound to a phase: per-flow override wins over the global
 // binding (D3). Null when the policy has no binding (the dispatch prompt then
 // omits the skill line; the phase skill contract still applies downstream).
-export function skillForPhase(policy, phase, workKind) {
+export function skillForPhase(policy, phase, flow) {
   if (!policy || !phase) return null;
-  const overrides = ((policy.phaseSkills || {}).overrides || {})[workKind] || {};
+  const overrides = ((policy.phaseSkills || {}).overrides || {})[flow] || {};
   const bindings = (policy.phaseSkills || {}).bindings || {};
   return overrides[phase] || bindings[phase] || null;
 }
@@ -114,8 +141,8 @@ export function railForCard(policy, card) {
   if (!policy) return null;
   const allPhases = Array.isArray(policy.phases) ? policy.phases : null;
   if (!allPhases) return null;
-  const kindName = card?.workKind || policy.defaultWorkKind;
-  const kind = (policy.workKinds || {})[kindName];
+  const kindName = card?.flow || policy.defaultFlow;
+  const kind = (policy.flows || {})[kindName];
   const plan = kind ? (policy.phasePlans || {})[kind.phasePlan] : null;
   // A work kind may declare `evidence: false` — an evidence-free rail whose
   // transitions owe no evidence files and no durable gate records. Absent or
@@ -135,7 +162,7 @@ export function railForCard(policy, card) {
   };
   if (!plan) {
     return {
-      workKind: kindName || null,
+      flow: kindName || null,
       evidence: "none",
       evidenceRequired,
       phases: allPhases.map((id) => entry(id, true, null))
@@ -152,7 +179,7 @@ export function railForCard(policy, card) {
     ...[...inPlan.entries()].map(([id, on]) => entry(id, on, "phase-plan")),
     ...allPhases.filter((id) => !inPlan.has(id)).map((id) => entry(id, false, "phase-plan"))
   ];
-  return { workKind: kindName || null, evidence: plan.evidence || "none", evidenceRequired, phases };
+  return { flow: kindName || null, evidence: plan.evidence || "none", evidenceRequired, phases };
 }
 
 // A rail with no ON phases — an empty phase plan (the personal/channel manual

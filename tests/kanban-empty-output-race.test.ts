@@ -58,7 +58,7 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
     status: "ok",
     iterations: 0,
     rev: 0,
-    workKind: "full-feature",
+    flow: "full-feature",
     goalMode: false,
     acceptance: null,
     events: [],

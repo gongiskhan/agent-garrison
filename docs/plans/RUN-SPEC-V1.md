@@ -6,7 +6,7 @@
 
 - **One pin vocabulary, ten dimensions**: `target` (runtime+provider+model),
   `model`, `effort`, `duty`, `level`, `project`, `account`, plus the new `tier`,
-  `workKind` and `phasesOff`. Every one defaults to Automatic on both surfaces.
+  `flow` and `phasesOff`. Every one defaults to Automatic on both surfaces.
 - **Web Channel**: the Turn Rail gained tier / work kind / phases. An auto-chosen
   value is marked `auto` on its badge (and in the badge title, so it is not
   colour-only).
@@ -64,7 +64,7 @@ This is an **EXTEND**, not a build. Ground truth from a 12-reader sweep:
   records **who chose** — but is rendered only inside two tooltips.
 - The Kanban new-card sheet already has **work kind + per-phase toggles**
   (`kanban-loop/ui/main.tsx:757-780` → `railForCard`, `policy.mjs:88`).
-- The gateway already **accepts** `body.workKind` / `body.phases`
+- The gateway already **accepts** `body.flow` / `body.phases`
   (`routeHintsFromBody`, `gateway-pty.mjs:1905-1907`); the web channel's
   `buildGatewayChatBody` (`web-channel-default/scripts/server.mjs:712`) simply
   never forwards them.
@@ -83,18 +83,18 @@ This is an **EXTEND**, not a build. Ground truth from a 12-reader sweep:
    carries per-run behaviour, is pinnable, and can bypass model inference. No
    persona dropdown or selectable persona Fitting exists.
 2. **Expose both phase mechanisms, do not merge them.** The duty/level resolved
-   sequence decides list ORDER; the workKind phase plan decides ON/OFF. One control
+   sequence decides list ORDER; the flow phase plan decides ON/OFF. One control
    surface, two underlying knobs, no engine refactor.
 3. **Verdicts live in the Muster Decisions panel** and write into the EXISTING
    `feedback-queue.jsonl`. No new store.
 
 ## Slices
 
-- **S1** — widen the shared pin vocabulary with `workKind`, `phases`, `tier`.
+- **S1** — widen the shared pin vocabulary with `flow`, `phases`, `tier`.
   Four whitelists must move in lockstep: `transport.ts TurnRouting`,
   `threads.mjs ROUTING_FIELDS:141`, `gateway-pty.mjs sanitizeRouting:843`,
   `ClaudeChat.tsx compactRouting:606`. Plus `GET /route/options` gains
-  `workKinds` + `tiers` from the compiled policy.
+  `flows` + `tiers` from the compiled policy.
 - **S2** — web channel forwards them: `buildGatewayChatBody` stops being a straw.
   Back-compat is test-pinned (an unpinned send must stay exactly
   `{message, channel:"web"}`).
@@ -124,7 +124,7 @@ This is an **EXTEND**, not a build. Ground truth from a 12-reader sweep:
   `effortApplied` wire value is tri-state, not boolean.
 - In the live composition **every duty level is a flat leaf cell**, so a duty-carrying
   card runs ONE phase then goes to done. Multi-phase runs come from duty:null cards
-  (CANONICAL_SPINE) or the work-kind rail.
+  (CANONICAL_SPINE) or the flow rail.
 - Policy phases and board lists are **two loosely-coupled vocabularies**:
   `adversarial-test` / `walkthrough` / `validate` are in the `full` phase plan but are
   NOT board lists on this box.

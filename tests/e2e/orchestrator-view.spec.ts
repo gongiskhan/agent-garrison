@@ -20,11 +20,11 @@ const SERVER = path.join(REPO_ROOT, "fittings", "seed", "orchestrator", "scripts
 const SEED = path.join(REPO_ROOT, "fittings", "seed", "orchestrator", "config", "routing.seed.json");
 const SEED_CONFIG = JSON.parse(readFileSync(SEED, "utf8")) as {
   taskTypes: string[];
-  workKinds: Record<string, unknown>;
-  defaultWorkKind: string;
+  flows: Record<string, unknown>;
+  defaultFlow: string;
 };
 const SEED_TASK_TYPES = SEED_CONFIG.taskTypes;
-const SEED_WORK_KINDS = Object.keys(SEED_CONFIG.workKinds);
+const SEED_FLOWS = Object.keys(SEED_CONFIG.flows);
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -100,7 +100,7 @@ async function dragTo(page: import("@playwright/test").Page, src: import("@playw
 const implementRow = (page: import("@playwright/test").Page) =>
   page.locator("table.matrix tbody tr").filter({ has: page.locator(".rh-name", { hasText: /^implement$/ }) });
 
-test("composer renders the whole policy: tray, matrix, work-kind rails, try-it", async ({ page }) => {
+test("composer renders the whole policy: tray, matrix, flow rails, try-it", async ({ page }) => {
   await page.goto(baseUrl);
   await expect(page.locator("h1")).toHaveText("Composer");
 
@@ -126,10 +126,10 @@ test("composer renders the whole policy: tray, matrix, work-kind rails, try-it",
   // Work-kind rails - one rail per seed work kind, in seed order, with the
   // configured default identified. The current policy has five (video-edit was
   // added after this test's original four-kind fixture).
-  expect(SEED_WORK_KINDS).toHaveLength(5);
-  await expect(page.locator(".rail .rail-kind")).toHaveText(SEED_WORK_KINDS);
+  expect(SEED_FLOWS).toHaveLength(5);
+  await expect(page.locator(".rail .rail-kind")).toHaveText(SEED_FLOWS);
   await expect(
-    page.locator(".rail").filter({ hasText: SEED_CONFIG.defaultWorkKind }).locator(".rail-badge")
+    page.locator(".rail").filter({ hasText: SEED_CONFIG.defaultFlow }).locator(".rail-badge")
   ).toHaveText("default");
 
   // Try-it strip present.

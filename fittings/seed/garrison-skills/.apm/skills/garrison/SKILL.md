@@ -28,14 +28,14 @@ is the single authority for every phase's skill, model, effort, and runtime.
 ## Step 2 — register the run as a card in Plan
 
 Parse the invocation: the brief (everything that is not a flag), an optional
-`--kind <workKind>` (else the policy's `defaultWorkKind`), and per-phase
+`--kind <flow>` (else the policy's `defaultFlow`), and per-phase
 toggles (`--no-<phase>` for any phase in the policy's `phases` list, e.g.
 `--no-walkthrough` → `phases: {"walkthrough": false}`). Then register via the
 board API (discover it from `~/.garrison/ui-fittings/kanban-loop.json`; never
 hardcode a port):
 
 1. `POST <board>/cards` with `{description: <brief>, goalMode: true,
-   workKind, phases, tier, origin: "garrison-doorway",
+   flow, phases, tier, origin: "garrison-doorway",
    origin_id: "skill:<$CLAUDE_CODE_SESSION_ID>", project: <cwd repo>}`. Stamp
    `origin_id` as `skill:<your session id>` (use `$CLAUDE_CODE_SESSION_ID`, the
    stable id this session already uses for its sentinel; mint one only if it is

@@ -1009,8 +1009,8 @@ const EMPTY_ROUTE_OPTIONS = {
   // defaults, so they exist as empty lists when the gateway is down - an empty menu
   // with an "unavailable" reason, never an undefined the rail would crash on.
   tiers: [],
-  workKinds: [],
-  defaultWorkKind: null,
+  flows: [],
+  defaultFlow: null,
   primaryRuntime: null,
   activeProfile: null
 };

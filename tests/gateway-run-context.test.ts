@@ -304,16 +304,16 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
   // hidden module-global from making a test pass while production refuses).
   const VOCAB = {
     tiers: ["T0-trivial", "T1-standard", "T2-deep"],
-    workKinds: ["full-feature", "docs-change"],
+    flows: ["full-feature", "docs-change"],
     phases: ["plan", "implement", "review", "adversarial-review", "walkthrough"]
   };
 
-  it("keeps well-formed tier / workKind / phasesOff pins", () => {
+  it("keeps well-formed tier / flow / phasesOff pins", () => {
     const { routing, rejected } = gw.sanitizeRouting(
-      { tier: " T2-deep ", workKind: "docs-change", phasesOff: "review, walkthrough" },
+      { tier: " T2-deep ", flow: "docs-change", phasesOff: "review, walkthrough" },
       VOCAB
     );
-    expect(routing).toEqual({ tier: "T2-deep", workKind: "docs-change", phasesOff: "review,walkthrough" });
+    expect(routing).toEqual({ tier: "T2-deep", flow: "docs-change", phasesOff: "review,walkthrough" });
     expect(rejected).toEqual([]);
   });
 
@@ -322,9 +322,9 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
       routing: null,
       rejected: [{ field: "tier", reason: "tier-not-in-vocabulary" }]
     });
-    expect(gw.sanitizeRouting({ workKind: "vibes" }, VOCAB)).toEqual({
+    expect(gw.sanitizeRouting({ flow: "vibes" }, VOCAB)).toEqual({
       routing: null,
-      rejected: [{ field: "workKind", reason: "workKind-not-in-vocabulary" }]
+      rejected: [{ field: "flow", reason: "flow-not-in-vocabulary" }]
     });
   });
 
@@ -338,8 +338,8 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
   });
 
   it("blames the missing policy, not the user, when the vocabulary cannot be read", () => {
-    const empty = { tiers: [], workKinds: [], phases: [] };
-    for (const field of ["tier", "workKind", "phasesOff"]) {
+    const empty = { tiers: [], flows: [], phases: [] };
+    for (const field of ["tier", "flow", "phasesOff"]) {
       const { routing, rejected } = gw.sanitizeRouting({ [field]: "anything" }, empty);
       expect(routing, field).toBe(null);
       expect(rejected, field).toEqual([{ field, reason: "policy-unavailable" }]);

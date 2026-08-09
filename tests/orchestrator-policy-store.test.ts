@@ -55,26 +55,26 @@ describe("readRoutingPolicy", () => {
   });
 
   it("backfills absent-or-empty seed sections (served, not persisted) so the panel never renders bare", async () => {
-    // A pre-workKinds scoped file: valid v2 but with empty policy machinery —
+    // A pre-flows scoped file: valid v2 but with empty policy machinery —
     // the shape found in live compositions created before those sections landed.
     const cur = await readRoutingPolicy(dir);
     const bare = structuredClone(cur.config) as Record<string, unknown>;
-    bare.workKinds = {};
+    bare.flows = {};
     bare.phasePlans = {};
     bare.phaseSkills = { bindings: {}, overrides: {} };
     delete bare.coordination;
     delete bare.uxQa;
     delete bare.projects;
-    delete bare.defaultWorkKind;
+    delete bare.defaultFlow;
     writeFileSync(CONFIG(), JSON.stringify(bare, null, 2) + "\n", "utf8");
 
     const { config } = await readRoutingPolicy(dir);
-    expect(Object.keys(config.workKinds ?? {})).toContain("full-feature");
-    expect(config.defaultWorkKind).toBe("full-feature");
+    expect(Object.keys(config.flows ?? {})).toContain("full-feature");
+    expect(config.defaultFlow).toBe("full-feature");
     expect((config as Record<string, unknown>).coordination).toBeTruthy();
     expect(config.uxQa?.severityThreshold).toBe("major");
     // served, not persisted: the disk file still carries the bare shape
-    expect(Object.keys(JSON.parse(readFileSync(CONFIG(), "utf8")).workKinds)).toEqual([]);
+    expect(Object.keys(JSON.parse(readFileSync(CONFIG(), "utf8")).flows)).toEqual([]);
   });
 });
 
@@ -239,12 +239,12 @@ describe("v1 → v2 migrate-at-read (moved from the retired server's startup)", 
 describe("simulateTryIt — dry-run rail + gate reasoning", () => {
   it("full-feature: every phase ON, enriched with skill + model + effort + runtime", async () => {
     await readRoutingPolicy(dir); // seed
-    const out = await simulateTryIt(dir, { prompt: "implement a login page", workKind: "full-feature" });
+    const out = await simulateTryIt(dir, { prompt: "implement a login page", flow: "full-feature" });
     expect(out.status).toBe("ok");
     if (out.status !== "ok") return;
     const r = out.result;
     expect(r.dryRun).toBe(true);
-    expect(r.workKind).toBe("full-feature");
+    expect(r.flow).toBe("full-feature");
     expect(r.classification.taskType).toBe("implement");
     expect(["interactive", "autonomous"]).toContain(r.classification.execution);
     const rail = r.rail as { phases: { id: string; on: boolean; skill?: string | null; target?: { targetId?: string; model: string | null; effort: string | null; runtime: string | null } }[] };
@@ -265,7 +265,7 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
 
   it("a partial-plan work kind keeps OFF phases in the rail (honesty), un-enriched", async () => {
     await readRoutingPolicy(dir);
-    const out = await simulateTryIt(dir, { prompt: "add a REST endpoint", workKind: "api-change" });
+    const out = await simulateTryIt(dir, { prompt: "add a REST endpoint", flow: "api-change" });
     expect(out.status).toBe("ok");
     if (out.status !== "ok") return;
     const rail = out.result.rail as { phases: { id: string; on: boolean; off_reason?: string; target?: unknown }[] };
@@ -285,14 +285,14 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
 
   it("gate reasoning: ui-change includes ux-qa (with threshold) but not security-review; docs-change neither", async () => {
     await readRoutingPolicy(dir);
-    const ui = await simulateTryIt(dir, { prompt: "implement a login page", workKind: "ui-change" });
+    const ui = await simulateTryIt(dir, { prompt: "implement a login page", flow: "ui-change" });
     expect(ui.status).toBe("ok");
     if (ui.status !== "ok") return;
     expect(ui.result.gates?.uxQa.included).toBe(true);
     expect(ui.result.gates?.uxQa.severityThreshold).toBe("major");
     expect(ui.result.gates?.securityReview.included).toBe(false);
 
-    const docs = await simulateTryIt(dir, { prompt: "update the README", workKind: "docs-change" });
+    const docs = await simulateTryIt(dir, { prompt: "update the README", flow: "docs-change" });
     expect(docs.status).toBe("ok");
     if (docs.status !== "ok") return;
     expect(docs.result.gates?.uxQa.included).toBe(false);
@@ -304,7 +304,7 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
     const cur = await readRoutingPolicy(dir);
     const before = await simulateTryIt(dir, {
       prompt: "implement a login page",
-      workKind: "ui-change",
+      flow: "ui-change",
       project: "agent-garrison"
     });
     expect(before.status).toBe("ok");
@@ -320,7 +320,7 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
 
     const after = await simulateTryIt(dir, {
       prompt: "implement a login page",
-      workKind: "ui-change",
+      flow: "ui-change",
       project: "agent-garrison"
     });
     expect(after.status).toBe("ok");

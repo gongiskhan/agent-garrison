@@ -73,7 +73,7 @@ export interface RouteAttribution {
   /** The work kind whose phase plan the run follows, as RESOLVED (a pin when the
    *  user chose one, otherwise whatever the gateway inferred). Reported so the
    *  rail can badge an auto-chosen plan instead of leaving it invisible. */
-  workKind?: string | null;
+  flow?: string | null;
   /** Phases turned OFF for the run, comma-separated - see TurnRouting.phasesOff. */
   phasesOff?: string | null;
   /** True when the router reached a route WITHOUT an LLM classification, because
@@ -150,11 +150,11 @@ export interface TurnRouting {
   tier?: string | null;
   /**
    * The work kind whose phase plan this run follows (`full-feature`, `ui-change`,
-   * … from the policy's `workKinds`). Decides WHICH phases exist for the run; the
+   * … from the policy's `flows`). Decides WHICH phases exist for the run; the
    * duty sequence decides their ORDER. Only meaningful for a run that becomes a
    * card - a conversational turn has no pipeline to plan.
    */
-  workKind?: string | null;
+  flow?: string | null;
   /**
    * Phases turned OFF for this run, as a comma-separated list of phase ids
    * ("adversarial-review,walkthrough").

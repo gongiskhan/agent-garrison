@@ -40,7 +40,7 @@ describe("security opt-in (S4 / D13)", () => {
       expect(ids).not.toContain("security-review");
     }
     // work kinds only name a phasePlan; none should resolve to a plan carrying it
-    for (const [, wk] of Object.entries<any>(policy.workKinds)) {
+    for (const [, wk] of Object.entries<any>(policy.flows)) {
       const ids = (policy.phasePlans[wk.phasePlan]?.phases || []).map((p: any) =>
         typeof p === "string" ? p : p.id
       );

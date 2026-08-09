@@ -67,8 +67,8 @@ describe("orchestrator policy core (S1)", () => {
     expect(a).toBe(b);
     // key order independent of input insertion order
     const reordered = JSON.parse(JSON.stringify(cfg));
-    const { workKinds, ...rest } = reordered;
-    const c = mod.stableStringify(mod.compilePolicy({ ...rest, workKinds }));
+    const { flows, ...rest } = reordered;
+    const c = mod.stableStringify(mod.compilePolicy({ ...rest, flows }));
     expect(c).toBe(a);
   });
 
@@ -93,7 +93,7 @@ describe("orchestrator policy core (S1)", () => {
     expect(full.evidence).toBe("video");
     expect(full.phases.find((p: { id: string }) => p.id === "review").skill).toBe("garrison-review");
     // default kind
-    expect(mod.railFor(cfg, null).workKind).toBe("full-feature");
+    expect(mod.railFor(cfg, null).flow).toBe("full-feature");
   });
 
   it("per-card phase toggles render off, never hidden (D17 honesty)", async () => {
@@ -120,7 +120,7 @@ describe("orchestrator policy core (S1)", () => {
     cfg.taskTypes.push("data-migration");
     cfg.profiles.balanced.matrix.rows["data-migration"] = { default: "cc-opus-high", cells: {} };
     cfg.phasePlans["migrate"] = { phases: ["plan", "implement", "test"], evidence: "logs" };
-    cfg.workKinds["schema-migration"] = { phasePlan: "migrate" };
+    cfg.flows["schema-migration"] = { phasePlan: "migrate" };
     expect(mod.validateRoutingConfig(cfg)).toEqual([]);
     const policy = mod.compilePolicy(cfg);
     expect(policy.matrix["data-migration"]["T1-standard"].targetId).toBe("cc-opus-high");
@@ -138,7 +138,7 @@ describe("orchestrator policy core (S1)", () => {
     const bad = seedConfig();
     bad.profiles.balanced.matrix.rows["implement"].cells["T2-deep"] = "no-such-target";
     bad.phasePlans["broken"] = { phases: ["not-a-phase"], evidence: "logs" };
-    bad.workKinds["orphan"] = { phasePlan: "missing-plan" };
+    bad.flows["orphan"] = { phasePlan: "missing-plan" };
     const errors = mod.validateRoutingConfig(bad);
     expect(errors.join("\n")).toMatch(/no-such-target/);
     expect(errors.join("\n")).toMatch(/not-a-phase/);

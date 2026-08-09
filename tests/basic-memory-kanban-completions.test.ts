@@ -21,7 +21,7 @@ function packet(overrides: Record<string, unknown> = {}) {
     completedAt: "2026-08-05T11:00:00.000Z",
     title: "Renew passport",
     project: "personal-admin",
-    workKind: "personal",
+    flow: "personal",
     description: "Book the appointment; this statement is user-authored.",
     checklist: [{ text: "Bring photos", done: true }],
     manualCompletionNote: "Appointment booked.",

@@ -314,7 +314,7 @@ describe("durable gate evidence (D9)", () => {
 describe("rails + per-card phase toggles (D17)", () => {
   it("railForCard merges card toggles over the work kind's plan; off phases stay visible", () => {
     const policy = loadPolicy();
-    const rail = railForCard(policy, { workKind: "full-feature", phases: { walkthrough: false } });
+    const rail = railForCard(policy, { flow: "full-feature", phases: { walkthrough: false } });
     const wt = rail.phases.find((p: { id: string }) => p.id === "walkthrough");
     expect(wt.on).toBe(false);
     expect(wt.off_reason).toBe("card-toggle");
@@ -328,7 +328,7 @@ describe("rails + per-card phase toggles (D17)", () => {
     // docs-change rail = [implement] only; a card landing on review (all other
     // phases off) fast-forwards to done, recording each skipped phase.
     const policy = loadPolicy();
-    const rail = railForCard(policy, { workKind: "docs-change" });
+    const rail = railForCard(policy, { flow: "docs-change" });
     const fwd = effectiveListForCard(board, rail, "review", {});
     expect(fwd.listId).toBe("done");
     expect(fwd.skipped).toContain("review");
@@ -338,7 +338,7 @@ describe("rails + per-card phase toggles (D17)", () => {
 
   it("processCard skips an OFF phase on entry without dispatching", async () => {
     const board = seedBoard();
-    const card = await makeCard(tmp, { list: "walkthrough", workKind: "api-change" });
+    const card = await makeCard(tmp, { list: "walkthrough", flow: "api-change" });
     let dispatched = false;
     const runFn = async () => {
       dispatched = true;

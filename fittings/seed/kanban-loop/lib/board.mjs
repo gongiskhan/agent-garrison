@@ -43,6 +43,8 @@ async function readJSON(file) {
 
 // The current on-disk board schema version. Bumped whenever a migration below
 // must run once on load for EVERY existing board (not just model-driven ones).
+import { adoptFlowKeys } from "./policy.mjs";
+
 export const BOARD_VERSION = 5;
 
 // One-shot board migration. Idempotent; unknown fields survive.
@@ -223,7 +225,7 @@ export function cardPosition(card) {
  * rather than an empty object — the two read identically, and null is what every
  * pre-existing card already has.
  */
-export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "workKind", "phasesOff"];
+export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "flow", "phasesOff"];
 export function sanitiseCardRouting(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const out = {};
@@ -243,7 +245,7 @@ export function sanitiseCardRouting(raw) {
 }
 
 // What kind of ownership/context a card has. This is deliberately independent of
-// `workKind`: personal is a task classification, while workKind chooses an execution
+// `flow`: personal is a task classification, while flow chooses an execution
 // rail. A personal card can therefore still be moved onto an agent list and run.
 export const CARD_SCOPES = ["personal", "project", "unscoped"];
 export function cardScope(card) {
@@ -253,7 +255,7 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
   // Personal is an independent label and may coexist with a project (for example,
   // a private task whose implementation still belongs to a real repository).
@@ -299,11 +301,11 @@ export async function createCard(root, { title, description = "", project = null
     goalMode: Boolean(goalMode),
     acceptance,
     // ── run-policy fields (S4: D2/D8/D17) ─────────────────────────────────
-    // workKind names the policy work kind whose phase plan is this card's
+    // flow names the policy work kind whose phase plan is this card's
     // rail; phases is the per-card toggle map merged OVER the plan (an OFF
     // phase renders off, never hidden); tier rides classification (the phase
     // is the task type); origin records who registered the run.
-    workKind: typeof workKind === "string" && workKind ? workKind : null,
+    flow: typeof flow === "string" && flow ? flow : null,
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
     // ── the card's explicit run spec (RUN-SPEC-V1) ────────────────────────
@@ -439,7 +441,9 @@ export async function createCard(root, { title, description = "", project = null
 }
 
 export async function loadCard(root, id) {
-  return readJSON(cardFile(root, id));
+  // Compat: cards written before the 2026-08-09 flow rename carry the retired key
+  // (named in the compat map above). Adopt on read; saveCard only writes the new one.
+  return adoptFlowKeys(await readJSON(cardFile(root, id)));
 }
 
 function coordinationSeqForWrite(disk, candidate) {

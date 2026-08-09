@@ -159,7 +159,7 @@ export interface CardSummary {
   // S4 (D2/D17): run-policy fields — the work kind naming the card's rail, the
   // per-card phase toggle map (false = OFF, rendered dimmed, never hidden), the
   // tier, and who registered the run.
-  workKind?: string | null;
+  flow?: string | null;
   phases?: Record<string, boolean> | null;
   tier?: string | null;
   /** RUN-SPEC-V1: what the user explicitly chose for this run. Absent/null on a
@@ -398,9 +398,9 @@ export interface ListConfig {
 // The board's GET /policy passthrough (D17): enough of the compiled policy to
 // offer work kinds + per-card phase toggles at card creation.
 export interface PolicyView {
-  workKinds: Record<string, { phasePlan: string; description?: string }>;
+  flows: Record<string, { phasePlan: string; description?: string }>;
   phasePlans: Record<string, { phases: Array<string | { id: string; on?: boolean }>; evidence?: string }>;
-  defaultWorkKind: string | null;
+  defaultFlow: string | null;
   phases: string[];
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
 }
@@ -424,7 +424,7 @@ export interface CardRouting {
   project?: string;
   account?: string;
   tier?: string;
-  workKind?: string;
+  flow?: string;
   /** Comma-separated phase ids turned OFF for this run. */
   phasesOff?: string;
 }
@@ -438,8 +438,8 @@ export interface RouteOptionsView {
   efforts: string[];
   accounts: { name: string; platform?: string | null }[];
   tiers: string[];
-  workKinds: { id: string; description?: string | null; phases?: string[] | null }[];
-  defaultWorkKind: string | null;
+  flows: { id: string; description?: string | null; phases?: string[] | null }[];
+  defaultFlow: string | null;
   projects: string[];
   sources: { gateway: boolean };
 }
@@ -598,7 +598,7 @@ export const api = {
   projects: () => jfetch<ProjectsView>("/projects"),
   skills: () => jfetch<SkillsView>("/skills"),
   // Title is optional — the server infers it from the description when blank.
-  // workKind + phases (D17): the policy phase plan this run follows and the
+  // flow + phases (D17): the policy phase plan this run follows and the
   // per-card toggle map (false = OFF, recorded off, never silent).
   // `routing` is the card's explicit run spec (RUN-SPEC-V1) — the SAME TurnRouting
   // pin the Web Channel's rail produces. Every field is optional and an absent one
@@ -606,7 +606,7 @@ export const api = {
   // `placement` (brief D6) is WHERE the card runs: { target: "host" } (the
   // default) or a paired machine name. Absent means host, so an untouched picker
   // sends nothing at all.
-  create: (body: { title?: string; description?: string; project?: string; scope?: CardScope; targetList?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; schedule?: CardSchedule | Omit<CardSchedule, "nextAt" | "lastAt">; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
+  create: (body: { title?: string; description?: string; project?: string; scope?: CardScope; targetList?: string; goalMode?: boolean; flow?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; schedule?: CardSchedule | Omit<CardSchedule, "nextAt" | "lastAt">; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
   // Card scheduling: push the schedule out (or set one from now). The server
   // re-arms the due reminder; action defaults to the card's current one.

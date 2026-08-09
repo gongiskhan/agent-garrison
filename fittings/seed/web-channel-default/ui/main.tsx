@@ -262,7 +262,7 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       // process holds - so they are unavailable for the same reason and must say so
       // rather than rendering as three empty dropdowns.
       unavailable.tier = why;
-      unavailable.workKind = why;
+      unavailable.flow = why;
       unavailable.phasesOff = why;
     }
     if (sources.board === false) {
@@ -275,8 +275,8 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       accounts: asArray<NonNullable<RouteOptions["accounts"]>[number]>(d.accounts),
       projects: asArray<string>(d.projects),
       tiers: asArray<string>(d.tiers),
-      workKinds: asArray<NonNullable<RouteOptions["workKinds"]>[number]>(d.workKinds),
-      defaultWorkKind: typeof d.defaultWorkKind === "string" ? d.defaultWorkKind : null,
+      flows: asArray<NonNullable<RouteOptions["flows"]>[number]>(d.flows),
+      defaultFlow: typeof d.defaultFlow === "string" ? d.defaultFlow : null,
       ...(Object.keys(unavailable).length > 0 ? { unavailable } : {}),
     };
   } catch { return null; }

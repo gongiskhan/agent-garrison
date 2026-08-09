@@ -16,7 +16,7 @@ function outcome(kind: string, gates: Record<string, { status: string }>) {
   return {
     project: "p",
     runId: "r",
-    index: { workKind: kind, slices: [{ slice: "s1", gates }] }
+    index: { flow: kind, slices: [{ slice: "s1", gates }] }
   };
 }
 
@@ -89,7 +89,7 @@ describe("orchestrator-policy rule (S15/D38)", () => {
     mkdirSync(path.join(runs, "proj", "r1"), { recursive: true });
     writeFileSync(
       path.join(runs, "proj", "r1", "evidence-index.json"),
-      JSON.stringify({ workKind: "full-feature", slices: [] })
+      JSON.stringify({ flow: "full-feature", slices: [] })
     );
     expect(mod.collectRunOutcomes(runs)).toHaveLength(1);
 

@@ -181,7 +181,7 @@ export interface PhasePlan {
   phases: Array<string | { id: string; on?: boolean }>;
   evidence?: EvidenceKind;
 }
-export interface WorkKind {
+export interface Flow {
   phasePlan: string;
   description?: string;
 }
@@ -214,8 +214,8 @@ export interface PolicyConfigV2 {
   continuations?: Continuation[];
   phases?: string[];
   phasePlans?: Record<string, PhasePlan>;
-  workKinds?: Record<string, WorkKind>;
-  defaultWorkKind?: string | null;
+  flows?: Record<string, Flow>;
+  defaultFlow?: string | null;
   phaseSkills?: PhaseSkills;
   projects?: Record<string, Project>;
   uxQa?: UxQaPolicy;
@@ -246,8 +246,8 @@ export interface CompiledPolicy {
   continuations: Continuation[];
   phases: string[];
   phasePlans: Record<string, PhasePlan>;
-  workKinds: Record<string, WorkKind>;
-  defaultWorkKind: string | null;
+  flows: Record<string, Flow>;
+  defaultFlow: string | null;
   phaseSkills: PhaseSkills;
   projects: Record<string, Project>;
   uxQa: UxQaPolicy;
@@ -261,7 +261,7 @@ export interface RailPhase {
   skill: string | null;
 }
 export interface Rail {
-  workKind: string;
+  flow: string;
   evidence: EvidenceKind;
   phases: RailPhase[];
 }
@@ -285,7 +285,7 @@ export function compilePolicy(config: RoutingConfig | PolicyConfigV2, profile?: 
 export function stableStringify(value: unknown): string;
 export function railFor(
   config: PolicyConfigV2 | CompiledPolicy,
-  workKind?: string | null,
+  flow?: string | null,
   cardToggles?: Record<string, boolean> | null
 ): Rail;
 export function inferPhasePlan(

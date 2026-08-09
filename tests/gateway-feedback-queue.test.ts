@@ -87,8 +87,8 @@ describe("buildOverrideRecord — the D20 schema", () => {
     const rec = buildOverrideRecord({
       session_id: "thread-7",
       answer: "full pipeline",
-      original: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "quick" },
-      applied: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "full" },
+      original: { taskType: "code", tier: "T0-trivial", flow: null, plan: "quick" },
+      applied: { taskType: "code", tier: "T0-trivial", flow: null, plan: "full" },
       at: "2026-07-11T00:00:00.000Z",
     });
     expect(rec).toEqual({
@@ -96,8 +96,8 @@ describe("buildOverrideRecord — the D20 schema", () => {
       area: "orchestrator",
       question: "override",
       answer: "full pipeline",
-      original: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "quick" },
-      applied: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "full" },
+      original: { taskType: "code", tier: "T0-trivial", flow: null, plan: "quick" },
+      applied: { taskType: "code", tier: "T0-trivial", flow: null, plan: "full" },
       timestamp: "2026-07-11T00:00:00.000Z",
       provenance: "override",
     });
@@ -137,8 +137,8 @@ describe("/feedback/override endpoint records the override", () => {
       buildOverrideRecord({
         session_id: "s1",
         answer,
-        original: { taskType: "code", tier: "T1-standard", workKind: null, plan: "quick" },
-        applied: { taskType: "code", tier: "T1-standard", workKind: null, plan: "full" },
+        original: { taskType: "code", tier: "T1-standard", flow: null, plan: "quick" },
+        applied: { taskType: "code", tier: "T1-standard", flow: null, plan: "full" },
       })
     );
     const recs = readQueue();

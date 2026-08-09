@@ -199,8 +199,8 @@ export function migrateRoutingConfig(v1) {
     continuations: v1.continuations || [],
     phases: [...PHASES],
     phasePlans: {},
-    workKinds: {},
-    defaultWorkKind: null,
+    flows: {},
+    defaultFlow: null,
     phaseSkills: { bindings: {}, overrides: {} }
   });
   // v1 targets could carry informational provider ids (e.g. secondary targets
@@ -313,9 +313,9 @@ export function resolveDisciplineV2(config, profile, tier) {
 // (policy order) rendered OFF with off_reason "phase-plan". A disabled phase
 // stays IN the rail, rendered off — honesty, never hidden. `cardToggles`
 // (D17) is an optional map {phase: false} merged over the plan.
-export function railFor(config, workKindName, cardToggles) {
-  const kindName = workKindName || config.defaultWorkKind;
-  const kind = (config.workKinds || {})[kindName];
+export function railFor(config, flowName, cardToggles) {
+  const kindName = flowName || config.defaultFlow;
+  const kind = (config.flows || {})[kindName];
   if (!kind) throw new Error(`policy: unknown work kind "${kindName}"`);
   const plan = (config.phasePlans || {})[kind.phasePlan];
   if (!plan) throw new Error(`policy: work kind "${kindName}" names unknown phase plan "${kind.phasePlan}"`);
@@ -339,7 +339,7 @@ export function railFor(config, workKindName, cardToggles) {
     })
   );
   return {
-    workKind: kindName,
+    flow: kindName,
     evidence: plan.evidence || "none",
     phases: [
       ...[...inPlan.entries()].map(([id, on]) => entry(id, on)),
@@ -468,20 +468,20 @@ export function validatePolicyConfig(config) {
       if (!phases.includes(id)) errors.push(`phase plan ${name}: unknown phase ${id}`);
     }
   }
-  for (const [kind, k] of Object.entries(config.workKinds || {})) {
+  for (const [kind, k] of Object.entries(config.flows || {})) {
     if (!k.phasePlan || !planNames.has(k.phasePlan)) {
       errors.push(`work kind ${kind}: unknown phase plan ${k.phasePlan}`);
     }
   }
-  if (config.defaultWorkKind && !(config.workKinds || {})[config.defaultWorkKind]) {
-    errors.push(`defaultWorkKind ${config.defaultWorkKind} not in workKinds`);
+  if (config.defaultFlow && !(config.flows || {})[config.defaultFlow]) {
+    errors.push(`defaultFlow ${config.defaultFlow} not in flows`);
   }
   const bindings = (config.phaseSkills || {}).bindings || {};
   for (const [ph] of Object.entries(bindings)) {
     if (!phases.includes(ph)) errors.push(`phaseSkills binding for unknown phase ${ph}`);
   }
   for (const [kind, over] of Object.entries((config.phaseSkills || {}).overrides || {})) {
-    if (!(config.workKinds || {})[kind]) errors.push(`phaseSkills override for unknown work kind ${kind}`);
+    if (!(config.flows || {})[kind]) errors.push(`phaseSkills override for unknown work kind ${kind}`);
     for (const [ph] of Object.entries(over || {})) {
       if (!phases.includes(ph)) errors.push(`phaseSkills override ${kind}: unknown phase ${ph}`);
     }
@@ -595,8 +595,8 @@ export function compilePolicy(config, profile) {
     continuations: cfg.continuations || [],
     phases: cfg.phases || [...PHASES],
     phasePlans: cfg.phasePlans || {},
-    workKinds: cfg.workKinds || {},
-    defaultWorkKind: cfg.defaultWorkKind || null,
+    flows: cfg.flows || {},
+    defaultFlow: cfg.defaultFlow || null,
     phaseSkills: cfg.phaseSkills || { bindings: {}, overrides: {} },
     projects: cfg.projects || {},
     uxQa: cfg.uxQa || { severityThreshold: "major" },
@@ -759,13 +759,13 @@ export function isSignificantAutonomous(classification) {
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
 // optional per-card toggle map merged over the work kind's plan (D17).
-export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence, originChannel, clarity } = {}) {
+export function buildAutonomousCardPayload({ brief, project, flow, phases, taskType, tier, duty, level, sequence, originChannel, clarity } = {}) {
   return {
     description: brief || "",
     project: project || null,
     list: "backlog",
     goalMode: true,
-    workKind: workKind || null,
+    flow: flow || null,
     phases: phases || null,
     origin: "orchestrator",
     // The originating channel thread ({channel, threadId}), when the surface
@@ -897,7 +897,7 @@ export function compileRoutingV2(config, profile) {
     return `- WHEN this turn produced a **${c.when}** → ${seq}`;
   });
   sections.push(conts.length ? conts.join("\n") : "_(none)_");
-  const kinds = Object.keys(config.workKinds || {});
+  const kinds = Object.keys(config.flows || {});
   if (kinds.length) {
     sections.push("### Work kinds → phase rails (autonomous runs)");
     sections.push(
@@ -905,7 +905,7 @@ export function compileRoutingV2(config, profile) {
         .map((k) => {
           const rail = railFor(config, k);
           const chips = rail.phases.map((ph) => (ph.on ? ph.id : `~~${ph.id}~~`)).join(" → ");
-          return `- **${k}**${k === config.defaultWorkKind ? " (default)" : ""} — ${chips} (evidence: ${rail.evidence})`;
+          return `- **${k}**${k === config.defaultFlow ? " (default)" : ""} — ${chips} (evidence: ${rail.evidence})`;
         })
         .join("\n")
     );

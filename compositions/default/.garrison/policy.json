@@ -53,7 +53,7 @@
       "heavyRatio": 0.5
     }
   },
-  "defaultWorkKind": "full-feature",
+  "defaultFlow": "full-feature",
   "discipline": {
     "T0-trivial": {
       "distribution": "none",
@@ -1044,7 +1044,7 @@
   "uxQa": {
     "severityThreshold": "major"
   },
-  "workKinds": {
+  "flows": {
     "api-change": {
       "description": "API/backend change with tests, no walkthrough",
       "phasePlan": "implement-test"

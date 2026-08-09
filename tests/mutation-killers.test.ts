@@ -126,8 +126,8 @@ describe("rail fallbacks (kanban policy)", () => {
     phases: ["plan", "implement", "walkthrough"],
     taskTypes: ["plan", "implement", "walkthrough"],
     tiers: ["T0-trivial", "T1-standard", "T2-deep"],
-    defaultWorkKind: "full-feature",
-    workKinds: { "full-feature": { phasePlan: "full" }, "docs-change": { phasePlan: "implement-only" } },
+    defaultFlow: "full-feature",
+    flows: { "full-feature": { phasePlan: "full" }, "docs-change": { phasePlan: "implement-only" } },
     phasePlans: {
       full: { evidence: "video", phases: ["plan", "implement", "walkthrough"] },
       "implement-only": { evidence: "none", phases: ["implement"] }
@@ -135,29 +135,29 @@ describe("rail fallbacks (kanban policy)", () => {
     phaseSkills: { bindings: { implement: "garrison-implement" }, overrides: { "docs-change": { implement: "docs-writer" } } }
   };
 
-  it("a card without a workKind falls back to the policy default", () => {
+  it("a card without a flow falls back to the policy default", () => {
     const rail = railForCard(policy, {});
-    expect(rail.workKind).toBe("full-feature");
+    expect(rail.flow).toBe("full-feature");
     expect(rail.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["plan", "implement", "walkthrough"]);
   });
 
-  it("an unknown workKind (no plan) renders EVERY pipeline phase on", () => {
-    const rail = railForCard(policy, { workKind: "mystery" });
+  it("an unknown flow (no plan) renders EVERY pipeline phase on", () => {
+    const rail = railForCard(policy, { flow: "mystery" });
     expect(rail.evidence).toBe("none");
     expect(rail.phases.every((p: { on: boolean }) => p.on)).toBe(true);
   });
 
   it("non-object card toggles are ignored; off reasons are exact", () => {
-    const rail = railForCard(policy, { workKind: "docs-change", phases: "walkthrough" });
+    const rail = railForCard(policy, { flow: "docs-change", phases: "walkthrough" });
     const off = rail.phases.find((p: { id: string }) => p.id === "walkthrough");
     expect(off.on).toBe(false);
     expect(off.off_reason).toBe("phase-plan");
-    const rail2 = railForCard(policy, { workKind: "full-feature", phases: { walkthrough: false } });
+    const rail2 = railForCard(policy, { flow: "full-feature", phases: { walkthrough: false } });
     expect(rail2.phases.find((p: { id: string }) => p.id === "walkthrough").off_reason).toBe("card-toggle");
   });
 
   it("phaseOnForCard: rail governs pipeline phases; non-pipeline columns default ON", () => {
-    const rail = railForCard(policy, { workKind: "docs-change" });
+    const rail = railForCard(policy, { flow: "docs-change" });
     expect(phaseOnForCard(rail, "implement")).toBe(true);
     expect(phaseOnForCard(rail, "walkthrough")).toBe(false);
     expect(phaseOnForCard(rail, "custom-column")).toBe(true);

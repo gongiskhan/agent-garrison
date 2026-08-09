@@ -15,8 +15,8 @@ const AT = "2026-07-11T00:00:00Z";
 describe("analyzeFeedbackProposals — high-weight, never auto-applied", () => {
   it("repeated overrides to 'full' for a kind → a fuller-phase-plan proposal", () => {
     const records = [
-      { provenance: "override", applied: { plan: "full", workKind: "docs-change" }, answer: "full pipeline" },
-      { provenance: "override", applied: { plan: "full", workKind: "docs-change" }, answer: "run in the background" },
+      { provenance: "override", applied: { plan: "full", flow: "docs-change" }, answer: "full pipeline" },
+      { provenance: "override", applied: { plan: "full", flow: "docs-change" }, answer: "run in the background" },
     ];
     const props = rule.analyzeFeedbackProposals({ records, at: AT });
     const p = props.find((x: any) => x.id === "feedback-deeper-" + short("docs-change"));
@@ -66,7 +66,7 @@ describe("analyzeFeedbackProposals — high-weight, never auto-applied", () => {
   });
 
   it("a single occurrence is below the min-signal bar (default 2)", () => {
-    const records = [{ provenance: "override", applied: { plan: "full", workKind: "docs-change" }, answer: "full pipeline" }];
+    const records = [{ provenance: "override", applied: { plan: "full", flow: "docs-change" }, answer: "full pipeline" }];
     expect(rule.analyzeFeedbackProposals({ records, at: AT })).toHaveLength(0);
   });
 
@@ -74,8 +74,8 @@ describe("analyzeFeedbackProposals — high-weight, never auto-applied", () => {
     const records = [
       { provenance: "probe", classification: { kind: "zeta" }, answer: "Wrong task type" },
       { provenance: "probe", classification: { kind: "zeta" }, answer: "Wrong task type" },
-      { provenance: "override", applied: { plan: "full", workKind: "alpha" }, answer: "full pipeline" },
-      { provenance: "override", applied: { plan: "full", workKind: "alpha" }, answer: "full pipeline" },
+      { provenance: "override", applied: { plan: "full", flow: "alpha" }, answer: "full pipeline" },
+      { provenance: "override", applied: { plan: "full", flow: "alpha" }, answer: "full pipeline" },
     ];
     const ids = rule.analyzeFeedbackProposals({ records, at: AT }).map((p: any) => p.id);
     expect(ids).toEqual([...ids].sort());
@@ -90,8 +90,8 @@ describe("collectFeedback + runFeedbackRule — reads the JSONL queue", () => {
     writeFileSync(
       queue,
       [
-        JSON.stringify({ provenance: "override", applied: { plan: "full", workKind: "docs-change" }, answer: "full pipeline" }),
-        JSON.stringify({ provenance: "override", applied: { plan: "full", workKind: "docs-change" }, answer: "kick off a build" }),
+        JSON.stringify({ provenance: "override", applied: { plan: "full", flow: "docs-change" }, answer: "full pipeline" }),
+        JSON.stringify({ provenance: "override", applied: { plan: "full", flow: "docs-change" }, answer: "kick off a build" }),
         "{ malformed",
       ].join("\n") + "\n"
     );

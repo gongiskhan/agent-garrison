@@ -150,7 +150,7 @@ function pickLatest(list, at) {
 // decision's taskType; tier ← decision tier; plan ← card phase plan.
 export function classificationFrom({ decision, card } = {}) {
   return {
-    kind: card?.workKind ?? card?.kind ?? decision?.taskType ?? null,
+    kind: card?.flow ?? card?.kind ?? decision?.taskType ?? null,
     tier: decision?.tier ?? null,
     plan: card?.phasePlan ?? card?.plan ?? null,
   };
@@ -192,7 +192,7 @@ export function chooseArea({ card } = {}) {
 
 // ── Retrospective (D25) ──────────────────────────────────────────────────────
 // Once per day at the first attended boundary, instead of a single probe we list
-// up to 4 of YESTERDAY's work-kind/phase-plan resolutions (cards updated yesterday)
+// up to 4 of YESTERDAY's flow/phase-plan resolutions (cards updated yesterday)
 // and ask, per task, whether it should have run the full pipeline or less. Each
 // answer becomes ONE record (provenance "retrospective").
 export function isFromYesterday(iso, now) {
@@ -201,14 +201,14 @@ export function isFromYesterday(iso, now) {
   return dayStamp(iso) === y;
 }
 
-// Pick up to `max` cards touched yesterday that carry a work-kind/plan resolution.
+// Pick up to `max` cards touched yesterday that carry a flow/plan resolution.
 export function selectRetrospectiveCards(cards, { now, max = 4 } = {}) {
   const out = [];
   for (const card of Array.isArray(cards) ? cards : []) {
     if (out.length >= max) break;
     const updatedAt = card?.updatedAt || card?.lastUpdatedAt || lastEventAt(card);
     if (!isFromYesterday(updatedAt, now)) continue;
-    const kind = card?.workKind ?? card?.kind ?? null;
+    const kind = card?.flow ?? card?.kind ?? null;
     const plan = card?.phasePlan ?? card?.plan ?? null;
     if (!kind && !plan) continue;
     out.push(card);
@@ -224,7 +224,7 @@ function lastEventAt(card) {
 export function buildRetrospectiveQuestions(cards, { now } = {}) {
   const picked = selectRetrospectiveCards(cards, { now });
   return picked.map((card) => {
-    const kind = card?.workKind ?? card?.kind ?? "work";
+    const kind = card?.flow ?? card?.kind ?? "work";
     const plan = card?.phasePlan ?? card?.plan ?? "its plan";
     const title = card?.title ? ` "${truncate(card.title, 48)}"` : "";
     return {

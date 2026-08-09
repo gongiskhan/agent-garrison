@@ -15,7 +15,7 @@ export const PERSONAL_COMPLETION_KIND = "garrison.personal-card-completion";
 const CARD_ID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const MAX_TITLE = 240;
 const MAX_PROJECT_LABEL = 160;
-const MAX_WORK_KIND = 120;
+const MAX_FLOW = 120;
 const MAX_DESCRIPTION = 4_000;
 const MAX_COMPLETION_NOTE = 2_000;
 const MAX_CHECKLIST_ITEMS = 50;
@@ -193,7 +193,7 @@ export function buildPersonalCompletionPacket(card, { handoff = null } = {}) {
     // Match execution precedence: an explicit run-spec project is the cwd, then
     // the visible card project, then the managed personal workspace.
     project: safeProjectLabel(routedProject || card.project),
-    workKind: bounded(card.workKind, MAX_WORK_KIND) || null,
+    flow: bounded(card.flow, MAX_FLOW) || null,
     description: bounded(stripDescriptionAttachmentBlock(card.description), MAX_DESCRIPTION),
     checklist: safeChecklist(card.checklist),
     manualCompletionNote: completionNote || null,

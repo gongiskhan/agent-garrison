@@ -16,6 +16,7 @@
 // write time); every other kind gets a reason composed here from safe scalars.
 
 import path from "node:path";
+import { adoptFlowKeys } from "./flow-compat";
 import { createHash } from "node:crypto";
 import { readFileTolerant } from "./atomic-write";
 
@@ -36,6 +37,9 @@ export interface DecisionView {
   kind: string;
   duty: string | null;
   level: number | null;
+  /** Which FLOW the router picked. Null on records written before flows were a
+   *  routed dimension, and on lane decisions that never selected one. */
+  flow: string | null;
   target: string | null;
   reason: string | null;
   // The RUN dimensions, surfaced as fields rather than smuggled inside `reason`.
@@ -162,7 +166,11 @@ function composeReason(r: Record<string, unknown>): string | null {
 // object. Pure + exported so the shaping is unit-tested without any fs.
 export function normalizeDecision(raw: unknown, seq?: number): DecisionView | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const r = raw as Record<string, unknown>;
+  // Compat: records written before the 2026-08-09 flow rename carry the retired key
+  // (see src/lib/flow-compat.ts, which is the only place it is named). Adopt it here
+  // so the whitelist below speaks the current spelling only. The live prod feed is
+  // ~2.1 MB of such records.
+  const r = adoptFlowKeys(raw) as Record<string, unknown>;
   const kind = classifyKind(r);
   // Trust a stored `reason` only for a dispatch record (code-composed, no user
   // text). Anything else is composed here from safe scalar fields.
@@ -173,6 +181,7 @@ export function normalizeDecision(raw: unknown, seq?: number): DecisionView | nu
     kind,
     duty: str(r.duty),
     level: num(r.level),
+    flow: str(r.flow),
     runtime: str(r.runtime),
     model: str(r.model),
     effort: str(r.effort),

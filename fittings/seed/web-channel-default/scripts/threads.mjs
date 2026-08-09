@@ -150,11 +150,11 @@ const ROUTING_FIELDS = {
   // RUN-SPEC-V1. Persisted like every other pin so a run plan chosen on the phone
   // is still in force from the laptop. Validated as opaque ids here on purpose: the
   // gateway owns the vocabulary (it is the process holding the compiled policy), and
-  // a second copy of the phase/tier/work-kind lists in the channel would be a mirror
+  // a second copy of the phase/tier/flow lists in the channel would be a mirror
   // that silently drifts. An out-of-vocabulary value is refused there, with a reason
   // that reaches the badge.
   tier: "id",
-  workKind: "id",
+  flow: "id",
   phasesOff: "id",
 };
 

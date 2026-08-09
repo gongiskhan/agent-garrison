@@ -76,12 +76,12 @@ describe("claude-chat run context: railBadges omission discipline", () => {
     // A plain conversational turn walks no pipeline: no plan, no badge.
     expect(keys(railBadges({ runtime: "codex" }))).toEqual(["runtime"]);
     // A named work kind with nothing turned off.
-    const named = railBadges({ workKind: "full-feature" }).find((b) => b.key === "workKind");
+    const named = railBadges({ flow: "full-feature" }).find((b) => b.key === "flow");
     expect(named?.label).toBe("full-feature");
     expect(named?.title).toContain("every phase in the plan runs");
     // The OFF count rides the label, because it is the part that changes what runs.
-    const trimmed = railBadges({ workKind: "full-feature", phasesOff: "review,walkthrough" }).find(
-      (b) => b.key === "workKind"
+    const trimmed = railBadges({ flow: "full-feature", phasesOff: "review,walkthrough" }).find(
+      (b) => b.key === "flow"
     );
     expect(trimmed?.label).toBe("full-feature -2");
     expect(trimmed?.title).toContain("phases off: review, walkthrough");
@@ -89,7 +89,7 @@ describe("claude-chat run context: railBadges omission discipline", () => {
     // An orchestrator-inferred plan has NO work kind - it is not one of the named
     // kinds. Requiring one would blank the badge on exactly the auto turns it
     // exists to explain, so the OFF count stands alone.
-    const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "workKind");
+    const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "flow");
     expect(inferred?.label).toBe("plan -1");
     expect(inferred?.title).toContain("inferred from the tier");
   });

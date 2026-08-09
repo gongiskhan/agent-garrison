@@ -293,7 +293,7 @@ describe("probe-generate — retrospective once/day (#19)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       path.join(dir, "card.json"),
-      JSON.stringify({ id: "c1", title: "toggle", workKind: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" })
+      JSON.stringify({ id: "c1", title: "toggle", flow: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" })
     );
   }
   it("first attended boundary of the day → retrospective; a record per task; flag prevents a second", () => {

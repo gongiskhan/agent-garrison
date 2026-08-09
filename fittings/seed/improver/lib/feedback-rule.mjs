@@ -59,7 +59,7 @@ export function collectFeedback(file = feedbackQueuePath(), cap = 2000) {
 // separately rather than collapsed into the existing deeper/lighter axis (a
 // correction from haiku to opus is not "deeper", it is a different cell).
 const COMPUTE_DIMENSIONS = ["target", "model", "effort", "account"];
-const PLAN_DIMENSIONS = ["workKind", "phasesOff", "duty", "tier"];
+const PLAN_DIMENSIONS = ["flow", "phasesOff", "duty", "tier"];
 
 /** The first corrected dimension of a decision verdict, as {field, value}, or null
  *  when the user said it was wrong without saying what it should have been (still
@@ -114,7 +114,7 @@ function kindOf(rec) {
     const corrected = correctedDimension(rec);
     return corrected ? `${corrected.field}=${corrected.value}` : "(no counterfactual)";
   }
-  if (rec?.provenance === "override") return rec?.applied?.workKind || rec?.original?.workKind || "(unspecified)";
+  if (rec?.provenance === "override") return rec?.applied?.flow || rec?.original?.flow || "(unspecified)";
   return rec?.classification?.kind || "(unspecified)";
 }
 
@@ -147,7 +147,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} explicit ${provs} answers say ${kind} work should have gone DEEPER (fuller pipeline / stronger target).`,
         evidence,
-        diff: `workKinds["${kind}"].phasePlan / matrix cells — step ${kind} work UP toward the full pipeline (composer › Work kinds / Matrix)`,
+        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work UP toward the full pipeline (composer › Work kinds / Matrix)`,
         decision: `Give ${kind} work a fuller phase plan (or a stronger matrix target)?`,
         applyVia,
         at,
@@ -159,7 +159,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} explicit ${provs} answers say ${kind} work was too HEAVY (overkill / should have run less).`,
         evidence,
-        diff: `workKinds["${kind}"].phasePlan / matrix cells — step ${kind} work DOWN toward a lighter plan (composer › Work kinds / Matrix)`,
+        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work DOWN toward a lighter plan (composer › Work kinds / Matrix)`,
         decision: `Give ${kind} work a lighter phase plan (or a cheaper matrix target)?`,
         applyVia,
         at,
@@ -200,7 +200,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} decision verdicts say the orchestrator planned this work wrongly — the operator would have set ${field} to ${value}.`,
         evidence,
-        diff: `workKinds / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Work kinds / Tiers)`,
+        diff: `flows / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Work kinds / Tiers)`,
         decision: `Default ${field} to ${value} for this kind of work?`,
         applyVia,
         at,
@@ -212,7 +212,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} "how did it go" answers report ${kind} work needed rework or took the wrong approach — its plan or skill bindings may be worth reviewing.`,
         evidence,
-        diff: `phaseSkills.bindings / workKinds["${kind}"] — review the phase plan + skill bindings ${kind} work runs through (composer › Work kinds / Phase skills)`,
+        diff: `phaseSkills.bindings / flows["${kind}"] — review the phase plan + skill bindings ${kind} work runs through (composer › Work kinds / Phase skills)`,
         decision: `Review the phase plan / skill bindings for ${kind} work?`,
         applyVia,
         at,

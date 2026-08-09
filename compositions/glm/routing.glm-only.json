@@ -603,7 +603,7 @@
       "evidence": "none"
     }
   },
-  "workKinds": {
+  "flows": {
     "docs-change": {
       "phasePlan": "implement-only-text",
       "description": "Documentation or prose-only change"
@@ -635,7 +635,7 @@
       "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge"
     }
   },
-  "defaultWorkKind": "full-feature",
+  "defaultFlow": "full-feature",
   "phaseSkills": {
     "bindings": {
       "plan": "garrison-plan",

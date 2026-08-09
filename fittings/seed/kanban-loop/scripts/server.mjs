@@ -447,7 +447,7 @@ export function cardSummary(card) {
     // S4 (D2/D17): the run-policy fields — the work kind naming the rail, the
     // per-card phase toggles (OFF phases render as dimmed chips: honesty), the
     // tier, and who registered the run.
-    workKind: card.workKind ?? null,
+    flow: card.flow ?? null,
     phases: card.phases ?? null,
     tier: card.tier ?? null,
     // RUN-SPEC-V1: the card's explicit run spec. It MUST cross the projection or
@@ -598,12 +598,12 @@ export const EXPORT_CARD_FIELDS = [
   "title",
   "description",
   "project",       // a LABEL (board.projects maps it to a path on THIS machine), never a path
-  "scope",         // personal | project | unscoped; independent of execution workKind
+  "scope",         // personal | project | unscoped; independent of execution flow
   "acceptance",
   "goalMode",
   "checklist",
   "routing",       // the RUN-SPEC-V1 pin (scalars only; re-sanitised on import)
-  "workKind",
+  "flow",
   "tier",
   "phases",
   "scheduledFor",
@@ -1723,8 +1723,8 @@ async function handleCreateCard(req, res, opts) {
     // inside the card's `routing` pin now, so accept EITHER spelling and let the
     // pin win. The legacy top-level fields stay for the gateway's card payload
     // builder and every existing API client; the UI sends only the pin.
-    workKind:
-      typeof body.workKind === "string" ? body.workKind : (typeof body.routing?.workKind === "string" ? body.routing.workKind : null),
+    flow:
+      typeof body.flow === "string" ? body.flow : (typeof body.routing?.flow === "string" ? body.routing.flow : null),
     // The CSV pin is the ONE wire form for "phases off" (the same converter the
     // gateway uses); the toggle map remains what the card stores, because that is
     // what railForCard reads.
@@ -1973,7 +1973,7 @@ async function handleImportCards(req, res, opts) {
             : picked.checklist
         );
     picked.routing = sanitiseCardRouting(picked.routing);
-    picked.workKind = typeof picked.workKind === "string" && picked.workKind.trim() ? picked.workKind.trim() : null;
+    picked.flow = typeof picked.flow === "string" && picked.flow.trim() ? picked.flow.trim() : null;
     picked.tier = typeof picked.tier === "string" && picked.tier.trim() ? picked.tier.trim() : null;
     if (picked.phases && typeof picked.phases === "object" && !Array.isArray(picked.phases)) {
       picked.phases = Object.fromEntries(
@@ -2083,7 +2083,7 @@ async function handleImportCards(req, res, opts) {
         acceptance: p.acceptance,
         checklist: p.checklist,
         routing: p.routing,
-        workKind: p.workKind,
+        flow: p.flow,
         tier: p.tier,
         phases: p.phases,
         schedule: p.schedule ?? null,
@@ -2517,7 +2517,7 @@ async function handlePatchCard(req, res, opts, id) {
   }
   if (typeof body.acceptance === "string") next.acceptance = body.acceptance;
   // RUN-SPEC-V1: the card's explicit run spec is EDITABLE, unlike the create-only
-  // workKind/tier/duty it partly supersedes. A control you can set once and never
+  // flow/tier/duty it partly supersedes. A control you can set once and never
   // correct is not a control - and the common case is exactly "this parked card
   // should have run on opus". Engine-owned cards are already refused above
   // (isEngineOwned), so this can only reach a card the human still holds.
@@ -2529,7 +2529,7 @@ async function handlePatchCard(req, res, opts, id) {
     // The three fields the card ALSO stores flat (they are read by railForCard and
     // the classification hint) are re-derived, or the two copies disagree the
     // moment a spec is edited.
-    next.workKind = next.routing?.workKind ?? null;
+    next.flow = next.routing?.flow ?? null;
     next.tier = next.routing?.tier ?? null;
     next.phases = phaseTogglesFromCsv(next.routing?.phasesOff);
   }
@@ -4870,8 +4870,8 @@ async function handleRouteOptions(req, res, opts) {
     efforts: [],
     accounts: [],
     tiers: [],
-    workKinds: [],
-    defaultWorkKind: null,
+    flows: [],
+    defaultFlow: null,
     projects: [],
     ...(gateway ?? {}),
     sources: { gateway: gateway !== null }
@@ -5140,9 +5140,9 @@ export function makeRequestHandler(opts, distDir) {
         const policy = loadPolicy();
         if (!policy) return jsonRes(res, 404, { error: "no compiled policy (start Garrison / the Orchestrator fitting)" });
         return jsonRes(res, 200, {
-          workKinds: policy.workKinds || {},
+          flows: policy.flows || {},
           phasePlans: policy.phasePlans || {},
-          defaultWorkKind: policy.defaultWorkKind || null,
+          defaultFlow: policy.defaultFlow || null,
           phases: policy.phases || [],
           phaseSkills: policy.phaseSkills || { bindings: {}, overrides: {} }
         });

@@ -4,7 +4,7 @@
 // garrison-control read tool) consult the SAME resolved model with divergence
 // zero." Before S4b the doors diverged: web-channel classified via the gateway,
 // the board treated the list as the task type, and the garrison skill used
-// policy.defaultWorkKind. This test drives EACH door's OWN "what sequence does
+// policy.defaultFlow. This test drives EACH door's OWN "what sequence does
 // this (duty, level) card VISIT" code path and asserts the three answers are
 // identical — the resolved sequence, not the entry point (a legitimate per-door
 // difference the acceptance explicitly allows).

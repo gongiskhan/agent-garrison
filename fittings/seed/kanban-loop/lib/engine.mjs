@@ -1251,7 +1251,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextForCard(card, phase, resolvedModel) ?? validNextFor(board, card.list);
   const executionContext = executionContextForCard(card, phase, resolvedModel);
-  const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
+  const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, card.flow || policy?.defaultFlow);
   // Coordination is ACTIVE when the compiled policy explicitly carries a
   // `coordination` section (turned on by the composer — S6 — for production; a
   // policy that predates it, and the deliberate policy-less pure-transition mode,
@@ -1272,7 +1272,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     const offEvents = skipped.map((ph) => ({
       at: now(),
       kind: "phase-off",
-      message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+      message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
     }));
     let events = card.events ? card.events.slice() : [];
     for (const ev of offEvents) events = withEvent({ events }, ev);
@@ -2046,7 +2046,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         offEvents = fwd.skipped.map((ph) => ({
           at: now(),
           kind: "phase-off",
-          message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+          message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
         }));
       }
     }
@@ -2569,7 +2569,7 @@ function occurrenceInput(template, list, key, scheduledAt) {
     list,
     goalMode: Boolean(template.goalMode),
     acceptance: template.acceptance ?? null,
-    workKind: template.workKind ?? null,
+    flow: template.flow ?? null,
     phases: template.phases ?? null,
     tier: template.tier ?? null,
     routing: template.routing ?? null,
@@ -3063,7 +3063,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       offEvents = fwd.skipped.map((ph) => ({
         at: now(),
         kind: "phase-off",
-        message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+        message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
       }));
     }
   }
@@ -3618,7 +3618,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     ])];
     const classification = classificationForPhase(policy, phase, runningCards[0]);
     const executionContext = executionContextForCard(runningCards[0], phase, resolvedModel);
-    const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, runningCards[0]?.workKind || policy?.defaultWorkKind);
+    const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, runningCards[0]?.flow || policy?.defaultFlow);
     let out;
     try {
       out = await batchRunFn({
@@ -3907,7 +3907,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           offEvents = fwd.skipped.map((ph) => ({
             at: now(),
             kind: "phase-off",
-            message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+            message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
           }));
         }
       }

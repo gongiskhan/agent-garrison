@@ -827,9 +827,9 @@ function pinnedString(raw, field, rejected) {
 export function routingVocabulary(config = router?.config ?? null) {
   return {
     tiers: Array.isArray(config?.tiers) ? config.tiers.filter((t) => typeof t === "string") : [],
-    workKinds:
-      config?.workKinds && typeof config.workKinds === "object" && !Array.isArray(config.workKinds)
-        ? Object.keys(config.workKinds)
+    flows:
+      config?.flows && typeof config.flows === "object" && !Array.isArray(config.flows)
+        ? Object.keys(config.flows)
         : [],
     phases: Array.isArray(config?.phases) ? config.phases.filter((p) => typeof p === "string") : []
   };
@@ -877,7 +877,7 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     if (Number.isInteger(level) && level >= 1 && level <= 9) out.level = level;
     else rejected.push({ field: "level", reason: "level-not-an-integer-1-9" });
   }
-  // The run-plan pins (RUN-SPEC-V1). `tier` and `workKind` are validated against the
+  // The run-plan pins (RUN-SPEC-V1). `tier` and `flow` are validated against the
   // COMPILED POLICY's own vocabulary rather than a hardcoded list here - the policy
   // is the thing that will actually be resolved against, so a value this edge
   // accepted but the matrix cannot key on would be a pin that dies silently later.
@@ -885,9 +885,9 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     const tier = pinnedString(raw.tier, "tier", rejected);
     if (tier !== null && inVocab(vocabulary.tiers, tier, "tier")) out.tier = tier;
   }
-  if (raw.workKind !== undefined && raw.workKind !== null) {
-    const kind = pinnedString(raw.workKind, "workKind", rejected);
-    if (kind !== null && inVocab(vocabulary.workKinds, kind, "workKind")) out.workKind = kind;
+  if (raw.flow !== undefined && raw.flow !== null) {
+    const kind = pinnedString(raw.flow, "flow", rejected);
+    if (kind !== null && inVocab(vocabulary.flows, kind, "flow")) out.flow = kind;
   }
   if (raw.phasesOff !== undefined && raw.phasesOff !== null) {
     const csv = pinnedString(raw.phasesOff, "phasesOff", rejected);
@@ -945,11 +945,11 @@ export function turnAttribution(pre, hints, extra = {}) {
     // resolves with no skill. Reported as null ("skill: none") rather than hidden.
     skill: pre?.skill ?? route?.skill ?? hints?.skill ?? null,
     via: route?.via ?? null,
-    // RUN-SPEC-V1 run plan. `workKind`/`phasesOff` are reported from the RESOLVED
+    // RUN-SPEC-V1 run plan. `flow`/`phasesOff` are reported from the RESOLVED
     // hints (the pin when the user set one, the gateway's inference otherwise) so
     // the badge shows an auto-chosen plan instead of leaving it invisible - which is
     // the whole point of "if it was auto, say what it chose".
-    workKind: hints?.workKind ?? null,
+    flow: hints?.flow ?? null,
     phasesOff: phaseTogglesToCsv(hints?.phases),
     // Undefined (not false) when the router did not say: an older lane that never
     // reports it must not be badged "a classifier ran" on no evidence.
@@ -1169,9 +1169,9 @@ export function buildRouteOptions() {
   // offering something that would then be refused.
   const vocab = routingVocabulary(config);
   const phasePlans = config?.phasePlans && typeof config.phasePlans === "object" ? config.phasePlans : {};
-  const workKinds = vocab.workKinds
+  const flows = vocab.flows
     .map((id) => {
-      const kind = config.workKinds[id] ?? {};
+      const kind = config.flows[id] ?? {};
       const plan = phasePlans[kind.phasePlan] ?? null;
       return {
         id,
@@ -1194,8 +1194,8 @@ export function buildRouteOptions() {
     account: { name: processAccount, source: processAccount ? "process" : null },
     projects,
     tiers: vocab.tiers,
-    workKinds,
-    defaultWorkKind: typeof config?.defaultWorkKind === "string" ? config.defaultWorkKind : null,
+    flows,
+    defaultFlow: typeof config?.defaultFlow === "string" ? config.defaultFlow : null,
     primaryRuntime: primaryRuntime(),
     activeProfile: config?.activeProfile ?? null,
     // Routing may be off entirely (no orchestrator fitting) - the rail then shows
@@ -1359,7 +1359,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
         // last phase into whatever list is declared next (seen live: Test → Image).
         let inferredPhases = hints?.phases ?? null;
         let pipelineSequence = null;
-        if (!inferredPhases && !hints?.workKind && cls.tier && router.core?.inferPhasePlan && router.core?.phaseTogglesFor) {
+        if (!inferredPhases && !hints?.flow && cls.tier && router.core?.inferPhasePlan && router.core?.phaseTogglesFor) {
           try {
             const inferredPlan = router.core.inferPhasePlan(router.config, router.config.activeProfile, cls.tier);
             inferredPhases = router.core.phaseTogglesFor(inferredPlan);
@@ -1379,7 +1379,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
         // path instead of threading a second one through three lane returns.
         if (hints && inferredPhases && !hints.phases) hints.phases = inferredPhases;
         const cardOpts = {
-          workKind: hints?.workKind ?? null,
+          flow: hints?.flow ?? null,
           phases: inferredPhases,
           project: hints?.project ?? null,
           duty: pre?.duty ?? pre?.route?.duty,
@@ -1410,7 +1410,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
             const resolution = (sig) => ({
               taskType: cls.taskType,
               tier: cls.tier,
-              workKind: hints?.workKind ?? null,
+              flow: hints?.flow ?? null,
               plan: sig ? "full" : "quick",
             });
             try {
@@ -2112,7 +2112,7 @@ export function routeHintsFromBody(body) {
     // are engine dispatches and run inline; every other channel's task-shaped turn
     // becomes a card), the per-conversation session id (so a multi-turn thread
     // attaches to one card, D19), the resolved mode, and optional card fields
-    // (workKind / per-card phase toggles / project) for the created card.
+    // (flow / per-card phase toggles / project) for the created card.
     channel: typeof body?.channel === "string" ? body.channel : null,
     // The web channel names this `thread` (its opaque per-conversation key);
     // other hosts send `sessionId`. Accept both so a decision can be traced back
@@ -2140,14 +2140,14 @@ export function routeHintsFromBody(body) {
     // web one-shot so the standing operative session holds no web context.
     context: typeof body?.context === "string" ? body.context : null,
     // The phase plan for a turn that becomes a card. TWO wire spellings reach the
-    // same field: the board's long-standing top-level `workKind`/`phases`, and the
-    // RUN-SPEC-V1 pin (`routing.workKind` / `routing.phasesOff`) that every rail
+    // same field: the board's long-standing top-level `flow`/`phases`, and the
+    // RUN-SPEC-V1 pin (`routing.flow` / `routing.phasesOff`) that every rail
     // surface sends. The top-level form WINS - the board computes it from the card
     // it already owns, so it is a statement of fact, while the pin is an intent that
     // has to survive validation. The pin is only read after sanitizeRouting, so an
     // out-of-vocabulary work kind never arrives here at all.
-    workKind:
-      typeof body?.workKind === "string" ? body.workKind : (routing?.workKind ?? null),
+    flow:
+      typeof body?.flow === "string" ? body.flow : (routing?.flow ?? null),
     phases:
       body?.phases && typeof body.phases === "object"
         ? body.phases

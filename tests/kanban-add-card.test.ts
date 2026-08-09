@@ -28,7 +28,7 @@ process.env.GARRISON_KANBAN_DIR = KANBAN_DIR;
 process.env.GARRISON_HOME = GARRISON_HOME;
 process.env.GARRISON_RUNS_DIR = RUNS_DIR;
 // Policy-less: loadPolicy() → null, so the create path skips the coordination /
-// work-kind branches and is a pure Backlog insert.
+// flow branches and is a pure Backlog insert.
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore — pure ESM .mjs, no .d.ts
@@ -221,7 +221,7 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
       scope: "personal"
     });
     expect(create.status).toBe(201);
-    expect(create.body.card).toMatchObject({ scope: "personal", project: null, workKind: null });
+    expect(create.body.card).toMatchObject({ scope: "personal", project: null, flow: null });
 
     // Give a mistakenly-started fire-and-forget inference enough time to expose
     // itself. Personal/no-project capture is deliberate, not an inference failure.

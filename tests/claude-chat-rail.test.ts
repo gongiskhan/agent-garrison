@@ -47,11 +47,11 @@ const OPTIONS: RailOptions = {
   accounts: [{ name: "work", platform: "anthropic" }],
   projects: ["garrison", "ekoa"],
   tiers: ["T0-trivial", "T1-standard", "T2-deep"],
-  workKinds: [
+  flows: [
     { id: "full-feature", description: "the full gated pipeline", phases: ["plan", "implement", "review", "adversarial-review", "walkthrough"] },
     { id: "docs-change", description: "prose only", phases: ["implement"] },
   ],
-  defaultWorkKind: "full-feature",
+  defaultFlow: "full-feature",
 };
 
 // ── railDisplayBadges: the pure model plus the interaction facts ──────────────
@@ -111,12 +111,12 @@ describe("railDisplayBadges", () => {
       "effort",
       "account",
       "project",
-      "workKind",
+      "flow",
       "phasesOff",
     ]);
     // A placeholder never invents a VALUE - its label is the dimension's HUMAN name
     // and its title says it is not pinned.
-    const humanName: Record<string, string> = { workKind: "work kind", phasesOff: "phases" };
+    const humanName: Record<string, string> = { flow: "work kind", phasesOff: "phases" };
     for (const b of offered) {
       expect(b.placeholder).toBe(true);
       expect(b.label).toBe(humanName[b.key] ?? b.key);
@@ -184,7 +184,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
   });
 
   it("labels the default work kind and clears a stale phase selection when the plan changes", () => {
-    const menu = menuForField("workKind", OPTIONS, { workKind: "docs-change", phasesOff: "walkthrough" });
+    const menu = menuForField("flow", OPTIONS, { flow: "docs-change", phasesOff: "walkthrough" });
     // Source order is preserved: the gateway already sorts the catalogue, and a
     // second sort here would be a second opinion about ordering.
     expect(menu?.rows.map((r) => r.label)).toEqual([
@@ -195,12 +195,12 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     const fullFeature = menu?.rows.find((r) => r.key === "full-feature");
     // Those OFF ids belong to the OLD plan; carrying them over would silently
     // disable phases in the new one that the user never looked at.
-    expect(fullFeature?.patch).toEqual({ workKind: "full-feature", phasesOff: null });
+    expect(fullFeature?.patch).toEqual({ flow: "full-feature", phasesOff: null });
     expect(menu?.rows.find((r) => r.key === "docs-change")?.selected).toBe(true);
   });
 
   it("turns the phases menu into per-phase toggles over the selected plan, in plan order", () => {
-    const menu = menuForField("phasesOff", OPTIONS, { workKind: "full-feature", phasesOff: "review" });
+    const menu = menuForField("phasesOff", OPTIONS, { flow: "full-feature", phasesOff: "review" });
     expect(menu?.label).toBe("Phases this run walks");
     expect(menu?.rows.map((r) => r.key)).toEqual([
       "auto",
@@ -220,7 +220,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     expect(menu?.rows.find((r) => r.key === "plan")?.patch).toEqual({ phasesOff: "plan,review" });
     // "Automatic" is selected only when nothing is off.
     expect(menu?.rows[0].selected).toBe(false);
-    expect(menuForField("phasesOff", OPTIONS, { workKind: "full-feature" })?.rows[0].selected).toBe(true);
+    expect(menuForField("phasesOff", OPTIONS, { flow: "full-feature" })?.rows[0].selected).toBe(true);
   });
 
   it("falls back to the DEFAULT work kind's phases when no kind is pinned", () => {
@@ -232,16 +232,30 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
 describe("menuForField", () => {
   it("flattens duty x level into one list and marks the pinned pair", () => {
     const menu = menuForField("duty", OPTIONS, { duty: "plan", level: 2 });
+    // ONE question, "what is this work?": the phased FLOWS come first, then the
+    // single-turn duties flattened across their levels. This expectation went
+    // stale when the two sibling badges merged (e34b1246) and the flow rows
+    // started appearing here - it was asserting the pre-merge menu.
     expect(menu?.rows.map((r) => r.label)).toEqual([
       "Automatic - the classifier decides",
+      "full-feature (default plan)",
+      "docs-change (plan)",
       "plan L1",
       "plan L2",
       "review",
     ]);
     expect(menu?.rows.find((r) => r.label === "plan L2")?.selected).toBe(true);
-    expect(menu?.rows.find((r) => r.label === "plan L2")?.patch).toEqual({ duty: "plan", level: 2 });
-    // The clear row must clear BOTH halves - a level without a duty is meaningless.
-    expect(menu?.rows[0].patch).toEqual({ duty: null, level: null });
+    // Picking a duty is the other direction of the same merge: it pins duty+level
+    // and RELEASES the flow pin, so the two can never read as a contradiction.
+    expect(menu?.rows.find((r) => r.label === "plan L2")?.patch).toEqual({
+      duty: "plan",
+      level: 2,
+      flow: null,
+      phasesOff: null
+    });
+    // The clear row must clear EVERY half - a level without a duty is meaningless,
+    // and since the merge it must release the flow pin (and its phase toggles) too.
+    expect(menu?.rows[0].patch).toEqual({ duty: null, level: null, flow: null, phasesOff: null });
     expect(menu?.rows[0].selected).toBe(false);
   });
 

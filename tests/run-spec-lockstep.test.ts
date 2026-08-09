@@ -52,7 +52,7 @@ const RUN_SPEC_FIELDS = [
   "project",
   "account",
   "tier",
-  "workKind",
+  "flow",
   "phasesOff",
 ] as const;
 
@@ -158,13 +158,13 @@ describe("RUN-SPEC-V1: a card's spec becomes exactly one routing pin", () => {
     expect(
       cardTurnRouting({
         project: "garrison",
-        routing: { target: "cc-opus-high", effort: "high", tier: "T2-deep", workKind: "ui-change", phasesOff: "walkthrough" },
+        routing: { target: "cc-opus-high", effort: "high", tier: "T2-deep", flow: "ui-change", phasesOff: "walkthrough" },
       })
     ).toEqual({
       target: "cc-opus-high",
       effort: "high",
       tier: "T2-deep",
-      workKind: "ui-change",
+      flow: "ui-change",
       phasesOff: "walkthrough",
       project: "garrison",
     });

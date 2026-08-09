@@ -46,8 +46,8 @@ describe("ux-qa phase (S5 / D14+D15)", () => {
   });
 
   it("the ui-change work kind resolves to its 4-phase plan (implement, review, ux-qa, walkthrough)", () => {
-    expect(policy.workKinds["ui-change"]).toBeTruthy();
-    expect(policy.workKinds["ui-change"].phasePlan).toBe("ui-change");
+    expect(policy.flows["ui-change"]).toBeTruthy();
+    expect(policy.flows["ui-change"].phasePlan).toBe("ui-change");
     expect(planPhaseIds(policy, "ui-change")).toEqual(["implement", "review", "ux-qa", "walkthrough"]);
     // the rail's ON phases are exactly that plan (off phases stay visible)
     const rail = railFor(SEED, "ui-change");
@@ -65,9 +65,9 @@ describe("ux-qa phase (S5 / D14+D15)", () => {
   it("the full plan carries ux-qa; docs/api/video plans do NOT", () => {
     expect(planPhaseIds(policy, "full")).toContain("ux-qa");
     // full-feature keeps ux-qa via the full plan
-    expect(planPhaseIds(policy, policy.workKinds["full-feature"].phasePlan)).toContain("ux-qa");
+    expect(planPhaseIds(policy, policy.flows["full-feature"].phasePlan)).toContain("ux-qa");
     for (const kind of ["docs-change", "api-change", "video-edit"]) {
-      const plan = policy.workKinds[kind].phasePlan;
+      const plan = policy.flows[kind].phasePlan;
       expect(planPhaseIds(policy, plan), `${kind} → ${plan}`).not.toContain("ux-qa");
     }
   });

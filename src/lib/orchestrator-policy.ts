@@ -13,6 +13,7 @@ import {
   type RouterTarget,
   type RuntimeEntry
 } from "./runtime-selection";
+import { adoptFlowKeys } from "./flow-compat";
 import type { CompositionV4 } from "./compositions";
 import type { FittingSelectionMap, LibraryEntry } from "./types";
 
@@ -42,8 +43,8 @@ export type PolicyConfig = Record<string, unknown> & {
   profiles?: Record<string, unknown>;
   targets?: RouterTarget[];
   primaryRuntime?: string;
-  defaultWorkKind?: string;
-  workKinds?: Record<string, { phasePlan?: string; description?: string }>;
+  defaultFlow?: string;
+  flows?: Record<string, { phasePlan?: string; description?: string }>;
   projects?: Record<string, { security_sensitive?: boolean }>;
   uxQa?: { severityThreshold?: string };
   dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
@@ -61,7 +62,7 @@ interface RoutingCore {
     profile: string | null,
     classification: { taskType: string; tier: string; matchedException?: string | null }
   ) => { targetId?: string; ruleId?: string; target?: Record<string, unknown> | null };
-  railFor: (c: unknown, workKind?: string | null) => TryItRail;
+  railFor: (c: unknown, flow?: string | null) => TryItRail;
   classifyExecution: (input: {
     message: string;
     classification: { taskType: string; tier: string };
@@ -106,7 +107,10 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
     await writeFileAtomic(target, raw);
   }
   const core = await loadRoutingCore();
-  let parsed = JSON.parse(raw) as unknown;
+  // Compat: a routing.json written before the 2026-08-09 flow rename still carries
+  // the retired spellings. Adopt them on read; only the new keys are ever written
+  // back (see src/lib/flow-compat.ts, which is the only place they are named).
+  let parsed = adoptFlowKeys(JSON.parse(raw) as unknown);
   if (!core.isV2(parsed)) {
     const migrated = core.migrateRoutingConfig(parsed);
     const backup = `${target}.v1.bak`;
@@ -129,14 +133,14 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
 // the fitting seed — served, not persisted: the baselineSha stays over the
 // disk bytes, and the next accepted whole-document write heals the file.
 //
-// The phase machinery (phases / workKinds / phasePlans / phaseSkills /
-// defaultWorkKind) backfills as ONE coherent group, and only when the config
+// The phase machinery (phases / flows / phasePlans / phaseSkills /
+// defaultFlow) backfills as ONE coherent group, and only when the config
 // carries no work kinds and no phase plans of its own: seed phase-skill
 // bindings reference seed phases (e.g. security-review), so filling one member
 // against a config's own phase list produces a config that fails its own
 // validation.
 const INDEPENDENT_SECTIONS = ["dispatchInference", "coordination", "uxQa", "projects"] as const;
-const PHASE_GROUP = ["phases", "workKinds", "phasePlans", "phaseSkills", "defaultWorkKind"] as const;
+const PHASE_GROUP = ["phases", "flows", "phasePlans", "phaseSkills", "defaultFlow"] as const;
 
 function sectionEmpty(value: unknown): boolean {
   if (value === undefined || value === null) return true;
@@ -160,7 +164,7 @@ function sectionEmpty(value: unknown): boolean {
 
 async function backfillSeedSections(config: PolicyConfig): Promise<PolicyConfig> {
   const missingIndependent = INDEPENDENT_SECTIONS.filter((key) => sectionEmpty(config[key]));
-  const phaseGroupEmpty = sectionEmpty(config.workKinds) && sectionEmpty(config["phasePlans"]);
+  const phaseGroupEmpty = sectionEmpty(config.flows) && sectionEmpty(config["phasePlans"]);
   if (missingIndependent.length === 0 && !phaseGroupEmpty) return config;
   const seed = JSON.parse(await fs.readFile(SEED_ROUTING_PATH, "utf8")) as Record<string, unknown>;
   const next: Record<string, unknown> = { ...config };
@@ -332,7 +336,7 @@ export interface TryItGates {
 
 export interface TryItResult {
   classification: { taskType: string; tier: string; matchedException: string | null; execution: string };
-  workKind: string | null;
+  flow: string | null;
   project: string | null;
   rail: TryItRail | { error: string } | null;
   gates: TryItGates | null;
@@ -372,14 +376,14 @@ export function heuristicClassify(prompt: string): {
 function tryItGates(
   config: PolicyConfig,
   baseRail: TryItRail | null,
-  workKind: string | null,
+  flow: string | null,
   projectLabel: string | null
 ): TryItGates {
   const phaseOn = (id: string) => {
     const p = (baseRail?.phases || []).find((x) => x.id === id);
     return !!(p && p.on);
   };
-  const kindLabel = workKind || config.defaultWorkKind || "the selected work kind";
+  const kindLabel = flow || config.defaultFlow || "the selected work kind";
 
   const byPlanSec = phaseOn("security-review");
   const project = projectLabel && config.projects ? config.projects[projectLabel] : null;
@@ -420,7 +424,7 @@ export type SimulateOutcome =
 // resolves to at the classified tier; OFF chips stay in the rail (honesty).
 export async function simulateTryIt(
   compositionDir: string,
-  input: { prompt: string; workKind?: string | null; project?: string | null }
+  input: { prompt: string; flow?: string | null; project?: string | null }
 ): Promise<SimulateOutcome> {
   const { config } = await readRoutingPolicy(compositionDir);
   const core = await loadRoutingCore();
@@ -433,13 +437,13 @@ export async function simulateTryIt(
     message: String(input.prompt || ""),
     classification
   });
-  const workKind = input.workKind || config.defaultWorkKind || null;
+  const flow = input.flow || config.defaultFlow || null;
   const project = typeof input.project === "string" && input.project ? input.project : null;
   let rail: TryItRail | { error: string };
   let gates: TryItGates | null = null;
   try {
-    const base = core.railFor(config, workKind);
-    gates = tryItGates(config, base, workKind, project);
+    const base = core.railFor(config, flow);
+    gates = tryItGates(config, base, flow, project);
     rail = {
       ...base,
       phases: base.phases.map((ph) => {
@@ -467,7 +471,7 @@ export async function simulateTryIt(
     status: "ok",
     result: {
       classification: { ...classification, execution },
-      workKind,
+      flow,
       project,
       rail,
       gates,

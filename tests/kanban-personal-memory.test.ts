@@ -47,7 +47,7 @@ describe("personal Done-card neutral memory outbox", () => {
       title: "Final phase ordering",
       description: "Capture the final decision after the engine writes its duty summary.",
       scope: "personal",
-      workKind: "api-change",
+      flow: "api-change",
       list: "implement"
     });
     const board = {
@@ -119,7 +119,7 @@ describe("personal Done-card neutral memory outbox", () => {
       description: `${"Private context. ".repeat(400)}\n\nAttached files:\n- /home/ggomes/private/passport.png`,
       project: "/home/ggomes/dev/ekoa-code",
       scope: "personal",
-      workKind: "api-change",
+      flow: "api-change",
       list: "todo",
       checklist: Array.from({ length: 55 }, (_, i) => ({ text: `item ${i}`, done: i < 2 }))
     });
@@ -155,7 +155,7 @@ describe("personal Done-card neutral memory outbox", () => {
     expect(packet.coordinationSeq).toBe(1);
     expect(packet.scope).toBe("personal");
     expect(packet.project).toBe("ekoa-code"); // context label, never the machine path
-    expect(packet.workKind).toBe("api-change");
+    expect(packet.flow).toBe("api-change");
     expect(packet.description.length).toBeLessThanOrEqual(4_000);
     expect(packet.description).not.toContain("Attached files:");
     expect(packet.description).not.toContain("/home/ggomes/private/passport.png");

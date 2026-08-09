@@ -371,7 +371,7 @@ describe("S4a codex finding #2 — effectiveListForCard skips OFF phases along t
   };
   const board = buildBoard(model, { templates: templates() });
   // A rail that turns the card's current phase (implement) OFF and keeps review ON.
-  const rail = { workKind: "k", evidence: "none", phases: [{ id: "implement", on: false }, { id: "review", on: true }] };
+  const rail = { flow: "k", evidence: "none", phases: [{ id: "implement", on: false }, { id: "review", on: true }] };
 
   it("a card whose sequence ENDS at the OFF phase fast-forwards to 'done' (its sequence), NOT 'review' (board column)", () => {
     const seqCard = { list: "implement", duty: "develop", level: 1, sequence: ["implement"] };

@@ -1021,7 +1021,7 @@ function Card({
             {card.checklistDone}/{card.checklistTotal}
           </span>
         )}
-        {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
+        {card.flow && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.flow}</span>}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
@@ -1260,8 +1260,8 @@ function RunSpec({
   // The phases of the SELECTED plan, in plan order. Falls back to the default work
   // kind's plan, which is what an unpinned card actually walks. A pinned
   // single-turn DUTY runs no phase plan at all, so the toggles hide.
-  const kindId = spec.duty ? "" : (spec.workKind || options?.defaultWorkKind || "");
-  const planPhases = (options?.workKinds ?? []).find((k) => k.id === kindId)?.phases ?? [];
+  const kindId = spec.duty ? "" : (spec.flow || options?.defaultFlow || "");
+  const planPhases = (options?.flows ?? []).find((k) => k.id === kindId)?.phases ?? [];
   const off = new Set((spec.phasesOff ?? "").split(",").map((s) => s.trim()).filter(Boolean));
   // Serialised in PLAN order, never tap order, so the same selection always
   // produces the same pin.
@@ -1291,12 +1291,12 @@ function RunSpec({
               mutually exclusive. */}
           <SpecSelect
             id="nc-kind-of-work" label="Kind of work" hint="the classifier decides"
-            value={spec.workKind ? `kind:${spec.workKind}` : spec.duty ? `duty:${spec.duty}` : AUTO}
+            value={spec.flow ? `kind:${spec.flow}` : spec.duty ? `duty:${spec.duty}` : AUTO}
             disabled={why}
             options={[
-              ...(options?.workKinds ?? []).map((k) => ({
+              ...(options?.flows ?? []).map((k) => ({
                 value: `kind:${k.id}`,
-                label: k.id === options?.defaultWorkKind ? `${k.id} (default plan)` : k.id,
+                label: k.id === options?.defaultFlow ? `${k.id} (default plan)` : k.id,
                 detail: (k.phases?.length ? `plan: ${k.phases.join(" → ")}` : k.description) ?? undefined
               })),
               ...(options?.duties ?? []).map((d) => ({
@@ -1306,9 +1306,9 @@ function RunSpec({
               }))
             ]}
             onChange={(v) => {
-              if (!v) setSpec({ ...spec, duty: undefined, workKind: undefined, phasesOff: undefined });
-              else if (v.startsWith("kind:")) setSpec({ ...spec, workKind: v.slice(5), duty: undefined, phasesOff: undefined });
-              else setSpec({ ...spec, duty: v.slice(5), workKind: undefined, phasesOff: undefined });
+              if (!v) setSpec({ ...spec, duty: undefined, flow: undefined, phasesOff: undefined });
+              else if (v.startsWith("kind:")) setSpec({ ...spec, flow: v.slice(5), duty: undefined, phasesOff: undefined });
+              else setSpec({ ...spec, duty: v.slice(5), flow: undefined, phasesOff: undefined });
             }}
           />
           <SpecSelect
@@ -1544,7 +1544,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
   // RUN-SPEC-V1: ONE explicit run spec for the card, in the same shape the Web
-  // Channel's Turn Rail pins. It replaces the separate D17 work-kind select + phase
+  // Channel's Turn Rail pins. It replaces the separate D17 flow select + phase
   // toggles that used to live here (those are now two dimensions of the spec) so
   // there is one place, not two, to decide how a card runs.
   const [spec, setSpec] = useState<CardRouting>({});

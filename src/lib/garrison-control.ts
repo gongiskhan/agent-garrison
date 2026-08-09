@@ -5,7 +5,7 @@
 // divergence zero." This module IS door 3's consult surface — the garrison skill
 // reads the composition's resolved (duty, level) -> sequence model through it
 // (exposed at /api/garrison-control) instead of guessing from
-// policy.defaultWorkKind — and the single READ-ONLY source that answer comes from.
+// policy.defaultFlow — and the single READ-ONLY source that answer comes from.
 //
 // READ-ONLY BY CONSTRUCTION: it computes the resolved model from the active
 // composition and answers three questions about it — the whole model, a

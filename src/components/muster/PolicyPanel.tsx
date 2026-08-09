@@ -63,10 +63,10 @@ type PhaseEntry = string | { id: string; on?: boolean };
 
 type Cfg = Omit<
   PolicyConfigV2,
-  "targets" | "workKinds" | "phasePlans" | "phaseSkills"
+  "targets" | "flows" | "phasePlans" | "phaseSkills"
 > & {
   targets: AnyTarget[];
-  workKinds: Record<string, { phasePlan: string; description?: string }>;
+  flows: Record<string, { phasePlan: string; description?: string }>;
   phasePlans: Record<string, PhasePlan>;
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
   dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
@@ -78,7 +78,7 @@ const resolveRoute = resolveRouteCore as unknown as (
   profile: string | null,
   classification: { taskType: string; tier: string; matchedException?: string | null }
 ) => RouteResolution;
-const railFor = railForCore as unknown as (config: Cfg, workKind?: string | null) => Rail;
+const railFor = railForCore as unknown as (config: Cfg, flow?: string | null) => Rail;
 
 const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 // Severity vocabulary for the ux-qa threshold (blocker strictest → note loosest).
@@ -281,9 +281,9 @@ function usePolicyDraft(compositionId: string) {
   };
 }
 
-// ── work-kind rails ─────────────────────────────────────────────────────────
+// ── flow rails ─────────────────────────────────────────────────────────
 function planForKind(config: Cfg, kind: string): { planName: string; plan: PhasePlan } {
-  const planName = config.workKinds[kind].phasePlan;
+  const planName = config.flows[kind].phasePlan;
   return { planName, plan: config.phasePlans[planName] };
 }
 function planPhaseIds(plan: PhasePlan): string[] {
@@ -376,7 +376,7 @@ function SortableChip(props: {
   );
 }
 
-function WorkKindRail({
+function FlowRail({
   config,
   kind,
   commit,
@@ -406,7 +406,7 @@ function WorkKindRail({
 
   const toggle = (phaseId: string) =>
     commit((draft) => {
-      const p = draft.phasePlans[draft.workKinds[kind].phasePlan];
+      const p = draft.phasePlans[draft.flows[kind].phasePlan];
       const arr = p.phases as PhaseEntry[];
       const idx = arr.findIndex((e) => (typeof e === "string" ? e : e.id) === phaseId);
       if (idx === -1) {
@@ -423,12 +423,12 @@ function WorkKindRail({
     <div className={styles.rail} data-testid={`policy-rail-${kind}`}>
       <div className={styles.railHead}>
         <span className={styles.railKind}>{kind}</span>
-        {kind === config.defaultWorkKind ? <span className={styles.railBadge}>default</span> : null}
-        <span className={styles.railMeta}>plan: {config.workKinds[kind].phasePlan}</span>
+        {kind === config.defaultFlow ? <span className={styles.railBadge}>default</span> : null}
+        <span className={styles.railMeta}>plan: {config.flows[kind].phasePlan}</span>
         <span className={styles.railMeta}>evidence: {rail.evidence}</span>
       </div>
-      {config.workKinds[kind].description ? (
-        <div className={styles.railDesc}>{config.workKinds[kind].description}</div>
+      {config.flows[kind].description ? (
+        <div className={styles.railDesc}>{config.flows[kind].description}</div>
       ) : null}
       <div className={styles.railTrack}>
         <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
@@ -474,19 +474,19 @@ function RailsSurface({
   commit: (p: Producer) => void;
   onInspect: (kind: string, phase: string) => void;
 }) {
-  const kinds = Object.keys(config.workKinds || {});
+  const kinds = Object.keys(config.flows || {});
   const cloneKind = () => {
     const src =
-      config.defaultWorkKind && config.workKinds[config.defaultWorkKind]
-        ? config.defaultWorkKind
+      config.defaultFlow && config.flows[config.defaultFlow]
+        ? config.defaultFlow
         : kinds[0];
     if (!src) return;
     commit((draft) => {
-      const newKind = uniqueName(src, new Set(Object.keys(draft.workKinds)));
-      const srcKind = draft.workKinds[src];
+      const newKind = uniqueName(src, new Set(Object.keys(draft.flows)));
+      const srcKind = draft.flows[src];
       const newPlan = uniqueName(srcKind.phasePlan, new Set(Object.keys(draft.phasePlans)));
       draft.phasePlans[newPlan] = structuredClone(draft.phasePlans[srcKind.phasePlan]);
-      draft.workKinds[newKind] = {
+      draft.flows[newKind] = {
         phasePlan: newPlan,
         description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned work kind"
       };
@@ -511,7 +511,7 @@ function RailsSurface({
         evidence.
       </p>
       {kinds.map((kind) => (
-        <WorkKindRail key={kind} config={config} kind={kind} commit={commit} onInspect={onInspect} />
+        <FlowRail key={kind} config={config} kind={kind} commit={commit} onInspect={onInspect} />
       ))}
     </section>
   );
@@ -530,7 +530,7 @@ function Inspector({
   onClose: () => void;
 }) {
   const { kind, phase } = target;
-  const planName = config.workKinds[kind]?.phasePlan;
+  const planName = config.flows[kind]?.phasePlan;
   const plan = planName ? config.phasePlans[planName] : undefined;
   const binding = config.phaseSkills?.bindings?.[phase] || "";
   const override = config.phaseSkills?.overrides?.[kind]?.[phase];
@@ -956,7 +956,7 @@ type GateResolution = {
 type TryItRail = Omit<Rail, "phases"> & { phases: (RailPhase & { target?: AnyTarget })[] };
 type TryItResult = {
   classification?: { taskType?: string; tier?: string; execution?: string };
-  workKind?: string | null;
+  flow?: string | null;
   project?: string | null;
   rail?: TryItRail | { error: string } | null;
   gates?: GateResolution | null;
@@ -964,10 +964,10 @@ type TryItResult = {
 };
 
 function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: string }) {
-  const kinds = Object.keys(config.workKinds || {});
+  const kinds = Object.keys(config.flows || {});
   const projectNames = Object.keys(config.projects || {}).sort();
   const [prompt, setPrompt] = useState("");
-  const [workKind, setWorkKind] = useState(config.defaultWorkKind || kinds[0] || "");
+  const [flow, setFlow] = useState(config.defaultFlow || kinds[0] || "");
   const [project, setProject] = useState("");
   const [result, setResult] = useState<TryItResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -978,7 +978,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
       const r = await fetch("/api/orchestrator/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ composition: compositionId, prompt, workKind, project: project || null })
+        body: JSON.stringify({ composition: compositionId, prompt, flow, project: project || null })
       });
       setResult(await r.json());
     } catch (err) {
@@ -1004,7 +1004,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
             if (e.key === "Enter") void run();
           }}
         />
-        <select value={workKind} onChange={(e) => setWorkKind(e.target.value)} aria-label="work kind">
+        <select value={flow} onChange={(e) => setFlow(e.target.value)} aria-label="work kind">
           {kinds.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -1031,7 +1031,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
       {result && !result.error ? (
         <div className={styles.tryitOut}>
           <div className={styles.tryitChain}>
-            <span className={styles.pill}>kind: {result.workKind || "?"}</span>
+            <span className={styles.pill}>kind: {result.flow || "?"}</span>
             <span className={styles.pill}>tier: {result.classification?.tier || "?"}</span>
             <span className={styles.pill}>type: {result.classification?.taskType || "?"}</span>
             {result.project ? <span className={styles.pill}>project: {result.project}</span> : null}
@@ -1122,7 +1122,7 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
     if (a[1] !== o[1] || a[2] === o[2]) return;
     const kind = a[1];
     commit((draft) => {
-      const plan = draft.phasePlans[draft.workKinds[kind].phasePlan];
+      const plan = draft.phasePlans[draft.flows[kind].phasePlan];
       const arr = plan.phases as PhaseEntry[];
       const ids = arr.map((entry) => (typeof entry === "string" ? entry : entry.id));
       const fi = ids.indexOf(a[2]);

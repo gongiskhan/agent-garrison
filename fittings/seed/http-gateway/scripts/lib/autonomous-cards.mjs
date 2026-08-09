@@ -65,7 +65,7 @@ export async function createAutonomousCard({ message, classification, opts = {},
       ? buildPayload({
           brief: message,
           project: opts.project ?? null,
-          workKind: opts.workKind ?? null,
+          flow: opts.flow ?? null,
           phases: opts.phases ?? null,
           taskType: classification?.taskType,
           tier: classification?.tier,

@@ -4,7 +4,7 @@ A **phase skill** is any Claude Code skill that can execute one pipeline phase
 of an autonomous Garrison run (plan, implement, review, adversarial-review,
 test, adversarial-test, security-review, ux-qa, walkthrough, validate,
 codex-checkpoint, report — the policy's `phases` list). The Orchestrator's phase-skill registry
-(`phaseSkills.bindings`, per-work-kind `phaseSkills.overrides`) binds each
+(`phaseSkills.bindings`, per-flow `phaseSkills.overrides`) binds each
 phase to the skill that executes it. Swapping a binding in the composer view
 requires **zero code changes** — any skill honoring this contract can be
 slotted in. The direction is fixed: **Garrison calls skills, never the

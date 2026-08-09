@@ -43,7 +43,7 @@ function writePolicy() {
     taskTypes: ["review", "test"],
     tiers: ["T1-standard"],
     phaseSkills: { bindings: {}, overrides: {} },
-    workKinds: {},
+    flows: {},
     phasePlans: {}
   }));
   process.env.GARRISON_POLICY_PATH = file;

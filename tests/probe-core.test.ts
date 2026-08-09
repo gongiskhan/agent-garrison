@@ -142,17 +142,17 @@ describe("retrospective selection (D25)", () => {
   const now = "2026-07-11T12:00:00Z";
   it("selects up to 4 cards updated yesterday that carry a kind/plan", () => {
     const cards = [
-      { id: "a", workKind: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" },
-      { id: "b", workKind: "docs-change", phasePlan: "implement-only-text", updatedAt: "2026-07-10T22:00:00Z" },
-      { id: "old", workKind: "code", updatedAt: "2026-07-01T00:00:00Z" }, // not yesterday
-      { id: "today", workKind: "code", updatedAt: "2026-07-11T08:00:00Z" }, // today, not yesterday
+      { id: "a", flow: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" },
+      { id: "b", flow: "docs-change", phasePlan: "implement-only-text", updatedAt: "2026-07-10T22:00:00Z" },
+      { id: "old", flow: "code", updatedAt: "2026-07-01T00:00:00Z" }, // not yesterday
+      { id: "today", flow: "code", updatedAt: "2026-07-11T08:00:00Z" }, // today, not yesterday
     ];
     const picked = core.selectRetrospectiveCards(cards, { now });
     expect(picked.map((c: any) => c.id).sort()).toEqual(["a", "b"]);
   });
   it("builds one question per selected card, tagged with card_id and plan", () => {
     const qs = core.buildRetrospectiveQuestions(
-      [{ id: "a", workKind: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" }],
+      [{ id: "a", flow: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" }],
       { now }
     );
     expect(qs).toHaveLength(1);
