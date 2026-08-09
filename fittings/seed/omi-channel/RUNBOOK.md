@@ -93,10 +93,18 @@ nothing arrived. `--garble` interleaves real background speech from this
 account's own captures - television, family, transcriber filler - which is the
 signal-to-noise ratio the wake bus actually faces.
 
-**What it does not cover:** Omi exposes no inbound audio API, so `say` starts at
-the transcript, not at sound. Omi's own speech-to-text is therefore never under
-test - and on this account it is the weakest link in the chain (see "Transcript
-quality" below). `converse` is the only mode where Omi's own processing runs.
+**What it does not cover**, so a green run is not mistaken for more than it is:
+
+- Omi exposes no inbound audio API (every audio path in the docs is outbound,
+  and `/v4/listen` is the device's own Firebase-authed socket), so `say` starts
+  at the transcript, not at sound. **Omi's own speech-to-text is never under
+  test.** `converse` is the only mode where Omi's own processing runs.
+- `ask` proves our endpoint answers correctly; it cannot prove **Omi decides to
+  call it**. There is no API to post a message into the user's chat, so that one
+  step - Omi's model choosing the `ask_gary` tool, against its cached copy of
+  our manifest - is only verifiable by asking in the Omi app by hand. That is
+  also exactly where a stale cached `?key=` bites (see `chat_rejected_auth`),
+  so when chat misbehaves but `speak.mjs ask` passes, re-save the app at Omi.
 
 ## Transcript quality (measure it before blaming it)
 
