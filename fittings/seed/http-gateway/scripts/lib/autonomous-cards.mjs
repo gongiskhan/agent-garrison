@@ -22,10 +22,22 @@ import path from "node:path";
 // inconsistent with isSignificantAutonomous, which already counts it as
 // significant. Plain conversation (`other`) and review verbs stay un-carded
 // ("review this diff" is an inline ask — rev-s2 finding). Matches RUN_SPEC A14.
-export const TASK_SHAPED = new Set(["code", "implement", "research", "writing", "image", "video", "ops"]);
+//
+// 2026-08-09: `code` retired into `implement` (they named the same work), so the
+// set speaks the current vocabulary and the predicate resolves a duty read off a
+// persisted record through the alias table first. Without that, a card written
+// before the merge — or any caller still saying `code` — would silently stop
+// being task-shaped and stop producing a card at all.
+export const TASK_SHAPED = new Set(["implement", "research", "writing", "image", "video", "ops", "drill"]);
+
+/** Retired duty -> its successor. Mirrors policy-core's DUTY_ALIASES; the gateway
+ *  cannot import the orchestrator fitting's lib from here. */
+const DUTY_ALIASES = { code: "implement" };
 
 export function isTaskShaped(classification) {
-  return !!classification && TASK_SHAPED.has(classification.taskType);
+  if (!classification) return false;
+  const duty = DUTY_ALIASES[classification.taskType] ?? classification.taskType;
+  return TASK_SHAPED.has(duty);
 }
 
 // Channels whose turns are already cards (the engine's own dispatches) or
