@@ -14,7 +14,11 @@ import path from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-export const ORIGIN_TRANSPORTS = ["web", "board", "skill", "terminal", "omi"];
+// Every transport a card can originate from. `slack` and `schedule` were missing
+// even though live cards carry `schedule:<id>` origin ids, so parseOriginId was
+// silently reporting those as board-originated - a scheduled card looked to every
+// consumer like someone had made it by hand on the board.
+export const ORIGIN_TRANSPORTS = ["web", "board", "skill", "terminal", "omi", "slack", "voice", "schedule"];
 
 // Sanitize an origin_id into a safe filename (mirrors web-channel threads.mjs
 // safeThreadId): filename-safe chars only, capped, with a short hash suffix when
@@ -36,8 +40,14 @@ export function safeOriginId(raw) {
 export function deriveOriginId(card) {
   if (!card || typeof card !== "object") return "board";
   if (typeof card.origin_id === "string" && card.origin_id) return card.origin_id;
+  // Any channel, not just web: a card born in Omi or Slack must carry an origin
+  // id of its own transport, or every origin-keyed lookup (discuss interception,
+  // notify-origin delivery) silently misses it.
   const oc = card.originChannel;
-  if (oc && oc.channel === "web" && typeof oc.threadId === "string" && oc.threadId) return `web:${oc.threadId}`;
+  if (oc && typeof oc.channel === "string" && typeof oc.threadId === "string" && oc.threadId) {
+    const t = ORIGIN_TRANSPORTS.includes(oc.channel) ? oc.channel : null;
+    if (t) return oc.threadId.startsWith(`${t}:`) ? oc.threadId : `${t}:${oc.threadId}`;
+  }
   if (card.origin === "garrison-doorway") return "skill:unknown";
   return "board";
 }

@@ -414,6 +414,31 @@ gets dropped per the brief.
 
 ---
 
+## Phase 1 - structural refactor (complete)
+
+| item | state |
+|---|---|
+| `workKind` -> `flow` codemod + compat read path + freeze gate | done (419 identifier occurrences / 67 files, plus ~45 files of prose the identifier pass could not see) |
+| duty dedup (`code` -> `implement`) | done, with `DUTY_ALIASES` for the 21 existing cards |
+| `discuss` / `drill` / `security-review` promoted to real duties | done |
+| `duty:` prefix on Kanban lists (board v7) | done, ids untouched |
+| level resolution chain (inherit -> pin -> logged raise-only escalation) | done, new construction |
+| duty config relocated beside flows | done - the standalone Duties tab is gone; Orchestrator opens on "Duties & flows" |
+| channel parity lift | done - discuss interception is channel-agnostic |
+
+**Freeze gate:** `node scripts/check-flow-rename.mjs` reports clean; typecheck clean;
+prod build clean; 5021 tests passing.
+
+### Known non-mine failures (stable across the phase)
+
+| test | cause |
+|---|---|
+| `spawn-tracked`, `web-channel-brief`, `dev-env-claude-sessions`, `automations-discuss` | assert against the REAL `~/.garrison`; they fail only because this run sandboxes `GARRISON_HOME` to protect live prod. All four pass against the real home. |
+| `cortex-client-fitting` | caused by the **uncommitted** `compositions/default/apm.yml` change already in the working tree when this run started. Left untouched. |
+| `browser-persistent-profile`, `drill-curation-e2e` | pre-existing parallel-load flakes; both pass in isolation, neither touches changed code. |
+
+---
+
 ## Decisions
 
 | # | decision | reason |
