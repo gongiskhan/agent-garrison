@@ -352,8 +352,11 @@ export function heuristicClassify(prompt: string): {
 } {
   const p = String(prompt || "").toLowerCase();
   const has = (...ws: string[]) => ws.some((w) => p.includes(w));
-  let taskType = "code";
+  // `implement` is the default since `code` was retired into it (2026-08-09) —
+  // they named the same work, one as a lane and one as a phase.
+  let taskType = "implement";
   if (has("research", "investigate", "compare", "find out", "look into")) taskType = "research";
+  else if (has("let's talk", "let us talk", "discuss", "thoughts on", "what do you think")) taskType = "discuss";
   else if (has("review", "audit")) taskType = "review";
   else if (has("unit test", "e2e", "add a test", "write tests", "test coverage")) taskType = "test";
   else if (has("logo", "icon", "image", "picture", "diagram")) taskType = "image";

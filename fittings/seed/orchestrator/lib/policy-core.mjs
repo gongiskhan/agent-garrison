@@ -22,6 +22,9 @@ export const PHASES = [
   "adversarial-review",
   "test",
   "adversarial-test",
+  // Was a legal phase name with no duty and no matrix row, so a plan could name
+  // it but nothing could route it (ORCHESTRATOR_COHERENCE.md S3).
+  "security-review",
   "ux-qa",
   "walkthrough",
   "validate",
@@ -29,7 +32,24 @@ export const PHASES = [
   "report"
 ];
 
-export const GENERAL_TASK_TYPES = ["code", "research", "writing", "image", "video", "ops", "other"];
+// `code` was retired 2026-08-09: it and `implement` named the same work, one as a
+// single-turn lane and one as a phase, which is the same duty routed differently.
+// `implement` won (it is what every phase plan already names). See DUTY_ALIASES.
+//
+// `discuss` and `drill` are the reverse case - both ran in practice and both had a
+// live board list, but neither was a duty, so neither could declare a runtime,
+// model or effort at any level (ORCHESTRATOR_COHERENCE.md S6).
+export const GENERAL_TASK_TYPES = ["research", "writing", "image", "video", "ops", "discuss", "drill", "other"];
+
+/** Retired duty -> the duty that absorbed it. Applied when reading persisted data
+ *  (cards, decisions, a v1 config) so 21 existing `code` cards keep resolving. */
+export const DUTY_ALIASES = Object.freeze({ code: "implement" });
+
+/** Resolve a duty name read from persisted data through the alias table. */
+export function adoptDuty(duty) {
+  if (typeof duty !== "string") return duty;
+  return DUTY_ALIASES[duty] ?? duty;
+}
 
 // Full v2 vocabulary: pipeline verbs + general kinds ("review" counts once, as
 // a verb — D1 lists the general kinds WITHOUT review).

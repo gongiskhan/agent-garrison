@@ -20,7 +20,7 @@ process.env.GARRISON_RUNS_DIR = mkdtempSync(join(tmpdir(), "runs-home-sched-"));
 // @ts-ignore — pure .mjs
 import { ensureMorningBriefTemplate, seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
-import { createCard, loadCard, loadAllCards, migrateBoard, scheduleHolds, normaliseChecklist, cardPosition, normaliseScheduleAction, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { createCard, loadCard, loadAllCards, migrateBoard, scheduleHolds, normaliseChecklist, cardPosition, normaliseScheduleAction, updateCardCAS, BOARD_VERSION } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { processCard, runScheduleNow, sweepDueSchedules } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
@@ -88,7 +88,7 @@ describe("board v5 Scheduled migration", () => {
   it("adds one fixed system column at the far left and is idempotent", () => {
     const old = { version: 4, lists: [{ id: "backlog", title: "Backlog", order: 0, kind: "manual" }] };
     const migrated = migrateBoard(old as any);
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(BOARD_VERSION);
     expect(migrated.lists[0]).toMatchObject({
       id: "scheduled", order: -1, userOrder: -1, kind: "scheduled", system: true
     });

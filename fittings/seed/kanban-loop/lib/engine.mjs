@@ -25,7 +25,7 @@ import path from "node:path";
 import { hostname } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, saveCardCASWithHooks, updateCardLockedWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, createCard, updateCardCAS, withFileLock, isPidAlive, scheduleHolds, listCardAttachments } from "./board.mjs";
+import { saveCard, saveCardCAS, saveCardCASWithHooks, updateCardLockedWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, createCard, updateCardCAS, withFileLock, isPidAlive, scheduleHolds, listCardAttachments, listProseLabel } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -1217,7 +1217,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   // A human label for the list, used in every event/park message so the timeline reads
   // "Plan", not "plan".
-  const listTitle = list.title || card.list;
+  const listTitle = listProseLabel(list.title || card.list);
   // Every write is a compare-and-swap against the rev we read, so a concurrent tick or
   // a manual edit cannot be silently overwritten (lost update).
   let baseRev = card.rev ?? 0;

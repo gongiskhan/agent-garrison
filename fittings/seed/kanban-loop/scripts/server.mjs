@@ -53,8 +53,7 @@ import {
   cardAttachmentsDir,
   listCardAttachments,
   CARD_SCOPES,
-  cardScope
-} from "../lib/board.mjs";
+  cardScope, listProseLabel } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
 // Kanban → Drill handoff: a done card's change brief, posted to the Drill fitting.
@@ -2411,7 +2410,7 @@ async function handlePatchCard(req, res, opts, id) {
       next.events = withEvent(card, {
         at: new Date().toISOString(),
         kind: recovered ? "recovered" : "moved",
-        message: recovered ? `Recovered: moved ${fromTitle} → ${toTitle}` : `Moved ${fromTitle} → ${toTitle}`
+        message: recovered ? `Recovered: moved ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}` : `Moved ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}`
       });
     }
     // Recovery: moving a card OUT of the needs-attention column is a fresh retry.
@@ -3470,7 +3469,7 @@ async function handleStartCard(req, res, opts, id) {
     let events = withEvent(overridden, {
       at,
       kind: recovering ? "recovered" : "moved",
-      message: recovering ? `Recovered: advanced ${fromTitle} → ${toTitle}` : `Advanced ${fromTitle} → ${toTitle}`
+      message: recovering ? `Recovered: advanced ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}` : `Advanced ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}`
     });
     if (recovering && card.retryKeepsContext) {
       events = withEvent({ events }, {

@@ -12,6 +12,7 @@ import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
 import { markSteeringApplied } from "./steering.mjs";
+import { adoptFlowKeys } from "./policy.mjs";
 import { emitPersonalCompletionAfterDone, isPersonalDoneTransition } from "./personal-memory-outbox.mjs";
 import {
   SCHEDULE_ACTIONS,
@@ -43,9 +44,51 @@ async function readJSON(file) {
 
 // The current on-disk board schema version. Bumped whenever a migration below
 // must run once on load for EVERY existing board (not just model-driven ones).
-import { adoptFlowKeys } from "./policy.mjs";
+export const BOARD_VERSION = 7;
 
-export const BOARD_VERSION = 5;
+// A duty-backed list's display title. The board is the thing Gonçalo looks at all
+// day, so a list that runs a duty must SAY it runs a duty (brief §2.4) — otherwise
+// the board shows a column called "Review" with no hint that it is a routed agent
+// step rather than a place to park things.
+//
+// Only the ids that title-case badly are listed; everything else derives.
+const DUTY_TITLE_OVERRIDES = {
+  "ux-qa": "UX QA",
+  "adversarial-review": "Adversarial Review",
+  "adversarial-test": "Adversarial Test",
+  "codex-checkpoint": "Codex Checkpoint",
+  "security-review": "Security Review",
+  "probe-question": "Probe Question"
+};
+
+export const DUTY_TITLE_PREFIX = "duty: ";
+
+// Discuss is deliberately NOT prefixed. It is a DESTINATION where a card sits
+// across many turns of conversation, not a step a card passes through, so
+// "duty: Discuss" would misdescribe it — and the brief lists it among the plain
+// lists in §2.4 even while §2.1 calls it a duty (ORCHESTRATOR_COHERENCE.md A1).
+const UNPREFIXED_AGENT_LISTS = new Set(["discuss"]);
+
+/** A list's name for use INSIDE a sentence. The `duty:` prefix is a column-header
+ *  device — it tells you at a glance which columns are routed agent steps. In prose
+ *  it reads as noise ("advanced Needs attention → duty: Plan"), so strip it. */
+export function listProseLabel(listOrTitle) {
+  const title =
+    typeof listOrTitle === "string" ? listOrTitle : listOrTitle?.title ?? listOrTitle?.id ?? "";
+  return String(title).startsWith(DUTY_TITLE_PREFIX)
+    ? String(title).slice(DUTY_TITLE_PREFIX.length)
+    : String(title);
+}
+
+export function dutyListTitle(id) {
+  const base =
+    DUTY_TITLE_OVERRIDES[id] ??
+    String(id)
+      .split("-")
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  return `${DUTY_TITLE_PREFIX}${base}`;
+}
 
 // One-shot board migration. Idempotent; unknown fields survive.
 //   v2→v3 (D15): strip dead per-list skill/taskType/tier/mode pins and stamp each
@@ -87,7 +130,44 @@ export function migrateBoard(board) {
       ? { ...list, order: -1, userOrder: -1, kind: "scheduled", trigger: "scheduler-beat", system: true, validNext: [] }
       : list);
   }
+  if ((board.version || 0) < 7) {
+    // v5→v7 (2026-08-09, ORCHESTRATOR_COHERENCE.md §5.1):
+    // (Numbered 7, not 6: a live kanban process re-read this module mid-edit — after
+    // BOARD_VERSION became 6 but before this block existed — and stamped both live
+    // boards v6 with nothing applied. Gating on <7 heals those boards; a board that
+    // legitimately reached 6 is unchanged by re-running an idempotent migration.)
+    //   (a) the `code` duty was retired into `implement` — they named the same
+    //       work — so its list is dropped. Any card still sitting in it (there
+    //       were none on the live boards) moves to `implement` rather than being
+    //       stranded in a list that no longer routes.
+    //   (b) every duty-backed list gets the `duty:` prefix so the board says which
+    //       lists are routed agent steps. List IDS ARE NOT TOUCHED — cards
+    //       reference them and persisted references must keep resolving.
+    const hasImplement = lists.some((l) => l.id === "implement");
+    lists = lists
+      .filter((l) => !(l.id === "code" && hasImplement))
+      .map((list) => {
+        if (list.kind !== "agent" && list.kind !== "agent-interactive") return list;
+        if (UNPREFIXED_AGENT_LISTS.has(list.id)) return list;
+        // Idempotent: a title already prefixed is left exactly as the user left it.
+        if (typeof list.title === "string" && list.title.startsWith(DUTY_TITLE_PREFIX)) return list;
+        return { ...list, title: dutyListTitle(list.id) };
+      })
+      .map((list) => ({
+        ...list,
+        validNext: Array.isArray(list.validNext)
+          ? list.validNext.map((n) => (n === "code" && hasImplement ? "implement" : n))
+          : list.validNext
+      }));
+  }
   return { ...board, version: BOARD_VERSION, lists };
+}
+
+/** Cards stranded in a list this migration removed. The board file only holds the
+ *  list definitions; membership lives on each card, so the caller relocates them. */
+export function relocateRetiredListCards(card) {
+  if (card && card.list === "code") return { ...card, list: "implement" };
+  return card;
 }
 
 export async function loadBoard(root = kanbanRoot()) {
@@ -441,9 +521,9 @@ export async function createCard(root, { title, description = "", project = null
 }
 
 export async function loadCard(root, id) {
-  // Compat: cards written before the 2026-08-09 flow rename carry the retired key
-  // (named in the compat map above). Adopt on read; saveCard only writes the new one.
-  return adoptFlowKeys(await readJSON(cardFile(root, id)));
+  // Compat on read: adopt the pre-rename flow key (saveCard only writes the new
+  // one), and relocate a card left in a list the v6 migration retired.
+  return relocateRetiredListCards(adoptFlowKeys(await readJSON(cardFile(root, id))));
 }
 
 function coordinationSeqForWrite(disk, candidate) {

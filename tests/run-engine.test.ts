@@ -34,7 +34,7 @@ import {
 // @ts-ignore
 import { seedBoard, migrateBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore pure mjs
-import { atomicWriteJSON, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { atomicWriteJSON, loadCard, BOARD_VERSION } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
@@ -131,7 +131,7 @@ describe("policy resolution (D15)", () => {
       ]
     };
     const v5 = migrateBoard(v2);
-    expect(v5.version).toBe(5);
+    expect(v5.version).toBe(BOARD_VERSION);
     expect(v5.lists[0]).toMatchObject({
       id: "scheduled",
       order: -1,
@@ -167,7 +167,7 @@ describe("policy resolution (D15)", () => {
     };
     const v5 = migrateBoard(v3);
     expect(v5).not.toBe(v3);
-    expect(v5.version).toBe(5);
+    expect(v5.version).toBe(BOARD_VERSION);
     expect(v5.custom).toEqual({ retained: true });
     expect(v5.lists[0]).toMatchObject({ id: "scheduled", system: true, order: -1 });
     expect(v5.lists.slice(1, 3)).toEqual(v3.lists);

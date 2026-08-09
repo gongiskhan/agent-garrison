@@ -36,7 +36,7 @@ import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.
 // @ts-ignore
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
-import { saveBoard, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { saveBoard, updateCardCAS, BOARD_VERSION } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
 let gateway: http.Server;
 let gatewayUrl = "";
@@ -107,7 +107,7 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
   it("projects the fixed Scheduled system column first", async () => {
     const view = await jget("/board");
     expect(view.status).toBe(200);
-    expect(view.body.version).toBe(5);
+    expect(view.body.version).toBe(BOARD_VERSION);
     expect(view.body.lists[0]).toMatchObject({ id: "scheduled", kind: "scheduled", system: true });
   });
 
