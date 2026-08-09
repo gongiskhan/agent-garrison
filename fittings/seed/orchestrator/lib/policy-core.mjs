@@ -51,6 +51,27 @@ export function adoptDuty(duty) {
   return DUTY_ALIASES[duty] ?? duty;
 }
 
+/** Retired flow -> the flow that absorbed it (2026-08-09 library rewrite).
+ *  The old set was 9 flows, two of which were byte-identical clones of a third
+ *  created by a UI duplicate action. Cards and decisions written before the
+ *  rewrite still name them. */
+export const FLOW_ALIASES = Object.freeze({
+  "full-feature": "feature",
+  "full-feature-copy": "feature",
+  "full-feature-copy-2": "feature",
+  "ui-change": "feature",
+  "api-change": "feature",
+  "docs-change": "docs",
+  "video-edit": "video",
+  "channel": "task"
+});
+
+/** Resolve a flow name read from persisted data through the alias table. */
+export function adoptFlow(flow) {
+  if (typeof flow !== "string") return flow;
+  return FLOW_ALIASES[flow] ?? flow;
+}
+
 // Full v2 vocabulary: pipeline verbs + general kinds ("review" counts once, as
 // a verb — D1 lists the general kinds WITHOUT review).
 export const TASK_TYPES_V2 = [...PHASES, ...GENERAL_TASK_TYPES];
@@ -333,12 +354,51 @@ export function resolveDisciplineV2(config, profile, tier) {
 // (policy order) rendered OFF with off_reason "phase-plan". A disabled phase
 // stays IN the rail, rendered off — honesty, never hidden. `cardToggles`
 // (D17) is an optional map {phase: false} merged over the plan.
-export function railFor(config, flowName, cardToggles) {
+// ── Flow levels ─────────────────────────────────────────────────────────────
+// The router turns ONE dial — the flow level — and the duties resolve from it
+// (see level-resolution.mjs, which owns the inherit -> pin -> escalate chain).
+// Here we only need the level's ordered duty list, shaped like a phase plan so
+// every existing rail consumer keeps working unchanged.
+
+export const FLOW_LEVELS = ["1", "2", "3"];
+
+/** The level a flow runs at: what was asked, else the flow's default, else 1.
+ *  Never resolves UPWARD by default — spending more compute than asked for has
+ *  to be somebody's decision. */
+export function resolvedFlowLevel(flow, requested) {
+  const ok = (n) => (typeof n === "number" || (typeof n === "string" && String(n).trim() !== "")) &&
+    FLOW_LEVELS.includes(String(Math.trunc(Number(n))));
+  if (ok(requested)) return String(Math.trunc(Number(requested)));
+  if (ok(flow?.defaultLevel)) return String(Math.trunc(Number(flow.defaultLevel)));
+  return "1";
+}
+
+/** A level rendered as a phase plan ({phases, evidence}), or null for a flow
+ *  that has no levels (the legacy single-plan shape). */
+export function levelPlanFor(flow, requested) {
+  if (!flow || !flow.levels || typeof flow.levels !== "object") return null;
+  const lvl = flow.levels[resolvedFlowLevel(flow, requested)];
+  if (!lvl) return null;
+  const duties = Array.isArray(lvl.duties) ? lvl.duties.filter((d) => typeof d === "string" && d) : [];
+  return { phases: duties, evidence: lvl.evidence || "none" };
+}
+
+export function railFor(config, flowName, cardToggles, level) {
   const kindName = flowName || config.defaultFlow;
   const kind = (config.flows || {})[kindName];
   if (!kind) throw new Error(`policy: unknown flow "${kindName}"`);
-  const plan = (config.phasePlans || {})[kind.phasePlan];
-  if (!plan) throw new Error(`policy: flow "${kindName}" names unknown phase plan "${kind.phasePlan}"`);
+  // A LEVELLED flow (2026-08-09) carries its ordered duty list per level, so the
+  // rail is resolved from the level the router chose. A flow with no `levels` is
+  // the pre-levels shape and still resolves through its single phase plan — one
+  // flow, one plan, whatever the level.
+  const plan = levelPlanFor(kind, level) ?? (config.phasePlans || {})[kind.phasePlan];
+  if (!plan) {
+    throw new Error(
+      kind.levels
+        ? `policy: flow "${kindName}" has no level ${resolvedFlowLevel(kind, level)} and no phase plan`
+        : `policy: flow "${kindName}" names unknown phase plan "${kind.phasePlan}"`
+    );
+  }
   const allPhases = Array.isArray(config.phases) ? config.phases : [...PHASES];
   const bindings = (config.phaseSkills || {}).bindings || {};
   const overrides = ((config.phaseSkills || {}).overrides || {})[kindName] || {};
@@ -489,8 +549,44 @@ export function validatePolicyConfig(config) {
     }
   }
   for (const [kind, k] of Object.entries(config.flows || {})) {
-    if (!k.phasePlan || !planNames.has(k.phasePlan)) {
-      errors.push(`flow ${kind}: unknown phase plan ${k.phasePlan}`);
+    const hasLevels = k && k.levels && typeof k.levels === "object" && Object.keys(k.levels).length > 0;
+    if (!hasLevels) {
+      // Legacy shape: one flow, one plan.
+      if (!k.phasePlan || !planNames.has(k.phasePlan)) {
+        errors.push(`flow ${kind}: unknown phase plan ${k.phasePlan}`);
+      }
+      continue;
+    }
+    // Levelled shape. Every level names duties that exist, in a level slot that
+    // exists, with pins that name a real duty at a real level — a pin to a
+    // nonexistent duty would silently never apply, which is worse than an error.
+    for (const [lvl, def] of Object.entries(k.levels)) {
+      if (!FLOW_LEVELS.includes(String(lvl))) {
+        errors.push(`flow ${kind}: level "${lvl}" is not one of ${FLOW_LEVELS.join("|")}`);
+        continue;
+      }
+      const duties = def && Array.isArray(def.duties) ? def.duties : null;
+      if (!duties || !duties.length) {
+        errors.push(`flow ${kind} level ${lvl}: needs a non-empty duties list`);
+        continue;
+      }
+      for (const d of duties) {
+        if (!taskTypes.includes(d)) errors.push(`flow ${kind} level ${lvl}: unknown duty ${d}`);
+      }
+      if (def.evidence && !EVIDENCE_KINDS.includes(def.evidence)) {
+        errors.push(`flow ${kind} level ${lvl}: evidence ${def.evidence} not in ${EVIDENCE_KINDS.join("|")}`);
+      }
+      for (const [pd, pl] of Object.entries(def.pins || {})) {
+        if (!duties.includes(pd)) errors.push(`flow ${kind} level ${lvl}: pin for duty ${pd}, which this level does not run`);
+        if (!FLOW_LEVELS.includes(String(pl))) errors.push(`flow ${kind} level ${lvl}: pin ${pd} -> ${pl} is not a level`);
+      }
+    }
+    if (k.defaultLevel !== undefined && !FLOW_LEVELS.includes(String(k.defaultLevel))) {
+      errors.push(`flow ${kind}: defaultLevel ${k.defaultLevel} is not one of ${FLOW_LEVELS.join("|")}`);
+    }
+    // Grounding: the brief requires every flow to point at real observed work.
+    if (!Array.isArray(k.examples) || !k.examples.length) {
+      errors.push(`flow ${kind}: needs at least one real example task (a flow nobody actually needs should not exist)`);
     }
   }
   if (config.defaultFlow && !(config.flows || {})[config.defaultFlow]) {

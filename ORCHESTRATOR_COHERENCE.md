@@ -439,6 +439,53 @@ prod build clean; 5021 tests passing.
 
 ---
 
+## Phase 2 - the flow library (complete)
+
+**13 flows**, each naming the Phase 0 cluster it covers and real example tasks
+from the mining. A flow with no examples fails validation - the brief's rule that
+a flow must map to observed work is enforced, not merely intended.
+
+| flow | cluster | default level | L1 |
+|---|---|---|---|
+| `fix` | C1 small fix / defect (280 fix commits) | 1 | implement, test |
+| `feature` | C2/C3 feature + brief-driven builds (218 feat commits) | 2 | implement, test |
+| `discussion` | C4 discussion / scoping | 1 | discuss |
+| `research` | C5 research / investigation | 2 | research |
+| `qa-sweep` | **C7 QA sweep -> batch fix (had ZERO coverage)** | 2 | drill |
+| `task` | C10/C11 personal admin + comms follow-up | 1 | other |
+| `automation` | C12 recurring scheduled work | 2 | ops |
+| `chore` | C13/C14 maintenance + test upkeep | 1 | implement, test |
+| `docs` | C9 prose (134 docs commits) | 1 | writing |
+| `ops` | C6 deploy / infrastructure | 2 | ops |
+| `image` / `video` | C8 media production | 1 / 2 | image / video |
+| `personal` | C10 the manual half | 1 | other (carried forward; runs no agent duties by design) |
+
+`defaultFlow` moves from `full-feature` to **`fix`** at level 1: the mining says the
+modal request is a small defect, level 1 is the minimum viable path, and escalation
+is fail-safe while over-spending by default is not.
+
+The old library's `full-feature-copy` / `full-feature-copy-2` (byte-identical
+clones of a third, made by a UI duplicate action) are gone; `FLOW_ALIASES` keeps
+every retired name resolving for cards and decisions already on disk.
+
+### Default composition - the duty ladder
+
+Every duty now has a real model and effort at each level, following the routing
+policy the brief states: Fable for implementation, vision and UI work with deeper
+levels for interface work; Opus at low/medium/high for the lower levels; Codex
+GPT-5.6 for much of the implementation load; Agent SDK for most of the rest;
+Sonnet only at the very lowest tier.
+
+### Board
+
+Six columns added (`adversarial-test`, `security-review`, `walkthrough`,
+`validate`, `codex-checkpoint`, `report`) because `feature` level 3 runs duties
+that had no list at all - a card entering that level would have stalled with
+nowhere to go. Inserted with fractional `order` values so no existing column
+moves; renumbering would silently reshuffle a board reordered by hand.
+
+---
+
 ## Decisions
 
 | # | decision | reason |
@@ -471,6 +518,8 @@ prod build clean; 5021 tests passing.
 | S11 | `ux-qa` renders as "Ux Qa" (naive title-case of the id). | Cosmetic, but it is on the board Gonçalo looks at daily. Fixed in the `duty:` prefix pass. |
 | S12 | **`probe-question` pointed at a target that does not exist.** Every profile routed it to `agent-sdk-haiku-fast`, which is in no `targets[]` list; the compiler silently degraded it to `cc-sonnet` at low effort. | A direct, concrete contributor to "the improver shows no evidence of working": the duty that *asks Gonçalo questions* was mis-routed. Fixed to `cc-haiku-low`. |
 | S13 | The routing validator **does** check matrix-row targets - but it only runs on **write**. An on-disk config never re-validates, so a target removed after a row was authored decays silently and the compiler falls back without complaint. | This is how S12 survived. The config is fixed; making read-time validation surface drift is logged as an open item rather than done here, because it needs a decision about what to do with configs that are already invalid. |
+| S15 | **The `image` and `video` duties could not run.** Both routed to `sec-gemini`, which declares no provider, and the vault holds only Google *OAuth* client credentials (for connectors) - no Gemini API key. | Two shipped duties were dead. Both now route to Fable, which is vision-capable and runs on the Max account, so they need no key. |
+| S16 | A live kanban process reading `board.mjs` mid-edit is a recurring hazard, not a one-off - it bit twice in this run. | Any change to a module a running fitting imports must land as ONE write. |
 | S14 | Editing `board.mjs` in a **running** system is hazardous: a live kanban process re-read the module inside the window between two edits - after `BOARD_VERSION` became 6 but before the v6 migration body existed - and stamped both live boards v6 with nothing applied, permanently skipping the migration. | Caught because the dry run reported unchanged titles at v6. Fixed by numbering the migration v7 so the stranded boards heal. The general lesson: bump the version and add the body in ONE write, never two. |
 
 ## Ambiguities steered past

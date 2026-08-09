@@ -165,18 +165,33 @@ describe("policy resolution (D15)", () => {
       ],
       custom: { retained: true }
     };
+    const before = structuredClone(v3.lists);
     const v5 = migrateBoard(v3);
     expect(v5).not.toBe(v3);
     expect(v5.version).toBe(BOARD_VERSION);
     expect(v5.custom).toEqual({ retained: true });
-    expect(v5.lists[0]).toMatchObject({ id: "scheduled", system: true, order: -1 });
-    expect(v5.lists.slice(1, 3)).toEqual(v3.lists);
-    expect(v5.lists[3]).toMatchObject({
-      id: "archived",
-      order: 12,
-      terminal: true,
-      archived: true
-    });
+    const byId = (id: string) => v5.lists.find((l: { id: string }) => l.id === id);
+
+    expect(byId("scheduled")).toMatchObject({ system: true, order: -1 });
+    expect(byId("archived")).toMatchObject({ order: 12, terminal: true, archived: true });
+
+    // "Without disturbing existing lists" is the point of this case, and it is
+    // about the lists THEMSELVES, not about the array being a fixed length: v7
+    // adds a column for every duty a flow level can name, so the array grows.
+    // What must never change is any pre-existing list — including its `order`,
+    // since renumbering would silently reshuffle a board reordered by hand.
+    for (const original of before) {
+      expect(byId(original.id), `${original.id} was disturbed`).toEqual(original);
+    }
+
+    // The new duty columns land between the last agent column and the terminal
+    // ones, so the board still reads left to right.
+    const order = (id: string) => Number(byId(id)!.order);
+    for (const duty of ["walkthrough", "validate", "report"]) {
+      expect(byId(duty), `no column for duty ${duty}`).toMatchObject({ kind: "agent", phase: duty });
+      expect(order(duty)).toBeGreaterThan(order("todo"));
+      expect(order(duty)).toBeLessThan(order("done"));
+    }
   });
 
   it("the dispatch prompt names the policy-bound skill and demands the gate-status entry", () => {

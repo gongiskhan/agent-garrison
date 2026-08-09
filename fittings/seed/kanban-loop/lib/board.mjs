@@ -63,6 +63,20 @@ const DUTY_TITLE_OVERRIDES = {
 
 export const DUTY_TITLE_PREFIX = "duty: ";
 
+// Every duty a flow level can name needs a list, or a card entering that level
+// has nowhere to run and stalls. `feature` level 3 alone runs walkthrough,
+// validate and report, none of which had a column before the 2026-08-09 library
+// landed. Ordered as the pipeline runs, and inserted before the terminal manual
+// columns so the board still reads left to right.
+const REQUIRED_DUTY_LISTS = [
+  "adversarial-test",
+  "security-review",
+  "walkthrough",
+  "validate",
+  "codex-checkpoint",
+  "report"
+];
+
 // Discuss is deliberately NOT prefixed. It is a DESTINATION where a card sits
 // across many turns of conversation, not a step a card passes through, so
 // "duty: Discuss" would misdescribe it — and the brief lists it among the plain
@@ -143,6 +157,30 @@ export function migrateBoard(board) {
     //   (b) every duty-backed list gets the `duty:` prefix so the board says which
     //       lists are routed agent steps. List IDS ARE NOT TOUCHED — cards
     //       reference them and persisted references must keep resolving.
+    // (c) add a column for every duty a flow level can name.
+    const terminalIds = new Set(["done", "needs-attention", "archived"]);
+    const firstTerminal = lists.findIndex((l) => terminalIds.has(l.id));
+    const missing = REQUIRED_DUTY_LISTS.filter((id) => !lists.some((l) => l.id === id)).map((id) => ({
+      id,
+      title: dutyListTitle(id),
+      kind: "agent",
+      phase: id,
+      trigger: "manual",
+      validNext: []
+    }));
+    if (missing.length) {
+      const at = firstTerminal === -1 ? lists.length : firstTerminal;
+      // Fractional orders between the last agent column and the first terminal
+      // one. Renumbering every list instead would silently reshuffle a board the
+      // user had reordered by hand — the new columns must slot in WITHOUT
+      // touching the position of anything already there.
+      const before = at === 0 ? 0 : Number(lists[at - 1]?.order ?? at - 1);
+      const after = at < lists.length ? Number(lists[at]?.order ?? before + 1) : before + 1;
+      const step = (after - before) / (missing.length + 1);
+      const placed = missing.map((l, i) => ({ ...l, order: before + step * (i + 1) }));
+      lists = [...lists.slice(0, at), ...placed, ...lists.slice(at)];
+    }
+
     const hasImplement = lists.some((l) => l.id === "implement");
     lists = lists
       .filter((l) => !(l.id === "code" && hasImplement))
