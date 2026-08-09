@@ -13,8 +13,8 @@ of real work happened in the same four weeks alongside 34 duty-bearing cards. Th
 mechanical reason turned out to be a single line: the gateway set
 `flow: hints?.flow ?? null`, so a flow arrived only if a client pinned one, and
 nothing else ever did. That is now derived from the routed duty, and a live turn
-through prod produces `duty implement · level 1 · flow fix · fable/medium` where
-before it produced opus at xhigh effort. The taxonomy work, the level chain and
+through prod produces `duty implement · level 1 · flow fix` on the level-1 cell of
+the ladder, where before it produced opus at xhigh effort whatever the work was. The taxonomy work, the level chain and
 the library all matter, but that one line is why any of it now shows up on a card.
 
 **What I could not finish is stated plainly in §5.** The honest summary: the
@@ -51,7 +51,8 @@ Each of these was live, and none was the thing I set out to do.
 2. **`image` and `video` could not run, in two different files.** The routing
    matrix pointed them at an unauthenticated Gemini (the vault holds only Google
    *OAuth* client credentials, no API key); `apm.yml` pointed them at `sol`, which
-   is Codex GPT-5.6 and cannot see an image at all. Both now run on Fable.
+   is Codex GPT-5.6 and cannot see an image at all. Both now run on a
+   vision-capable Anthropic model (Fable originally, Opus after `85310fea`).
 3. **`implement` had exactly one level**, pinned to opus/xhigh - so a typo fix and
    a subsystem migration routed identically, to the most expensive setting
    available. The `code` duty it duplicated carried the real ladder.
@@ -141,8 +142,11 @@ This is the part to read.
 ### 5.1 Phase 5 (discuss parity) - roughly one third done
 
 - **Done:** `discuss` is a real duty with a matrix row for the first time (it had
-  none), routed to Fable with effort rising by level (low / medium / high), and
-  discuss interception now works on every channel rather than only the web one.
+  none), with effort rising by level (low / medium / high), and discuss
+  interception now works on every channel rather than only the web one. The
+  behaviour spec is written into the kickoff the discuss duty receives: prose for
+  reading aloud, no bullets, no em dashes, no flattery, argue the other side
+  before converging, hold a CTO and a CPO in your head at once.
 - **Not done:** the behaviour spec extracted from the published Claude.ai prompts
   (tone, pushback, document triggers, prose-for-TTS, no bullets, no em dashes, no
   flattery, devil's advocate, CTO/CPO stance). Not done: web search wired into a
