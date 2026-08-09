@@ -37,7 +37,7 @@ describe("the signal registry", () => {
     expect(A.SIGNALS.escalation.weight).toBe(A.SIGNALS["manual-override"].weight);
     expect(A.SIGNALS.escalation.recurrenceBoost).toBeGreaterThan(A.SIGNALS["manual-override"].recurrenceBoost);
     const once = A.recordSignal(A.emptyTrack(), "escalation");
-    const thrice = fold(["escalation", "escalation", "escalation"]);
+    const thrice = fold(["escalation", "escalation", "escalation"]) as { negative: number };
     expect(thrice.negative / 3).toBeGreaterThan(once.negative);
   });
 

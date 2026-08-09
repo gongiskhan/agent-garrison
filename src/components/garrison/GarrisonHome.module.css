@@ -442,3 +442,104 @@
     transition: none;
   }
 }
+
+/* ── Router panel ────────────────────────────────────────────────────────── */
+/* The improver's question, on the page he already opens. */
+.panelNote {
+  margin: 0 0 0.7rem;
+  color: var(--mute);
+  font-size: 0.8rem;
+}
+.panelMore {
+  display: inline-block;
+  margin-top: 0.8rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.routerAsk {
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 0.65rem 0.75rem;
+  margin: 0 0 0.8rem;
+}
+.routerAskHead {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.routerAskBody {
+  margin: 0.25rem 0 0.55rem;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.routerAskActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.routerAskActions button {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.9rem;
+  /* 24px floor for a tap target; this clears it with room to spare. */
+  min-height: 2rem;
+  border: 1px solid var(--brass);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.routerAskActions button:hover {
+  background: var(--brass);
+  color: var(--paper-1);
+}
+.routerAskActions a {
+  font-size: 0.78rem;
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+}
+.routerBands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.routerBands li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 0.78rem;
+}
+.routerShape {
+  overflow-wrap: anywhere;
+}
+.routerShape em {
+  font-style: normal;
+  color: var(--mute);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.routerBand {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+.routerBand[data-band="ask"] { color: var(--mute); }
+.routerBand[data-band="act-revert"] { color: var(--brass); }
+.routerBand[data-band="act-inform"] { color: var(--ok, var(--brass)); }
+.routerObs {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  color: var(--mute);
+  white-space: nowrap;
+}

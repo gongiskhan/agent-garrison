@@ -190,6 +190,7 @@ export function GarrisonHome() {
           </Panel>
 
           <BoardPanel />
+          <RouterPanel />
 
           {composition.derivedTasks ? (
             <Panel title={`Tasks · ${prettySource(composition.derivedTasks.source)}`}>
@@ -253,6 +254,137 @@ function Stat({
 }
 
 const ATTENTION_TITLES_SHOWN = 5;
+
+// ── The router, and the one question worth asking about it ──────────────────
+//
+// The improver has been invisible for two concrete reasons: its review queue is
+// an own-port view nobody visits, and its Probe asks questions by blocking a
+// Claude Code Stop hook — so the only place it could ever speak was the raw
+// terminal session this whole run exists to make unnecessary. Zero verdicts had
+// ever been recorded.
+//
+// So the question comes to the page he already opens, and answering it is one
+// tap. The panel also shows WHY the router is trusted or not: the bands, and the
+// signals that produced them, because an autonomy level you cannot interrogate
+// is just an assertion.
+function RouterPanel() {
+  const [tracks, setTracks] = useState<RouterTracks | null>(null);
+  const [latest, setLatest] = useState<LatestDecision | null>(null);
+  const [answered, setAnswered] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [a, d] = await Promise.all([
+          fetch("/api/orchestrator/autonomy").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/orchestrator/decisions?limit=1").then((r) => (r.ok ? r.json() : null))
+        ]);
+        if (cancelled) return;
+        if (a) setTracks(a as RouterTracks);
+        const row = (d?.decisions ?? d?.rows ?? [])[0] ?? null;
+        if (row) setLatest(row as LatestDecision);
+      } catch {
+        // Quiet on failure, like every other panel here: a dashboard should not
+        // shout about a feed that simply is not there.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const verdict = async (v: "right" | "wrong") => {
+    if (!latest?.id) return;
+    setAnswered(v); // optimistic: the answer is recorded, the panel moves on
+    try {
+      await fetch("/api/orchestrator/decisions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decisionId: latest.id, verdict: v })
+      });
+    } catch {
+      setAnswered(null);
+    }
+  };
+
+  const asking = tracks?.asking ?? 0;
+  const autonomous = tracks?.autonomous ?? 0;
+  const total = tracks?.tracks?.length ?? 0;
+
+  return (
+    <Panel title="Router">
+      {total === 0 ? (
+        <p className={styles.panelNote}>
+          No routing decisions judged yet. The router asks before acting until it has a
+          track record.
+        </p>
+      ) : (
+        <p className={styles.panelNote}>
+          {autonomous} of {total} work shapes run unattended; {asking} still ask first.
+        </p>
+      )}
+
+      {latest && !answered ? (
+        <div className={styles.routerAsk}>
+          <div className={styles.routerAskHead}>Was this route right?</div>
+          <div className={styles.routerAskBody}>
+            {[latest.flow, latest.duty, latest.level ? `L${latest.level}` : null, latest.model]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+          <div className={styles.routerAskActions}>
+            <button type="button" onClick={() => void verdict("right")}>
+              Right
+            </button>
+            <Link href="/muster?section=decisions">Wrong - correct it</Link>
+          </div>
+        </div>
+      ) : null}
+      {answered ? <p className={styles.panelNote}>Recorded. Thanks.</p> : null}
+
+      <ul className={styles.routerBands}>
+        {(tracks?.tracks ?? []).slice(0, 5).map((t) => (
+          <li key={`${t.category}:${t.shape}`}>
+            <span className={styles.routerShape}>
+              {t.shape} <em>{t.category}</em>
+            </span>
+            <span className={styles.routerBand} data-band={t.band.band}>
+              {t.band.band}
+            </span>
+            <span className={styles.routerObs}>{t.observations} obs</span>
+          </li>
+        ))}
+      </ul>
+      <Link className={styles.panelMore} href="/muster?section=decisions">
+        Decisions log
+      </Link>
+    </Panel>
+  );
+}
+
+interface RouterTracks {
+  asking: number;
+  autonomous: number;
+  tracks: {
+    category: string;
+    shape: string;
+    observations: number;
+    signals: Record<string, number>;
+    band: { band: string; confidence: number };
+  }[];
+}
+
+interface LatestDecision {
+  id: string;
+  flow?: string | null;
+  duty?: string | null;
+  level?: number | null;
+  model?: string | null;
+}
 
 function BoardPanel() {
   const [summary, setSummary] = useState<BoardSummary | null>(null);
