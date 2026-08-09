@@ -696,3 +696,50 @@
 @media (prefers-reduced-motion: reduce) {
   .skel { animation: none; }
 }
+
+/* ── Levelled flow rails ─────────────────────────────────────────────────── */
+/* A flow is not one plan any more: it is a plan PER LEVEL, and the level is the
+   single dial the router turns. The rail therefore shows which level it is
+   rendering and what that level's definition of done is. */
+.railLevels {
+  display: inline-flex;
+  gap: 3px;
+}
+.railLevel {
+  font: inherit;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.4rem;
+  /* Small, but still a real tap target on a phone. */
+  min-height: 1.5rem;
+  min-width: 1.75rem;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+.railLevelOn {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+.railDod {
+  margin: 0.3rem 0 0.1rem;
+  font-size: 0.75rem;
+  color: var(--mute);
+}
+.railDod span {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-right: 0.35rem;
+}
+.railPins {
+  margin-top: 0.4rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--mute);
+}

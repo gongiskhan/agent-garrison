@@ -384,7 +384,7 @@
 
 @media (max-width: 980px) {
   .commandDeck {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .commandControls {
@@ -414,7 +414,10 @@
 
   .commandControls,
   .intelligenceGrid {
-    grid-template-columns: 1fr;
+    /* minmax(0, …), not a bare 1fr: a bare fr track keeps min-width:auto, so a
+       long unbreakable child (a quick-link summary) refuses to shrink and the
+       whole page scrolls sideways on a phone. */
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .commandActions :global(.btn) {
@@ -423,7 +426,7 @@
   }
 
   .dossierHead {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .dossierHead :global(.pill) {

@@ -286,7 +286,11 @@ export function stableStringify(value: unknown): string;
 export function railFor(
   config: PolicyConfigV2 | CompiledPolicy,
   flow?: string | null,
-  cardToggles?: Record<string, boolean> | null
+  cardToggles?: Record<string, boolean> | null,
+  /** The flow LEVEL to resolve. A levelled flow carries its ordered duty list
+   *  per level; omitted, it falls back to the flow's own default level. Ignored
+   *  by a flow that still names a single phase plan. */
+  level?: number | string | null
 ): Rail;
 export function inferPhasePlan(
   config: PolicyConfigV2,

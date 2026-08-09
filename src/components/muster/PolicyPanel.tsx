@@ -17,6 +17,7 @@
 // Autosave - no Save button. NO emoji - text marks + inline SVG only.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   DndContext,
   PointerSensor,
@@ -66,7 +67,27 @@ type Cfg = Omit<
   "targets" | "flows" | "phasePlans" | "phaseSkills"
 > & {
   targets: AnyTarget[];
-  flows: Record<string, { phasePlan: string; description?: string }>;
+  flows: Record<
+    string,
+    {
+      /** Legacy shape: one flow, one plan, whatever the level. */
+      phasePlan?: string;
+      description?: string;
+      cluster?: string;
+      examples?: string[];
+      defaultLevel?: number | string;
+      /** Levelled shape: an ordered duty list per level, with optional pins. */
+      levels?: Record<
+        string,
+        {
+          duties?: string[];
+          pins?: Record<string, number>;
+          definitionOfDone?: string;
+          evidence?: PhasePlan["evidence"];
+        }
+      >;
+    }
+  >;
   phasePlans: Record<string, PhasePlan>;
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
   dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
@@ -78,7 +99,13 @@ const resolveRoute = resolveRouteCore as unknown as (
   profile: string | null,
   classification: { taskType: string; tier: string; matchedException?: string | null }
 ) => RouteResolution;
-const railFor = railForCore as unknown as (config: Cfg, flow?: string | null) => Rail;
+const railFor = railForCore as unknown as (
+  config: Cfg,
+  flow?: string | null,
+  cardToggles?: Record<string, boolean> | null,
+  /** Levelled flows resolve their duty list from the level the router chose. */
+  level?: number | string | null
+) => Rail;
 
 const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 // Severity vocabulary for the ux-qa threshold (blocker strictest → note loosest).
@@ -282,8 +309,44 @@ function usePolicyDraft(compositionId: string) {
 }
 
 // ── flow rails ─────────────────────────────────────────────────────────
-function planForKind(config: Cfg, kind: string): { planName: string; plan: PhasePlan } {
-  const planName = config.flows[kind].phasePlan;
+/** The level a flow renders at: what was asked, else its own default, else 1. */
+function flowLevelOf(config: Cfg, kind: string, requested?: string | null): string {
+  const flow = config.flows[kind];
+  const levels = flow?.levels ? Object.keys(flow.levels) : [];
+  if (requested && levels.includes(requested)) return requested;
+  const dflt = flow?.defaultLevel != null ? String(flow.defaultLevel) : null;
+  if (dflt && levels.includes(dflt)) return dflt;
+  return levels[0] ?? "1";
+}
+
+/** True when this flow carries its duty list per level rather than naming a plan. */
+function isLevelled(config: Cfg, kind: string): boolean {
+  const l = config.flows[kind]?.levels;
+  return !!l && Object.keys(l).length > 0;
+}
+
+/**
+ * Resolve a flow to something rail-shaped.
+ *
+ * A levelled flow has no phase plan at all, so `planName` is null and the plan is
+ * synthesised from the level's duty list. Every caller must treat a null planName
+ * as "not editable through the phase-plan path" — writing to
+ * `phasePlans[undefined]` is what took this page down.
+ */
+function planForKind(
+  config: Cfg,
+  kind: string,
+  level?: string | null
+): { planName: string | null; plan: PhasePlan } {
+  const flow = config.flows[kind];
+  if (isLevelled(config, kind)) {
+    const def = flow.levels![flowLevelOf(config, kind, level)] ?? {};
+    return {
+      planName: null,
+      plan: { phases: (def.duties ?? []) as PhaseEntry[], evidence: def.evidence ?? "none" }
+    };
+  }
+  const planName = flow?.phasePlan ?? "";
   return { planName, plan: config.phasePlans[planName] };
 }
 function planPhaseIds(plan: PhasePlan): string[] {
@@ -387,9 +450,12 @@ function FlowRail({
   commit: (p: Producer) => void;
   onInspect: (kind: string, phase: string) => void;
 }) {
+  const levelled = isLevelled(config, kind);
+  const [level, setLevel] = useState<string | null>(null);
+  const shownLevel = flowLevelOf(config, kind, level);
   let rail: Rail | null = null;
   try {
-    rail = railFor(config, kind);
+    rail = railFor(config, kind, null, levelled ? Number(shownLevel) : undefined);
   } catch (err) {
     return (
       <div className={styles.railError}>
@@ -397,8 +463,9 @@ function FlowRail({
       </div>
     );
   }
-  const { plan } = planForKind(config, kind);
+  const { plan, planName } = planForKind(config, kind, shownLevel);
   const inPlanIds = planPhaseIds(plan);
+  const levelDef = levelled ? (config.flows[kind].levels ?? {})[shownLevel] ?? {} : null;
   const inPlanSet = new Set(inPlanIds);
   const inPlanPhases = rail.phases.filter((p) => inPlanSet.has(p.id));
   const offPhases = rail.phases.filter((p) => !inPlanSet.has(p.id));
@@ -406,7 +473,12 @@ function FlowRail({
 
   const toggle = (phaseId: string) =>
     commit((draft) => {
-      const p = draft.phasePlans[draft.flows[kind].phasePlan];
+      // A levelled flow's duties are the level's list, not a phase plan; there is
+      // nothing here to toggle, and reaching for phasePlans[undefined] is exactly
+      // the crash this guard exists to prevent.
+      const name = draft.flows[kind].phasePlan;
+      if (!name) return draft;
+      const p = draft.phasePlans[name];
       const arr = p.phases as PhaseEntry[];
       const idx = arr.findIndex((e) => (typeof e === "string" ? e : e.id) === phaseId);
       if (idx === -1) {
@@ -424,11 +496,35 @@ function FlowRail({
       <div className={styles.railHead}>
         <span className={styles.railKind}>{kind}</span>
         {kind === config.defaultFlow ? <span className={styles.railBadge}>default</span> : null}
-        <span className={styles.railMeta}>plan: {config.flows[kind].phasePlan}</span>
+        {levelled ? (
+          <span className={styles.railLevels}>
+            {Object.keys(config.flows[kind].levels ?? {})
+              .sort()
+              .map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={clsx(styles.railLevel, n === shownLevel && styles.railLevelOn)}
+                  onClick={() => setLevel(n)}
+                  aria-pressed={n === shownLevel}
+                  title={`level ${n}`}
+                >
+                  L{n}
+                </button>
+              ))}
+          </span>
+        ) : (
+          <span className={styles.railMeta}>plan: {planName}</span>
+        )}
         <span className={styles.railMeta}>evidence: {rail.evidence}</span>
       </div>
       {config.flows[kind].description ? (
         <div className={styles.railDesc}>{config.flows[kind].description}</div>
+      ) : null}
+      {levelDef?.definitionOfDone ? (
+        <div className={styles.railDod}>
+          <span>done when</span> {levelDef.definitionOfDone}
+        </div>
       ) : null}
       <div className={styles.railTrack}>
         <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
@@ -454,6 +550,14 @@ function FlowRail({
           />
         ))}
       </div>
+      {levelDef?.pins && Object.keys(levelDef.pins).length ? (
+        <div className={styles.railPins}>
+          pinned:{" "}
+          {Object.entries(levelDef.pins)
+            .map(([duty, lvl]) => `${duty} at L${lvl}`)
+            .join(", ")}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -484,6 +588,14 @@ function RailsSurface({
     commit((draft) => {
       const newKind = uniqueName(src, new Set(Object.keys(draft.flows)));
       const srcKind = draft.flows[src];
+      if (!srcKind.phasePlan) {
+        // Levelled flow: the levels ARE the definition, so clone them directly.
+        draft.flows[newKind] = {
+          ...structuredClone(srcKind),
+          description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned flow"
+        };
+        return draft;
+      }
       const newPlan = uniqueName(srcKind.phasePlan, new Set(Object.keys(draft.phasePlans)));
       draft.phasePlans[newPlan] = structuredClone(draft.phasePlans[srcKind.phasePlan]);
       draft.flows[newKind] = {
@@ -530,8 +642,8 @@ function Inspector({
   onClose: () => void;
 }) {
   const { kind, phase } = target;
-  const planName = config.flows[kind]?.phasePlan;
-  const plan = planName ? config.phasePlans[planName] : undefined;
+  const planName = config.flows[kind]?.phasePlan ?? null;
+  const plan = planName ? config.phasePlans[planName] : planForKind(config, kind).plan;
   const binding = config.phaseSkills?.bindings?.[phase] || "";
   const override = config.phaseSkills?.overrides?.[kind]?.[phase];
   const skillValue = override ?? binding;
@@ -1136,7 +1248,9 @@ export function PolicyPanel({
     if (a[1] !== o[1] || a[2] === o[2]) return;
     const kind = a[1];
     commit((draft) => {
-      const plan = draft.phasePlans[draft.flows[kind].phasePlan];
+      const name = draft.flows[kind].phasePlan;
+      if (!name) return draft; // levelled flow: order comes from the level's duty list
+      const plan = draft.phasePlans[name];
       const arr = plan.phases as PhaseEntry[];
       const ids = arr.map((entry) => (typeof entry === "string" ? entry : entry.id));
       const fi = ids.indexOf(a[2]);
