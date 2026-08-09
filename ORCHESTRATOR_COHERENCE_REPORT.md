@@ -193,12 +193,41 @@ and `bandFor` returns the `delaySeconds`, but nothing consumes it yet).
 not consulted, so there is nothing to exercise); the vision judge over a completed
 run; per-card revert tracking.
 
-**External blocker, hit during validation:** the cards routed correctly and then
-failed to *run* - `You've hit your limit · resets 6am (Europe/Lisbon)` on the
-Anthropic plan for Fable specifically (a Haiku turn still answers). The failure
-path behaved correctly: the card parked into needs-attention carrying the true
-reason rather than failing silently. Running real cards through to completion needs
-a retry after the limit resets.
+**A real card ran end to end and its fix is independently verified.** After the
+ladder moved to Opus (`85310fea`), a request through the web channel:
+
+> "/quarters overflows horizontally by about 3px at a 390px viewport width. Find
+> the offending element and fix the CSS."
+
+| ledger field | value |
+|---|---|
+| flow / duty / level | `fix` / `implement` / 2 |
+| runtime · model · effort | agent-sdk · claude-opus-4-8 · T1-standard/high |
+| board transitions | Backlog -> Implement -> Done, 4m |
+| commit produced | `5f3e26bf` |
+| root cause found | global `code { white-space: nowrap }` forcing a flex child to its min-content width |
+| independently verified | yes - all five checked pages now clean at 390px |
+| final state | done/ok |
+
+That is the deterministic gate satisfied for one real card, with the fix confirmed
+by re-running the measurement rather than trusting the report.
+
+**Two external blockers were hit and are worth recording.** Fable returned HTTP
+500 (`You've hit your limit · resets 6am Europe/Lisbon`), and `codex exec`
+returns `401 Your session has ended. Please log in again.` The failure path
+behaved correctly both times: the card parked into needs-attention carrying the
+true reason rather than failing silently.
+
+**`codex login` still needs redoing.** The decorrelation gates
+(adversarial-review, adversarial-test, security-review, codex-checkpoint) are
+deliberately left on Codex - repointing them at Opus would turn a cross-model
+check into the same model reviewing itself - so they will keep failing until that
+login is refreshed.
+
+**One trap worth knowing:** the gateway holds the compiled policy in memory, so a
+routing change needs a down/up, not just a policy PUT. Switching Fable to Opus
+also does not on its own escape an Anthropic PLAN limit, since both are Anthropic
+models on the same Max plan.
 
 ### 5.5 Deliberately not done
 
@@ -249,11 +278,16 @@ rendering differs):
 
 Ranked by how often the Phase 0 corpus says it will bite.
 
-1. **A card routes but cannot run without a project.** Every card created from a
-   channel in this run carried `project: null` and had to infer one. The corpus is
-   dominated by small fixes in a *known* repo; until the channel carries the project
-   reliably, the fastest path to "fix this in ekoa-code" is still a terminal in that
-   directory. **Highest-value next fix.**
+1. **A card routes but runs without a project.** Every card created from a channel
+   in this run carried `project: null`. Project inference starts, but the card
+   advances and dispatches before it settles, so the result is discarded with
+   `Project inference result discarded - the first run had already started`. The
+   card that fixed /quarters still ran un-fenced (`Fence skipped: could not
+   resolve a repo path`) and only worked because the operative's cwd happened to
+   be the right repo. The race is by design (inference is fire-and-forget and
+   yields to a started run); the fix is to gate the ADVANCE, not the inference.
+   Diagnosed but not shipped in this run: it changes the dispatch path and could
+   not be validated while the models were unavailable. **Highest-value next fix.**
 2. **Nothing asks before acting yet.** The bands exist and are visible but are not
    consulted, so the router still has exactly one behaviour: decide and go. Trust
    has to be earned somewhere, and right now there is no mechanism through which it
