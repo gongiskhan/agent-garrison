@@ -7,7 +7,7 @@ import { AUTHORED_SECTION_DEFAULTS } from "@/lib/orchestrator-authored-defaults"
 
 // GARRISON-FLOW-V2 S4 / D13: the `security-review` phase is a bindable,
 // opt-in phase. It must exist as a phase + binding + matrix cell, be absent
-// from every phase plan and work kind (off by default), and be gated by the
+// from every phase plan and flow (off by default), and be gated by the
 // per-project `projects.<label>.security_sensitive` flag.
 
 const ROOT = join(__dirname, "..");
@@ -34,12 +34,12 @@ describe("security opt-in (S4 / D13)", () => {
     }
   });
 
-  it("security-review is OFF by default — in no phase plan and no work kind", () => {
+  it("security-review is OFF by default — in no phase plan and no flow", () => {
     for (const [, plan] of Object.entries<any>(policy.phasePlans)) {
       const ids = (plan.phases || []).map((p: any) => (typeof p === "string" ? p : p.id));
       expect(ids).not.toContain("security-review");
     }
-    // work kinds only name a phasePlan; none should resolve to a plan carrying it
+    // flows only name a phasePlan; none should resolve to a plan carrying it
     for (const [, wk] of Object.entries<any>(policy.flows)) {
       const ids = (policy.phasePlans[wk.phasePlan]?.phases || []).map((p: any) =>
         typeof p === "string" ? p : p.id

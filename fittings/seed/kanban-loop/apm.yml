@@ -33,7 +33,7 @@ x-garrison:
     EXACTLY name one of the card's valid next lists AND the phase's durable
     gate-status entry must exist in the runDir (D9), or the card parks in
     needs-attention. Cards on autonomous lists are engine-owned (D16). The card's
-    work kind + per-card phase toggles form its rail (D17): OFF phases are skipped
+    flow + per-card phase toggles form its rail (D17): OFF phases are skipped
     with explicit off events, never silent. The Test list runs batched per project
     on its own scheduler beat (default every 5h). Goal-mode carries a
     runtime-neutral acceptance block; the convergence guard is the per-card

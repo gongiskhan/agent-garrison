@@ -4,7 +4,7 @@
 // own-port Orchestrator view's retirement (the targets tray lives on the
 // Duties tab, the task-type matrix was superseded by the duty ladders, the
 // decisions feed by the Decisions tab):
-//   1. WORK-KIND RAILS  - one rail per work kind; phases as toggleable,
+//   1. FLOW RAILS  - one rail per flow; phases as toggleable,
 //                         reorderable chips with a per-phase inspector
 //                         (skill override + plan evidence).
 //   2. COORDINATION     - same-branch multi-run coordination controls.
@@ -488,7 +488,7 @@ function RailsSurface({
       draft.phasePlans[newPlan] = structuredClone(draft.phasePlans[srcKind.phasePlan]);
       draft.flows[newKind] = {
         phasePlan: newPlan,
-        description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned work kind"
+        description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned flow"
       };
       const over = draft.phaseSkills?.overrides?.[src];
       if (over) {
@@ -500,9 +500,9 @@ function RailsSurface({
   return (
     <section className={styles.surface} data-testid="policy-rails">
       <div className={styles.surfaceHeadRow}>
-        <h3 className={styles.surfaceHead}>Work-kind rails</h3>
+        <h3 className={styles.surfaceHead}>Flow rails</h3>
         <button type="button" className={styles.ghostBtn} onClick={cloneKind}>
-          + Add work kind
+          + Add flow
         </button>
       </div>
       <p className={styles.surfaceHint}>
@@ -873,7 +873,7 @@ function SecuritySurface({ config, commit }: { config: Cfg; commit: (p: Producer
       <h3 className={styles.surfaceHead}>Security-sensitive projects</h3>
       <p className={styles.surfaceHint}>
         Mark a project security-sensitive to add the opt-in security-review phase to its runs
-        (boundary rubric + cross-model checks). No default work kind includes security-review
+        (boundary rubric + cross-model checks). No default flow includes security-review
         otherwise.
       </p>
       <div className={styles.projList}>
@@ -1004,7 +1004,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
             if (e.key === "Enter") void run();
           }}
         />
-        <select value={flow} onChange={(e) => setFlow(e.target.value)} aria-label="work kind">
+        <select value={flow} onChange={(e) => setFlow(e.target.value)} aria-label="flow">
           {kinds.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -1101,7 +1101,21 @@ function StatusPill({ state }: { state: SaveState }) {
 }
 
 // ── panel ───────────────────────────────────────────────────────────────────
-export function PolicyPanel({ compositionId }: { compositionId: string }) {
+/** Which surfaces to render.
+ *  - "rails" — only the flow rails, so the Orchestrator tab can show them beside
+ *    the duty list (duties are the steps, flows are the plans; seeing one without
+ *    the other is the legibility problem this whole refit exists to fix).
+ *  - "rest"  — everything except the rails.
+ *  - undefined — the whole panel, as before. */
+export type PolicySurfaces = "rails" | "rest";
+
+export function PolicyPanel({
+  compositionId,
+  only
+}: {
+  compositionId: string;
+  only?: PolicySurfaces;
+}) {
   const { config, loadError, saveState, errors, warnings, commit, reload, dismissErrors, dismissWarnings } =
     usePolicyDraft(compositionId);
   const [inspector, setInspector] = useState<{ kind: string; phase: string } | null>(null);
@@ -1152,9 +1166,11 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
     <section className={styles.section} data-testid="policy-panel">
       <div className={styles.panelHead}>
         <span className={styles.panelLead}>
-          Routing inference and execution policy: how a request becomes a duty and level, which
-          phases each work kind runs, and the quality gates. Every edit autosaves and recompiles
-          the policy the gateway and run engine read.
+          {only === "rails"
+            ? "Flows are the plans: the ordered duties a kind of work runs, per level. The duties they compose are on the left."
+            : only === "rest"
+              ? "How a request becomes a flow, a duty and a level, plus the quality gates. Every edit autosaves and recompiles the policy the gateway and run engine read."
+              : "Routing inference and execution policy: how a request becomes a duty and level, which phases each flow runs, and the quality gates. Every edit autosaves and recompiles the policy the gateway and run engine read."}
         </span>
         <StatusPill state={saveState} />
       </div>
@@ -1184,15 +1200,23 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
         </div>
       ) : null}
 
-      <InferenceSurface config={config} commit={commit} compositionId={compositionId} />
+      {only !== "rails" ? (
+        <InferenceSurface config={config} commit={commit} compositionId={compositionId} />
+      ) : null}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
-      </DndContext>
-      <CoordinationSurface config={config} commit={commit} />
-      <SecuritySurface config={config} commit={commit} />
-      <QaSurface config={config} commit={commit} />
-      <TryItStrip config={config} compositionId={compositionId} />
+      {only !== "rest" ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
+        </DndContext>
+      ) : null}
+      {only !== "rails" ? (
+        <>
+          <CoordinationSurface config={config} commit={commit} />
+          <SecuritySurface config={config} commit={commit} />
+          <QaSurface config={config} commit={commit} />
+          <TryItStrip config={config} compositionId={compositionId} />
+        </>
+      ) : null}
 
       {inspector ? (
         <Inspector config={config} target={inspector} commit={commit} onClose={() => setInspector(null)} />

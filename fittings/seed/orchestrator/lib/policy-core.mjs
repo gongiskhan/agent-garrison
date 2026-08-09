@@ -3,7 +3,7 @@
 // GARRISON-UNIFY-V1 S1: the routing config grows into THE policy — task types
 // for every pipeline verb, a matrix that resolves taskType × tier straight to
 // a TARGET (the v1 role layer collapses; roles survive only as derived ladder
-// labels for logging/back-compat), phase plans, work kinds, and the
+// labels for logging/back-compat), phase plans, flows, and the
 // phase-skill registry. compilePolicy() flattens the active profile into the
 // single machine-readable consumption interface written to
 // ~/.garrison/orchestrator/policy.json (byte-stable ordering; the WRITER owns
@@ -327,7 +327,7 @@ export function resolveDisciplineV2(config, profile, tier) {
 }
 
 // ── Phase rails ──────────────────────────────────────────────────────────────
-// A work kind names a phase plan; a phase plan is an ORDERED SUBSET of the
+// A flow names a phase plan; a phase plan is an ORDERED SUBSET of the
 // pipeline phases (D2) — so the rail carries EVERY pipeline phase: the plan's
 // phases (plan order, on/off per plan), then the remaining pipeline phases
 // (policy order) rendered OFF with off_reason "phase-plan". A disabled phase
@@ -336,9 +336,9 @@ export function resolveDisciplineV2(config, profile, tier) {
 export function railFor(config, flowName, cardToggles) {
   const kindName = flowName || config.defaultFlow;
   const kind = (config.flows || {})[kindName];
-  if (!kind) throw new Error(`policy: unknown work kind "${kindName}"`);
+  if (!kind) throw new Error(`policy: unknown flow "${kindName}"`);
   const plan = (config.phasePlans || {})[kind.phasePlan];
-  if (!plan) throw new Error(`policy: work kind "${kindName}" names unknown phase plan "${kind.phasePlan}"`);
+  if (!plan) throw new Error(`policy: flow "${kindName}" names unknown phase plan "${kind.phasePlan}"`);
   const allPhases = Array.isArray(config.phases) ? config.phases : [...PHASES];
   const bindings = (config.phaseSkills || {}).bindings || {};
   const overrides = ((config.phaseSkills || {}).overrides || {})[kindName] || {};
@@ -490,7 +490,7 @@ export function validatePolicyConfig(config) {
   }
   for (const [kind, k] of Object.entries(config.flows || {})) {
     if (!k.phasePlan || !planNames.has(k.phasePlan)) {
-      errors.push(`work kind ${kind}: unknown phase plan ${k.phasePlan}`);
+      errors.push(`flow ${kind}: unknown phase plan ${k.phasePlan}`);
     }
   }
   if (config.defaultFlow && !(config.flows || {})[config.defaultFlow]) {
@@ -501,7 +501,7 @@ export function validatePolicyConfig(config) {
     if (!phases.includes(ph)) errors.push(`phaseSkills binding for unknown phase ${ph}`);
   }
   for (const [kind, over] of Object.entries((config.phaseSkills || {}).overrides || {})) {
-    if (!(config.flows || {})[kind]) errors.push(`phaseSkills override for unknown work kind ${kind}`);
+    if (!(config.flows || {})[kind]) errors.push(`phaseSkills override for unknown flow ${kind}`);
     for (const [ph] of Object.entries(over || {})) {
       if (!phases.includes(ph)) errors.push(`phaseSkills override ${kind}: unknown phase ${ph}`);
     }
@@ -778,7 +778,7 @@ export function isSignificantAutonomous(classification) {
 
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
-// optional per-card toggle map merged over the work kind's plan (D17).
+// optional per-card toggle map merged over the flow's plan (D17).
 export function buildAutonomousCardPayload({ brief, project, flow, phases, taskType, tier, duty, level, sequence, originChannel, clarity } = {}) {
   return {
     description: brief || "",
@@ -919,7 +919,7 @@ export function compileRoutingV2(config, profile) {
   sections.push(conts.length ? conts.join("\n") : "_(none)_");
   const kinds = Object.keys(config.flows || {});
   if (kinds.length) {
-    sections.push("### Work kinds → phase rails (autonomous runs)");
+    sections.push("### Flows → phase rails (autonomous runs)");
     sections.push(
       kinds
         .map((k) => {

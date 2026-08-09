@@ -12,7 +12,7 @@
 // card's valid next lists (no fuzzy matching) or the card parks in
 // needs-attention. Phase progression is a list transition AND requires the
 // phase's durable gate evidence in the runDir (D9) — a transition without its
-// gate-status entry parks. The card's work kind + per-card phase toggles form
+// gate-status entry parks. The card's flow + per-card phase toggles form
 // its RAIL (D17): an OFF phase is skipped with an explicit "off" event
 // (recorded and rendered off, never a silent pass). Goal-mode injects an explicit
 // acceptance block; the convergence GUARD is the per-card iteration cap.
@@ -237,7 +237,7 @@ export function evidenceRequiredForTransition(list, next) {
 // lands in Done, a non-empty evidence/evidence.md is mandatory. Other edges keep
 // the configurable Walkthrough/transition evidence contract.
 export function evidenceContractForTransition(list, phase, next, rail = null) {
-  // An evidence-free rail (the card's work kind declares `evidence: false`)
+  // An evidence-free rail (the card's flow declares `evidence: false`)
   // owes no evidence anywhere — including the terminal Test -> Done invariant,
   // so the waiver comes first. Every seam funnels through this helper, so the
   // waiver holds for the dispatched, batched, and in-session paths alike.
@@ -1272,7 +1272,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     const offEvents = skipped.map((ph) => ({
       at: now(),
       kind: "phase-off",
-      message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
+      message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
     }));
     let events = card.events ? card.events.slice() : [];
     for (const ev of offEvents) events = withEvent({ events }, ev);
@@ -2046,7 +2046,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         offEvents = fwd.skipped.map((ph) => ({
           at: now(),
           kind: "phase-off",
-          message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
+          message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
         }));
       }
     }
@@ -3063,7 +3063,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       offEvents = fwd.skipped.map((ph) => ({
         at: now(),
         kind: "phase-off",
-        message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
+        message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
       }));
     }
   }
@@ -3907,7 +3907,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           offEvents = fwd.skipped.map((ph) => ({
             at: now(),
             kind: "phase-off",
-            message: `Phase ${ph} is OFF for this card (${rail.flow || "work kind"}) — recorded off, not run`
+            message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
           }));
         }
       }

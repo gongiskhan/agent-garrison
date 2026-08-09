@@ -1,6 +1,6 @@
 ---
 name: garrison-security-review
-description: OPT-IN per-slice security review - a single consolidated checklist applying the security-boundary rubric (authorization, injection, secret handling, tenant/org scoping, boundary input validation), deciding whether the slice warrants a cross-model per-slice Codex pass, and checking the security-critical surfaces the run brief named. It runs only when the project is security-sensitive or the work kind explicitly opts in, and in a garrison build real findings send the slice back to garrison-implement. NOT the universal deterministic secrets/SAST wall (use garrison-test's securityWall, always on), NOT the fresh-context correctness review (use garrison-adversarial-review), and NOT the run-level cross-model checkpoint (use garrison-codex-checkpoint). Invoked by the Garrison run engine as its security-review step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
+description: OPT-IN per-slice security review - a single consolidated checklist applying the security-boundary rubric (authorization, injection, secret handling, tenant/org scoping, boundary input validation), deciding whether the slice warrants a cross-model per-slice Codex pass, and checking the security-critical surfaces the run brief named. It runs only when the project is security-sensitive or the flow explicitly opts in, and in a garrison build real findings send the slice back to garrison-implement. NOT the universal deterministic secrets/SAST wall (use garrison-test's securityWall, always on), NOT the fresh-context correctness review (use garrison-adversarial-review), and NOT the run-level cross-model checkpoint (use garrison-codex-checkpoint). Invoked by the Garrison run engine as its security-review step, or standalone only when the user explicitly asks for it. Do NOT auto-invoke this skill from task inference - Garrison decides when its phase skills run.
 ---
 
 # garrison-security-review
@@ -33,13 +33,13 @@ At the start of every invocation, look for the compiled Orchestrator policy at
 
 ## When this phase runs (opt-in only)
 
-This phase is NOT in any default phase plan or work kind. It runs only when the
+This phase is NOT in any default phase plan or flow. It runs only when the
 run has opted in, in one of two ways:
 
 1. **Project-level.** `projects.<label>.security_sensitive === true` in the
    compiled policy for the card's project. A security-sensitive project gets
    this phase on every slice.
-2. **Work-kind / card-level.** The work kind's phase plan (or a per-card phase
+2. **Flow / card-level.** The flow's phase plan (or a per-card phase
    toggle) explicitly includes `security-review`.
 
 Absent both, the phase is off, recorded off, and never fired on a

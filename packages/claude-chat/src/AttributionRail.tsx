@@ -78,7 +78,7 @@ const FIELD_LABEL: Record<PinField, string> = {
   project: "project",
   account: "account",
   tier: "tier",
-  flow: "work kind",
+  flow: "flow",
   phasesOff: "phases",
 };
 
@@ -289,7 +289,7 @@ export interface RailAccountOption {
   name: string;
   platform?: string | null;
 }
-/** One work kind from the compiled policy, with the phases its plan runs (in plan
+/** One flow from the compiled policy, with the phases its plan runs (in plan
  *  order). `phases` is what the phases menu offers - a phase outside the selected
  *  kind's plan is not toggleable, because turning it ON is not a thing the rail can
  *  do (`railForCard` only ever reads `toggles[id] === false`). */
@@ -306,7 +306,7 @@ export interface RailOptions {
   projects?: string[] | null;
   tiers?: string[] | null;
   flows?: RailFlowOption[] | null;
-  /** The work kind used when none is pinned - labelled "(default)" in the menu so
+  /** The flow used when none is pinned - labelled "(default)" in the menu so
    *  "Automatic" is not mistaken for "no plan". */
   defaultFlow?: string | null;
   /**
@@ -371,8 +371,8 @@ export function menuForField(
 
   if (field === "duty") {
     rows.push(auto);
-    // Duty and work kind are ONE question ("what is this work?") that used to be
-    // asked as two sibling badges: a phased work kind spans several duty-named
+    // Duty and flow are ONE question ("what is this work?") that used to be
+    // asked as two sibling badges: a phased flow spans several duty-named
     // lists, so pinning both read as a contradiction. The duty menu now offers
     // the phased plans first; picking one pins flow and clears the
     // duty/level pins (and vice versa below). The flow badge remains as the

@@ -106,7 +106,7 @@ Active Profile: **balanced** (preRoute: on). The gateway pre-routes every inboun
 - WHEN this turn produced a **plan** → ask the user: "Implement this plan?" (everything after is gated on yes), then chain into routing target `cc-sonnet-med` — claude-code / anthropic-plan / sonnet / medium
 - WHEN this turn produced a **report** → write the output to the Artifact Store, then ask the user: "Act on this report?" (everything after is gated on yes)
 
-### Work kinds → phase rails (autonomous runs)
+### Flows → phase rails (autonomous runs)
 
 - **docs-change** — implement → ~~plan~~ → ~~review~~ → ~~adversarial-review~~ → ~~test~~ → ~~adversarial-test~~ → ~~security-review~~ → ~~ux-qa~~ → ~~walkthrough~~ → ~~validate~~ → ~~codex-checkpoint~~ → ~~report~~ (evidence: text)
 - **api-change** — implement → test → ~~plan~~ → ~~review~~ → ~~adversarial-review~~ → ~~adversarial-test~~ → ~~security-review~~ → ~~ux-qa~~ → ~~walkthrough~~ → ~~validate~~ → ~~codex-checkpoint~~ → ~~report~~ (evidence: logs)
@@ -219,7 +219,7 @@ other prompt repeats it):
   (typecheck / lint / structural greps / secrets scan), never add the
   `security-review` phase or a per-slice cross-model security pass unless the
   project is security-sensitive (`projects.<label>.security_sensitive` in the
-  policy is true) or the work kind explicitly includes `security-review`. It is
+  policy is true) or the flow explicitly includes `security-review`. It is
   in no default phase plan; do not select it - and do not classify a turn into a
   security phase - on a "this looks security-adjacent" heuristic. Most work is
   not security-sensitive and runs without it.
@@ -321,7 +321,7 @@ provider's usage guidance is indented under its line:
   IMPROVER_LOCK=<lock> IMPROVER_MODEL_FIXTURE=<reply> node scripts/improver.mjs
   run-now` prints FINDING 1..6 + `IMPROVER-V1 OK`.
 
-- automation-runner:kanban-loop — A Garrison automation-runner. File-per-card board under ~/.garrison/kanban-loop (ULID ids, atomic writes; membership derived by scanning cards, never stored; the card stores POINTERS — runId/runDir/sliceId/sessionIds/briefPath/videoUrl — never inlined document bodies). THE run engine (GARRISON-UNIFY-V1 S4): a run is a card. A manual list is a plain column; an agent list maps to a PHASE NAME and nothing else (D15) — its skill, model, effort and runtime resolve from the compiled Orchestrator policy (~/.garrison/orchestrator/policy.json) at dispatch time, and one of three triggers (immediate | manual | scheduler-beat) decides who fires it. On the card's first agent-list entry the engine mints a runId + runDir and threads the run dir into every execute-prompt so the phase skills write per-run. Dispatch goes through the orchestrator front door with an explicit {taskType: <phase>, tier: <card tier>} classification; the router output must EXACTLY name one of the card's valid next lists AND the phase's durable gate-status entry must exist in the runDir (D9), or the card parks in needs-attention. Cards on autonomous lists are engine-owned (D16). The card's work kind + per-card phase toggles form its rail (D17): OFF phases are skipped with explicit off events, never silent. The Test list runs batched per project on its own scheduler beat (default every 5h). Goal-mode carries a runtime-neutral acceptance block; the convergence guard is the per-card iteration cap.
+- automation-runner:kanban-loop — A Garrison automation-runner. File-per-card board under ~/.garrison/kanban-loop (ULID ids, atomic writes; membership derived by scanning cards, never stored; the card stores POINTERS — runId/runDir/sliceId/sessionIds/briefPath/videoUrl — never inlined document bodies). THE run engine (GARRISON-UNIFY-V1 S4): a run is a card. A manual list is a plain column; an agent list maps to a PHASE NAME and nothing else (D15) — its skill, model, effort and runtime resolve from the compiled Orchestrator policy (~/.garrison/orchestrator/policy.json) at dispatch time, and one of three triggers (immediate | manual | scheduler-beat) decides who fires it. On the card's first agent-list entry the engine mints a runId + runDir and threads the run dir into every execute-prompt so the phase skills write per-run. Dispatch goes through the orchestrator front door with an explicit {taskType: <phase>, tier: <card tier>} classification; the router output must EXACTLY name one of the card's valid next lists AND the phase's durable gate-status entry must exist in the runDir (D9), or the card parks in needs-attention. Cards on autonomous lists are engine-owned (D16). The card's flow + per-card phase toggles form its rail (D17): OFF phases are skipped with explicit off events, never silent. The Test list runs batched per project on its own scheduler beat (default every 5h). Goal-mode carries a runtime-neutral acceptance block; the convergence guard is the per-card iteration cap.
   The Kanban Loop is THE run engine's window: every autonomous run is a card. A
   manual list is a plain column; an agent list maps to a phase name and nothing
   else — the executing skill, model, effort and runtime resolve from the compiled
@@ -622,7 +622,7 @@ provider's usage guidance is indented under its line:
   No mutation endpoints; observation only. The vitals panel is display-only — it never
   exposes kill / restart / start / stop controls for processes or systemd units.
 
-- orchestrator:orchestrator — Fills the Orchestrator Faculty — the one policy, one brain. Owns the v2 policy config (matrix resolving every task type × tier straight to a target; phase plans; work kinds; the phase-skill registry), compiles it byte-stably into both the routing.md injected via <!-- garrison:routing v2 profile=balanced -->
+- orchestrator:orchestrator — Fills the Orchestrator Faculty — the one policy, one brain. Owns the v2 policy config (matrix resolving every task type × tier straight to a target; phase plans; flows; the phase-skill registry), compiles it byte-stably into both the routing.md injected via <!-- garrison:routing v2 profile=balanced -->
 
 ## Routing policy
 
@@ -699,7 +699,7 @@ Active Profile: **balanced** (preRoute: on). The gateway pre-routes every inboun
 - WHEN this turn produced a **plan** → ask the user: "Implement this plan?" (everything after is gated on yes), then chain into routing target `cc-sonnet-med` — claude-code / anthropic-plan / sonnet / medium
 - WHEN this turn produced a **report** → write the output to the Artifact Store, then ask the user: "Act on this report?" (everything after is gated on yes)
 
-### Work kinds → phase rails (autonomous runs)
+### Flows → phase rails (autonomous runs)
 
 - **docs-change** — implement → ~~plan~~ → ~~review~~ → ~~adversarial-review~~ → ~~test~~ → ~~adversarial-test~~ → ~~security-review~~ → ~~ux-qa~~ → ~~walkthrough~~ → ~~validate~~ → ~~codex-checkpoint~~ → ~~report~~ (evidence: text)
 - **api-change** — implement → test → ~~plan~~ → ~~review~~ → ~~adversarial-review~~ → ~~adversarial-test~~ → ~~security-review~~ → ~~ux-qa~~ → ~~walkthrough~~ → ~~validate~~ → ~~codex-checkpoint~~ → ~~report~~ (evidence: logs)
@@ -714,7 +714,7 @@ A struck-through phase is OFF for that kind — record it as off, never as a sil
 End every reply with a routing token on its own line: `[route: <target-id> | rule: <rule-id> | profile: <name>]`. The gateway diff-checks this token against the route it resolved and logs honored:false on a mismatch.
  and the machine-readable ~/.garrison/orchestrator/policy.json (the single consumption interface for the run engine and every phase skill), and serves the own-port composer view (default 27087) that owns GET/PUT /routing with baseline-hash guarding.
   The Orchestrator fills the Orchestrator Faculty and owns every routing knob:
-  task types, models, efforts, runtimes, phase plans, work kinds, and
+  task types, models, efforts, runtimes, phase plans, flows, and
   phase-skill bindings. Its compiled routing.md is injected into the assembled
   system prompt via the <!-- garrison:routing v2 profile=balanced -->
 
@@ -793,7 +793,7 @@ Active Profile: **balanced** (preRoute: on). The gateway pre-routes every inboun
 - WHEN this turn produced a **plan** → ask the user: "Implement this plan?" (everything after is gated on yes), then chain into routing target `cc-sonnet-med` — claude-code / anthropic-plan / sonnet / medium
 - WHEN this turn produced a **report** → write the output to the Artifact Store, then ask the user: "Act on this report?" (everything after is gated on yes)
 
-### Work kinds → phase rails (autonomous runs)
+### Flows → phase rails (autonomous runs)
 
 - **docs-change** — implement → ~~plan~~ → ~~review~~ → ~~adversarial-review~~ → ~~test~~ → ~~adversarial-test~~ → ~~security-review~~ → ~~ux-qa~~ → ~~walkthrough~~ → ~~validate~~ → ~~codex-checkpoint~~ → ~~report~~ (evidence: text)
 - **api-change** — implement → test → ~~plan~~ → ~~review~~ → ~~adversarial-review~~ → ~~adversarial-test~~ → ~~security-review~~ → ~~ux-qa~~ → ~~walkthrough~~ → ~~validate~~ → ~~codex-checkpoint~~ → ~~report~~ (evidence: logs)

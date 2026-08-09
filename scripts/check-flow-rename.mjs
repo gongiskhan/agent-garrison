@@ -12,7 +12,22 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
-const RETIRED = ["workKind", "WorkKind", "WORK_KIND", "work-kind", "work_kind"];
+// Identifiers AND prose. The first rename pass was identifier-only and left
+// "Work-kind rails", "+ Add work kind" and a dozen doc sentences behind, which is
+// exactly the half-applied state this gate exists to prevent — the label a user
+// reads is as much a name as the key a program reads.
+//
+// Written as escaped char classes so this file can never be caught by its own
+// find-and-replace (an earlier prose pass rewrote this very array and turned the
+// gate into a search for the word "flow").
+const RETIRED = [
+  "work" + "Kind",
+  "Work" + "Kind",
+  "WORK" + "_KIND",
+  "work" + "_kind",
+  "[Ww]ork[- ][Kk]ind",
+  "WORK[- ]KIND"
+];
 
 // The compatibility layer. These files are ALLOWED to name the retired spellings
 // because reading old persisted data is their entire job. Three mirrors because a
@@ -32,6 +47,9 @@ const HISTORICAL = [
   "docs/autothing/runs/",
   "docs/DECISIONS.md",
   "SCHEDULING_AUDIT.md",
+  // Skill-local decision logs: same rule as docs/DECISIONS.md — a past decision
+  // must keep saying what was actually decided at the time.
+  "references/decisions.md",
   "RUN_LOG.md",
   "ORCHESTRATOR_COHERENCE.md",
   ".bak"

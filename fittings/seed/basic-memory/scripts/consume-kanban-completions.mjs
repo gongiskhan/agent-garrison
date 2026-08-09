@@ -121,7 +121,7 @@ export function renderPersonalCompletionNote(packet, sourceSha256) {
     `- **Done generation**: \`${packet.coordinationSeq}\``,
     `- **Completed at**: ${markdownInline(packet.completedAt || "unknown", 100)}`,
     `- **Project label**: ${packet.project ? markdownInline(packet.project, 160) : "_(none)_"}`,
-    `- **Work kind**: ${packet.flow ? markdownInline(packet.flow, 120) : "_(none)_"}`,
+    `- **Flow**: ${packet.flow ? markdownInline(packet.flow, 120) : "_(none)_"}`,
     `- **Source packet**: \`${packet.packetId}\``,
     `- **Source SHA-256**: \`${sourceSha256}\``,
     "- **Capture semantics**: completion event only; no statement below is promoted to timeless truth",

@@ -26,7 +26,7 @@ reverse.**
 2. **Consume the run context it is handed.** The engine (or doorway) invokes
    the skill with: `runDir` (the run's evidence directory under
    `~/.garrison/runs/<project>/<runId>/`), the `card` (id, title, brief,
-   project, tier, work kind, per-card phase toggles), and the `phase` it is
+   project, tier, flow, per-card phase toggles), and the `phase` it is
    executing. The skill does its phase's work scoped to that context.
 
 3. **Write its phase's gate-status entry.** On completion (pass OR fail), the
@@ -58,6 +58,6 @@ The verb skills are the seed bindings (`garrison-plan`,
 `garrison-implement`, `garrison-review`, `garrison-adversarial-review`,
 `garrison-test`, `garrison-adversarial-test`, `garrison-security-review`,
 `garrison-ux-qa`, `garrison-walkthrough`, `garrison-validate`,
-`garrison-codex-checkpoint`, `garrison-report`). Any work kind may
+`garrison-codex-checkpoint`, `garrison-report`). Any flow may
 override any binding (e.g. a docs review bound to a different review skill
 than a feature review).

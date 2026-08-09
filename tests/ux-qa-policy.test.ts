@@ -7,7 +7,7 @@ import { compilePolicy, railFor } from "../fittings/seed/orchestrator/lib/routin
 // GARRISON-FLOW-V2 S5 / D14 + D15: the `design-audit` phase is retired and
 // replaced by `ux-qa` (skill garrison-ux-qa). ux-qa must be a bindable phase +
 // matrix cell mirroring the old design-audit target, live in the `full` plan and
-// the new `ui-change` work kind, ABSENT from docs/api/video plans, and the
+// the new `ui-change` flow, ABSENT from docs/api/video plans, and the
 // policy must carry a top-level `uxQa.severityThreshold` (default `major`).
 
 const ROOT = join(__dirname, "..");
@@ -45,7 +45,7 @@ describe("ux-qa phase (S5 / D14+D15)", () => {
     }
   });
 
-  it("the ui-change work kind resolves to its 4-phase plan (implement, review, ux-qa, walkthrough)", () => {
+  it("the ui-change flow resolves to its 4-phase plan (implement, review, ux-qa, walkthrough)", () => {
     expect(policy.flows["ui-change"]).toBeTruthy();
     expect(policy.flows["ui-change"].phasePlan).toBe("ui-change");
     expect(planPhaseIds(policy, "ui-change")).toEqual(["implement", "review", "ux-qa", "walkthrough"]);

@@ -70,7 +70,7 @@ export interface RouteAttribution {
   /** How the route was chosen: a duty-ladder cell, a per-turn override, or the
    *  classifier. */
   via?: "duty-cell" | "turn-override" | "classifier" | string | null;
-  /** The work kind whose phase plan the run follows, as RESOLVED (a pin when the
+  /** The flow whose phase plan the run follows, as RESOLVED (a pin when the
    *  user chose one, otherwise whatever the gateway inferred). Reported so the
    *  rail can badge an auto-chosen plan instead of leaving it invisible. */
   flow?: string | null;
@@ -149,7 +149,7 @@ export interface TurnRouting {
    */
   tier?: string | null;
   /**
-   * The work kind whose phase plan this run follows (`full-feature`, `ui-change`,
+   * The flow whose phase plan this run follows (`full-feature`, `ui-change`,
    * … from the policy's `flows`). Decides WHICH phases exist for the run; the
    * duty sequence decides their ORDER. Only meaningful for a run that becomes a
    * card - a conversational turn has no pipeline to plan.

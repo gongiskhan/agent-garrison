@@ -20,7 +20,7 @@ x-garrison:
   summary: >-
     Fills the Orchestrator Faculty — the one policy, one brain. Owns the v2
     policy config (matrix resolving every task type × tier straight to a
-    target; phase plans; work kinds; the phase-skill registry) and compiles it
+    target; phase plans; flows; the phase-skill registry) and compiles it
     byte-stably into both the routing.md injected via {{routing}} and the
     machine-readable ~/.garrison/orchestrator/policy.json (the single
     consumption interface for the run engine and every phase skill). The

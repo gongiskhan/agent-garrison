@@ -116,7 +116,7 @@ describe("railDisplayBadges", () => {
     ]);
     // A placeholder never invents a VALUE - its label is the dimension's HUMAN name
     // and its title says it is not pinned.
-    const humanName: Record<string, string> = { flow: "work kind", phasesOff: "phases" };
+    const humanName: Record<string, string> = { flow: "flow", phasesOff: "phases" };
     for (const b of offered) {
       expect(b.placeholder).toBe(true);
       expect(b.label).toBe(humanName[b.key] ?? b.key);
@@ -183,7 +183,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     expect(withDuty?.rows[1].detail).toContain("no classifier runs");
   });
 
-  it("labels the default work kind and clears a stale phase selection when the plan changes", () => {
+  it("labels the default flow and clears a stale phase selection when the plan changes", () => {
     const menu = menuForField("flow", OPTIONS, { flow: "docs-change", phasesOff: "walkthrough" });
     // Source order is preserved: the gateway already sorts the catalogue, and a
     // second sort here would be a second opinion about ordering.
@@ -223,7 +223,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     expect(menuForField("phasesOff", OPTIONS, { flow: "full-feature" })?.rows[0].selected).toBe(true);
   });
 
-  it("falls back to the DEFAULT work kind's phases when no kind is pinned", () => {
+  it("falls back to the DEFAULT flow's phases when no kind is pinned", () => {
     const menu = menuForField("phasesOff", OPTIONS, {});
     expect(menu?.rows.map((r) => r.key)).toContain("adversarial-review");
   });

@@ -48,7 +48,7 @@ describe("routing compiler (MR1a)", () => {
   it("renders both seeded continuation instructions", () => {
     const compiled = compileRouting(config, "balanced");
     expect(compiled).toContain("ex-secrets");
-    expect(compiled).toContain("Work kinds → phase rails");
+    expect(compiled).toContain("Flows → phase rails");
     expect(compiled).toContain("full-feature");
   });
 

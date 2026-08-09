@@ -317,7 +317,7 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
     expect(rejected).toEqual([]);
   });
 
-  it("refuses an out-of-vocabulary tier or work kind", () => {
+  it("refuses an out-of-vocabulary tier or flow", () => {
     expect(gw.sanitizeRouting({ tier: "T9-heroic" }, VOCAB)).toEqual({
       routing: null,
       rejected: [{ field: "tier", reason: "tier-not-in-vocabulary" }]

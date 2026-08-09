@@ -429,7 +429,7 @@ export function cardSummary(card) {
     id: card.id,
     title: card.title ?? "(untitled)",
     project: card.project ?? null,
-    // Explicit task ownership, independent of the execution work kind. Derive it
+    // Explicit task ownership, independent of the execution flow. Derive it
     // for pre-scope cards so old card.json files need no destructive migration.
     scope: cardScope(card),
     list: card.list,
@@ -443,7 +443,7 @@ export function cardSummary(card) {
     sessionIds: Array.isArray(card.sessionIds) ? card.sessionIds : [],
     briefPath: card.briefPath ?? null,
     videoUrl: card.videoUrl ?? null,
-    // S4 (D2/D17): the run-policy fields — the work kind naming the rail, the
+    // S4 (D2/D17): the run-policy fields — the flow naming the rail, the
     // per-card phase toggles (OFF phases render as dimmed chips: honesty), the
     // tier, and who registered the run.
     flow: card.flow ?? null,
@@ -586,7 +586,7 @@ export function cardSummary(card) {
 // along). This ONE const drives BOTH the export projection and the import reader, so
 // the two can never drift.
 //
-// What travels: the human-authored content + the run SPEC (routing pin, work kind,
+// What travels: the human-authored content + the run SPEC (routing pin, flow,
 // tier, phase toggles) + the schedule. What NEVER travels: identity (id/rev), the
 // lifecycle (status/iterations), all run evidence (runId/runDir/sessionIds/briefPath/
 // events/logIndex), coordination state (waitingOn/blocking/fences/preparedRevert/
@@ -1715,10 +1715,10 @@ async function handleCreateCard(req, res, opts) {
     list: storageListId,
     goalMode: body.goalMode === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
-    // S4 (D2/D8/D17): the work kind naming the card's phase plan, the per-card
+    // S4 (D2/D8/D17): the flow naming the card's phase plan, the per-card
     // phase toggles merged over it, the tier (direct field or the D8 payload's
     // classification), and the origin of the registration.
-    // RUN-SPEC-V1: the work kind, the tier and the phase toggles all have a home
+    // RUN-SPEC-V1: the flow, the tier and the phase toggles all have a home
     // inside the card's `routing` pin now, so accept EITHER spelling and let the
     // pin win. The legacy top-level fields stay for the gateway's card payload
     // builder and every existing API client; the UI sends only the pin.
@@ -5132,8 +5132,8 @@ export function makeRequestHandler(opts, distDir) {
         }
       }
       // GET /policy — read-only passthrough of the compiled Orchestrator policy
-      // (work kinds, phase plans, skill bindings) so the card-create UI can
-      // offer work kinds + per-card phase toggles (D17). 404 when Garrison has
+      // (flows, phase plans, skill bindings) so the card-create UI can
+      // offer flows + per-card phase toggles (D17). 404 when Garrison has
       // not compiled one yet; the UI degrades to plain creation.
       if (pathname === "/policy" && method === "GET") {
         const policy = loadPolicy();
@@ -5149,7 +5149,7 @@ export function makeRequestHandler(opts, distDir) {
       // GET /route-options — same-origin PROXY of the gateway's GET /route/options,
       // exactly as the web channel does it. The run-spec dropdowns on the New Card
       // sheet are populated from the SAME vocabulary the gateway validates a pin
-      // against, so the form can never offer a target/tier/work kind that would then
+      // against, so the form can never offer a target/tier/flow that would then
       // be refused. Deliberately a proxy and not a second reader of policy.json:
       // two shapes over one file is how the two surfaces drift apart.
       if (pathname === "/route-options" && method === "GET") return await handleRouteOptions(req, res, opts);

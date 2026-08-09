@@ -98,7 +98,7 @@ export const AUTHORED_SECTION_DEFAULTS: Record<AuthoredSectionId, AuthoredSectio
       "",
       "- Run the configured phase rail and leave durable evidence for every gate.",
       "- Security-review is opt-in. Never add it unless",
-      "  `projects.<label>.security_sensitive` is true or the work kind explicitly",
+      "  `projects.<label>.security_sensitive` is true or the flow explicitly",
       "  includes `security-review`.",
       "- Fix recoverable failures forward. After the configured attempt ceiling,",
       "  mark the phase blocked with its external cause.",

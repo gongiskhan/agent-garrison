@@ -2146,3 +2146,24 @@
     text-overflow: ellipsis;
   }
 }
+
+/* ── Duties & flows, one screen ──────────────────────────────────────────── */
+/* Duties are the steps, flows are the plans that compose them. Reading either
+   without the other is the legibility problem the 2026-08-09 refit exists to
+   fix, so the Orchestrator area shows them side by side and collapses to a
+   single column well before phone width. */
+.dutyFlowSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(20px, 3vw, 44px);
+  align-items: start;
+}
+.dutyFlowCol {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .dutyFlowSplit {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+}

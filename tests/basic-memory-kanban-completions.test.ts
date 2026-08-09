@@ -95,7 +95,7 @@ describe("Basic Memory personal Kanban completion consumer", () => {
     expect(note).toContain("User-authored description (unverified)");
     expect(note).toContain("not independently verified product facts");
     expect(note).toContain("Project label**: personal-admin");
-    expect(note).toContain("Work kind**: personal");
+    expect(note).toContain("Flow**: personal");
     expect(note).toContain("evidence:receipt.png");
 
     const status = JSON.parse(fs.readFileSync(path.join(paths.status, `${value.packetId}.json`), "utf8"));

@@ -82,7 +82,7 @@ export function collectFrictionLines(projectsRoot = path.join(os.homedir(), "dev
 // ── Pure analysis (D38 heuristics) ──────────────────────────────────────────
 // Three seeded proposal kinds, each conservative (min-sample thresholds):
 //  1. phase-plan edit — a phase that consistently finds nothing for a kind
-//     (skipped/clean across >= minRuns runs of that work kind) → propose
+//     (skipped/clean across >= minRuns runs of that flow) → propose
 //     turning it off in that kind's plan.
 //  2. matrix cell effort — a phase whose gate FAILED in >= failRatio of runs
 //     → propose one ladder step up; a phase clean across >= calmRuns runs at

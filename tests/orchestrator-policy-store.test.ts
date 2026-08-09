@@ -263,7 +263,7 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
     expect(impl?.target?.model).toBe("opus");
   });
 
-  it("a partial-plan work kind keeps OFF phases in the rail (honesty), un-enriched", async () => {
+  it("a partial-plan flow keeps OFF phases in the rail (honesty), un-enriched", async () => {
     await readRoutingPolicy(dir);
     const out = await simulateTryIt(dir, { prompt: "add a REST endpoint", flow: "api-change" });
     expect(out.status).toBe("ok");

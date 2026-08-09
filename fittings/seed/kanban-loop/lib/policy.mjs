@@ -3,7 +3,7 @@
 //
 // The compiled policy at ~/.garrison/orchestrator/policy.json is the ONE
 // consumption interface: which skill executes a phase, which {taskType, tier}
-// classification a phase dispatch carries, and which phases a card's work kind
+// classification a phase dispatch carries, and which phases a card's flow
 // actually runs (the rail, with per-card toggles merged over it — D17). No
 // HTTP in the hot path — a plain file read, cached briefly.
 //
@@ -130,13 +130,13 @@ export function classificationForPhase(policy, phase, card) {
   return { taskType: phase, tier };
 }
 
-// The card's rail: the work kind's phase plan with per-card toggles merged
+// The card's rail: the flow's phase plan with per-card toggles merged
 // over it (D2/D17). A phase plan is an ORDERED SUBSET of the pipeline phases —
 // a pipeline phase NOT in the plan is OFF (off_reason "phase-plan"), and it
 // STAYS IN THE RAIL rendered off (honesty, never hidden). Rail order: the
 // plan's phases in plan order, then the remaining pipeline phases (policy
 // order), all off. Falls back to every policy phase (all on) when the policy
-// carries no work kinds.
+// carries no flows.
 export function railForCard(policy, card) {
   if (!policy) return null;
   const allPhases = Array.isArray(policy.phases) ? policy.phases : null;
@@ -144,7 +144,7 @@ export function railForCard(policy, card) {
   const kindName = card?.flow || policy.defaultFlow;
   const kind = (policy.flows || {})[kindName];
   const plan = kind ? (policy.phasePlans || {})[kind.phasePlan] : null;
-  // A work kind may declare `evidence: false` — an evidence-free rail whose
+  // A flow may declare `evidence: false` — an evidence-free rail whose
   // transitions owe no evidence files and no durable gate records. Absent or
   // any other value means evidence is required (every dev kind is untouched).
   const evidenceRequired = kind ? kind.evidence !== false : true;

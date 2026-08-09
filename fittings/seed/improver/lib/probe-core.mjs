@@ -146,7 +146,7 @@ function pickLatest(list, at) {
 }
 
 // Build the {kind, tier, plan} classification snapshot for a record from the
-// correlated decision + the card (when found). kind ← card work kind, else the
+// correlated decision + the card (when found). kind ← card flow, else the
 // decision's taskType; tier ← decision tier; plan ← card phase plan.
 export function classificationFrom({ decision, card } = {}) {
   return {

@@ -72,7 +72,7 @@ describe("orchestrator policy core (S1)", () => {
     expect(c).toBe(a);
   });
 
-  it("work kinds resolve to rails with bound skills (D2/D3)", async () => {
+  it("flows resolve to rails with bound skills (D2/D3)", async () => {
     const mod = await core();
     const cfg = seedConfig();
     // A phase plan is an ordered SUBSET: phases outside the plan stay in the

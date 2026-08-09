@@ -294,7 +294,7 @@ export function cardPosition(card) {
  * The card's explicit run spec (RUN-SPEC-V1) — the `TurnRouting` pin, stored whole.
  *
  * STRUCTURAL sanitising only: the exact field list, and scalars-or-nothing. The
- * SEMANTIC check (is this tier/work kind/phase in the compiled policy's
+ * SEMANTIC check (is this tier/flow/phase in the compiled policy's
  * vocabulary?) belongs to the gateway's sanitizeRouting and is deliberately not
  * mirrored here — the board is a different process with no policy of its own, and a
  * second copy of that vocabulary is exactly the drift this whole change is removing.
@@ -381,7 +381,7 @@ export async function createCard(root, { title, description = "", project = null
     goalMode: Boolean(goalMode),
     acceptance,
     // ── run-policy fields (S4: D2/D8/D17) ─────────────────────────────────
-    // flow names the policy work kind whose phase plan is this card's
+    // flow names the policy flow whose phase plan is this card's
     // rail; phases is the per-card toggle map merged OVER the plan (an OFF
     // phase renders off, never hidden); tier rides classification (the phase
     // is the task type); origin records who registered the run.

@@ -75,7 +75,7 @@ describe("claude-chat run context: railBadges omission discipline", () => {
   it("badges the phase plan from either half, and never invents one", () => {
     // A plain conversational turn walks no pipeline: no plan, no badge.
     expect(keys(railBadges({ runtime: "codex" }))).toEqual(["runtime"]);
-    // A named work kind with nothing turned off.
+    // A named flow with nothing turned off.
     const named = railBadges({ flow: "full-feature" }).find((b) => b.key === "flow");
     expect(named?.label).toBe("full-feature");
     expect(named?.title).toContain("every phase in the plan runs");
@@ -86,7 +86,7 @@ describe("claude-chat run context: railBadges omission discipline", () => {
     expect(trimmed?.label).toBe("full-feature -2");
     expect(trimmed?.title).toContain("phases off: review, walkthrough");
     expect(trimmed?.tone).toBe("warn");
-    // An orchestrator-inferred plan has NO work kind - it is not one of the named
+    // An orchestrator-inferred plan has NO flow - it is not one of the named
     // kinds. Requiring one would blank the badge on exactly the auto turns it
     // exists to explain, so the OFF count stands alone.
     const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "flow");

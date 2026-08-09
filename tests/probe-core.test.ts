@@ -103,8 +103,8 @@ describe("matchAnswers — capture side", () => {
     expect(unanswered[0].question).toBe("Q2");
   });
   it("rephrase fallback: a genuine rephrase (shared words) matches without an exact key", () => {
-    const p = pending([{ question: "Was the work kind and phase plan right for this task?" }]);
-    const { answered } = core.matchAnswers(p, { "Were the work kind and phase plan right for the task?": "Yes" });
+    const p = pending([{ question: "Was the flow and phase plan right for this task?" }]);
+    const { answered } = core.matchAnswers(p, { "Were the flow and phase plan right for the task?": "Yes" });
     expect(answered).toHaveLength(1);
     expect(answered[0].answer).toBe("Yes");
   });

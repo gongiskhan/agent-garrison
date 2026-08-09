@@ -123,7 +123,7 @@ test("composer renders the whole policy: tray, matrix, flow rails, try-it", asyn
   await expect(page.locator("table.matrix tbody .rh-name")).toHaveText(SEED_TASK_TYPES);
   expect(await implementRow(page).locator("td.cell").count()).toBe(3);
 
-  // Work-kind rails - one rail per seed work kind, in seed order, with the
+  // Flow rails - one rail per seed flow, in seed order, with the
   // configured default identified. The current policy has five (video-edit was
   // added after this test's original four-kind fixture).
   expect(SEED_FLOWS).toHaveLength(5);

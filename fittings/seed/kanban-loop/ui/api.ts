@@ -105,7 +105,7 @@ export interface PreparedRevertSummary {
   preparedAt: string | null;
 }
 
-// Task ownership is independent of the execution work kind. Personal cards may
+// Task ownership is independent of the execution flow. Personal cards may
 // still carry a real project and use any agent rail; unscoped means no project has
 // been assigned yet.
 export type CardScope = "personal" | "project" | "unscoped";
@@ -156,7 +156,7 @@ export interface CardSummary {
   sessionIds: string[];
   briefPath: string | null;
   videoUrl: string | null;
-  // S4 (D2/D17): run-policy fields — the work kind naming the card's rail, the
+  // S4 (D2/D17): run-policy fields — the flow naming the card's rail, the
   // per-card phase toggle map (false = OFF, rendered dimmed, never hidden), the
   // tier, and who registered the run.
   flow?: string | null;
@@ -396,7 +396,7 @@ export interface ListConfig {
 }
 
 // The board's GET /policy passthrough (D17): enough of the compiled policy to
-// offer work kinds + per-card phase toggles at card creation.
+// offer flows + per-card phase toggles at card creation.
 export interface PolicyView {
   flows: Record<string, { phasePlan: string; description?: string }>;
   phasePlans: Record<string, { phases: Array<string | { id: string; on?: boolean }>; evidence?: string }>;
@@ -664,7 +664,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body)
     }),
-  // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
+  // GET /policy — the compiled Orchestrator policy passthrough (flows,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
   policy: () => jfetch<PolicyView>("/policy"),
   // GET /route-options — the board's same-origin proxy of the gateway's routing

@@ -106,7 +106,7 @@ function categorize(rec) {
 }
 
 function kindOf(rec) {
-  // A decision verdict groups by the CORRECTION, not by work kind: three verdicts
+  // A decision verdict groups by the CORRECTION, not by flow: three verdicts
   // all saying "this should have run on cc-opus-high" are one accumulating signal
   // about that dimension, while three verdicts about three different dimensions are
   // three separate observations that should not add up to a proposal.
@@ -147,7 +147,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} explicit ${provs} answers say ${kind} work should have gone DEEPER (fuller pipeline / stronger target).`,
         evidence,
-        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work UP toward the full pipeline (composer › Work kinds / Matrix)`,
+        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work UP toward the full pipeline (composer › Flows / Matrix)`,
         decision: `Give ${kind} work a fuller phase plan (or a stronger matrix target)?`,
         applyVia,
         at,
@@ -159,7 +159,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} explicit ${provs} answers say ${kind} work was too HEAVY (overkill / should have run less).`,
         evidence,
-        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work DOWN toward a lighter plan (composer › Work kinds / Matrix)`,
+        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work DOWN toward a lighter plan (composer › Flows / Matrix)`,
         decision: `Give ${kind} work a lighter phase plan (or a cheaper matrix target)?`,
         applyVia,
         at,
@@ -200,7 +200,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} decision verdicts say the orchestrator planned this work wrongly — the operator would have set ${field} to ${value}.`,
         evidence,
-        diff: `flows / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Work kinds / Tiers)`,
+        diff: `flows / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Flows / Tiers)`,
         decision: `Default ${field} to ${value} for this kind of work?`,
         applyVia,
         at,
@@ -212,7 +212,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} "how did it go" answers report ${kind} work needed rework or took the wrong approach — its plan or skill bindings may be worth reviewing.`,
         evidence,
-        diff: `phaseSkills.bindings / flows["${kind}"] — review the phase plan + skill bindings ${kind} work runs through (composer › Work kinds / Phase skills)`,
+        diff: `phaseSkills.bindings / flows["${kind}"] — review the phase plan + skill bindings ${kind} work runs through (composer › Flows / Phase skills)`,
         decision: `Review the phase plan / skill bindings for ${kind} work?`,
         applyVia,
         at,

@@ -83,7 +83,7 @@ const VERDICT_LABEL: Record<Verdict, string> = {
  *  uppercased in the UI they render as WORKKIND / PHASESOFF - identifiers, not
  *  words. Only the two that need it are listed; the rest are already words. */
 const FIELD_LABEL: Partial<Record<string, string>> = {
-  flow: "work kind",
+  flow: "flow",
   phasesOff: "phases off"
 };
 

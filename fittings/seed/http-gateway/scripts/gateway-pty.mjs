@@ -2145,7 +2145,7 @@ export function routeHintsFromBody(body) {
     // surface sends. The top-level form WINS - the board computes it from the card
     // it already owns, so it is a statement of fact, while the pin is an intent that
     // has to survive validation. The pin is only read after sanitizeRouting, so an
-    // out-of-vocabulary work kind never arrives here at all.
+    // out-of-vocabulary flow never arrives here at all.
     flow:
       typeof body?.flow === "string" ? body.flow : (routing?.flow ?? null),
     phases:

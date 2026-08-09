@@ -1021,7 +1021,7 @@ function Card({
             {card.checklistDone}/{card.checklistTotal}
           </span>
         )}
-        {card.flow && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.flow}</span>}
+        {card.flow && <span className="chip" title="flow (the policy phase plan this run follows)">{card.flow}</span>}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
@@ -1283,10 +1283,10 @@ function RunSpec({
       </button>
       {open && (
         <div className="spec-grid">
-          {/* Duty and work kind are ONE question ("what is this work?") asked as
-              two siblings before 2026-08-07: a phased work kind spans several
+          {/* Duty and flow are ONE question ("what is this work?") asked as
+              two siblings before 2026-08-07: a phased flow spans several
               duty-named lists, so picking both read as a contradiction. One
-              selector now offers phased plans (work kinds) and single-turn
+              selector now offers phased plans (flows) and single-turn
               duties together; the two wire fields underneath are unchanged and
               mutually exclusive. */}
           <SpecSelect
@@ -1342,7 +1342,7 @@ function RunSpec({
             options={(options?.accounts ?? []).map((a) => ({ value: a.name, label: a.name, detail: a.platform ?? undefined }))}
             onChange={set("account")}
           />
-          {/* The former separate "Work kind" dropdown folded into "Kind of work"
+          {/* The former separate "Flow" dropdown folded into "Kind of work"
               above (2026-08-07). The phase toggle row below still keys off the
               selected (or default) plan. */}
           {planPhases.length > 0 && (

@@ -312,7 +312,7 @@ describe("durable gate evidence (D9)", () => {
 });
 
 describe("rails + per-card phase toggles (D17)", () => {
-  it("railForCard merges card toggles over the work kind's plan; off phases stay visible", () => {
+  it("railForCard merges card toggles over the flow's plan; off phases stay visible", () => {
     const policy = loadPolicy();
     const rail = railForCard(policy, { flow: "full-feature", phases: { walkthrough: false } });
     const wt = rail.phases.find((p: { id: string }) => p.id === "walkthrough");

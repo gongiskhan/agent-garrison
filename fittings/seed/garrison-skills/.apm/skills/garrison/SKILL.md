@@ -9,7 +9,7 @@ garrison is a DOORWAY, not a brain. The orchestration doctrine (the phase
 pipeline, the retry ceilings, fix-forward, the honesty rules, the
 durable-markers contract, coordination duties) lives in the merged
 Orchestrator prompt; every routing knob (task
-types, models, efforts, runtimes, phase plans, work kinds, phase-skill
+types, models, efforts, runtimes, phase plans, flows, phase-skill
 bindings) lives in the compiled Orchestrator policy. This skill only performs
 the mechanical entry steps below, then drives the run through the run-engine
 library so the Kanban board shows it live — identical in shape whether the run

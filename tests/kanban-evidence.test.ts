@@ -479,7 +479,7 @@ describe("terminal Test evidence — a short develop workflow still leaves user-
   });
 });
 
-// Evidence-free rails: a work kind may declare `evidence: false`, and every
+// Evidence-free rails: a flow may declare `evidence: false`, and every
 // transition seam then treats the evidence AND durable-gate contracts as
 // satisfied — the card advances with no evidence files and no gate record,
 // and never parks on evidenceMissing / no-gate-evidence. Dev kinds (no flag)

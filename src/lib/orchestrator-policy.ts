@@ -135,7 +135,7 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
 //
 // The phase machinery (phases / flows / phasePlans / phaseSkills /
 // defaultFlow) backfills as ONE coherent group, and only when the config
-// carries no work kinds and no phase plans of its own: seed phase-skill
+// carries no flows and no phase plans of its own: seed phase-skill
 // bindings reference seed phases (e.g. security-review), so filling one member
 // against a config's own phase list produces a config that fails its own
 // validation.
@@ -374,7 +374,7 @@ export function heuristicClassify(prompt: string): {
 }
 
 // Gate reasoning for a dry-run request: whether security-review and ux-qa
-// WOULD run for this work kind + project, and why. Pure over the passed config
+// WOULD run for this flow + project, and why. Pure over the passed config
 // + base rail.
 function tryItGates(
   config: PolicyConfig,
@@ -386,7 +386,7 @@ function tryItGates(
     const p = (baseRail?.phases || []).find((x) => x.id === id);
     return !!(p && p.on);
   };
-  const kindLabel = flow || config.defaultFlow || "the selected work kind";
+  const kindLabel = flow || config.defaultFlow || "the selected flow";
 
   const byPlanSec = phaseOn("security-review");
   const project = projectLabel && config.projects ? config.projects[projectLabel] : null;
@@ -423,7 +423,7 @@ export type SimulateOutcome =
   | { status: "unknown-profile"; profile: string; known: string[] };
 
 // Deterministic dry-run: heuristic classification + the fully-resolved phase
-// rail for the chosen work kind. Every ON chip is enriched with the target it
+// rail for the chosen flow. Every ON chip is enriched with the target it
 // resolves to at the classified tier; OFF chips stay in the rail (honesty).
 export async function simulateTryIt(
   compositionDir: string,

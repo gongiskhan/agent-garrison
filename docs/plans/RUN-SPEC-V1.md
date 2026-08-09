@@ -7,7 +7,7 @@
 - **One pin vocabulary, ten dimensions**: `target` (runtime+provider+model),
   `model`, `effort`, `duty`, `level`, `project`, `account`, plus the new `tier`,
   `flow` and `phasesOff`. Every one defaults to Automatic on both surfaces.
-- **Web Channel**: the Turn Rail gained tier / work kind / phases. An auto-chosen
+- **Web Channel**: the Turn Rail gained tier / flow / phases. An auto-chosen
   value is marked `auto` on its badge (and in the badge title, so it is not
   colour-only).
 - **Kanban New Card**: a collapsed *Run spec* block with the whole set, populated
@@ -62,7 +62,7 @@ This is an **EXTEND**, not a build. Ground truth from a 12-reader sweep:
   (`ranValue:88`) and `pinned` / `pending` / `placeholder` flags.
 - `RouteAttribution.via` (`"duty-cell" | "turn-override" | "classifier"`) already
   records **who chose** — but is rendered only inside two tooltips.
-- The Kanban new-card sheet already has **work kind + per-phase toggles**
+- The Kanban new-card sheet already has **flow + per-phase toggles**
   (`kanban-loop/ui/main.tsx:757-780` → `railForCard`, `policy.mjs:88`).
 - The gateway already **accepts** `body.flow` / `body.phases`
   (`routeHintsFromBody`, `gateway-pty.mjs:1905-1907`); the web channel's
