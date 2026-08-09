@@ -68,12 +68,41 @@ describe("OmiApi direct notifications (mocked)", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("retries 429 with exponential backoff and succeeds", async () => {
+  // A rate limit is a WAIT instruction, not a transient blip. The old
+  // doubling-from-1s schedule covered 3 seconds in total, so a notification that
+  // hit Omi's window burned all three attempts against a limit that had not
+  // moved and degraded to the web fallback every time.
+  it("waits wide enough on 429 for the rate-limit window to actually clear", async () => {
     const { api, calls, sleeps } = makeApi([429, 200]);
     const result = await api.sendNotification({ uid: UID, message: "x" });
     expect(result).toMatchObject({ ok: true, attempts: 2 });
     expect(calls).toHaveLength(2);
-    expect(sleeps).toEqual([1000]);
+    expect(sleeps).toEqual([5000]);
+  });
+
+  it("honours Retry-After when Omi sends one, capped so a caller is not held forever", async () => {
+    const calls: MockCall[] = [];
+    const sleeps: number[] = [];
+    const script = [
+      new Response("{}", { status: 429, headers: { "retry-after": "12" } }),
+      new Response("{}", { status: 429, headers: { "retry-after": "9999" } }),
+      new Response("{}", { status: 200 })
+    ];
+    const api = new OmiApi({
+      appId: "app_123",
+      appSecret: "secret_abc",
+      fetchImpl: (async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return script.shift()!;
+      }) as unknown as typeof fetch,
+      sleep: async (ms: number) => {
+        sleeps.push(ms);
+      },
+      log: { error: () => {} }
+    });
+    const result = await api.sendNotification({ uid: UID, message: "x" });
+    expect(result).toMatchObject({ ok: true, attempts: 3 });
+    expect(sleeps).toEqual([12_000, 25_000]);
   });
 
   it("gives up after 3 attempts on persistent 5xx (retriable)", async () => {

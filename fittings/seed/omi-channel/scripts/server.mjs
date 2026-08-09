@@ -27,7 +27,7 @@ import { WakeBus } from "../lib/wake.mjs";
 import { ChatTool } from "../lib/chat.mjs";
 import { Backfeed } from "../lib/backfeed.mjs";
 import { boardCardUrl } from "../lib/notify.mjs";
-import { inferenceRunFn } from "../lib/gateway-client.mjs";
+import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 
@@ -642,11 +642,20 @@ export async function startServer(cfg = loadConfig()) {
     counters,
     omiApi: new OmiApi({ appId: live.secrets.appId, appSecret: live.secrets.appSecret })
   });
+  // The full-toolset lane, shared by the wake bus and the chat tool. Nothing
+  // blocks on it: both surfaces acknowledge first and notify when it answers.
+  const operativeFn =
+    live.gatewayUrl && live.delegateEnabled
+      ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
+      : null;
   const wakeBus = new WakeBus({
     cfg: live,
     store,
     counters,
-    runFn: live.gatewayUrl ? inferenceRunFn(live.gatewayUrl) : null,
+    runFn: live.gatewayUrl
+      ? inferenceRunFn(live.gatewayUrl, { target: live.classifyTarget || null })
+      : null,
+    operativeFn,
     board: new BoardClient(),
     memoryWriter: new MemoryWriter(),
     notifier
@@ -658,7 +667,11 @@ export async function startServer(cfg = loadConfig()) {
     counters,
     // Bounded fast path: the fetch aborts just past the answer deadline so a
     // hung gateway can never hold the Omi chat UI hostage.
-    runFn: live.gatewayUrl ? inferenceRunFn(live.gatewayUrl, { timeoutMs: 9500 }) : null
+    runFn: live.gatewayUrl
+      ? inferenceRunFn(live.gatewayUrl, { timeoutMs: 9500, target: live.classifyTarget || null })
+      : null,
+    operativeFn,
+    notifier
   });
   // Crash recovery: drain any raw payloads a previous process left queued.
   ingress.scheduleDrain();

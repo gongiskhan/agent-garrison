@@ -366,6 +366,7 @@ declare module "*/omi-channel/lib/wake.mjs" {
       store: unknown;
       counters: unknown;
       runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
+      operativeFn?: ((args: { prompt: string; sessionId?: string | null; sessionTitle?: string | null }) => Promise<{ reply: string }>) | null;
       board: unknown;
       memoryWriter: unknown;
       notifier: unknown;
@@ -414,6 +415,8 @@ declare module "*/omi-channel/lib/chat.mjs" {
       store: unknown;
       counters: unknown;
       runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
+      operativeFn?: ((args: { prompt: string; sessionId?: string | null; sessionTitle?: string | null }) => Promise<{ reply: string }>) | null;
+      notifier?: unknown;
       deadlineMs?: number;
       log?: unknown;
     });

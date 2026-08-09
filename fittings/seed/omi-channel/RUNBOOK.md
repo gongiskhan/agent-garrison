@@ -43,6 +43,78 @@ the composition manifest), all default OFF:
 Config changes apply at the next `up` (env-fingerprint heal) or
 immediately via `POST /api/fittings/omi-channel/restart`.
 
+## The two model lanes (why spoken commands are fast now)
+
+Every model call this fitting makes goes to the gateway's `/chat`, but they are
+not the same kind of work and must not share a lane:
+
+- **Classification** (wake intent, wake revision, batch triage, the fast half of
+  `ask_gary`) is pinned to `classify_target` (default `cc-haiku-low`). Unpinned,
+  these resolve to the composition's `other`/L1 duty cell - a full Sonnet
+  agent-sdk turn carrying the operative's whole toolset. Measured: **82s** for
+  one classification, against a wearer waiting to hear back and an `ask_gary`
+  budget of 8.5s. Pinned: ~6s.
+- **Delegation** (`delegate_enabled`) is the opposite: the real operative with
+  its tools and connectors, no pin, a ten-minute budget. Nothing blocks on it -
+  the wearer gets an acknowledgement first and the answer arrives as a second
+  notification. This is the ONLY path from speech to an integration; the
+  classifier lane cannot send a message or read the board, it can only answer
+  from its own head.
+
+Latency of a spoken command splits into `wake_capture_ms` (waiting to be sure
+the user stopped talking) + `wake_classify_ms` + `wake_notify_ms`. Read them
+separately on `/health` - a single end-to-end number cannot say which regressed,
+and guessing from the total already produced one wrong diagnosis. Typical today:
+5s + 6s + 0.4s ≈ 12s to the acknowledgement, plus the operative's own time
+(7-90s) when the command was delegated.
+
+`wake_settled_close_ms` (5s) is why capture is no longer the dominant cost: a
+segment ending in `.`, `?` or `!` closes the window early, while anything
+unpunctuated still waits the full `wake_silence_close_ms`.
+
+## Driving the whole thing end to end (`scripts/speak.mjs`)
+
+```bash
+# a spoken command, injected at the realtime webhook exactly as Omi delivers it
+node scripts/speak.mjs say "Gary, cria uma tarefa para comprar peixe."
+node scripts/speak.mjs say "Gary, what is on my board?" --garble --wait 300
+
+# a conversation, injected THROUGH the Omi cloud - Omi structures it and calls
+# our webhook back, so this is the only mode that exercises Omi's own pipeline
+node scripts/speak.mjs converse "I decided we ship Friday. Remind me to call the bank."
+
+# the Omi chat tool, called exactly as Omi calls it
+node scripts/speak.mjs ask "which cards are in progress?"
+```
+
+Each mode follows its own effect and prints it (the assembled command, the
+intent, the card, the delegated answer, the triage verdict) or says plainly that
+nothing arrived. `--garble` interleaves real background speech from this
+account's own captures - television, family, transcriber filler - which is the
+signal-to-noise ratio the wake bus actually faces.
+
+**What it does not cover:** Omi exposes no inbound audio API, so `say` starts at
+the transcript, not at sound. Omi's own speech-to-text is therefore never under
+test - and on this account it is the weakest link in the chain (see "Transcript
+quality" below). `converse` is the only mode where Omi's own processing runs.
+
+## Transcript quality (the dominant capture problem)
+
+Most of what reaches this fitting is degraded before it arrives. Observed on
+this account: a Portuguese conversation tagged `language: pt` transcribed
+**entirely as Dutch** ("En hou het voor de massa" repeated fifteen times), and
+Omi's own titles for whole days of capture reading "Garbled Conversation",
+"Fragmented Multilingual Conversation", "Repeated Phrase Exchange". Nothing in
+Garrison can fix this - it is Omi-side transcription - but it explains most
+"Omi isn't capturing things properly" reports, and it is worth checking the
+language setting in the Omi app before hunting for a bug here. Compare a
+suspect conversation's `transcript_text` against what was actually said:
+
+```bash
+curl -s "https://api.omi.me/v1/dev/user/conversations?limit=5" \
+  -H "Authorization: Bearer $OMI_DEV_API_KEY"
+```
+
 ## Replaying fixtures
 
 ```bash

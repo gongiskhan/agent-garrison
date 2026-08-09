@@ -29,6 +29,16 @@ export function wakeRegex(variants) {
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "iu");
 }
 
+// Does this segment end a sentence? Omi's transcriber punctuates, so a trailing
+// '.', '?' or '!' is a genuine end-of-utterance signal - the one cheap piece of
+// evidence available without asking a model whether the user is done talking.
+// Ellipsis is excluded: the transcriber emits it mid-thought, not at the end.
+export function endsSentence(text) {
+  const t = String(text ?? "").trim();
+  if (t.endsWith("...") || t.endsWith("…")) return false;
+  return /[.?!]["')\]]?$/.test(t);
+}
+
 // Titles are compared loosely: the same intent spoken twice yields wording that
 // differs in case, accents and punctuation but not in meaning.
 export function normalizeTitle(title) {
@@ -123,7 +133,7 @@ ${timeContextLine(now)}
 
 Schema:
 {
-  "intent": "create_task" | "create_event" | "card_command" | "query" | "note" | "unknown",
+  "intent": "create_task" | "create_event" | "card_command" | "delegate" | "query" | "note" | "unknown",
   "title": "short title (create_task/create_event/note)",
   "description": "one-paragraph body in your own words (create_task/create_event)",
   "project": null,
@@ -133,6 +143,8 @@ Schema:
   "card_ref": "the spoken card reference, VERBATIM letters and digits (card_command only)",
   "minutes": 120 (card_command snooze with a relative delay - whole minutes),
   "until": "absolute ISO 8601 time (card_command snooze with an absolute time)",
+  "request": "the user's instruction or question, restated in one clear sentence (delegate only)",
+  "ack": "one short line telling the user what you are about to do (delegate only)",
   "answer": "direct answer to the user (query only; concise, no preamble)",
   "note_content": "the fact to remember, in your own words (note/unknown)"
 }
@@ -153,7 +165,23 @@ Rules:
   "7Q2M"); never invent, complete or translate it. A relative snooze gives
   "minutes"; an absolute one gives "until" computed from the current local
   time above. Never emit both.
-- query: the user asks a question - answer it yourself from what you know (your memories, the board, todays context). Put the full answer in "answer".
+- delegate: the user wants Gary to DO something now, or asks something that
+  cannot be answered without looking at their real data. You are a small, fast,
+  tool-less classifier: you cannot send a message, read their calendar, search
+  their files, open a web page, look at the Kanban board or read their memories.
+  Gary himself can do all of that. So anything of that shape is "delegate":
+  sending or drafting a message anywhere (Slack, email, WhatsApp), anything
+  touching a connected service (calendar, Trello, Google, GitHub), reading or
+  changing files or code, searching the web, running or checking anything in
+  Garrison, and any question about the user's own tasks, schedule, memories,
+  projects or past conversations. Put the instruction in "request" - restated
+  clearly and self-contained, because Gary sees ONLY that sentence, not this
+  transcript. Put a short spoken-style acknowledgement in "ack" ("On it - I'll
+  message Ana on Slack"). When in doubt between delegate and query, choose
+  delegate: a real answer late beats a confident wrong one now.
+- query: ONLY for something you can answer correctly from general knowledge
+  alone, with no access to the user's data ("how many grams in an ounce").
+  Put the full answer in "answer". If it needs anything of theirs, delegate.
 - note: the user states a fact/preference to remember.
 - unknown: none of the above fits.
 - project: one of [${projectList}] only when clearly implied, else null.
@@ -177,7 +205,7 @@ export function parseWakeReply(reply) {
   try {
     const parsed = JSON.parse(text.slice(start, end + 1));
     if (typeof parsed !== "object" || parsed === null) return null;
-    const intents = ["create_task", "create_event", "card_command", "query", "note", "unknown"];
+    const intents = ["create_task", "create_event", "card_command", "delegate", "query", "note", "unknown"];
     // Minutes may come back as a number or a numeric string; anything else is
     // dropped here so the handler only ever sees a usable number or null.
     const minutes =
@@ -197,12 +225,30 @@ export function parseWakeReply(reply) {
       card_ref: typeof parsed.card_ref === "string" ? parsed.card_ref.trim() : "",
       minutes,
       until: typeof parsed.until === "string" ? parsed.until.trim() : "",
+      request: typeof parsed.request === "string" ? parsed.request.trim() : "",
+      ack: typeof parsed.ack === "string" ? parsed.ack.trim() : "",
       answer: typeof parsed.answer === "string" ? parsed.answer.trim() : "",
       note_content: typeof parsed.note_content === "string" ? parsed.note_content.trim() : ""
     };
   } catch {
     return null;
   }
+}
+
+// What the OPERATIVE sees for a delegated spoken request. It reaches him with
+// no transcript and no wearable context, so the framing has to carry three
+// things the text alone does not: that this came from speech (so the phrasing
+// may be mangled and the reply will be READ ALOUD or shown on a phone), that he
+// should act rather than propose, and that the answer must be short enough to
+// survive a notification.
+export function buildDelegatePrompt(request) {
+  return `This request came from the user speaking to their wearable, so the wording may be garbled by transcription - read it for intent, not literally.
+
+Request: "${request}"
+
+Do it now, using your tools and connected services. Don't ask for confirmation and don't propose a plan - if something is ambiguous, make the reasonable choice and say which one you made. If you genuinely cannot do it (no access, missing credential, service not connected), say exactly what is missing in one sentence - do not pretend it is done.
+
+Then reply with what you DID (or found), in under 60 words, plain text, no markdown, no preamble. This reply is delivered to the user's phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
 }
 
 // The revision pass. The card already exists and the user has had time to look
@@ -264,11 +310,15 @@ export function parseRevisionReply(reply) {
 // ---- the bus ----------------------------------------------------------------
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, board, memoryWriter, notifier, log = console, now = () => Date.now() }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now() }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
+    // Two lanes, deliberately distinct: `runFn` is the small pinned classifier
+    // the wearer waits on; `operativeFn` is the full-toolset turn nobody waits
+    // on. Collapsing them is what made every spoken command cost a Sonnet turn.
     this.runFn = runFn;
+    this.operativeFn = operativeFn;
     this.board = board;
     this.memoryWriter = memoryWriter;
     this.notifier = notifier;
@@ -417,7 +467,7 @@ export class WakeBus {
 
         if (s.state === "capturing") {
           s.parts.push({ text: text.trim(), at: this.now() });
-          this.armSilenceTimer(s);
+          this.armSilenceTimer(s, endsSentence(text));
           continue;
         }
 
@@ -442,7 +492,9 @@ export class WakeBus {
         s.wakeHitAt = this.now();
         const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
-        this.armSilenceTimer(s);
+        // Only a wake segment that itself carries a complete command settles
+        // early; a bare "Gary" waits the full window for what follows it.
+        this.armSilenceTimer(s, Boolean(after) && endsSentence(after));
         s.capTimer = setTimeout(() => this.close(sessionId, "max-capture"), this.cfg.wakeMaxCaptureMs);
         if (s.capTimer.unref) s.capTimer.unref();
       }
@@ -474,9 +526,21 @@ export class WakeBus {
     return s.recent.filter((entry) => entry.at >= cutoff).slice(-cap);
   }
 
-  armSilenceTimer(s) {
+  // A command that has clearly FINISHED does not need the full silence window.
+  // That window is sized for the worst case - Omi splits one utterance across
+  // bursts with real gaps, so closing early truncates "create a task saying"
+  // into nothing - but paying the worst case on every command is what made a
+  // spoken request feel dead for the ~15s before Gary said anything. When the
+  // transcript itself signals the end of a sentence, a shorter settle is enough;
+  // anything unpunctuated still gets the full window.
+  armSilenceTimer(s, settled = false) {
     if (s.silenceTimer) clearTimeout(s.silenceTimer);
-    s.silenceTimer = setTimeout(() => this.close(s.id, "silence"), this.cfg.wakeSilenceCloseMs);
+    const settleMs = this.cfg.wakeSettledCloseMs ?? 0;
+    const waitMs =
+      settled && settleMs > 0 && settleMs < this.cfg.wakeSilenceCloseMs
+        ? settleMs
+        : this.cfg.wakeSilenceCloseMs;
+    s.silenceTimer = setTimeout(() => this.close(s.id, "silence"), waitMs);
     if (s.silenceTimer.unref) s.silenceTimer.unref();
   }
 
@@ -559,6 +623,12 @@ export class WakeBus {
     };
 
     let outcome = null;
+    // The wearer's felt latency is the sum of three very different things - the
+    // capture window, the classifier, and the action plus its notification - and
+    // a single end-to-end number cannot say which one regressed. It has already
+    // cost one wrong diagnosis, so each leg is counted separately.
+    const commandStartedAt = this.now();
+    this.counters.observe("wake_capture_ms", commandStartedAt - wakeHitAt);
     try {
       outcome = await this.handleCommand({ command, eventId, context, trailing, sessionId });
     } catch (err) {
@@ -569,6 +639,9 @@ export class WakeBus {
         reason: `dispatch failed: ${err?.message ?? err}`
       });
     }
+
+    const commandDoneAt = this.now();
+    this.counters.observe("wake_command_ms", commandDoneAt - commandStartedAt);
 
     const resultRef = path.join("wake-results", `${eventId}.json`);
     atomicWriteJSON(path.join(this.store.root, resultRef), {
@@ -583,9 +656,20 @@ export class WakeBus {
       template: "wake_confirmation",
       params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null }
     });
+    this.counters.observe("wake_notify_ms", this.now() - commandDoneAt);
     const latencyMs = this.now() - wakeHitAt;
     this.counters.observe("wake_hit_to_notification_ms", latencyMs);
     this.log.log(`[omi-channel] wake command dispatched (${outcome.result.intent}) in ${latencyMs}ms`);
+
+    // Deferred follow-up work (today: a delegated operative turn). Chained so
+    // two spoken requests cannot interleave their answers, and never allowed to
+    // reject into this path - the wearer has been told an answer is coming, so a
+    // failure has to reach them as a message, not a silent dead end.
+    if (typeof outcome.after === "function") {
+      this.delegateChain = (this.delegateChain ?? Promise.resolve())
+        .then(outcome.after)
+        .catch((err) => this.log.error(`[omi-channel] wake delegate error: ${err?.message ?? err}`));
+    }
     return { ...outcome, receipts, latencyMs };
   }
 
@@ -599,9 +683,11 @@ export class WakeBus {
       });
     }
     const projects = await this.board.listProjects().catch(() => []);
+    const classifyStartedAt = this.now();
     const { reply } = await this.runFn({
       prompt: buildWakePrompt(command, projects, context, trailing, new Date(this.now()))
     });
+    this.counters.observe("wake_classify_ms", this.now() - classifyStartedAt);
     const parsed = parseWakeReply(reply);
     if (!parsed) {
       return this.fallbackNote({
@@ -705,6 +791,8 @@ export class WakeBus {
       }
       case "card_command":
         return this.handleCardCommand({ parsed });
+      case "delegate":
+        return this.handleDelegate({ parsed, command, eventId, sessionId });
       case "query": {
         const answer = parsed.answer || "I don't have an answer for that right now.";
         this.counters.bump("wake_queries_answered");
@@ -735,6 +823,73 @@ export class WakeBus {
           reason: "unknown intent"
         });
     }
+  }
+
+  // The spoken command needs Gary himself - his tools, his connectors, his view
+  // of the user's data. Two notifications by design: the wearer hears "on it"
+  // within seconds, and the real answer arrives when the work is actually done.
+  // Blocking the wearer on a turn that routinely runs a minute or more is what
+  // made spoken requests feel broken, and a fast wrong answer from the
+  // classifier's own head is worse than a slow right one.
+  async handleDelegate({ parsed, command, eventId, sessionId }) {
+    const request = parsed.request || command;
+    if (!this.cfg.delegateEnabled || !this.operativeFn) {
+      this.counters.bump("wake_delegate_unavailable");
+      return this.fallbackNote({
+        command,
+        eventId,
+        confirmation: "I can't reach Gary for that right now - saved it as a note.",
+        reason: this.cfg.delegateEnabled ? "no operative lane" : "delegation disabled"
+      });
+    }
+    this.counters.bump("wake_delegates");
+    const ack = parsed.ack || "On it - I'll come back to you.";
+
+    // Handed back as `after` rather than started here, so the work cannot begin
+    // until the acknowledgement has actually been sent. Started here, a fast
+    // answer races the ack and the wearer reads "Sent it to Ana" followed by
+    // "On it - messaging Ana" - the caller controls the ordering because only
+    // the caller knows when the first notification left.
+    return {
+      confirmation: ack,
+      result: { intent: "delegate", request, delivered: "pending" },
+      after: () => this.runDelegate({ request, eventId, sessionId })
+    };
+  }
+
+  async runDelegate({ request, eventId, sessionId }) {
+    const startedAt = this.now();
+    let text = "";
+    let ok = false;
+    try {
+      const { reply } = await this.operativeFn({
+        prompt: buildDelegatePrompt(request),
+        // One gateway session per Omi capture session keeps a follow-up request
+        // ("send that to Ana too") attached to the context that produced it.
+        sessionId: sessionId ? `omi-wake:${sessionId}` : null,
+        sessionTitle: "Omi spoken request"
+      });
+      text = String(reply ?? "").trim();
+      ok = text.length > 0;
+    } catch (err) {
+      text = `I couldn't finish that: ${err?.message ?? err}`;
+    }
+    if (!text) text = "I finished, but had nothing to report back.";
+    const elapsed = this.now() - startedAt;
+    this.counters.observe("wake_delegate_ms", elapsed);
+    this.counters.bump(ok ? "wake_delegates_answered" : "wake_delegates_failed");
+    atomicWriteJSON(path.join(this.store.root, "wake-results", `${eventId}.delegate.json`), {
+      eventId,
+      request,
+      reply: text,
+      ok,
+      elapsedMs: elapsed
+    });
+    this.log.log(`[omi-channel] wake delegate ${ok ? "answered" : "failed"} in ${elapsed}ms`);
+    await this.notifier
+      .send({ template: "wake_confirmation", params: { text: text.slice(0, 800) } })
+      .catch(() => []);
+    return { ok, reply: text };
   }
 
   // A spoken command addressed to an EXISTING card ("run card 7Q2M", "snooze

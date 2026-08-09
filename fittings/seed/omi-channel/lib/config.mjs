@@ -103,6 +103,23 @@ export function loadConfig(env = process.env) {
     triageCron: (env.GARRISON_OMICHANNEL_TRIAGE_CRON || "").trim() || "*/5 * * * *",
     triageBatchCap: parseIntOr(env.GARRISON_OMICHANNEL_TRIAGE_BATCH_CAP, 20),
 
+    // The routing target every CLASSIFICATION call is pinned to (wake intent,
+    // wake revision, batch triage). Unpinned, these land on the composition's
+    // `other`/L1 duty cell - a full Sonnet agent-sdk turn carrying the whole
+    // operative toolset, measured at 82s for one classification. Empty string
+    // disables the pin and restores that behaviour.
+    classifyTarget: (() => {
+      const raw = env.GARRISON_OMICHANNEL_CLASSIFY_TARGET;
+      return raw === undefined ? "cc-haiku-low" : String(raw).trim();
+    })(),
+
+    // Delegation to the full operative (the only path from a spoken command or
+    // an Omi chat question to the operative's tools and connectors). Answers
+    // arrive as a follow-up notification, so the budget is a real work budget,
+    // not a wearer-waiting-on-it budget.
+    delegateEnabled: parseBool(env.GARRISON_OMICHANNEL_DELEGATE_ENABLED, true),
+    delegateTimeoutMs: parseIntOr(env.GARRISON_OMICHANNEL_DELEGATE_TIMEOUT_MS, 10 * 60 * 1000),
+
     // Scope filters (rule layer — zero model cost)
     allowedCategories: parseCsv(env.GARRISON_OMICHANNEL_ALLOWED_CATEGORIES), // empty = all
     blockedFolders: parseCsv(env.GARRISON_OMICHANNEL_BLOCKED_FOLDERS),
@@ -114,6 +131,12 @@ export function loadConfig(env = process.env) {
       return v.length > 0 ? v : ["gary", "garry", "gerry", "géri"];
     })(),
     wakeSilenceCloseMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_SILENCE_CLOSE_MS, 4000),
+    // Shorter close used only when the last segment ends a sentence. The full
+    // silence window has to assume a mid-utterance gap; a punctuated ending says
+    // there is no more coming, and paying the worst case every time is most of
+    // the delay between speaking and hearing back. 0 disables (always wait the
+    // full window). Ignored when it is not shorter than the full window.
+    wakeSettledCloseMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_SETTLED_CLOSE_MS, 5000),
     wakeMaxCaptureMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_MAX_CAPTURE_MS, 20000),
     // Conversation context handed to the classifier on a wake hit. Omi
     // fragments speech across segments and mis-attributes speakers, so the

@@ -792,3 +792,171 @@ describe("wake revision pass", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+describe("wake settled close (punctuated end of command)", () => {
+  it("closes on the short settle when the command ends a sentence, and the full window otherwise", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    const closed: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 15000,
+        wakeSettledCloseMs: 5000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "note", note_content: "n" }) }),
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: () => ({ ok: true }) },
+      notifier: { send: async () => [] }
+    });
+
+    // A finished sentence must not wait the full 15s window.
+    wake.handleSegments({
+      sessionId: "s-done",
+      segments: [{ text: "Gary, cria uma tarefa para comprar peixe.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    closed.push(String((wake as any).sessions.get("s-done").silenceTimer._idleTimeout));
+
+    // An unfinished one still gets the full window - truncating it is the
+    // failure this window exists to prevent.
+    wake.handleSegments({
+      sessionId: "s-open",
+      segments: [{ text: "Gary, cria uma tarefa a dizer", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    closed.push(String((wake as any).sessions.get("s-open").silenceTimer._idleTimeout));
+
+    expect(closed).toEqual(["5000", "15000"]);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("a bare wake word waits the full window even though it ends in punctuation", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-bare-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 15000,
+        wakeSettledCloseMs: 5000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: "{}" }),
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: () => ({ ok: true }) },
+      notifier: { send: async () => [] }
+    });
+    wake.handleSegments({
+      sessionId: "s-bare",
+      segments: [{ text: "Gary?", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    expect(String((wake as any).sessions.get("s-bare").silenceTimer._idleTimeout)).toBe("15000");
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe("wake delegation to the operative", () => {
+  it("acknowledges immediately, then notifies with the operative's answer", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    const notifications: string[] = [];
+    let operativeCalls = 0;
+    let releaseOperative: () => void = () => {};
+    const release = new Promise<void>((resolve) => {
+      releaseOperative = resolve;
+    });
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        delegateEnabled: true,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 1000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({
+        reply: JSON.stringify({
+          intent: "delegate",
+          request: "Send Ana a message on Slack",
+          ack: "On it - messaging Ana."
+        })
+      }),
+      // Held open so the assertion below is about ORDERING, not about winning a
+      // race: a real operative turn takes tens of seconds, and the ack must be
+      // out before it finishes.
+      operativeFn: async () => {
+        operativeCalls++;
+        await release;
+        return { reply: "Sent it to Ana on Slack." };
+      },
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: () => ({ ok: true }) },
+      notifier: {
+        send: async ({ params }: any) => {
+          notifications.push(params.text);
+          return [];
+        },
+        cardUrl: async () => null
+      }
+    });
+
+    wake.handleSegments({
+      sessionId: "s1",
+      segments: [{ text: "Gary, manda uma mensagem à Ana no Slack.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    await wake.close("s1", "max-capture");
+    // The acknowledgement must be out before the operative is done - the whole
+    // point is that the wearer is not left waiting on a minute-long turn.
+    expect(notifications).toEqual(["On it - messaging Ana."]);
+
+    releaseOperative();
+    await (wake as any).delegateChain;
+    expect(operativeCalls).toBe(1);
+    expect(notifications).toEqual(["On it - messaging Ana.", "Sent it to Ana on Slack."]);
+
+    const written = readdirSync(path.join(store.root, "wake-results")).filter((f) => f.endsWith(".delegate.json"));
+    expect(written).toHaveLength(1);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("falls back to a note when delegation is switched off", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-off-"));
+    const store = new OmiStore(path.join(home, "omi"));
+    const notifications: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        delegateEnabled: false,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 1000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "delegate", request: "do a thing" }) }),
+      operativeFn: async () => ({ reply: "should never run" }),
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: () => ({ ok: true }) },
+      notifier: {
+        send: async ({ params }: any) => {
+          notifications.push(params.text);
+          return [];
+        },
+        cardUrl: async () => null
+      }
+    });
+    wake.handleSegments({
+      sessionId: "s1",
+      segments: [{ text: "Gary, faz uma coisa qualquer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+    });
+    await wake.close("s1", "max-capture");
+    expect(notifications[0]).toContain("saved it as a note");
+    rmSync(home, { recursive: true, force: true });
+  });
+});

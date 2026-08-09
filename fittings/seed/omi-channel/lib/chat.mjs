@@ -10,7 +10,9 @@
 // per-user OAuth here, the wearer IS the single pinned user.
 
 import crypto from "node:crypto";
+import path from "node:path";
 import { secretMatches } from "./ingress.mjs";
+import { atomicWriteJSON, ulid } from "./store.mjs";
 
 // Target is "under 10 seconds wall time" - abort with headroom for the
 // notification round-trip and Omi's own overhead.
@@ -18,6 +20,9 @@ export const ASK_DEADLINE_MS = Number(process.env.OMI_CHAT_DEADLINE_MS) || 8500;
 
 const BUSY_ANSWER =
   "Gary couldn't finish thinking in time - he may be mid-task. Ask again in a moment.";
+// Said when the question has been handed to the operative: the wearer must know
+// an answer is still coming, or they will re-ask and queue the work twice.
+const WORKING_ANSWER = "Looking into that now - I'll message you the answer in a moment.";
 const OFFLINE_ANSWER = "Gary is offline right now (his gateway is not running). Try again later.";
 
 export function buildManifest(cfg) {
@@ -50,20 +55,92 @@ export function buildManifest(cfg) {
   };
 }
 
-export function buildAskPrompt(query) {
-  return `The user is asking you this through their wearable's chat (ask_gary). Answer directly from what you already know - your memories, the Kanban board state, today's context. Be concise (under 120 words), plain text, no markdown, no preamble. If you genuinely don't know, say so in one sentence. Keep the user's language (Portuguese stays Portuguese).
+// The fast attempt. This runs on the small pinned classifier lane, so it has no
+// tools and no view of the user's data - it must therefore be allowed to DECLINE
+// rather than guess, which is what the sentinel is for. A confident invention
+// about the user's own board or calendar is the worst possible answer here.
+export const NEEDS_GARY = "NEEDS_GARY";
 
-Question: ${query}`;
+export function buildAskPrompt(query) {
+  return `The user asked this through their wearable's chat. You are a small, fast model with NO tools: you cannot see their Kanban board, calendar, files, memories, messages or past conversations, and you cannot search the web or contact any service.
+
+Question: ${query}
+
+If answering correctly requires ANY of the things you cannot see, or requires doing something, reply with exactly ${NEEDS_GARY} and nothing else. Only answer directly when general knowledge is genuinely enough. When you do answer: under 120 words, plain text, no markdown, no preamble. Keep the user's language (Portuguese stays Portuguese).`;
+}
+
+// What the OPERATIVE sees for a question escalated out of Omi chat.
+export function buildAskDelegatePrompt(query) {
+  return `The user asked this in their wearable's chat: "${query}"
+
+Answer it properly using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. If they are asking you to do something, do it. If something is genuinely unavailable (no access, missing credential, service not connected), say exactly what is missing in one sentence rather than guessing.
+
+Reply in under 80 words, plain text, no markdown, no preamble. This is delivered to their phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
 }
 
 export class ChatTool {
-  constructor({ cfg, store, counters, runFn, deadlineMs = ASK_DEADLINE_MS, log = console }) {
+  constructor({
+    cfg,
+    store,
+    counters,
+    runFn,
+    operativeFn = null,
+    notifier = null,
+    deadlineMs = ASK_DEADLINE_MS,
+    log = console
+  }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
     this.runFn = runFn;
+    // Escalation lane + the surface the escalated answer comes back on. Without
+    // both, a question needing tools can only ever time out: Omi holds a tool
+    // call open for seconds, the operative's turn takes tens of seconds to
+    // minutes, and no amount of budget tuning closes that gap.
+    this.operativeFn = operativeFn;
+    this.notifier = notifier;
     this.deadlineMs = deadlineMs;
     this.log = log;
+    this.delegateChain = Promise.resolve();
+  }
+
+  // Hand the question to the operative and push the answer to the wearer when
+  // it lands. Never rejects: the user was already promised a follow-up.
+  escalate(question) {
+    this.counters.bump("chat_delegates");
+    this.delegateChain = this.delegateChain
+      .then(async () => {
+        const startedAt = Date.now();
+        let text = "";
+        try {
+          const { reply } = await this.operativeFn({
+            prompt: buildAskDelegatePrompt(question),
+            sessionTitle: "Omi chat question"
+          });
+          text = String(reply ?? "").trim();
+        } catch (err) {
+          this.log.error(`[omi-channel] ask_gary delegate failed: ${err?.message ?? err}`);
+          text = "I couldn't finish that one - try asking again.";
+        }
+        if (!text) text = "I looked, but had nothing to report back.";
+        const elapsedMs = Date.now() - startedAt;
+        this.counters.observe("chat_delegate_ms", elapsedMs);
+        this.counters.bump("chat_delegates_answered");
+        // The answer leaves over a notification and is gone. Keeping the pair
+        // on disk is what makes "Gary answered nonsense" a diagnosable claim
+        // rather than a memory of a phone screen - the wake path already does
+        // this for its delegated requests.
+        atomicWriteJSON(path.join(this.store.root, "chat-results", `${ulid()}.json`), {
+          question,
+          reply: text,
+          elapsedMs,
+          at: new Date().toISOString()
+        });
+        await this.notifier
+          .send({ template: "wake_confirmation", params: { text: text.slice(0, 800) } })
+          .catch(() => []);
+      })
+      .catch((err) => this.log.error(`[omi-channel] ask_gary delegate chain error: ${err?.message ?? err}`));
   }
 
   // -> { ok: true, uid } | { ok: false, status, error }  (error text is
@@ -137,13 +214,37 @@ export class ChatTool {
     const elapsed = Date.now() - startedAt;
     this.counters.observe("chat_answer_ms", elapsed);
 
+    const canEscalate = Boolean(this.cfg.delegateEnabled && this.operativeFn && this.notifier);
+
+    // Overrun and refusal are the same situation from the user's side: the fast
+    // lane cannot answer this one. Both escalate rather than dead-ending, which
+    // is the whole point - the previous behaviour returned "ask again in a
+    // moment" and threw the question away, so asking again just repeated it.
     if (outcome?.overrun) {
       this.counters.bump("chat_overruns");
+      if (canEscalate) {
+        this.escalate(question);
+        return { status: 200, body: { result: WORKING_ANSWER } };
+      }
       return { status: 200, body: { result: BUSY_ANSWER } };
     }
     const reply = String(outcome?.reply ?? "").trim();
+    // The sentinel may arrive alone or wrapped in a sentence; either way the
+    // fast lane is telling us it had to guess, so treat it as a refusal.
+    if (reply.includes(NEEDS_GARY)) {
+      this.counters.bump("chat_needs_operative");
+      if (canEscalate) {
+        this.escalate(question);
+        return { status: 200, body: { result: WORKING_ANSWER } };
+      }
+      return { status: 200, body: { result: OFFLINE_ANSWER } };
+    }
     if (!reply) {
       this.counters.bump("chat_empty");
+      if (canEscalate) {
+        this.escalate(question);
+        return { status: 200, body: { result: WORKING_ANSWER } };
+      }
       return { status: 200, body: { result: "Gary had no answer for that." } };
     }
     this.counters.bump("chat_answered");

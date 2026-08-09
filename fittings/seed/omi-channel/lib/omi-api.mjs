@@ -14,6 +14,11 @@
 // backends; production traffic goes to the real cloud.
 const DEFAULT_BASE = process.env.OMI_API_BASE_URL || "https://api.omi.me";
 const MAX_ATTEMPTS = 3;
+// Ceiling on one rate-limit wait. Long enough to clear Omi's window, short
+// enough that the caller's own path (a spoken command's confirmation) is not
+// held open indefinitely - past this the web-channel fallback is the better
+// answer than waiting longer.
+const MAX_RATE_LIMIT_WAIT_MS = 25_000;
 
 export class OmiApi {
   constructor({ appId, appSecret, importApiKey = "", baseUrl = DEFAULT_BASE, fetchImpl = fetch, sleep = defaultSleep, log = console } = {}) {
@@ -134,13 +139,24 @@ export class OmiApi {
         }
         if (res.status === 429 || res.status >= 500) {
           lastError = { status: res.status, error: `HTTP ${res.status}`, retriable: true };
+          if (res.status === 429) {
+            // A rate limit is a WAIT instruction, not a transient blip: the
+            // doubling-from-1s schedule below covers 3 seconds, and Omi's
+            // notification window is far wider than that, so every retry burned
+            // itself against a limit that had not moved. Honour Retry-After when
+            // Omi sends one, else back off on a schedule wide enough to matter.
+            const header = Number(res.headers?.get?.("retry-after"));
+            backoffMs = Number.isFinite(header) && header > 0
+              ? Math.min(header * 1000, MAX_RATE_LIMIT_WAIT_MS)
+              : Math.min(Math.max(backoffMs, 1000) * 5, MAX_RATE_LIMIT_WAIT_MS);
+          }
         } else {
           return { ok: false, status: res.status, error: `HTTP ${res.status}`, retriable: false, attempts: attempt };
         }
       }
       if (attempt < MAX_ATTEMPTS) {
         await this.sleep(backoffMs);
-        backoffMs *= 2;
+        if (!lastError || lastError.status !== 429) backoffMs *= 2;
       }
     }
     return { ok: false, ...lastError, attempts: MAX_ATTEMPTS };

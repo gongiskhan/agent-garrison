@@ -33,7 +33,9 @@ const summary = await runTriageTick({
   cfg,
   store,
   counters,
-  runFn: cfg.gatewayUrl ? inferenceRunFn(cfg.gatewayUrl) : async () => ({ reply: "" }),
+  runFn: cfg.gatewayUrl
+    ? inferenceRunFn(cfg.gatewayUrl, { target: cfg.classifyTarget || null })
+    : async () => ({ reply: "" }),
   board: new BoardClient(),
   memoryWriter: new MemoryWriter(),
   notifier
