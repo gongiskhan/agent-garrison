@@ -362,6 +362,51 @@ export function resolveDisciplineV2(config, profile, tier) {
 
 export const FLOW_LEVELS = ["1", "2", "3"];
 
+/**
+ * The flow a routed duty belongs to, when nobody pinned one.
+ *
+ * This is the gap that kept the whole flow layer unused: the router picks a duty
+ * and a level, the card carries both, and `flow` stayed null forever because
+ * only an explicit client pin ever set it. 2 of 90 live cards had a flow and
+ * none ever ran a phased plan.
+ *
+ * The rule is deterministic and boring on purpose - no model call on the hot
+ * path. A duty belongs to the flow that runs it EARLIEST (a duty appearing at
+ * level 1 is more characteristic of that flow than one appearing only at level
+ * 3); among equals the `defaultFlow` wins, then the flow that runs it soonest in
+ * its sequence, then the name. So the same duty always resolves to the same flow.
+ *
+ * A flow marked `manual: true` is never derived onto a card. `personal` runs no
+ * agent duties by design, so inferring it would silently park work that was
+ * meant to run.
+ */
+export function defaultFlowForDuty(config, duty) {
+  if (!duty || !config || typeof config !== "object") return null;
+  const flows = config.flows || {};
+  let best = null;
+  for (const name of Object.keys(flows).sort()) {
+    const levels = flows[name]?.levels;
+    if (!levels || flows[name]?.manual === true) continue;
+    for (const lvl of FLOW_LEVELS) {
+      const duties = levels[lvl]?.duties;
+      if (!Array.isArray(duties)) continue;
+      const pos = duties.indexOf(duty);
+      if (pos === -1) continue;
+      const cand = { name, level: Number(lvl), pos, isDefault: name === config.defaultFlow };
+      if (
+        !best ||
+        cand.level < best.level ||
+        (cand.level === best.level && cand.isDefault && !best.isDefault) ||
+        (cand.level === best.level && cand.isDefault === best.isDefault && cand.pos < best.pos)
+      ) {
+        best = cand;
+      }
+      break; // earliest level for this flow decides it
+    }
+  }
+  return best ? best.name : null;
+}
+
 /** The level a flow runs at: what was asked, else the flow's default, else 1.
  *  Never resolves UPWARD by default — spending more compute than asked for has
  *  to be somebody's decision. */

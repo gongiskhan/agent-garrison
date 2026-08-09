@@ -1378,8 +1378,20 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
         // per-turn object turnAttribution already reads, so this keeps one reporting
         // path instead of threading a second one through three lane returns.
         if (hints && inferredPhases && !hints.phases) hints.phases = inferredPhases;
+        // The FLOW a card runs. Only an explicit client pin ever set this, so it
+        // stayed null on every card the router created - which is why the flow
+        // layer was configured but unused (2 of 90 live cards carried one, and
+        // none ever ran a phased plan). With no pin, derive it deterministically
+        // from the routed duty so a card arrives knowing which plan it is on.
+        const routedDuty = pre?.duty ?? pre?.route?.duty ?? cls?.taskType ?? null;
+        let derivedFlow = null;
+        try {
+          derivedFlow = router.core?.defaultFlowForDuty?.(router.config, routedDuty) ?? null;
+        } catch {
+          derivedFlow = null; // never block a card on flow derivation
+        }
         const cardOpts = {
-          flow: hints?.flow ?? null,
+          flow: hints?.flow ?? derivedFlow,
           phases: inferredPhases,
           project: hints?.project ?? null,
           duty: pre?.duty ?? pre?.route?.duty,
