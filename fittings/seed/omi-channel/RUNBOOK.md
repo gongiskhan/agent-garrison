@@ -98,22 +98,46 @@ the transcript, not at sound. Omi's own speech-to-text is therefore never under
 test - and on this account it is the weakest link in the chain (see "Transcript
 quality" below). `converse` is the only mode where Omi's own processing runs.
 
-## Transcript quality (the dominant capture problem)
+## Transcript quality (measure it before blaming it)
 
-Most of what reaches this fitting is degraded before it arrives. Observed on
-this account: a Portuguese conversation tagged `language: pt` transcribed
-**entirely as Dutch** ("En hou het voor de massa" repeated fifteen times), and
-Omi's own titles for whole days of capture reading "Garbled Conversation",
-"Fragmented Multilingual Conversation", "Repeated Phrase Exchange". Nothing in
-Garrison can fix this - it is Omi-side transcription - but it explains most
-"Omi isn't capturing things properly" reports, and it is worth checking the
-language setting in the Omi app before hunting for a bug here. Compare a
-suspect conversation's `transcript_text` against what was actually said:
+Omi's own titles make capture look worse than it is - "Garbled Conversation",
+"Fragmented Multilingual Conversation", "Repeated Phrase Exchange" are
+day-to-day sights, and it is tempting to conclude transcription is broken.
+Measured over the last 16 stored conversations on this account, **13 are clean
+Portuguese**. The failures are not systemic and not a language misconfiguration:
+they are **degenerate decoder output on low-speech or noisy stretches**, where
+the model loops one phrase - once producing 126 words of Dutch ("En hou het
+voor de massa" over and over) on a conversation correctly tagged `language:
+pt`, with a healthy 754-word Portuguese capture three minutes later.
+
+So: a single garbled conversation is not evidence of a broken setup. Sample
+before concluding, over what Omi actually delivered rather than the API's
+conversation list (which returns `transcript_segments: null`):
 
 ```bash
-curl -s "https://api.omi.me/v1/dev/user/conversations?limit=5" \
-  -H "Authorization: Bearer $OMI_DEV_API_KEY"
+# language-sniff the transcripts we stored from the webhook
+python3 - <<'PY'
+import json, glob, re
+PT = set("que não uma para com você está isso então mas muito bem aqui vamos porque".split())
+for f in sorted(glob.glob('/home/ggomes/.garrison/omi/events/*.json')):
+    d = json.load(open(f))
+    t = ((d.get('normalized') or {}).get('transcript_text') or '')
+    w = re.findall(r"[a-zà-ÿ]+", t.lower())
+    if len(w) < 25: continue
+    print(d['occurred_at'][:16], f"pt={sum(x in PT for x in w)/len(w):.3f}", len(w), "words")
+PY
 ```
+
+A pt score around 0.07-0.17 is a healthy Portuguese transcript; near 0.00 with a
+low word count is a degenerate stretch.
+
+Transcription language is a **per-connection query parameter the phone app
+sets** (`language`, default `en`, `multi` = auto-detect) on Omi's `/v4/listen`
+socket - there is no server-side user setting and no API to change it. Stored
+conversations carry the value that was used, so `language` on a conversation
+tells you what the app declared: this account shows `multi` on 2026-08-07 and
+`pt` since. Providers "fail closed" on an unsupported language rather than
+falling back.
 
 ## Replaying fixtures
 
