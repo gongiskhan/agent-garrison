@@ -266,16 +266,16 @@ x-garrison:
       levels:
       - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
         cell:
-          target: sol
+          target: opus
           effort: high
       - description: 'deep: architecture, cross-cutting refactors, tricky bugs with unclear cause, security-sensitive
           or multi-subsystem work'
         cell:
-          target: sol
+          target: opus
           effort: xhigh
       context_hold: true
     - id: test
@@ -288,7 +288,7 @@ x-garrison:
           effort: low
       - description: 'standard: cover the change and its edges'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
         cell:
@@ -332,15 +332,15 @@ x-garrison:
       levels:
       - description: 'level 1: talk a focused question or tradeoff through in prose'
         cell:
-          target: fable
+          target: opus
           effort: low
       - description: 'level 2: research it mid-conversation and write the brief when it settles'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'level 3: argue both sides properly before converging, then write it up'
         cell:
-          target: fable
+          target: opus
           effort: high
     - id: plan
       title: Plan
@@ -348,11 +348,11 @@ x-garrison:
       levels:
       - description: 'sketch: the shape of the change in a few lines'
         cell:
-          target: fable
+          target: opus
           effort: high
       - description: 'standard: a slice plan with acceptance per slice'
         cell:
-          target: fable
+          target: opus
           effort: xhigh
       - description: 'deep: design alternatives weighed, risks named, sequencing argued'
         cell:
@@ -364,15 +364,15 @@ x-garrison:
       levels:
       - description: 'quick: one image to a clear description'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'standard: iterate on composition and detail'
         cell:
-          target: fable
+          target: opus
           effort: high
       - description: 'deep: art-direct it against where it will actually appear'
         cell:
-          target: fable
+          target: opus
           effort: xhigh
     - id: video
       title: Video
@@ -380,15 +380,15 @@ x-garrison:
       levels:
       - description: 'quick: assemble what is already shot'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'standard: script, assemble and check it plays'
         cell:
-          target: fable
+          target: opus
           effort: high
       - description: 'deep: direct it for the audience it is for'
         cell:
-          target: fable
+          target: opus
           effort: xhigh
     - id: ux-qa
       title: UX QA
@@ -396,15 +396,15 @@ x-garrison:
       levels:
       - description: 'quick: the obvious breakages on one surface'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'standard: the six-section checklist on desktop and mobile'
         cell:
-          target: fable
+          target: opus
           effort: high
       - description: 'deep: contrast, tap targets and states measured, not eyeballed'
         cell:
-          target: fable
+          target: opus
           effort: xhigh
     - id: writing
       title: Writing
@@ -412,15 +412,15 @@ x-garrison:
       levels:
       - description: 'quick: a short passage or a correction'
         cell:
-          target: fable
+          target: opus
           effort: medium
       - description: 'standard: a full piece with structure'
         cell:
-          target: fable
+          target: opus
           effort: high
       - description: 'deep: researched, sourced and argued'
         cell:
-          target: fable
+          target: opus
           effort: xhigh
     - id: ops
       title: Ops
@@ -452,7 +452,7 @@ x-garrison:
           effort: max
       - description: 'deep: a sweep plus the judgement of what the findings mean'
         cell:
-          target: fable
+          target: opus
           effort: max
     - id: adversarial-review
       title: Adversarial Review
