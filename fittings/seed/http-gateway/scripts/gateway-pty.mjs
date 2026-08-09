@@ -865,6 +865,13 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     const value = pinnedString(raw[field], field, rejected);
     if (value !== null) out[field] = value;
   }
+  // Whether the project above was CHOSEN by the user or DEFAULTED by Garrison.
+  // It matters because an applied pin sets `via: "turn-override"`, which the
+  // improver reads as "Goncalo corrected the router". Every project-less card now
+  // carries the workspace scope, so without this marker every one of them would
+  // arrive looking like a manual override and flood the signal registry with
+  // evidence nobody produced.
+  if (raw.projectDefaulted === true) out.projectDefaulted = true;
   if (raw.effort !== undefined && raw.effort !== null) {
     const effort = typeof raw.effort === "string" ? raw.effort.trim() : "";
     if (TURN_EFFORTS.includes(effort)) out.effort = effort;

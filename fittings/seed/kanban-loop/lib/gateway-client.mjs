@@ -278,6 +278,7 @@ export function cardTurnRouting(card) {
     // $GARRISON_HOME/personal directory. A real/explicit project above always
     // wins, which keeps scope and project independently editable.
     routing.project = PERSONAL_SCOPE_TOKEN;
+    routing.projectDefaulted = true;
   } else {
     delete routing.project;
   }

@@ -93,7 +93,7 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
         list: {}
       })
     );
-    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
   });
 
   it("keeps explicit routing and a real project ahead of the personal fallback", () => {
@@ -161,12 +161,12 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
         list: { id: "test", executePrompt: "run tests", routerPrompt: "emit a verdict" }
       })
     );
-    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
 
     const nudge = await captureBody((url) =>
       batchGatewayRunFn(url)({ project: PERSONAL_SCOPE_TOKEN, cards: [], nudge: "verdict", list: {} })
     );
-    expect(nudge.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+    expect(nudge.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
   });
 
   it("an ordinary no-project batch does not send a fake cwd pin", async () => {
@@ -181,6 +181,11 @@ describe("the gateway accepts that shape and turns it into a real cwd", () => {
   it("sanitizeRouting passes a project through the edge validator", () => {
     expect(sanitizeRouting({ project: "ekoa-code" }).routing).toEqual({ project: "ekoa-code" });
     expect(sanitizeRouting({ project: PERSONAL_SCOPE_TOKEN }).routing).toEqual({ project: PERSONAL_SCOPE_TOKEN });
+    // The defaulted marker is carried only when the CALLER sent it. A scope the
+    // user pinned themselves stays a real pin, and is attributed as one.
+    expect(
+      sanitizeRouting({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true }).routing
+    ).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
   });
 
   it("a resolvable project becomes the turn's projectPath", () => {

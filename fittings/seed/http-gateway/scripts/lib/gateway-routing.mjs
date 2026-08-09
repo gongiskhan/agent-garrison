@@ -296,7 +296,12 @@ export function applyTurnOverride(config, route, ov, ctx = {}) {
       // actual canonical path remains separately available as projectPath.
       out.project = requestedScope === PERSONAL_SCOPE_TOKEN ? PERSONAL_SCOPE_LABEL : requestedScope;
       out.projectPath = dir;
-      applied.push("project");
+      // A DEFAULTED scope still resolves to a real cwd, but it is not a user
+      // override and must not be attributed as one: `applied` is what sets
+      // `via: "turn-override"`, and the improver treats that as Goncalo having
+      // corrected the router. Counting Garrison's own fallback as his correction
+      // would train the signal registry on evidence nobody produced.
+      if (ov.projectDefaulted !== true) applied.push("project");
     }
   }
   if (ov.account) {
