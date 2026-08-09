@@ -53,7 +53,7 @@ import {
   resolveVaultAccount,
   TURN_EFFORTS
 } from "./lib/gateway-routing.mjs";
-import { listProjectNames } from "./lib/project-source.mjs";
+import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import {
   isCardOriginatedChannel,
@@ -1550,6 +1550,29 @@ export function assertExecutableRunScope(pre) {
 /** Execute the resolved turn on its runtime (agent-sdk / secondary / workflow /
  *  claude-code PTY) and return the channel-shaped result. Split out of
  *  runRoutedTurn so the D19 quick-card completion runs on every runtime path. */
+// The cwd a turn runs in when NOTHING resolved a project.
+//
+// `undefined` used to mean "inherit the gateway process cwd", which is the
+// composition directory - so a project-less turn asked to write a file wrote it
+// into compositions/default/. Verified live: a note-taking task landed
+// notes-comparison.md there.
+//
+// Falls back to Garrison's own workspace instead. Deliberately does NOT touch
+// `pre.projectPath`: that is what shouldUseScopedClaudeLane keys on, and setting
+// it would divert every project-less chat turn off the standing operative
+// session onto a cwd-keyed one. The lane choice stays exactly as it was; only
+// the directory the turn lands in changes.
+//
+// Null when the workspace cannot be resolved, which restores the old behaviour
+// rather than inventing a path.
+function workspaceCwdFallback() {
+  try {
+    return resolvePersonalScope() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function shouldUseScopedClaudeLane(routing, route, projectPath) {
   return Boolean(routing?.usesScopedClaudeSession?.(route, projectPath));
 }
@@ -1606,7 +1629,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // targets, so wiring cwd only into runWebOneShot made the project badge lie:
       // it reported /home/ggomes/dev/<repo> while the turn actually ran in the
       // composition dir (caught by asking a live turn to print its own pwd).
-      cwd: pre.projectPath ?? undefined,
+      cwd: pre.projectPath ?? workspaceCwdFallback(),
       onActivity: opts.onActivity,
       onJournal: opts.onJournal,
       registerStop: (stop) => registerTurnStop("agent-sdk", stop)
@@ -1662,7 +1685,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     broadcastRich("turn", { active: true });
     const r = await router.runSecondaryTurn(pre.route, message, {
       // §8: honor a pinned project here too, else the badge overstates the scope.
-      cwd: pre.projectPath ?? undefined,
+      cwd: pre.projectPath ?? workspaceCwdFallback(),
       registerStop: (stop) => registerTurnStop(pre.route.target.runtime, stop)
     });
     broadcastRich("status", {
@@ -1717,7 +1740,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       onChunk,
       timeoutMs: hints?.timeoutMs,
       // §8: honor a pinned project here too, else the badge overstates the scope.
-      cwd: pre.projectPath ?? undefined,
+      cwd: pre.projectPath ?? workspaceCwdFallback(),
       onJournal: opts.onJournal,
       registerStop: (stop) => registerTurnStop("claude-delegate", stop)
     });
@@ -1803,7 +1826,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
         // already resolved by applyTurnOverride). Absent → the composition dir,
         // exactly as before. An unresolvable project never reaches here: it was
         // rejected at resolution time rather than silently falling back.
-        cwd: pre.projectPath ?? undefined,
+        cwd: pre.projectPath ?? workspaceCwdFallback(),
         // §6: a pinned account is real auth env for this spawn, not a label.
         env: oneShotAccountEnv(pre.route?.target?.account ?? null) ?? undefined,
         onScreen: osOnScreen,
