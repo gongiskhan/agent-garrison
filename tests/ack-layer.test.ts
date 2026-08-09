@@ -191,3 +191,54 @@ describe("ack — the editable registry", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+// @ts-ignore — pure .mjs
+import { EchoGuard, normalizeTokens } from "../fittings/seed/omi-channel/lib/echo-guard.mjs";
+
+describe("echo guard — Garrison does not hear itself", () => {
+  const spoken = "Created a task, follow up with the lawyer.";
+
+  it("suppresses the ack coming back through the pendant, fragmented and re-cased", () => {
+    const g = new EchoGuard({});
+    g.register({ text: spoken });
+    // Omi returns one sentence as several fragments with drifted punctuation.
+    expect(g.shouldSuppress("created a task")).toBe(true);
+    expect(g.shouldSuppress("follow up with the lawyer")).toBe(true);
+    expect(g.shouldSuppress("Created a task follow up with the lawyer")).toBe(true);
+  });
+
+  it("does not touch the operator's real speech", () => {
+    const g = new EchoGuard({});
+    g.register({ text: spoken });
+    expect(g.shouldSuppress("did you call the lawyer about the invoice")).toBe(false);
+    expect(g.shouldSuppress("cria uma tarefa para comprar peixe")).toBe(false);
+  });
+
+  // Over-suppression eats the operator's words irrecoverably; a missed echo costs
+  // one deletable card. So short fragments are always let through.
+  it("never swallows a short utterance even when its words appear in the ack", () => {
+    const g = new EchoGuard({});
+    g.register({ text: spoken });
+    expect(g.shouldSuppress("created")).toBe(false);
+    expect(g.shouldSuppress("the lawyer")).toBe(false);
+  });
+
+  it("stops suppressing once the window has passed", () => {
+    let t = 1_000_000;
+    const g = new EchoGuard({ ttlMs: 30_000, now: () => t });
+    g.register({ text: spoken });
+    expect(g.shouldSuppress("created a task")).toBe(true);
+    t += 31_000;
+    expect(g.shouldSuppress("created a task")).toBe(false);
+  });
+
+  it("suppresses nothing when nothing has been spoken", () => {
+    expect(new EchoGuard({}).shouldSuppress("created a task")).toBe(false);
+  });
+
+  it("normalises accents and punctuation the transcriber will not reproduce", () => {
+    expect(normalizeTokens("Criei uma tarefa, ligar ao banco.")).toEqual(
+      ["criei", "uma", "tarefa", "ligar", "ao", "banco"]
+    );
+  });
+});

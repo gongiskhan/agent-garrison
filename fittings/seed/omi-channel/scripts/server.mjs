@@ -30,6 +30,7 @@ import { boardCardUrl } from "../lib/notify.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
+import { EchoGuard } from "../lib/echo-guard.mjs";
 
 const BACKFEED_INTERVAL_MS = 30 * 60 * 1000;
 const BACKFEED_BOOT_DELAY_MS = 2 * 60 * 1000;
@@ -376,6 +377,10 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
 
 export function makeRequestHandler(ctx) {
   const { cfg, store, counters, ingress, notifier = null, chatTool = null } = ctx;
+  // The guard the ingress already holds, so /ack registers into the SAME window
+  // the realtime filter reads. A second instance here would register echoes
+  // nothing ever consults.
+  const echoGuard = ctx.echoGuard ?? ingress?.echoGuard ?? null;
   let gatewayCache = { at: 0, value: null };
   const gatewayStatus = async () => {
     const now = Date.now();
@@ -435,6 +440,26 @@ export function makeRequestHandler(ctx) {
       // Deliberately OUTSIDE /omi/ - the public Funnel mounts only that
       // prefix, and the server binds loopback, so this route is never
       // reachable off-box.
+      // The acknowledgement fan-out (kanban-loop fanOutAck) reaches every running
+      // fitting. This one does not SPEAK an ack - the Mac sink does - it listens
+      // for what is about to be said so the pendant hearing it back is dropped
+      // rather than transcribed into a card. Loopback only, outside /omi/ so the
+      // public Funnel can never mount it.
+      if (pathname === "/ack" && method === "POST") {
+        const bodyText = await readBody(req);
+        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
+        let ack = null;
+        try {
+          ack = JSON.parse(bodyText);
+        } catch {
+          return jsonRes(res, 400, { error: "invalid JSON" });
+        }
+        const text = typeof ack?.text === "string" ? ack.text : "";
+        if (!text.trim()) return jsonRes(res, 400, { error: "ack has no text" });
+        const registered = echoGuard.register({ text, echo: ack?.echo ?? null });
+        return jsonRes(res, 200, { ok: true, registered });
+      }
+
       if (pathname === "/internal/omi-push" && method === "POST") {
         const bodyText = await readBody(req);
         if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
@@ -660,7 +685,8 @@ export async function startServer(cfg = loadConfig()) {
     memoryWriter: new MemoryWriter(),
     notifier
   });
-  const ingress = new Ingress({ cfg: live, store, counters, wakeBus });
+  const echoGuard = new EchoGuard({ counters });
+  const ingress = new Ingress({ cfg: live, store, counters, wakeBus, echoGuard });
   const chatTool = new ChatTool({
     cfg: live,
     store,
@@ -675,7 +701,9 @@ export async function startServer(cfg = loadConfig()) {
   });
   // Crash recovery: drain any raw payloads a previous process left queued.
   ingress.scheduleDrain();
-  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, notifier, chatTool }));
+  const server = createServer(
+    makeRequestHandler({ cfg: live, store, counters, ingress, notifier, chatTool, echoGuard })
+  );
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {

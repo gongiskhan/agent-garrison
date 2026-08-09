@@ -25,3 +25,13 @@ declare module "*/kanban-loop/lib/ack.mjs" {
     opts?: { templates?: Record<string, AckTemplate>; env?: Record<string, string | undefined>; now?: () => Date }
   ): any;
 }
+
+declare module "*/omi-channel/lib/echo-guard.mjs" {
+  export function normalizeTokens(text: string): string[];
+  export class EchoGuard {
+    constructor(opts?: { ttlMs?: number; counters?: unknown; now?: () => number; log?: unknown });
+    register(entry: { text: string; echo?: string | null }): boolean;
+    shouldSuppress(segmentText: string): boolean;
+    prune(): void;
+  }
+}

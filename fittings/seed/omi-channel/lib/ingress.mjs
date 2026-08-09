@@ -21,11 +21,15 @@ export function secretMatches(presented, expected) {
 }
 
 export class Ingress {
-  constructor({ cfg, store, counters, wakeBus = null, log = console }) {
+  constructor({ cfg, store, counters, wakeBus = null, echoGuard = null, log = console }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
     this.wakeBus = wakeBus;
+    // Knows what Garrison just said out loud, so its own voice coming back
+    // through the pendant is dropped before it can reach the wake gate or be
+    // counted as conversation. See lib/echo-guard.mjs.
+    this.echoGuard = echoGuard;
     this.log = log;
     this.chain = Promise.resolve();
   }
@@ -225,8 +229,17 @@ export class Ingress {
       if (segments) {
         this.counters.bump("realtime_segments", segments.length);
         if (!Array.isArray(payload)) this.counters.bump("realtime_enveloped");
+        // Drop our own spoken acknowledgements BEFORE the wake gate sees them.
+        // Filtered here rather than inside the wake bus because a returning ack
+        // is not conversation either - it must not reach the pre-wake context
+        // ring, where it would become "evidence" for the next command the
+        // operator actually issues.
+        const heard = this.echoGuard
+          ? segments.filter((seg) => !this.echoGuard.shouldSuppress(seg?.text))
+          : segments;
+        if (heard.length === 0) return;
         if (this.cfg.wakeEnabled && this.wakeBus && session) {
-          this.wakeBus.handleSegments({ sessionId: session, segments });
+          this.wakeBus.handleSegments({ sessionId: session, segments: heard });
         } else if (this.cfg.wakeEnabled && this.wakeBus && !session) {
           this.counters.bump("realtime_no_session_id");
         }
