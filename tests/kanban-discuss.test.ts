@@ -134,19 +134,35 @@ describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)
 
 describe("kanban discuss — buildDiscussUrl carries the kickoff + description", () => {
   it("adds a kickoff param that decodes to the Discuss opening message", () => {
-    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "g", description: "loop on Safari" };
+    const card = {
+      id: "01HZX5K3QABCDEFGHJKMNPQRS0",
+      title: "Add SSO",
+      project: "g",
+      // Carries the multi-byte characters on purpose: the transport guard below
+      // needs a non-ASCII fixture, and sourcing it from the PROSE meant the guard
+      // broke the moment the prompt stopped using an em dash (which it must not,
+      // per the discuss behaviour spec).
+      description: "loop on Safari — sessão expira"
+    };
     const url = buildDiscussUrl(card);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
-    const kickoff = channelDecodeContext(q.get("kickoff"));
+    const kickoff = channelDecodeContext(q.get("kickoff")) as string;
     expect(typeof kickoff).toBe("string");
     expect(kickoff).toMatch(/^Let's talk this work item through/);
     expect(kickoff).toContain("loop on Safari");
-    // Non-ASCII survives the base64 transport (the em-dash in the brief instruction) —
-    // a regression guard for the UTF-8 decode fix (atob alone mangled multi-byte chars).
+    // Non-ASCII survives the base64 transport — a regression guard for the UTF-8
+    // decode fix (atob alone mangled multi-byte chars).
+    expect(kickoff).toContain("sessão");
     expect(kickoff).toContain("—");
+    // The discuss behaviour spec: prose for reading aloud, and no em dashes in
+    // anything the model is being told to imitate.
+    const instructions = kickoff.replace(card.description, "");
+    expect(instructions).not.toContain("—");
+    expect(instructions).toContain("No flattery");
+    expect(instructions).toContain("Argue with me before you agree with me");
     // The context blob now also carries the description (for a context-honoring path).
     const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
-    expect(ctx.description).toBe("loop on Safari");
+    expect(ctx.description).toBe("loop on Safari — sessão expira");
   });
 
   it("round-trips non-ASCII in the card description through the transport", () => {
