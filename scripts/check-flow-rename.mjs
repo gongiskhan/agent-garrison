@@ -52,6 +52,9 @@ const HISTORICAL = [
   "references/decisions.md",
   "RUN_LOG.md",
   "ORCHESTRATOR_COHERENCE.md",
+  // The run report explains the rename, so it must be able to name what was
+  // renamed. Same rule as the decision logs above.
+  "ORCHESTRATOR_COHERENCE_REPORT.md",
   ".bak"
 ];
 

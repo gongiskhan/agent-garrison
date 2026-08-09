@@ -528,3 +528,18 @@ moves; renumbering would silently reshuffle a board reordered by hand.
 |---|---|---|
 | A1 | The brief contradicts itself on Discuss: §2.1 lists `discuss` as a duty; §2.4 lists `discuss` among "lists that are not duties" which keep plain names. | Follow **§2.4 for display** (the Discuss list keeps its plain name) and **§2.1 for the model** (`discuss` becomes a real duty with a matrix row, which it lacks today). The two are compatible: Discuss is a *destination* list where a card sits across many turns, not a step a card passes through, so a `duty:` prefix would misdescribe it. Flagged for confirmation in the final report. |
 | A2 | The brief names both a "discussion flow" and a "discuss duty" and forbids shipping competing versions. | The duty is the step; the flow is what surrounds it. One `discuss` duty, one `discussion` flow whose L1 is just that duty and whose L2 adds research + a written brief. |
+
+
+---
+
+## Phases 3-6 - final state
+
+| phase | state |
+|---|---|
+| 3 routing + graduated autonomy | **partial.** Bands, signal registry, reversibility taxonomy and derived track records are built, tested and visible on the dashboard. The gateway does NOT yet consult them at decision time, so the "asks on novel shapes, stops asking as the record improves" criterion is unmet. |
+| 4 improver surfaces | **partial.** The Router panel puts a one-tap verdict and the live bands on the home page - the improver's first surface outside a view nobody visits. The per-dimension correction card, the deletable-inference view and the delay-buffer send are not built (the data model for the first already exists). |
+| 5 discuss parity | **partial.** `discuss` is a real duty with a matrix row for the first time, on Fable with effort rising by level, and interception works on every channel. The behaviour spec is written into the kickoff. Web search and the five before/after conversations are not done. |
+| 6 end-to-end validation | **partial.** Routing proven live end to end, channel parity proven across web/omi/slack, board and both headline surfaces verified at desktop and phone widths. Running cards to completion was blocked by an Anthropic plan limit on Fable (resets 6am Lisbon); the failure path behaved correctly, parking the card with the true reason. |
+
+The full report, including the ranked list of what still pulls Gonçalo back to a
+raw Claude Code session, is [`ORCHESTRATOR_COHERENCE_REPORT.md`](./ORCHESTRATOR_COHERENCE_REPORT.md).
