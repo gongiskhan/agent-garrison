@@ -18,6 +18,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { ackFromOriginEvent, isAckableEventKind, loadTemplates } from "./ack.mjs";
 import os from "node:os";
 import { deriveOriginId, parseOriginId, ensureOriginRecord, appendOriginEvent } from "./origins.mjs";
 
@@ -106,6 +107,39 @@ export async function fanOutNotification(
           // reaching the other channels.
         }
       })
+  );
+  return results;
+}
+
+/**
+ * POST an acknowledgement to every running fitting that accepts one. Same
+ * discovery as fanOutNotification and the same 404-means-not-for-you contract, so
+ * an output-only sink (a speech sink, a haptic sink) becomes reachable the moment
+ * it implements POST /ack, with no change here.
+ *
+ * Deliberately a SEPARATE endpoint from /notify rather than a flag on it: a sink
+ * that speaks must never accidentally speak a full notification, and a channel
+ * that shows notifications must not start showing acks it has no place to put.
+ * Fire-and-forget; never throws.
+ */
+export async function fanOutAck(ack, { fetchImpl = fetch } = {}) {
+  if (!ack || ack.skipped) return [];
+  const results = [];
+  await Promise.all(
+    runningFittingBases().map(async ({ id, base }) => {
+      try {
+        const res = await fetchImpl(`${base}/ack`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(ack),
+          signal: AbortSignal.timeout(4000)
+        });
+        if (res.status !== 404) results.push({ id, status: res.status, ok: res.ok });
+      } catch {
+        // A sink that is starting or wedged must never delay the others, and an
+        // ack is worthless late - there is no retry here on purpose.
+      }
+    })
   );
   return results;
 }
@@ -381,8 +415,36 @@ export function routeOriginEvent(root, disk, card, event) {
     if (CHANNEL_FITTINGS[transport] && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
       deliverChannelMessage(transport, card.originChannel.threadId, event.message);
     }
+
+    // The acknowledgement, on the same event and therefore with the same
+    // guarantee: this runs after the card write was confirmed, so an ack can
+    // never announce something that did not happen. It is a SEPARATE class from
+    // the delivery above and ignores skipWeb - suppressing a duplicate thread
+    // message says nothing about whether the operator should hear the outcome.
+    // Ackable kinds are whitelisted in ack.mjs; everything else returns null.
+    emitAckForEvent(card, event);
   } catch {
     /* never let event routing break a card write */
+  }
+}
+
+// Fire-and-forget, and swallowing its own failures: an ack is a courtesy on top
+// of a write that has already succeeded, so nothing here may propagate into the
+// caller. A skipped ack (wake-word collision, unrenderable slots) is logged once
+// rather than silently dropped - "Gary never says anything" is otherwise
+// indistinguishable from "the sink is off".
+function emitAckForEvent(card, event) {
+  try {
+    if (!isAckableEventKind(event.kind)) return;
+    const ack = ackFromOriginEvent(event, card, { templates: loadTemplates() });
+    if (!ack) return;
+    if (ack.skipped) {
+      console.warn(`[kanban-loop] ack skipped (${ack.skipped}) for card ${card.id}: ${ack.reason}`);
+      return;
+    }
+    void fanOutAck(ack);
+  } catch {
+    /* an ack must never break a card write */
   }
 }
 
