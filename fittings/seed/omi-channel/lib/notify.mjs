@@ -103,8 +103,11 @@ export class Notifier {
     if (!message) return [{ means: "none", ok: false, skipped: "empty message" }];
 
     const receipts = [];
-    const omi = await this.sendOmi(message);
-    receipts.push(omi);
+    // Both run: the push alerts, the chat copy is what the operator can actually
+    // read after tapping it. Concurrent because the wearer waits on the push and
+    // must not pay the chat call's latency for it.
+    const [omi, chat] = await Promise.all([this.sendOmi(message), this.sendOmiChat(message)]);
+    receipts.push(omi, chat);
     if (!omi.ok && !suppressWebFallback) {
       receipts.push(await this.sendWebChannelFallback(message));
     } else if (!omi.ok && suppressWebFallback) {
@@ -135,6 +138,36 @@ export class Notifier {
     }
     this.counters.bump("notify_failed");
     return { means, ok: false, error: `${result.error}${result.attempts > 1 ? ` (after ${result.attempts} attempts)` : ""}` };
+  }
+
+  // The READABLE copy. The push is a truncated line whose tap target is the Omi
+  // chat, so anything longer than that line used to be unreadable AND
+  // unrecoverable - the chat it opened did not contain the message. This puts the
+  // full text exactly where the tap lands.
+  //
+  // Runs ALONGSIDE the push, not instead of it and not as a fallback: the push is
+  // the buzz, this is the content. Its failure never degrades the push, because a
+  // delivered alert with no readable body is still better than neither.
+  async sendOmiChat(message) {
+    const means = "omi-chat";
+    if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
+    if (!this.cfg.chatDeliveryEnabled) return { means, ok: false, skipped: "chat delivery off" };
+    // The relay subclass carries no API client at all, and a caller may construct
+    // a Notifier without one. Crashing here would take out the push too, since
+    // both means are awaited together.
+    if (!this.omiApi) return { means, ok: false, skipped: "no Omi API client" };
+    if (!this.omiApi.chatConfigured()) {
+      return { means, ok: false, skipped: "OMI_APP_ID/OMI_IMPORT_API_KEY not sealed" };
+    }
+    const uid = this.store.pinnedUid();
+    if (!uid) return { means, ok: false, skipped: "no pinned uid yet" };
+    const result = await this.omiApi.sendChatMessage({ uid, message });
+    if (result.ok) {
+      this.counters.bump("chat_messages_sent");
+      return { means, ok: true, target: `omi chat ${uid.slice(0, 4)}...` };
+    }
+    this.counters.bump(result.status === 429 ? "chat_messages_rate_limited" : "chat_messages_failed");
+    return { means, ok: false, error: result.error };
   }
 
   // The degrade path: a message into the web-channel PWA thread (the
@@ -201,9 +234,24 @@ export class Notifier {
 // fitting's own server); the web-channel degrade path stays local, so a tick
 // that finds the server down still lands its message somewhere.
 export class RelayNotifier extends Notifier {
+  // The relay holds no credentials by design, so it cannot post to the chat
+  // itself - and must not try. The server's /internal/omi-push sends BOTH the
+  // push and the chat copy, so a relayed message still lands readable; this
+  // receipt just says who did it.
+  async sendOmiChat() {
+    return { means: "omi-chat", ok: false, skipped: "sent by the server via /internal/omi-push" };
+  }
+
   async sendOmi(message) {
     const means = "omi-push";
-    if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
+    // Deliberately does NOT check cfg.notifyEnabled. This runs in the scheduler's
+    // triage process, whose env carries only the triage flags - the notify flag
+    // was never projected there, so the local copy reads false no matter how the
+    // composition is configured. Gating on it made every triage-created card
+    // report "omi-push: notify disabled" and silently degrade to the web thread
+    // nobody reads, which is the exact failure the relay exists to fix. The
+    // SERVER holds the authoritative flag, the daily cap and the ledger, and its
+    // receipt is what comes back below.
     const base = statusFileUrl(FITTING_STATUS_ID, this.env);
     if (!base) return { means, ok: false, skipped: "omi-channel server not running" };
     try {

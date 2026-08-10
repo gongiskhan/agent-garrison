@@ -147,6 +147,12 @@ function makeWebChannelStub() {
   return { server, received };
 }
 
+
+// Receipts are keyed by means, not position: a send now yields the push, the
+// readable omi-chat copy, and the web fallback only when the push failed. Looking
+// them up by name keeps these tests from breaking every time a means is added.
+const by = (receipts: any[], means: string) => receipts.find((r: any) => r.means === means);
+
 describe("Notifier routing and degrade path", () => {
   let home: string;
   let webStub: ReturnType<typeof makeWebChannelStub>;
@@ -191,8 +197,8 @@ describe("Notifier routing and degrade path", () => {
     const before = webStub.received.length;
     const { notifier, apiCalls } = makeNotifier();
     const receipts = await notifier.send({ template: "tip", params: { text: "hi" } });
-    expect(receipts).toHaveLength(1);
-    expect(receipts[0]).toMatchObject({ means: "omi-push", ok: true });
+    expect(by(receipts, "omi-push")).toMatchObject({ means: "omi-push", ok: true });
+    expect(by(receipts, "web-channel")).toBeUndefined(); // push worked, no degrade
     expect(apiCalls).toHaveLength(1);
     expect(webStub.received.length).toBe(before);
   });
@@ -200,8 +206,8 @@ describe("Notifier routing and degrade path", () => {
   it("toggle off routes to the web-channel PWA thread with a skip reason", async () => {
     const { notifier, apiCalls } = makeNotifier({ notifyEnabled: false });
     const receipts = await notifier.send({ template: "tip", params: { text: "fallback please" } });
-    expect(receipts[0]).toMatchObject({ means: "omi-push", ok: false, skipped: "notify disabled" });
-    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: true });
+    expect(by(receipts, "omi-push")).toMatchObject({ means: "omi-push", ok: false, skipped: "notify disabled" });
+    expect(by(receipts, "web-channel")).toMatchObject({ means: "web-channel", ok: true });
     expect(apiCalls).toHaveLength(0);
     const posted = webStub.received.find(
       (r) => r.path.includes("/api/threads/omi-reports/messages") &&
@@ -218,18 +224,18 @@ describe("Notifier routing and degrade path", () => {
       params: { text: "independent web delivery" },
       suppressWebFallback: true
     });
-    expect(receipts[0]).toMatchObject({ means: "omi-push", ok: false, skipped: "notify disabled" });
-    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: false });
-    expect(String(receipts[1].skipped)).toMatch(/suppressed/);
+    expect(by(receipts, "omi-push")).toMatchObject({ means: "omi-push", ok: false, skipped: "notify disabled" });
+    expect(by(receipts, "web-channel")).toMatchObject({ means: "web-channel", ok: false });
+    expect(String(by(receipts, "web-channel").skipped)).toMatch(/suppressed/);
     expect(webStub.received.length).toBe(before);
   });
 
   it("falls back when the Omi API keeps failing, with the failure in the receipt", async () => {
     const { notifier } = makeNotifier({}, [500, 500, 500]);
     const receipts = await notifier.send({ template: "tip", params: { text: "x" } });
-    expect(receipts[0].ok).toBe(false);
-    expect(String(receipts[0].error)).toContain("after 3 attempts");
-    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: true });
+    expect(by(receipts, "omi-push").ok).toBe(false);
+    expect(String(by(receipts, "omi-push").error)).toContain("after 3 attempts");
+    expect(by(receipts, "web-channel")).toMatchObject({ means: "web-channel", ok: true });
   });
 
   it("enforces the per-day cap and degrades past it", async () => {
@@ -239,7 +245,7 @@ describe("Notifier routing and degrade path", () => {
     const second = await notifier.send({ template: "tip", params: { text: "two" } });
     expect(second[0].ok).toBe(false);
     expect(String(second[0].skipped)).toContain("daily cap");
-    expect(second[1]).toMatchObject({ means: "web-channel", ok: true });
+    expect(by(second, "web-channel")).toMatchObject({ means: "web-channel", ok: true });
     expect(counters.read().notify_capped).toBe(1);
   });
 
@@ -379,7 +385,10 @@ describe("RelayNotifier (secretless triage process -> server push relay)", () =>
       expect(relayed).toHaveLength(1);
       expect(relayed[0].path).toBe("/internal/omi-push");
       expect(relayed[0].body).toEqual({ message: "New card from Omi: Email the beta list" });
-      expect(receipts).toEqual([receipt]);
+      // Push receipt from the server, plus the relay's own note that the
+      // chat copy is the server's job (it holds no credentials to do it).
+      expect(by(receipts, "omi-push")).toEqual(receipt);
+      expect(by(receipts, "omi-chat")).toMatchObject({ ok: false, skipped: expect.stringContaining("server") });
     } finally {
       await new Promise<void>((r) => relayStub.close(() => r()));
       await new Promise<void>((r) => webStub.server.close(() => r()));
@@ -400,8 +409,8 @@ describe("RelayNotifier (secretless triage process -> server push relay)", () =>
         template: "card_created",
         params: { title: "Email the beta list" }
       });
-      expect(receipts[0]).toMatchObject({ means: "omi-push", ok: false });
-      expect(receipts[1]).toMatchObject({ means: "web-channel", ok: true });
+      expect(by(receipts, "omi-push")).toMatchObject({ means: "omi-push", ok: false });
+      expect(by(receipts, "web-channel")).toMatchObject({ means: "web-channel", ok: true });
       expect(webStub.received.some((r) => r.path === "/api/threads/omi-reports/messages")).toBe(true);
     } finally {
       await new Promise<void>((r) => relayStub.close(() => r()));

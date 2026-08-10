@@ -170,6 +170,12 @@ export function loadConfig(env = process.env) {
     wakeContextSegments: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_MAX_AGE_MS, 120000),
 
+    // Mirror every outbound message into the Omi CHAT as well as the push. The
+    // push truncates and its tap target is the chat, so without this anything
+    // longer than the notification line is unreadable and unrecoverable. Costs a
+    // second API call per message and is bounded by Omi's 10/hour chat limit.
+    chatDeliveryEnabled: parseBool(env.GARRISON_OMICHANNEL_CHAT_DELIVERY_ENABLED, true),
+
     // Outbound caps (M3)
     notifyMaxPerDay: parseIntOr(env.GARRISON_OMICHANNEL_NOTIFY_MAX_PER_DAY, 50),
     tipsMaxPerDay: parseIntOr(env.GARRISON_OMICHANNEL_TIPS_MAX_PER_DAY, 3),

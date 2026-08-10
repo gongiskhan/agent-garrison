@@ -472,7 +472,18 @@ export function makeRequestHandler(ctx) {
         const message = typeof body?.message === "string" ? body.message.trim() : "";
         if (!message) return jsonRes(res, 400, { error: "Missing message." });
         if (!notifier) return jsonRes(res, 200, { means: "omi-push", ok: false, skipped: "notifier unavailable" });
-        return jsonRes(res, 200, await notifier.sendOmi(message));
+        // Push AND the readable chat copy, so a relayed triage card is as
+        // recoverable as one raised here. Response stays the push receipt
+        // shape the relay expects, with the chat outcome alongside it.
+        const [pushReceipt, chatReceipt] = await Promise.all([
+          notifier.sendOmi(message),
+          // Guarded: the push is the alert and must survive a notifier that
+          // cannot post to chat, rather than 500ing the relay call.
+          typeof notifier.sendOmiChat === "function"
+            ? notifier.sendOmiChat(message)
+            : Promise.resolve({ means: "omi-chat", ok: false, skipped: "not supported" })
+        ]);
+        return jsonRes(res, 200, { ...pushReceipt, chat: chatReceipt });
       }
 
       // ---- Ingress surface. Everything under /omi/ (the public Funnel mount
@@ -665,7 +676,14 @@ export async function startServer(cfg = loadConfig()) {
     cfg: live,
     store,
     counters,
-    omiApi: new OmiApi({ appId: live.secrets.appId, appSecret: live.secrets.appSecret })
+    // importApiKey too: the app API key is what the CHAT endpoint
+    // authenticates with (the App Secret only works for the push API), so
+    // without it every chat copy skips as "not sealed" while the push works.
+    omiApi: new OmiApi({
+      appId: live.secrets.appId,
+      appSecret: live.secrets.appSecret,
+      importApiKey: live.secrets.importApiKey
+    })
   });
   // The full-toolset lane, shared by the wake bus and the chat tool. Nothing
   // blocks on it: both surfaces acknowledge first and notify when it answers.

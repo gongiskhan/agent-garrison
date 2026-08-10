@@ -51,7 +51,18 @@ export function buildManifest(cfg) {
         auth_required: false,
         status_message: "Asking Gary..."
       }
-    ]
+    ],
+    // Lets the app post into the user's chat (docs: ChatTools "Proactive chat
+    // messages"). Without this block at the manifest ROOT the chat-message API
+    // rejects every call, and a push notification's tap target - the chat - stays
+    // empty, which is exactly the "I got a buzz I cannot read" failure.
+    // target "main" so answers land in the chat the notification opens, and
+    // notify false because the push is sent separately and would otherwise double.
+    chat_messages: {
+      enabled: true,
+      target: "main",
+      notify: false
+    }
   };
 }
 

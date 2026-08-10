@@ -150,11 +150,15 @@ Schema:
 }
 
 Rules:
-- create_task: the user wants something done later (a task for the board). When
-  they speak a time ("remind me tomorrow at 9 to call the bank"), also set
-  "scheduled_for" to the absolute ISO 8601 time and "schedule_action" to
-  "notify" - use "run" ONLY when they clearly ask the task to run ITSELF at
-  that time. No spoken time = omit both fields.
+- create_task: the user wants something done later (a task for the board).
+  Whenever they say WHEN - a clock time ("tomorrow at 9"), a day ("amanhã", "on
+  Monday", "next week"), or a relative delay ("in two hours") - set
+  "scheduled_for" to an absolute ISO 8601 time and "schedule_action" to "notify".
+  A DAY WITHOUT A CLOCK TIME still schedules: resolve it to that day at 09:00
+  local. "Remind me" is itself a request to be reminded, so it always schedules
+  when any time reference is present. Use "run" ONLY when they clearly ask the
+  task to run ITSELF at that time. Omit both fields only when NO time reference
+  was spoken at all.
 - create_event: a calendar-shaped ask (a meeting, an appointment). A reminder
   at a time is a create_task with "scheduled_for", not an event.
 - card_command: the user addresses an EXISTING card by its reference - "run

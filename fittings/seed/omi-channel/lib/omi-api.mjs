@@ -35,6 +35,58 @@ export class OmiApi {
     return Boolean(this.appId && this.appSecret);
   }
 
+  chatConfigured() {
+    return Boolean(this.appId && this.importApiKey);
+  }
+
+  // Post a message into the user's Omi CHAT (docs/omi-api-notes.md, ChatTools
+  // "Proactive chat messages"). A different endpoint, credential and body shape
+  // from the direct notification above, so they cannot share a code path:
+  //   POST /v1/integrations/notification   Bearer <APP API KEY>   {uid, aid, message}
+  // note `aid`, not `app_id`, and a real JSON body (the direct API takes query
+  // params and no body at all).
+  //
+  // WHY THIS EXISTS: a push notification truncates, and tapping it opens the Omi
+  // chat - which until now did not contain the message, so any answer longer than
+  // the notification line was simply unreadable and unrecoverable. The chat copy
+  // is the readable one; the push is only the buzz that says look.
+  //
+  // Rate limit is the one Omi documents: 10 per hour per app per user, 429 with
+  // Retry-After. Not retried here - a chat message that is late is worse than
+  // absent, and the push already carried the alert.
+  async sendChatMessage({ uid, message }) {
+    if (!this.chatConfigured()) {
+      return { ok: false, error: "OMI_APP_ID/OMI_IMPORT_API_KEY not sealed", retriable: false, attempts: 0 };
+    }
+    if (!uid) return { ok: false, error: "no uid", retriable: false, attempts: 0 };
+    const text = String(message ?? "").trim();
+    if (!text) return { ok: false, error: "empty message", retriable: false, attempts: 0 };
+    try {
+      const res = await this.fetchImpl(`${this.baseUrl}/v1/integrations/notification`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.importApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ uid, aid: this.appId, message: text }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (res.ok) return { ok: true, attempts: 1 };
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers?.get?.("retry-after")) || null;
+        return { ok: false, status: 429, error: "chat rate limit (10/hour)", retryAfter, retriable: true, attempts: 1 };
+      }
+      if (res.status === 401 || res.status === 403) {
+        this.log.error(
+          "[omi-channel] Omi chat 401/403 - the app needs chat_messages enabled in its manifest and a valid app API key"
+        );
+      }
+      return { ok: false, status: res.status, error: `HTTP ${res.status}`, retriable: false, attempts: 1 };
+    } catch (err) {
+      return { ok: false, error: `network: ${err?.message ?? err}`, retriable: true, attempts: 1 };
+    }
+  }
+
   importConfigured() {
     return Boolean(this.appId && this.importApiKey);
   }

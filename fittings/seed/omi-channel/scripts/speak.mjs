@@ -56,6 +56,9 @@ const flag = (name, fallback = null) => {
 const has = (name) => argv.includes(`--${name}`);
 const QUIET = has("quiet");
 const WAIT_MS = Number(flag("wait", 120)) * 1000;
+// The omi-triage cron period. The conversation path cannot complete faster
+// than the next tick, so the harness must not call that a failure.
+const TRIAGE_PERIOD_MS = 5 * 60 * 1000;
 
 const say = (...a) => {
   if (!QUIET) console.log(...a);
@@ -303,8 +306,15 @@ async function runConverse() {
   say(`[webhook] Omi's title: ${JSON.stringify(n.title)}`);
   say(`[webhook] Omi's action items: ${JSON.stringify((n.action_items ?? []).map((a) => a.description))}`);
 
-  say(`\n[triage] waiting for the triage tick to classify it...`);
-  while (Date.now() < deadline) {
+  // Triage is a scheduler job on a 5-minute cron, so a freshly-arrived event
+  // waits up to a full period before anything looks at it. The default --wait was
+  // shorter than that period, which made a HEALTHY pipeline report failure and
+  // point the finger at the scheduler. Extend the window here rather than
+  // shortening the cron: the wait is a property of this harness, the cron is a
+  // property of the system under test.
+  const tickDeadline = Math.max(deadline, Date.now() + TRIAGE_PERIOD_MS + 90_000);
+  say(`\n[triage] waiting for the next triage tick (5-minute cron, so up to ~6 min)...`);
+  while (Date.now() < tickDeadline) {
     const d = readJson(path.join(eventsDir, `${event.id}.json`), {});
     if (d.status && d.status !== "pending") {
       say(`[triage] status: ${d.status}${d.drop_reason ? ` (${d.drop_reason})` : ""}`);
@@ -316,7 +326,12 @@ async function runConverse() {
     }
     await sleep(3000);
   }
-  return { ok: false, reason: "still pending - is the omi-triage scheduler job running?" };
+  return {
+    ok: false,
+    reason:
+      "event arrived but no triage tick classified it within ~6 min - check the omi-triage job " +
+      "(node fittings/seed/scheduler/scripts/scheduler.mjs list) and $GARRISON_HOME/scheduler.log"
+  };
 }
 
 // ---- mode: ask (the Omi chat tool) -----------------------------------------
