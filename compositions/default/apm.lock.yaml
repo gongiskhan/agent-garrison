@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-06T02:30:28.543349+00:00'
+generated_at: '2026-08-06T16:54:21.737106+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -48,6 +48,23 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/codex-runtime
+- repo_url: _local/cortex-automations
+  name: cortex-automations
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/cortex-automations
+  - .claude/skills/cortex-automations/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/cortex-automations/SKILL.md: sha256:0a598a8827483a068f7e15d5617f7689c89fb466508311de379fe070b7554502
+  source: local
+  local_path: ../../fittings/seed/cortex-automations
+- repo_url: _local/cortex-client
+  name: cortex-client
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/cortex-client
 - repo_url: _local/deepgram-voice
   name: deepgram-voice
   version: 0.1.0

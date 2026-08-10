@@ -9,6 +9,8 @@ dependencies:
     - path: ../../fittings/seed/browser-default
     - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/cortex-automations
+    - path: ../../fittings/seed/cortex-client
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
@@ -257,6 +259,17 @@ x-garrison:
             board_id: vl1Z8KFH
         - id: google
           config: {}
+        - id: cortex-automations
+          config:
+            base_url: http://127.0.0.1:4111
+        - id: cortex-client
+          config:
+            repo_url: https://github.com/gongiskhan/ekoa-code.git
+            git_ref: 8b7d5812f581b06930ec8ce3023e7a21c2d00467
+            base_url: http://127.0.0.1:4111
+            bin_dir: ''
+            clone_dir: ''
+            package_subdir: clients/cortex-cli
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
     duties:
