@@ -4448,9 +4448,17 @@ function App() {
     dragJustEndedRef.current = true;
     setTimeout(() => { dragJustEndedRef.current = false; }, 0);
   }, []);
+  // Drag activation is a deliberate press-and-hold: the pointer must stay down
+  // (moving no more than `tolerance` px) for DRAG_HOLD_MS before a card or column
+  // enters drag mode. This stops accidental reorders from an ordinary click or a
+  // click that drifts a few pixels - you have to mean it. Applied to both the
+  // mouse/trackpad path (PointerSensor) and the touch path (TouchSensor), so cards
+  // AND columns behave identically on either input. A move beyond `tolerance`
+  // before the hold elapses cancels the pending drag and is treated as a click/scroll.
+  const DRAG_HOLD_MS = 2500;
   const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { delay: DRAG_HOLD_MS, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: DRAG_HOLD_MS, tolerance: 8 } })
   );
   // Re-render when the /host-map lands so linkifyText upgrades loopback URLs to
   // their exact serve form (serveMapRev is read only to force the dependency).
