@@ -129,14 +129,19 @@ export function seedBoard() {
       },
       {
         id: "review", title: "Review", order: 5, kind: "agent", trigger: "immediate", phase: "review",
-        executePrompt: "Review the slice diff for correctness then quality; write the review phase's gate-status entry with the verdict.",
-        routerPrompt: "If the review is clean OR the slice is already complete (no real issues), end with `adversarial-review`. Only if real issues remain, end with `implement`. End with the bare token on its own final line.",
+        // Rail-relative, never a hardcoded phase name: a levelled flow's rail may be a
+        // SUBSET of the pipeline (fix L2 is implement -> test -> review -> done), and a
+        // gate record naming a phase the card does not run is refused by the engine and
+        // parks the card (F11 - a passing codex review did exactly that). The Test
+        // batch's equivalent instruction demonstrably keeps the same model on-rail.
+        executePrompt: "Review the slice diff for correctness then quality; write the review phase's gate-status entry with the verdict. Before emitting it, inspect the entry you wrote and replace any stale or invalid `next_phase` so it exactly matches one of THIS card's listed next-options.",
+        routerPrompt: "If the review is clean OR the slice is already complete (no real issues), end with this card's FORWARD next-option. Only if real issues remain, end with `implement`. Both come from the card's listed next-options; end with the bare token on its own final line.",
         validNext: ["adversarial-review", "implement"]
       },
       {
         id: "adversarial-review", title: "Adversarial Review", order: 6, kind: "agent", trigger: "immediate", phase: "adversarial-review",
-        executePrompt: "Run the adversarial review phase: a fresh-context pass that tries to break the diff; iterate to approve; write the phase's gate-status entry.",
-        routerPrompt: "If the adversarial review approves — or there is nothing left to review (already complete/clean) — end with `test`. Only if it found real issues, end with `implement`. End with the bare token on its own final line.",
+        executePrompt: "Run the adversarial review phase: a fresh-context pass that tries to break the diff; iterate to approve; write the phase's gate-status entry. Before emitting it, inspect the entry you wrote and replace any stale or invalid `next_phase` so it exactly matches one of THIS card's listed next-options.",
+        routerPrompt: "If the adversarial review approves — or there is nothing left to review (already complete/clean) — end with this card's FORWARD next-option. Only if it found real issues, end with `implement`. Both come from the card's listed next-options; end with the bare token on its own final line.",
         validNext: ["test", "implement"]
       },
       {
