@@ -47,25 +47,15 @@ def generate_project
 end
 
 platform :ios do
-  # One-time setup: create the App Store Connect app record so TestFlight has
-  # somewhere to receive the build. Idempotent (skips if it already exists).
-  desc "Create the App Store Connect app record (run once)"
-  lane :bootstrap do
-    key = api_key
-    # api_key passed EXPLICITLY: set_spaceship_token alone still sends the
-    # app-record half of produce down the legacy username path (verified on
-    # runs 31665298898 / 31665467224, fastlane 2.236-2.238).
-    produce(
-      api_key: key,
-      app_identifier: BUNDLE_ID,
-      app_name: "Garrison",
-      language: "English",
-      app_version: "1.0",
-      sku: BUNDLE_ID,
-      team_id: TEAM_ID
-    )
-    UI.success("App record ready. You can now run the `beta` lane.")
-  end
+  # There is deliberately NO bootstrap lane. The App Store Connect APP RECORD
+  # cannot be created with API-key auth: produce's record half only speaks
+  # legacy session auth (verified on runs 31665298898/31665467224/31665557720
+  # - "No value found for 'username'", and no api_key option exists), and the
+  # public ASC API has no app-creation endpoint. Creating the record is a
+  # one-time 2-minute browser step (HUMAN_SETUP.md): App Store Connect ->
+  # My Apps -> "+" -> New App -> bundle id com.gomes.garrison, name Garrison.
+  # Everything else here - App IDs, push capability, certificates, profiles,
+  # build, upload - is fully API-key automated.
 
   desc "Build and upload to TestFlight"
   lane :beta do
@@ -95,7 +85,6 @@ platform :ios do
     # MATCH_FORCE=1).
     begin
       produce(
-        api_key: key,
         app_identifier: BUNDLE_ID,
         enable_services: { push_notification: "on" },
         skip_itc: true
