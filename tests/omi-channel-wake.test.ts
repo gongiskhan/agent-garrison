@@ -393,35 +393,59 @@ describe("wake bus sessions", () => {
   });
 });
 
-// Regression, 2026-08-13. The wake lane's delegate prompt said only "using your
-// tools and connected services" while the chat lane's named the Kanban board.
-// Same operative, same operativeFn object, same minute: spoken "what is on my
-// board?" answered "your board is empty - I checked the task list" (its own
-// in-session to-do list, which really was empty) while the chat lane correctly
-// reported 10 To Do / 41 Backlog. Nothing downstream can catch that - the answer
-// is confident, well-formed and wrong - so both prompts are pinned here.
-describe("delegate prompts name the user's real surfaces", () => {
-  const prompts: Array<[string, string]> = [
-    ["wake", buildDelegatePrompt("what is on my board?")],
-    ["chat", buildAskDelegatePrompt("what is on my board?")]
+// Regression, 2026-08-13, found by driving the live channel with speak.mjs.
+//
+// A spoken "what is on my board?" answered "your board is empty - I checked the
+// task list" while the chat lane, in the same minute on the same operativeFn,
+// correctly reported 10 To Do / 41 Backlog. Two causes stacked:
+//
+//   1. the wake lane's prompt said only "using your tools and connected
+//      services" where the chat lane's named the Kanban board; and
+//   2. THERE IS NO KANBAN MCP TOOL. The board is the kanban-loop fitting's HTTP
+//      API, so an operative that is not told the address either curls the right
+//      port by luck or falls back to TaskList - its own session scratchpad,
+//      which is empty at the start of every turn - and reports that as the
+//      user's board.
+//
+// Nothing downstream can catch that: the answer is confident, well-formed, and
+// wrong. Both lanes are pinned here, including that the address is INTERPOLATED
+// rather than baked, since every baked port in this repo has crossed instances.
+describe("delegate prompts point at the real board, not the session scratchpad", () => {
+  const withUrl = (p: string) => p;
+  const lanes: Array<[string, (u: string | null) => string]> = [
+    ["wake", (u) => buildDelegatePrompt("what is on my board?", { boardUrl: u })],
+    ["chat", (u) => buildAskDelegatePrompt("what is on my board?", { boardUrl: u })]
   ];
 
-  it("names the Kanban board explicitly on every lane", () => {
-    for (const [lane, prompt] of prompts) {
-      expect(prompt, lane).toMatch(/Kanban board/i);
+  it("interpolates the resolved board URL rather than baking a port", () => {
+    for (const [lane, build] of lanes) {
+      const prompt = withUrl(build("http://127.0.0.1:9999"));
+      expect(prompt, lane).toContain("http://127.0.0.1:9999/cards");
+      // The committed port family must never appear on its own.
+      expect(prompt, lane).not.toMatch(/8089|7089/);
     }
   });
 
-  it("rules out the operative's own to-do list on every lane", () => {
-    for (const [lane, prompt] of prompts) {
-      expect(prompt, lane).toMatch(/to-do list/i);
-      expect(prompt, lane).toMatch(/never report an empty tool of your own/i);
+  it("falls back to the status file, never to a guessed port, when the board is down", () => {
+    for (const [lane, build] of lanes) {
+      const prompt = withUrl(build(null));
+      expect(prompt, lane).toContain("ui-fittings/kanban-loop.json");
+      expect(prompt, lane).not.toMatch(/127\.0\.0\.1:\d+/);
+    }
+  });
+
+  it("rules out the operative's own task list by name on every lane", () => {
+    for (const [lane, build] of lanes) {
+      const prompt = withUrl(build("http://127.0.0.1:9999"));
+      expect(prompt, lane).toMatch(/TaskList/);
+      expect(prompt, lane).toMatch(/scratchpad/i);
+      expect(prompt, lane).toMatch(/no kanban MCP tool/i);
     }
   });
 
   it("still carries the request itself", () => {
-    for (const [lane, prompt] of prompts) {
-      expect(prompt, lane).toContain("what is on my board?");
+    for (const [lane, build] of lanes) {
+      expect(withUrl(build("http://x")), lane).toContain("what is on my board?");
     }
   });
 });

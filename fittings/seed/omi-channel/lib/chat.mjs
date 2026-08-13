@@ -13,6 +13,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { secretMatches } from "./ingress.mjs";
 import { atomicWriteJSON, ulid } from "./store.mjs";
+import { boardBase } from "./board-client.mjs";
 
 // Target is "under 10 seconds wall time" - abort with headroom for the
 // notification round-trip and Omi's own overhead.
@@ -81,10 +82,18 @@ If answering correctly requires ANY of the things you cannot see, or requires do
 }
 
 // What the OPERATIVE sees for a question escalated out of Omi chat.
-export function buildAskDelegatePrompt(query) {
+export function buildAskDelegatePrompt(query, { boardUrl = null } = {}) {
+  // Same trap as the wake lane's prompt: there is no kanban MCP tool, so an
+  // operative asked about "my board" must be told where the board actually is
+  // or it falls back to its own (always empty) session task list.
+  const boardLine = boardUrl
+    ? `The user's Kanban board is the kanban-loop fitting's HTTP API at ${boardUrl} - read it with GET ${boardUrl}/cards (and /lists), for example via curl. That API is the board; there is no kanban MCP tool.`
+    : `The user's Kanban board is the kanban-loop fitting's HTTP API on this machine; find its address in ~/.garrison/ui-fittings/kanban-loop.json ("url") and read it with GET <url>/cards. There is no kanban MCP tool.`;
   return `The user asked this in their wearable's chat: "${query}"
 
-Answer it properly using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. "My board", "my tasks" and "my cards" always mean the user's KANBAN BOARD, never your own in-session to-do list; read the board through its tool before answering anything about it. If they are asking you to do something, do it. If something is genuinely unavailable (no access, missing credential, service not connected), say exactly what is missing in one sentence rather than guessing, and never report an empty tool of your own as if it were the user's data.
+Answer it properly using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. If they are asking you to do something, do it. If something is genuinely unavailable (no access, missing credential, service not connected), say exactly what is missing in one sentence rather than guessing.
+
+"My board", "my tasks" and "my cards" ALWAYS mean the user's Kanban board. ${boardLine} They NEVER mean your own session to-do list: TaskList/TaskCreate and any similar in-session task tool are YOUR scratchpad for this turn, they are always empty at the start of one, and their contents are not the user's data. Never answer a question about the user's board from them - read the board itself, and if you genuinely could not reach it say so rather than reporting an empty scratchpad as an empty board.
 
 Reply in under 80 words, plain text, no markdown, no preamble. This is delivered to their phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
 }
@@ -125,7 +134,9 @@ export class ChatTool {
         let text = "";
         try {
           const { reply } = await this.operativeFn({
-            prompt: buildAskDelegatePrompt(question),
+            // Resolved at call time from the board's status file - same
+            // discovery contract BoardClient uses, never a baked port.
+            prompt: buildAskDelegatePrompt(question, { boardUrl: boardBase() }),
             sessionTitle: "Omi chat question"
           });
           text = String(reply ?? "").trim();

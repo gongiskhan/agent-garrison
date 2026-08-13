@@ -355,7 +355,7 @@ declare module "*/omi-channel/lib/wake.mjs" {
     note: string;
   } | null;
   export function buildWakePrompt(command: string, projects: string[]): string;
-  export function buildDelegatePrompt(request: string): string;
+  export function buildDelegatePrompt(request: string, opts?: { boardUrl?: string | null }): string;
   export function parseWakeReply(reply: string): {
     intent: "create_task" | "create_event" | "query" | "note" | "unknown";
     title: string;
@@ -400,7 +400,7 @@ declare module "*/omi-channel/lib/wake.mjs" {
 
 declare module "*/omi-channel/lib/chat.mjs" {
   export const ASK_DEADLINE_MS: number;
-  export function buildAskDelegatePrompt(query: string): string;
+  export function buildAskDelegatePrompt(query: string, opts?: { boardUrl?: string | null }): string;
   export function buildManifest(cfg: unknown): {
     tools: Array<{
       name: string;

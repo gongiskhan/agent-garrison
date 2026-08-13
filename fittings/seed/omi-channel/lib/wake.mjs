@@ -274,12 +274,24 @@ export function parseWakeReply(reply) {
 // as the user's board. Vocabulary the user shares with an unrelated tool has to
 // be pinned to the right one here, because nothing downstream can catch it: the
 // answer is confident, well-formed, and wrong.
-export function buildDelegatePrompt(request) {
+export function buildDelegatePrompt(request, { boardUrl = null } = {}) {
+  // The board is NOT an MCP server - there is no kanban tool in the operative's
+  // toolset - so an operative asked about "my board" has to know to call the
+  // fitting's HTTP API, and a fresh session has no way to guess the port. The
+  // fitting already resolves that address from the board's status file, so hand
+  // it over rather than making the model discover it: without this line the
+  // answer is a coin flip between curling the right port and reporting its own
+  // empty TaskList as an empty board.
+  const boardLine = boardUrl
+    ? `The user's Kanban board is the kanban-loop fitting's HTTP API at ${boardUrl} - read it with GET ${boardUrl}/cards (and /lists), for example via curl. That API is the board; there is no kanban MCP tool.`
+    : `The user's Kanban board is the kanban-loop fitting's HTTP API on this machine; find its address in ~/.garrison/ui-fittings/kanban-loop.json ("url") and read it with GET <url>/cards. There is no kanban MCP tool.`;
   return `This request came from the user speaking to their wearable, so the wording may be garbled by transcription - read it for intent, not literally.
 
 Request: "${request}"
 
-Do it now, using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. "My board", "my tasks" and "my cards" always mean the user's KANBAN BOARD, never your own in-session to-do list; read the board through its tool before answering anything about it. Don't ask for confirmation and don't propose a plan - if something is ambiguous, make the reasonable choice and say which one you made. If you genuinely cannot do it (no access, missing credential, service not connected), say exactly what is missing in one sentence - do not pretend it is done, and never report an empty tool of your own as if it were the user's data.
+Do it now, using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. Don't ask for confirmation and don't propose a plan - if something is ambiguous, make the reasonable choice and say which one you made. If you genuinely cannot do it (no access, missing credential, service not connected), say exactly what is missing in one sentence - do not pretend it is done.
+
+"My board", "my tasks" and "my cards" ALWAYS mean the user's Kanban board. ${boardLine} They NEVER mean your own session to-do list: TaskList/TaskCreate and any similar in-session task tool are YOUR scratchpad for this turn, they are always empty at the start of one, and their contents are not the user's data. Never answer a question about the user's board from them - read the board itself, and if you genuinely could not reach it say so rather than reporting an empty scratchpad as an empty board.
 
 Then reply with what you DID (or found), in under 60 words, plain text, no markdown, no preamble. This reply is delivered to the user's phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
 }
@@ -896,7 +908,9 @@ export class WakeBus {
     let ok = false;
     try {
       const { reply } = await this.operativeFn({
-        prompt: buildDelegatePrompt(request),
+        // Resolved at call time from the board's status file, exactly like every
+        // other board call here - never a baked port.
+        prompt: buildDelegatePrompt(request, { boardUrl: this.board?.base?.() ?? null }),
         // One gateway session per Omi capture session keeps a follow-up request
         // ("send that to Ana too") attached to the context that produced it.
         sessionId: sessionId ? `omi-wake:${sessionId}` : null,
