@@ -4769,13 +4769,66 @@ async function handlePatchList(req, res, opts, listId) {
 }
 
 // GET /projects — the git repos under the dev-root (dev-env parity), for the New Card
-// project picker. Returns { devRoot, projects:[{name,path}] }. Read-only + best-effort:
+// project picker, plus the board's explicit label→path mappings. Returns
+// { devRoot, projects:[{name,path}], mapped:{label:{path}} }. Read-only + best-effort:
 // a missing dev-root just yields an empty list (the UI still offers a custom path).
-function handleProjects(req, res) {
+async function handleProjects(req, res, opts) {
   const devRoot = readDevRoot();
   let projects = [];
   try { projects = listProjects(devRoot); } catch { projects = []; }
-  jsonRes(res, 200, { devRoot, projects });
+  let mapped = {};
+  try { mapped = (await loadBoard(opts.root))?.projects || {}; } catch { mapped = {}; }
+  jsonRes(res, 200, { devRoot, projects, mapped });
+}
+
+// The pure half of the mapping write: set (path string) or remove (null) one
+// label in board.projects, never touching anything else on the board. Exported
+// for tests, exactly like applyListConfig.
+export function applyProjectMapping(board, label, targetOrNull) {
+  const projects = { ...(board?.projects || {}) };
+  if (targetOrNull === null) delete projects[label];
+  else projects[label] = { ...(projects[label] || {}), path: targetOrNull };
+  return { ...board, projects };
+}
+
+// The label discipline for a mapping key: a path-ish label is already handled
+// by repoPathForProject's absolute-path branch and must not become a key.
+export function isValidProjectLabel(label) {
+  return typeof label === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(label.trim()) && label.trim() === label;
+}
+
+// PUT /projects/:label — the ONE writer for board.projects, the explicit
+// label→repo-path map that repoPathForProject consults FIRST. Until this
+// existed the map had readers and no writer, so it was empty on every box and
+// any card whose project label differed from its dev-root DIRECTORY name
+// (agent-garrison vs garrison) ran unfenced with no revert target (F7).
+// Body {path: "/abs/repo"} sets the mapping; {path: null} removes it. The path
+// must exist on THIS machine — a mapping to nowhere would turn every fence into
+// a git error instead of an honest skip. rev is the usual optional CAS token.
+async function handlePutProjectMapping(req, res, opts, label) {
+  if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin project mapping rejected" });
+  const name = String(label || "").trim();
+  // Same character discipline as project labels elsewhere: a path-ish label is
+  // already handled by repoPathForProject's absolute-path branch and must not
+  // become a mapping key.
+  if (!isValidProjectLabel(name)) {
+    return jsonRes(res, 400, { error: "invalid project label" });
+  }
+  const body = (await readBody(req)) || {};
+  const { rev: clientRev, path: rawPath } = body;
+  const remove = rawPath === null;
+  let target = null;
+  if (!remove) {
+    target = typeof rawPath === "string" ? rawPath.trim() : "";
+    if (!target || !path.isAbsolute(target)) return jsonRes(res, 400, { error: "path must be an absolute path (or null to remove)" });
+    if (!existsSync(target)) return jsonRes(res, 400, { error: `path does not exist on this machine: ${target}` });
+    target = path.resolve(target);
+  }
+  const expectedRev = Number.isInteger(clientRev) ? clientRev : undefined;
+  const result = await saveBoardCAS(opts.root, expectedRev, (board) => applyProjectMapping(board, name, remove ? null : target));
+  if (result.conflict) return jsonRes(res, 409, { error: "board changed under you — retry the mapping", rev: result.rev });
+  if (result.error) return jsonRes(res, 400, { error: result.error });
+  jsonRes(res, 200, { label: name, path: target, removed: remove, rev: result.rev });
 }
 
 // A remote project card is not placeable until the host can prove its Loadout
@@ -5352,7 +5405,11 @@ export function makeRequestHandler(opts, distDir) {
       // be refused. Deliberately a proxy and not a second reader of policy.json:
       // two shapes over one file is how the two surfaces drift apart.
       if (pathname === "/route-options" && method === "GET") return await handleRouteOptions(req, res, opts);
-      if (pathname === "/projects" && method === "GET") return await handleProjects(req, res);
+      if (pathname === "/projects" && method === "GET") return await handleProjects(req, res, opts);
+      const projectMappingMatch = pathname.match(/^\/projects\/([^/]+)$/);
+      if (projectMappingMatch && method === "PUT") {
+        return await handlePutProjectMapping(req, res, opts, decodeURIComponent(projectMappingMatch[1]));
+      }
       if (pathname === "/skills" && method === "GET") return await handleSkills(req, res);
       // Project Loadout preflight/authoring stays same-origin. The browser sees
       // readiness and secret NAMES only; the host API remains the authority for

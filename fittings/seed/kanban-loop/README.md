@@ -123,7 +123,7 @@ the goal-stop hook (Decision 7 — the sentinel never fires on the shared board 
 `node scripts/kanban.mjs --setup | --probe | --tick | --tick-list <id>`.
 - `--setup` seeds the board, initializes the confined personal workspace, **and**
   registers the Test scheduler beat
-  (`kanban-test-beat`, default cron `0 */5 * * *`, override `KANBAN_TEST_BEAT_CRON`).
+  (`kanban-test-beat`, default cron `0 */2 * * *`, override `KANBAN_TEST_BEAT_CRON`).
 - `--tick` dispatches due immediate agent-list cards through `GARRISON_GATEWAY_URL`.
 - `--tick-list test` runs the batched Test path (one session per execution scope); the Test
   beat calls exactly this.

@@ -141,10 +141,13 @@ export function seedBoard() {
       },
       {
         id: "test", title: "Test", order: 7, kind: "agent", trigger: "scheduler-beat", phase: "test",
-        // Runs on its OWN scheduler beat (default every 5h, editable as a cron), not
+        // Runs on its OWN scheduler beat (default every 2h, editable as a cron), not
         // the global heartbeat, and is BATCHED per project: one session per project
         // against one test plan, one verdict per card (list MECHANICS, preserved — D9).
-        beatCron: "0 */5 * * *",
+        // 2026-08-13: tightened from 5h — the fix flow's modal card finished implement
+        // in nine minutes and then waited hours for its test batch, which is exactly
+        // the latency that sends small work back to a raw session (F8).
+        beatCron: "0 */2 * * *",
         batched: true,
         // A resolved workflow may end at Test (for example develop level 2 is
         // plan -> implement -> review -> test -> done) and therefore never visit

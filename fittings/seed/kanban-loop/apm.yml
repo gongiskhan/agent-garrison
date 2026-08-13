@@ -53,7 +53,7 @@ x-garrison:
       description: Per-card iteration cap; a breach parks the card in needs-attention (the convergence guard).
     - key: test_beat_cron
       type: string
-      default: 0 */5 * * *
+      default: 0 */2 * * *
       description: Cron cadence for the Test list's own scheduler beat (override via KANBAN_TEST_BEAT_CRON). Not the global heartbeat.
     - key: tick_cron
       type: string
