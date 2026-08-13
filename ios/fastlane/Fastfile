@@ -78,19 +78,30 @@ platform :ios do
       ENV["MATCH_GIT_BASIC_AUTHORIZATION"] = Base64.strict_encode64("x-access-token:#{token}")
     end
 
-    # The host app needs Push Notifications on its App ID so the match profile
-    # carries the aps-environment entitlement. Best-effort + idempotent;
-    # non-fatal if the API token can't manage portal capabilities (then enable
-    # Push for the bundle id once in the Developer portal and re-run with
-    # MATCH_FORCE=1).
-    begin
-      produce(
-        app_identifier: BUNDLE_ID,
-        enable_services: { push_notification: "on" },
-        skip_itc: true
-      )
-    rescue => e
-      UI.important("Could not auto-enable Push on #{BUNDLE_ID} (#{e.message}). If signing fails on aps-environment, enable Push Notifications for the App ID in the Developer portal once, then re-run with MATCH_FORCE=1.")
+    # Register the App IDs and their capabilities through the PUBLIC App
+    # Store Connect API (Spaceship::ConnectAPI — token auth works here;
+    # produce refuses token auth on every half, verified across runs
+    # 31665298898/31665467224/31665557720/31665656111). Idempotent. The host
+    # app carries Push Notifications (aps-environment) and App Groups (the
+    # app<->extension spool); the extension carries App Groups.
+    require "spaceship"
+    {
+      BUNDLE_ID => { name: "Garrison", push: true },
+      ext_id => { name: "Garrison Broadcast", push: false }
+    }.each do |identifier, spec|
+      bundle = Spaceship::ConnectAPI::BundleId.all(filter: { identifier: identifier })
+        .find { |b| b.identifier == identifier }
+      bundle ||= begin
+        UI.message("Registering App ID #{identifier}")
+        Spaceship::ConnectAPI::BundleId.create(name: spec[:name], identifier: identifier, platform: "IOS")
+      end
+      existing = bundle.get_capabilities.map(&:capability_type)
+      wanted = ["APP_GROUPS"]
+      wanted << "PUSH_NOTIFICATIONS" if spec[:push]
+      (wanted - existing).each do |capability|
+        UI.message("Enabling #{capability} on #{identifier}")
+        bundle.create_capability(capability)
+      end
     end
 
     match(
