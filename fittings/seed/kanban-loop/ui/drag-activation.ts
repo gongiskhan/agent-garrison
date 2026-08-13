@@ -18,8 +18,15 @@
 //     than by stopping propagation at each one, so the rule lives in one place and
 //     does not depend on which DOM event the active sensor happens to listen to.
 
-/** How long the pointer must stay down before a card or column starts dragging. */
-export const DRAG_HOLD_MS = 2000;
+/**
+ * How long the pointer must stay down before a card or column starts dragging.
+ *
+ * One second, not two. The timer does start at the press - measured, the card
+ * enters drag mode ~90ms after the delay elapses - but a dwell with no feedback
+ * reads as far longer than it is, and two seconds felt like three. A second is
+ * still five times an ordinary click, so it keeps the gesture deliberate.
+ */
+export const DRAG_HOLD_MS = 1000;
 
 /**
  * How far the pointer may drift during the hold before the drag is abandoned.

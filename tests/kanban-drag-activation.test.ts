@@ -69,8 +69,14 @@ describe("shouldActivateDrag - hold anywhere, except text entry", () => {
 });
 
 describe("hold timing", () => {
-  it("is a two-second hold", () => {
-    expect(DRAG_HOLD_MS).toBe(2000);
+  it("is a one-second hold", () => {
+    expect(DRAG_HOLD_MS).toBe(1000);
+  });
+
+  it("stays well clear of an ordinary click", () => {
+    // A click is a couple of hundred milliseconds; the hold must not be
+    // reachable by accident.
+    expect(DRAG_HOLD_MS).toBeGreaterThanOrEqual(750);
   });
 
   it("gives a finger more drift than a mouse", () => {
