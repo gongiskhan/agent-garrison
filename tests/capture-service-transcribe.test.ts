@@ -184,12 +184,19 @@ describe("capture-service transcription", () => {
     expect(url.pathname).toBe("/v1/listen");
     expect(Object.fromEntries(url.searchParams)).toMatchObject({
       model: "nova-3",
-      language: "multi",
+      // Pinned pt, NOT multi: replayed real captures proved multi's streaming
+      // language-ID produces garbage from the short quiet wake-word head.
+      language: "pt",
       encoding: "opus",
       sample_rate: "16000",
-      diarize: "true",
-      interim_results: "true"
+      interim_results: "true",
+      endpointing: "300"
     });
+    // diarize must stay ABSENT (deprecated param; split the single phone-mic
+    // speaker in two on real sessions).
+    expect(url.searchParams.has("diarize")).toBe(false);
+    // keyterm repeats per term (URLSearchParams collapses in the object view).
+    expect(url.searchParams.getAll("keyterm")).toEqual(["Zeca", "companion"]);
     expect(captured[0].auth).toBe(`Token ${DG_KEY}`);
     expect(deepgramUrl(loadConfig({ DEEPGRAM_API_KEY: DG_KEY }))).toContain("model=nova-3");
   });

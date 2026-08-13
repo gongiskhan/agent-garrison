@@ -58,8 +58,18 @@ x-garrison:
       description: Deepgram live model. Verified against current docs at build time (M2); language handling in stt_language.
     - key: stt_language
       type: string
-      default: multi
-      description: Deepgram language parameter. "multi" = code-switching auto-detect (the operator speaks Portuguese and English, often in one session).
+      default: pt
+      description: >-
+        Deepgram language parameter. Pinned to "pt" - replaying real captures
+        proved "multi" misdetects the language from a short quiet wake-word
+        head and renders PT audio as German/Italian garbage; pinned pt with
+        stt_keyterms handles the operator's embedded English fine.
+    - key: stt_keyterms
+      type: string
+      default: Zeca,companion
+      description: >-
+        Comma-separated Deepgram keyterm prompts (nova-3). Lifts wake-word
+        confidence to ~1.0 and rescues embedded English product words.
     - key: classify_target
       type: string
       default: cc-haiku-low

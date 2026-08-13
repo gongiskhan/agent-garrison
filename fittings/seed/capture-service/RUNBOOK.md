@@ -84,6 +84,14 @@ npm run e2e:companion
 # real-key Deepgram smoke (SKIP + exit 0 without the key):
 DEEPGRAM_API_KEY=... node scripts/deepgram-smoke.mjs pt-command
 
+# replay a REAL captured session's packets against live STT with any params
+# (the tool that root-caused the language=multi garbage, 2026-08-13):
+DEEPGRAM_API_KEY=... node scripts/replay-stt.mjs \
+  ~/.garrison/capture/media/<sessionId>/audio.log \
+  "model=nova-3&language=pt&smart_format=true&interim_results=true&keyterm=Zeca"
+# decode a session to a listenable WAV (ogg via python, wav via ffmpeg):
+python3 scripts/audio-log-to-ogg.py ~/.garrison/capture/media/<id>/audio.log /tmp/s.ogg && ffmpeg -i /tmp/s.ogg /tmp/s.wav
+
 # regenerate the committed audio fixtures (macOS: say + ffmpeg):
 bash scripts/make-fixtures.sh
 ```

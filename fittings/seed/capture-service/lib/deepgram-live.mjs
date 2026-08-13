@@ -29,10 +29,18 @@ export function deepgramUrl(cfg) {
     encoding: "opus",
     sample_rate: "16000",
     channels: "1",
-    diarize: "true",
     interim_results: "true",
-    smart_format: "true"
+    smart_format: "true",
+    // 300ms silence finalization (deepgram-voice's proven value): finals land
+    // fast enough for the wake gate without splitting mid-clause.
+    endpointing: "300"
   });
+  // diarize is deliberately ABSENT: on real phone-mic captures it split the
+  // one speaker into two, measurably changed nothing about accuracy, and the
+  // param form we used (diarize=true) is deprecated (2026-08-13 forensics).
+  // Without it every segment carries speaker null -> is_user true, which is
+  // the truth for a single-mic companion session.
+  for (const term of cfg.sttKeyterms ?? []) params.append("keyterm", term);
   // cfg.dgBaseUrl is the sandboxed-E2E mock redirect (env-only test hook);
   // production always resolves to the real endpoint.
   const base = cfg.dgBaseUrl || "wss://api.deepgram.com";
@@ -54,7 +62,11 @@ export function segmentFromResults(msg) {
     // Heuristic: the session owner is normally the dominant first speaker on
     // a phone mic. Used only to LABEL classifier context, never to gate.
     is_user: speaker === null || speaker === 0,
-    final: Boolean(msg.is_final)
+    final: Boolean(msg.is_final),
+    // Stored for observability (transcripts are data, not logs — I5 applies
+    // to logs/counters only): lets a bad session be triaged by confidence
+    // without replaying audio.
+    confidence: typeof alt?.confidence === "number" ? alt.confidence : null
   };
 }
 

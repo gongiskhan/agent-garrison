@@ -57,7 +57,10 @@ function parseCsv(raw) {
 // plain default here rather than re-implementing the retired-variant
 // compatibility read: this fitting shipped after the rename, so no install
 // can hold a pre-rename value.
-export const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
+// "zecke" earned its place from a real transcript: nova-3 multi rendered the
+// wake word as German "Zecke" (2026-08-13). language=pt makes that unlikely
+// to recur, but the variant is cheap insurance against relapses.
+export const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca", "zecke"];
 
 // Gateway URL resolution — GARRISON_GATEWAY_URL, else HOST/PORT pair when the
 // port is explicitly numeric. NEVER a baked port literal. null = the
@@ -99,8 +102,22 @@ export function loadConfig(env = process.env) {
 
     // Deepgram live transcription (M2). Model/language verified against the
     // current docs when the client is written; shapes in docs/api-notes.md.
+    //
+    // language defaults to "pt", NOT "multi": replaying real captured
+    // sessions (2026-08-13 forensics) proved nova-3 multi's streaming
+    // language-ID locks onto the wrong language (German/Italian) from the
+    // short, quiet, name-initial head of a wake utterance and renders
+    // Portuguese audio as garbage ("Zeca" -> "ZeckeSäcke"), while the same
+    // packets pinned to pt transcribe near-perfectly. English words inside a
+    // PT-pinned stream still come out usable (helped by stt_keyterms).
     sttModel: (env.GARRISON_CAPTURESERVICE_STT_MODEL || "").trim() || "nova-3",
-    sttLanguage: (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "multi",
+    sttLanguage: (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "pt",
+    // Keyterm prompting (nova-3): lifts the wake word from conf ~0.74 to
+    // 0.99-1.0 on real captures and rescues embedded English product words.
+    sttKeyterms: (() => {
+      const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
+      return v.length > 0 ? v : ["Zeca", "companion"];
+    })(),
     // Test hooks (omi's OMI_API_BASE_URL precedent): redirect the live STT
     // socket / the APNs gateway to local mocks so sandboxed E2E runs never
     // need real keys. Env-only, never in config_schema — production always
