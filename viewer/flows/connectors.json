@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "flowId": "connectors",
+  "title": "Connectors, from route to sealed-or-not readout",
+  "summary": "The `/connectors` route is a one-line shim onto `ConnectorsPanel`, which fetches the connector list and the vault audit trail together, then renders a card per connector. Whether a card reads \"Vault-sealed\", \"Not sealed\" or \"Status unknown\" is not decided in the component — it comes from `buildConnectorsView`, which folds vault secret names and OAuth health into a single `sealed`/`statusKnown` pair, so a locked vault reads as *unknown*, never as *missing*.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/connectors.yml",
+    "drillbookStep": "ux-functional-smoke",
+    "captureRef": "9bfac5096876/drillbook/drills-pages-connectors.yml--Connectors",
+    "runId": "drillbook"
+  },
+  "anchoredAt": {
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "shortSha": "7becc561",
+    "committedAt": "2026-08-13T11:59:21+01:00"
+  },
+  "tags": [
+    "connectors",
+    "vault",
+    "security"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Connectors",
+      "description": "The drillbook asks that this page present connection state and actions clearly — including the empty and loading states — with no broken layout and, above all, no ambiguous security messaging. The route is a shim; everything meaningful is one client component reading one derived view model.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The route is a one-line shim onto ConnectorsPanel",
+          "kind": "code",
+          "description": "Navigating to `/connectors` lands on a server component that does nothing but render `ConnectorsPanel`. There is no data-loading in the route — the panel is a client component that fetches its own state — which is why the route file is five lines long.",
+          "next": [
+            {
+              "to": "load",
+              "label": "mounts ConnectorsPanel"
+            }
+          ],
+          "sample": {
+            "file": "src/app/connectors/page.tsx",
+            "startLine": 1,
+            "endLine": 5,
+            "lang": "tsx",
+            "highlights": [
+              [
+                4,
+                4
+              ]
+            ],
+            "extractedSha256": "b1b2c79b14b863740611f7da20fb417204aea5948216e3c2a7ca998b2f401d38",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.563Z"
+          }
+        },
+        {
+          "id": "load",
+          "title": "One load fetches the connectors and the audit trail together",
+          "kind": "code",
+          "description": "On mount the panel fires two requests in parallel: `/api/connectors` for the connector list plus vault seal state, and `/api/vault/audit` for the custody ledger. A thrown `c.error` is caught and set into `error`, which drives the alarm banner up top — so a failed load surfaces as a stated error, not a blank grid.",
+          "next": [
+            {
+              "to": "seal",
+              "label": "then render each card"
+            }
+          ],
+          "sample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "startLine": 64,
+            "endLine": 77,
+            "lang": "tsx",
+            "highlights": [
+              [
+                66,
+                69
+              ]
+            ],
+            "extractedSha256": "56b973bafabd8ece6f78fe20554123b1a9d0ef4c790cd0dc81b575274a83d0e1",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.627Z"
+          }
+        },
+        {
+          "id": "seal",
+          "title": "Each card shows sealed, not-sealed, or unknown — never a bare 'missing'",
+          "kind": "code",
+          "description": "This is the security messaging the drillbook guards. A locked vault raises its own alarm banner, and every card branches on `c.statusKnown`: known status shows a green \"Vault-sealed\" or brass \"Not sealed\" pill with a plain-language title; unknown status shows \"Status unknown\" and tells the reader to unlock the Vault. A connector whose credentials simply cannot be read is never rendered as if they were absent.",
+          "next": [
+            {
+              "to": "empty",
+              "label": "or, with no connectors"
+            }
+          ],
+          "sample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "startLine": 215,
+            "endLine": 224,
+            "lang": "tsx",
+            "highlights": [
+              [
+                215,
+                215
+              ]
+            ],
+            "extractedSha256": "35cf17c7f8b669fce16ff6a065c50392a7125921c721ca455a6f7e4e9ead6c00",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.686Z"
+          }
+        },
+        {
+          "id": "empty",
+          "title": "No connectors is an explicit, actionable empty state",
+          "kind": "code",
+          "description": "The grid only renders this block once `data` has loaded AND the list is genuinely empty — so it never flashes during the initial null-data load. It states the situation plainly and tells the operator the remedy: station connector Fittings into the active composition. This is the empty-state the drillbook requires be present and unambiguous.",
+          "next": [
+            {
+              "to": "viewmodel",
+              "label": "where sealed is decided"
+            }
+          ],
+          "sample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "startLine": 334,
+            "endLine": 340,
+            "lang": "tsx",
+            "highlights": [
+              [
+                334,
+                334
+              ]
+            ],
+            "extractedSha256": "8807a376570a984677dacc5e44d5c184534ac87d577d395ddf695724adbc3c9d",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.747Z"
+          }
+        },
+        {
+          "id": "viewmodel",
+          "title": "sealed and statusKnown are decided in the view model, not the UI",
+          "kind": "code",
+          "description": "`buildConnectorsView` is where the card's whole security posture is computed, over secret NAMES and OAuth health only — no secret value passes through. `sealed` is true when a `none`-auth connector needs nothing, an `oauth2` grant is neither revoked nor expired, or every scoped `api_key` secret is present. `statusKnown` is the honesty valve: a locked vault flips it false for anything that actually needs credentials, which is exactly what makes the card upstream read \"unknown\" instead of \"missing\".",
+          "sample": {
+            "file": "src/lib/connectors-view.ts",
+            "startLine": 57,
+            "endLine": 76,
+            "lang": "ts",
+            "highlights": [
+              [
+                59,
+                61
+              ],
+              [
+                75,
+                75
+              ]
+            ],
+            "extractedSha256": "58477b728826e9b92e0b0e93fed8bc41e53db3c38e3eb0c49c972538166787e7",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.813Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-13T11:28:27.813Z"
+}

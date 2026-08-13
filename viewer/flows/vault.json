@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "flowId": "vault",
+  "title": "The Vault page, from route to per-secret custody",
+  "summary": "The `/vault` route is a one-line shim onto `VaultPanel`, a client component that renders entirely from the app shell's vault state. It shows the seal lamp (locked/unlocked) and the key source (OS keychain vs passphrase), gates the whole register behind an unlock, offers an empty-state add-value affordance, and draws each stored secret as a masked-until-revealed lifecycle row. Nothing here fetches directly — the shell has already pulled `/api/vault/secrets`, and the unlock button posts `/api/vault/unlock`.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/vault.yml",
+    "drillbookStep": "ux-functional-smoke",
+    "captureRef": "9bfac5096876/drillbook/drills-pages-vault.yml--Vault",
+    "runId": "drillbook"
+  },
+  "anchoredAt": {
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "shortSha": "7becc561",
+    "committedAt": "2026-08-13T11:59:21+01:00"
+  },
+  "tags": [
+    "vault",
+    "security",
+    "secrets"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Vault",
+      "description": "The drillbook asks that this page communicate security state and empty-state actions clearly, and keep its lifecycle table and controls readable and contained. It is the `/vault` route, and the whole page renders from one client component reading the app shell's vault state.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The route is a one-line shim onto VaultPanel",
+          "kind": "code",
+          "description": "Navigating to `/vault` lands on a server component that does nothing but mount `VaultPanel`. There is no data-loading in the route itself — the panel is a client component that reads everything it needs from the shell context — so the route file is five lines long.",
+          "next": [
+            {
+              "to": "seal-state",
+              "label": "mounts VaultPanel"
+            }
+          ],
+          "sample": {
+            "file": "src/app/vault/page.tsx",
+            "startLine": 1,
+            "endLine": 5,
+            "lang": "tsx",
+            "highlights": [
+              [
+                4,
+                4
+              ]
+            ],
+            "extractedSha256": "961e87028e019760bdb8970e9f425019ca177d5ade0648069ef77b8f00eee14f",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.261Z"
+          }
+        },
+        {
+          "id": "seal-state",
+          "title": "The seal panel reads state and key source from the shell",
+          "kind": "code",
+          "description": "`VaultPanel` pulls `vaultUnlocked` and `vaultKeySource` out of `useAppShell()` and renders the security state directly: the lamp goes live and the heading flips to \"Vault ready\" only when unlocked, and the ledger prints `unlocked`/`locked`, the key source (`OS keychain` by default, or a passphrase source) and the fixed `AES-256-GCM` cipher. `vaultUnlocked` is the one boolean that decides the whole page below.",
+          "next": [
+            {
+              "to": "unlock-action",
+              "label": "then the primary action"
+            }
+          ],
+          "sample": {
+            "file": "src/components/vault/VaultPanel.tsx",
+            "startLine": 58,
+            "endLine": 82,
+            "lang": "tsx",
+            "highlights": [
+              [
+                61,
+                63
+              ],
+              [
+                76,
+                76
+              ]
+            ],
+            "extractedSha256": "515d28980bbba85e51fc0e6565c0db503598c384d0530b70f4da55d1aeeab7fc",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.326Z"
+          }
+        },
+        {
+          "id": "unlock-action",
+          "title": "The primary action is gated on the seal",
+          "kind": "code",
+          "description": "When the vault is sealed the panel shows one button — \"Unlock from keychain\" — which asks the OS keychain for the master key by calling `unlockVault(\"\")`; it disables and reads \"Requesting key…\" while `busy === \"vault\"`. Once unlocked the button is replaced by a static \"Ready for scoped delivery\" mark, so the operator never sees an unlock control for a vault that is already open.",
+          "next": [
+            {
+              "to": "empty-state",
+              "label": "the secret register"
+            }
+          ],
+          "sample": {
+            "file": "src/components/vault/VaultPanel.tsx",
+            "startLine": 83,
+            "endLine": 96,
+            "lang": "tsx",
+            "highlights": [
+              [
+                87,
+                87
+              ]
+            ],
+            "extractedSha256": "d097dc75af51a4aec88bf26e16691f9f75fc2d7a6a4780b5a48786336efb0f22",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.385Z"
+          }
+        },
+        {
+          "id": "empty-state",
+          "title": "The register has two empty states plus an add-value affordance",
+          "kind": "code",
+          "description": "The secret register distinguishes \"sealed\" from \"empty\": while locked (or awaiting a passphrase) it shows a \"Register sealed\" prompt and no names; unlocked but with zero secrets it shows \"No stored values\" and invites an add. The \"Add value\" button (disabled until unlocked) pushes a fresh blank row into `secrets`, which then renders as a `SecretRow`.",
+          "next": [
+            {
+              "to": "secret-row",
+              "label": "each row's lifecycle"
+            }
+          ],
+          "sample": {
+            "file": "src/components/vault/VaultPanel.tsx",
+            "startLine": 128,
+            "endLine": 155,
+            "lang": "tsx",
+            "highlights": [
+              [
+                128,
+                128
+              ],
+              [
+                134,
+                134
+              ]
+            ],
+            "extractedSha256": "74a5946cb437cfc8c43f3f8a5e634d1f1dae3e67b4008e73f26bbe738d7ceb7f",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.465Z"
+          }
+        },
+        {
+          "id": "secret-row",
+          "title": "Each secret is a masked-until-revealed lifecycle row",
+          "kind": "code",
+          "description": "A `SecretRow` never holds plaintext until the operator asks for it: `held` is true only once `secret.value` is a string (revealed or typed), so the value field stays empty and shows the server's non-reconstructable preview as a placeholder. The reveal button is disabled once `held` (or for a never-set row) and fetches exactly one plaintext value on click — the mechanism that keeps a page load from ever surfacing a credential.",
+          "next": [
+            {
+              "to": "vault-api",
+              "label": "where the state comes from"
+            }
+          ],
+          "sample": {
+            "file": "src/components/vault/VaultPanel.tsx",
+            "startLine": 258,
+            "endLine": 292,
+            "lang": "tsx",
+            "highlights": [
+              [
+                288,
+                288
+              ]
+            ],
+            "extractedSha256": "ecb3f4d35484527a7f5bb215de6b4a1d3e4ec17f96a0045b3b1a2f50fcddf98e",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.523Z"
+          }
+        },
+        {
+          "id": "vault-api",
+          "title": "The seal state and secrets come from the shell's API calls",
+          "kind": "dep",
+          "description": "VaultPanel itself makes no fetches — the app shell does. On load `refreshAll()` pulls `/api/vault/secrets` (masks only, never plaintext) alongside the library and compositions; the \"Unlock from keychain\" button posts `/api/vault/unlock` and updates `vaultUnlocked`/`vaultNeedsPassword`/`secrets` from the response; and a per-row reveal posts `/api/vault/secrets/reveal` for exactly one plaintext value, recorded server-side in the audit log.",
+          "note": "Endpoints live in src/components/chrome/AppShell.tsx: refreshAll() fetches /api/vault/secrets; unlockVault() posts /api/vault/unlock; revealSecret() posts /api/vault/secrets/reveal.",
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.523Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-13T11:28:26.523Z"
+}

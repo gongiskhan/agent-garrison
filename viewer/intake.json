@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "answeredAt": "2026-08-13T11:06:23.307Z",
+  "detailLevel": "standard",
+  "flowsOfInterest": [],
+  "llmRunBudget": {
+    "perRun": 0,
+    "used": 0
+  },
+  "credentialsRef": null,
+  "cleanupArmed": false,
+  "proseLanguage": "en",
+  "note": "Autonomous full-run intake (no operator present): standard detail, English prose, zero LLM run budget for the app’s own features, cleanup disarmed, no credentials needed (e2e sandbox is self-contained). See RUN_SPEC assumptions A1-A6."
+}

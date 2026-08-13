@@ -1,0 +1,126 @@
+{
+  "flowId": "composition",
+  "title": "The Composition page, from route to editable slots",
+  "summary": "`/muster` is a one-line server route onto `MusterPage`, a client component that loads the whole composition once and paints it as a tabbed console. A frozen readiness ledger sits under the header on every tab; the six section tabs mount only the active panel, so the heavy surfaces — Standing Fittings' slot cards and the routing-policy editor — fetch and render only when you open them, and each writes back with optimistic, no-Save-button autosave.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/composition.yml",
+    "drillbookStep": "ux-functional-smoke",
+    "captureRef": "9bfac5096876/drillbook/drills-pages-composition.yml--Composition",
+    "runId": "drillbook"
+  },
+  "runStatus": "not-executed",
+  "spine": [
+    {
+      "id": "s1a1",
+      "action": "goto",
+      "url": "/muster"
+    }
+  ],
+  "tags": [
+    "composition",
+    "muster",
+    "fittings",
+    "readiness"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Composition",
+      "description": "The drillbook asks that this page make the selected composition, its readiness, its duties, its targets, and the editing affordances understandable and usable — no visual collisions, no unexplained controls. It is the shell-owned surface where the whole system is configured, and it renders from one client component with per-tab panels.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The route is a shim onto one client component",
+          "kind": "code",
+          "description": "Navigating to `/muster` lands on a server component that does nothing but mount `MusterPage`. There is no data-loading in the route itself — the eight-line file just returns the client component, which owns the fetch, the drag context and the autosave.",
+          "next": [
+            {
+              "to": "shell",
+              "label": "mounts MusterPage"
+            }
+          ],
+          "file": "src/app/muster/page.tsx",
+          "startLine": 1,
+          "endLine": 8,
+          "lang": "tsx",
+          "highlights": [
+            [7, 7]
+          ]
+        },
+        {
+          "id": "shell",
+          "title": "A tablist over the composition, one panel mounted at a time",
+          "kind": "code",
+          "description": "`MusterPage` renders a tablist and a single stage. The active section is a piece of local state, and the stage is a chain of conditionals — only the matching panel mounts. That is deliberate: the heavy panels (Standing Fittings, the routing policy, the decisions feed) each own a separate fetch and only reach the network when their tab is opened, so the page is a focused single panel instead of one long scroll.",
+          "next": [
+            {
+              "to": "readiness",
+              "label": "readiness sits above the tabs"
+            }
+          ],
+          "file": "src/components/muster/MusterPage.tsx",
+          "startLine": 434,
+          "endLine": 482,
+          "lang": "tsx",
+          "highlights": [
+            [447, 447],
+            [481, 482]
+          ]
+        },
+        {
+          "id": "readiness",
+          "title": "The readiness pill is fixed above the tabs",
+          "kind": "code",
+          "description": "The command bar carries the composition's identity and one go/no-go pill driven straight off `model.ready` — Ready to run vs Not ready. It is rendered by `MusterHeader` alongside the composition switcher, and the full per-rule ledger (`ReadinessDetail`) sits under it always-mounted, not behind a tab, so run-readiness is visible the instant the page loads whatever section is open.",
+          "next": [
+            {
+              "to": "standing",
+              "label": "the Fittings tab lists what's stationed"
+            }
+          ],
+          "file": "src/components/muster/MusterView.tsx",
+          "startLine": 60,
+          "endLine": 97,
+          "lang": "tsx",
+          "highlights": [
+            [69, 69]
+          ]
+        },
+        {
+          "id": "standing",
+          "title": "Standing Fittings is the 'what's stationed' surface",
+          "kind": "code",
+          "description": "The Fittings tab is the non-duty half of the page: one `SlotCard` per infrastructure faculty (channels, gateway, memory, observability, sessions, surfaces, connectors), each showing its stationed fitting(s), a config form and a Swap picker. This is the grid render — it maps the search-filtered slots to slot cards, wiring each slot's swap/remove/config/edit handlers so the operator can see and re-equip every slot from one view.",
+          "next": [
+            {
+              "to": "policy",
+              "label": "deeper: the routing-policy editor"
+            }
+          ],
+          "file": "src/components/muster/StandingFittings.tsx",
+          "startLine": 382,
+          "endLine": 402,
+          "lang": "tsx",
+          "highlights": [
+            [384, 395]
+          ]
+        },
+        {
+          "id": "policy",
+          "title": "The routing-policy editor autosaves with optimistic-concurrency safety",
+          "kind": "code",
+          "description": "The Orchestrator tab's Routing policy surface is the deepest editing affordance here: every committed edit debounces an 800ms whole-document PUT carrying a baseline sha. The response is the interesting part — a 409 means someone else moved the document (conflict banner, no write), and a 422 means the edit was rejected, so it reverts the draft to the last known-good config and surfaces why. There is no Save button; the concurrency guard is what makes silent autosave safe.",
+          "file": "src/components/muster/PolicyPanel.tsx",
+          "startLine": 216,
+          "endLine": 230,
+          "lang": "tsx",
+          "highlights": [
+            [221, 229]
+          ]
+        }
+      ]
+    }
+  ]
+}

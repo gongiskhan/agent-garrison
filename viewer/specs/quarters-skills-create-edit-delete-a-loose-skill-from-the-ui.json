@@ -1,0 +1,163 @@
+{
+  "flowId": "quarters-skills-create-edit-delete-a-loose-skill-from-the-ui",
+  "title": "Quarters Skills: create → edit → delete a loose skill from the UI",
+  "summary": "This e2e drives the full create → edit → delete cycle for a loose skill, but the recorded run FAILED: only the create-and-save half actually completed. The four captured actions all succeeded — land on `/quarters/skills`, open the New-skill drawer, type `demo-skill-e2e` (which prefills the SKILL.md template), and click Create — and that click POSTs `{action:\"file.create\", surface:\"skill\"}` to `/api/quarters`, writing a loose SKILL.md straight into `~/.claude/skills/`. What did NOT run in this sandbox is everything the test asserts AFTER that save: the new row appearing in the list, the Edit round-trip, and the Remove/confirm delete. Those later steps are narrated as not-verified, not as a passing happy path.",
+  "source": "e2e",
+  "provenance": {
+    "testFile": "tests/e2e/quarters-crud.spec.ts",
+    "captureRef": "9bfac5096876/e2e/tests-e2e-quarters-crud.spec.ts--Quarters-Skills-create-edit-delete-a-loose-skill-from-the-UI--desktop-chromium",
+    "runId": "e2e"
+  },
+  "runStatus": "failed",
+  "detailLevel": "standard",
+  "tags": [
+    "quarters",
+    "skills",
+    "crud",
+    "e2e-failed"
+  ],
+  "spine": [
+    {
+      "id": "s1a1",
+      "action": "goto",
+      "url": "/quarters/skills"
+    },
+    {
+      "id": "s1a2",
+      "action": "click",
+      "url": "/quarters/skills"
+    },
+    {
+      "id": "s1a3",
+      "action": "fill",
+      "url": "/quarters/skills"
+    },
+    {
+      "id": "s1a4",
+      "action": "click",
+      "url": "/quarters/skills"
+    }
+  ],
+  "states": [
+    {
+      "id": "s1",
+      "label": "/quarters/skills",
+      "description": "The Quarters Skills surface, reached by the dynamic `[type]` route with `type = skills`. The captured half of this run creates a loose skill and saves it; the edit and delete legs the title promises did not complete in this run.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The [type] route resolves `skills` to the primitive list panel",
+          "kind": "code",
+          "description": "`/quarters/skills` lands on the single dynamic Quarters page. It looks the slug up in the category table (`categoryBySlug(\"skills\")`), 404s on an unknown one, then dispatches on kind. `skills` is `kind: \"primitives\"`, so it renders `PrimitiveListPanel` — the same generic panel every package surface (Hooks/MCPs/Scripts…) uses — passing it the resolved category.",
+          "next": [
+            {
+              "to": "s1a2",
+              "label": "panel shows the create button"
+            }
+          ],
+          "file": "src/app/quarters/[type]/page.tsx",
+          "startLine": 11,
+          "endLine": 23,
+          "lang": "tsx",
+          "highlights": [
+            [
+              21,
+              21
+            ]
+          ]
+        },
+        {
+          "id": "s1a2",
+          "title": "Click `create-skill` opens the New-skill drawer",
+          "kind": "code",
+          "description": "The panel renders one create button per creatable surface; for `skills` that is a single `data-testid=\"create-skill\"` button (the testid is `create-${surface}`). Clicking it doesn't fetch anything — it just sets `editing = { surface: \"skill\", rec: null }`, and `rec: null` is what tells the editor it is in CREATE mode. That state mounts the skill editor drawer (`FilePrimitiveForm`) further down the component.",
+          "next": [
+            {
+              "to": "s1a3",
+              "label": "type the skill name"
+            }
+          ],
+          "file": "src/components/quarters/PrimitiveListPanel.tsx",
+          "startLine": 152,
+          "endLine": 162,
+          "lang": "tsx",
+          "highlights": [
+            [
+              156,
+              157
+            ]
+          ]
+        },
+        {
+          "id": "s1a3",
+          "title": "Fill `demo-skill-e2e` — the name prefills the SKILL.md template",
+          "kind": "code",
+          "description": "This is not an inert text box. On create, typing into the name field also rewrites the still-pristine content: as long as the body is untouched, each keystroke calls `setContent(template(next))`, so `demo-skill-e2e` flows into the SKILL.md frontmatter (`name: demo-skill-e2e`). That is exactly what the test's very next assertion checks (`file-content` matches `name: demo-skill-e2e`). This step is real UI logic, so it is kept as code rather than folded to glue.",
+          "next": [
+            {
+              "to": "s1a4",
+              "label": "click Create"
+            }
+          ],
+          "file": "src/components/quarters/FilePrimitiveForm.tsx",
+          "startLine": 135,
+          "endLine": 146,
+          "lang": "tsx",
+          "highlights": [
+            [
+              144,
+              144
+            ]
+          ]
+        },
+        {
+          "id": "s1a4",
+          "title": "Click `file-save` — POST file.create writes the loose skill",
+          "kind": "code",
+          "description": "The last recorded action, and the climax of the half that ran. The `file-save` button calls `save()`, which — because `rec` is null (create) — builds the body `{action:\"file.create\", surface:\"skill\", name:\"demo-skill-e2e\", content}` and POSTs it to `/api/quarters`. On a non-ok response or `ok:false` it throws into the drawer's error banner; on success it calls `onSaved()` to close the drawer and reload the list. This POST is what the write-path step describes; it is also where the recorded capture ends.",
+          "next": [
+            {
+              "to": "write-through",
+              "label": "server writes ~/.claude"
+            }
+          ],
+          "file": "src/components/quarters/FilePrimitiveForm.tsx",
+          "startLine": 79,
+          "endLine": 98,
+          "lang": "tsx",
+          "highlights": [
+            [
+              84,
+              84
+            ],
+            [
+              86,
+              90
+            ]
+          ]
+        },
+        {
+          "id": "write-through",
+          "title": "The write path — /api/quarters → createFilePrimitive",
+          "kind": "filewrite",
+          "description": "The POST hits `src/app/api/quarters/route.ts`, whose handler calls `runQuartersAction(body)`. The `file.create` case dispatches to `createFilePrimitive(surface, name, content)` — a direct Garrison filesystem write of a loose skill under `~/.claude/skills/`, NOT an `apm install` (APM only owns the promote/park lifecycle for skills, not a hand-authored loose one). The handler returns `{ok:true}` and the panel refetches `/api/quarters`. That much succeeded in this run.",
+          "next": [
+            {
+              "to": "not-verified-note",
+              "label": "…but the rest of the cycle did not run"
+            }
+          ],
+          "asciiSample": "POST /api/quarters\n  { action: \"file.create\", surface: \"skill\",\n    name: \"demo-skill-e2e\", content: \"---\\nname: demo-skill-e2e\\n...\" }\n\n-> runQuartersAction()  (src/lib/quarters.ts, case \"file.create\")\n-> createFilePrimitive(\"skill\", \"demo-skill-e2e\", content)\n-> writes ~/.claude/skills/demo-skill-e2e/SKILL.md   (loose, Garrison-direct)\n<- { ok: true }"
+        },
+        {
+          "id": "not-verified-note",
+          "title": "What this run did NOT verify (edit → delete)",
+          "kind": "glue",
+          "collapsed": true,
+          "description": "runStatus = failed. Beyond the save above, the test goes on to assert the new `primitive-skill:demo-skill-e2e` row is visible, then Edit it (reload body, change it, save via `file.update`), then Remove it (Remove → confirm dialog → `file.delete`, row count back to 0), and finally that the seeded `garrison-memory` skill survives. None of that edit → delete cycle completed in this sandbox run, so it is stated here as unverified rather than narrated as a pass."
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-13T00:00:00.000Z"
+}

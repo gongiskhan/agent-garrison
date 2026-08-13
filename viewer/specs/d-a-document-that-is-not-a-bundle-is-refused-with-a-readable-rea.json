@@ -1,0 +1,184 @@
+{
+  "flowId": "d-a-document-that-is-not-a-bundle-is-refused-with-a-readable-rea",
+  "title": "(d) a document that is not a bundle is refused with a readable reason",
+  "summary": "Paste a lone `{` into the Import box and the panel refuses it with a sentence, not a stack trace. The read handler POSTs the pasted text to `/api/compositions/import` with `preview:true`; the server's `parseCompositionBundle` fails `JSON.parse` and throws a human sentence, which comes back as a 400 body and is shown verbatim in the import error alert. The refusal is decided on the server — the paste box does not parse client-side, deliberately, so the error is spoken in one voice.",
+  "source": "e2e",
+  "provenance": {
+    "testFile": "tests/e2e/muster-transfer.spec.ts",
+    "captureRef": "9bfac5096876/e2e/tests-e2e-muster-transfer.spec.ts--d-a-document-that-is-not-a-bundle-is-refused-with-a-readable-reason--desktop-chromium",
+    "runId": "e2e"
+  },
+  "runStatus": "passed",
+  "spine": [
+    {
+      "id": "s1a1",
+      "action": "goto",
+      "url": "/muster?composition=transfer-e2e-fixture&section=transfer"
+    },
+    {
+      "id": "s1a2",
+      "action": "click",
+      "url": "/muster?composition=transfer-e2e-fixture&section=transfer"
+    },
+    {
+      "id": "s1a3",
+      "action": "fill",
+      "url": "/muster?composition=transfer-e2e-fixture&section=transfer"
+    },
+    {
+      "id": "s1a4",
+      "action": "click",
+      "url": "/muster?composition=transfer-e2e-fixture&section=transfer"
+    }
+  ],
+  "detailLevel": "standard",
+  "tags": [
+    "muster",
+    "transfer",
+    "import",
+    "validation"
+  ],
+  "states": [
+    {
+      "id": "s1",
+      "label": "Import / Export — a non-bundle is refused",
+      "description": "The Muster Transfer tab's Import bay. The test opens the paste box, types a single `{` (a document that is not a Garrison bundle), and asks the panel to read it. The expected outcome is not a crash but a readable refusal — this flow walks from the route to the sentence the user sees.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The /muster route is a shim onto MusterPage",
+          "kind": "code",
+          "description": "Navigating to `/muster?...&section=transfer` lands on a three-line server component that mounts `MusterPage`; the section query param selects the Transfer tab inside it, and the Transfer tab hosts the Import bay whose paste box this flow drives. There is no data-loading in the route itself.",
+          "next": [
+            {
+              "to": "s1a2",
+              "label": "open the paste box"
+            }
+          ],
+          "file": "src/app/muster/page.tsx",
+          "startLine": 1,
+          "endLine": 8,
+          "lang": "tsx",
+          "highlights": [
+            [
+              7,
+              7
+            ]
+          ]
+        },
+        {
+          "id": "s1a2",
+          "title": "Open the paste box",
+          "kind": "glue",
+          "collapsed": true,
+          "description": "Click `import-paste-toggle` (the \"or paste JSON\" link button). It flips local `pasteOpen` state to reveal the textarea — no logic worth banding.",
+          "next": [
+            {
+              "to": "s1a3",
+              "label": "type the non-bundle"
+            }
+          ]
+        },
+        {
+          "id": "s1a3",
+          "title": "Type `{` — a document that is not a bundle",
+          "kind": "glue",
+          "collapsed": true,
+          "description": "Fill the `import-paste` textarea with a lone `{`. This is the whole point of the case: a single brace is well-formed-looking but not parseable JSON and carries none of a bundle's shape. It only updates `pasteText` state.",
+          "next": [
+            {
+              "to": "s1a4",
+              "label": "ask the panel to read it"
+            }
+          ]
+        },
+        {
+          "id": "s1a4",
+          "title": "Read the pasted text — the climax action",
+          "kind": "code",
+          "description": "Click `import-paste-read`. Its handler calls `accept(pasteText)`, which hands the raw string straight to `runPreview` — the paste box never parses client-side, so the `{` travels to the server as-is. This is the action under test; everything after it is how the refusal comes back.",
+          "next": [
+            {
+              "to": "run-preview",
+              "label": "POST to the import endpoint"
+            }
+          ],
+          "file": "src/components/muster/TransferPanel.tsx",
+          "startLine": 519,
+          "endLine": 527,
+          "lang": "tsx",
+          "highlights": [
+            [
+              523,
+              523
+            ]
+          ]
+        },
+        {
+          "id": "run-preview",
+          "title": "runPreview POSTs the raw text and catches the refusal",
+          "kind": "code",
+          "description": "`runPreview` POSTs `{ bundle: \"{\", preview: true }` to `/api/compositions/import` — a real server round-trip; the client does no parsing of its own. When the server answers non-2xx it throws `data.error`, and the catch writes that message into `error` state and drops back to the empty phase. Whatever readable sentence the server produced is now the user-facing reason.",
+          "next": [
+            {
+              "to": "server-parse",
+              "label": "where the server decides it is not a bundle"
+            }
+          ],
+          "file": "src/components/muster/TransferPanel.tsx",
+          "startLine": 302,
+          "endLine": 331,
+          "lang": "tsx",
+          "highlights": [
+            [
+              310,
+              310
+            ],
+            [
+              325,
+              325
+            ]
+          ]
+        },
+        {
+          "id": "server-parse",
+          "title": "parseCompositionBundle refuses the non-bundle with a sentence",
+          "kind": "code",
+          "description": "The import route calls `parseCompositionBundle` on the pasted text — the same predicate that validates an untrusted bundle on a real import. `JSON.parse(\"{\")` throws, and the catch replaces the raw parser error with a human sentence: \"that file is not valid JSON - a composition bundle is a .garrison.json document.\" The route returns it as a 400 body. This is the line where the refusal is decided.",
+          "next": [
+            {
+              "to": "surface-error",
+              "label": "shown back in the panel"
+            }
+          ],
+          "file": "src/lib/composition-transfer.ts",
+          "startLine": 337,
+          "endLine": 344,
+          "lang": "ts",
+          "highlights": [
+            [
+              342,
+              342
+            ]
+          ]
+        },
+        {
+          "id": "surface-error",
+          "title": "The reason renders in the import error alert",
+          "kind": "code",
+          "description": "Back in the panel, the `error` state set by `runPreview` renders in the `import-error` alert region — \"That did not work\" over the server's exact sentence. The test asserts against this text, so the flow ends with a readable reason on screen and nothing written to disk.",
+          "file": "src/components/muster/TransferPanel.tsx",
+          "startLine": 534,
+          "endLine": 542,
+          "lang": "tsx",
+          "highlights": [
+            [
+              539,
+              539
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

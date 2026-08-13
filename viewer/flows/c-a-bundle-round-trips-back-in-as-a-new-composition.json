@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "flowId": "c-a-bundle-round-trips-back-in-as-a-new-composition",
+  "title": "A composition bundle round-trips out and back in as a new composition",
+  "summary": "The Muster Import/Export tab makes a composition a portable document and proves the loop closes: an export assembles one `.garrison.json` that NAMES the vault keys it needs but never carries their values, and an import previews that bundle against THIS machine (missing fittings, unset keys, a free landing id), stages it into a hidden sibling, and lands it as a brand-new composition — refusing, by design, to overwrite one that already exists. The e2e drives the whole thing through the paste box: download, paste, read+preview, choose an id, submit.",
+  "source": "e2e",
+  "provenance": {
+    "testFile": "tests/e2e/muster-transfer.spec.ts",
+    "captureRef": "9bfac5096876/e2e/tests-e2e-muster-transfer.spec.ts--c-a-bundle-round-trips-back-in-as-a-new-composition--desktop-chromium",
+    "runId": "e2e"
+  },
+  "anchoredAt": {
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "shortSha": "7becc561",
+    "committedAt": "2026-08-13T11:59:21+01:00"
+  },
+  "tags": [
+    "muster",
+    "transfer",
+    "import-export",
+    "composition"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Muster · Import / Export",
+      "description": "The one shell-owned surface where a composition becomes a document and comes back. The test opens the transfer section for a fixture composition, exports it, then pastes that same bundle back in and imports it under a fresh id — a full out-and-back-again round trip through the panel.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "Open Muster on the transfer section",
+          "kind": "code",
+          "description": "The `/muster` route is a one-line server shim onto `MusterPage`; `?section=transfer` is what selects the Import/Export tab, whose whole UI is `TransferPanel`. The panel is split into two bays — an ExportBay for the fixture composition and an ImportBay — and it is deliberately explicit on both sides: export lists every file that travels AND everything that pointedly does not, and import always previews against this machine before writing anything.",
+          "next": [
+            {
+              "to": "s1a2",
+              "label": "the export bay"
+            }
+          ],
+          "sample": {
+            "file": "src/app/muster/page.tsx",
+            "startLine": 6,
+            "endLine": 8,
+            "lang": "tsx",
+            "highlights": [
+              [
+                7,
+                7
+              ]
+            ],
+            "extractedSha256": "efbcb5b1957a959cff583877c50bb50a974c75d0bc8e4ca1403bad48037ed2ff",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.430Z"
+          }
+        },
+        {
+          "id": "s1a2",
+          "title": "Click Download bundle",
+          "kind": "code",
+          "description": "The download control is a plain relative-href anchor to `/api/compositions/<id>/export?download=1` — relative on purpose, because the browser is almost never on the Garrison box and an absolute machine-local URL would be unreachable and, over HTTPS, blocked as mixed content. The href is what the test follows to get the `.garrison.json` bytes it will paste back in.",
+          "next": [
+            {
+              "to": "export-assembly",
+              "label": "what the export assembles"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/TransferPanel.tsx",
+            "startLine": 176,
+            "endLine": 183,
+            "lang": "tsx",
+            "highlights": [
+              [
+                178,
+                178
+              ]
+            ],
+            "extractedSha256": "bd6dffcd26199ab66ca7d189c0a78719e48d6a5009c505e140e27f53893ccb00",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.494Z"
+          }
+        },
+        {
+          "id": "export-assembly",
+          "title": "Export assembles a secrets-named-not-carried bundle",
+          "kind": "code",
+          "description": "`buildCompositionBundle` is what the export endpoint calls. It carries the `apm.yml` manifest verbatim, the allow-listed authored files, and a `requirements` block — the stationed fittings and, crucially, `requiredSecretKeys(...)`: the vault key NAMES the composition needs. Those names travel; their values never do. The `excluded` list spells out everything the recipient must supply themselves (the `.env`, the vault contents, `local.yml`, the lockfile), so nothing leaks and nothing is a surprise on the far side.",
+          "next": [
+            {
+              "to": "allow-list",
+              "label": "which files may travel"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/composition-transfer.ts",
+            "startLine": 289,
+            "endLine": 300,
+            "lang": "ts",
+            "highlights": [
+              [
+                297,
+                298
+              ]
+            ],
+            "extractedSha256": "c347a201f19d49529ba9f14083e09ac8f1535b3145c8df859a9eb4621d4e54ee",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.586Z"
+          }
+        },
+        {
+          "id": "allow-list",
+          "title": "One predicate decides what a bundle may carry",
+          "kind": "code",
+          "description": "`compositionExportPathAllowed` is the single gate. It is an ALLOW-list (unlike composition-clone's deny-list) because a bundle is a SHARE artifact — an unrecognised file beside a manifest must never ride along, since the failure mode is leaking a credential someone dropped there. It rejects anything absolute, escaping, or in `NEVER_TRANSFER` (`.env`, `local.yml`, the lockfile), then requires the dir+name to match one of the `EXPORT_FILE_RULES`. The same predicate runs on import, so an untrusted bundle can only ever name a path the exporter could have produced.",
+          "next": [
+            {
+              "to": "s1a3",
+              "label": "now the import side"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/composition-transfer.ts",
+            "startLine": 97,
+            "endLine": 107,
+            "lang": "ts",
+            "highlights": [
+              [
+                104,
+                104
+              ],
+              [
+                106,
+                106
+              ]
+            ],
+            "extractedSha256": "6705a447d97d39c75e7441de7655da14e3ced85a646186fffabb4dfa7cb69dbf",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.639Z"
+          }
+        },
+        {
+          "id": "s1a3",
+          "title": "Reveal the paste box",
+          "kind": "glue",
+          "description": "Clicks `import-paste-toggle`, flipping `pasteOpen` so the ImportBay shows a textarea instead of expecting a dropped file — the e2e imports by paste, not drag-and-drop.",
+          "collapsed": true,
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.639Z"
+          }
+        },
+        {
+          "id": "s1a4",
+          "title": "Paste the exported bundle JSON",
+          "kind": "glue",
+          "description": "Fills the `import-paste` textarea with the `.garrison.json` text captured from the export download — just typing into local `pasteText` state, no request yet.",
+          "collapsed": true,
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.639Z"
+          }
+        },
+        {
+          "id": "s1a5",
+          "title": "Read the pasted bundle (first preview)",
+          "kind": "code",
+          "description": "Clicking `import-paste-read` runs `accept`, which stashes the raw text and calls `runPreview` — a POST to `/api/compositions/import` with `preview: true`. The server is the only parser (pasted text is untrusted), so this is where the bundle is validated and inspected against THIS machine. On success it seeds the id/name fields from the bundle, landing on the FREE id the server picked rather than one that would fail on submit.",
+          "next": [
+            {
+              "to": "import-api",
+              "label": "the preview endpoint"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/TransferPanel.tsx",
+            "startLine": 300,
+            "endLine": 331,
+            "lang": "tsx",
+            "highlights": [
+              [
+                303,
+                307
+              ]
+            ],
+            "extractedSha256": "2db1bdb058d1c76d021d38f7c9e2a36dc3ca13326fac40466c6d644f7cb40ab1",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.700Z"
+          }
+        },
+        {
+          "id": "import-api",
+          "title": "The import route previews without writing",
+          "kind": "code",
+          "description": "The POST handler parses the untrusted body into a bundle, and when `preview: true` it calls `inspectCompositionBundle` and returns the inspection — writing NOTHING. The inspection is the honest verdict: which fittings are missing here, which vault keys are unset, what files it would write, and the id that is actually free. The panel always previews before it imports, because an import that surprises you is one you have to undo by hand.",
+          "next": [
+            {
+              "to": "s1a6",
+              "label": "choose where it lands"
+            }
+          ],
+          "sample": {
+            "file": "src/app/api/compositions/import/route.ts",
+            "startLine": 33,
+            "endLine": 47,
+            "lang": "ts",
+            "highlights": [
+              [
+                37,
+                40
+              ]
+            ],
+            "extractedSha256": "f71f7bdecbbfeec0833df23762fb45eb6346eeeb1750739af6cc5366d42a5fe6",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.762Z"
+          }
+        },
+        {
+          "id": "s1a6",
+          "title": "Type the source id (re-previews, reads as taken)",
+          "kind": "glue",
+          "description": "Fills `import-id` with `transfer-e2e-fixture` — the source's own id, which already exists here. A debounced `runPreview` re-checks availability; `requestedIdAvailable` comes back false and the field warns the id is taken. This is the round trip proving import never overwrites.",
+          "collapsed": true,
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.762Z"
+          }
+        },
+        {
+          "id": "s1a7",
+          "title": "Type a free id for the new composition",
+          "kind": "glue",
+          "description": "Fills `import-id` with `transfer-e2e-imported`, a name not on disk. The debounced re-preview reports it free (`requestedIdAvailable` true), and Import un-disables once `checkedId` catches up to the typed id.",
+          "collapsed": true,
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.762Z"
+          }
+        },
+        {
+          "id": "s1a8",
+          "title": "Set the display name",
+          "kind": "glue",
+          "description": "Fills `import-name` with `Transfer E2E Imported` — display-only local state carried into the import request body; it does not affect the landing directory.",
+          "collapsed": true,
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.762Z"
+          }
+        },
+        {
+          "id": "s1a9",
+          "title": "Import composition — stage, then refuse to overwrite",
+          "kind": "code",
+          "description": "Clicking `import-submit` runs `doImport`, which POSTs the raw bundle plus the chosen id/name WITHOUT `preview`, so the route calls `importComposition`. That is where the round trip actually closes: it re-inspects, then hard-checks the destination and throws `\"<id>\" already exists` rather than editing a composition that is already here — an import never overwrites. It writes into a hidden `.<id>.import-…` sibling and `rename`s into place only once fully written, so readers see either no composition or a complete one. Landing on the free `transfer-e2e-imported` id, it succeeds and the bundle is back as a NEW composition.",
+          "next": [
+            {
+              "to": "import-materialise",
+              "label": "the never-overwrite write"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/TransferPanel.tsx",
+            "startLine": 384,
+            "endLine": 403,
+            "lang": "tsx",
+            "highlights": [
+              [
+                389,
+                393
+              ]
+            ],
+            "extractedSha256": "4f5897ec685df78aede15d04b218c17e6446fe3cbe55ae43bafdf68562d1ea47",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.820Z"
+          }
+        },
+        {
+          "id": "import-materialise",
+          "title": "Never-overwrite check plus hidden-sibling staging",
+          "kind": "code",
+          "description": "`importComposition` is the writer, and the line that decides the whole invariant is the destination existence check: if `compositions/<id>/` is already there it throws `already exists` (which the route maps to HTTP 409), so an import can only ever CREATE. Everything is written into a hidden `.<id>.import-<pid>-<rand>` stage dir and renamed atomically at the end; a failure part-way leaves nothing behind. For the passing round trip the id is fresh, the check passes, and the fixture bundle materialises as a distinct sibling composition.",
+          "sample": {
+            "file": "src/lib/composition-transfer.ts",
+            "startLine": 541,
+            "endLine": 587,
+            "lang": "ts",
+            "highlights": [
+              [
+                543,
+                545
+              ],
+              [
+                586,
+                586
+              ]
+            ],
+            "extractedSha256": "0bde6c0eb483d2f51bc4320be4bc7cfb884eeab214edc1d82b8e415b45f61028",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:29.880Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-13T11:28:29.880Z"
+}

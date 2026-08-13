@@ -9,9 +9,9 @@
     "testTitle": "each survivor manifest parses with its declared provides/consumes"
   },
   "anchoredAt": {
-    "sha": "b9f1284911459d227c304b86ed32e6dbff325293",
-    "shortSha": "b9f12849",
-    "committedAt": "2026-08-06T12:38:47+01:00"
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "shortSha": "7becc561",
+    "committedAt": "2026-08-13T11:59:21+01:00"
   },
   "tags": [
     "registry",
@@ -48,12 +48,12 @@
               ]
             ],
             "extractedSha256": "f1e1459bb0d99c656a0959ccf8db05f81d4917cd2605b377b8726c148c4e46cf",
-            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
           },
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.878Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.275Z"
           }
         },
         {
@@ -70,8 +70,8 @@
           ],
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.878Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.277Z"
           }
         }
       ]
@@ -103,12 +103,12 @@
               ]
             ],
             "extractedSha256": "a89e695862158de1fb9fe3f9be98f792cbb9b7f3408720f0d85a5a3e5700de65",
-            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
           },
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.887Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.363Z"
           }
         },
         {
@@ -135,12 +135,12 @@
               ]
             ],
             "extractedSha256": "acd1c1156ec03b834fc7aee307747758fdae6c5d2456ad213d4c5c2891576d7d",
-            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
           },
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.895Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.423Z"
           }
         },
         {
@@ -157,8 +157,8 @@
           ],
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.895Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.423Z"
           }
         }
       ]
@@ -191,12 +191,12 @@
               ]
             ],
             "extractedSha256": "392b242b084d4a356267fbc6d22911276e75767eceaa32cc74d5952387ff2aeb",
-            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
           },
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.903Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.480Z"
           }
         },
         {
@@ -221,12 +221,12 @@
               ]
             ],
             "extractedSha256": "ada3245f77c124c61e08e2c1f25f3b4765220dda445d52441adedb166dfe4881",
-            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
           },
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.911Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.540Z"
           }
         },
         {
@@ -238,12 +238,12 @@
           "next": [],
           "staleness": {
             "status": "fresh",
-            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
-            "checkedAt": "2026-08-11T14:33:31.911Z"
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:47.540Z"
           }
         }
       ]
     }
   ],
-  "generatedAt": "2026-08-11T14:33:31.911Z"
+  "generatedAt": "2026-08-13T11:28:47.540Z"
 }

@@ -1,0 +1,147 @@
+{
+  "flowId": "drill-view",
+  "title": "One catch-all route, any Fitting id, to a rendered view",
+  "summary": "`/fitting/drill` is served by a single dynamic catch-all page that mounts one client panel. That panel reads the `fittingId` and `rest` params off the URL, guards them against the live library and composition, then hands the sub-path to a tiny route matcher that maps the id's declared views to one `UiView`; the matched view renders through `FittingView`. The same machinery resolves any Fitting id — `drill` itself declares no `ui.views`, so it falls through the matcher to its own-port status branch.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/drill-view.yml",
+    "drillbookStep": "ux-functional-smoke",
+    "captureRef": "9bfac5096876/drillbook/drills-pages-drill-view.yml--Drill-view",
+    "runId": "drillbook"
+  },
+  "runStatus": "not-executed",
+  "spine": [
+    {
+      "id": "s1a1",
+      "action": "goto",
+      "url": "/fitting/drill"
+    }
+  ],
+  "tags": [
+    "fitting",
+    "routing",
+    "view-contract"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Drill view",
+      "description": "The drillbook asks that the embedded Drill surface load as a usable product view — clear navigation and status, no raw API data, no blank content, no confusing nested chrome. There is no page hand-written for `drill`: `/fitting/<id>` is one dynamic catch-all that resolves ANY Fitting id to a rendered view, and this flow follows that resolution end to end.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The route is one catch-all that mounts a single panel",
+          "kind": "code",
+          "description": "`/fitting/drill` — and every `/fitting/<id>[/<rest>]` — resolves to this one dynamic segment page. It loads no data and hardcodes no Fitting: it just returns `FittingSurfacePanel`, the client component that does all the resolution. There is nothing `drill`-specific on disk; the id is a URL parameter, read next.",
+          "next": [
+            {
+              "to": "params",
+              "label": "panel reads the params"
+            }
+          ],
+          "file": "src/app/fitting/[fittingId]/[[...rest]]/page.tsx",
+          "startLine": 1,
+          "endLine": 5,
+          "lang": "tsx",
+          "highlights": [
+            [
+              4,
+              4
+            ]
+          ]
+        },
+        {
+          "id": "params",
+          "title": "The panel reads the id and rest straight off the URL",
+          "kind": "code",
+          "description": "`FittingSurfacePanel` pulls `fittingId` (`drill`) and the `rest` catch-all segments out of Next's route params, joining `rest` back into a leading-slash sub-path (`/` when there is no deep link). Everything else it needs — the composition and the library — comes from the app shell, not a fetch. These two values are the entire input to the resolver.",
+          "next": [
+            {
+              "to": "guards",
+              "label": "then the presence guards"
+            }
+          ],
+          "file": "src/components/fitting-views/FittingSurfacePanel.tsx",
+          "startLine": 16,
+          "endLine": 22,
+          "lang": "tsx",
+          "highlights": [
+            [
+              19,
+              21
+            ]
+          ]
+        },
+        {
+          "id": "guards",
+          "title": "The id must be a known, stationed Fitting",
+          "kind": "code",
+          "description": "Before any view is resolved the id is validated twice: it must exist in the Armory `library` AND be selected in the current composition. This is the guard against stale links to retired Fittings — a bad id gets a plain \"not found\" / \"not stationed\" message, never a blank pane or raw data. Only a Fitting that clears both gates reaches the matcher.",
+          "next": [
+            {
+              "to": "match",
+              "label": "resolve id to a view"
+            }
+          ],
+          "file": "src/components/fitting-views/FittingSurfacePanel.tsx",
+          "startLine": 55,
+          "endLine": 77,
+          "lang": "tsx",
+          "highlights": [
+            [
+              55,
+              55
+            ],
+            [
+              66,
+              68
+            ]
+          ]
+        },
+        {
+          "id": "match",
+          "title": "The sub-path is matched against the Fitting's declared views",
+          "kind": "code",
+          "description": "This is the id-to-view step. `matchView` walks the Fitting's `ui.views[]` (filtered to `sidebar-surface` placement) and returns the first whose `route` template aligns with the sub-path, capturing any `:param` segments — a deliberately tiny react-router-style matcher, no regex or catch-alls. The banded line is the resolution: a `UiView` plus its params, or `null` when nothing lines up.",
+          "next": [
+            {
+              "to": "render",
+              "label": "render the matched view"
+            }
+          ],
+          "file": "src/lib/fitting-views.ts",
+          "startLine": 23,
+          "endLine": 48,
+          "lang": "ts",
+          "highlights": [
+            [
+              44,
+              45
+            ]
+          ]
+        },
+        {
+          "id": "render",
+          "title": "A matched view renders through FittingView; drill has none",
+          "kind": "code",
+          "description": "When `matchView` returns a match, the panel mounts `FittingView` with the resolved view and captured params — this is the faculty-tab / embedded-view path that turns a `UiView` into a real component. The honest wrinkle for `drill`: its manifest declares no `ui.views`, so `match` is null and there is no deep link, dropping it to the `ownPort` branch (`OwnPortStatusPanel`) — the status/controls strip for a Fitting whose live UI embeds on its own port. Same resolver, different terminal branch.",
+          "file": "src/components/fitting-views/FittingSurfacePanel.tsx",
+          "startLine": 115,
+          "endLine": 138,
+          "lang": "tsx",
+          "highlights": [
+            [
+              115,
+              121
+            ],
+            [
+              130,
+              131
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

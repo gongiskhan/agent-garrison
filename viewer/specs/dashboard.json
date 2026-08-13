@@ -1,0 +1,77 @@
+{
+  "flowId": "dashboard",
+  "title": "The dashboard, from route to live readout",
+  "summary": "The `/` route is a five-line server shim; everything the operator sees on the home screen — the greeting, the run controls, the readiness rollup and the board summary — is assembled by one client component, `GarrisonHome`, from state the app shell already holds plus a single board fetch.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/dashboard.yml",
+    "drillbookStep": "step-1",
+    "runId": "drillbook"
+  },
+  "detailLevel": "standard",
+  "tags": ["dashboard", "home", "runner"],
+  "spine": [{ "id": "s1a1", "action": "goto", "url": "/" }],
+  "states": [
+    {
+      "id": "s1",
+      "label": "Dashboard",
+      "description": "The drillbook asks that this page present operative status, readiness, the board summary, quick actions and run controls without overlap, clipping or misleading status. It is the app's home route (`/`), and the whole of it renders from one component.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The route is a shim onto one client component",
+          "kind": "code",
+          "description": "Navigating to `/` lands on a server component that does nothing but mount `GarrisonHome`. There is no data-loading in the route itself: the dashboard is a client component that reads everything it needs from the shell context, which is why the route file is five lines long.",
+          "file": "src/app/page.tsx",
+          "startLine": 1,
+          "endLine": 5,
+          "highlights": [[4, 4]],
+          "next": [{ "to": "shell-state", "label": "mounts GarrisonHome" }]
+        },
+        {
+          "id": "shell-state",
+          "title": "Everything on the page comes from the shell context",
+          "kind": "code",
+          "description": "`GarrisonHome` pulls the active composition, the runner's live state, the vault seal and the `runAction` dispatcher out of `useAppShell()`. Nothing here fetches the composition — the shell has already loaded it — so the dashboard is a pure render over shared state, and a null composition is the loading branch just below.",
+          "file": "src/components/garrison/GarrisonHome.tsx",
+          "startLine": 16,
+          "endLine": 26,
+          "highlights": [[17, 26]],
+          "next": [{ "to": "command-deck", "label": "then the command deck" }]
+        },
+        {
+          "id": "command-deck",
+          "title": "Run controls sit in the command deck",
+          "kind": "code",
+          "description": "The primary control is one button that dispatches `runAction(\"up\")` — install Fittings, verify, then start — relabelling itself \"Restart operative\" while a run is live. The Stop button appears only when the status is `running`, so the operator never sees a stop control for something that is not up. Both disable while `busy`.",
+          "file": "src/components/garrison/GarrisonHome.tsx",
+          "startLine": 80,
+          "endLine": 99,
+          "highlights": [[89, 89], [93, 97]],
+          "next": [{ "to": "readiness", "label": "readiness rollup" }]
+        },
+        {
+          "id": "readiness",
+          "title": "Readiness rolls four checks into one panel",
+          "kind": "code",
+          "description": "The readiness panel is the operator's go/no-go glance: faculties stationed, capability wiring, vault seal, verify hooks. Capability wiring is the one that turns alarm-toned — an unresolved `consumes`/`provides` edge is the failure that keeps an operative from assembling — so it reads its count straight off `composition.capabilityIssues`.",
+          "file": "src/components/garrison/GarrisonHome.tsx",
+          "startLine": 173,
+          "endLine": 190,
+          "highlights": [[176, 179]],
+          "next": [{ "to": "board", "label": "board summary" }]
+        },
+        {
+          "id": "board",
+          "title": "The board summary is the page's only live fetch",
+          "kind": "code",
+          "description": "The Board panel is the one part of the dashboard that reaches out over the network: it polls `/api/board/summary` on mount and every 30 seconds, and swallows a failed fetch on purpose — a home-screen panel for a board that simply is not running should stay quiet, not raise an error banner. Loading and failure both fall through to the idle state.",
+          "file": "src/components/garrison/GarrisonHome.tsx",
+          "startLine": 260,
+          "endLine": 278,
+          "highlights": [[264, 267]]
+        }
+      ]
+    }
+  ]
+}

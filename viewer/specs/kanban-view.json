@@ -1,0 +1,127 @@
+{
+  "flowId": "kanban-view",
+  "title": "The Kanban board, embedded live from its own port",
+  "summary": "`kanban-loop` is an own-port Fitting — it serves its own React board on its own HTTP port, not as a faculty-tab view. Opening `/fitting/kanban-loop` lands on the dynamic catch-all shim, but the live board is embedded at `/embed/kanban-loop`, which reads the Fitting's status file under `~/.garrison/ui-fittings`, resolves a URL the *remote* browser can actually reach (loopback locally, the HTTPS tailnet endpoint over Tailscale), and renders the board in an iframe instead of raw JSON — falling back to an honest 'not running' / 'not published' message when it can't.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/kanban-view.yml",
+    "drillbookStep": "ux-functional-smoke",
+    "captureRef": "9bfac5096876/drillbook/drills-pages-kanban-view.yml--Kanban-view",
+    "runId": "drillbook"
+  },
+  "runStatus": "not-executed",
+  "spine": [
+    {
+      "id": "s1a1",
+      "action": "goto",
+      "url": "/fitting/kanban-loop"
+    }
+  ],
+  "tags": [
+    "kanban",
+    "own-port",
+    "embed",
+    "tailnet"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Kanban view",
+      "description": "The drillbook asks that the embedded Kanban surface load the visual workflow board rather than raw JSON, and that the board stay navigable and legible without destructive overflow. Because `kanban-loop` is an own-port Fitting, the board isn't a component Garrison renders — it's a separate React app on its own port, and this flow is the plumbing that reaches it from wherever the operator's browser happens to be.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The /fitting route is a one-line shim onto the surface panel",
+          "kind": "code",
+          "description": "Every `/fitting/<id>[/<rest>]` URL is served by one dynamic catch-all page that does nothing but mount `FittingSurfacePanel`. For an own-port Fitting like `kanban-loop` this page renders only a status/controls strip — the real board lives on the Fitting's own port and embeds at `/embed/kanban-loop`, which the rest of this flow follows.",
+          "next": [
+            {
+              "to": "status-read",
+              "label": "status comes from the ui-fittings dir"
+            }
+          ],
+          "file": "src/app/fitting/[fittingId]/[[...rest]]/page.tsx",
+          "startLine": 1,
+          "endLine": 5,
+          "lang": "tsx",
+          "highlights": [
+            [4, 4]
+          ]
+        },
+        {
+          "id": "status-read",
+          "title": "The server reads the Fitting's status file and probes it live",
+          "kind": "code",
+          "description": "The one source of truth for an own-port view is its JSON file under `~/.garrison/ui-fittings`, written when the Fitting starts and removed on SIGTERM. The API reads each file, then decides live-vs-down by probing `<url>/health` *server-side* — own-port Fittings emit no CORS headers, so a browser probe always fails — and attaches the port's `tailscale serve` mapping as `tailnetUrl` so a remote client can reach it over HTTPS.",
+          "next": [
+            {
+              "to": "embed-live",
+              "label": "the embed page consumes this"
+            }
+          ],
+          "file": "src/app/api/fittings/views/route.ts",
+          "startLine": 43,
+          "endLine": 56,
+          "lang": "ts",
+          "highlights": [
+            [48, 48],
+            [53, 53]
+          ]
+        },
+        {
+          "id": "embed-live",
+          "title": "The embed page fetches status and gates on running-vs-down",
+          "kind": "code",
+          "description": "`/embed/kanban-loop` fetches the same views feed with `cache: \"no-store\"` and finds its own entry. If the Fitting has no entry or no URL, the board simply isn't up — the page says so and tells the operator to start the operative, rather than rendering a broken frame. Only a running Fitting with a URL falls through to URL resolution.",
+          "next": [
+            {
+              "to": "resolve-url",
+              "label": "resolve a reachable URL"
+            }
+          ],
+          "file": "src/app/embed/[fittingId]/page.tsx",
+          "startLine": 110,
+          "endLine": 125,
+          "lang": "tsx",
+          "highlights": [
+            [115, 115]
+          ]
+        },
+        {
+          "id": "resolve-url",
+          "title": "Resolve a URL the actual browser can reach",
+          "kind": "code",
+          "description": "The status file's `url` is a loopback address (`http://127.0.0.1:<port>`) — correct for the server's own health probe, wrong for a browser reached over Tailscale, where localhost is the *user's* device. `resolveViewUrl` picks by page host: loopback locally, the same-host HTTPS `tailnetUrl` over the tailnet. Its load-bearing guard is the last branch — on an HTTPS page it returns `\"\"` rather than an `http://` URL, because a plain-HTTP iframe on an HTTPS page is blocked as mixed content and would silently render blank.",
+          "next": [
+            {
+              "to": "board-iframe",
+              "label": "render the board (or explain the gap)"
+            }
+          ],
+          "file": "src/components/fitting-views/browser-view-url.ts",
+          "startLine": 43,
+          "endLine": 65,
+          "lang": "ts",
+          "highlights": [
+            [52, 54],
+            [61, 62]
+          ]
+        },
+        {
+          "id": "board-iframe",
+          "title": "The board renders in an iframe, not raw JSON",
+          "kind": "code",
+          "description": "With a reachable base URL the page embeds the Fitting's own React board in a full-height iframe — the visual workflow board the drillbook wants, not a JSON dump. Query params are forwarded so a deep-linked card survives. When `resolveViewUrl` returned `\"\"` (running but no tailnet mapping), the code just above this renders a 'not published to the tailnet' explainer with a Publish button instead of a blank pane — so the surface is always either the live board or an honest reason it isn't.",
+          "file": "src/app/embed/[fittingId]/page.tsx",
+          "startLine": 177,
+          "endLine": 197,
+          "lang": "tsx",
+          "highlights": [
+            [179, 181]
+          ]
+        }
+      ]
+    }
+  ]
+}

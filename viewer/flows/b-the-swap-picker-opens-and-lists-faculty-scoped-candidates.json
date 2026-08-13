@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "flowId": "b-the-swap-picker-opens-and-lists-faculty-scoped-candidates",
+  "title": "(b) the swap picker opens and lists faculty-scoped candidates",
+  "summary": "A passing e2e that walks the Muster page's Fittings section: navigate to `/muster`, click into the Fittings tab so `StandingFittings` mounts, then click a gateway slot's Swap button. The picker that opens is the D9 library picker scoped to ONE faculty — a gateway slot only offers gateway candidates, because it lists the slot's own `candidates` array rather than the whole library.",
+  "source": "e2e",
+  "provenance": {
+    "testFile": "tests/e2e/muster-standing.spec.ts",
+    "captureRef": "9bfac5096876/e2e/tests-e2e-muster-standing.spec.ts--b-the-swap-picker-opens-and-lists-faculty-scoped-candidates--desktop-chromium",
+    "runId": "e2e"
+  },
+  "anchoredAt": {
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "shortSha": "7becc561",
+    "committedAt": "2026-08-13T11:59:21+01:00"
+  },
+  "tags": [
+    "muster",
+    "standing-fittings",
+    "swap",
+    "faculty-scoped"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "/muster?composition=muster-standing-e2e",
+      "description": "The Muster page is the shell-owned surface where the whole composition is configured. This flow exercises its Fittings section: the slot cards, the per-slot Swap trigger, and the picker that opens listing candidates scoped to that slot's faculty.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The /muster route is a shim onto MusterPage",
+          "kind": "code",
+          "description": "Navigating to `/muster` lands on a server component that does nothing but mount `MusterPage`. All of the section-tab logic, data loading and the Standing Fittings panel live client-side inside that component — the route file itself is eight lines.",
+          "next": [
+            {
+              "to": "s1a2",
+              "label": "click the Fittings tab"
+            }
+          ],
+          "sample": {
+            "file": "src/app/muster/page.tsx",
+            "startLine": 1,
+            "endLine": 8,
+            "lang": "tsx",
+            "highlights": [
+              [
+                7,
+                7
+              ]
+            ],
+            "extractedSha256": "b0240afd3d76556931b418c88d053166f9aa894675aa8c4bf16daa33b3d2a017",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:30.883Z"
+          }
+        },
+        {
+          "id": "s1a2",
+          "title": "The Fittings tab mounts StandingFittings",
+          "kind": "code",
+          "description": "Clicking `section-nav-fittings` sets the active section to `\"fittings\"`, and Muster's stage renders `StandingFittings` only for that section. The panels are lazy by tab, so the Standing Fittings grid — and its own `GET /api/muster/standing` fetch — does not exist until this click.",
+          "next": [
+            {
+              "to": "standing-fetch",
+              "label": "loads its own slots"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/MusterPage.tsx",
+            "startLine": 481,
+            "endLine": 482,
+            "lang": "tsx",
+            "highlights": [
+              [
+                482,
+                482
+              ]
+            ],
+            "extractedSha256": "b687e18ef3a511fe27a3741281a8db8f4a2355bf4f0593100c018f72321e2eb1",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:30.940Z"
+          }
+        },
+        {
+          "id": "standing-fetch",
+          "title": "StandingFittings owns its slot data",
+          "kind": "dep",
+          "description": "`StandingFittings` fetches its own model from `GET /api/muster/standing` on mount, decoupled from the Duties payload. The response is a list of `slots`, and each slot already carries its `candidates` array — the faculty-scoped shortlist the picker will show. The client never filters the whole library; the server hands back one shortlist per slot.",
+          "next": [
+            {
+              "to": "s1a3",
+              "label": "then click Swap"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/StandingFittings.tsx",
+            "startLine": 157,
+            "endLine": 169,
+            "lang": "tsx",
+            "highlights": [
+              [
+                159,
+                159
+              ]
+            ],
+            "extractedSha256": "111b8eb7f531879b5063ab739da9ccc2b42104341747e3202b4df4c1f7ca6c7b",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:31.003Z"
+          }
+        },
+        {
+          "id": "s1a3",
+          "title": "Swap sets the target to this slot's faculty",
+          "kind": "code",
+          "description": "Each fitting block renders a Swap button whose testid is `standing-swap-<faculty>-<fitting>` — here `standing-swap-gateway-http-gateway`. The test clicks it; `onSwap` fires with the fitting's id, which the parent turns into `setSwap({ faculty: slot.faculty, fromId })`. From this point the swap target is pinned to the gateway faculty, and that is what scopes everything downstream.",
+          "next": [
+            {
+              "to": "scope",
+              "label": "resolve the slot"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/StandingFittings.tsx",
+            "startLine": 614,
+            "endLine": 621,
+            "lang": "tsx",
+            "highlights": [
+              [
+                618,
+                618
+              ]
+            ],
+            "extractedSha256": "051064c95cc637c4d5f84284d12ade9771badc1fa1a84d0bc50d497e7f1221c1",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:31.064Z"
+          }
+        },
+        {
+          "id": "scope",
+          "title": "The modal opens against the swap target's slot",
+          "kind": "code",
+          "description": "The swap target names a faculty; `swapSlot` looks up the matching slot by that faculty, and the `SwapModal` renders only when both the target and its slot exist. A gateway swap resolves to the gateway slot, so the modal that opens carries that one slot — never the library at large.",
+          "next": [
+            {
+              "to": "candidates",
+              "label": "list its candidates"
+            }
+          ],
+          "sample": {
+            "file": "src/components/muster/StandingFittings.tsx",
+            "startLine": 342,
+            "endLine": 406,
+            "lang": "tsx",
+            "highlights": [
+              [
+                342,
+                342
+              ],
+              [
+                404,
+                406
+              ]
+            ],
+            "extractedSha256": "e424f67c9f92e2cfe62c96b9162287c91fd8f609914223325eade3c4092ac504",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:31.124Z"
+          }
+        },
+        {
+          "id": "candidates",
+          "title": "The picker lists only that slot's candidates",
+          "kind": "code",
+          "description": "This is the climax the test asserts: the picker's result list is derived from `slot.candidates`, not from any global fitting index. With an empty search it IS `slot.candidates`; a query only narrows that same array. Because the slot was resolved from the gateway faculty, a gateway swap can only ever offer gateway fittings — the faculty scope is baked into the data, so the UI cannot leak an out-of-faculty candidate.",
+          "sample": {
+            "file": "src/components/muster/StandingFittings.tsx",
+            "startLine": 786,
+            "endLine": 793,
+            "lang": "tsx",
+            "highlights": [
+              [
+                789,
+                789
+              ]
+            ],
+            "extractedSha256": "9c8556230cdedf91ec9cd01e0cd75878d9e4b5b9ed761d63c4b14983019ef3a6",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:31.184Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-13T11:28:31.184Z"
+}

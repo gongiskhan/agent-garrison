@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "flowId": "quarters",
+  "title": "Quarters, from route to tiered category cards",
+  "summary": "The `/quarters` route is a one-line server shim onto `QuartersIndex`. That client component loads two feeds — the owned/loose state model and the composition's runtimes — decides single-runtime (the classic Claude Code grid) versus multi-runtime (a collapsible section per engine), and renders one card per category. The category list and its tier labels come from the static `QUARTERS_CATEGORIES` descriptor, and each Claude Code card's owned/loose counts are rolled up from `primitive-state`.",
+  "source": "drillbook",
+  "provenance": {
+    "drillbookPage": "drills/pages/quarters.yml",
+    "drillbookStep": "ux-functional-smoke",
+    "captureRef": "9bfac5096876/drillbook/drills-pages-quarters.yml--Quarters",
+    "runId": "drillbook"
+  },
+  "anchoredAt": {
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "shortSha": "7becc561",
+    "committedAt": "2026-08-13T11:59:21+01:00"
+  },
+  "tags": [
+    "quarters",
+    "config",
+    "tiers"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "s1",
+      "label": "Quarters",
+      "description": "The drillbook asks that the landing clearly explain runtime configuration tiers and present every runtime/category card with balanced spacing and obvious next actions. It is the `/quarters` route, and the whole surface renders from one client component that lists the Claude Code categories over the real `~/.claude`.",
+      "steps": [
+        {
+          "id": "s1a1",
+          "title": "The route is a shim onto QuartersIndex",
+          "kind": "code",
+          "description": "Navigating to `/quarters` lands on a server component that does nothing but mount `QuartersIndex`. There is no data-loading in the route itself — the entire landing is a client component that fetches what it needs on mount — which is why the route file is five lines long.",
+          "next": [
+            {
+              "to": "load",
+              "label": "mounts QuartersIndex"
+            }
+          ],
+          "sample": {
+            "file": "src/app/quarters/page.tsx",
+            "startLine": 1,
+            "endLine": 5,
+            "lang": "tsx",
+            "highlights": [
+              [
+                4,
+                4
+              ]
+            ],
+            "extractedSha256": "4047f34bbef6c9f4d4a688b9fa6a1d70fec25f8064d59b48edb4fcd649441a17",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.933Z"
+          }
+        },
+        {
+          "id": "load",
+          "title": "Two feeds load on mount: state model and runtimes",
+          "kind": "code",
+          "description": "On mount the index fires two fetches in parallel. `/api/quarters` returns the owned/loose `StateModel` used for the per-card counts; `/api/quarters/runtimes` (scoped to the `?composition=` param) returns the runtimes the composition selected, and that feed is what decides whether the page shows the single classic grid or a section per engine.",
+          "next": [
+            {
+              "to": "decide",
+              "label": "then choose the layout"
+            }
+          ],
+          "sample": {
+            "file": "src/components/quarters/QuartersIndex.tsx",
+            "startLine": 60,
+            "endLine": 84,
+            "lang": "tsx",
+            "highlights": [
+              [
+                71,
+                80
+              ]
+            ],
+            "extractedSha256": "4caae1f6a802ef56604368f98a42247d91e3de8d19fcaf6fb00ae210009dd774",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:26.989Z"
+          }
+        },
+        {
+          "id": "decide",
+          "title": "Header explains the tiers; one flag picks the layout",
+          "kind": "code",
+          "description": "The head copy is the tier explanation the drillbook asks for — Claude Code over the real `~/.claude`, other engines a generic tier. Below the InstallBanner, `multi` (more than one configurable runtime) is the single flag that branches the render: not-multi paints the classic Claude Code grid by mapping `QUARTERS_CATEGORIES` into `CategoryCard`s; multi renders a collapsible section per engine instead.",
+          "next": [
+            {
+              "to": "categories",
+              "label": "cards come from QUARTERS_CATEGORIES"
+            }
+          ],
+          "sample": {
+            "file": "src/components/quarters/QuartersIndex.tsx",
+            "startLine": 111,
+            "endLine": 141,
+            "lang": "tsx",
+            "highlights": [
+              [
+                132,
+                132
+              ],
+              [
+                138,
+                140
+              ]
+            ],
+            "extractedSha256": "109b0f834aef57f8440225c79022915a39adb0e044c903730319f650b7a26e5b",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.050Z"
+          }
+        },
+        {
+          "id": "categories",
+          "title": "The category list and its tier labels are a static descriptor",
+          "kind": "code",
+          "description": "The ten cards — Settings, Context, Skills, Hooks, MCPs, Plugins, Scripts, Plans, Logs, Sessions (plus AgentSDK) — are not computed; they are the ordered `QUARTERS_CATEGORIES` constant, the single source of truth shared by the sidebar, the index, and the `[type]` route validator. Each entry carries the `writer` tier (apm / garrison / split / readonly) that the card renders as its pill, so the tier a category belongs to is declared here, not in the component.",
+          "next": [
+            {
+              "to": "counts",
+              "label": "counts come from primitive-state"
+            }
+          ],
+          "sample": {
+            "file": "src/components/quarters/quartersTypes.ts",
+            "startLine": 27,
+            "endLine": 52,
+            "lang": "ts",
+            "highlights": [
+              [
+                27,
+                27
+              ]
+            ],
+            "extractedSha256": "814e53510bcd7f176caad9d7eac019e16591936fad1f4ee1a4d44cf54fa99313",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.111Z"
+          }
+        },
+        {
+          "id": "counts",
+          "title": "Owned vs loose is the state model each card rolls up",
+          "kind": "code",
+          "description": "For a `primitives`-kind category the card shows owned/loose badges — the drillbook's \"obvious next action\" cue for what Garrison manages versus what is hand-authored. `owned` means the primitive is a package file APM tracks in the global lock; `loose` means it exists on disk under `~/.claude` but is not in the lock. `computeStateModel` scans disk and diffs each file against the lock to set exactly that state, and the index sums it per surface into the badge counts.",
+          "sample": {
+            "file": "src/lib/primitive-state.ts",
+            "startLine": 78,
+            "endLine": 105,
+            "lang": "ts",
+            "highlights": [
+              [
+                99,
+                99
+              ]
+            ],
+            "extractedSha256": "2b824bf0c200f26f2b7ee8d218e77426ab3e0b9b3e763429a01f100a34cd3d96",
+            "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+            "checkedAt": "2026-08-13T11:28:27.173Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-13T11:28:27.173Z"
+}

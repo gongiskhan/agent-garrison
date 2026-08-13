@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "findings": [
+    {
+      "id": "no-coverage-vault",
+      "flowId": "vault",
+      "severity": "info",
+      "category": "missing-test",
+      "text": "The Vault page has no end-to-end test under tests/e2e/, so this flow was anchored from the drillbook (status not-executed) rather than from a real run. The seal/unlock and secret-lifecycle behaviour is described from reading, not from execution.",
+      "suggestion": "Add a vault e2e spec (assert sealed vs ready, add a secret, reveal it) or a drillbook step a capture can drive, so the next analysis anchors this flow to a real run.",
+      "status": "open",
+      "evidence": "static",
+      "span": {
+        "file": "src/components/vault/VaultPanel.tsx"
+      }
+    },
+    {
+      "id": "no-coverage-connectors",
+      "flowId": "connectors",
+      "severity": "info",
+      "category": "missing-test",
+      "text": "The Connectors page has no end-to-end test under tests/e2e/, so this flow was anchored from the drillbook (not-executed). The sealed-auth / security-messaging path is narrated from reading connectors-view and vault-audit, not from execution.",
+      "suggestion": "Add a connectors e2e spec that asserts the connected/sealed/unknown states with the vault locked and unlocked, so the security messaging is covered by a real run.",
+      "status": "open",
+      "evidence": "static",
+      "span": {
+        "file": "src/components/connectors/ConnectorsPanel.tsx"
+      }
+    },
+    {
+      "id": "no-coverage-drill-view",
+      "flowId": "drill-view",
+      "severity": "info",
+      "category": "missing-test",
+      "text": "The embedded Drill fitting surface (/fitting/drill) has no end-to-end test, so this flow was anchored from the drillbook (not-executed). The dynamic [fittingId] route and the view-contract resolution are described from reading.",
+      "suggestion": "Add an e2e spec that visits /fitting/drill and asserts a usable embedded surface renders (not raw JSON, not blank), so the resolver path is exercised.",
+      "status": "open",
+      "evidence": "static",
+      "span": {
+        "file": "src/app/fitting/[fittingId]/[[...rest]]/page.tsx"
+      }
+    },
+    {
+      "id": "no-coverage-kanban-view",
+      "flowId": "kanban-view",
+      "severity": "info",
+      "category": "missing-test",
+      "text": "The embedded Kanban fitting surface (/fitting/kanban-loop) has no end-to-end test, so this flow was anchored from the drillbook (not-executed). The own-port live-embed path (status file read, loopback-vs-tailnet URL resolution, board iframe) is narrated from reading.",
+      "suggestion": "Add an e2e spec that visits /fitting/kanban-loop and asserts the board embed renders when the own-port fitting is up (and a graceful down-state when it is not).",
+      "status": "open",
+      "evidence": "static",
+      "span": {
+        "file": "src/components/fitting-views/OwnPortStatusPanel.tsx"
+      }
+    },
+    {
+      "id": "quarters-skills-cycle-unverified",
+      "flowId": "quarters-skills-create-edit-delete-a-loose-skill-from-the-ui",
+      "severity": "low",
+      "category": "test-reliability",
+      "text": "The e2e \"Quarters Skills: create -> edit -> delete a loose skill\" recorded a clean create-and-save (all four captured actions passed), but the run FAILED at a downstream assertion, so the edit and delete halves of the cycle were not verified in the analysis sandbox. The flow is narrated honestly as such.",
+      "suggestion": "Re-run this spec in an environment where a loose skill can be created, edited and deleted end to end, or split it so the create, edit and delete paths assert independently; then re-anchor this flow from a passing run.",
+      "status": "open",
+      "evidence": "runtime",
+      "span": {
+        "file": "tests/e2e/quarters-crud.spec.ts"
+      }
+    }
+  ]
+}

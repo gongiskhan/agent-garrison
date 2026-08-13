@@ -1,10 +1,22 @@
 {
   "schemaVersion": 1,
+  "project": "agent-garrison-dev",
   "flowOrder": [
+    "dashboard",
+    "composition",
+    "vault",
+    "quarters",
+    "connectors",
+    "drill-view",
+    "kanban-view",
     "fitting-manifest-validated",
-    "commit-ed33543f",
-    "commit-3d2062a7"
+    "b-the-swap-picker-opens-and-lists-faculty-scoped-candidates",
+    "c-a-bundle-round-trips-back-in-as-a-new-composition",
+    "d-a-document-that-is-not-a-bundle-is-refused-with-a-readable-rea",
+    "quarters-skills-create-edit-delete-a-loose-skill-from-the-ui"
   ],
-  "project": null,
-  "lastRefresh": null
+  "lastRefresh": {
+    "sha": "7becc561ef0c5929091b3bbec65dcc276626cf31",
+    "at": "2026-08-13T11:30:07.504Z"
+  }
 }
