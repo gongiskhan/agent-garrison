@@ -377,3 +377,32 @@ Full companion suite: 55 tests across 10 files, green on dev-madrid;
 typecheck clean.
 
 Next: M8 — TestFlight (ported fastlane lane, match on ios-certificates).
+
+## M8 — TestFlight (2026-08-13): automated to the API boundary, halted on the precise ask
+
+Shipped:
+- The lane, committed and rerunnable two ways: `npm run ios:testflight`
+  locally (fail-fast env check) and `garrison-ios.yml` in the PRIVATE
+  ios-thing repo (dispatch-only; checks out public agent-garrison and runs
+  its lane with ios-thing's existing secrets and match storage — GitHub
+  secrets cannot be copied out, and a public repo must never carry signing
+  assets). fastlane pinned 2.236.1; a real 1024px icon (CoreGraphics
+  waveform mark, no alpha) satisfies the upload's CFBundleIconName gate.
+- Empirically mapped the App Store Connect API-key boundary across five CI
+  runs: `produce` refuses token auth on every half; the public API creates
+  BUNDLE IDS and enables PUSH_NOTIFICATIONS / APP_GROUPS (the lane now does
+  both via Spaceship::ConnectAPI, idempotently) but has NO app-record
+  creation, NO app-group registration/assignment, and NO time-sensitive
+  capability (run 31665927532 returned the complete capabilityType enum).
+- Proven green in CI: match decrypting the shared storage and REUSING the
+  team's existing distribution certificate (no new slot), profile
+  generation for both bundle ids, xcodegen, the archive build starting, and
+  the upload plumbing. The run halts exactly where Apple requires a human:
+  gym's profile validation names the missing portal items.
+
+HALTED, per the spec's one legitimate mid-run stop, with the precise ask
+(HUMAN_SETUP.md step 2, ~5 browser minutes): create the App Store Connect
+app record for com.gomes.garrison; register group.com.gomes.garrison and
+assign it to both App IDs; enable Time Sensitive Notifications on the host
+App ID. Then one dispatch (`-f lane=beta -f match_force=true`) lands the
+build in TestFlight processing.

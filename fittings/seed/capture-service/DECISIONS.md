@@ -43,3 +43,26 @@ One line per deviation, with the reason. Details in
 - `docs/adr-companion.md` lives in repo `docs/` as the spec names it, not in
   the fitting's `docs/` as omi-channel's ADR does — the ADR spans `ios/`, this
   fitting and the shared seams, so the repo level is the honest home.
+- The ADR's match-storage pick (ios-certificates) was superseded during M8:
+  match reuses ios-thing's `match-certs` branch, which already holds the
+  team's Apple Distribution certificate — no second cert slot burned, and
+  the MATCH_PASSWORD already exists as an ios-thing secret. ios-certificates
+  stays empty.
+- The TestFlight CI entrypoint lives in the PRIVATE ios-thing repo
+  (`garrison-ios.yml`, dispatch-only, checks out public agent-garrison):
+  agent-garrison is public and can hold neither signing secrets nor match
+  storage, and GitHub secrets cannot be copied out to be re-homed.
+- fastlane `produce` refuses App Store Connect API-key auth on EVERY half
+  ("No value found for 'username'"; no api_key option — verified across four
+  CI runs), and the public ASC API has no app-record creation endpoint. App
+  IDs + capabilities (PUSH_NOTIFICATIONS, APP_GROUPS) are registered in the
+  lane via Spaceship::ConnectAPI's public bundleIds endpoints instead; the
+  App Store Connect APP RECORD is the one irreducible 2-minute human step
+  (HUMAN_SETUP.md step 2).
+- fastlane pinned to 2.236.1 — the version the ios-thing lanes last ran
+  green with; unpinned CI picked 2.238.0 whose behaviour differed.
+- The spec's M6 acceptance "streams fixture microphone input to a locally
+  running capture-service" ran against a sandboxed capture-service on the
+  PROD HOST over the tailnet, not on the Mac — the Mac never runs this
+  repo's node (house rule); the simulator reached it exactly the way the
+  real phone will.
