@@ -185,7 +185,8 @@
             "checkedAt": "2026-08-13T11:28:31.755Z"
           }
         }
-      ]
+      ],
+      "logic": "A reusable skill is created entirely from the interface: name it, accept the template, save - and the platform records it as a real file it now tracks. Only the creation half is proven; the recorded run failed before the edit and delete legs, so those remain unverified rather than assumed."
     }
   ],
   "generatedAt": "2026-08-13T11:28:31.755Z"

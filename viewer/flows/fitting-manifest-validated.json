@@ -74,7 +74,8 @@
             "checkedAt": "2026-08-13T11:28:47.277Z"
           }
         }
-      ]
+      ],
+      "logic": "A component only exists for the platform if it was deliberately registered. Existence is a decision someone made, never a side effect of a file being on disk - which is what makes the registry the single honest answer to \"what is installed?\"."
     },
     {
       "id": "parsed",
@@ -161,7 +162,8 @@
             "checkedAt": "2026-08-13T11:28:47.423Z"
           }
         }
-      ]
+      ],
+      "logic": "The component's self-description is read against a strict contract, and anything unrecognised is refused rather than ignored. Refusing early means a wrong description can never get far enough to configure anything."
     },
     {
       "id": "compatible",
@@ -242,7 +244,8 @@
             "checkedAt": "2026-08-13T11:28:47.540Z"
           }
         }
-      ]
+      ],
+      "logic": "The last gate asks whether this KIND of component is allowed in the role it wants to fill. It is a rule about the combination, not about any one field, so it cannot be checked earlier - and getting it wrong takes the whole registry surface down, which is why it earns its own stage."
     }
   ],
   "generatedAt": "2026-08-13T11:28:47.540Z"

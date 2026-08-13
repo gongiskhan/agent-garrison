@@ -35,6 +35,7 @@ dependencies:
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
+    - path: ../../fittings/seed/project-viewer
     - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
@@ -273,6 +274,13 @@ x-garrison:
         - id: identity-gary
           config:
             user_name: the user
+      knowledge:
+        - id: project-viewer
+          config:
+            port: 7098
+            bind_host: 127.0.0.1
+            target_repo: ~/dev/agent-garrison-dev
+            language: pt
       building:
         - id: drill
           config:

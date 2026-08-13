@@ -211,7 +211,8 @@
             "checkedAt": "2026-08-13T11:28:31.184Z"
           }
         }
-      ]
+      ],
+      "logic": "Replacing a component starts from the slot that holds it, and the picker opens already scoped to that slot's role - the reader is only ever offered replacements that would be legal there. Choice is constrained before it is made, instead of validated after."
     }
   ],
   "generatedAt": "2026-08-13T11:28:31.184Z"
