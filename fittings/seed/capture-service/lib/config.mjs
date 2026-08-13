@@ -101,6 +101,10 @@ export function loadConfig(env = process.env) {
     // current docs when the client is written; shapes in docs/api-notes.md.
     sttModel: (env.GARRISON_CAPTURESERVICE_STT_MODEL || "").trim() || "nova-3",
     sttLanguage: (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "multi",
+    // Test hook (omi's OMI_API_BASE_URL precedent): redirect the live STT
+    // socket to a local mock so sandboxed E2E runs never need the real key.
+    // Env-only, never in config_schema — production always talks to Deepgram.
+    dgBaseUrl: (env.GARRISON_CAPTURESERVICE_DG_URL || "").trim() || null,
 
     // Classification pin (the 82-second lesson) and delegation budget — same
     // two-lane split as omi-channel.

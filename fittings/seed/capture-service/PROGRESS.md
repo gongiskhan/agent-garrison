@@ -291,3 +291,52 @@ the wake gate never fires.
 Next: M6 — the iOS app (broadcast extension port, §4 uploader with App
 Group buffering, AVAudioEngine audio mode, consent, settings, speech sink,
 APNs registration, ack log, simulator tests).
+
+## M6 — The iOS app (2026-08-13)
+
+Shipped (`ios/`, ~2k lines of Swift):
+- Shared layer (compiled into app AND extension): `CaptureProtocol` (the §4
+  17-byte framing + Codable control messages + ULID-flavoured session ids),
+  `SessionSpool` (append-only wire-frame spool in the App Group container,
+  two-segment ring keeping disk bounded, crash-safe scan, replay filter),
+  `OpusEncoder` (one AVAudioConverter doing 48k Float32 -> 16k mono Opus
+  ~20ms packets, with the CMSampleBuffer bridge for the extension), and
+  `CaptureUploader` — the hardened engine: spool-before-send, per-stream
+  contiguous-ack tracking, reconnect with capped backoff, session_resumed ->
+  replay past the server's high-water, {type:"speak"} delivery and {spoken}
+  receipts on the same socket.
+- App: big start/stop with mode selection (audio in-app; screen via the
+  system broadcast picker), the exact-copy consent sheet with persistent
+  "Don't ask me again" (consent state travels either way), Settings (base
+  URL/token/device name, §5b voice controls: master + info toggles, rate,
+  volume, mute-for-60, quiet hours), `CaptureController` (AVAudioEngine
+  under .playAndRecord/.voiceChat/.defaultToSpeaker — hardware AEC per ADR
+  §6 — with interruption pause/resume), `SpeechSink` (queue ceiling 3 that
+  never sacrifices an error, ~30s staleness, honest receipts for every
+  decision), APNs registration into the device registry, a sessions screen
+  linking to the fitting view, and the §5c local ack/notification log.
+- Extension: the proven ios-thing SampleHandler discipline verbatim (1.5fps
+  JPEG stills, downscale-to-720, one CIContext, autoreleasepool, drop under
+  backpressure) feeding the SAME uploader; audio encoded to the same Opus
+  packets; no speech in this process (no AEC coupling).
+- DEBUG-only `FixtureStreamer` (simctl-env-driven) streams the bundled
+  pt-command fixture through the real uploader; the fitting gained the
+  env-only `GARRISON_CAPTURESERVICE_DG_URL` mock redirect (omi's
+  OMI_API_BASE_URL precedent) and `scripts/mock-deepgram.mjs`.
+
+Verified:
+- 22/22 simulator tests green (`xcodebuild test`): framing round-trip and
+  byte layout, control-message wire shapes, server-message parsing, spool
+  scan/resume/ring-rotation/crash-tail, speech-sink policy (10-in-5s
+  collapse, error never dropped, stale, master/info/mute/quiet-hours), the
+  consent + settings + ack-log persistence, and the uploader against a real
+  Network.framework WebSocket mock — including hard-drop -> reconnect ->
+  replay of exactly the unacked frames, and speak-with-receipt.
+- Release build for generic iOS device compiles (signing at M8).
+- The live acceptance: the simulator app (fixture autostart) streamed 197
+  Opus packets over the tailnet to a sandboxed capture-service on the prod
+  host (mock Deepgram behind the env redirect); all packets acked, session
+  ended clean, the transcript stored (9 words) and RENDERED on the fitting's
+  session view. The broadcast path stays device-only by design.
+
+Next: M7 — the all-flags-on fixture E2E (npm run e2e:companion).

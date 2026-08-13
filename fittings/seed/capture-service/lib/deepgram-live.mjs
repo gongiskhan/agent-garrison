@@ -33,7 +33,10 @@ export function deepgramUrl(cfg) {
     interim_results: "true",
     smart_format: "true"
   });
-  return `wss://api.deepgram.com/v1/listen?${params}`;
+  // cfg.dgBaseUrl is the sandboxed-E2E mock redirect (env-only test hook);
+  // production always resolves to the real endpoint.
+  const base = cfg.dgBaseUrl || "wss://api.deepgram.com";
+  return `${base.replace(/\/$/, "")}/v1/listen?${params}`;
 }
 
 // One Results frame -> one segment in the shape the wake bus and triage

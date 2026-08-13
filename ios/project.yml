@@ -32,6 +32,10 @@ targets:
     platform: iOS
     sources:
       - path: GarrisonApp
+        excludes:
+          - Resources
+      - path: GarrisonApp/Resources
+        buildPhase: resources
       - path: Shared
     settings:
       base:
@@ -71,6 +75,24 @@ targets:
         "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Distribution"
         PROVISIONING_PROFILE_SPECIFIER: "match AppStore com.gomes.garrison.broadcast"
 
+  GarrisonTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: GarrisonApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gomes.garrison.tests
+        GENERATE_INFOPLIST_FILE: YES
+        # Tests run on the simulator only (CODE_SIGNING_ALLOWED=NO at
+        # invocation); the manual-signing project defaults must not apply.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: ""
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": ""
+        PROVISIONING_PROFILE_SPECIFIER: ""
+
 # Explicit shared scheme so fastlane gym (build_app) can find "GarrisonApp".
 # Without this, xcodegen emits no shared scheme and only plain `xcodebuild`
 # (which auto-creates one) works — gym requires a real shared scheme.
@@ -81,6 +103,10 @@ schemes:
         GarrisonApp: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - GarrisonTests
     profile:
       config: Release
     analyze:

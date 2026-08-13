@@ -34,4 +34,8 @@ gen pt-ambient Joana "Amanhã vamos ao mercado comprar peixe fresco para o janta
 # under its historical name as the object-position example.
 gen en-nearmiss Samantha "I already told Zeca about the meeting yesterday."
 
+# The iOS app bundles the PT command fixture for its DEBUG fixture-streaming
+# mode (M6 simulator smoke); keep the copy in lockstep.
+cp fixtures/audio-pt-command.jsonl ../../../ios/GarrisonApp/Resources/audio-pt-command.jsonl
+
 echo "done"
