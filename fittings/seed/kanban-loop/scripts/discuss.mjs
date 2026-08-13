@@ -87,7 +87,13 @@ function encodeContext(obj) {
 // title + description and tells the Operative to write the brief to the SAME path
 // the board auto-links on Move-out-of-Discuss (briefRelPath), so the discussion result
 // becomes the card's downstream context. Pure (no node imports) → bundles into the UI.
-export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
+//
+// It is also the BEHAVIOUR SPEC a discuss turn receives on the human path — voice,
+// stance, research doctrine, when a document is the right form — so it is the live
+// source for that doctrine whenever the duty-discuss fitting is not equipped. `level`
+// (or the card's own) sets the depth: 1 is the conversation itself, 2+ makes research
+// expected and the written brief the exit criterion.
+export function buildDiscussKickoff(card, { briefAbsPath, level } = {}) {
   const title = (typeof card?.title === "string" && card.title.trim()) ? card.title.trim() : "(untitled)";
   const project = card?.project ? String(card.project) : "(none assigned yet)";
   const desc = (typeof card?.description === "string" && card.description.trim())
@@ -96,6 +102,14 @@ export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
   // The exact card-owned brief path the Operative must write to — absolute when the board
   // supplies it (so his working dir is irrelevant), else a card-relative fallback.
   const briefPath = briefAbsPath || (card?.id ? `cards/${card.id}/brief.md` : "brief.md");
+  // How DEEP this discussion is. An explicit option wins (a non-board call site — the
+  // engine's clarity-gated discuss — can pass the level it resolved), else the card's own
+  // level, else 1. A level 1 discussion IS the conversation: research is welcome and a
+  // document is written only when one of the triggers below fires. From level 2 up,
+  // research stops being optional and the written brief becomes the exit criterion.
+  const explicit = Number.isInteger(level) ? level : null;
+  const onCard = Number.isInteger(card?.level) ? card.level : null;
+  const depth = Math.max(1, explicit ?? onCard ?? 1);
   return [
     `Let's talk this work item through before it goes to planning. Match your effort to the work: a small change needs a light touch, not an interrogation.`,
     ``,
@@ -107,9 +121,9 @@ export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
     // How to TALK. This is a conversation, not a report, and it is frequently read
     // aloud on a phone or through the voice channel, so the shape of the prose
     // matters as much as its content.
-    `How to talk to me here. Write in plain prose, in full sentences, the way you would say it out loud. No bullet lists, no headings, no tables while we are still talking. Never use an em dash. Keep it short and direct, a few sentences rather than an essay, and do not narrate what you are looking at or what you are about to do.`,
+    `How to talk to me here. Write in plain prose, in full sentences, the way you would say it out loud. No bullet lists, no headings, no tables while we are still talking. Never use an em dash. Keep it short and direct, a few sentences rather than an essay, and do not narrate what you are looking at or what you are about to do. Answer in the language I write in, and switch when I switch.`,
     ``,
-    `No flattery. Do not open by telling me the question is good or the idea is interesting. Say the thing.`,
+    `No flattery. Do not open by telling me the question is good or the idea is interesting. Say the thing. And do not lean on "genuinely", "honestly" or "straightforward" to make a claim sound truer than it is: if a point needs one of those words to land, it is not carrying its own weight.`,
     ``,
     // The stance. This is what makes a discussion worth having rather than a
     // yes-machine that agrees and then builds the wrong thing.
@@ -117,10 +131,24 @@ export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
     ``,
     `Hold a CTO and a CPO in your head at once. The CTO cares what this does to the system a year from now. The CPO cares whether anyone actually wants it. When those two disagree, tell me they disagree rather than splitting the difference quietly.`,
     ``,
-    `If a fact would settle a disagreement, go and look it up mid-conversation rather than speculating, and say what you found.`,
+    // Research doctrine. The failure mode is asserting a stale fact confidently;
+    // the fix is to go and check before the claim leaves your mouth, and to be
+    // explicit when you could not.
+    `Look it up before you assert it. If a claim turns on something that may have changed, on a number you are not sure of, or on anything after your training cutoff, search the web first and then tell me what you found rather than that you went looking. Do not narrate the search. If you cannot search in this turn, say the claim is unverified instead of stating it as fact. Same mid-argument: if a fact would settle a disagreement between us, go and get it instead of speculating.`,
     ``,
-    `Give me your read of it in a sentence or two, then ask me at least one real, clarifying question before we call it settled. Even for a small, clear change there is usually something worth confirming: the exact wording, the scope, where it applies, or how we will know it is done. Ask only what genuinely matters and do not manufacture a checklist. For an ambiguous or bigger item, surface the key decision and ask the few clarifying questions that actually block the build.`,
+    `Give me your read of it in a sentence or two, then ask me at least one real, clarifying question before we call it settled. Even for a small, clear change there is usually something worth confirming: the exact wording, the scope, where it applies, or how we will know it is done. Ask only what really matters and do not manufacture a checklist. For an ambiguous or bigger item, surface the key decision and ask the few clarifying questions that actually block the build.`,
     ``,
+    // WHEN a document is the right form. The default is that it is not: the
+    // conversation is the deliverable, and a document that nobody asked for is a
+    // way of ending a discussion early.
+    `The conversation is the deliverable here, not a document. Write one only when I ask for it, when a decision has settled and writing it down stops us re-litigating it next week, or when the material has outgrown talking. When that moment comes the document is the brief below, one document per decision, and you keep talking to me in prose either way.`,
+    ``,
+    // Level-aware depth. Level 1 leaves research and the brief to the triggers
+    // above; from level 2 up both are expected of the discussion itself.
+    ...(depth >= 2 ? [
+      `This is a level ${depth} discussion, so research is expected rather than optional: look up what the decision actually turns on before you take a position on it. And the written brief below is the exit criterion here - we are not finished until it exists.`,
+      ``
+    ] : []),
     `IMPORTANT: do not write the brief on your first message. Always give me a chance to answer first.`,
     ``,
     `Once we have talked it through and it is settled, write the brief to exactly this path \`${briefPath}\` (that absolute path, not a copy in the project) using the template (what this is, decisions, approach, open questions, acceptance), kept proportional to the work. That brief is the handoff the build reads. Begin with your read and your question(s).`
@@ -129,9 +157,10 @@ export function buildDiscussKickoff(card, { briefAbsPath } = {}) {
 
 // Build the Discuss-duty web-channel URL for a card. The card is encoded as an
 // opaque context blob; the channel stores it alongside a duty-pinned thread.
-// { source, cardId, title, project, briefsPath, suggestedSlug } and writes the
+// { source, cardId, title, project, level, briefsPath, suggestedSlug } and writes the
 // brief under briefsPath. We pass briefsPath + a suggested slug so the brief
-// the Discuss duty writes lands where recordBrief can later link it.
+// the Discuss duty writes lands where recordBrief can later link it, and the card's
+// level (when it has one) so the channel pins the discussion at its real depth.
 //
 // webChannelBase defaults to Garrison's embed route for the seed web channel —
 // the fitting id is `web-channel-default` (NOT `web-channel`), so the embed route
@@ -146,11 +175,17 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
   const briefAbsPath = (cardsAbsDir && card?.id)
     ? `${String(cardsAbsDir).replace(/\/+$/, "")}/${card.id}/brief.md`
     : null;
+  // The card's DISCUSS LEVEL, when it carries one. A card that reached Discuss
+  // through the clarity gate can be level 2+, and both the kickoff's depth and the
+  // channel's routing pin must respect that instead of assuming a level 1 chat.
+  // Absent on an ordinary board card, which is a level 1 conversation.
+  const level = Number.isInteger(card?.level) && card.level >= 1 ? card.level : null;
   const context = {
     source: "kanban",
     cardId: card?.id ?? null,
     title: card?.title ?? null,
     project: card?.project ?? null,
+    ...(level ? { level } : {}),
     // The description so a context-honoring channel/operative has it too (the kickoff
     // message carries it as well, for the gateway path that ignores body.context).
     description: card?.description ?? null,
@@ -163,13 +198,18 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
   // The auto-sent opening message (carries the description + the EXACT brief path). base64
   // + url-encoded so a long description survives the query string; the channel decodes it
   // and hands it to the chat as initialMessage.
-  const kickoff = encodeURIComponent(encodeString(buildDiscussKickoff(card, { briefAbsPath })));
+  const kickoff = encodeURIComponent(encodeString(buildDiscussKickoff(card, { briefAbsPath, level })));
   const base = webChannelBase.replace(/\/+$/, "");
   // A STABLE thread key per card (`kanban-<cardId>`) + a human title, so the web
   // channel persists this Discuss as its own session and REOPENING the card returns
   // to the same conversation + history instead of starting blank. base64 + url-encoded
   // so they survive the query string and the channel's round-trip decode unwraps them.
   const parts = [`source=discuss`, `context=${encoded}`, `kickoff=${kickoff}`];
+  // The channel pins {duty: discuss, level} on the thread. A bare integer, not
+  // base64: there is nothing in a small number for the transport layer to protect,
+  // and a readable `level=2` is worth more in a URL than a consistent wrapper.
+  // Omitted for a level-less card, which the channel reads as level 1.
+  if (level) parts.push(`level=${level}`);
   if (card?.id) parts.push(`thread=${encodeURIComponent(encodeString(`kanban-${card.id}`))}`);
   if (card?.title) parts.push(`title=${encodeURIComponent(encodeString(String(card.title)))}`);
   // A prominent "Back to the board" target: the Garrison embed route for the kanban

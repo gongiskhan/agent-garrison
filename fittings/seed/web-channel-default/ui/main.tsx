@@ -84,6 +84,10 @@ interface UrlState {
   kickoff: string | undefined;
   thread: string | undefined;
   title: string | undefined;
+  /** The DEPTH the host asked for on a discuss thread (kanban-loop's buildDiscussUrl
+   *  sends the card's own level). Undefined for a host that sends none, which is a
+   *  level 1 conversation. A bare integer in the query string, not base64. */
+  level: number | undefined;
   returnUrl: string | undefined;
   returnLabel: string | undefined;
   /** Explicit ?console=1 - mount the raw PTY operative console instead of the
@@ -113,7 +117,7 @@ function goBackToHost(): void {
 
 function readUrl(): UrlState {
   if (typeof window === "undefined") {
-    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
+    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, level: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
   }
   const q = new URLSearchParams(window.location.search);
   const sourceRaw = q.get("source");
@@ -127,12 +131,15 @@ function readUrl(): UrlState {
   const returnUrl = typeof returnUrlRaw === "string" && returnUrlRaw.trim() ? returnUrlRaw.trim() : undefined;
   const returnLabelRaw = decodeContext(q.get("returnLabel"));
   const returnLabel = typeof returnLabelRaw === "string" && returnLabelRaw.trim() ? returnLabelRaw.trim() : undefined;
+  const levelRaw = (q.get("level") || "").trim();
+  const level = /^[1-9]$/.test(levelRaw) ? Number(levelRaw) : undefined;
   return {
     context: decodeContext(q.get("context")),
     source: sourceRaw && sourceRaw.trim() ? sourceRaw.trim() : undefined,
     kickoff,
     thread,
     title,
+    level,
     returnUrl,
     returnLabel,
     console: q.get("console") === "1",
@@ -530,7 +537,10 @@ function ThreadedApp({ url }: { url: UrlState }) {
         if (!alive) return;
         const id = ensured?.id ?? url.thread;
         if (url.source === "discuss" || Boolean(url.kickoff)) {
-          await apiSetRouting(id, { duty: "discuss", level: 1 });
+          // Pin the duty always; the level only DEFAULTS to 1. A card that reached
+          // Discuss through the clarity gate can be level 2+, and forcing 1 here
+          // silently demoted it back to a light chat.
+          await apiSetRouting(id, { duty: "discuss", level: url.level ?? 1 });
         }
         await openThread(id, { kickoff: Boolean(url.kickoff) });
       } else if (url.context !== undefined || url.source !== undefined || url.kickoff !== undefined) {
@@ -543,7 +553,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         if (!alive) return;
         if (ensured) {
           if (url.source === "discuss" || Boolean(url.kickoff)) {
-            await apiSetRouting(ensured.id, { duty: "discuss", level: 1 });
+            await apiSetRouting(ensured.id, { duty: "discuss", level: url.level ?? 1 });
           }
           await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
         }

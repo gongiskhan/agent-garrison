@@ -85,6 +85,28 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
     expect(ctx.project).toBe(null);
   });
 
+  // The channel pins {duty: discuss, level} on the thread it opens. A card that
+  // reached Discuss through the clarity gate can be level 2+, so the level has to
+  // travel with the card instead of the channel forcing 1.
+  it("carries the card's LEVEL (in the query + the context blob) when it has one", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison", level: 2 };
+    const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    // A bare integer - readable in the URL, and the channel parses it directly.
+    expect(q.get("level")).toBe("2");
+    const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
+    expect(ctx.level).toBe(2);
+    // The kickoff it carries is the level 2 one.
+    expect(channelDecodeContext(q.get("kickoff")) as string).toContain("This is a level 2 discussion");
+  });
+
+  it("omits the level for an ordinary level-less card (the channel defaults it to 1)", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison" };
+    const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    expect(q.get("level")).toBeNull();
+    const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
+    expect(ctx.level).toBeUndefined();
+  });
+
   it("carries a STABLE per-card thread key + title (so reopening returns to the same session)", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add a Discuss brief", project: "garrison" };
     const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
@@ -129,6 +151,78 @@ describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)
     const k = buildDiscussKickoff(card);
     expect(k).toContain("(none assigned yet)");
     expect(k.toLowerCase()).toContain("no description");
+  });
+
+  // The behaviour spec distilled from Anthropic's published Opus 5 system prompt and
+  // the operator's stated preferences. These are the lines a discuss turn is actually
+  // steered by, so each one is pinned rather than assumed.
+  it("carries the research doctrine: search BEFORE asserting, report the finding not the search", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Pricing", project: "g", description: "d" };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain("Look it up before you assert it");
+    expect(k).toContain("search the web first");
+    expect(k).toContain("after your training cutoff");
+    // Say what you found, not that you looked.
+    expect(k).toContain("rather than that you went looking");
+    expect(k).toContain("Do not narrate the search");
+    // Honest degradation: no search available means "unverified", never a confident assertion.
+    expect(k).toContain("say the claim is unverified");
+  });
+
+  it("names the DOCUMENT triggers: the conversation is the deliverable at level 1", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Shape it", project: "g", description: "d" };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain("The conversation is the deliverable here, not a document");
+    expect(k).toContain("when I ask for it");
+    expect(k).toContain("stops us re-litigating");
+    expect(k).toContain("outgrown talking");
+    expect(k).toContain("one document per decision");
+    // And it writes to the card-owned brief path it already names, not somewhere new.
+    expect(k).toContain("the document is the brief below");
+  });
+
+  it("bans the persuasion modifiers and matches the user's language", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Voice", project: "g", description: "d" };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain('"genuinely", "honestly" or "straightforward"');
+    expect(k).toContain("not carrying its own weight");
+    expect(k).toContain("Answer in the language I write in");
+    // The instructions must not themselves model the tic they ban.
+    const instructions = k.replace(card.description, "");
+    expect(instructions).not.toMatch(/\bgenuinely matters\b/);
+  });
+});
+
+describe("kanban discuss — buildDiscussKickoff level-aware depth", () => {
+  const card = (level?: number) => ({
+    id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "g", description: "d",
+    ...(level === undefined ? {} : { level })
+  });
+
+  it("level 1 (and a level-less card) leaves research + the brief to the triggers", () => {
+    for (const c of [card(), card(1)]) {
+      const k = buildDiscussKickoff(c);
+      expect(k).not.toContain("research is expected rather than optional");
+      expect(k).not.toContain("exit criterion");
+    }
+  });
+
+  it("level 2+ makes research expected and the written brief the exit criterion", () => {
+    const k = buildDiscussKickoff(card(2));
+    expect(k).toContain("This is a level 2 discussion");
+    expect(k).toContain("research is expected rather than optional");
+    expect(k).toContain("the written brief below is the exit criterion");
+    // Level 3 says so by its own number, not a generic "deep" label.
+    expect(buildDiscussKickoff(card(3))).toContain("This is a level 3 discussion");
+  });
+
+  it("an explicit level option wins over the card (the call site that resolved it)", () => {
+    // The engine's clarity-gated discuss resolves the level itself; the option lets
+    // that call site pass it without writing it onto the card first.
+    expect(buildDiscussKickoff(card(1), { level: 3 })).toContain("This is a level 3 discussion");
+    // Garbage in the option falls back to the card, and a level below 1 clamps to 1.
+    expect(buildDiscussKickoff(card(2), { level: undefined })).toContain("This is a level 2 discussion");
+    expect(buildDiscussKickoff(card(0))).not.toContain("exit criterion");
   });
 });
 

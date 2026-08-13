@@ -355,15 +355,15 @@ x-garrison:
       levels:
       - description: 'level 1: talk a focused question or tradeoff through in prose'
         cell:
-          target: opus
+          target: fable
           effort: low
       - description: 'level 2: research it mid-conversation and write the brief when it settles'
         cell:
-          target: opus
+          target: fable
           effort: medium
       - description: 'level 3: argue both sides properly before converging, then write it up'
         cell:
-          target: opus
+          target: fable
           effort: high
     - id: plan
       title: Plan
