@@ -27,7 +27,7 @@ import { WakeBus } from "../lib/wake.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
-import { CompanionNotifier } from "../lib/notify.mjs";
+import { CompanionNotifier, isLoopbackUrl } from "../lib/notify.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
@@ -386,6 +386,44 @@ export function makeRequestHandler(ctx) {
         return json(res, 200, { session: record });
       }
 
+      // ---- Notification sink (the kanban fanOutNotification contract and
+      // the triage CompanionRelayNotifier both speak this shape). Implementing
+      // it is the ENTIRE opt-in: the fan-out discovers sinks by probing every
+      // running own-port fitting and treating 404 as "not for you". Loopback
+      // or tailnet callers only (never funneled). The notifier owns the flag,
+      // cap, registry and degrade chain — a relay must never re-check flags
+      // it cannot know.
+      if (req.method === "POST" && p === "/notify") {
+        const body = await readBody(req);
+        if (body === null) return json(res, 413, { error: "body too large" });
+        let parsed;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          return json(res, 400, { error: "invalid JSON" });
+        }
+        const text = String(parsed?.text ?? "").trim();
+        if (!text) return json(res, 400, { error: "text is required" });
+        const idempotencyKey = typeof parsed.idempotencyKey === "string" ? parsed.idempotencyKey : null;
+        if (ctx.notifier.alreadyDelivered(idempotencyKey)) {
+          counters.bump("notify_deduplicated");
+          return json(res, 200, [{ means: "companion-push", ok: true, deduplicated: true }]);
+        }
+        let link = typeof parsed.link === "string" ? parsed.link : null;
+        if (link && isLoopbackUrl(link)) {
+          counters.bump("notify_loopback_link_stripped");
+          link = null;
+        }
+        const receipts = await ctx.notifier.deliver({
+          title: String(parsed.title ?? "Garrison").slice(0, 120),
+          body: link && !text.includes(link) ? `${text}\n${link}` : text,
+          link,
+          tag: typeof parsed.tag === "string" ? parsed.tag : "relay"
+        });
+        if (receipts.some((r) => r.ok)) ctx.notifier.markDelivered(idempotencyKey);
+        return json(res, 200, receipts);
+      }
+
       // Websocket endpoint reached over plain HTTP.
       if (p === "/capture/stream") {
         return json(res, 400, { error: "websocket upgrade required" });
@@ -397,8 +435,8 @@ export function makeRequestHandler(ctx) {
         return json(res, 501, { error: "not implemented yet" });
       }
 
-      // NOT a sink yet — 404 keeps the kanban ack/notify fan-out treating this
-      // fitting as "not for you" until M5b/M5 land the real handlers.
+      // /ack stays 404 until M5b lands the speech sink — the kanban ack
+      // fan-out treats 404 as "this fitting is not an ack sink".
       return json(res, 404, { error: "not found" });
     } catch (err) {
       console.error(`[capture-service] handler error: ${err?.stack || err}`);

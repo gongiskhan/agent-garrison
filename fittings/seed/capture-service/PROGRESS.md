@@ -217,3 +217,43 @@ tick zero calls; rule-layer verdicts stable for both sources.
 
 Next: M5 — APNs transport (ported apns.js, device registry, /notify sink,
 caps and Retry-After backoff, non-loopback deep links).
+
+## M5 — APNs transport (2026-08-13)
+
+Shipped:
+- `lib/apns.mjs`: ios-thing's proven zero-dependency sender ported faithfully
+  (ES256 JWT with `ieee-p1363` — the JOSE r||s signature APNs requires; JWT
+  cached under 40 min; HTTP/2 to the production or sandbox gateway per
+  config; per-token `{status, reason, ok, dead}` outcomes; the idempotent
+  finalize-with-timeout that keeps a dying session from hanging the caller).
+  Adaptations: secrets from the vault-delivered cfg (APNS_TEAM_ID /
+  APNS_KEY_ID / APNS_P8 — key CONTENT, PEM or base64, same sniff as the
+  TestFlight lane), the `retry-after` header surfaced per response, and an
+  injectable http2 connect for tests.
+- `lib/notify.mjs` grew the real chain: notifyEnabled -> unsealed -> no
+  devices -> per-day cap (notify-ledger.json) -> APNs with dead-token pruning
+  and up to two retries whose delays honour Retry-After (capped 300s) or use
+  5s/25s floors — wider than a burst window (spec §11 failure 7) —
+  degrading to the web-channel PWA thread on persistent failure. Receipts
+  keyed by means. Loopback deep links are STRIPPED before render
+  (unreachable + mixed content on a phone; already shipped broken once).
+- `POST /notify` sink: the kanban fanOutNotification contract shape (also
+  spoken by M4's CompanionRelayNotifier), idempotency-key dedupe with a 48h
+  ledger, title/text/link/tag -> the notifier's chain. Implementing the
+  route IS the opt-in; /ack stays 404 until M5b.
+- Templates card_created / wake_confirmation / ask / tip / relay all render
+  to one plain-text message + one bare link, no buttons; the wake bus's
+  confirmations now genuinely push.
+
+Tests (65 across the companion suites, green on dev-madrid; typecheck
+clean): offline JWT verification with a throwaway P-256 key (3 parts,
+ES256/kid/iss/iat, signature EXACTLY 64 bytes proving P1363, crypto.verify
+passes, cache window honoured); PEM/base64 p8 sniff; verified request
+headers + aps payload shape via a fake http2 session; dead-token pruning;
+Retry-After-honoured 429 retry; persistent-5xx degrade to a real loopback
+web-channel stub with the I5 no-content-in-logs spy; the per-day cap;
+loopback-link stripping (tailnet links pass); /notify idempotency and the
+live toggle.
+
+Next: M5b — the speech sink (POST /ack, echo registration before speak,
+socket forwarding, queue ceiling, staleness, receipts).

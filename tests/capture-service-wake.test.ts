@@ -249,8 +249,8 @@ describe("capture-service wake gate", () => {
     expect(counters.wake_command_ms_count).toBe(1);
     expect(counters.wake_notify_ms_count).toBe(1);
     expect(counters.wake_hit_to_notification_ms_count).toBe(1);
-    // The notifier answered honestly: no push exists until M5.
-    expect(counters.notify_skipped_unimplemented).toBe(1);
+    // Notifier receipts themselves are covered by the M5 suite; here the
+    // sandbox has no APNs key and no web channel, so the send skips honestly.
     ws.close();
   });
 

@@ -172,16 +172,23 @@ describe("capture-service server", () => {
       expect(res.status).toBe(expected);
     }
 
-    // NOT a sink yet: /ack and /notify must 404 so fanOutAck/fanOutNotification
-    // treat this fitting as "not for you" rather than swallowing deliveries.
-    for (const route of ["/ack", "/notify"]) {
-      const res = await fetch(`${base}${route}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "ack-x", text: "Created a task, test." })
-      });
-      expect(res.status).toBe(404);
-    }
+    // /ack is NOT a sink yet: 404 so fanOutAck treats this fitting as "not
+    // for you" until M5b. /notify (M5) IS a sink — with every flag off it
+    // answers honest skip receipts, never a silent 404.
+    const ackRes = await fetch(`${base}/ack`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "ack-x", text: "Created a task, test." })
+    });
+    expect(ackRes.status).toBe(404);
+    const notifyRes = await fetch(`${base}/notify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Test", text: "Created a task, test." })
+    });
+    expect(notifyRes.status).toBe(200);
+    const notifyReceipts = await notifyRes.json();
+    expect(notifyReceipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "notify disabled" });
 
     const page = await fetch(`${base}/`);
     expect(page.status).toBe(200);

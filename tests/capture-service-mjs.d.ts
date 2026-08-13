@@ -56,12 +56,17 @@ declare module "*/capture-service/lib/config.mjs" {
 declare module "*/capture-service/scripts/server.mjs" {
   import type { Server } from "node:http";
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
+  export const COMPANION_WAKE_SOURCE: Record<string, unknown>;
   export function startServer(cfg?: unknown): Promise<{
     server: Server;
     cfg: { port: number; statusFile: string; stateDir: string };
     store: unknown;
     counters: { read(): Record<string, number>; bump(key: string, by?: number): number };
     ingress: { sessions: Map<string, unknown>; close(): void };
+    transcriber: unknown;
+    wakeBus: unknown;
+    echoGuard: unknown;
+    notifier: unknown;
   }>;
 }
 
@@ -113,6 +118,44 @@ declare module "*/capture-service/lib/deepgram-live.mjs" {
     subscribe(sessionId: string, listener: (segment: unknown) => void): (() => void) | null;
     end(sessionId: string): Promise<unknown[] | null>;
     close(): void;
+  }
+}
+
+declare module "*/capture-service/lib/apns.mjs" {
+  export function decodeP8(raw: unknown): string | null;
+  export class ApnsSender {
+    constructor(deps: Record<string, unknown>);
+    cfg: Record<string, unknown>;
+    enabled(): boolean;
+    host(): string;
+    providerToken(): string;
+    notify(
+      tokens: string[],
+      alert?: { title?: string; body?: string; data?: Record<string, unknown> }
+    ): Promise<{
+      skipped?: string;
+      error?: string;
+      results: Array<{ token: string; status: number; reason: string; ok: boolean; dead: boolean; retryAfter: number | null }>;
+    }>;
+  }
+}
+
+declare module "*/capture-service/lib/notify.mjs" {
+  export const COMPANION_THREAD_ID: string;
+  export function renderTemplate(template: string, params?: Record<string, unknown>): string;
+  export function isLoopbackUrl(url: string): boolean;
+  export function boardCardUrl(cardId: string | null, env?: Record<string, string | undefined>): Promise<string | null>;
+  export class CompanionNotifier {
+    constructor(deps: Record<string, unknown>);
+    cfg: Record<string, unknown>;
+    apns: unknown;
+    cardUrl(cardId: string | null): Promise<string | null>;
+    sentToday(): number;
+    alreadyDelivered(idempotencyKey: string | null): boolean;
+    markDelivered(idempotencyKey: string | null): void;
+    send(args: { template: string; params?: Record<string, unknown> }): Promise<Array<Record<string, unknown> & { means: string; ok: boolean }>>;
+    deliver(args: { title: string; body: string; link?: string | null; tag?: string | null }): Promise<Array<Record<string, unknown> & { means: string; ok: boolean }>>;
+    sendWebChannelFallback(message: string): Promise<Record<string, unknown> & { means: string; ok: boolean }>;
   }
 }
 
