@@ -78,3 +78,48 @@ export async function getTailnetServeMap() {
   cache = { at: now, map };
   return map;
 }
+
+// Pure: rehost one absolute loopback URL onto its HTTPS tailnet form using a
+// serve map (localPort -> https URL). Returns null when the URL is unparseable
+// or its port is not serve-mapped, so callers can fall back to the loopback
+// form. Mirror of the capture-service copy (house convention: each own-port
+// fitting carries its own tailnet-serve lib).
+export function rehostToTailnet(absoluteUrl, map) {
+  if (!absoluteUrl) return null;
+  let url;
+  try {
+    url = new URL(absoluteUrl);
+  } catch {
+    return null;
+  }
+  const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  const base = map.get(port);
+  if (!base) return null;
+  try {
+    const b = new URL(base);
+    url.protocol = b.protocol;
+    url.host = b.host;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+// Loopback deep links embedded in a plain-text notification body (e.g. the
+// `Card: http://127.0.0.1:7089/#/cards/<id>` line channel messages carry). The
+// char class stops at whitespace or a closing paren so surrounding prose is
+// untouched; each match rehosts, falling back to its own loopback form when the
+// port is unmapped.
+const LOOPBACK_URL_RE = /https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?[^\s)]*/g;
+
+export function rehostTextToTailnet(text, map) {
+  if (typeof text !== "string" || !text) return text;
+  return text.replace(LOOPBACK_URL_RE, (u) => rehostToTailnet(u, map) ?? u);
+}
+
+// The live form: rehost against this machine's current `tailscale serve` config
+// (null when tailscale isn't installed or the port isn't mapped).
+export async function toTailnetUrl(absoluteUrl) {
+  if (!absoluteUrl) return null;
+  return rehostToTailnet(absoluteUrl, await getTailnetServeMap());
+}

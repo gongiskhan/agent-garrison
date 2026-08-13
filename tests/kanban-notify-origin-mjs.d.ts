@@ -16,6 +16,7 @@ declare module "*/kanban-loop/lib/notify-origin.mjs" {
     options?: {
       skipFittingIds?: string[];
       fetchImpl?: typeof fetch;
+      serveMap?: Map<number, string>;
     }
   ): Promise<FanOutNotificationResult[]>;
 

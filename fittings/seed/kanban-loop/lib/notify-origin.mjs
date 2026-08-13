@@ -21,6 +21,34 @@ import path from "node:path";
 import { ackFromOriginEvent, isAckableEventKind, loadTemplates } from "./ack.mjs";
 import os from "node:os";
 import { deriveOriginId, parseOriginId, ensureOriginRecord, appendOriginEvent } from "./origins.mjs";
+import { getTailnetServeMap, rehostTextToTailnet, rehostToTailnet } from "./tailnet-serve.mjs";
+
+// Rehost loopback card deep links to their HTTPS tailnet form for delivery to a
+// channel (Slack / Omi / web-on-phone). The message builders below emit the
+// canonical loopback URL (boardCardUrl) - right for on-machine consumers (the
+// durable origin event log, local pull-delivery) but unreachable and mixed
+// content on a phone reaching this box over the tailnet. So the rehost happens
+// HERE, at the send boundary, not in the builders: the log keeps loopback while
+// the channel gets the reachable form. Falls back to loopback when tailscale
+// serve is absent or the port is unmapped (local/dev stays usable). Never
+// throws - a serve-status hiccup must not break a best-effort notification.
+async function tailnetForChannel({ text = null, link = null, actions = null, serveMap = null } = {}) {
+  let map = serveMap;
+  if (!map) {
+    try {
+      map = await getTailnetServeMap();
+    } catch {
+      return { text, link, actions };
+    }
+  }
+  return {
+    text: rehostTextToTailnet(text, map),
+    link: link ? rehostToTailnet(link, map) ?? link : link,
+    actions: Array.isArray(actions)
+      ? actions.map((a) => (a?.url ? { ...a, url: rehostToTailnet(a.url, map) ?? a.url } : a))
+      : actions
+  };
+}
 
 const DONE_LIST = "done";
 const ATTENTION_LIST = "needs-attention";
@@ -89,9 +117,17 @@ function runningFittingBases() {
  */
 export async function fanOutNotification(
   { title, text, actions = [], link = null, tag = null, idempotencyKey = null },
-  { skipFittingIds = [], fetchImpl = fetch } = {}
+  { skipFittingIds = [], fetchImpl = fetch, serveMap = null } = {}
 ) {
   const skip = new Set(skipFittingIds.filter(Boolean));
+  // Every fan-out target is a channel; rehost the loopback deep links once to
+  // the tailnet form so the notification is reachable off-box (phones).
+  const { text: reachableText, link: reachableLink, actions: reachableActions } = await tailnetForChannel({
+    text,
+    link,
+    actions,
+    serveMap
+  });
   const results = [];
   await Promise.all(
     runningFittingBases()
@@ -101,7 +137,7 @@ export async function fanOutNotification(
           const res = await fetchImpl(`${base}/notify`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ title, text, actions, link, tag, idempotencyKey }),
+            body: JSON.stringify({ title, text: reachableText, actions: reachableActions, link: reachableLink, tag, idempotencyKey }),
             signal: AbortSignal.timeout(8000)
           });
           // 404 = not a notify-capable channel. Anything else is a real outcome.
@@ -209,11 +245,14 @@ export function notifyOriginTransition(prev, next) {
     const base = statusFileUrl(fittingId);
     if (!base) return;
     const text = outcomeMessage(next);
-    void fetch(`${base}/api/threads/${encodeURIComponent(next.originChannel.threadId)}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "assistant", text }] })
-    })
+    void (async () => {
+      const { text: reachableText } = await tailnetForChannel({ text });
+      return fetch(`${base}/api/threads/${encodeURIComponent(next.originChannel.threadId)}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "assistant", text: reachableText }] })
+      });
+    })()
       .then((res) => {
         if (!res.ok) console.error(`[kanban] origin notify → HTTP ${res.status} (${fittingId}, thread ${next.originChannel.threadId})`);
       })
@@ -352,17 +391,18 @@ export function routeBrief(root, card, { brief, gate } = {}) {
 // Fire-and-forget POST of an assistant message to a channel fitting's thread
 // (the shared thread-append contract). Extracted so every channel-transport
 // delivery uses one path; the channel id picks the fitting via CHANNEL_FITTINGS.
-async function postChannelMessage(channel, threadId, text, { idempotencyKey = null, fetchImpl = fetch } = {}) {
+async function postChannelMessage(channel, threadId, text, { idempotencyKey = null, fetchImpl = fetch, serveMap = null } = {}) {
   const fittingId = CHANNEL_FITTINGS[channel];
   if (!fittingId || !threadId || !text) return { ok: false, channel, fittingId, reason: "invalid channel message" };
   const base = statusFileUrl(fittingId);
   if (!base) return { ok: false, channel, fittingId, reason: `${fittingId} is not running` };
+  const { text: reachableText } = await tailnetForChannel({ text, serveMap });
   try {
     const response = await fetchImpl(`${base}/api/threads/${encodeURIComponent(threadId)}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        messages: [{ role: "assistant", text }],
+        messages: [{ role: "assistant", text: reachableText }],
         ...(idempotencyKey ? { idempotencyKey } : {})
       }),
       signal: AbortSignal.timeout(8_000)
@@ -402,11 +442,12 @@ export async function deliverBoardNotice(title, text, { idempotencyKey = null, f
       console.error(`[kanban] board notice → thread ensure HTTP ${ensured.status}`);
       return false;
     }
+    const { text: reachableText } = await tailnetForChannel({ text });
     const posted = await fetchImpl(`${base}/api/threads/${BOARD_NOTICE_THREAD}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        messages: [{ role: "assistant", text }],
+        messages: [{ role: "assistant", text: reachableText }],
         ...(idempotencyKey ? { idempotencyKey } : {})
       })
     });
