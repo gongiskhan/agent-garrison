@@ -220,7 +220,7 @@ export function railBadges(route: RouteAttribution): RailBadge[] {
       // badge exists to prevent.
       label: flow ? (off.length ? `${flow} -${off.length}` : flow) : `plan -${off.length}`,
       title: title(
-        flow ? `flow ${flow}` : "plan inferred from the tier",
+        flow ? `flow ${flow}` : "flow derived by the router",
         off.length ? `phases off: ${off.join(", ")}` : "every phase in the plan runs"
       ),
       ...(off.length ? { tone: "warn" as const } : {}),

@@ -88,12 +88,15 @@ const AUTO_LABEL: Record<PinField, string> = {
   target: "Automatic - the composition's routing",
   model: "Automatic - the resolved target's model",
   effort: "Automatic - the duty's effort",
-  duty: "Automatic - the classifier decides",
+  duty: "Automatic - routing inference decides",
   level: "Automatic",
   project: "Automatic - the operative's own directory",
   account: "Automatic - the composition's account",
-  tier: "Automatic - the classifier decides",
-  flow: "Automatic - the plan inferred from the tier",
+  tier: "Automatic - routing inference decides",
+  // 2026-08-13: flows carry levelled duty lists now; the router derives the flow
+  // from the routed duty and the flow's level defines the plan. "Inferred from
+  // the tier" was the pre-coherence world and read as if nothing had shipped.
+  flow: "Automatic - the router picks the flow, its level picks the plan",
   phasesOff: "Automatic - every phase in the plan runs",
 };
 
