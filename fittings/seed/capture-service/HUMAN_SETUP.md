@@ -72,14 +72,14 @@ app on the phone.
 
 App Store -> Tailscale -> sign in to the tailnet (same account as
 dev-madrid). Verify: Safari on the phone opens
-`https://dev-madrid.tail31efa.ts.net:8497/health` (the capture service's
+`https://dev-madrid.tail31efa.ts.net:8498/health` (the capture service's
 tailnet serve mapping; prod publishes it on redeploy) and shows `ok: true`.
 
 ## 5. Point the app at Garrison
 
 Garrison app -> Settings:
 
-- Base URL: `https://dev-madrid.tail31efa.ts.net:8497`
+- Base URL: `https://dev-madrid.tail31efa.ts.net:8498`
 - Capture token: the `CAPTURE_TOKEN` value from step 1
 - Device name: whatever you like
 - Tap "Test connection" -> "Connected."

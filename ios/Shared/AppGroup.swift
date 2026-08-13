@@ -11,7 +11,7 @@ enum AppGroup {
     static var defaults: UserDefaults? = UserDefaults(suiteName: identifier)
 
     enum Key {
-        static let baseURL = "capture.baseURL" // e.g. https://host.ts.net:8497
+        static let baseURL = "capture.baseURL" // e.g. https://host.ts.net:8498
         static let token = "capture.token" // CAPTURE_TOKEN value
         static let deviceName = "capture.deviceName"
         static let consentSuppressed = "capture.consentSuppressed" // "Don't ask me again"

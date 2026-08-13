@@ -25,7 +25,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Capture service") {
-                TextField("Base URL (https://host.ts.net:8497)", text: $baseURL)
+                TextField("Base URL (https://host.ts.net:8498)", text: $baseURL)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
