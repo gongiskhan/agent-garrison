@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "flowId": "fitting-manifest-validated",
+  "title": "A fitting's manifest is read and validated",
+  "summary": "Every Fitting enters Garrison through one narrow gate: the registry lists it, the parser reads its `x-garrison` block, and a compatibility check decides whether the shape it declares is allowed in the faculty it asked for. This flow follows a single fitting from a line in `data/library.json` to either a parsed manifest or the thrown error that takes the Compositions API down with it.",
+  "source": "e2e",
+  "provenance": {
+    "testFile": "tests/seed.test.ts",
+    "testTitle": "each survivor manifest parses with its declared provides/consumes"
+  },
+  "anchoredAt": {
+    "sha": "b9f1284911459d227c304b86ed32e6dbff325293",
+    "shortSha": "b9f12849",
+    "committedAt": "2026-08-06T12:38:47+01:00"
+  },
+  "tags": [
+    "registry",
+    "fittings",
+    "validation"
+  ],
+  "detailLevel": "standard",
+  "states": [
+    {
+      "id": "listed",
+      "label": "Listed in the registry",
+      "description": "Nothing is discovered by scanning the filesystem. A Fitting exists because `data/library.json` says it does.",
+      "steps": [
+        {
+          "id": "read-library",
+          "title": "The registry is read and each entry resolved",
+          "kind": "code",
+          "description": "Each raw entry is resolved against its manifest on disk. An entry that resolves to `null` is collected into `skipped` rather than throwing — a missing manifest is survivable. The interesting part is what happens to an entry whose manifest is present but wrong: that path does not end in `skipped`, it ends in an exception.",
+          "next": [
+            {
+              "to": "library-shape",
+              "label": "for each entry"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/library.ts",
+            "startLine": 71,
+            "endLine": 76,
+            "lang": "ts",
+            "highlights": [
+              [
+                73,
+                74
+              ]
+            ],
+            "extractedSha256": "f1e1459bb0d99c656a0959ccf8db05f81d4917cd2605b377b8726c148c4e46cf",
+            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.878Z"
+          }
+        },
+        {
+          "id": "library-shape",
+          "title": "What an entry looks like on disk",
+          "kind": "filewrite",
+          "description": "The registry entry is deliberately thin: identity and location, nothing behavioural. Everything that can be wrong in an interesting way lives in the fitting's own `apm.yml`, one indirection away.",
+          "asciiSample": "data/library.json  (array of entries, 2-space indent)\n\n[\n  ...\n  {\n    \"id\":        \"project-viewer\",\n    \"name\":      \"Project Viewer\",\n    \"repo\":      \"local:fittings/seed/project-viewer\",\n    \"localPath\": \"fittings/seed/project-viewer\",\n    \"summary\":   \"...\",\n    \"platforms\": [ \"claude-code\" ]\n  }\n]\n\nNote: there is no `kind` field here. Capability kinds live in the\nfitting's own apm.yml, which is why a retired kind fails at PARSE\ntime rather than at registry-read time.",
+          "next": [
+            {
+              "to": "parse-metadata",
+              "label": "resolve reads apm.yml"
+            }
+          ],
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.878Z"
+          }
+        }
+      ]
+    },
+    {
+      "id": "parsed",
+      "label": "Parsed",
+      "description": "The `x-garrison` block is normalised, then parsed by a strict schema.",
+      "steps": [
+        {
+          "id": "parse-metadata",
+          "title": "Normalise deprecations, then parse strictly",
+          "kind": "code",
+          "description": "Three steps in four lines. Deprecated spellings are rewritten first, so an old manifest still parses with a warning instead of failing. Then the zod schema parses — and because most of its sub-objects are strict, an unknown key is an error rather than something quietly ignored. Only then does the faculty check run.",
+          "next": [
+            {
+              "to": "normalise-glue"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/metadata.ts",
+            "startLine": 478,
+            "endLine": 484,
+            "lang": "ts",
+            "highlights": [
+              [
+                480,
+                482
+              ]
+            ],
+            "extractedSha256": "a89e695862158de1fb9fe3f9be98f792cbb9b7f3408720f0d85a5a3e5700de65",
+            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.887Z"
+          }
+        },
+        {
+          "id": "normalise-glue",
+          "title": "The deprecation shim",
+          "kind": "glue",
+          "description": "Mechanical aliasing of old field spellings onto current ones. Folded because it explains nothing about the flow, and kept because an agent tracing why an old manifest still works needs to find it.",
+          "collapsed": true,
+          "next": [
+            {
+              "to": "zod-strict",
+              "label": "then the schema"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/metadata.ts",
+            "startLine": 485,
+            "endLine": 486,
+            "lang": "ts",
+            "highlights": [
+              [
+                485,
+                485
+              ]
+            ],
+            "extractedSha256": "acd1c1156ec03b834fc7aee307747758fdae6c5d2456ad213d4c5c2891576d7d",
+            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.895Z"
+          }
+        },
+        {
+          "id": "zod-strict",
+          "title": "Why a strict schema is the load-bearing choice",
+          "kind": "dep",
+          "description": "A dependency only matters when it changes what the code can promise. This one does: strictness is what makes a malformed manifest impossible to ignore.",
+          "note": "The schema is built with `zod`. What matters here is not zod itself but that the sub-objects are declared `.strict()`: an unrecognised key fails the parse instead of being dropped. That converts a typo in a hand-edited `apm.yml` from a silent behavioural change into a loud startup failure.",
+          "next": [
+            {
+              "to": "state:compatible",
+              "label": "schema passed"
+            }
+          ],
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.895Z"
+          }
+        }
+      ]
+    },
+    {
+      "id": "compatible",
+      "label": "Shape allowed in the faculty",
+      "description": "The last gate, and the one that is easy to get wrong because it is a cross-field rule rather than a field-level one.",
+      "steps": [
+        {
+          "id": "faculty-shapes",
+          "title": "The shape must be one the faculty accepts",
+          "kind": "code",
+          "description": "A manifest can be perfectly well-formed and still be rejected here. Every faculty publishes a list of component shapes it accepts, and declaring a shape outside that list throws. This is why a fitting cannot simply pick the faculty whose description reads best: an own-port plugin has to land in a faculty that accepts `plugin`.",
+          "next": [
+            {
+              "to": "shapes-table",
+              "label": "reads the table"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/metadata.ts",
+            "startLine": 558,
+            "endLine": 562,
+            "lang": "ts",
+            "highlights": [
+              [
+                558,
+                561
+              ]
+            ],
+            "extractedSha256": "392b242b084d4a356267fbc6d22911276e75767eceaa32cc74d5952387ff2aeb",
+            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.903Z"
+          }
+        },
+        {
+          "id": "shapes-table",
+          "title": "Where the accepted shapes are declared",
+          "kind": "code",
+          "description": "The `knowledge` faculty accepts `plugin`, which is what lets a fitting that serves its own UI live here. `code-intelligence`, one entry further down, accepts only `mcp`, `skill` and `cli-skill` — so a plugin that describes a codebase belongs in `knowledge` even though the other name sounds closer.",
+          "next": [
+            {
+              "to": "the-500"
+            }
+          ],
+          "sample": {
+            "file": "src/lib/faculties.ts",
+            "startLine": 126,
+            "endLine": 134,
+            "lang": "ts",
+            "highlights": [
+              [
+                130,
+                130
+              ]
+            ],
+            "extractedSha256": "ada3245f77c124c61e08e2c1f25f3b4765220dda445d52441adedb166dfe4881",
+            "sha": "b9f1284911459d227c304b86ed32e6dbff325293"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.911Z"
+          }
+        },
+        {
+          "id": "the-500",
+          "title": "What failure costs",
+          "kind": "db",
+          "description": "The asymmetry is the thing worth remembering. A fitting missing from the registry is invisible and everything else keeps working. A fitting present in the registry with a manifest that will not parse takes down every route that reads the library — so the cheap failure and the expensive failure look almost identical from the outside.",
+          "asciiSample": "GET /api/compositions\n\n  entry            manifest      outcome\n  ---------------- ------------- ------------------------------------------\n  file-browser     present, ok   parsed\n  monitor-default  present, ok   parsed\n  <yours>          ABSENT        skipped, warning logged  -> survivable\n  <yours>          PRESENT, BAD  THROWS -> 500 -> whole Muster UI is down\n\n  (illustrative rows: the two right-hand outcomes are the two real\n   branches in readLibrary, not sampled request data)",
+          "next": [],
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "b9f1284911459d227c304b86ed32e6dbff325293",
+            "checkedAt": "2026-08-11T14:33:31.911Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-11T14:33:31.911Z"
+}

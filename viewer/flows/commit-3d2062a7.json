@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "flowId": "commit-3d2062a7",
+  "title": "Commit: fix(browser-default): stop the orphan reaper leaking a Chromium per restart",
+  "summary": "parentPidOf/processArgsOf read /proc, which does not exist on darwin — so on",
+  "source": "commit",
+  "provenance": {
+    "commitSha": "3d2062a7cc068470a82294f21292611e80029fa7"
+  },
+  "anchoredAt": {
+    "sha": "3d2062a7cc068470a82294f21292611e80029fa7",
+    "shortSha": "3d2062a7",
+    "committedAt": "2026-08-06T12:02:14+01:00"
+  },
+  "states": [
+    {
+      "id": "f1",
+      "label": "server.mjs",
+      "description": "Changes this commit made to `fittings/seed/browser-default/scripts/server.mjs`.",
+      "steps": [
+        {
+          "id": "f1h1",
+          "title": "server.mjs -10,7 +10,8",
+          "kind": "code",
+          "description": "",
+          "diffSample": {
+            "file": "fittings/seed/browser-default/scripts/server.mjs",
+            "sha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "hunkHeader": "@@ -10,7 +10,8 @@",
+            "patch": "@@ -10,7 +10,8 @@\n import { createReadStream, existsSync, readFileSync, rmSync } from \"node:fs\";\n import { mkdir, mkdtemp, readFile, readlink, rename, rm, unlink, writeFile } from \"node:fs/promises\";\n import { createServer } from \"node:http\";\n-import { spawn } from \"node:child_process\";\n+import { execFile, spawn } from \"node:child_process\";\n+import { promisify } from \"node:util\";\n import http from \"node:http\";\n import os from \"node:os\";\n import path from \"node:path\";",
+            "lang": "js",
+            "status": "modified",
+            "extractedSha256": "16e399cad137c5852457ba20834a119caaeddbd5649a96fa5c7ef8ed4105c5fe"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "checkedAt": "2026-08-11T14:33:32.055Z"
+          }
+        },
+        {
+          "id": "f1h2",
+          "title": "server.mjs -20,6 +21,8",
+          "kind": "code",
+          "description": "",
+          "diffSample": {
+            "file": "fittings/seed/browser-default/scripts/server.mjs",
+            "sha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "hunkHeader": "@@ -20,6 +21,8 @@ import { WebSocketServer, WebSocket } from \"ws\";",
+            "patch": "@@ -20,6 +21,8 @@ import { WebSocketServer, WebSocket } from \"ws\";\n import { chromium } from \"playwright\";\n import { createSpotter } from \"./spotter.mjs\";\n \n+const execFileAsync = promisify(execFile);\n+\n const HOME = os.homedir();\n // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every\n // own-port fitting follows so spawned test instances never touch live status files.",
+            "lang": "js",
+            "status": "modified",
+            "extractedSha256": "1f152db29df654c121bca46fc49cd0032e421deabaf7460f609ff6162e6cc05c"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "checkedAt": "2026-08-11T14:33:32.055Z"
+          }
+        },
+        {
+          "id": "f1h3",
+          "title": "server.mjs -512,19 +515,59",
+          "kind": "code",
+          "description": "",
+          "diffSample": {
+            "file": "fittings/seed/browser-default/scripts/server.mjs",
+            "sha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "hunkHeader": "@@ -512,19 +515,59 @@ async function waitForDevToolsPort(userDataDir, timeoutMs = 15000) {",
+            "patch": "@@ -512,19 +515,59 @@ async function waitForDevToolsPort(userDataDir, timeoutMs = 15000) {\n   throw new Error(`Chromium did not write ${portFile} within ${timeoutMs}ms`);\n }\n \n-// The parent pid of a /proc process, or null if unreadable. Used to tell an\n-// ORPHANED chromium (its old server exited, so it reparented to init/systemd)\n-// from one a LIVE sibling server still owns.\n+// The parent pid of a process, or null if unreadable. Used to tell an ORPHANED\n+// chromium (its old server exited, so it reparented to init/launchd) from one a\n+// LIVE sibling server still owns. /proc is LINUX-ONLY: on darwin every read\n+// below threw, so parentPidOf returned null and processArgsOf returned [] for\n+// EVERY pid — which made breakStaleProfileLock's `args.includes(...)` guard\n+// always false, so it never terminated the orphan. It just deleted the\n+// SingletonLock and launched a fresh chromium, leaking one browser per fitting\n+// restart (13 orphans / 821 MB observed on the Air, 2026-08-06). ps is the\n+// portable fallback.\n async function parentPidOf(pid) {\n+  if (process.platform === \"linux\") {\n+    try {\n+      // /proc/<pid>/stat: \"pid (comm) state ppid ...\"; comm can contain spaces\n+      // and parens, so parse ppid as the 2nd field after the final ')'.\n+      const stat = await readFile(`/proc/${pid}/stat`, \"utf8\");\n+      const after = stat.slice(stat.lastIndexOf(\")\") + 2).split(\" \");\n+      const ppid = Number(after[1]);\n+      return Number.isFinite(ppid) ? ppid : null;\n+    } catch {\n+      return null;\n+    }\n+  }\n   try {\n-    // /proc/<pid>/stat: \"pid (comm) state ppid ...\"; comm can contain spaces\n-    // and parens, so parse ppid as the 2nd field after the final ')'.\n-    const stat = await readFile(`/proc/${pid}/stat`, \"utf8\");\n-    const after = stat.slice(stat.lastIndexOf(\")\") + 2).split(\" \");\n-    const ppid = Number(after[1]);\n+    const { stdout } = await execFileAsync(\"ps\", [\"-p\", String(pid), \"-o\", \"ppid=\"]);\n+    const ppid = Number(stdout.trim());\n     return Number.isFinite(ppid) ? ppid : null;\n   } catch {\n-    return null;\n+    return null; // pid gone\n+  }\n+}\n+\n+// A process's argv as an ARRAY, so a caller can compare one arg EXACTLY — a\n+// substring test would match a sibling prefix dir (browser-profile vs\n+// browser-profile-dev) and hit an innocent process. [] when the pid is gone or\n+// unreadable, which every caller must read as \"do not touch it\".\n+async function processArgsOf(pid) {\n+  if (process.platform === \"linux\") {\n+    try {\n+      // cmdline is NUL-separated.\n+      return (await readFile(`/proc/${pid}/cmdline`, \"utf8\")).split(\"\\0\");\n+    } catch {\n+      return []; // pid gone\n+    }\n+  }\n+  try {\n+    // ps re-joins argv with single spaces, so splitting on whitespace recovers\n+    // the exact args for a profile path without spaces (the GARRISON_HOME\n+    // convention). A path WITH a space splits into fragments and simply fails\n+    // to match — it degrades to \"leave it alone\", never to a mis-targeted kill.\n+    const { stdout } = await execFileAsync(\"ps\", [\"-p\", String(pid), \"-o\", \"command=\"]);\n+    return stdout.trim().split(/\\s+/);\n+  } catch {\n+    return []; // pid gone\n   }\n }",
+            "lang": "js",
+            "status": "modified",
+            "extractedSha256": "8ede65e93cac6142a0c0e5d7827a5d9c3f9758f2e9ef43a0954b6c8409901688"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "checkedAt": "2026-08-11T14:33:32.055Z"
+          }
+        },
+        {
+          "id": "f1h4",
+          "title": "server.mjs -543,13 +586,10",
+          "kind": "code",
+          "description": "",
+          "collapsed": true,
+          "diffSample": {
+            "file": "fittings/seed/browser-default/scripts/server.mjs",
+            "sha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "hunkHeader": "@@ -543,13 +586,10 @@ async function breakStaleProfileLock(dir) {",
+            "patch": "@@ -543,13 +586,10 @@ async function breakStaleProfileLock(dir) {\n     const target = await readlink(lockPath);\n     const pid = Number(target.split(\"-\").pop());\n     if (Number.isFinite(pid) && pid > 1) {\n-      let args = [];\n-      try {\n-        // cmdline is NUL-separated; split (not space-join) so the arg compares\n-        // EXACTLY - a substring test would match a sibling prefix dir\n-        // (browser-profile vs browser-profile-dev) and hit an innocent process.\n-        args = (await readFile(`/proc/${pid}/cmdline`, \"utf8\")).split(\"\\0\");\n-      } catch { /* pid gone or non-linux - stale lock */ }\n+      // Exact-arg compare (see processArgsOf) - a substring test would match a\n+      // sibling prefix dir (browser-profile vs browser-profile-dev) and hit an\n+      // innocent process. [] means the pid is gone: a stale lock, nothing to kill.\n+      const args = await processArgsOf(pid);\n       const ppid = await parentPidOf(pid);\n       // Orphan iff the parent is init/systemd (<=1) or no longer alive.\n       let orphaned = ppid === null || ppid <= 1;",
+            "lang": "js",
+            "status": "modified",
+            "extractedSha256": "e511b55657369dc9efee333a4a85a42345f5f9cc2c9661c556e117eb94834557"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "3d2062a7cc068470a82294f21292611e80029fa7",
+            "checkedAt": "2026-08-11T14:33:32.055Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-11T14:33:32.055Z"
+}

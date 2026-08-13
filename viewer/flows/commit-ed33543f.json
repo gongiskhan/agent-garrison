@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "flowId": "commit-ed33543f",
+  "title": "Commit: fix(connectors): stop the OAuth form posting Google's key names for every provider",
+  "summary": "The client-credentials form hardcoded GOOGLE_OAUTH_CLIENT_ID/SECRET — correct",
+  "source": "commit",
+  "provenance": {
+    "commitSha": "ed33543f104ce9e6a31e46384b33692e2fa9160b"
+  },
+  "anchoredAt": {
+    "sha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+    "shortSha": "ed33543f",
+    "committedAt": "2026-08-06T12:02:24+01:00"
+  },
+  "states": [
+    {
+      "id": "f1",
+      "label": "ConnectorsPanel.tsx",
+      "description": "Changes this commit made to `src/components/connectors/ConnectorsPanel.tsx`.",
+      "steps": [
+        {
+          "id": "f1h1",
+          "title": "ConnectorsPanel.tsx -37,6 +37,15",
+          "kind": "code",
+          "description": "",
+          "diffSample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "sha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "hunkHeader": "@@ -37,6 +37,15 @@ const inputStyle: React.CSSProperties = {",
+            "patch": "@@ -37,6 +37,15 @@ const inputStyle: React.CSSProperties = {\n   color: \"var(--ink)\"\n };\n \n+// The client-id/secret names to render and post for an OAuth connector. Prefer\n+// what oauth-start reported missing (authoritative — it reads the connector's\n+// own oauth block); fall back to the OAuth-shaped entries of its declared\n+// secret scope, so the form is still right if the 409 body ever lacks `needs`.\n+function credKeysFor(c: ConnectorView, needs: string[]): string[] {\n+  if (needs.length > 0) return needs;\n+  return c.secrets.map((s) => s.name).filter((n) => /_OAUTH_CLIENT_(ID|SECRET)$/.test(n));\n+}\n+\n export function ConnectorsPanel() {\n   const [data, setData] = useState<ConnectorsResponse | null>(null);\n   const [audit, setAudit] = useState<VaultAuditEntry[]>([]);",
+            "lang": "tsx",
+            "status": "modified",
+            "extractedSha256": "41ac161e02c0a60282c4e5826daf93dcdd06bcba3564445a69aabe101e307a75"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "checkedAt": "2026-08-11T14:33:31.984Z"
+          }
+        },
+        {
+          "id": "f1h2",
+          "title": "ConnectorsPanel.tsx -45,6 +54,11",
+          "kind": "code",
+          "description": "",
+          "diffSample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "sha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "hunkHeader": "@@ -45,6 +54,11 @@ export function ConnectorsPanel() {",
+            "patch": "@@ -45,6 +54,11 @@ export function ConnectorsPanel() {\n   const [openConnect, setOpenConnect] = useState<string | null>(null);\n   const [form, setForm] = useState<Record<string, string>>({});\n   const [oauthMode, setOauthMode] = useState<\"choose\" | \"creds\" | \"manual\">(\"choose\");\n+  // The client-id/secret names the OPEN connector actually declares, straight\n+  // from oauth-start's 409 `needs`. These were once hardcoded to GOOGLE_* — back\n+  // when Google was the only OAuth connector — so every other provider's form\n+  // posted Google's keys and /connect rejected them as out-of-scope.\n+  const [oauthNeeds, setOauthNeeds] = useState<string[]>([]);\n   const [notice, setNotice] = useState<{ kind: \"ok\" | \"err\"; text: string } | null>(null);\n \n   const load = useCallback(async () => {",
+            "lang": "tsx",
+            "status": "modified",
+            "extractedSha256": "79136c215e5d65cd3a34ed177689ee9517d29187ddf210fc8f0d20de43bba429"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "checkedAt": "2026-08-11T14:33:31.984Z"
+          }
+        },
+        {
+          "id": "f1h3",
+          "title": "ConnectorsPanel.tsx -75,6 +89,7",
+          "kind": "code",
+          "description": "",
+          "diffSample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "sha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "hunkHeader": "@@ -75,6 +89,7 @@ export function ConnectorsPanel() {",
+            "patch": "@@ -75,6 +89,7 @@ export function ConnectorsPanel() {\n     setOpenConnect(c.id);\n     setForm({});\n     setOauthMode(\"choose\");\n+    setOauthNeeds([]); // never carry one connector's key names into another's form\n     setNotice(null);\n   };",
+            "lang": "tsx",
+            "status": "modified",
+            "extractedSha256": "8b0f7977513266669c38d0c31ca9fff4acbd69d807677bcd322b4f4a0c3614a2"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "checkedAt": "2026-08-11T14:33:31.984Z"
+          }
+        },
+        {
+          "id": "f1h4",
+          "title": "ConnectorsPanel.tsx -122,7 +137,9",
+          "kind": "code",
+          "description": "",
+          "collapsed": true,
+          "diffSample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "sha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "hunkHeader": "@@ -122,7 +137,9 @@ export function ConnectorsPanel() {",
+            "patch": "@@ -122,7 +137,9 @@ export function ConnectorsPanel() {\n       const res = await fetch(`/api/connectors/${encodeURIComponent(id)}/oauth-start`);\n       const j = await res.json();\n       if (res.status === 409) {\n-        // Client credentials not set — reveal the creds form.\n+        // Client credentials not set — reveal the creds form, labelled with the\n+        // secret names THIS connector declares (409 body carries them).\n+        setOauthNeeds(Array.isArray(j.needs) ? j.needs.filter((n: unknown) => typeof n === \"string\") : []);\n         setOauthMode(\"creds\");\n         return;\n       }",
+            "lang": "tsx",
+            "status": "modified",
+            "extractedSha256": "b8921a0c7fc1a6974fb5837e3cb9e72fc81e3758635561f5379d43f3aa5144cd"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "checkedAt": "2026-08-11T14:33:31.984Z"
+          }
+        },
+        {
+          "id": "f1h5",
+          "title": "ConnectorsPanel.tsx -284,13 +301,13",
+          "kind": "code",
+          "description": "",
+          "collapsed": true,
+          "diffSample": {
+            "file": "src/components/connectors/ConnectorsPanel.tsx",
+            "sha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "hunkHeader": "@@ -284,13 +301,13 @@ export function ConnectorsPanel() {",
+            "patch": "@@ -284,13 +301,13 @@ export function ConnectorsPanel() {\n                   {c.auth === \"oauth2\" && oauthMode === \"creds\" && (\n                     <ConnectFields\n                       title=\"Enter your OAuth app credentials (one-time). Register this redirect URI in your provider app, then Authorize.\"\n-                      labels={[\"GOOGLE_OAUTH_CLIENT_ID\", \"GOOGLE_OAUTH_CLIENT_SECRET\"]}\n+                      labels={credKeysFor(c, oauthNeeds)}\n                       form={form}\n                       setForm={setForm}\n                       busy={busy === c.id}\n                       saveLabel=\"Save & authorize\"\n                       onSave={async () => {\n-                        if (await submitSecrets(c.id, [\"GOOGLE_OAUTH_CLIENT_ID\", \"GOOGLE_OAUTH_CLIENT_SECRET\"])) {\n+                        if (await submitSecrets(c.id, credKeysFor(c, oauthNeeds))) {\n                           await startOAuthRedirect(c.id);\n                         }\n                       }}",
+            "lang": "tsx",
+            "status": "modified",
+            "extractedSha256": "3ae7c22c8870775ed216474c917a874dab6a623910bf548a4d93674c1238378e"
+          },
+          "staleness": {
+            "status": "fresh",
+            "checkedAtSha": "ed33543f104ce9e6a31e46384b33692e2fa9160b",
+            "checkedAt": "2026-08-11T14:33:31.984Z"
+          }
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-08-11T14:33:31.984Z"
+}
