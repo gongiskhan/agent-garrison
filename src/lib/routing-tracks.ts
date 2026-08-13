@@ -10,7 +10,10 @@
 // that already exist:
 //
 //   • `improver/feedback-queue.jsonl` — every verdict Gonçalo gave, with the
-//     per-dimension correction attached (decision-verdicts.ts)
+//     per-dimension correction attached (decision-verdicts.ts). That file is
+//     SHARED: the gateway's conversational overrides and the Improver's probe
+//     answers append to it too, so a reader here has to recognise a verdict
+//     rather than assume every line is one.
 //   • `<composition>/.garrison/decisions.jsonl` — every routing decision, incl.
 //     turn-overrides and escalations
 //
@@ -19,6 +22,7 @@
 // which is exactly what the brief's §8.3 "delete wrong inferences" needs.
 
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readFileTolerant } from "./atomic-write";
 import { DECISIONS_REL } from "./decisions-feed";
@@ -73,27 +77,73 @@ export interface Evidence {
 const str = (v: unknown): string | null =>
   typeof v === "string" && v.trim().length > 0 ? v : null;
 
+/** A record's sub-map, or an empty one. Anything that is not a plain object is
+ *  treated as absent rather than indexed into, since these lines come off a
+ *  shared append-only log that several writers and the occasional hand edit
+ *  touch. */
+const submap = (v: unknown): Record<string, unknown> =>
+  !v || typeof v !== "object" || Array.isArray(v) ? {} : (v as Record<string, unknown>);
+
+/** The `provenance` stamp `buildVerdictRecord` writes, and the discriminator the
+ *  Improver's `feedback-rule.mjs` keys on for the same records. The queue also
+ *  carries `override` records from the gateway and `probe` / `retrospective`
+ *  records from the Improver: those are real evidence about other things and
+ *  MUST NOT be read as verdicts, because their `answer` is free-ish text rather
+ *  than this closed vocabulary. */
+const VERDICT_PROVENANCE = "decision-verdict";
+
 /**
- * Turn one verdict record into evidence.
+ * Turn one feedback-queue line into evidence.
+ *
+ * The field names here are the PRODUCER's, not this reader's invention.
+ * `buildVerdictRecord` (decision-verdicts.ts) writes `answer` (right | wrong |
+ * unsure), `original` (what the decision actually resolved to), `applied` (the
+ * counterfactual the user typed), and `timestamp`. This function used to read
+ * `verdict` / `resolved` / `at` - a shape nothing has ever written - so every
+ * real verdict folded to zero evidence and no band could improve from a verdict
+ * tap, while the suite passed on fixtures in the same fictional shape. There is
+ * no compat branch for it: the queue on disk has never held a line of that shape,
+ * so accepting one would be dead code pretending to be caution.
  *
  * A verdict names the dimensions it corrects, so a "wrong" that corrects the flow
- * is evidence about FLOW selection and says nothing about level selection — which
+ * is evidence about FLOW selection and says nothing about level selection - which
  * is why the bands are per category. A verdict with no correction is a weaker
- * thing than one that carries the right answer, and `redo` is the strongest of
- * all because the correction was demonstrated rather than described.
+ * thing than one that carries the right answer.
+ *
+ * `redo-with-overrides`, the strongest signal in the registry, is deliberately
+ * NOT produced here: a verdict is described, never demonstrated, and no producer
+ * records a redo onto one. Whoever wires a real redo path adds it then.
  */
 export function evidenceFromVerdict(raw: unknown): Evidence[] {
   if (!raw || typeof raw !== "object") return [];
   const r = raw as Record<string, unknown>;
-  const verdict = str(r.verdict);
+  if (str(r.provenance) !== VERDICT_PROVENANCE) return []; // another producer's record
+  const verdict = str(r.answer);
   // The vocabulary is CLOSED (right | wrong | unsure). Anything else is not a
-  // verdict, and must not fall through to the "wrong" branch — inventing a
+  // verdict, and must not fall through to the "wrong" branch - inventing a
   // correction out of an unrecognised value would train the router on noise.
   if (verdict !== "right" && verdict !== "wrong") return []; // incl. "unsure": not evidence
-  const at = str(r.at);
-  const resolved = (r.resolved ?? {}) as Record<string, unknown>;
-  const applied = (r.applied ?? {}) as Record<string, unknown>;
-  const shape = str(resolved.flow) ?? str(r.flow) ?? str(resolved.duty) ?? "unknown";
+  const at = str(r.timestamp);
+  const original = submap(r.original);
+  const applied = submap(r.applied);
+  // The shape is what the router DECIDED, never the counterfactual: evidence about
+  // a bad call belongs on the track of the shape that was chosen, not on the track
+  // of the one the user would have preferred.
+  //
+  // Both eras are read here, and the order is what makes that work.
+  //
+  // Current producers DO carry the flow: the home Router card and the Decisions
+  // panel both fill `original` from the shared `resolvedSpec`
+  // (src/lib/decision-feedback.ts), which includes it - so a fresh verdict lands
+  // on the flow track it belongs to.
+  //
+  // The duty fallback is for the records written BEFORE that: `original` was
+  // filled from the decision row, which is {target, model, effort, duty, tier},
+  // so those verdicts have no flow to key on and the duty is the only shape they
+  // carry. It is the same fallback evidenceFromDecision makes for the same
+  // reason, which is what keeps the two logs folding into the same tracks
+  // instead of two disjoint sets.
+  const shape = str(original.flow) ?? str(original.duty) ?? "unknown";
 
   if (verdict === "right") {
     return [
@@ -102,14 +152,18 @@ export function evidenceFromVerdict(raw: unknown): Evidence[] {
     ];
   }
   // wrong: attribute the correction to the dimensions it actually names.
-  const signal = r.redo === true ? "redo-with-overrides" : "explicit-negative";
   const out: Evidence[] = [];
-  if (applied.flow !== undefined) out.push({ category: "flow", shape, signal, at });
-  if (applied.tier !== undefined || applied.duty !== undefined) {
-    out.push({ category: "level", shape, signal, at });
+  if (str(applied.flow)) out.push({ category: "flow", shape, signal: "explicit-negative", at });
+  if (str(applied.tier) || str(applied.duty)) {
+    out.push({ category: "level", shape, signal: "explicit-negative", at });
   }
-  // A "wrong" with no correction still counts against both, just as the weaker
-  // signal — being told it was wrong is information even without the answer.
+  // A "wrong" that named neither category still counts against both. Two cases
+  // land here and both are honestly the same one: no counterfactual at all, and a
+  // counterfactual that only names dimensions these bands do not track (target,
+  // model, effort, account, project, phasesOff). Either way the user says the call
+  // was wrong without saying which half of the routing caused it, so the
+  // pessimistic reading is the correct one - being told it was wrong is
+  // information even without the answer.
   if (!out.length) {
     out.push(
       { category: "flow", shape, signal: "explicit-negative", at },
@@ -158,6 +212,61 @@ function parseJsonl(text: string): unknown[] {
   return out;
 }
 
+/**
+ * The feedback queue's DELETE contract, read side.
+ *
+ * §8.3 of the brief needs a wrong inference to be deletable, and the whole point
+ * of deriving tracks rather than counting them is that deleting the record
+ * deletes its effect on the band. So the Signals view's delete appends a
+ * tombstone — `{kind:"tombstone", target}` — to the same queue, and this reader
+ * drops the records those tombstones name. A rewrite of the file is not an
+ * option: three producers hold it open in O_APPEND and a filter-rewrite loses
+ * whatever landed between the read and the write.
+ *
+ * The two key derivations below MUST stay byte-identical to
+ * `fittings/seed/improver/lib/feedback-signals.mjs` (`keyForRecord` /
+ * `derivedKeyForLine`) — the writer of the tombstones. If they drift, a record
+ * deleted in the Signals view keeps feeding the bands on the home page, which is
+ * precisely the "confident for reasons nobody can reconstruct" failure this
+ * module exists to prevent. `tests/improver-signals.test.ts` pins them together.
+ */
+const TOMBSTONE_KIND = "tombstone";
+
+function derivedKeyForLine(rawLine: string): string {
+  return `raw:${createHash("sha256").update(rawLine.trim()).digest("hex").slice(0, 32)}`;
+}
+
+function keyForLine(record: unknown, rawLine: string): string {
+  const id =
+    record && typeof record === "object" && typeof (record as Record<string, unknown>).id === "string"
+      ? ((record as Record<string, unknown>).id as string).trim()
+      : "";
+  return id.length ? id : derivedKeyForLine(rawLine);
+}
+
+/** Parse the feedback queue, dropping every record a tombstone deletes. */
+export function parseFeedbackQueue(text: string): unknown[] {
+  const rows: Array<{ record: unknown; key: string }> = [];
+  const deleted = new Set<string>();
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(t);
+    } catch {
+      continue;
+    }
+    const r = record as Record<string, unknown>;
+    if (r && typeof r === "object" && r.kind === TOMBSTONE_KIND) {
+      if (typeof r.target === "string" && r.target.trim()) deleted.add(r.target.trim());
+      continue; // a tombstone is not itself evidence
+    }
+    rows.push({ record, key: keyForLine(record, t) });
+  }
+  return rows.filter((row) => !deleted.has(row.key)).map((row) => row.record);
+}
+
 /** Retired duty -> successor, so a shape read off an old record does not appear
  *  as a separate track from the duty that absorbed it. */
 const SHAPE_ALIASES: Record<string, string> = { code: "implement" };
@@ -203,7 +312,9 @@ export async function readEvidence(compositionDir: string): Promise<Evidence[]> 
     readFileTolerant(path.join(compositionDir, DECISIONS_REL))
   ]);
   const all = [
-    ...parseJsonl(verdicts.exists ? verdicts.text : "").flatMap(evidenceFromVerdict),
+    // The feedback queue is the deletable one: a wrong inference is corrected by
+    // deleting the record behind it, so this side reads through the tombstones.
+    ...parseFeedbackQueue(verdicts.exists ? verdicts.text : "").flatMap(evidenceFromVerdict),
     ...parseJsonl(decisions.exists ? decisions.text : "").flatMap(evidenceFromDecision)
   ].map((e) => ({ ...e, shape: adoptShape(e.shape) }));
   return collapseBursts(all);
