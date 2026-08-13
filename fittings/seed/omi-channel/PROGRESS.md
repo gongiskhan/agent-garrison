@@ -308,7 +308,11 @@ spellings (`gary,garry,gerry,géri`) is read as unset and falls through to
 the current default, logged once at startup. Nothing is written back.
 
 Manual step that cannot be done from here: the tool name lives in the Omi
-private app's cached manifest. See HUMAN_SETUP.md §10.
+private app's cached manifest, so the app must be re-saved from the phone.
+Not an outage though - `/omi/chat` never inspects `tool_name` (it authorizes on
+key + app_id + uid and reads `query`), so a stale manifest still gets a real
+answer; what is stale is the name and description Omi's own model sees when
+deciding to call the tool. See HUMAN_SETUP.md §10.
 
 ## Done
 
