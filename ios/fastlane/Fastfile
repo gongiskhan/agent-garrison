@@ -97,11 +97,35 @@ platform :ios do
       end
       existing = bundle.get_capabilities.map(&:capability_type)
       wanted = ["APP_GROUPS"]
-      wanted << "PUSH_NOTIFICATIONS" if spec[:push]
+      if spec[:push]
+        wanted << "PUSH_NOTIFICATIONS"
+        # Time Sensitive Notifications: not in every capability enum; probe.
+        wanted << "USERNOTIFICATIONS_TIMESENSITIVE"
+      end
       (wanted - existing).each do |capability|
         UI.message("Enabling #{capability} on #{identifier}")
-        bundle.create_capability(capability)
+        begin
+          bundle.create_capability(capability)
+        rescue => e
+          UI.important("Capability #{capability} on #{identifier} refused: #{e.message}")
+        end
       end
+    end
+
+    # App GROUP registration + assignment probe. The public ASC API does not
+    # document these; if Apple's provisioning surface accepts them, the
+    # remaining human portal work disappears. Failures are reported, not
+    # fatal — gym's profile validation is the authoritative gate.
+    begin
+      client = Spaceship::ConnectAPI.token ? Spaceship::ConnectAPI::Provisioning::Client.instance : nil
+      if client
+        response = client.post("appGroups", body: {
+          data: { type: "appGroups", attributes: { name: "Garrison", identifier: "group.#{BUNDLE_ID}" } }
+        })
+        UI.message("App Group registered: #{response.to_json[0, 200]}")
+      end
+    rescue => e
+      UI.important("App Group registration via ASC API refused: #{e.message}")
     end
 
     match(
