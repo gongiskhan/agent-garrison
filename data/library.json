@@ -917,5 +917,15 @@
       "global": 4,
       "claude_code": 4
     }
+  },
+  {
+    "id": "project-viewer",
+    "name": "Project Viewer",
+    "repo": "local:fittings/seed/project-viewer",
+    "localPath": "fittings/seed/project-viewer",
+    "summary": "Flow-based codebase navigator.",
+    "platforms": [
+      "claude-code"
+    ]
   }
 ]
