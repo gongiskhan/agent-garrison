@@ -98,11 +98,11 @@ x-garrison:
           config:
             port: 7097
             bind_host: 127.0.0.1
-            enabled: false
-            transcribe_enabled: false
-            wake_enabled: false
-            notify_enabled: false
-            speak_enabled: false
+            enabled: true
+            transcribe_enabled: true
+            wake_enabled: true
+            notify_enabled: true
+            speak_enabled: true
       gateway:
         - id: http-gateway
           config:
