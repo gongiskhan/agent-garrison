@@ -289,7 +289,7 @@ Consequences for this build:
 - **Every classification call must pin its target.** The fitting sends
   `routing: { target: "cc-haiku-low" }` on the gateway `/chat` call.
   `sanitizeRouting` accepts `target`, `model`, `duty`, `project`, `account`,
-  `effort`, `level`, `tier`, `workKind`, `phasesOff` from the request body.
+  `effort`, `level`, `tier`, `flow`, `phasesOff` from the request body.
   Unpinned, a classification inherits the composition's duty cell and drags the
   operative's whole toolset through a one-shot JSON question.
 - **Anything needing tools is a delegation, and nobody waits on it.** The wake
