@@ -2972,9 +2972,21 @@ button:active, .btn:active { transform: translateY(1px); }
   pointer-events: none;
 }
 
-/* Column drag handle = the header; body drops highlight the column. */
+/* A column drags from anywhere on it, so the grab cursor covers the whole
+   section - the header is only its accessible handle, not the sole grip. Its
+   own controls (gear, buttons, fields) keep their cursors via the later rules
+   and the browser default for form controls. */
+.list { touch-action: manipulation; }
 .col-drag-handle { cursor: grab; }
 .col-drag-handle:active { cursor: grabbing; }
+.list .lbody { cursor: grab; }
+.list .lbody:active { cursor: grabbing; }
+/* Text entry is exempt from the hold-to-drag rule (DRAG_EXEMPT_ANCESTORS), so it
+   must not inherit the grab cursor either. The buttons and links in here already
+   declare `cursor: pointer` of their own. */
+.list .lbody input,
+.list .lbody textarea { cursor: text; }
+.list .lbody select { cursor: pointer; }
 .list .lbody.drop-over { outline: 1px dashed var(--sage-2); outline-offset: -4px; background: var(--sage-soft); }
 .list.drag-source { opacity: 0.45; }
 

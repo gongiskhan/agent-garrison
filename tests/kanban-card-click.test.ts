@@ -89,7 +89,9 @@ describe("direct card interactions", () => {
 
     const titleButtonStart = source.indexOf('className="title card-title-edit"');
     expect(titleButtonStart).toBeGreaterThan(-1);
-    const titleButtonOpening = source.slice(titleButtonStart, titleButtonStart + 1_000);
+    // Wide enough to survive the comment explaining why the PRESS is deliberately
+    // NOT stopped here (press-and-hold drag) - see kanban-drag-activation.test.ts.
+    const titleButtonOpening = source.slice(titleButtonStart, titleButtonStart + 1_400);
     expect(titleButtonOpening).toContain("onKeyDown={(e) => e.stopPropagation()}");
   });
 });

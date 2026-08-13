@@ -15,7 +15,7 @@ import { SessionStream as SharedSessionStream } from "@garrison/claude-chat";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -85,6 +85,12 @@ import {
   shouldCommitCardTitleOnBlur,
   shouldOpenCard
 } from "./card-click";
+import {
+  DRAG_HOLD_MS,
+  DRAG_HOLD_TOLERANCE_MOUSE,
+  DRAG_HOLD_TOLERANCE_TOUCH,
+  shouldActivateDrag
+} from "./drag-activation";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
 // the card as an OPAQUE context blob; the Discuss duty reads it.
@@ -902,7 +908,12 @@ function Card({
             data-title-locked={engineOwned || busy ? "true" : undefined}
             title={engineOwned ? "Open card details (the title is locked while this autonomous phase runs)" : busy ? "Open card details" : "Edit card title"}
             aria-label={engineOwned || busy ? `Open card details: ${card.title}` : `Edit card title: ${card.title}`}
-            onPointerDown={(e) => e.stopPropagation()}
+            // No stopPropagation on the press: the title is the widest, most
+            // natural place to grab a card, and swallowing the press here made
+            // press-and-hold do nothing across the top of every card. A click
+            // still opens the editor - the hold only wins once it has actually
+            // activated a drag, and dnd-kit swallows that gesture's trailing click.
+            //
             // The button's native Enter/Space activation should open the
             // editor/details, not also reach the sortable wrapper's keyboard
             // sensor and initiate a drag.
@@ -922,8 +933,10 @@ function Card({
           </button>
         ) : (
           <div
+            // The press is kept off the drag sensor by DRAG_EXEMPT_ANCESTORS
+            // (this class is on that list), not by stopping the event here -
+            // one rule, in one place, whichever sensor is listening.
             className="card-title-editor"
-            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             // The whole card is dnd-kit's keyboard activator. Keep ordinary
             // editing keys (especially Space) and button activation inside the
@@ -4370,10 +4383,32 @@ function ImportSheet({
 }
 
 // ── drag-and-drop wrappers (Trello-style) ───────────────────────────────────
-// Cards sort within a column and move across columns; columns reorder by
-// dragging their header. The sortable transform provides the slot gap; the
-// floating copy rides DragOverlay. Engine-owned cards may reorder inside their
-// own column (position is a benign patch) but never change column by drag.
+// Cards sort within a column and move across columns; columns reorder by being
+// dragged anywhere on their surface. The sortable transform provides the slot
+// gap; the floating copy rides DragOverlay. Engine-owned cards may reorder inside
+// their own column (position is a benign patch) but never change column by drag.
+
+/**
+ * Gate a sortable's activator on `shouldActivateDrag` so a press inside a text
+ * field never becomes a drag. Everything else on the surface stays live — see
+ * drag-activation.ts for why the exemption lives here and not at each control.
+ * Returns the listener map unchanged in shape, so it still spreads onto a node.
+ */
+type HoldActivators = Record<string, (event: { target: EventTarget | null }) => void>;
+
+function useHoldActivators(listeners: Record<string, Function> | undefined): HoldActivators | undefined {
+  return useMemo(() => {
+    if (!listeners) return undefined;
+    const gated: HoldActivators = {};
+    for (const [name, handler] of Object.entries(listeners)) {
+      gated[name] = (event) => {
+        if (!shouldActivateDrag(event?.target ?? null)) return;
+        (handler as (e: unknown) => void)(event);
+      };
+    }
+    return gated;
+  }, [listeners]);
+}
 
 function SortableCardWrap({ card, listId, children }: { card: CardSummary; listId: string; children: ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -4381,13 +4416,14 @@ function SortableCardWrap({ card, listId, children }: { card: CardSummary; listI
     data: { type: "card", card, listId },
     disabled: listId === "scheduled"
   });
+  const holdActivators = useHoldActivators(listeners);
   return (
     <div
       ref={setNodeRef}
       style={{ transform: DndCSS.Transform.toString(transform), transition }}
       className={`sortable-card${isDragging ? " drag-source" : ""}`}
       {...attributes}
-      {...listeners}
+      {...holdActivators}
     >
       {children}
     </div>
@@ -4404,17 +4440,26 @@ function ListBodyDroppable({ listId, children }: { listId: string; children: Rea
   );
 }
 
-// A column: sortable by its HEADER (the handle), so card drags inside the body
-// never fight the column drag.
+// A column: sortable from ANYWHERE on it, header and body alike. A card drag
+// still wins over its column's — the card's activator is the inner one, so it
+// runs first and marks the press as captured, and dnd-kit then skips the column.
+// The header keeps `attributes` (role/aria) as the column's accessible handle;
+// only the activators widen to the whole section.
 function SortableColumn({ list, className, header, children }: { list: ListView; className: string; header: ReactNode; children: ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `col:${list.id}`,
     data: { type: "column", listId: list.id },
     disabled: list.id === "scheduled"
   });
+  const holdActivators = useHoldActivators(listeners);
   return (
-    <section ref={setNodeRef} style={{ transform: DndCSS.Transform.toString(transform), transition }} className={`${className}${isDragging ? " drag-source" : ""}`}>
-      <div className="col-drag-handle" {...attributes} {...listeners}>
+    <section
+      ref={setNodeRef}
+      style={{ transform: DndCSS.Transform.toString(transform), transition }}
+      className={`${className}${isDragging ? " drag-source" : ""}`}
+      {...holdActivators}
+    >
+      <div className="col-drag-handle" {...attributes}>
         {header}
       </div>
       {children}
@@ -4451,14 +4496,24 @@ function App() {
   // Drag activation is a deliberate press-and-hold: the pointer must stay down
   // (moving no more than `tolerance` px) for DRAG_HOLD_MS before a card or column
   // enters drag mode. This stops accidental reorders from an ordinary click or a
-  // click that drifts a few pixels - you have to mean it. Applied to both the
-  // mouse/trackpad path (PointerSensor) and the touch path (TouchSensor), so cards
-  // AND columns behave identically on either input. A move beyond `tolerance`
-  // before the hold elapses cancels the pending drag and is treated as a click/scroll.
-  const DRAG_HOLD_MS = 2500;
+  // click that drifts a few pixels - you have to mean it. A move beyond
+  // `tolerance` before the hold elapses cancels the pending drag and is treated
+  // as a click or a scroll.
+  //
+  // MouseSensor + TouchSensor, deliberately NOT PointerSensor. On a touch device
+  // `pointerdown` beats `touchstart`, so a PointerSensor captures the gesture and
+  // then loses it: the board's lists scroll (`touch-action: manipulation`), so the
+  // moment the finger moves the browser claims the gesture for panning and fires
+  // `pointercancel` - the hold succeeded and the drag died on the first
+  // millimetre. TouchSensor owns the touch path instead and preventDefaults
+  // `touchmove` once activated, which holds the scroll off for the drag's duration.
   const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: DRAG_HOLD_MS, tolerance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: DRAG_HOLD_MS, tolerance: 8 } })
+    useSensor(MouseSensor, {
+      activationConstraint: { delay: DRAG_HOLD_MS, tolerance: DRAG_HOLD_TOLERANCE_MOUSE }
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: DRAG_HOLD_MS, tolerance: DRAG_HOLD_TOLERANCE_TOUCH }
+    })
   );
   // Re-render when the /host-map lands so linkifyText upgrades loopback URLs to
   // their exact serve form (serveMapRev is read only to force the dependency).
