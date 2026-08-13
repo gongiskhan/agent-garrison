@@ -26,8 +26,16 @@ const TAILSCALE_CANDIDATES = [
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 ];
 
+// The candidate list exists to FIND the binary, so only "this path does not
+// exist" may advance it. Any other failure means we found tailscale and it
+// refused the command, and that error is the answer - continuing past it walks
+// on to paths that cannot exist on this OS and reports THEIR ENOENT instead.
+//
+// That is not hypothetical: publishing capture-service failed with
+// "spawnSync /Applications/Tailscale.app/Contents/MacOS/Tailscale ENOENT" on a
+// Linux box that has a perfectly good /usr/bin/tailscale. The real error was a
+// 401 from the first candidate, discarded three iterations earlier.
 function tailscale(args) {
-  let lastErr;
   for (const bin of TAILSCALE_CANDIDATES) {
     try {
       return execFileSync(bin, args, { encoding: "utf8", timeout: 8000 });
@@ -36,10 +44,32 @@ function tailscale(args) {
       // skew warning). Prefer captured stdout if it looks like JSON.
       const out = err?.stdout;
       if (typeof out === "string" && out.includes("{")) return out;
-      lastErr = err;
+      if (err?.code === "ENOENT") continue; // not installed here; try the next path
+      throw enrich(err, bin);
     }
   }
-  throw lastErr ?? new Error("tailscale CLI not found");
+  throw new Error(
+    `tailscale CLI not found (looked in: ${TAILSCALE_CANDIDATES.join(", ")})`
+  );
+}
+
+// `tailscale serve` is privileged. Without this the operator sees a bare 401 and
+// has to go and find out that the fix is a one-time operator grant, which is the
+// difference between a 30-second fix and an afternoon.
+function enrich(err, bin) {
+  const text = `${err?.stderr ?? ""}${err?.message ?? ""}`;
+  if (/must be root|operator|401 Unauthorized/i.test(text)) {
+    const e = new Error(
+      `${bin} refused the command: ${String(err?.stderr ?? err?.message ?? "").trim()}\n` +
+        `    -> \`tailscale serve\` is privileged. Grant it once with:\n` +
+        `         sudo tailscale set --operator=$USER\n` +
+        `       after which redeploys publish new views without sudo.`
+    );
+    e.actionable = true;
+    return e;
+  }
+  const e = new Error(`${bin} failed: ${String(err?.stderr ?? err?.message ?? err).trim()}`);
+  return e;
 }
 
 function serveStatus() {
@@ -147,7 +177,9 @@ function main() {
       tailscale(args);
       result.push({ ...v, servePort, action: "added" });
     } catch (err) {
-      result.push({ ...v, servePort, action: "FAILED: " + (err?.message ?? err) });
+      // Row stays one word so the table survives; the reason is printed in full
+      // below, where a multi-line remedy can actually be read.
+      result.push({ ...v, servePort, action: "FAILED", error: err });
     }
   }
 
@@ -166,9 +198,35 @@ function main() {
     const url = m ? m.url : (r.url ?? `https://${host}:${r.servePort}`);
     console.log(`${r.fittingId.padEnd(17)}  ${String(r.port).padEnd(6)}  ${url}   [${r.action}]`);
   }
-  console.log(
-    `\nDone.${DRY ? " (dry-run — no changes made)" : ""} Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.`
+  const failed = result.filter((r) => r.action === "FAILED");
+  if (failed.length === 0) {
+    console.log(
+      `\nDone.${DRY ? " (dry-run — no changes made)" : ""} Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.`
+    );
+    return;
+  }
+
+  // An unpublished own-port view is a blank pane for everyone not sitting at
+  // this machine, which is almost everyone (see the tailnet rule in CLAUDE.md).
+  // It is not a footnote in a table.
+  console.error(`\n!! ${failed.length} view(s) NOT published to the tailnet:\n`);
+  const seen = new Set();
+  for (const r of failed) {
+    const msg = String(r.error?.message ?? r.error ?? "unknown error");
+    console.error(`  ${r.fittingId} (local ${r.port} -> :${r.servePort})`);
+    if (!seen.has(msg)) {
+      console.error(`    ${msg.split("\n").join("\n    ")}`);
+      seen.add(msg);
+    } else {
+      console.error("    (same cause as above)");
+    }
+  }
+  console.error(
+    "\nThose views are reachable ON this box only. Over HTTPS they render as a\n" +
+      "blank pane (plain-HTTP frames are blocked as mixed content). Fix the cause\n" +
+      "above and re-run: npm run prod:redeploy  (or node scripts/tailnet-serve-views.mjs)"
   );
+  process.exitCode = 1;
 }
 
 main();
