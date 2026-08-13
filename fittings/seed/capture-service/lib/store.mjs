@@ -82,6 +82,14 @@ export class CaptureStore {
     this.devicesFile = path.join(root, "devices.json");
   }
 
+  // The byte-identical wake module stamps `uid` on its capture_event from
+  // store.pinnedUid(). Omi pins the wearer's cloud uid there; the companion
+  // has no uid concept — the device registry is the identity — so this is
+  // honestly null rather than an invented value.
+  pinnedUid() {
+    return null;
+  }
+
   // ---- capture_event store (shared triage contract; grows at M1/M4) ----
   writeEvent(event) {
     atomicWriteJSON(path.join(this.dirs.events, `${event.id}.json`), event);

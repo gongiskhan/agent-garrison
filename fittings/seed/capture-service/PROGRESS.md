@@ -135,3 +135,42 @@ the I5 console-spy proof that no transcript text reaches logs.
 
 Next: M3 — the wake gate over companion live segments (byte-identical wake
 module copy + lockstep test, pinned classification, delegate lane).
+
+## M3 — Wake gate on companion sessions (2026-08-13)
+
+Shipped:
+- omi-channel's wake bus and memory writer gained behaviour-preserving
+  source-identity parameters (`WakeBus source=` bag, `MemoryWriter
+  prefix/label`) — hardcoded "omi" identities would have violated I2 for
+  companion events; every default preserves omi behaviour exactly and omi's
+  wake/triage/e2e suites pass unchanged.
+- Six modules consumed as BYTE-IDENTICAL copies (wake, echo-guard,
+  board-client, memory-writer, gateway-client, tailnet-serve), guarded by
+  `tests/companion-lockstep.test.ts` — an edit to either side fails CI until
+  both are synced (the run-spec-lockstep discipline).
+- Wiring: Deepgram FINAL segments (interims are unstable and the settled
+  close keys on final punctuation) -> echo guard (one instance per process,
+  consulted BEFORE the wake gate; registration arrives at M5b) -> the wake
+  bus under the companion identity (source companion-ios, origin
+  companion:wake:<id>, provenance companion_session_id, thread
+  companion-reports). Classification pinned to `classify_target`
+  (cc-haiku-low); delegation unpinned via the copied gateway client.
+- `lib/notify.mjs`: the M5 notifier's skeleton — template rendering
+  (card_created / wake_confirmation / ask / tip / relay), tailnet-paired
+  cardUrl, honest per-means skip receipts ("APNs transport not implemented
+  until M5") so the confirmation path runs end to end without pretending a
+  push happened (I11).
+- Mid-run gate change absorbed: the address-position rule was REMOVED
+  (`5d510fb4`) hours after the Zeca rename introduced it — the live gate is
+  token-anywhere on word boundaries; fixture comments and docs corrected.
+
+Tests (155 across companion + omi + ack suites, green on dev-madrid): the
+spoken fixture command dispatches EXACTLY once with companion identity end
+to end (card on a stub board, capture_event + wake-results on disk, the
+routing pin asserted on the stub gateway's request body, three latency legs
+counted, honest notifier receipt); near-misses ("seca", "zecar") drop;
+duplicate segments dedupe; the kill switch kills mid-session; a registered
+echo fingerprint suppresses the app's own voice before the gate.
+
+Next: M4 — triage generalization (second inbox root, one tick, one model
+call, wait-for-context hold).

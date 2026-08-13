@@ -23,6 +23,23 @@ import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON } from "../lib/store.mjs";
 import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
+import { WakeBus } from "../lib/wake.mjs";
+import { EchoGuard } from "../lib/echo-guard.mjs";
+import { BoardClient } from "../lib/board-client.mjs";
+import { MemoryWriter } from "../lib/memory-writer.mjs";
+import { CompanionNotifier } from "../lib/notify.mjs";
+import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
+
+// Source identity handed to the byte-identical wake module (invariant I2:
+// everything this channel persists carries source "companion-ios").
+export const COMPANION_WAKE_SOURCE = {
+  id: "companion-ios",
+  label: "Companion",
+  originPrefix: "companion",
+  originChannel: { channel: "companion", threadId: "companion-reports" },
+  sessionProvenanceKey: "companion_session_id",
+  logPrefix: "capture-service"
+};
 
 // True when `pid` names a live process (EPERM still means alive, just not ours).
 function pidAlive(pid) {
@@ -407,9 +424,46 @@ export async function startServer(cfg = loadConfig()) {
   const live = { ...cfg };
   const store = new CaptureStore(live.stateDir);
   const counters = new Counters(store.root, "server");
-  const transcriber = new TranscriptionLane({ cfg: live, counters });
+  const notifier = new CompanionNotifier({ cfg: live, store, counters, env: cfg.env ?? process.env });
+
+  // ONE echo guard per process, consulted in the segment path BEFORE the wake
+  // gate (spec §2.5 defence 3): a returning spoken ack is not conversation and
+  // must not become pre-wake "evidence". Registration arrives via POST /ack
+  // at M5b; until then the window is simply empty.
+  const echoGuard = new EchoGuard({ counters });
+
+  // The two model lanes (never collapse them): a pinned cheap classifier the
+  // speaker waits on, and the full operative turn nobody waits on.
+  const wakeBus = new WakeBus({
+    cfg: live,
+    store,
+    counters,
+    runFn: live.gatewayUrl ? inferenceRunFn(live.gatewayUrl, { target: live.classifyTarget || null }) : null,
+    operativeFn:
+      live.gatewayUrl && live.delegateEnabled
+        ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
+        : null,
+    board: new BoardClient({ env: cfg.env ?? process.env }),
+    memoryWriter: new MemoryWriter({ prefix: "companion", label: "Companion", env: cfg.env ?? process.env }),
+    notifier,
+    source: COMPANION_WAKE_SOURCE
+  });
+
+  const transcriber = new TranscriptionLane({
+    cfg: live,
+    counters,
+    // Final segments only: interims are unstable text, and the settled-close
+    // logic keys on the punctuation smart_format puts on finals.
+    onSegment: (sessionId, segment) => {
+      if (!segment.final) return;
+      if (echoGuard.shouldSuppress(segment.text)) return;
+      if (live.wakeEnabled) wakeBus.handleSegments({ sessionId, segments: [segment] });
+    }
+  });
   const ingress = new CaptureIngress({ cfg: live, store, counters, transcriber });
-  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, transcriber }));
+  const server = createServer(
+    makeRequestHandler({ cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier })
+  );
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
 
   server.on("error", (err) => {
@@ -445,5 +499,5 @@ export async function startServer(cfg = loadConfig()) {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  return { server, cfg: live, store, counters, ingress, transcriber };
+  return { server, cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier };
 }

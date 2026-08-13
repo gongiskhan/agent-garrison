@@ -124,6 +124,11 @@ export function loadConfig(env = process.env) {
     wakeContextSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_MAX_AGE_MS, 120000),
     wakeCardDedupeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CARD_DEDUPE_MS, 600000),
+    // The revision pass (byte-identical wake module): keep listening after a
+    // card is created for a spoken correction; one model call, once, at the
+    // end. 0 disables.
+    wakeReviseAfterMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS, 600000),
+    wakeReviseMaxSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_MAX_SEGMENTS, 50),
 
     // Outbound push (M5)
     notifyMaxPerDay: parseIntOr(env.GARRISON_CAPTURESERVICE_NOTIFY_MAX_PER_DAY, 50),

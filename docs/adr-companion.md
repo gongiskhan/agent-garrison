@@ -100,10 +100,11 @@ board, notifier, runFn, operativeFn, cfg, now) is already injected, so the
 copy runs unmodified over companion segments once ingress normalizes Deepgram
 results to the omi segment shape (`{start, end, text, is_user, speaker}`).
 
-The copy is taken from HEAD *after* commit `b3a82ec3`: the operative is now
-**Zeca** (variants `zeca,zeka,zecca,zéca,ze ca`) and the gate requires
-address position (`isAddressPosition`). Every spec phrase "Gary, …" is
-"Zeca, …" at runtime; fixtures use Zeca.
+The copy is taken from current HEAD: the operative is now **Zeca** (variants
+`zeca,zeka,zecca,zéca,ze ca`). An address-position gate shipped with the
+rename (`b3a82ec3`) and was removed the same day (`5d510fb4`, operator's
+call) — the live gate is token-anywhere on word boundaries. Every spec phrase
+"Gary, …" is "Zeca, …" at runtime; fixtures use Zeca.
 
 Classification calls pin `routing:{target: classify_target}` (default
 `cc-haiku-low`); delegation goes unpinned with the two-notification pattern.

@@ -8,9 +8,16 @@ One line per deviation, with the reason. Details in
   recorded instead of stopping, since the checkout is byte-identical to what
   the env var would have named.
 - The spec's wake phrase "Gary, …" is "Zeca, …" at runtime: the operative was
-  renamed mid-run (`b3a82ec3`, 2026-08-13) and the wake gate now requires the
-  name in address position. Companion fixtures, defaults and docs use Zeca;
-  the spec text is left as history.
+  renamed mid-run (`b3a82ec3`, 2026-08-13). An address-position gate shipped
+  with the rename and was REMOVED the same day (`5d510fb4`, operator's call) —
+  the live gate is token-anywhere on word boundaries. Companion fixtures,
+  defaults and docs use Zeca and the token-anywhere semantics; the spec text
+  is left as history.
+- The wake module is consumed as a byte-identical copy with an injected
+  source-identity bag (`WakeBus source=`, `MemoryWriter prefix/label`), added
+  to omi-channel as behaviour-preserving parameters — hardcoded "omi"
+  identities would have violated I2 for companion events. Lockstep guarded by
+  `tests/companion-lockstep.test.ts`.
 - Spec §4 says video segments are "fragmented MP4 segments in the encoding iOS
   thing already produces" — ios-thing produces NO fMP4 (recon-verified: JPEG
   stills at ~1.5 fps under a proven extension-memory discipline; the

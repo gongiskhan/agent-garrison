@@ -27,9 +27,11 @@ gen() {
 # The spoken smoke-test command, in both languages the operator uses.
 gen pt-command Joana "Zeca, cria uma tarefa de teste chamada olá companion."
 gen en-command Samantha "Zeca, create a test task called hello companion."
-# Ambient speech that must NOT wake: no name at all, and the name in
-# object position (the address-position gate must reject it).
+# Ambient speech with no wake token: must not wake.
 gen pt-ambient Joana "Amanhã vamos ao mercado comprar peixe fresco para o jantar."
+# The name in OBJECT position. Under the token-anywhere gate (address-position
+# was removed 2026-08-13, operator's call) this IS a wake hit by design; kept
+# under its historical name as the object-position example.
 gen en-nearmiss Samantha "I already told Zeca about the meeting yesterday."
 
 echo "done"
