@@ -406,3 +406,25 @@ app record for com.gomes.garrison; register group.com.gomes.garrison and
 assign it to both App IDs; enable Time Sensitive Notifications on the host
 App ID. Then one dispatch (`-f lane=beta -f match_force=true`) lands the
 build in TestFlight processing.
+
+## M9 — Docs and human handoff (2026-08-13): run closed
+
+- `RUNBOOK.md`: state layout, kill switches, the two model lanes, the three
+  latency legs and what each means, echo-false-positive vs transcription
+  failure, fixture replay + the E2E + the env-only test hooks, key
+  rotation, APNs troubleshooting, the TestFlight lane.
+- `HUMAN_SETUP.md`: seal the five vault keys (including the Deepgram key
+  that does not exist yet and the APNs .p8 recovered-by-pointer from the
+  mac-mini), the five portal minutes the APIs refuse, the TestFlight
+  dispatch, Tailscale on the phone, settings + push registration, consent
+  expectations, the spoken smoke test with timings and the counters each
+  step moves, and how asks arrive and are answered by voice.
+- `DECISIONS.md`: complete — every deviation from the spec, one line each,
+  including the three refuted spec assumptions from recon, the mid-run
+  Zeca rename + gate change, the wait-for-context addition, the byte-
+  identical mirror discipline, and the M8 API-boundary findings.
+
+The run's remaining human work is exactly HUMAN_SETUP.md, top to bottom.
+Everything Garrison-side ships inert behind default-off flags and first
+spawns on the next natural deploy; nothing in the live composition changed
+behaviour tonight.
