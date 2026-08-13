@@ -51,8 +51,12 @@ platform :ios do
   # somewhere to receive the build. Idempotent (skips if it already exists).
   desc "Create the App Store Connect app record (run once)"
   lane :bootstrap do
-    api_key
+    key = api_key
+    # api_key passed EXPLICITLY: set_spaceship_token alone still sends the
+    # app-record half of produce down the legacy username path (verified on
+    # runs 31665298898 / 31665467224, fastlane 2.236-2.238).
     produce(
+      api_key: key,
       app_identifier: BUNDLE_ID,
       app_name: "Garrison",
       language: "English",
@@ -91,6 +95,7 @@ platform :ios do
     # MATCH_FORCE=1).
     begin
       produce(
+        api_key: key,
         app_identifier: BUNDLE_ID,
         enable_services: { push_notification: "on" },
         skip_itc: true
