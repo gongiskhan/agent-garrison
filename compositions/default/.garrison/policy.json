@@ -53,7 +53,7 @@
       "heavyRatio": 0.5
     }
   },
-  "defaultFlow": "full-feature",
+  "defaultFlow": "fix",
   "discipline": {
     "T0-trivial": {
       "distribution": "none",
@@ -132,10 +132,506 @@
     },
     {
       "id": "ex-drill-curation",
-      "targetId": "cc-sonnet-med",
-      "when": "caller-asserted (matchedException) - Drill Spotter evidence curation: batch keep/drop + annotation judging of captured frames (Debrief reel)"
+      "targetId": "cc-haiku-low",
+      "when": "caller-asserted (matchedException) - Drill Spotter evidence curation: batch keep/drop + annotation judging of captured frames (Debrief reel) - retargeted 2026-08-06: batch curation on the shared cc-sonnet-med warm session starved interactive verify/auth-probe turns for ~an hour (300-frame backlog); haiku triage runs on its OWN warm session and is per-batch fast"
     }
   ],
+  "flows": {
+    "automation": {
+      "cluster": "C12 - recurring scheduled work",
+      "defaultLevel": 2,
+      "description": "Author, run and verify something that recurs without being asked, including the Cortex API path.",
+      "examples": [
+        "Morning briefing",
+        "Ekoa-code: Apify Actor",
+        "Verificar sincronizacao de memorias Garrison vs Omi"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The automation ran and its result is recorded.",
+          "duties": [
+            "ops"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "The automation exists, runs on its trigger, and a test proves it does what it claims.",
+          "duties": [
+            "plan",
+            "implement",
+            "test"
+          ],
+          "evidence": "logs"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus a review of the failure handling and a checked definition of done.",
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "validate"
+          ],
+          "evidence": "text"
+        }
+      }
+    },
+    "chore": {
+      "cluster": "C13/C14 - maintenance + test upkeep (50 chore + 44 test commits)",
+      "defaultLevel": 1,
+      "description": "Mechanical upkeep: dependency bumps, cleanups, dead-code removal, repetitive operational work. Shares a shape with `fix` at level 1 but is the prime automation candidate, so a recurring chore is a signal to build an automation instead.",
+      "examples": [
+        "web-channel: retire legacy-voice.tsx (dead code)",
+        "Correr a bateria de testes automatizados completa"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The upkeep is applied and the suite is still green.",
+          "duties": [
+            "implement",
+            "test"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "As level 1, plus a review that the cleanup removed nothing load-bearing.",
+          "duties": [
+            "implement",
+            "test",
+            "review"
+          ],
+          "evidence": "logs"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, with the blast radius established first.",
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "validate"
+          ],
+          "evidence": "text"
+        }
+      }
+    },
+    "discussion": {
+      "cluster": "C4 - discussion / scoping",
+      "defaultLevel": 1,
+      "description": "Thinking, not executing. Level 1 is conversation with no artefact; level 2 adds research and a written brief.",
+      "examples": [
+        "Let's talk this work item through before it goes to planning",
+        "queria falar sobre a feature do assistente do ekoa (nova versao) nas apps"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The question is answered or the decision is made. No artefact, no board traffic beyond the Discuss card.",
+          "duties": [
+            "discuss"
+          ],
+          "evidence": "none"
+        },
+        "2": {
+          "definitionOfDone": "A written brief exists that someone who was not in the conversation could act on.",
+          "duties": [
+            "discuss",
+            "research",
+            "writing"
+          ],
+          "evidence": "text"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus the brief has been argued against before it was accepted.",
+          "duties": [
+            "discuss",
+            "research",
+            "writing",
+            "review"
+          ],
+          "evidence": "text",
+          "pins": {
+            "review": 3
+          }
+        }
+      }
+    },
+    "docs": {
+      "cluster": "C9 - docs / prose (134 docs commits)",
+      "defaultLevel": 1,
+      "description": "Prose: documentation, site copy, a written answer. No runtime behaviour changes.",
+      "examples": [
+        "Fazer alteracao de texto no site do ekoa",
+        "https://www.togai.pt/novidades"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The text is written and in place.",
+          "duties": [
+            "writing"
+          ],
+          "evidence": "text"
+        },
+        "2": {
+          "definitionOfDone": "As level 1, plus a read for accuracy.",
+          "duties": [
+            "writing",
+            "review"
+          ],
+          "evidence": "text"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus sources checked and an adversarial read.",
+          "duties": [
+            "research",
+            "writing",
+            "review",
+            "adversarial-review"
+          ],
+          "evidence": "text"
+        }
+      }
+    },
+    "feature": {
+      "cluster": "C2/C3 - feature work + large brief-driven builds (218 feat commits)",
+      "defaultLevel": 2,
+      "description": "New behaviour in a project, from a bounded addition up to a whole brief. Level 3 is the full gated pipeline with adversarial passes and a walkthrough.",
+      "examples": [
+        "Kanban Loop: scheduling support for dated human and agent tasks",
+        "on ekoa-code move the Pedidos into a tab in the settings area",
+        "Execute BRIEF-DRILL-V1.md end to end: build the Drill fitting"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "It works and the tests are green.",
+          "duties": [
+            "implement",
+            "test"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "Planned before built, reviewed after, and the definition of done is checked rather than asserted.",
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "validate"
+          ],
+          "evidence": "text"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus a decorrelated cross-model review, an independent test pass, a UX judgement and a walkthrough video.",
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "adversarial-review",
+            "adversarial-test",
+            "ux-qa",
+            "walkthrough",
+            "validate",
+            "report"
+          ],
+          "evidence": "video",
+          "pins": {
+            "adversarial-review": 3,
+            "adversarial-test": 3
+          }
+        }
+      }
+    },
+    "fix": {
+      "cluster": "C1 - small fix / defect on a live app (280 fix commits in 4 weeks)",
+      "defaultLevel": 1,
+      "description": "A defect in something that already works. The dominant shape of real work and the one most likely to be done in a raw session instead, so level 1 stays cheap and fast.",
+      "examples": [
+        "Drill fix: chat - 1 finding (Aug 7, 18:21)",
+        "the drill run results on garrison keeps flacking with scroll",
+        "dont show the same message with the card twice on the web channel"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The defect no longer reproduces and a committed test covers it.",
+          "duties": [
+            "implement",
+            "test"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "As level 1, plus a review that read the diff.",
+          "duties": [
+            "implement",
+            "test",
+            "review"
+          ],
+          "evidence": "logs"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus a decorrelated review that agrees the cause was found, not just the symptom.",
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "adversarial-review"
+          ],
+          "evidence": "text",
+          "pins": {
+            "adversarial-review": 3
+          }
+        }
+      }
+    },
+    "image": {
+      "cluster": "C8 - media production",
+      "defaultLevel": 1,
+      "description": "Produce or edit an image.",
+      "examples": [
+        "garrison: brand icon work",
+        "Criar imagem de demonstracao"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The image exists and is in place.",
+          "duties": [
+            "image"
+          ],
+          "evidence": "none"
+        },
+        "2": {
+          "definitionOfDone": "As level 1, plus a look at whether it is actually good.",
+          "duties": [
+            "image",
+            "review"
+          ],
+          "evidence": "text"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, judged in the surface it will appear in.",
+          "duties": [
+            "plan",
+            "image",
+            "review",
+            "ux-qa"
+          ],
+          "evidence": "text"
+        }
+      }
+    },
+    "ops": {
+      "cluster": "C6 - ops / deploy",
+      "defaultLevel": 2,
+      "description": "Deploys, infrastructure, provisioning. Anything whose blast radius is the running system rather than the codebase.",
+      "examples": [
+        "deploy to production",
+        "ssh-copy-id -i ~/.ssh/id_ed25519.pub ggomes@dev-madrid"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The operation completed and was verified.",
+          "duties": [
+            "ops"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "Planned before executed, and the result was checked rather than assumed.",
+          "duties": [
+            "plan",
+            "ops",
+            "validate"
+          ],
+          "evidence": "logs"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus a security-boundary review and a reported outcome.",
+          "duties": [
+            "plan",
+            "ops",
+            "security-review",
+            "validate",
+            "report"
+          ],
+          "evidence": "text",
+          "pins": {
+            "security-review": 3
+          }
+        }
+      }
+    },
+    "personal": {
+      "cluster": "C10 - personal admin (the manual half)",
+      "defaultLevel": 1,
+      "description": "A personal card that rides the board by hand. No agent duties at any level - kept because some things are just a note to self.",
+      "examples": [
+        "Comprar peixe",
+        "Beber cafe",
+        "Levar brinquedos para a piscina"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "Marked done by hand.",
+          "duties": [
+            "other"
+          ],
+          "evidence": "none"
+        }
+      },
+      "manual": true
+    },
+    "qa-sweep": {
+      "cluster": "C7 - QA sweep -> batch fix (~8 cards, previously ZERO config support)",
+      "defaultLevel": 2,
+      "description": "Drive the whole app looking for defects, then fix what was found. Garrison's own shape: Drill produces a report, the report becomes a batch of fixes.",
+      "examples": [
+        "Correr um drill completo (Garrison) sobre o ekoa-code",
+        "Drill batch fix (report 01KXQK2VYA4XXZH3P7B1BZ2XEX)",
+        "Correr a bateria de testes automatizados completa no ekoa-code"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The sweep ran and its findings are recorded.",
+          "duties": [
+            "drill"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "The sweep ran and every finding is either fixed or explicitly triaged.",
+          "duties": [
+            "drill",
+            "implement",
+            "test"
+          ],
+          "evidence": "logs"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, plus a review of the fixes and a walkthrough proving the sweep is clean.",
+          "duties": [
+            "drill",
+            "implement",
+            "test",
+            "review",
+            "walkthrough"
+          ],
+          "evidence": "video"
+        }
+      }
+    },
+    "research": {
+      "cluster": "C5 - research / investigation",
+      "defaultLevel": 2,
+      "description": "Find something out and write down what was found. Distinct from discussion: the output is a document, not a decision.",
+      "examples": [
+        "Uncaught TypeError: Cannot read properties of undefined (reading 'map')",
+        "Novo apanhado de divergencias antigo->novo"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The question is answered in the reply.",
+          "duties": [
+            "research"
+          ],
+          "evidence": "none"
+        },
+        "2": {
+          "definitionOfDone": "A document exists with the finding and its sources.",
+          "duties": [
+            "research",
+            "writing"
+          ],
+          "evidence": "text"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, and the conclusion survived a review that checked the sources.",
+          "duties": [
+            "plan",
+            "research",
+            "writing",
+            "review"
+          ],
+          "evidence": "text"
+        }
+      }
+    },
+    "task": {
+      "cluster": "C10/C11 - personal admin + comms follow-up (~18 cards)",
+      "defaultLevel": 1,
+      "description": "Do one thing and be done: send it, post it, file it, look it up and act. Minimal ceremony and no unnecessary board traffic.",
+      "examples": [
+        "Cancelar tudo na vodafone excepto servico casa",
+        "Ekoa: responder Luciana sobre sharepoint",
+        "Follow up with Brazilian clinic on AI WhatsApp assistant requirements",
+        "Start playing Queen on Spotify"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The thing was done.",
+          "duties": [
+            "other"
+          ],
+          "evidence": "none"
+        },
+        "2": {
+          "definitionOfDone": "The thing was done and the outcome was reported back.",
+          "duties": [
+            "other",
+            "report"
+          ],
+          "evidence": "text"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, with the steps agreed before anything irreversible happened.",
+          "duties": [
+            "plan",
+            "other",
+            "report"
+          ],
+          "evidence": "text"
+        }
+      }
+    },
+    "video": {
+      "cluster": "C8 - media production",
+      "defaultLevel": 2,
+      "description": "Produce or edit a video.",
+      "examples": [
+        "Criar o primeiro video de demonstracao do Akoa"
+      ],
+      "levels": {
+        "1": {
+          "definitionOfDone": "The video exists.",
+          "duties": [
+            "video"
+          ],
+          "evidence": "logs"
+        },
+        "2": {
+          "definitionOfDone": "Scripted before shot, and watched before shipped.",
+          "duties": [
+            "plan",
+            "video",
+            "review"
+          ],
+          "evidence": "video"
+        },
+        "3": {
+          "definitionOfDone": "As level 2, judged against the audience it is for.",
+          "duties": [
+            "plan",
+            "video",
+            "review",
+            "ux-qa",
+            "report"
+          ],
+          "evidence": "video"
+        }
+      }
+    }
+  },
   "matrix": {
     "adversarial-review": {
       "T0-trivial": {
@@ -186,105 +682,134 @@
         "type": "secondary"
       },
       "T2-deep": {
-        "effort": "high",
+        "effort": "xhigh",
         "model": "gpt-5.6-sol",
         "provider": "anthropic",
-        "rule": "duty:adversarial-test/L2",
+        "rule": "duty:adversarial-test/L3",
         "runtime": "codex",
         "targetId": "sol",
         "type": "secondary"
       }
     },
-    "code": {
+    "codex-checkpoint": {
       "T0-trivial": {
         "effort": "high",
-        "model": "sonnet",
+        "model": "gpt-5.6-sol",
         "provider": "anthropic",
-        "rule": "duty:code/L1",
-        "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
-        "type": "runtime-target"
+        "rule": "duty:codex-checkpoint/L1",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       },
       "T1-standard": {
         "effort": "high",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:codex-checkpoint/L1",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
+      },
+      "T2-deep": {
+        "effort": "high",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:codex-checkpoint/L1",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
+      }
+    },
+    "discuss": {
+      "T0-trivial": {
+        "effort": "low",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:discuss/L1",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "medium",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:discuss/L2",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
+        "type": "runtime-target"
+      },
+      "T2-deep": {
+        "effort": "high",
+        "model": "claude-fable-5",
+        "provider": "anthropic",
+        "rule": "duty:discuss/L3",
+        "runtime": "agent-sdk",
+        "targetId": "fable",
+        "type": "runtime-target"
+      }
+    },
+    "drill": {
+      "T0-trivial": {
+        "effort": "xhigh",
         "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:code/L2",
+        "rule": "duty:drill/L1",
+        "runtime": "agent-sdk",
+        "targetId": "cc-opus",
+        "type": "runtime-target"
+      },
+      "T1-standard": {
+        "effort": "max",
+        "model": "opus",
+        "provider": "anthropic",
+        "rule": "duty:drill/L2",
         "runtime": "agent-sdk",
         "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "max",
-        "model": "opus",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
-        "rule": "duty:code/L3",
+        "rule": "duty:drill/L3",
         "runtime": "agent-sdk",
-        "targetId": "cc-opus",
-        "type": "runtime-target"
-      }
-    },
-    "codex-checkpoint": {
-      "T0-trivial": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic",
-        "rule": "duty:codex-checkpoint/L1",
-        "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
-        "type": "runtime-target"
-      },
-      "T1-standard": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic",
-        "rule": "duty:codex-checkpoint/L1",
-        "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
-        "type": "runtime-target"
-      },
-      "T2-deep": {
-        "effort": "low",
-        "model": "sonnet",
-        "provider": "anthropic",
-        "rule": "duty:codex-checkpoint/L1",
-        "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "opus",
         "type": "runtime-target"
       }
     },
     "image": {
       "T0-trivial": {
-        "effort": null,
-        "model": "gemini-2.5-flash",
-        "provider": null,
+        "effort": "medium",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
         "rule": "duty:image/L1",
-        "runtime": "gemini",
-        "targetId": "sec-gemini",
-        "type": "secondary"
+        "runtime": "agent-sdk",
+        "targetId": "opus",
+        "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": null,
-        "model": "gemini-2.5-flash",
-        "provider": null,
-        "rule": "duty:image/L1",
-        "runtime": "gemini",
-        "targetId": "sec-gemini",
-        "type": "secondary"
+        "effort": "high",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:image/L2",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
+        "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": null,
-        "model": "gemini-2.5-flash",
-        "provider": null,
-        "rule": "duty:image/L1",
-        "runtime": "gemini",
-        "targetId": "sec-gemini",
-        "type": "secondary"
+        "effort": "xhigh",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:image/L3",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
+        "type": "runtime-target"
       }
     },
     "implement": {
       "T0-trivial": {
-        "effort": "xhigh",
+        "effort": "medium",
         "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:implement/L1",
@@ -293,10 +818,10 @@
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "xhigh",
+        "effort": "high",
         "model": "claude-opus-4-8",
         "provider": "anthropic",
-        "rule": "duty:implement/L1",
+        "rule": "duty:implement/L2",
         "runtime": "agent-sdk",
         "targetId": "opus",
         "type": "runtime-target"
@@ -305,7 +830,7 @@
         "effort": "xhigh",
         "model": "claude-opus-4-8",
         "provider": "anthropic",
-        "rule": "duty:implement/L1",
+        "rule": "duty:implement/L3",
         "runtime": "agent-sdk",
         "targetId": "opus",
         "type": "runtime-target"
@@ -313,16 +838,16 @@
     },
     "ops": {
       "T0-trivial": {
-        "effort": "high",
-        "model": "sonnet",
+        "effort": "low",
+        "model": "opus",
         "provider": "anthropic",
         "rule": "duty:ops/L1",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "high",
+        "effort": "medium",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:ops/L2",
@@ -331,7 +856,7 @@
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "xhigh",
+        "effort": "high",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:ops/L3",
@@ -342,16 +867,16 @@
     },
     "other": {
       "T0-trivial": {
-        "effort": "medium",
-        "model": "sonnet",
+        "effort": "low",
+        "model": "haiku",
         "provider": "anthropic",
         "rule": "duty:other/L1",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-haiku",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "high",
+        "effort": "low",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:other/L2",
@@ -360,7 +885,7 @@
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "high",
+        "effort": "low",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:other/L2",
@@ -372,29 +897,29 @@
     "plan": {
       "T0-trivial": {
         "effort": "high",
-        "model": "claude-fable-5",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:plan/L1",
         "runtime": "agent-sdk",
-        "targetId": "fable",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "xhigh",
-        "model": "claude-fable-5",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:plan/L2",
         "runtime": "agent-sdk",
-        "targetId": "fable",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "max",
-        "model": "claude-fable-5",
+        "model": "opus",
         "provider": "anthropic",
         "rule": "duty:plan/L3",
         "runtime": "agent-sdk",
-        "targetId": "fable",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
@@ -439,35 +964,35 @@
       },
       "T1-standard": {
         "effort": "low",
-        "model": "sonnet",
+        "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:report/L1",
+        "rule": "duty:report/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "low",
-        "model": "sonnet",
+        "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:report/L1",
+        "rule": "duty:report/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
     "research": {
       "T0-trivial": {
-        "effort": "high",
-        "model": "sonnet",
+        "effort": "low",
+        "model": "opus",
         "provider": "anthropic",
         "rule": "duty:research/L1",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "high",
+        "effort": "medium",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:research/L2",
@@ -476,7 +1001,7 @@
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "max",
+        "effort": "high",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:research/L3",
@@ -488,30 +1013,59 @@
     "review": {
       "T0-trivial": {
         "effort": "low",
-        "model": "sonnet",
+        "model": "opus",
         "provider": "anthropic",
         "rule": "duty:review/L1",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "medium",
-        "model": "sonnet",
+        "model": "opus",
         "provider": "anthropic",
         "rule": "duty:review/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "high",
-        "model": "opus",
+        "model": "gpt-5.6-sol",
         "provider": "anthropic",
         "rule": "duty:review/L3",
-        "runtime": "agent-sdk",
-        "targetId": "cc-opus",
-        "type": "runtime-target"
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
+      }
+    },
+    "security-review": {
+      "T0-trivial": {
+        "effort": "high",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:security-review/L1",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
+      },
+      "T1-standard": {
+        "effort": "xhigh",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:security-review/L2",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
+      },
+      "T2-deep": {
+        "effort": "max",
+        "model": "gpt-5.6-sol",
+        "provider": "anthropic",
+        "rule": "duty:security-review/L3",
+        "runtime": "codex",
+        "targetId": "sol",
+        "type": "secondary"
       }
     },
     "test": {
@@ -525,16 +1079,16 @@
         "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": "high",
-        "model": "opus",
+        "effort": "medium",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:test/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-opus",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "xhigh",
+        "effort": "high",
         "model": "opus",
         "provider": "anthropic",
         "rule": "duty:test/L3",
@@ -546,29 +1100,29 @@
     "ux-qa": {
       "T0-trivial": {
         "effort": "medium",
-        "model": "claude-fable-5",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:ux-qa/L1",
         "runtime": "agent-sdk",
-        "targetId": "fable",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "high",
-        "model": "claude-fable-5",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:ux-qa/L2",
         "runtime": "agent-sdk",
-        "targetId": "fable",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "xhigh",
-        "model": "claude-fable-5",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:ux-qa/L3",
         "runtime": "agent-sdk",
-        "targetId": "fable",
+        "targetId": "opus",
         "type": "runtime-target"
       }
     },
@@ -584,107 +1138,107 @@
       },
       "T1-standard": {
         "effort": "low",
-        "model": "sonnet",
+        "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:validate/L1",
+        "rule": "duty:validate/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "low",
-        "model": "sonnet",
+        "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:validate/L1",
+        "rule": "duty:validate/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
     "video": {
       "T0-trivial": {
-        "effort": null,
-        "model": "gemini-2.5-flash",
-        "provider": null,
+        "effort": "medium",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
         "rule": "duty:video/L1",
-        "runtime": "gemini",
-        "targetId": "sec-gemini",
-        "type": "secondary"
+        "runtime": "agent-sdk",
+        "targetId": "opus",
+        "type": "runtime-target"
       },
       "T1-standard": {
-        "effort": null,
-        "model": "gemini-2.5-flash",
-        "provider": null,
-        "rule": "duty:video/L1",
-        "runtime": "gemini",
-        "targetId": "sec-gemini",
-        "type": "secondary"
+        "effort": "high",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:video/L2",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
+        "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": null,
-        "model": "gemini-2.5-flash",
-        "provider": null,
-        "rule": "duty:video/L1",
-        "runtime": "gemini",
-        "targetId": "sec-gemini",
-        "type": "secondary"
+        "effort": "xhigh",
+        "model": "claude-opus-4-8",
+        "provider": "anthropic",
+        "rule": "duty:video/L3",
+        "runtime": "agent-sdk",
+        "targetId": "opus",
+        "type": "runtime-target"
       }
     },
     "walkthrough": {
       "T0-trivial": {
-        "effort": "high",
-        "model": "claude-opus-4-8",
+        "effort": "low",
+        "model": "opus",
         "provider": "anthropic",
         "rule": "duty:walkthrough/L1",
         "runtime": "agent-sdk",
-        "targetId": "opus",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "high",
-        "model": "claude-opus-4-8",
+        "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:walkthrough/L1",
+        "rule": "duty:walkthrough/L2",
         "runtime": "agent-sdk",
-        "targetId": "opus",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       },
       "T2-deep": {
         "effort": "high",
-        "model": "claude-opus-4-8",
+        "model": "opus",
         "provider": "anthropic",
-        "rule": "duty:walkthrough/L1",
+        "rule": "duty:walkthrough/L2",
         "runtime": "agent-sdk",
-        "targetId": "opus",
+        "targetId": "cc-opus",
         "type": "runtime-target"
       }
     },
     "writing": {
       "T0-trivial": {
         "effort": "medium",
-        "model": "sonnet",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:writing/L1",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T1-standard": {
         "effort": "high",
-        "model": "sonnet",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
         "rule": "duty:writing/L2",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "opus",
         "type": "runtime-target"
       },
       "T2-deep": {
-        "effort": "high",
-        "model": "sonnet",
+        "effort": "xhigh",
+        "model": "claude-opus-4-8",
         "provider": "anthropic",
-        "rule": "duty:writing/L2",
+        "rule": "duty:writing/L3",
         "runtime": "agent-sdk",
-        "targetId": "cc-sonnet",
+        "targetId": "opus",
         "type": "runtime-target"
       }
     }
@@ -840,6 +1394,14 @@
     }
   ],
   "targets": {
+    "cc-haiku": {
+      "id": "cc-haiku",
+      "model": "haiku",
+      "promptMode": "coding",
+      "provider": "anthropic",
+      "runtime": "agent-sdk",
+      "type": "runtime-target"
+    },
     "cc-haiku-low": {
       "effort": "low",
       "id": "cc-haiku-low",
@@ -908,6 +1470,20 @@
       "provider": "anthropic",
       "runtime": "agent-sdk",
       "type": "runtime-target"
+    },
+    "fable-low": {
+      "effort": "low",
+      "id": "fable-low",
+      "model": "claude-fable-5",
+      "provider": "anthropic",
+      "runtime": "agent-sdk"
+    },
+    "fable-med": {
+      "effort": "medium",
+      "id": "fable-med",
+      "model": "claude-fable-5",
+      "provider": "anthropic",
+      "runtime": "agent-sdk"
     },
     "fitted-agent-sdk-runtime": {
       "derivedFrom": "agent-sdk-runtime",
@@ -979,6 +1555,20 @@
       "runtime": "agent-sdk",
       "type": "runtime-target"
     },
+    "opus-low": {
+      "effort": "low",
+      "id": "opus-low",
+      "model": "claude-opus-4-8",
+      "provider": "anthropic",
+      "runtime": "agent-sdk"
+    },
+    "opus-med": {
+      "effort": "medium",
+      "id": "opus-med",
+      "model": "claude-opus-4-8",
+      "provider": "anthropic",
+      "runtime": "agent-sdk"
+    },
     "sdk-haiku-low": {
       "authMode": "api-key",
       "effort": "low",
@@ -1008,10 +1598,24 @@
       "provider": "anthropic",
       "runtime": "codex",
       "type": "secondary"
+    },
+    "sol-med": {
+      "effort": "medium",
+      "id": "sol-med",
+      "model": "gpt-5.6-sol",
+      "provider": "anthropic",
+      "runtime": "codex",
+      "type": "secondary"
+    },
+    "sonnet-low": {
+      "effort": "low",
+      "id": "sonnet-low",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "runtime": "agent-sdk"
     }
   },
   "taskTypes": [
-    "code",
     "other",
     "research",
     "plan",
@@ -1029,7 +1633,10 @@
     "validate",
     "codex-checkpoint",
     "report",
-    "probe-question"
+    "probe-question",
+    "discuss",
+    "drill",
+    "security-review"
   ],
   "tierDefinitions": {
     "T0-trivial": "A one-shot answer or a single mechanical edit: a rename, a typo, a fact lookup, a one-line config tweak. No multi-file reasoning, no design choices.",
@@ -1043,45 +1650,5 @@
   ],
   "uxQa": {
     "severityThreshold": "major"
-  },
-  "flows": {
-    "api-change": {
-      "description": "API/backend change with tests, no walkthrough",
-      "phasePlan": "implement-test"
-    },
-    "channel": {
-      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge",
-      "evidence": false,
-      "phasePlan": "manual-only"
-    },
-    "docs-change": {
-      "description": "Documentation or prose-only change",
-      "phasePlan": "implement-only-text"
-    },
-    "full-feature": {
-      "description": "Feature work through the full gated pipeline",
-      "phasePlan": "full"
-    },
-    "full-feature-copy": {
-      "description": "Feature work through the full gated pipeline (copy)",
-      "phasePlan": "full-copy"
-    },
-    "full-feature-copy-2": {
-      "description": "Feature work through the full gated pipeline (copy)",
-      "phasePlan": "full-copy-2"
-    },
-    "personal": {
-      "description": "Personal task - rides backlog/todo/done by hand, no agent phases",
-      "evidence": false,
-      "phasePlan": "manual-only"
-    },
-    "ui-change": {
-      "description": "UI change through review + UX QA + a walkthrough",
-      "phasePlan": "ui-change"
-    },
-    "video-edit": {
-      "description": "Video production/edit work",
-      "phasePlan": "implement-only-logs"
-    }
   }
 }
