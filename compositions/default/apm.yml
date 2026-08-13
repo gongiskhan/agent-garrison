@@ -7,6 +7,7 @@ dependencies:
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/capture-service
     - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/cortex-automations
@@ -93,6 +94,15 @@ x-garrison:
             wake_command_window_ms: 45000
             wake_context_segments: 6
             wake_context_max_age_ms: 120000
+        - id: capture-service
+          config:
+            port: 7097
+            bind_host: 127.0.0.1
+            enabled: false
+            transcribe_enabled: false
+            wake_enabled: false
+            notify_enabled: false
+            speak_enabled: false
       gateway:
         - id: http-gateway
           config:

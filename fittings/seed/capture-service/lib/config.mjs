@@ -1,0 +1,152 @@
+// Capture service Fitting — config resolution.
+//
+// Everything comes from the spawn env the runner projects
+// (GARRISON_CAPTURESERVICE_<KEY> per composition config key, vault secrets
+// under their exact names per secret_scope). No literal port fallback beyond
+// the committed default_port; no gateway port literal at all — an
+// unresolvable gateway means the dependent feature is skipped with a logged
+// reason, never silently pointed at another instance's port.
+
+import os from "node:os";
+import path from "node:path";
+
+export const FITTING_ID = "capture-service";
+export const CHANNEL_ID = "companion";
+export const DEFAULT_PORT = 7097; // base-family (dev); prod arrives shifted via GARRISON_CAPTURESERVICE_PORT
+
+// Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set) IS
+// the .garrison root, else ~/.garrison. Sandboxed tests set it so state and
+// status files never collide with a live instance.
+export function garrisonDir(env = process.env) {
+  const override = env.GARRISON_HOME?.trim();
+  return override && override.length > 0 ? override : path.join(os.homedir(), ".garrison");
+}
+
+// Durable state root for this fitting (sessions, transcripts, media, capture
+// events, device registry). Convention: $GARRISON_HOME/<area>, dedicated
+// override so the shared triage tick can be pointed at a sandboxed root.
+export function captureDir(env = process.env) {
+  const override = env.GARRISON_CAPTURE_DIR?.trim();
+  return override && override.length > 0 ? override : path.join(garrisonDir(env), "capture");
+}
+
+export function statusFilePath(env = process.env) {
+  return path.join(garrisonDir(env), "ui-fittings", `${FITTING_ID}.json`);
+}
+
+function parseBool(raw, fallback = false) {
+  if (raw === undefined || raw === null || String(raw).trim() === "") return fallback;
+  const v = String(raw).trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
+function parseIntOr(raw, fallback) {
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function parseCsv(raw) {
+  return String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+// Same default set as omi-channel's config (the operative answers to Zeca);
+// the byte-identical wake module copied from there consumes it. Kept as a
+// plain default here rather than re-implementing the retired-variant
+// compatibility read: this fitting shipped after the rename, so no install
+// can hold a pre-rename value.
+export const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
+
+// Gateway URL resolution — GARRISON_GATEWAY_URL, else HOST/PORT pair when the
+// port is explicitly numeric. NEVER a baked port literal. null = the
+// gateway-dependent feature skips with a logged reason.
+export function resolveGatewayUrl(env = process.env) {
+  const direct = (env.GARRISON_GATEWAY_URL || "").trim();
+  if (direct) return direct.replace(/\/$/, "");
+  const p = (env.GARRISON_GATEWAY_PORT || "").trim();
+  if (/^\d+$/.test(p)) {
+    const h = (env.GARRISON_GATEWAY_HOST || "127.0.0.1").trim();
+    return `http://${h}:${p}`;
+  }
+  return null;
+}
+
+export function loadConfig(env = process.env) {
+  return {
+    port: parseIntOr(env.GARRISON_CAPTURESERVICE_PORT, DEFAULT_PORT),
+    bindHost:
+      (env.GARRISON_CAPTURESERVICE_BIND_HOST || "").trim() ||
+      (env.GARRISON_BIND_HOST || "").trim() ||
+      "127.0.0.1",
+    gatewayUrl: resolveGatewayUrl(env),
+
+    // Resolved instance paths, carried ON the config. Every consumer derives
+    // state from the config it was handed; nothing re-reads process.env behind
+    // the caller's back (the omi-channel 2026-07-30 lesson: an ambient re-read
+    // let a sandboxed test delete a LIVE instance's status file).
+    home: garrisonDir(env),
+    stateDir: captureDir(env),
+    statusFile: statusFilePath(env),
+
+    // Independent kill switches (invariant I9) — every pipe defaults OFF.
+    enabled: parseBool(env.GARRISON_CAPTURESERVICE_ENABLED, false), // master: session + device ingress
+    transcribeEnabled: parseBool(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_ENABLED, false),
+    wakeEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_ENABLED, false),
+    notifyEnabled: parseBool(env.GARRISON_CAPTURESERVICE_NOTIFY_ENABLED, false),
+    speakEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SPEAK_ENABLED, false),
+
+    // Deepgram live transcription (M2). Model/language verified against the
+    // current docs when the client is written; shapes in docs/api-notes.md.
+    sttModel: (env.GARRISON_CAPTURESERVICE_STT_MODEL || "").trim() || "nova-3",
+    sttLanguage: (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "multi",
+
+    // Classification pin (the 82-second lesson) and delegation budget — same
+    // two-lane split as omi-channel.
+    classifyTarget: (() => {
+      const raw = env.GARRISON_CAPTURESERVICE_CLASSIFY_TARGET;
+      return raw === undefined ? "cc-haiku-low" : String(raw).trim();
+    })(),
+    delegateEnabled: parseBool(env.GARRISON_CAPTURESERVICE_DELEGATE_ENABLED, true),
+    delegateTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_DELEGATE_TIMEOUT_MS, 10 * 60 * 1000),
+
+    // Wake bus (M3) — consumed by the byte-identical wake module copy.
+    wakeVariants: (() => {
+      const v = parseCsv(env.GARRISON_CAPTURESERVICE_WAKE_VARIANTS);
+      return v.length > 0 ? v : [...DEFAULT_WAKE_VARIANTS];
+    })(),
+    wakeSilenceCloseMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_SILENCE_CLOSE_MS, 4000),
+    wakeSettledCloseMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_SETTLED_CLOSE_MS, 5000),
+    wakeMaxCaptureMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_MAX_CAPTURE_MS, 20000),
+    wakeMinCaptureMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_MIN_CAPTURE_MS, 0),
+    wakeCommandWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_COMMAND_WINDOW_MS, 60000),
+    wakeContextSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_SEGMENTS, 6),
+    wakeContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_MAX_AGE_MS, 120000),
+    wakeCardDedupeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CARD_DEDUPE_MS, 600000),
+
+    // Outbound push (M5)
+    notifyMaxPerDay: parseIntOr(env.GARRISON_CAPTURESERVICE_NOTIFY_MAX_PER_DAY, 50),
+    apnsEnvironment:
+      (env.GARRISON_CAPTURESERVICE_APNS_ENVIRONMENT || "").trim().toLowerCase() === "sandbox"
+        ? "sandbox"
+        : "production",
+    apnsTopic: (env.GARRISON_CAPTURESERVICE_APNS_TOPIC || "").trim() || "com.gomes.garrison",
+
+    // Session lifecycle (M1)
+    sessionIdleTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SESSION_IDLE_TIMEOUT_MS, 300000),
+
+    // Triage wait-for-context floor (M4): a session ending under this many
+    // transcript words is held as a thin fragment, not carded alone.
+    minTranscriptWords: parseIntOr(env.GARRISON_CAPTURESERVICE_MIN_TRANSCRIPT_WORDS, 12),
+
+    // Vault-scoped secrets (exact vault key names, delivered at spawn).
+    secrets: {
+      deepgramApiKey: (env.DEEPGRAM_API_KEY || "").trim(),
+      captureToken: (env.CAPTURE_TOKEN || "").trim(),
+      apnsTeamId: (env.APNS_TEAM_ID || "").trim(),
+      apnsKeyId: (env.APNS_KEY_ID || "").trim(),
+      apnsP8: (env.APNS_P8 || "").trim()
+    }
+  };
+}

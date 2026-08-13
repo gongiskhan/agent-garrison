@@ -1,0 +1,12 @@
+# XcodeGen output (generated from ios/project.yml)
+Garrison.xcodeproj/
+
+# Build artifacts
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+
+# fastlane transients (the lane itself is committed)
+fastlane/report.xml
+fastlane/test_output/

@@ -640,6 +640,20 @@
     }
   },
   {
+    "id": "capture-service",
+    "name": "iOS companion capture",
+    "repo": "local:fittings/seed/capture-service",
+    "localPath": "fittings/seed/capture-service",
+    "summary": "iOS companion capture channel: session-based websocket ingress (audio + screen stills), Deepgram live transcription, wake-word commands, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "global": 0,
+      "claude_code": 0
+    }
+  },
+  {
     "id": "openai-agents-runtime",
     "name": "Openai Agents Runtime",
     "repo": "local:fittings/seed/openai-agents-runtime",

@@ -97,7 +97,9 @@ validate_configuration() {
   [ -e "$REPO_ROOT/.git" ] || die "this script must run from the Garrison checkout"
   [ "$(git -C "$REPO_ROOT" rev-parse --show-toplevel)" = "$REPO_ROOT" ] \
     || die "could not resolve the Garrison repository root"
-  [ "$(git -C "$REPO_ROOT" remote get-url origin)" = "$EXPECTED_ORIGIN" ] \
+  local origin_url
+  origin_url="$(git -C "$REPO_ROOT" remote get-url origin)"
+  [ "${origin_url%.git}" = "${EXPECTED_ORIGIN%.git}" ] \
     || die "local origin is not the expected agent-garrison repository"
 }
 
