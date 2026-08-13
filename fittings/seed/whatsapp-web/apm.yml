@@ -20,7 +20,8 @@ x-garrison:
     resolve_contact returns a list of candidates for a human to confirm;
     send_text only accepts an exact, already-confirmed WhatsApp JID and is not
     reachable from the Automations engine — only a live conversation with the
-    Operative can trigger a send.
+    Operative can trigger a send, and an agent-triggered one is parked in the
+    daemon's outbox for a 60-second cancel window before it goes out.
   config_schema:
     - key: port
       type: integer
@@ -60,7 +61,14 @@ x-garrison:
           - to
           - body
         mutates: true
-        description: Send one text message. `to` MUST be an exact WhatsApp JID already confirmed by the human via resolve_contact (matches /^\d+@(s.whatsapp.net|g.us)$/ — an individual or group JID); a bare name or any other string is rejected before anything is sent. No batch form exists. Not exposed to the Automations engine — reachable only via a direct call in a live conversation with the user.
+        description: >-
+          Send one text message. `to` MUST be an exact WhatsApp JID already confirmed by the
+          human via resolve_contact (matches /^\d+@(s.whatsapp.net|g.us)$/ — an individual or
+          group JID); a bare name or any other string is rejected before anything is sent. No
+          batch form exists. Not exposed to the Automations engine — reachable only via a direct
+          call in a live conversation with the user. An agent-triggered call does NOT send now:
+          it returns {queued:true, id, executeAt} and the message goes out only when the
+          60-second cancel window elapses uncancelled.
       - name: recent_messages
         args:
           - n
@@ -128,6 +136,15 @@ x-garrison:
            sent, in the current conversation. Never call it from a scheduled
            Automation or a background loop — the connector refuses those calls
            outright (they carry no live human to confirm the send against).
+           It does NOT send immediately. The call returns
+           { queued:true, sent:false, id, executeAt, cancelHint } and the
+           message is PARKED for a 60-second cancel window; it goes out only
+           when that window elapses uncancelled. Tell the user plainly that it
+           has not been sent yet and by when it will be. To take it back:
+             curl -s <daemon url>/outbox                       -> parked sends
+             curl -sX POST <daemon url>/outbox/<id>/cancel     -> take one back
+           Cancelling is idempotent, and after the window it answers
+           "already sent" rather than pretending it stopped anything.
       node apm_modules/_local/whatsapp-web/scripts/connector.mjs call list_contacts '{"n":500}'
         -> [{ name, jid }, ...] for every chat/contact the daemon has indexed,
            alphabetical. The index is synced from the phone's address book and

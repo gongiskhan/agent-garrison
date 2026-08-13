@@ -16,7 +16,7 @@
 // own-port Fitting uses) and proxies each call over loopback HTTP. It never
 // opens a Baileys socket itself.
 //
-// send_text is gated at TWO independent points, both enforced here in code
+// send_text is gated at THREE independent points, all enforced here in code
 // (not just documented):
 //   1. `to` must be an exact WhatsApp JID (see lib/jid.mjs) — a bare name is
 //      rejected outright. Get a jid from resolve_contact + a human's
@@ -25,11 +25,16 @@
 //      unconditionally, before any HTTP call happens — see the
 //      GARRISON_AUTOMATION_ENGINE check below. Only a direct call (the
 //      Operative acting on an explicit, live request) can reach /send.
+//   3. An agent-triggered send does not go out now: it is parked in the
+//      daemon's outbox for a cancel window (../lib/outbox.mjs) and only sent
+//      when that window elapses uncancelled. A human acting in a UI bypasses
+//      the buffer; nothing else does.
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertValidJid } from "../lib/jid.mjs";
+import { resolveSendContext } from "../lib/outbox.mjs";
 
 export const CATALOG = {
   service: "whatsapp-web",
@@ -53,7 +58,7 @@ export const CATALOG = {
       args: ["to", "body"],
       mutates: true,
       description:
-        "Send one text message. `to` must be an exact, already-confirmed WhatsApp JID (from resolve_contact). Not reachable from the Automations engine."
+        "Send one text message. `to` must be an exact, already-confirmed WhatsApp JID (from resolve_contact). Not reachable from the Automations engine. An agent-triggered call parks the message for a 60s cancel window and returns {queued:true, executeAt} — it has not been sent yet."
     },
     {
       name: "recent_messages",
@@ -155,6 +160,28 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
       }
       // Gate 2: exact-jid-only. Never fuzzy-matches, never guesses.
       assertValidJid(args.to);
+      // Gate 3: the delay buffer. A send an AGENT triggered is parked for a
+      // cancel window instead of going out now (../lib/outbox.mjs); the daemon
+      // owns the timer and the drain, because this CLI exits in milliseconds.
+      // Only a human acting in a UI sends immediately, and only because that
+      // UI's process marked the env — never because a caller typed a flag.
+      const context = resolveSendContext(env);
+      if (context !== "human") {
+        const queued = await daemonCall(env, fetchImpl, "POST", "/outbox", {
+          action: "send_text",
+          payload: { jid: args.to, body: args.body },
+          summary: `WhatsApp to ${args.to}`,
+          context
+        });
+        return {
+          sent: false,
+          queued: true,
+          id: queued.id,
+          executeAt: queued.executeAt,
+          message: `NOT SENT YET. This WhatsApp message to ${args.to} is parked and goes out at ${queued.executeAt} (${queued.delaySeconds}s cancel window) unless it is cancelled before then.`,
+          cancelHint: queued.cancelHint
+        };
+      }
       const result = await daemonCall(env, fetchImpl, "POST", "/send", { jid: args.to, body: args.body });
       return { id: result.id ?? null };
     }

@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Receives Slack app_mention/im events and round-trips replies through the gateway's /chat.
+  summary: Receives Slack app_mention/im events, round-trips replies through the gateway's /chat, and delivers proactive notifications and card-outcome messages back into the originating Slack thread.
   config_schema:
     - key: slack_port
       type: integer
@@ -31,6 +31,12 @@ x-garrison:
       type: integer
       default: 600000
       description: Max time to wait for the gateway's /chat reply before posting a fallback message.
+    - key: notify_channel
+      type: string
+      description: >-
+        Where proactive notifications (reminders, board notices) are posted: a channel id
+        (C...), a DM id (D...), or the operator's user id (U..., delivered as a DM). Unset
+        means POST /notify reports "no notify_channel configured" rather than delivering.
   connector:
     auth: api_key
     actions:
@@ -39,7 +45,11 @@ x-garrison:
           - channel
           - text
         mutates: true
-        description: Post a message to a channel.
+        description: >-
+          Post a message to a channel. An agent-triggered call does NOT post now - it
+          parks the message for a 60-second cancel window and returns {queued:true, id,
+          executeAt}; it posts only when the window elapses uncancelled. Cancel with
+          POST /outbox/<id>/cancel on the adapter while the window is open.
       - name: list_channels
         args:
           - limit
@@ -51,6 +61,10 @@ x-garrison:
         description: Inbound app_mention events routed through the Gateway.
   secret_scope:
     - SLACK_BOT_TOKEN
+    # The adapter refuses to start without it (inbound signature verification),
+    # so it belongs in the scope the Vault materialises and the Connectors view
+    # reports readiness from.
+    - SLACK_SIGNING_SECRET
   provides:
     - kind: channel
       name: slack
@@ -64,6 +78,6 @@ x-garrison:
     idempotent: true
     timeout_ms: 15000
   verify:
-    command: test -f apm_modules/_local/slack-channel/scripts/slack-adapter.js && echo ok
+    command: test -f apm_modules/_local/slack-channel/scripts/slack-adapter.js && test -f apm_modules/_local/slack-channel/lib/outbound.js && test -f apm_modules/_local/slack-channel/lib/outbox.js && echo ok
     expect: ok
     timeout_ms: 10000

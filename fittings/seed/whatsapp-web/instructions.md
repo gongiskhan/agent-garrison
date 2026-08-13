@@ -108,6 +108,15 @@ this setup.
   call `send_text` from that path is refused outright, unconditionally, before
   any network call happens. Only a direct call in a live conversation with you
   can send.
+- **A send the agent triggers is parked, not sent.** It goes into the daemon's
+  outbox with a 60-second cancel window and only reaches WhatsApp when that
+  window elapses uncancelled, so an irreversible action stays takeable-back for
+  a minute. The call answers `{queued: true, sent: false, id, executeAt}`.
+  `GET /outbox` lists what is parked; `POST /outbox/<id>/cancel` takes one
+  back (idempotent, and honest about "already sent" once the window has
+  passed). A restart inside the window re-arms what is still parked; anything a
+  crash caught mid-send is failed rather than sent twice. A send you make
+  yourself from a UI bypasses the buffer (`GARRISON_SEND_CONTEXT=human`).
 
 ## Troubleshooting
 

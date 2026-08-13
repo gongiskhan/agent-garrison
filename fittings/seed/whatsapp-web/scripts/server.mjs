@@ -27,6 +27,7 @@ import path from "node:path";
 import url from "node:url";
 import { ContactIndex } from "../lib/contacts.mjs";
 import { assertValidJid, isValidJid } from "../lib/jid.mjs";
+import { Outbox } from "../lib/outbox.mjs";
 import { SendQueue } from "../lib/pacing.mjs";
 import { MessageStore } from "../lib/store.mjs";
 
@@ -39,6 +40,10 @@ function garrisonDir() {
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "whatsapp-web.json");
 const FITTING_ID = "whatsapp-web";
+// Parked outbound sends waiting out their cancel window. Beside the status
+// file, not inside session_dir: it is Garrison state, not WhatsApp state, and
+// it must survive a re-pair.
+const OUTBOX_FILE = path.join(garrisonDir(), FITTING_ID, "outbox.json");
 
 // Composition config arrives NAMESPACED: GARRISON_<ID>_<KEY> (see
 // ownPortConfigEnv in src/lib/own-port-lifecycle.ts). whatsapp-web + `port` ->
@@ -827,7 +832,40 @@ export function buildConnectionManager({
 // what tests exercise directly (with a fake connectionManager), and what
 // startServer() wires the real one into.
 // ---------------------------------------------------------------------------
-export function createApp({ connectionManager, store, contactIndex, messageBus = NULL_BUS, port, host, log = () => {} }) {
+/**
+ * What a parked send actually does when its window elapses. Separate from
+ * startServer so the invariant below is testable without a socket.
+ */
+export function createOutboxSender(connectionManager) {
+  return async (entry) => {
+    // Re-applied from the RECORDED context, never from this process's env: the
+    // daemon does not carry GARRISON_AUTOMATION_ENGINE, so reading env here
+    // would silently clear the refusal the connector applied at enqueue.
+    if (entry.context === "automation") {
+      throw new Error("refused at send time: queued by the Automations engine, which may never send a WhatsApp message");
+    }
+    // sendText, not the raw socket: the connection check, the jid assertion and
+    // the human-pacing SendQueue all belong to the moment of the real send, not
+    // to the moment it was parked.
+    return connectionManager.sendText(entry.payload.jid, entry.payload.body);
+  };
+}
+
+export function createApp({ connectionManager, store, contactIndex, messageBus = NULL_BUS, outbox = null, port, host, log = () => {} }) {
+  // What a queued entry looks like from outside: enough to decide whether to
+  // cancel it, never the whole record (the payload is a private message).
+  const publicEntry = (entry) => ({
+    id: entry.id,
+    action: entry.action,
+    to: entry.payload?.jid ?? null,
+    preview: String(entry.payload?.body ?? "").slice(0, 300),
+    summary: entry.summary,
+    context: entry.context,
+    status: entry.status,
+    queuedAt: entry.queuedAt,
+    executeAt: entry.executeAt
+  });
+
   return async function handleRequest(req, res) {
     try {
       if (!isLoopbackAddr(req.socket?.remoteAddress)) {
@@ -939,6 +977,64 @@ export function createApp({ connectionManager, store, contactIndex, messageBus =
         return jsonRes(res, 200, { ok: true, ...result });
       }
 
+      // ── the delay buffer ───────────────────────────────────────────────
+      // /send is the immediate path (a human in a UI). Everything an agent
+      // triggers arrives here instead: parked for a cancel window, drained by
+      // this daemon's timer. See ../lib/outbox.mjs.
+      if (parsed.pathname === "/outbox" || parsed.pathname?.startsWith("/outbox/")) {
+        if (!outbox) return jsonRes(res, 503, { ok: false, error: "outbox not configured" });
+
+        if (req.method === "GET" && parsed.pathname === "/outbox") {
+          return jsonRes(res, 200, { ok: true, pending: outbox.pending().map(publicEntry) });
+        }
+
+        if (req.method === "POST" && parsed.pathname === "/outbox") {
+          const body = await readJsonBody(req);
+          if (body.action !== "send_text") {
+            return jsonRes(res, 400, { ok: false, error: `outbox does not carry action ${JSON.stringify(String(body.action ?? ""))}` });
+          }
+          assertValidJid(body.payload?.jid);
+          if (!String(body.payload?.body ?? "").trim()) {
+            return jsonRes(res, 400, { ok: false, error: "payload.body is required" });
+          }
+          // Fail fast on a connection this send could never use: an agent
+          // deserves the honest "not paired" now, not a 60s wait for one.
+          if (!connectionManager.status().connected) {
+            return jsonRes(res, 409, {
+              ok: false,
+              error: "whatsapp-web is not connected yet — pair the account first (see instructions.md)",
+              awaiting_connector: true
+            });
+          }
+          const entry = outbox.enqueue({
+            action: "send_text",
+            payload: { jid: body.payload.jid, body: body.payload.body },
+            summary: typeof body.summary === "string" ? body.summary : `WhatsApp to ${body.payload.jid}`,
+            context: body.context === "human" || body.context === "automation" ? body.context : "agent"
+          });
+          log(`outbox: parked ${entry.id} (${entry.action} to ${maskJid(entry.payload.jid)}) until ${entry.executeAt}`);
+          return jsonRes(res, 200, {
+            ok: true,
+            ...publicEntry(entry),
+            delaySeconds: Math.round(outbox.delayMs / 1000),
+            cancelHint: `curl -sX POST http://127.0.0.1:${port}/outbox/${entry.id}/cancel`
+          });
+        }
+
+        const cancelMatch = req.method === "POST" ? /^\/outbox\/([^/]+)\/cancel$/.exec(parsed.pathname) : null;
+        if (cancelMatch) {
+          const outcome = outbox.cancel(decodeURIComponent(cancelMatch[1]));
+          // Idempotent, and honest after the fact: a window that already
+          // elapsed answers "sent", never a cancellation that did not happen.
+          return jsonRes(res, outcome.ok ? 200 : outcome.status === "unknown" ? 404 : 409, {
+            ...outcome,
+            entry: outcome.entry ? publicEntry(outcome.entry) : null
+          });
+        }
+
+        return jsonRes(res, 404, { ok: false, error: "not found" });
+      }
+
       return jsonRes(res, 404, { ok: false, error: "not found" });
     } catch (err) {
       log(`request error: ${err.message}`);
@@ -996,8 +1092,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     log
   });
 
+  // The delay buffer. Every agent-triggered send is parked here first; this
+  // daemon is the only process long-lived enough to hold the window.
+  const outbox = new Outbox({ file: OUTBOX_FILE, log, send: createOutboxSender(connectionManager) });
+
   const server = http.createServer(
-    createApp({ connectionManager, store, contactIndex, messageBus, port, host: opts.host, log })
+    createApp({ connectionManager, store, contactIndex, messageBus, outbox, port, host: opts.host, log })
   );
 
   await new Promise((resolve, reject) => {
@@ -1025,6 +1125,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   // Auto-reconnect only; never pairs on its own (see buildConnectionManager.init).
   await connectionManager.init().catch((err) => log(`init failed: ${err.message}`));
+
+  // A restart inside someone's cancel window must not swallow their message:
+  // re-arm what is still parked (overdue entries fire now). Anything caught
+  // mid-send by the crash is failed, never retried — see Outbox.rearm.
+  const rearmed = outbox.rearm();
+  if (rearmed.length) log(`outbox: re-armed ${rearmed.length} parked send(s)`);
 
   const shutdown = async (signal) => {
     log(`received ${signal}, shutting down`);
