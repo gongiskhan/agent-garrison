@@ -172,15 +172,17 @@ describe("capture-service server", () => {
       expect(res.status).toBe(expected);
     }
 
-    // /ack is NOT a sink yet: 404 so fanOutAck treats this fitting as "not
-    // for you" until M5b. /notify (M5) IS a sink — with every flag off it
-    // answers honest skip receipts, never a silent 404.
+    // Both sinks are live (M5/M5b): with every flag off they answer honest
+    // receipts, never a silent 404 — and never pretend a delivery happened.
     const ackRes = await fetch(`${base}/ack`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: "ack-x", text: "Created a task, test." })
     });
-    expect(ackRes.status).toBe(404);
+    expect(ackRes.status).toBe(200);
+    const ackBody = await ackRes.json();
+    expect(ackBody).toMatchObject({ ok: true, registered: true, delivered: "push" });
+    expect(ackBody.receipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "notify disabled" });
     const notifyRes = await fetch(`${base}/notify`, {
       method: "POST",
       headers: { "content-type": "application/json" },

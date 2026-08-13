@@ -28,6 +28,7 @@ import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, isLoopbackUrl } from "../lib/notify.mjs";
+import { AckSink } from "../lib/ack-sink.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
@@ -435,8 +436,25 @@ export function makeRequestHandler(ctx) {
         return json(res, 501, { error: "not implemented yet" });
       }
 
-      // /ack stays 404 until M5b lands the speech sink — the kanban ack
-      // fan-out treats 404 as "this fitting is not an ack sink".
+      // ---- The spoken-ack sink (kanban fanOutAck contract). Implementing
+      // this route makes the fitting an ack sink the moment it runs; /ack and
+      // /notify stay deliberately separate ("a sink that speaks must never
+      // accidentally speak a full notification"). Echo registration happens
+      // FIRST, inside the sink (§2.5).
+      if (req.method === "POST" && p === "/ack") {
+        const body = await readBody(req);
+        if (body === null) return json(res, 413, { error: "body too large" });
+        let ack;
+        try {
+          ack = JSON.parse(body);
+        } catch {
+          return json(res, 400, { error: "invalid JSON" });
+        }
+        if (ack?.skipped) return json(res, 200, { ok: true, ignored: "skipped ack" });
+        const result = await ctx.ackSink.handleAck(ack);
+        return json(res, result.status, result.body);
+      }
+
       return json(res, 404, { error: "not found" });
     } catch (err) {
       console.error(`[capture-service] handler error: ${err?.stack || err}`);
@@ -491,11 +509,14 @@ export async function startServer(cfg = loadConfig()) {
   const transcriber = new TranscriptionLane({
     cfg: live,
     counters,
+    // Echo suppression at the single ingestion point: a suppressed segment
+    // (the app's own spoken ack returning through the mic) never reaches the
+    // stored transcript, the live view, or the wake gate (§2.5 defence 3).
+    suppressFilter: (sessionId, segment) => echoGuard.shouldSuppress(segment.text),
     // Final segments only: interims are unstable text, and the settled-close
     // logic keys on the punctuation smart_format puts on finals.
     onSegment: (sessionId, segment) => {
       if (!segment.final) return;
-      if (echoGuard.shouldSuppress(segment.text)) return;
       if (live.wakeEnabled) wakeBus.handleSegments({ sessionId, segments: [segment] });
     }
   });
@@ -508,8 +529,10 @@ export async function startServer(cfg = loadConfig()) {
     // capture_event for the shared triage tick (dedupe by session id).
     onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
   });
+  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier });
+  ingress.onSpokenReceipt = (msg) => ackSink.handleSpokenReceipt(msg);
   const server = createServer(
-    makeRequestHandler({ cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier })
+    makeRequestHandler({ cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier, ackSink })
   );
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
 

@@ -192,8 +192,12 @@ export class CaptureIngress {
           return;
         }
         if (msg?.type === "spoken") {
-          // M5b seam: speech receipts land here once the sink exists.
-          this.counters.bump("spoken_receipts_ignored");
+          // {spoken: <ack id>, ok, reason?} — the app's speech receipt. A
+          // sink that silently drops is indistinguishable from one that is
+          // off, so the server keeps the receipt ledger (set by the server
+          // after construction; counted if nothing is listening).
+          if (this.onSpokenReceipt) this.onSpokenReceipt(msg);
+          else this.counters.bump("spoken_receipts_ignored");
           return;
         }
         send({ type: "error", error: "unknown message type" });

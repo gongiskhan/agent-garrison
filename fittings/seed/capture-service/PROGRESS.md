@@ -257,3 +257,37 @@ live toggle.
 
 Next: M5b — the speech sink (POST /ack, echo registration before speak,
 socket forwarding, queue ceiling, staleness, receipts).
+
+## M5b — Speech sink (2026-08-13)
+
+Shipped:
+- `lib/ack-sink.mjs` — the `fanOutAck` consumer. Order is load-bearing
+  (§2.5): the echo fingerprint registers BEFORE any speak instruction
+  leaves. A live AUDIO-mode session with a connected socket gets
+  `{type:"speak", ack}` (screen_audio never speaks in-session — the
+  broadcast extension's mic has no AEC coupling to the app's speaker); the
+  app answers `{spoken, ok, reason}` and the server ledgers confirmations,
+  failures and 30s receipt timeouts with a `speak_confirm_ms` observation —
+  a silently-dropping sink is distinguishable from an off one. Otherwise
+  the ack falls through to APNs, SHARING the notification's idempotency
+  ledger so one event buzzes once. `POST /ack` implements the contract
+  (skipped acks ignored, textless 400); /ack and /notify stay separate
+  routes by design. The server ack log keeps ids and outcomes, never text.
+- Echo suppression moved to the ONE ingestion point: the transcription
+  lane's `suppressFilter` drops a returning ack segment before the stored
+  transcript, the live view AND the wake feed — the M5b acceptance asserts
+  on the transcript itself. The queue ceiling (3) and staleness window are
+  the app's own behaviours and land with the Swift sink at M6.
+
+Tests (25 across the M5b-affected suites, green on dev-madrid; typecheck
+clean): speak into a live session with receipt ledgering; sink toggled off
+mid-flight silences within ONE ack, no restart; screen_audio and closed-app
+paths ride APNs; app-side failure receipts; skipped/textless acks; the
+shared idempotency ledger; and the stored-transcript proof — the app's own
+fragmented ack comes back through the (mock) mic, is suppressed from the
+persisted transcript while the operator's genuine sentence survives, and
+the wake gate never fires.
+
+Next: M6 — the iOS app (broadcast extension port, §4 uploader with App
+Group buffering, AVAudioEngine audio mode, consent, settings, speech sink,
+APNs registration, ack log, simulator tests).

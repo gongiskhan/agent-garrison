@@ -114,6 +114,14 @@ class SessionTranscription {
       if (msg.type !== "Results") return;
       const segment = segmentFromResults(msg);
       if (!segment) return;
+      // Echo suppression sits HERE, at the single ingestion point: a
+      // suppressed segment (the app's own spoken ack coming back through the
+      // mic) never reaches the stored transcript, the live view, or the wake
+      // gate — asserting on the transcript is the M5b acceptance. The guard
+      // is biased toward letting speech through (3-token floor, 0.8
+      // containment); a missed suppression costs one deletable card, while
+      // over-suppression eats the operator's real words.
+      if (this.lane.suppressFilter?.(this.sessionId, segment)) return;
       if (segment.final) {
         this.segments.push(segment);
         counters.bump("transcribe_segments_final");
@@ -199,12 +207,15 @@ class SessionTranscription {
 }
 
 export class TranscriptionLane {
-  constructor({ cfg, counters, log = console, wsFactory = null, onSegment = null }) {
+  constructor({ cfg, counters, log = console, wsFactory = null, onSegment = null, suppressFilter = null }) {
     this.cfg = cfg;
     this.counters = counters;
     this.log = log;
     this.wsFactory = wsFactory ?? cfg.wsFactory ?? ((url, opts) => new WebSocket(url, opts));
     this.onSegment = onSegment;
+    // (sessionId, segment) => boolean; true drops the segment before storage,
+    // the live view and the wake feed (echo suppression, §2.5 defence 3).
+    this.suppressFilter = suppressFilter;
     this.sessions = new Map();
   }
 
