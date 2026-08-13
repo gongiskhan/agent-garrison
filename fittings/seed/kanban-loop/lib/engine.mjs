@@ -45,7 +45,7 @@ import {
 import { commitFence, attributeBreakage } from "./fences.mjs";
 import { sendCoordMail } from "./coord-mail.mjs";
 import { PERSONAL_SCOPE_TOKEN, isPersonalCard } from "./personal-workspace.mjs";
-import { projectNameForRouting } from "./gateway-client.mjs";
+import { projectNameForRouting, KANBAN_INFER_TIMEOUT_MS } from "./gateway-client.mjs";
 import { writeLiveSessionPointer, clearLiveSessionPointer } from "./live-session.mjs";
 
 // Gate phases whose fail edge (verdict === "implement") triggers breakage
@@ -59,6 +59,7 @@ import {
   phaseForList,
   skillForPhase,
   classificationForPhase,
+  levelForPhase,
   railForCard,
   phaseOnForCard,
   gateEvidenceNextList,
@@ -87,7 +88,7 @@ import {
   resolveExecutionStep
 } from "./resolved-model.mjs";
 import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mjs";
-import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, deliverScheduleReminder } from "./notify-origin.mjs";
+import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, routeAutonomyActed, deliverScheduleReminder } from "./notify-origin.mjs";
 import {
   normaliseCardSchedule,
   nextCronOccurrence,
@@ -99,24 +100,55 @@ import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPh
 
 // Exact v4 identity carried over the gateway wire. A legacy card (or v1 model)
 // returns an empty object and keeps the historical policy classification path.
-function executionContextForCard(card, phase, model) {
+//
+// TWO ways a card gets a sequence, and the identity differs between them:
+//
+//   • THE DUTY LADDER. The card's duty is a COMPOSITE whose expansion at its
+//     level IS the sequence (`steps[develop][2]` = one leaf step per phase). The
+//     identity on the wire is the composite + the phase, and the gateway picks
+//     the leaf step out of that expansion. Unchanged.
+//   • THE FLOW LIBRARY. The card's sequence is the flow's duty list, so each
+//     phase is a DUTY IN ITS OWN RIGHT, running at the level the flow resolved
+//     FOR IT (`card.dutyLevels[phase]`, which a pin or an escalation may put
+//     above the card's own level). The card's duty expansion has no entry for a
+//     phase that is not itself - a leaf duty expands to one self-step - so
+//     resolving through it returns null and the gateway then throws
+//     `v4 duty route unresolved` on a card that is perfectly well specified.
+//
+// So the identity is the DUTY CELL THAT IS ACTUALLY EXECUTING: for the flow case
+// that is (phase, its own level). This is the only shape that fits down the wire
+// - gateway-client.mjs forwards exactly {duty, level, phase, stepIndex, sequence}
+// and a per-phase level has nowhere else to ride - and it is the honest one: the
+// gateway's ruleId, its compatibility tier and its decision record all describe
+// the cell that ran, which is precisely what a per-duty level changes.
+//
+// Order matters. An explicit per-duty level is authoritative (it is the resolved
+// answer, pins and escalations included) and is tried FIRST; otherwise the card's
+// own duty expansion is tried exactly as before, so a card with no dutyLevels
+// produces a byte-identical wire identity to the one it produced before this
+// existed. `stepIndex` indexes the card's sequence, which only aligns with the
+// composite expansion, so the self-step path sends none.
+export function executionContextForCard(card, phase, model) {
   if (!card || typeof card.duty !== "string" || !Number.isInteger(card.level) || typeof phase !== "string") return {};
   const sequence = Array.isArray(card.sequence) ? card.sequence : [];
-  const stepIndex = sequence.indexOf(phase);
-  const step = resolveExecutionStep({
-    duty: card.duty,
-    level: card.level,
-    phase,
-    stepIndex: stepIndex >= 0 ? stepIndex : null
-  }, model);
-  return {
-    duty: card.duty,
-    level: card.level,
-    phase,
-    stepIndex: stepIndex >= 0 ? stepIndex : null,
-    sequence,
-    step
+  const seqIndex = sequence.indexOf(phase);
+  const stepIndex = seqIndex >= 0 ? seqIndex : null;
+  const selfLevel = levelForPhase(card, phase);
+  const perDutyLevel =
+    card.dutyLevels && typeof card.dutyLevels === "object" && Number.isInteger(card.dutyLevels[phase])
+      ? card.dutyLevels[phase]
+      : null;
+  const selfStep = () => {
+    const step = resolveExecutionStep({ duty: phase, level: selfLevel ?? card.level, phase }, model);
+    return step ? { duty: phase, level: selfLevel ?? card.level, phase, stepIndex: null, sequence, step } : null;
   };
+  if (perDutyLevel != null) {
+    const resolved = selfStep();
+    if (resolved) return resolved;
+  }
+  const step = resolveExecutionStep({ duty: card.duty, level: card.level, phase, stepIndex }, model);
+  if (step) return { duty: card.duty, level: card.level, phase, stepIndex, sequence, step };
+  return selfStep() ?? { duty: card.duty, level: card.level, phase, stepIndex, sequence, step: null };
 }
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
@@ -815,23 +847,55 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   // S3d (D9b): the DISCUSS duty session (a clarity-gated card runs this before plan).
   // Talk the scope through in the origin thread, settle, write the brief, then advance.
   // Human Discuss never auto-dispatches, so this only reaches a gated card.
+  //
+  // The doctrine below is the SAME one the human path's kickoff carries
+  // (kanban-loop/scripts/discuss.mjs buildDiscussKickoff) - the two texts drifted
+  // once and the gated path ended up a requirements extractor that could not push
+  // back on an ask that should not exist. Whatever changes there changes here.
+  // The operative's name is never written into this block; it comes from the
+  // Identity section.
   if (phase === "discuss") {
     const briefTarget = briefPath || (card.id ? `cards/${card.id}/brief.md` : "brief.md");
+    const gatedLevel = Number.isInteger(card.level) ? card.level : 1;
     parts.push(
       "## Discuss this run's scope before it is planned",
       "",
       "This ask was judged underspecified, so it enters Discuss first - talk the scope through with the " +
         "person who asked. Do NOT start building or planning yet.",
       "",
-      "1. Ask AT MOST 1-3 focused questions PER ROUND using the AskUserQuestion tool - only what genuinely " +
+      "How to talk here: plain prose in full sentences, the way you would say it out loud - your questions " +
+        "land in the origin thread and are often read (or heard) on a phone. No bullet lists, headings or " +
+        "tables in the conversational part, never an em dash, short and direct rather than an essay, and no " +
+        "narrating what you are about to do. Answer in the language the person writes in, and switch when " +
+        "they switch. Never open by calling the question good or the idea interesting, and do not lean on " +
+        "\"genuinely\", \"honestly\" or \"straightforward\" to make a claim sound truer than it is.",
+      "",
+      "You are thinking WITH them, not extracting requirements. Argue the other side before you agree: what " +
+        "would have to be true for this to be a mistake, what it costs, the simpler and the more ambitious " +
+        "version - then commit to a position and say which way it would go. Hold a CTO and a CPO in your " +
+        "head at once, and name the disagreement between them instead of quietly splitting the difference. " +
+        "If the work is not worth doing, say so plainly - that is a legitimate outcome of Discuss.",
+      "",
+      "Look it up before you assert it: anything that may have changed, any number you are not sure of, " +
+        "anything after your training cutoff gets a web search FIRST. Report what you found, not that you " +
+        "went looking, and if you cannot search in this turn say the claim is unverified instead of stating " +
+        "it as fact." +
+        (gatedLevel >= 2
+          ? " This is a level " + gatedLevel + " discussion, so research is expected rather than optional: " +
+            "look up what the decision actually turns on before you propose the approach."
+          : ""),
+      "",
+      "1. Ask AT MOST 1-3 focused questions PER ROUND using the AskUserQuestion tool - only what really " +
         "blocks planning (the goal, the scope, hard constraints, how we will know it is done). Each question " +
         "is delivered to the origin thread and the reply comes back as the answer. Ask EARLY and keep it " +
         "tight; do NOT sit idle waiting (a discuss session that idles past the turn cap parks the card, and " +
-        "a later reply resumes it as a fresh turn).",
+        "a later reply resumes it as a fresh turn). Never write the brief in the same turn as your first " +
+        "round of questions - ask first, let the answers come back, then write.",
       `2. When you have enough to plan against, WRITE THE BRIEF to exactly this path: \`${briefTarget}\` ` +
         "(that absolute path - not a copy in the project) in the house format: what this is, the decisions " +
         "already made, assumptions flagged, the approach, and the acceptance. The brief is the handoff the " +
-        "build reads; keep it proportional to the work.",
+        "build reads; keep it proportional to the work. It is also the ONE document of this discussion - " +
+        "no side artifacts, and keep talking in prose either way.",
       "3. Then end your reply with `plan` on its own final line to advance.",
       ""
     );
@@ -1143,16 +1207,68 @@ export async function commitRunResult(root, { base, target: rawTarget, runRev, d
 //   • the inference's write lands mid-run, bumping the rev under the acquire.
 // Any settled state ("done" | "none" | "failed" | "skipped" | absent) proceeds
 // immediately, so a busy or missing operative can never block a dispatch.
+//
+// The ceiling has to be honest about what it is waiting FOR. The inference turn is
+// itself budgeted at KANBAN_INFER_TIMEOUT_MS (90s) precisely because it QUEUES behind a
+// busy operative, so the old flat 6s gate guaranteed the failure it existed to prevent:
+// the card advanced un-fenced at 6s under project:null, and the answer that landed at,
+// say, 20s was thrown away ("Project inference result discarded - the first run had
+// already started, so its execution scope is fixed"). While an attempt is genuinely in
+// flight the wait now tracks that budget plus a small grace for the write that records
+// the result. With nothing in flight the SHORT bound stands - waiting 95s for an
+// inference nobody started would stall every dispatch. The tier is re-derived per poll
+// from the freshest card, so an inference that starts mid-wait is waited on too, and
+// fail-open is unchanged: any settled state breaks out at once, a card that can't be
+// read returns what we have, and the bound is always finite.
+export const INFER_SETTLE_GRACE_MS = 5_000;
+const SETTLE_SHORT_BUDGET_MS = 6_000;  // nothing in flight: the pre-existing bound
+const SETTLE_FAST_POLL_MS = 250;       // snappy for the first couple of seconds...
+const SETTLE_SLOW_POLL_MS = 1_000;     // ...then a calmer beat for the long tail
+const SETTLE_FAST_POLLS = 8;
+
+// How long the in-flight attempt has ALREADY been running, read from the event the
+// inference writes when it marks the card "running". A server that dies mid-inference
+// leaves inferState "running" on disk forever (runProjectInference refuses to re-enter
+// a card that is already "running"), and without this every later dispatch of that card
+// would pay the whole budget again. The gate waits out what REMAINS of the attempt's
+// budget, never a fresh copy of it.
+function inferenceAgeMs(card, nowMs) {
+  const events = Array.isArray(card.events) ? card.events : [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i]?.kind !== "inference") continue;
+    const at = Date.parse(events[i].at);
+    return Number.isFinite(at) ? Math.max(0, nowMs - at) : 0;
+  }
+  return 0; // no attempt event to date it by - treat it as just started
+}
+
 export async function settleProjectInference(root, card, baseRev, opts = {}) {
-  const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 250;
-  const checks = Number.isFinite(opts.checks) ? opts.checks : 24; // <= 6s, well under the 90s inference timeout
+  // An explicit interval/checks is a HARD cap (tests, and any caller wanting a tighter
+  // gate than the sizing below) - never a floor under it.
+  const fixedIntervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : null;
+  const maxChecks = Number.isFinite(opts.checks) ? opts.checks : null;
+  const inFlightBudgetMs = Number.isFinite(opts.inFlightBudgetMs)
+    ? opts.inFlightBudgetMs
+    : KANBAN_INFER_TIMEOUT_MS + INFER_SETTLE_GRACE_MS;
   const sleep = typeof opts.sleep === "function"
     ? opts.sleep
     : (ms) => new Promise((r) => setTimeout(r, ms));
+  const nowMs = typeof opts.nowMs === "function" ? opts.nowMs : () => Date.now();
   if (card.project || card.inferState !== "running") return { card, baseRev };
   let current = card;
-  for (let i = 0; i < checks; i++) {
+  // Two ways to measure the SAME elapsed time, and the budget is spent against the
+  // larger: the attempt's own age when the card can date it, our own accumulated sleep
+  // otherwise. Never their sum - that would halve the wait. Accounting on the sleep we
+  // ASKED FOR (not the wall clock) is what lets an injected clock drive this loop.
+  let waitedMs = 0;
+  for (let i = 0; ; i++) {
+    const inFlight = !current.project && current.inferState === "running";
+    const budgetMs = inFlight ? inFlightBudgetMs : SETTLE_SHORT_BUDGET_MS;
+    const elapsedMs = inFlight ? Math.max(waitedMs, inferenceAgeMs(current, nowMs())) : waitedMs;
+    const intervalMs = fixedIntervalMs ?? (i < SETTLE_FAST_POLLS ? SETTLE_FAST_POLL_MS : SETTLE_SLOW_POLL_MS);
+    if (maxChecks !== null ? i >= maxChecks : elapsedMs >= budgetMs) break;
     await sleep(intervalMs);
+    waitedMs += Math.max(1, intervalMs); // a 0ms interval must still exhaust the budget
     let fresh;
     try {
       fresh = await loadCard(root, card.id);
@@ -1192,6 +1308,20 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // the single dispatch seam covers every caller.
   if (gatedDiscuss && card.discussHeld === true) {
     return { card, outcome: { status: "skipped", reason: "discuss-held" } };
+  }
+  // §7.1: a card the ROUTER held below its lower autonomy threshold waits for a
+  // go - a Move on the board, or an affirmative reply on any channel. Both
+  // release it by clearing the flag inside the move's own CAS (server.mjs), so
+  // this guard is simply "the flag is still set". It sits at the single dispatch
+  // seam for the same reason the discuss-held guard does: every caller - tick,
+  // processChain, a PATCH auto-dispatch, a manual Start - comes through here, and
+  // a hold that only some of them respect is not a hold.
+  //
+  // NOT exempted by manualStart: a human pressing Start on a held card has not
+  // answered the question, they have pressed a button next to it. The answer is
+  // the move, and the move clears the flag.
+  if (card.autonomyHeld === true) {
+    return { card, outcome: { status: "skipped", reason: "autonomy-held" } };
   }
   // Coordination waiting guard (GARRISON-FLOW-V2 Q4): a card deferred behind an
   // overlapping run SITS on its list with a waitingOn descriptor — it must not be
@@ -1381,8 +1511,9 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // (permanent — the literal path is baked into the prompt and the gate-record
   // instructions, so it can never be re-homed afterwards), and the inference's write
   // then lands mid-run and bumps the rev out from under the acquire. Wait for the
-  // inference to SETTLE first — it is bounded and short — then re-read the card so
-  // the acquire CAS uses the post-inference rev.
+  // inference to SETTLE first - bounded by the inference's OWN budget while an attempt
+  // is in flight, immediate when there is nothing to wait for - then re-read the card
+  // so the acquire CAS uses the post-inference rev.
   ({ card, baseRev } = await settleProjectInference(root, card, baseRev, settle));
   if (coordActive && phase === "implement" && card.runDir) {
     const ts = readTouchSet(card.runDir);
@@ -1418,11 +1549,21 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // (placement, cap, lease, outpost, steering) and every losing CAS preserves the
   // exact waitingOn/schedule state the human started from.
   const acquireBase = manualStart ? consumeStartOverrides(card, dispatchAt) : card;
+  // §7.1: does this dispatch owe the origin an acting notice? Only when the
+  // router recorded an ACTING band on the card (a held card never reaches here,
+  // and a card the router never routed carries nothing) and only the first time.
+  // The stamp rides INTO the acquire write below rather than a follow-up save, so
+  // "announced" and "running" become true in the same CAS and a lost race cannot
+  // leave one without the other.
+  const autonomyBand = acquireBase.autonomy?.band ?? null;
+  const announceAutonomy =
+    (autonomyBand === "act-revert" || autonomyBand === "act-inform") && !acquireBase.autonomyNoticedAt;
   const acq = await saveCardCASWithHooks(
     root,
     {
       ...acquireBase,
       ...(minted || {}),
+      ...(announceAutonomy ? { autonomyNoticedAt: dispatchAt } : {}),
       status: "running",
       iterations: iteration,
       logIndex,
@@ -1504,6 +1645,25 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (!acq.ok) return { card: acq.card, outcome: { status: "skipped", reason: "conflict" } };
   let runningCard = acq.card;
   const runRev = runningCard.rev;
+  // §7.1: the ACTING notice, at the card's first real dispatch. The band was
+  // decided at routing time and travels on the card; this is where the work
+  // actually starts, so this is where the middle band offers its revert and the
+  // top band mentions what it is doing.
+  //
+  // POST-CAS and once. The acquire above is the write that makes the run real, so
+  // announcing before it would announce a run a losing CAS never started; and
+  // `autonomyNoticedAt` rode INTO that same write, so a re-dispatch of the same
+  // card (retry, next phase, a second tick) finds it already stamped and says
+  // nothing. One decision, one notice.
+  if (announceAutonomy) {
+    routeAutonomyActed(root, runningCard, {
+      band: runningCard.autonomy.band,
+      flow: runningCard.autonomy.flow ?? runningCard.flow ?? null,
+      duty: runningCard.autonomy.duty ?? phase ?? null,
+      level: Number.isInteger(runningCard.autonomy.level) ? runningCard.autonomy.level : runningCard.level ?? null,
+      question: runningCard.autonomy.question ?? null
+    });
+  }
   // Current-attempt durable-gate contract: snapshot this phase's records after
   // the CAS acquire but before the runtime turn. A retry keeps its runDir and
   // historical gates for audit/context, but only a file created or rewritten

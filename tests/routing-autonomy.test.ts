@@ -6,7 +6,9 @@
 // must never suppress a question the router is not allowed to skip.
 
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — plain .mjs fitting module, no types
+// Typed by tests/autonomy-seed-mjs.d.ts (a wildcard declaration covering the
+// module's whole export surface - an expect-error here would itself error as
+// unused now that the declaration exists).
 import * as A from "../fittings/seed/orchestrator/lib/routing-autonomy.mjs";
 
 const fold = (kinds: string[], start = A.emptyTrack(), at: string | null = null) =>
@@ -206,9 +208,11 @@ describe("cold start seeding", () => {
   });
 });
 
-function recurringOrLowConfidence(actual: string) {
+function recurringOrLowConfidence(actual: string | null) {
   // The shape may sit in either band depending on how the overrides moved it;
   // both are legitimate reasons to ask, and asserting the exact one would pin
   // arithmetic rather than behaviour.
-  return ["recurring-override", "low-confidence", "near-boundary"].includes(actual) ? actual : "recurring-override";
+  return actual !== null && ["recurring-override", "low-confidence", "near-boundary"].includes(actual)
+    ? actual
+    : "recurring-override";
 }

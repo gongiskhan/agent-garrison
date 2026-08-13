@@ -51,6 +51,7 @@ import {
   anthropicAccountEnv,
   listVaultAccounts,
   resolveVaultAccount,
+  autonomyHoldPlan,
   TURN_EFFORTS
 } from "./lib/gateway-routing.mjs";
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
@@ -831,7 +832,14 @@ export function routingVocabulary(config = router?.config ?? null) {
       config?.flows && typeof config.flows === "object" && !Array.isArray(config.flows)
         ? Object.keys(config.flows)
         : [],
-    phases: Array.isArray(config?.phases) ? config.phases.filter((p) => typeof p === "string") : []
+    phases: Array.isArray(config?.phases) ? config.phases.filter((p) => typeof p === "string") : [],
+    // Retired flow name -> the flow that absorbed it. Part of the VOCABULARY, not
+    // reached for inside the validator, for the same reason the lists above are:
+    // a hidden module-global would make a test pass while production behaved
+    // differently. The router publishes it once its level chain is loaded (see
+    // RoutedGateway.flowAliases); empty means "no aliasing", which is how this
+    // validator behaved before the flow library was rewritten.
+    flowAliases: router?.flowAliases && typeof router.flowAliases === "object" ? router.flowAliases : {}
   };
 }
 
@@ -893,7 +901,15 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     if (tier !== null && inVocab(vocabulary.tiers, tier, "tier")) out.tier = tier;
   }
   if (raw.flow !== undefined && raw.flow !== null) {
-    const kind = pinnedString(raw.flow, "flow", rejected);
+    const pinned = pinnedString(raw.flow, "flow", rejected);
+    // ALIAS FIRST, THEN VALIDATE. A pin can arrive from a surface that saved it
+    // months ago, and the 2026-08-09 library rewrite retired six flow names.
+    // Validating first would refuse a pin that names a flow which still exists
+    // under another name - a rejection badge for a choice that is perfectly
+    // honourable. The alias is a fallback: a config that still defines the old
+    // name means it, so a live name never gets re-pointed.
+    const aliases = vocabulary.flowAliases && typeof vocabulary.flowAliases === "object" ? vocabulary.flowAliases : {};
+    const kind = pinned !== null && !vocabulary.flows.includes(pinned) ? aliases[pinned] ?? pinned : pinned;
     if (kind !== null && inVocab(vocabulary.flows, kind, "flow")) out.flow = kind;
   }
   if (raw.phasesOff !== undefined && raw.phasesOff !== null) {
@@ -955,8 +971,10 @@ export function turnAttribution(pre, hints, extra = {}) {
     // RUN-SPEC-V1 run plan. `flow`/`phasesOff` are reported from the RESOLVED
     // hints (the pin when the user set one, the gateway's inference otherwise) so
     // the badge shows an auto-chosen plan instead of leaving it invisible - which is
-    // the whole point of "if it was auto, say what it chose".
-    flow: hints?.flow ?? null,
+    // the whole point of "if it was auto, say what it chose". `pre.flow` is the
+    // third source and the newest: the flow the ROUTE resolved its sequence from
+    // when nobody pinned one, which is the flow the turn is actually running.
+    flow: hints?.flow ?? pre?.flow ?? null,
     phasesOff: phaseTogglesToCsv(hints?.phases),
     // Undefined (not false) when the router did not say: an older lane that never
     // reports it must not be badged "a classifier ran" on no evidence.
@@ -1110,6 +1128,34 @@ function oneShotAccountEnv(account) {
   return { ...process.env, ...anthropicAccountEnv(resolved.name, resolved.token) };
 }
 
+// ── levelled-flow preview, mirrored ─────────────────────────────────────────
+// The menu is built SYNCHRONOUSLY (GET /route/options is deliberately not behind
+// the readiness await), and `levelPlanFor` lives in policy-core, which the
+// gateway can only reach through an async dynamic import (routing-core does not
+// re-export it). So the two reads a preview needs are mirrored here, and
+// tests/level-chain.test.ts pins them to policy-core's originals.
+const FLOW_LEVEL_KEYS = ["1", "2", "3"];
+
+/** The level a flow runs at: what was asked, else its default, else 1. */
+export function flowLevelKey(flow, requested) {
+  const ok = (n) =>
+    (typeof n === "number" || (typeof n === "string" && String(n).trim() !== "")) &&
+    FLOW_LEVEL_KEYS.includes(String(Math.trunc(Number(n))));
+  if (ok(requested)) return String(Math.trunc(Number(requested)));
+  if (ok(flow?.defaultLevel)) return String(Math.trunc(Number(flow.defaultLevel)));
+  return "1";
+}
+
+/** A flow level rendered as a phase plan ({phases, evidence}), or null when the
+ *  flow carries no levels (the pre-2026-08-09 single-plan shape). */
+export function flowLevelPlan(flow, requested) {
+  if (!flow || !flow.levels || typeof flow.levels !== "object") return null;
+  const lvl = flow.levels[flowLevelKey(flow, requested)];
+  if (!lvl) return null;
+  const duties = Array.isArray(lvl.duties) ? lvl.duties.filter((d) => typeof d === "string" && d) : [];
+  return { phases: duties, evidence: lvl.evidence || "none" };
+}
+
 /**
  * Everything the Turn Rail's menus offer, in ONE read (§11). Sources are the
  * live routing config, the runner-projected v4 execution manifest, the
@@ -1179,7 +1225,11 @@ export function buildRouteOptions() {
   const flows = vocab.flows
     .map((id) => {
       const kind = config.flows[id] ?? {};
-      const plan = phasePlans[kind.phasePlan] ?? null;
+      // A LEVELLED flow (2026-08-09) has no phase plan at all - its ordered duty
+      // list lives per level - so previewing only `phasePlans[kind.phasePlan]`
+      // showed an EMPTY plan for every flow in the current library. Preview the
+      // flow at its own default level, which is what an unpinned run gets.
+      const plan = flowLevelPlan(kind) ?? phasePlans[kind.phasePlan] ?? null;
       return {
         id,
         description: typeof kind.description === "string" ? kind.description : null,
@@ -1187,7 +1237,13 @@ export function buildRouteOptions() {
         // run will walk, so the order is load-bearing, not cosmetic.
         phases: Array.isArray(plan?.phases)
           ? plan.phases.map((p) => (typeof p === "string" ? p : p?.id)).filter((p) => typeof p === "string")
-          : []
+          : [],
+        // Which levels the flow defines, and the one an unpinned run resolves to,
+        // so the menu can offer them instead of implying every flow is flat. Both
+        // empty/null for the pre-levels shape, which genuinely has no levels to
+        // offer - claiming "level 1" there would invent a dial that does nothing.
+        levels: kind.levels && typeof kind.levels === "object" ? Object.keys(kind.levels).sort() : [],
+        defaultLevel: kind.levels && typeof kind.levels === "object" ? Number(flowLevelKey(kind, undefined)) : null
       };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -1397,13 +1453,25 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
         } catch {
           derivedFlow = null; // never block a card on flow derivation
         }
+        // `pre.flow` is the flow the ROUTE actually resolved its sequence from
+        // (resolvedFlowPlan). Prefer it over re-deriving: deriving twice is how a
+        // card and the run that produced it end up on two different plans. An
+        // explicit pin still wins, as it always did.
+        const cardFlow = hints?.flow ?? pre?.flow ?? derivedFlow;
+        // The per-duty levels only travel when they belong to the flow the card
+        // will actually carry - a pin that overrode the routed flow invalidates
+        // them, and a card is better off with none (every phase then runs at the
+        // card's own level, the pre-level-chain reading) than with levels resolved
+        // from a different flow.
+        const cardDutyLevels = pre?.flow && pre.flow === cardFlow ? (pre.dutyLevels ?? null) : null;
         const cardOpts = {
-          flow: hints?.flow ?? derivedFlow,
+          flow: cardFlow,
           phases: inferredPhases,
           project: hints?.project ?? null,
           duty: pre?.duty ?? pre?.route?.duty,
           level: pre?.level ?? pre?.route?.level,
           sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
+          dutyLevels: cardDutyLevels,
           // A composite card starts on its first resolved leaf, not the legacy
           // hardcoded Plan list (a valid workflow may begin at implement/research).
           targetList: (pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence)?.[0] ?? undefined,
@@ -1446,6 +1514,118 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
               logEvent("stderr", { kind: "override-feedback-failed", error: err.message });
             }
           }
+        }
+        // §7.1/§7.5: the autonomy band decides HOW this runs, not whether the
+        // router was right. Below the lower threshold the card is created but
+        // HELD - the work waits for a go rather than starting and apologising -
+        // and that applies identically to a quick (inline) turn, which is the case
+        // that matters most: a board-side hold cannot help a turn that never
+        // reaches the board, so the decision has to happen here, before the turn
+        // opens. Above the threshold nothing changes except that the card carries
+        // the band, so the board can say what it is doing (act-revert) or note it
+        // in passing (act-inform).
+        const autonomy = pre?.autonomy ?? null;
+        const holdPlan = autonomyHoldPlan(autonomy, {
+          significant,
+          sequence: pre?.sequence ?? null,
+          targetList: cardOpts.targetList ?? null
+        });
+        if (holdPlan.hold) {
+          const resumeList = holdPlan.resumeList;
+          const card = await router.createAutonomousCard(message, cls, {
+            ...cardOpts,
+            // A held card sits in the board's capture list, which is manual and
+            // never auto-dispatched. That is the hold: no flag has to win a race
+            // with a tick, because nothing dispatches from Backlog in the first
+            // place. The flag is what the guards, the board UI and the resume path
+            // read.
+            targetList: "backlog",
+            autonomyHeld: true,
+            autonomyAsk: {
+              question: autonomy.question,
+              reason: autonomy.reason ?? null,
+              band: autonomy.band,
+              bands: autonomy.decisions ?? null,
+              flow: pre?.flow ?? cardOpts.flow ?? null,
+              duty: pre?.duty ?? null,
+              level: pre?.level ?? null,
+              tier: cls.tier ?? null,
+              // The routing decision this question is ABOUT, so the answer can be
+              // attributed back to it in the Signals view instead of floating free.
+              decisionId: pre?.decision?.id ?? null,
+              resumeList,
+              at: new Date().toISOString()
+            }
+          });
+          if (card) {
+            // The budget counts questions POSED, and this one is about to be: the
+            // board asks it through the card's origin thread the moment the card
+            // exists (handleCreateCard), and the reply below carries it inline.
+            await router.recordAutonomyAsked();
+            router.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: cls.taskType });
+            const reply = `${autonomy.question}\nCard: ${card.url}`;
+            broadcastRich("assistant", { text: reply });
+            logEvent("stdout", {
+              kind: "autonomy-held",
+              id: card.id,
+              band: autonomy.band,
+              reason: autonomy.reason ?? null,
+              resumeList
+            });
+            return {
+              ...turnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
+              reply,
+              session_id: null,
+              cost_usd: null,
+              route: pre.route?.targetId ?? null,
+              card: card.id,
+              cardUrl: card.url,
+              autonomy: { band: autonomy.band, held: true }
+            };
+          }
+          // Board unavailable. Every other card failure here falls through and
+          // runs inline; this one must NOT - running is exactly what the band
+          // forbids. So ask in the thread and run nothing. The loop still closes:
+          // the answer is an ordinary next message, and a pin ("as a fix at level
+          // 2") exempts the consult, so the user is never stuck with a question
+          // they cannot act on.
+          await router.recordAutonomyAsked();
+          logEvent("stderr", { kind: "autonomy-held-uncarded", band: autonomy.band, reason: autonomy.reason ?? null });
+          const reply = autonomy.question;
+          broadcastRich("assistant", { text: reply });
+          broadcastRich("turn", { active: false });
+          if (onChunk && reply) onChunk(reply, true);
+          return {
+            ...turnAttribution(pre, hints, {}),
+            reply,
+            session_id: null,
+            cost_usd: null,
+            route: pre.route?.targetId ?? null,
+            autonomy: { band: autonomy.band, held: true, carded: false }
+          };
+        }
+        // An acting band travels ON the card so the board can announce the act at
+        // its first real dispatch (post-CAS, never optimistically). An
+        // INFORMATIONAL question - one the band did not require but the record is
+        // near a boundary - rides along on that notice rather than interrupting
+        // separately.
+        //
+        // Its budget is spent HERE, one step before delivery, because the counter
+        // lives beside the composition and the board does not. A card that is
+        // abandoned before its first dispatch therefore over-counts by one, and
+        // that is the right direction to be wrong in: over-counting asks FEWER
+        // questions, and an anti-fatigue budget that errs toward asking more is
+        // not a budget.
+        if (autonomy && (autonomy.band === "act-revert" || autonomy.band === "act-inform")) {
+          cardOpts.autonomy = {
+            band: autonomy.band,
+            shape: autonomy.shape ?? null,
+            flow: pre?.flow ?? cardOpts.flow ?? null,
+            duty: pre?.duty ?? null,
+            level: pre?.level ?? null,
+            ...(autonomy.informational && autonomy.question ? { question: autonomy.question } : {})
+          };
+          if (autonomy.informational && autonomy.question) await router.recordAutonomyAsked();
         }
         if (significant) {
           // S3d (D9b): judge whether the ask is specified enough to plan against. A
@@ -2268,6 +2448,44 @@ async function dispatchDiscussIntercept(body) {
       logEvent("stdout", { kind: "discuss-answer", card: decision.card.id, tool_use_id: decision.toolUseId, status: r?.status ?? null });
       return { reply, card: decision.card.id, action: "answer" };
     }
+    if (decision.action === "autonomy-go") {
+      // §7.1: the go on a card the router HELD below its lower threshold. The
+      // move is the release - the board clears the hold inside the same CAS that
+      // moves the card and records the confirmation as evidence, so the tracks
+      // learn from this word (see handlePatchCard). The resume list is the one
+      // the router proposed when it asked; "plan" only when the card predates the
+      // field or lost it.
+      // The move carries no dispatch header (moveCardEngine's one shape); the
+      // board starts the card because CLEARING a hold is itself the authorisation
+      // to progress - see handlePatchCard, where the release overrides the
+      // engine-context suppression for exactly this reason.
+      const targetList = decision.card.autonomyAsk?.resumeList || "plan";
+      const moved = await moveCardEngine({
+        id: decision.card.id,
+        targetList,
+        logFn: (e) => logEvent("stdout", e)
+      });
+      // The go is EVIDENCE, and only when the release actually landed: recording a
+      // confirmation for work that never started would teach the router that a
+      // failed move was a job well done.
+      if (moved) {
+        const ask = decision.card.autonomyAsk ?? {};
+        await router.recordAutonomyGo({
+          cardId: decision.card.id,
+          flow: ask.flow ?? decision.card.flow ?? null,
+          duty: ask.duty ?? decision.card.duty ?? null,
+          level: Number.isInteger(ask.level) ? ask.level : decision.card.level ?? null,
+          tier: ask.tier ?? decision.card.tier ?? null,
+          decisionId: ask.decisionId ?? null,
+          sessionId: typeof body?.sessionId === "string" ? body.sessionId : null
+        });
+      }
+      const reply = moved
+        ? `Going ahead - ${targetList}.`
+        : `Couldn't start the card just now - try again, or move it on the board.`;
+      logEvent("stdout", { kind: "autonomy-go", card: decision.card.id, targetList, moved });
+      return { reply, card: decision.card.id, action: "autonomy-go" };
+    }
     if (decision.action === "go") {
       const moved = await moveCardEngine({ id: decision.card.id, targetList: "plan", logFn: (e) => logEvent("stdout", e) });
       const reply = moved
@@ -2565,6 +2783,35 @@ const server = http.createServer(async (request, response) => {
         response.end();
       }
       return;
+    }
+
+    // Raise ONE duty on ONE card for THIS card only (level-resolution.mjs step 3).
+    // Body: { cardId, duty, toLevel, reason }. The reason is mandatory - an
+    // escalation with no reason cannot become an improver signal and cannot be
+    // judged in the decisions log, so a reasonless one is refused rather than
+    // logged as noise.
+    //
+    // Deliberately NOT behind `await readyPromise`: escalating a card is a routing
+    // decision about work the BOARD is driving, and it must not queue behind a
+    // spawning operative. Every branch is answered by the router (which logs the
+    // decision either way), so this handler only adapts it to HTTP.
+    if (request.method === "POST" && url.pathname === "/escalate") {
+      if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
+      const body = await readJsonBody(request);
+      const r = await router.escalateCardDuty({
+        cardId: body?.cardId,
+        duty: body?.duty,
+        toLevel: body?.toLevel,
+        reason: body?.reason
+      });
+      logEvent("stdout", {
+        kind: "escalate",
+        card: body?.cardId ?? null,
+        duty: body?.duty ?? null,
+        applied: r.body?.applied ?? false,
+        status: r.status
+      });
+      return sendJson(response, r.status, r.body);
     }
 
     // Answer an AskUserQuestion picker the operative raised (tappable buttons on the

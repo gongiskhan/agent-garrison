@@ -82,7 +82,7 @@ describe("autonomy axis (D8)", () => {
     const p = mod.buildAutonomousCardPayload({
       brief: "build X",
       project: "/home/u/dev/x",
-      flow: "full-feature",
+      flow: "feature",
       phases: { walkthrough: false },
       taskType: "implement",
       tier: "T2-deep"

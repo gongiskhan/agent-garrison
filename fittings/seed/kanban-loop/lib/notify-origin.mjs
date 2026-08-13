@@ -43,7 +43,11 @@ function statusFileUrl(fittingId) {
 // the wearer as an Omi direct notification (falling back to the web-channel
 // thread); a card only carries the omi transport when the omi-channel fitting
 // created it, so with that fitting absent or off this entry is inert.
-const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel" };
+// slack posts into the originating Slack thread via chat.postMessage with the
+// thread_ts encoded in the threadId (`<conversation>:<thread_ts>`); the adapter
+// only serves this route while it is running, and it is started by hand (it needs
+// a public tunnel), so with it down this entry is inert like the omi one.
+const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack: "slack-channel" };
 
 
 // ---- multi-channel fan-out -------------------------------------------------
@@ -230,7 +234,7 @@ export function notifyOriginTransition(prev, next) {
 // only for now). Failure isolation identical to notifyOriginTransition: fire-and-
 // forget, never throws, never blocks a save.
 
-export const ORIGIN_EVENT_KINDS = ["created", "needs-input", "blocked", "failed", "finished", "duty-summary", "steering", "schedule-due"];
+export const ORIGIN_EVENT_KINDS = ["created", "needs-input", "blocked", "failed", "finished", "duty-summary", "steering", "schedule-due", "autonomy-acted"];
 
 function titleCaseWord(s) {
   const w = String(s || "").trim();
@@ -267,6 +271,53 @@ export function needsInputMessage(card, { questions } = {}) {
   });
   if (url) lines.push(`Card: ${url}`);
   return lines.join("\n\n");
+}
+
+// §7.1: the ACTING notice. The middle band acts and offers to revert; the top
+// band acts and only informs. Both are one thread line at the moment the work
+// actually starts - the difference between them is whether the line tells you how
+// to undo it, which is the whole content of the distinction.
+//
+// The revert instruction names the two real ways back: the board move (which
+// re-parks the card) and the abandon endpoint (which prepares the revert of what
+// the run committed). Anything vaguer would be an offer the system does not keep.
+export function autonomyActedMessage(card, { band, flow, level, duty, question } = {}) {
+  const url = boardCardUrl(card.id);
+  const what = [
+    flow ? `${flow}` : duty ? `${duty}` : "this",
+    Number.isInteger(level) ? `L${level}` : null
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const lines =
+    band === "act-revert"
+      ? [`Acting on ${what} (${band}). Revert: move the card back, or POST /cards/${card.id}/abandon.`]
+      : [`Acting on ${what} (${band}).`];
+  // An informational question - one the band did NOT require, raised because the
+  // record sits near a threshold. It rides the notice instead of interrupting on
+  // its own, which is the only way to ask it without spending the credibility of
+  // a question that does have to block.
+  if (typeof question === "string" && question.trim()) lines.push(question.trim());
+  if (url) lines.push(`Card: ${url}`);
+  return lines.join("\n\n");
+}
+
+/**
+ * Route the acting notice to a card's origin (§7.1). Called from the engine at
+ * the card's FIRST real dispatch, after the acquire CAS has been confirmed -
+ * never optimistically, for the same reason acks are post-CAS: a notice that
+ * announces work which then failed to start is worse than no notice.
+ *
+ * NOT ackable, and deliberately so: the ack whitelist (ack.mjs) covers the four
+ * OUTCOME kinds. A notice is a thread line, not something Zeca should say aloud -
+ * speaking every act-revert would turn the wearer's day into narration.
+ */
+export function routeAutonomyActed(root, card, { band, flow, level, duty, question } = {}) {
+  routeOriginEvent(root, null, card, {
+    kind: "autonomy-acted",
+    message: autonomyActedMessage(card, { band, flow, level, duty, question }),
+    detail: { band: band ?? null, flow: flow ?? null, duty: duty ?? null, level: level ?? null }
+  });
 }
 
 // S3d (D9b): the DISCUSS brief message - the settled scope delivered to the origin
@@ -408,6 +459,10 @@ export function routeOriginEvent(root, disk, card, event) {
     const skipWeb =
       (event.kind === "steering" && event.detail?.viaTurn === true) ||
       event.kind === "created" ||
+      // §7.1: the hold's question rode the gateway's turn reply into this same
+      // thread a moment ago. Same story as `created` directly above, same answer:
+      // record it, do not say it twice.
+      (event.kind === "needs-input" && event.detail?.autonomyHold === true) ||
       // The terminal CAS already delivered one authoritative "Run complete"
       // message. Keep the final duty-summary in the durable lifecycle log, but
       // do not post a second, 200-character copy into the Web Channel thread.
@@ -592,13 +647,19 @@ export async function deliverScheduleReminder(root, card, {
  * needs-input router (S3d wires the emission; defined + unit-tested here). Renders
  * the questions as a numbered thread message for web; event-log only otherwise.
  */
-export function routeNeedsInput(root, disk, card, { questions } = {}) {
+export function routeNeedsInput(root, disk, card, { questions, autonomyHold = false } = {}) {
   const qs = (Array.isArray(questions) ? questions : []).map((q) =>
     typeof q === "string" ? q : q?.question || q?.text || ""
   );
   routeOriginEvent(root, disk, card, {
     kind: "needs-input",
     message: needsInputMessage(card, { questions: qs }),
-    detail: { questions: qs }
+    // §7.1: an autonomy hold's question was ALREADY asked in this thread, by the
+    // gateway's own turn reply, before the card existed. The event is still
+    // recorded for every transport (the durable log is what pull-delivery reads,
+    // and "was the question asked?" must be answerable), but its channel post is
+    // suppressed - see the `created` precedent in routeOriginEvent, which is the
+    // same situation and the same answer.
+    detail: { questions: qs, ...(autonomyHold ? { autonomyHold: true } : {}) }
   });
 }

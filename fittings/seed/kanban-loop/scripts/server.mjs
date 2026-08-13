@@ -55,7 +55,8 @@ import {
   CARD_SCOPES,
   cardScope, listProseLabel } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
-import { routeOriginEvent, createdMessage } from "../lib/notify-origin.mjs";
+// §7.1: it also poses an autonomy hold's question through the card's own origin.
+import { routeOriginEvent, createdMessage, routeNeedsInput } from "../lib/notify-origin.mjs";
 // Kanban → Drill handoff: a done card's change brief, posted to the Drill fitting.
 import { sendCardToDrill, drillEligibility, resolveDrillProject, drillStamp } from "../lib/drill-handoff.mjs";
 import { readOriginRecord, readOriginEventsSince } from "../lib/origins.mjs";
@@ -470,6 +471,12 @@ export function cardSummary(card) {
     duty: card.duty ?? null,
     level: card.level ?? null,
     sequence: Array.isArray(card.sequence) ? card.sequence : null,
+    // The level each duty in that sequence runs at (the flow's pins, plus any
+    // escalation applied to THIS card). It has to cross the projection for the
+    // same reason `routing` does: the engine reads the card off disk, so a field
+    // left out here is still honored at run time but can never be shown back -
+    // and "why did review run at level 3?" must be answerable from the card.
+    dutyLevels: card.dutyLevels ?? null,
     // WS2 (D7): the predecessor card id this card continues (null for a fresh card).
     continues: card.continues ?? null,
     // S3a (D8): the card's origin id ("web:<threadId>" | "skill:..." | "board").
@@ -480,6 +487,18 @@ export function cardSummary(card) {
     // S3d (D9b, review R3): true when the card is HELD on Discuss by an explicit gate,
     // awaiting a human go (a Move, or an affirmative reply the gateway routes as a move).
     discussHeld: card.discussHeld === true,
+    // §7.1: true when the ROUTER held this card below its lower autonomy
+    // threshold, awaiting a go. Both fields must cross the projection: the
+    // gateway's channel-agnostic resume (discuss-intercept) reads the held flag
+    // and the resume list straight off this summary, so leaving them out would
+    // make "go" a word that works on the board and nowhere else - the exact
+    // parity break §5.2 was about.
+    autonomyHeld: card.autonomyHeld === true,
+    autonomyAsk: card.autonomyAsk ?? null,
+    // The band the router acted under when it did NOT have to ask, carried so the
+    // board can say what it is doing at first dispatch and so the card explains
+    // itself afterwards.
+    autonomy: card.autonomy ?? null,
     // D19: a quick card is a trivial-plan task the gateway ran inline and
     // auto-advanced to Done. The Done column groups these under a collapsed
     // "quick tasks" strip, and they are never engine-owned (operator-touchable).
@@ -655,6 +674,61 @@ function portablePhases(value) {
       .filter(([key, enabled]) => /^[A-Za-z0-9_-]{1,80}$/.test(key) && typeof enabled === "boolean")
       .slice(0, 64)
   );
+}
+
+// ── per-duty levels on a card (the level chain's storage boundary) ──────────
+// `dutyLevels` is {<dutyId>: 1|2|3}: the level EACH duty in the card's sequence
+// runs at once the flow definition's pins are applied. It is written once at
+// creation and afterwards only ever RAISED, by an escalation.
+//
+// The 1..3 bound mirrors level-resolution.mjs's MIN_LEVEL/MAX_LEVEL. The board
+// cannot import the orchestrator fitting, and a bound is exactly the kind of
+// thing that must be enforced where the write happens rather than trusted from
+// the caller - a card is read by the engine long after whoever wrote it is gone.
+export const MAX_DUTY_LEVELS = 32;
+const DUTY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** Validate a `dutyLevels` map. Returns {value} or {error}; absent → {value: null}. */
+export function validateDutyLevels(raw) {
+  if (raw === null || raw === undefined) return { value: null };
+  if (typeof raw !== "object" || Array.isArray(raw)) return { error: "dutyLevels must be an object or null" };
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_DUTY_LEVELS) {
+    return { error: `dutyLevels names ${entries.length} duties; the maximum is ${MAX_DUTY_LEVELS}` };
+  }
+  const out = {};
+  for (const [duty, level] of entries) {
+    if (!DUTY_ID_RE.test(duty)) return { error: `dutyLevels: invalid duty id "${duty}"` };
+    if (!Number.isInteger(level) || level < 1 || level > 3) {
+      return { error: `dutyLevels.${duty} must be an integer 1-3` };
+    }
+    out[duty] = level;
+  }
+  return { value: Object.keys(out).length ? out : null };
+}
+
+/**
+ * Merge a `dutyLevels` patch over what the card already carries, RAISE-ONLY.
+ *
+ * The raise-only rule lives in level-resolution.mjs because escalation is
+ * fail-safe and de-escalation is not (worst case of a raise is compute spent;
+ * worst case of a lower is unreviewed work shipped). It is enforced AGAIN here
+ * because this is the storage boundary: a caller that never went through
+ * `escalateDuty` - a hand-rolled PATCH, a future surface, a retry with a stale
+ * body - must not be able to walk a level back down. Refused, never clamped: a
+ * silent clamp would let the caller believe it had lowered something.
+ */
+export function mergeDutyLevels(existing, patch) {
+  const current = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
+  const merged = { ...current };
+  for (const [duty, level] of Object.entries(patch || {})) {
+    const held = current[duty];
+    if (Number.isInteger(held) && level < held) {
+      return { error: `dutyLevels.${duty} would lower ${held} → ${level}; a level may only be raised` };
+    }
+    merged[duty] = level;
+  }
+  return { value: merged };
 }
 
 export function checklistValidationError(value) {
@@ -1618,6 +1692,8 @@ async function handleCreateCard(req, res, opts) {
   const body = (await readBody(req)) || {};
   const checklistError = checklistValidationError(body.checklist);
   if (checklistError) return jsonRes(res, 400, { error: checklistError });
+  const dutyLevels = validateDutyLevels(body.dutyLevels);
+  if (dutyLevels.error) return jsonRes(res, 400, { error: dutyLevels.error });
   const description = typeof body.description === "string" ? body.description : "";
   const rawTitle = typeof body.title === "string" ? body.title.trim() : "";
   const title = rawTitle || deriveTitle(description);
@@ -1783,11 +1859,53 @@ async function handleCreateCard(req, res, opts) {
       position: topPosition
     });
   });
+  // The level chain's per-duty resolution. Same stamp-after-create shape as
+  // `quick` below and for the same reason (createCard's field set is frozen).
+  // Absent for every card whose sequence came from the duty ladder rather than a
+  // levelled flow, and absence is the legacy reading - consumers resolve a
+  // phase's level as `dutyLevels?.[phase] ?? level`.
+  if (dutyLevels.value) {
+    const d = await updateCard(opts.root, card.id, (c) => ({ ...c, dutyLevels: dutyLevels.value }));
+    if (d) Object.assign(card, d);
+  }
   // D19: a quick card (the gateway's trivial-plan inline task) carries quick:true.
   // createCard's field set is frozen, so stamp it via updateCard right after create.
   if (body.quick === true) {
     const q = await updateCard(opts.root, card.id, (c) => ({ ...c, quick: true }));
     if (q) Object.assign(card, q);
+  }
+  // §7.1: the AUTONOMY HOLD. The router routed this work, found itself below the
+  // lower threshold for the shape, and parked it instead of starting it. Same
+  // stamp-after-create shape as `quick` and `dutyLevels`, for the same reason.
+  //
+  // The hold itself is structural, not a flag race: a held card is created in the
+  // board's capture list, which is manual and never auto-dispatched, so nothing
+  // can start it before the guards even look. The flag is what the guards, the
+  // resume path and the board read.
+  const autonomyHeld = body.autonomyHeld === true;
+  const autonomyAsk =
+    body.autonomyAsk && typeof body.autonomyAsk === "object" && !Array.isArray(body.autonomyAsk)
+      ? body.autonomyAsk
+      : null;
+  const autonomyBand =
+    body.autonomy && typeof body.autonomy === "object" && !Array.isArray(body.autonomy) ? body.autonomy : null;
+  if (autonomyHeld || autonomyBand) {
+    const a = await updateCard(opts.root, card.id, (c) => ({
+      ...c,
+      ...(autonomyHeld ? { autonomyHeld: true, autonomyAsk } : {}),
+      ...(autonomyBand ? { autonomy: autonomyBand } : {}),
+      ...(autonomyHeld
+        ? {
+            events: withEvent(c, {
+              at: new Date().toISOString(),
+              kind: "autonomy-hold",
+              message: "Held for a go - the router is below its confidence threshold on this shape",
+              detail: autonomyAsk?.question ?? null
+            })
+          }
+        : {})
+    }));
+    if (a) Object.assign(card, a);
   }
   // Drill Evidence v0.1: an origin may hand the card its run-evidence video
   // link at create time — the field already exists on the card (the
@@ -1799,6 +1917,16 @@ async function handleCreateCard(req, res, opts) {
   // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
   // origin record + appends to its event log; web origins also get a thread ack).
   routeOriginEvent(opts.root, null, card, { kind: "created", message: createdMessage(card) });
+  // §7.1: first sight of a held card is where the question gets asked. It rides
+  // `needs-input`, which already appends to the durable origin log for EVERY
+  // transport and posts into the originating thread for the channel ones - the
+  // same path the discuss duty's mid-run questions take, so a held card asks in
+  // the same place and the same words on web, Omi and Slack alike. Posted here,
+  // after the card write is on disk, so the question can never name a card that
+  // does not exist.
+  if (autonomyHeld && autonomyAsk?.question) {
+    routeNeedsInput(opts.root, null, card, { questions: [autonomyAsk.question], autonomyHold: true });
+  }
   if (explicitWorkspace) {
     const scoped = await updateCard(opts.root, card.id, (c) => ({
       ...c,
@@ -2704,6 +2832,49 @@ async function handlePatchCard(req, res, opts, id) {
       ? body.lastDispatchError
       : null;
   }
+  // The level chain's runtime escalation (level-resolution.mjs step 3). The
+  // gateway's POST /escalate resolves it, writes the decision record, and lands
+  // the result here.
+  //
+  // Engine context only: this changes what a phase will EXECUTE at, so it is not
+  // a human-editable card field - a person raises a level by re-pinning the run
+  // spec, which goes through `routing`. And the raise-only rule is enforced here
+  // as well as in the resolver, because this is the storage boundary: a caller
+  // that never went through `escalateDuty` must not be able to walk a level back
+  // down.
+  if (body.dutyLevels !== undefined) {
+    if (!isEngineRequest(req)) {
+      return jsonRes(res, 403, {
+        error: "engine-only",
+        message: "dutyLevels is resolved by the router - escalate through the gateway's /escalate route."
+      });
+    }
+    const patch = validateDutyLevels(body.dutyLevels);
+    if (patch.error) return jsonRes(res, 400, { error: patch.error });
+    if (patch.value) {
+      const merged = mergeDutyLevels(card.dutyLevels, patch.value);
+      // 400, not 409: a 409 from this endpoint means "the card changed under
+      // you, re-read and retry", and a raise-only refusal must never be retried
+      // into the same refusal.
+      if (merged.error) return jsonRes(res, 400, { error: "duty-level-lowered", message: merged.error });
+      const raised = Object.entries(patch.value).filter(([duty, level]) => (card.dutyLevels || {})[duty] !== level);
+      next.dutyLevels = merged.value;
+      if (raised.length) {
+        // The reason is the caller's words but the MESSAGE is built here, so a
+        // card event can never be arbitrary caller-authored text.
+        const reason = typeof body.escalationReason === "string"
+          ? body.escalationReason.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 400)
+          : "";
+        next.events = withEvent(next, {
+          at: new Date().toISOString(),
+          kind: "escalation",
+          message:
+            raised.map(([duty, level]) => `Escalated ${duty} L${(card.dutyLevels || {})[duty] ?? card.level ?? "?"} → L${level}`).join("; ") +
+            (reason ? `: ${reason}` : "")
+        });
+      }
+    }
+  }
   if (isEngineRequest(req) && body.routeEvidence) {
     const event = quickRouteEvent(body.routeEvidence);
     if (event) {
@@ -2713,6 +2884,27 @@ async function handlePatchCard(req, res, opts, id) {
   }
   const movedLists = typeof body.list === "string" && next.list !== card.list;
   const landedTerminal = movedLists && Boolean(getList(board, next.list)?.terminal || next.list === "done");
+  // §7.1: MOVING a held card IS the go. The router parked it in the capture list
+  // and asked; taking it out of that list is the human answering with their hands
+  // instead of their words, and it releases the hold in the SAME CAS write that
+  // performs the move - so a card can never be simultaneously moved and still
+  // held, which is the state a separate clearing write would leave behind on a
+  // lost race.
+  //
+  // Deliberately different from `discussHeld`, which is never cleared: that flag
+  // is inert once the card leaves Discuss, because its guard is list-scoped. This
+  // one is not - a held card sits on whatever list it was parked in, so the flag
+  // itself has to go or the guards below would hold it forever.
+  const releasedAutonomyHold = movedLists && card.autonomyHeld === true;
+  if (releasedAutonomyHold) {
+    next.autonomyHeld = false;
+    next.events = withEvent(next, {
+      at: new Date().toISOString(),
+      kind: "autonomy-go",
+      message: `Released to ${listProseLabel(getList(board, next.list)?.title || next.list)} - the hold was answered`,
+      detail: card.autonomyAsk?.question ?? null
+    });
+  }
   const expectedRev = Number.isInteger(body.rev) ? body.rev : (card.rev ?? 0);
   const commitPatch = async () => {
     if (needsImplicitMovePosition) next.position = await topOfListPosition(root, next.list);
@@ -2773,8 +2965,15 @@ async function handlePatchCard(req, res, opts, id) {
   // return after registration and otherwise leave the card stranded until a tick or
   // manual Run press.
   const callerOwnsProgression = isEngineRequest(req) && !requestsAutoDispatch(req);
+  // §7.1: releasing an autonomy hold IS the authorisation to progress, so it
+  // dispatches even from an engine-context move. The gateway's channel-agnostic
+  // "go" resume moves the card with the engine header and no dispatch intent
+  // (moveCardEngine has one shape), and without this the answered card would sit
+  // on Plan until a tick noticed it - which reads to the person who just said
+  // "go" as nothing happening.
   const autoDispatch =
     movedToGatedDiscuss ||
+    (releasedAutonomyHold && typeof body.list === "string" && shouldAutoDispatch(board, body.list)) ||
     (typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !callerOwnsProgression);
   if (autoDispatch && opts.gatewayUrl) {
     // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does

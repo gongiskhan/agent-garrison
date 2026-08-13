@@ -56,9 +56,11 @@ export function originIdFor(channel, sessionId) {
   return `${c}:${s}`;
 }
 
-// Decide whether an inbound message is a discuss ANSWER, an explicit GO, or neither.
+// Decide whether an inbound message is a discuss ANSWER, an explicit GO, an
+// autonomy-hold GO, or none of them.
 // resolveThreadCard(origin_id) -> { attach } | { continueFrom } | null (injectable).
-// Returns { action: "answer", toolUseId, card } | { action: "go", card } | null. A null
+// Returns { action: "answer", toolUseId, card } | { action: "go", card } |
+// { action: "autonomy-go", card } | null. A null
 // result (the common case) means "run the ordinary turn"; the board is only consulted
 // when there is a pending question OR the message is a bare affirmative, so ordinary
 // turns pay no extra round-trip. Never throws.
@@ -78,7 +80,17 @@ export async function resolveDiscussInterception({ text, channel, sessionId, pen
   } catch {
     return null;
   }
-  if (!liveCard || liveCard.list !== "discuss") return null;
+  if (!liveCard) return null;
+  // (0) AUTONOMY-HOLD resume (ORCHESTRATOR_COHERENCE.md §7.1). A card the router
+  // parked below its lower threshold is waiting for exactly this word - and it is
+  // NOT on the Discuss list. It sits in the board's capture list on whatever the
+  // router proposed, so this branch is checked FIRST and is deliberately not
+  // list-scoped, unlike the two below it. Same word, same out-of-band position,
+  // same channel-agnostic lookup; only the effect the caller wires differs.
+  if (affirmative && liveCard.autonomyHeld === true) {
+    return { action: "autonomy-go", card: liveCard };
+  }
+  if (liveCard.list !== "discuss") return null;
   // (1) reply-as-answer: a pending question bound to (or unambiguous for) this card.
   if (hasPending) {
     const toolUseId = pickPendingQuestion(pendingQuestions, liveCard.id);

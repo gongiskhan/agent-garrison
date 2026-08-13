@@ -28,7 +28,9 @@ import { tmpdir, hostname } from "node:os";
 import path from "node:path";
 
 // @ts-ignore pure mjs
-import { commitRunResult, processCard, sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { commitRunResult, processCard, sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns, INFER_SETTLE_GRACE_MS } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+// @ts-ignore pure mjs
+import { KANBAN_INFER_TIMEOUT_MS } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore pure mjs
 import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
@@ -389,7 +391,21 @@ describe("settleProjectInference — an immediate dispatch waits for the project
       root: tmp, board, card, runFn, cwd: tmp,
       settle: { intervalMs: 1, checks: 10, sleep: async () => { polls += 1; } }
     });
-    expect(polls).toBe(0); // a settled/absent inference never blocks a dispatch
+    // A settled/absent inference never blocks a dispatch - with nothing in flight the
+    // SHORT bound governs, and the long in-flight ceiling below never applies.
+    expect(polls).toBe(0);
+  });
+
+  it("never waits once the project is known, even while the card still reads inferring", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { id: "01INFERCARD000000000000006", project: "garrison", inferState: "running" });
+    let polls = 0;
+    const runFn = async () => ({ reply: "review" });
+    await processCard({
+      root: tmp, board, card, runFn, cwd: tmp,
+      settle: { intervalMs: 1, sleep: async () => { polls += 1; } }
+    });
+    expect(polls).toBe(0); // the answer is already here, there is nothing to wait for
   });
 
   it("gives up after the bounded window so a busy operative can never block a run", async () => {
@@ -404,6 +420,89 @@ describe("settleProjectInference — an immediate dispatch waits for the project
     expect(polls).toBe(5); // bounded, then proceeds honestly under no-project
     const onDisk: any = await loadCard(tmp, card.id);
     expect(onDisk.status).not.toBe("running");
+  });
+
+  // The gate's own bound used to be the bug: 24 x 250ms = 6s, while the inference turn
+  // it waits on is budgeted at KANBAN_INFER_TIMEOUT_MS (90s) because it QUEUES behind a
+  // busy operative. So the ordinary case - operative mid-run, inference answering at
+  // ~20s - advanced the card un-fenced at 6s under project:null, and the answer was
+  // then discarded on arrival ("the first run had already started").
+  it("keeps waiting past the old 6s bound while an attempt is genuinely in flight", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, {
+      id: "01INFERCARD000000000000004",
+      project: null,
+      inferState: "running",
+      runId: null,
+      runDir: null
+    });
+
+    // The operative was busy, so the inference queued and only answered on the 60th
+    // poll, well past the 24 checks the gate used to give up at.
+    let polls = 0;
+    const sleep = async () => {
+      polls += 1;
+      if (polls === 60) {
+        await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, project: "ekoa-code", inferState: "done" }));
+      }
+    };
+
+    const runFn = async ({ card: c }: { card: any }) => {
+      mkdirSync(c.runDir as string, { recursive: true }); // freshly minted by this dispatch
+      landGate(c.runDir as string, "implement", "review");
+      return { reply: "review" };
+    };
+
+    const { outcome } = await processCard({
+      root: tmp, board, card, runFn, cwd: tmp,
+      settle: { intervalMs: 1, sleep } // no `checks`: the DEFAULT sizing is what's under test
+    });
+
+    const onDisk: any = await loadCard(tmp, card.id);
+    expect(polls).toBe(60);               // it waited for the answer instead of racing it
+    expect(outcome.status).toBe("moved"); // and the acquire CAS did not conflict
+    expect(onDisk.project).toBe("ekoa-code");
+    expect(onDisk.runDir).toContain("ekoa-code");
+    expect(onDisk.runDir).not.toContain("no-project");
+  });
+
+  it("the in-flight ceiling is the inference budget + grace, and is still finite", async () => {
+    const board = seedBoard();
+    const card = await makeCard(tmp, { id: "01INFERCARD000000000000005", project: null, inferState: "running" });
+    let polls = 0;
+    const runFn = async () => ({ reply: "review" });
+    await processCard({
+      root: tmp, board, card, runFn, cwd: tmp,
+      settle: { intervalMs: 1000, sleep: async () => { polls += 1; } } // never settles
+    });
+    // Sized off the real budget, not a number picked by hand.
+    expect(polls).toBe(Math.ceil((KANBAN_INFER_TIMEOUT_MS + INFER_SETTLE_GRACE_MS) / 1000));
+    expect(polls).toBeGreaterThan(24); // the old ceiling, which the inference outlived
+    // Fail-open is intact: an inference that never answers delays a dispatch, it can
+    // never park the card or hold it forever.
+    const onDisk: any = await loadCard(tmp, card.id);
+    expect(onDisk.status).not.toBe("running");
+  });
+
+  it("does not re-wait a whole budget for an attempt that died long ago", async () => {
+    const board = seedBoard();
+    // A server that restarts mid-inference leaves inferState "running" on disk for
+    // good, and runProjectInference refuses to re-enter a "running" card. Waiting the
+    // full budget out on EVERY later dispatch of that card would be the cure killing
+    // the patient: the gate waits what remains of the attempt, not a fresh copy of it.
+    const card = await makeCard(tmp, {
+      id: "01INFERCARD000000000000007",
+      project: null,
+      inferState: "running",
+      events: [{ at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), kind: "inference", message: "Inferring the project from the title + description…" }]
+    });
+    let polls = 0;
+    const runFn = async () => ({ reply: "review" });
+    await processCard({
+      root: tmp, board, card, runFn, cwd: tmp,
+      settle: { intervalMs: 1000, sleep: async () => { polls += 1; } }
+    });
+    expect(polls).toBe(0); // its budget expired 8 minutes ago
   });
 });
 

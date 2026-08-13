@@ -243,8 +243,11 @@ export function echoFingerprint(text) {
 // after the card write has been confirmed by saveCardCAS, which is what makes the
 // no-optimistic-ack rule structural rather than a convention someone can forget.
 // Kinds deliberately absent: `steering` and `needs-input` (mid-flight, no outcome
-// yet), `duty-summary` (a report, not an outcome), and `schedule-due` (a reminder
-// the notification layer already delivers - an ack would say it twice).
+// yet), `duty-summary` (a report, not an outcome), `schedule-due` (a reminder
+// the notification layer already delivers - an ack would say it twice), and
+// `autonomy-acted` (§7.1), which is a THREAD LINE and not speech: the acting
+// bands fire on ordinary work, so speaking each one would narrate the day rather
+// than confirm an outcome. The four kinds below are outcomes; that is the rule.
 const EVENT_KIND_TO_TEMPLATE = {
   created: "card.created",
   finished: "card.completed",

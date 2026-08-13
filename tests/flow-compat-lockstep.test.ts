@@ -20,6 +20,10 @@ import { RETIRED_FLOW_KEYS as TS_KEYS, adoptFlowKeys as tsAdopt, hasRetiredFlowK
 import { RETIRED_FLOW_KEYS as MJS_KEYS, adoptFlowKeys as mjsAdopt } from "../fittings/seed/orchestrator/lib/flow-compat.mjs";
 // @ts-expect-error — plain .mjs fitting module, no types
 import { RETIRED_FLOW_KEYS as KANBAN_KEYS, adoptFlowKeys as kanbanAdopt } from "../fittings/seed/kanban-loop/lib/policy.mjs";
+// @ts-ignore - pure .mjs
+import * as boardPolicy from "../fittings/seed/kanban-loop/lib/policy.mjs";
+// @ts-ignore - pure .mjs
+import * as policyCore from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 
 const MIRRORS = [
   { name: "src/lib/flow-compat.ts", keys: TS_KEYS, adopt: tsAdopt },
@@ -86,6 +90,49 @@ describe("flow-compat mirrors", () => {
     expect(hasRetiredFlowKeys({ workKinds: {} })).toBe(true);
     expect(hasRetiredFlowKeys({ flows: {} })).toBe(false);
     expect(hasRetiredFlowKeys(null)).toBe(false);
+  });
+
+  // The keys above renamed the CONTAINER (workKinds -> flows). The map below
+  // renames the FLOWS THEMSELVES: the 2026-08-09 library rewrite retired six of
+  // the nine names, and every card, decision record and saved rail on disk still
+  // carries whichever name it was written with. Two mirrors here rather than
+  // three - `src/` has no flow-name reader - and the failure mode is louder than
+  // the key map's: an unaliased retired name reaches `config.flows[name]`,
+  // resolves to nothing, and throws `policy: unknown flow` at the moment a card
+  // is dispatched.
+  it("the flow-NAME alias table is byte-equal in both mirrors", () => {
+    expect({ ...boardPolicy.FLOW_ALIASES }).toEqual({ ...policyCore.FLOW_ALIASES });
+    expect(Object.keys(policyCore.FLOW_ALIASES).length).toBeGreaterThan(0);
+  });
+
+  it("`channel` aliases to the MANUAL successor, in both mirrors", () => {
+    // Pinned because the wrong answer is the tempting one. `task` is the closest
+    // match by size and subject, and it is agentful; the retired `channel` flow
+    // was manual-only. Aliasing onto `task` would quietly make a legacy channel
+    // card dispatchable, which is a change to what the card MEANT - the thing an
+    // alias exists to preserve. (tests/level-chain.test.ts pins the other half:
+    // that the successor really is manual in the shipped library.)
+    expect(policyCore.FLOW_ALIASES.channel).toBe("personal");
+    expect(boardPolicy.FLOW_ALIASES.channel).toBe("personal");
+  });
+
+  it("both mirrors adopt a retired flow name and pass a live one through untouched", () => {
+    for (const [retired, live] of Object.entries(policyCore.FLOW_ALIASES as Record<string, string>)) {
+      expect(policyCore.adoptFlow(retired), `policy-core ${retired}`).toBe(live);
+      expect(boardPolicy.adoptFlowValue(retired), `kanban ${retired}`).toBe(live);
+    }
+    for (const live of new Set(Object.values(policyCore.FLOW_ALIASES as Record<string, string>))) {
+      expect(policyCore.adoptFlow(live), `policy-core ${live}`).toBe(live);
+      expect(boardPolicy.adoptFlowValue(live), `kanban ${live}`).toBe(live);
+    }
+    // An unknown name is NOT an alias target: it comes back as written so the
+    // caller can report it, rather than being folded into some default flow.
+    expect(policyCore.adoptFlow("not-a-flow")).toBe("not-a-flow");
+    expect(boardPolicy.adoptFlowValue("not-a-flow")).toBe("not-a-flow");
+    for (const v of [null, undefined, 3, [{ flow: "a" }]]) {
+      expect(policyCore.adoptFlow(v as never)).toBe(v);
+      expect(boardPolicy.adoptFlowValue(v as never)).toBe(v);
+    }
   });
 
   it("the rename gate declares exactly these three mirrors as the compat layer", () => {

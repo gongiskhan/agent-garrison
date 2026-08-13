@@ -27,6 +27,7 @@ import { spawn } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
+import { appendFeedback } from "./feedback-queue.mjs";
 import {
   PERSONAL_SCOPE_LABEL,
   PERSONAL_SCOPE_TOKEN,
@@ -840,6 +841,59 @@ export function routeAnnotation(route) {
   return `[gateway-route: target=${route.targetId} rule=${route.ruleId} profile=${route.profile}]`;
 }
 
+// The autonomy consult, compressed for the decision log (§7.5). The decisions
+// file is the record someone reads back to ask "why did it do that without
+// asking me?", so it carries the BAND PER CATEGORY, the confidence behind each,
+// and whether the number leaned on the cold-start seed rather than on anything
+// the user actually said. Confidence is rounded because four decimals of a
+// derived ratio is false precision in a log a human reads.
+//
+// `deferred` is the v1 digest: a question that was real but not required, which
+// the day's budget sent away unasked. Recording it is the whole digest for now -
+// the alternative is a question silently evaporating, which is how a rate limit
+// turns into amnesia.
+export function autonomyDecisionRecord(autonomy) {
+  if (!autonomy || typeof autonomy !== "object") return null;
+  const bands = {};
+  for (const [category, d] of Object.entries(autonomy.decisions ?? {})) {
+    bands[category] = {
+      band: d.band,
+      confidence: Math.round((Number(d.confidence) || 0) * 1000) / 1000,
+      observations: d.observations ?? 0
+    };
+  }
+  return {
+    band: autonomy.band,
+    shape: autonomy.shape ?? null,
+    bands,
+    seeded: autonomy.seeded === true,
+    ...(autonomy.ask ? { asked: true, reason: autonomy.reason ?? null } : {}),
+    ...(!autonomy.ask && autonomy.informational ? { informed: true, reason: autonomy.reason ?? null } : {}),
+    ...(autonomy.deferred ? { deferred: true, reason: autonomy.deferred } : {})
+  };
+}
+
+// Whether a routed turn must be HELD, and the list it resumes onto (§7.1).
+//
+// Pure, and separate from the lane that acts on it, because the interesting half
+// of this rule is the one that is easiest to get wrong: a QUICK turn - the
+// trivial-plan work the gateway runs inline - is held exactly like a significant
+// one. A board-side hold cannot help a turn that never reaches the board, so an
+// ask band on a quick turn means "do not run it inline, card it and wait", not
+// "quick work is too small to ask about". Whether the router should ask is a
+// property of the shape's track record, never of how big the job looked.
+//
+// `resumeList` is where the card goes when the go arrives: the list the turn
+// would have started on had the band allowed it.
+export function autonomyHoldPlan(autonomy, { significant = false, sequence = null, targetList = null } = {}) {
+  if (!autonomy || autonomy.ask !== true) return { hold: false, resumeList: null };
+  const first = Array.isArray(sequence) && sequence.length ? sequence[0] : null;
+  return {
+    hold: true,
+    resumeList: significant ? targetList ?? first ?? "plan" : first ?? "implement"
+  };
+}
+
 // Deterministic keyword classifier: when an exception declares `keywords`, a
 // message containing ALL of them classifies straight to that exception — fast,
 // and immune to LLM-classifier drift across a rapid multi-step session. Returns
@@ -859,6 +913,11 @@ export class RoutedGateway {
   constructor(opts = {}) {
     this.core = opts.core; // merged routing-core + routing-telemetry + stage-b
     this.config = opts.config;
+    // Retired flow name -> the flow that absorbed it, published for the HTTP edge
+    // (sanitizeRouting runs per request and cannot await the level chain). Filled
+    // by _levelChain(); empty until then, which simply means an inbound retired
+    // name is refused as out-of-vocabulary exactly as it was before.
+    this.flowAliases = {};
     this.decisionsFile = opts.decisionsFile;
     this.compositionDir = opts.compositionDir;
     this.compositionId = opts.compositionId ?? null;
@@ -1622,11 +1681,40 @@ export class RoutedGateway {
   // implementation (lib/autonomous-cards.mjs) — deps resolve at CALL time from
   // this.core/this.logFn so prototype-created receivers (tests) keep working.
   async createAutonomousCard(message, classification, opts = {}) {
+    const base = this.core?.buildAutonomousCardPayload ?? null;
+    // §7.1: the autonomy fields ride ON TOP of the pure payload builder rather
+    // than inside it. buildAutonomousCardPayload is the Orchestrator's card
+    // contract; a HOLD is the gateway's decision about one turn, and the BAND is
+    // context about that decision - neither is a property of what a card is. One
+    // builder, one place to read what a held card carries.
+    const needsAutonomy = opts.autonomyHeld === true || Boolean(opts.autonomy);
+    // With no core wired the shared client builds its own minimal payload, which
+    // would drop these fields silently - and a "held" card that reached the board
+    // without its flag would never pose its question. So when there IS something
+    // to carry, this supplies the minimal payload itself rather than letting the
+    // hold evaporate into a card nobody is waiting on.
+    const minimal = (args) => ({
+      description: args.brief ?? "",
+      goalMode: true,
+      project: args.project ?? null,
+      originChannel: args.originChannel ?? null
+    });
+    const buildPayload = needsAutonomy
+      ? (args) => {
+          const payload = (base ?? minimal)(args);
+          if (opts.autonomyHeld) {
+            payload.autonomyHeld = true;
+            payload.autonomyAsk = opts.autonomyAsk ?? null;
+          }
+          if (opts.autonomy) payload.autonomy = opts.autonomy;
+          return payload;
+        }
+      : base;
     return cards.createAutonomousCard({
       message,
       classification,
       opts,
-      buildPayload: this.core?.buildAutonomousCardPayload ?? null,
+      buildPayload,
       logFn: (e) => this.logFn(e)
     });
   }
@@ -1716,6 +1804,98 @@ export class RoutedGateway {
       if (card?.list === "done") return { continueFrom: card.id };
     }
     return null;
+  }
+
+  /**
+   * Raise ONE duty on ONE card (level-resolution.mjs step 3).
+   *
+   * Escalation is the only part of the level chain that happens at RUNTIME, and
+   * the brief is explicit that an unlogged escalation is a bug - so this is the
+   * one supported way to make one, and it does all four halves together:
+   * resolve, LOG, apply, report. The order matters: the decision record is
+   * written whether or not the raise applied, because a REFUSED escalation (an
+   * attempt to lower a level) is exactly as interesting to the improver as an
+   * accepted one, and a caller that believes it de-escalated and did not would
+   * ship unreviewed work thinking it had chosen to.
+   *
+   * The record is stamped with the FLOW before it is written. `escalateDuty`
+   * cannot know it - it is handed a flow DEFINITION, not its name - and
+   * `summariseEscalations` groups on `r.flow`, so an unstamped record is a
+   * record the improver can never turn into a pin. Same field the routing tracks
+   * read as the escalation's shape.
+   *
+   * Returns {status, body} so the HTTP route above it stays a thin adapter.
+   */
+  async escalateCardDuty({ cardId, duty, toLevel, reason } = {}) {
+    const chain = await this._levelChain();
+    if (!chain) return { status: 503, body: { error: "level-chain-unavailable" } };
+    if (typeof cardId !== "string" || !cardId) return { status: 400, body: { error: "cardId is required" } };
+    if (typeof duty !== "string" || !duty) return { status: 400, body: { error: "duty is required" } };
+    // clampLevel CLAMPS (9 becomes 3), which is right inside the resolver and
+    // wrong at an HTTP door: a caller asking for level 9 has a bug, and silently
+    // serving it level 3 hides that. Accept only a level that survives the clamp
+    // unchanged.
+    const wanted = chain.levels.clampLevel(toLevel);
+    if (wanted == null || Math.trunc(Number(toLevel)) !== wanted) {
+      return { status: 400, body: { error: "toLevel must be a level 1-3" } };
+    }
+    // A reason is not optional: an escalation with no reason cannot become a
+    // useful improver signal and cannot be judged in the decisions log.
+    const why = typeof reason === "string" ? reason.trim() : "";
+    if (!why) return { status: 400, body: { error: "reason is required for an escalation" } };
+
+    const lib = this._cardsLib ?? cards;
+    const card = await lib.cardById(cardId);
+    if (!card) return { status: 404, body: { error: `card not found: ${cardId}` } };
+
+    const flows = this.config?.flows || {};
+    const requested = typeof card.flow === "string" && card.flow ? card.flow : this.config?.defaultFlow;
+    const flowName = flows[requested] ? requested : chain.policy.adoptFlow(requested);
+    const definition = flowName ? flows[flowName] : null;
+    if (!definition || !definition.levels) {
+      return { status: 409, body: { error: "flow-not-levelled", flow: flowName ?? null } };
+    }
+    // A duty the card's flow does not run at this level cannot be escalated: the
+    // resolver would happily answer for it (every duty inherits the flow level),
+    // the record would look exactly like a real one, and the card would never run
+    // the duty. That is a typo turning into a permanent decision-log entry.
+    const inFlow = chain.levels.dutiesForLevel(definition, card.level);
+    if (inFlow.length && !inFlow.includes(duty)) {
+      return { status: 409, body: { error: "duty-not-in-flow", flow: flowName, duties: inFlow } };
+    }
+
+    const { applied, resolved, record } = chain.levels.escalateDuty({
+      flow: definition,
+      flowLevel: card.level,
+      duty,
+      toLevel: wanted,
+      reason: why,
+      cardId,
+      at: this.nowFn()
+    });
+    record.flow = flowName;
+    await this.core.appendDecision(this.decisionsFile, record);
+    this.logFn({
+      kind: "duty-escalation",
+      card: cardId,
+      duty,
+      flow: flowName,
+      from: record.from,
+      to: record.to,
+      applied
+    });
+    if (!applied) return { status: 200, body: { applied: false, resolved, record } };
+
+    const patched = await lib.patchCardDutyLevels({
+      id: cardId,
+      dutyLevels: { [duty]: resolved.level },
+      reason: why,
+      logFn: (e) => this.logFn(e)
+    });
+    if (!patched.ok) {
+      return { status: 502, body: { applied: false, resolved, record, error: patched.error ?? "board-patch-failed" } };
+    }
+    return { status: 200, body: { applied: true, resolved, record } };
   }
 
   // S3b: run ONE web materialized turn as a one-shot (fresh disposable claude), so
@@ -1972,11 +2152,29 @@ export class RoutedGateway {
     // card with the same (duty, level) would (divergence zero). Additive + best-
     // effort: an absent/unresolvable model leaves the historical dispatch fields
     // untouched and `sequence` unset, so the pre-S4b behaviour is byte-for-byte kept.
+    //
+    // 2026-08-13: the FLOW's duty list at the routed level wins where one resolves.
+    // The duty ladder is the fallback, so nothing changes for flow-less work.
     try {
-      const sequence = await this.resolvedSequenceForDispatch(result?.duty, result?.level);
+      const plan = await this.resolvedFlowPlan(result?.duty, result?.level, opts.flow ?? null);
+      const sequence = plan?.sequence?.length
+        ? plan.sequence
+        : await this.resolvedSequenceForDispatch(result?.duty, result?.level);
       if (sequence.length) {
         result.sequence = sequence;
-        this.logFn({ kind: "dispatch-sequence", duty: result.duty, level: result.level, sequence });
+        if (plan) {
+          result.flow = plan.flow;
+          result.flowLevel = plan.flowLevel;
+          result.dutyLevels = plan.dutyLevels;
+        }
+        this.logFn({
+          kind: "dispatch-sequence",
+          duty: result.duty,
+          level: result.level,
+          sequence,
+          flow: plan?.flow ?? null,
+          dutyLevels: plan?.dutyLevels ?? null
+        });
       }
     } catch (err) {
       this.logFn({ kind: "dispatch-sequence-failed", error: err?.message });
@@ -2040,11 +2238,214 @@ export class RoutedGateway {
     return lib?.executionRouteFor?.({ duty, level, phase, stepIndex }, model) ?? null;
   }
 
+  // The Orchestrator's LEVEL CHAIN (level-resolution.mjs) plus the policy vocabulary
+  // it needs (policy-core.mjs's flow aliases + flow-for-duty derivation), loaded the
+  // same way dispatch-core is: dynamic import from the resolved orchestrator fitting
+  // dir, cached, null when it is not on disk (the gateway then keeps the duty-ladder
+  // sequence and stamps no per-duty levels - exactly the pre-level-chain behaviour).
+  //
+  // policy-core is imported DIRECTLY rather than read off `this.core`: routing-core
+  // re-exports only part of policy-core, and `levelPlanFor` / `adoptFlow` are not in
+  // that list. Resolving the dir on level-resolution.mjs also means an older installed
+  // orchestrator that predates the level chain falls through to the repo seed instead
+  // of half-loading.
+  async _levelChain() {
+    if (this._levelChainLib !== undefined) return this._levelChainLib;
+    try {
+      const dir = resolveOrchestratorRoutingDir(this.compositionDir, "level-resolution.mjs");
+      this._levelChainLib = dir
+        ? {
+            levels: await import(pathToFileURL(path.join(dir, "lib", "level-resolution.mjs")).href),
+            policy: await import(pathToFileURL(path.join(dir, "lib", "policy-core.mjs")).href)
+          }
+        : null;
+      if (this._levelChainLib?.policy?.FLOW_ALIASES) {
+        this.flowAliases = { ...this._levelChainLib.policy.FLOW_ALIASES };
+      }
+    } catch {
+      this._levelChainLib = null;
+    }
+    return this._levelChainLib;
+  }
+
+  // The AUTONOMY CONSULT (ORCHESTRATOR_COHERENCE.md §7.1/§7.5), loaded exactly the
+  // way the level chain is: a dynamic import from the resolved orchestrator fitting
+  // dir, cached, null when it is not on disk.
+  //
+  // NULL IS A REAL ANSWER HERE, and the most important one. With no consult the
+  // router behaves precisely as it did before this seam existed - decide and go -
+  // because a broken autonomy layer must FAIL OPEN. Parking every turn because a
+  // module would not import is not caution, it is an outage with a moral.
+  async _autonomyConsult() {
+    if (this._autonomyLib !== undefined) return this._autonomyLib;
+    try {
+      const dir = resolveOrchestratorRoutingDir(this.compositionDir, "autonomy-consult.mjs");
+      this._autonomyLib = dir
+        ? await import(pathToFileURL(path.join(dir, "lib", "autonomy-consult.mjs")).href)
+        : null;
+      if (!dir) this.logFn({ kind: "autonomy-consult-unavailable", reason: "autonomy-consult.mjs not resolvable" });
+    } catch (err) {
+      this._autonomyLib = null;
+      this.logFn({ kind: "autonomy-consult-unavailable", reason: err?.message ?? "import failed" });
+    }
+    return this._autonomyLib;
+  }
+
+  /**
+   * How much freedom the router has to act on THIS decision, per category.
+   *
+   * `action` is the reversibility class of what the router is about to do, and it
+   * is load-bearing: bandFor refuses act-and-inform for anything irreversible
+   * however good the track record is. Pass the honest class, never the convenient
+   * one.
+   *
+   * Returns null when the consult is unavailable or throws - the caller then
+   * proceeds exactly as it always did (see _autonomyConsult).
+   */
+  async autonomyFor({ flow = null, duty = null, level = null, action = "code-change" } = {}) {
+    const lib = await this._autonomyConsult();
+    if (!lib || typeof lib.consultAutonomy !== "function") return null;
+    try {
+      const result = await lib.consultAutonomy({
+        compositionDir: this.compositionDir,
+        decision: { flow, duty, level },
+        action,
+        now: this.nowFn()
+      });
+      this.logFn({
+        kind: "autonomy-consulted",
+        shape: result.shape,
+        band: result.band,
+        ask: result.ask === true,
+        deferred: result.deferred ?? null,
+        reason: result.reason ?? null,
+        seeded: result.seeded === true,
+        askedToday: result.askBudget?.askedToday ?? null
+      });
+      return result;
+    } catch (err) {
+      this.logFn({ kind: "autonomy-consult-failed", error: err?.message ?? String(err) });
+      return null; // fail OPEN: decide and go, exactly as before the consult existed
+    }
+  }
+
+  /**
+   * Record the GO on a held card - the answer to the question the hold posed.
+   *
+   * Two writes, because they are two different things and conflating them is how
+   * this layer went blind in the first place:
+   *
+   *   • decisions.jsonl gets the AUDIT record. "The router asked about this card
+   *     and was told to go" is a routing event, and the decisions log is where
+   *     routing events are reconstructable from.
+   *   • the feedback queue gets the SIGNAL, in the verdict shape both track folds
+   *     already read as `explicit-confirmation`. Without it the hold teaches the
+   *     router nothing and asks the same question about the same shape forever.
+   *
+   * Returns {logged, signalled} so a caller can report what actually landed.
+   * Neither failure is fatal: the card is already released.
+   */
+  async recordAutonomyGo({ cardId = null, flow = null, duty = null, level = null, tier = null, decisionId = null, sessionId = null } = {}) {
+    const at = this.nowFn();
+    let logged = false;
+    let signalled = false;
+    try {
+      await this.core.appendDecision(this.decisionsFile, {
+        at,
+        kind: "autonomy-ask",
+        resolution: "go",
+        cardId,
+        flow,
+        duty,
+        level,
+        ...(decisionId ? { decisionId } : {})
+      });
+      logged = true;
+    } catch (err) {
+      this.logFn({ kind: "autonomy-go-log-failed", error: err?.message ?? String(err) });
+    }
+    try {
+      const lib = await this._autonomyConsult();
+      if (lib && typeof lib.buildGoConfirmationRecord === "function") {
+        await appendFeedback(
+          lib.buildGoConfirmationRecord({ flow, duty, level, tier, decisionId, sessionId, at })
+        );
+        signalled = true;
+      }
+    } catch (err) {
+      this.logFn({ kind: "autonomy-go-signal-failed", error: err?.message ?? String(err) });
+    }
+    this.logFn({ kind: "autonomy-go-recorded", cardId, flow, duty, level, logged, signalled });
+    return { logged, signalled };
+  }
+
+  /** Count a question that was ACTUALLY POSED against today's budget. Counting
+   *  intent rather than delivery is how a rate limit starts suppressing questions
+   *  nobody ever saw. Never throws. */
+  async recordAutonomyAsked() {
+    const lib = await this._autonomyConsult();
+    if (!lib || typeof lib.recordAsked !== "function") return null;
+    try {
+      return await lib.recordAsked(this.compositionDir, { now: this.nowFn() });
+    } catch (err) {
+      this.logFn({ kind: "autonomy-budget-write-failed", error: err?.message ?? String(err) });
+      return null;
+    }
+  }
+
+  /**
+   * The FLOW's own plan for a routed (duty, level): the ordered duty list the flow
+   * runs at that level, and the level EACH of those duties runs at once the flow
+   * definition's pins are applied.
+   *
+   * This is the seam where the flow library stops being decoration. Until it existed
+   * a card's sequence came from `model.sequences[duty][level]` - the apm.yml duty
+   * ladder, whose cells are all leaves, so every sequence was a single duty and a
+   * `fix` card ran `implement` alone while the flow said implement, test.
+   *
+   * `flow` is the EXPLICIT pin when there is one (aliased, because a pin can name a
+   * retired flow); with no pin the flow is derived from the routed duty. Returns null
+   * for anything not levelled, and the caller falls back to the duty ladder - so a
+   * composition with the pre-levels flow shape behaves byte-identically.
+   */
+  async resolvedFlowPlan(duty, level, flow = null) {
+    const chain = await this._levelChain();
+    const flows = this.config?.flows;
+    if (!chain || !flows || typeof flows !== "object") return null;
+    const requested = typeof flow === "string" && flow ? flow : null;
+    const name = requested
+      ? (flows[requested] ? requested : chain.policy.adoptFlow(requested))
+      : chain.policy.defaultFlowForDuty(this.config, duty);
+    const definition = name ? flows[name] : null;
+    if (!definition || !definition.levels) return null;
+    // A MANUAL flow authors no sequence. Its level definitions document the shape
+    // of the work (`personal` names `other`), and turning that into a dispatchable
+    // sequence is exactly the confusion `manual: true` exists to prevent. The rail
+    // is the real gate, but this stops a manual card being handed a plan at all.
+    if (definition.manual === true) return null;
+    // The third step of the chain (a per-card runtime escalation) is deliberately
+    // NOT applied here: a card is escalated after it exists, never before. The
+    // parameter stays plumbed so the escalation seam resolves through one function.
+    const plan = chain.levels.resolveFlowPlan(definition, level, {});
+    const sequence = plan.duties.map((d) => d.duty);
+    if (!sequence.length) return null;
+    return {
+      flow: name,
+      flowLevel: plan.flowLevel,
+      sequence,
+      dutyLevels: Object.fromEntries(plan.duties.map((d) => [d.duty, d.level])),
+      evidence: plan.evidence ?? null
+    };
+  }
+
   // S4b (D15 acceptance 9): resolve a (duty, level) to the ordered phase-list
   // sequence a card would VISIT, reading the runner-projected model.json (the SAME
   // file the board reads via resolved-model.mjs). Returns [] when the model is
   // absent/unresolvable — the gateway then keeps its historical entry lists
   // (backlog/plan/implement) unchanged. This is DOOR 1's consult of the shared model.
+  //
+  // The FLOW's plan (resolvedFlowPlan) wins over this wherever a levelled flow
+  // resolves; this stays as the fallback for flow-less and unlevelled work.
   async resolvedSequenceForDispatch(duty, level) {
     if (!duty) return [];
     const lib = await this._kanbanResolvedModelLib();
@@ -2082,9 +2483,20 @@ export class RoutedGateway {
       phase = null,
       stepIndex = null,
       sequence = null,
+      // The flow the sequence came from and the level each of its duties runs at
+      // (resolvedFlowPlan). Both ride through to the caller so a turn that becomes
+      // a CARD stamps the same resolution the route was decided from - resolving it
+      // twice is how the card and the run end up on different plans.
+      flow = null,
+      dutyLevels = null,
       routing = null,
       rejected = [],
       viaOverride = false,
+      // §7.1/§7.5: the autonomy consult's answer for THIS decision, when one was
+      // taken (null on every exempt lane). It rides onto the decision record so
+      // the band a turn acted under is provable from the log alone, and onto the
+      // returned frame so the card seam can hold, notice, or say nothing.
+      autonomy = null,
       // Carried through from preRoute so a duty-routed decision names its
       // conversation too, not just the classifier-path decision below.
       sessionId = null,
@@ -2135,7 +2547,8 @@ export class RoutedGateway {
       effort: route.target.effort ?? null,
       ...(sessionId ? { sessionId } : {}),
       ...(sessionTitle ? { sessionTitle } : {}),
-      ...(overridesApplied.length ? { overrides: overridesApplied } : {})
+      ...(overridesApplied.length ? { overrides: overridesApplied } : {}),
+      ...(autonomy ? { autonomy: autonomyDecisionRecord(autonomy) } : {})
     };
     await this.core.appendDecision(this.decisionsFile, decision);
     this.logFn({
@@ -2170,9 +2583,22 @@ export class RoutedGateway {
     } else {
       plan = await this.applySwitch(route);
     }
+    // The sequence the caller already resolved wins; otherwise resolve one here -
+    // the FLOW's duty list at this level when a levelled flow applies (carrying its
+    // per-duty levels with it), else the duty ladder's.
+    let flowPlan = null;
+    if (!(Array.isArray(sequence) && sequence.length)) {
+      try {
+        flowPlan = await this.resolvedFlowPlan(duty, level, flow ?? routing?.flow ?? null);
+      } catch (err) {
+        this.logFn({ kind: "flow-plan-failed", duty, level, error: err?.message });
+      }
+    }
     const seq = Array.isArray(sequence) && sequence.length
       ? sequence
-      : await this.resolvedSequenceForDispatch(duty, level);
+      : flowPlan?.sequence?.length
+        ? flowPlan.sequence
+        : await this.resolvedSequenceForDispatch(duty, level);
     const skillInstruction = resolved.skill
       ? `[v4 duty cell: ${duty} L${level} / ${effectivePhase}; invoke skill ${resolved.skill}; target ${route.targetId}]\n`
       : `[v4 duty cell: ${duty} L${level} / ${effectivePhase}; target ${route.targetId}]\n`;
@@ -2188,6 +2614,16 @@ export class RoutedGateway {
       phase: effectivePhase,
       skill: resolved.skill ?? null,
       sequence: seq,
+      // The flow that produced `sequence`, and the level each of its duties runs
+      // at. Null for a duty-ladder sequence, and null is what the card seam reads
+      // as "no per-duty levels" - a card without them behaves exactly as before.
+      flow: flow ?? flowPlan?.flow ?? null,
+      dutyLevels: dutyLevels ?? flowPlan?.dutyLevels ?? null,
+      // The band this decision was taken under. Null on every exempt lane (a
+      // card-originated turn, a schedule, an explicit pin) and null when the
+      // consult was unavailable - both of which the card seam reads as "behave
+      // exactly as before".
+      autonomy,
       // Run-context bookkeeping the attribution helper folds onto every frame.
       // Pinned INTENT stays separate from what RAN: `overridesApplied` is what the
       // route actually carries now, `overridesRejected` is what was refused.
@@ -2281,14 +2717,50 @@ export class RoutedGateway {
       const internalOrigin = !origin || /^(?:internal|scheduler|scheduled|heartbeat|job|kanban)/.test(origin);
       const dispatched = await this.dispatchRoute(message, {
         cardLevel: opts.cardLevel,
-        deterministicOnly: cardOriginated || internalOrigin
+        deterministicOnly: cardOriginated || internalOrigin,
+        // A pinned flow decides WHICH flow's duty list the sequence comes from.
+        flow: ov?.flow ?? null
       });
       if (dispatched?.duty && Number.isInteger(dispatched.level)) {
+        // §7.1/§7.5: consult the bands HERE - the route is known and the turn has
+        // not opened yet, which is the only point where "ask first" is still an
+        // available answer. Three lanes are exempt, each for its own reason:
+        //
+        //   • deterministicOnly (card-originated, scheduled, internal) - the work
+        //     was ALREADY routed and, for a card, already authorised. Re-gating it
+        //     would ask about a decision the user made when they made the card.
+        //   • an explicit pin - a human naming the flow, duty, level or tier IS
+        //     the answer. Asking them to confirm what they just said is the
+        //     fastest way to train someone to stop reading the question.
+        //
+        // Anything else - an unpinned human request - gets the consult, and a
+        // null answer (consult unavailable) means proceed exactly as before.
+        const pinned = !!(ov && (ov.flow || ov.duty || Number.isInteger(ov.level) || ov.tier));
+        const autonomy =
+          cardOriginated || internalOrigin || pinned
+            ? null
+            : await this.autonomyFor({
+                flow: dispatched.flow ?? null,
+                duty: dispatched.duty,
+                level: dispatched.level,
+                // Both classes are `one-action` reversible, so this names what the
+                // turn will DO rather than changing the arithmetic: a task-shaped
+                // duty becomes a card (gateway-pty's D19 carding), and everything
+                // else is an inline change to code or config. Naming it honestly
+                // is what keeps the record readable when the taxonomy grows a
+                // class that is NOT one-action.
+                action: dispatched.duty && dispatched.duty !== "other" && dispatched.duty !== "dispatch"
+                  ? "card-create"
+                  : "code-change"
+              });
         return this.preRouteV4(message, {
           duty: dispatched.duty,
           level: dispatched.level,
           sequence: dispatched.sequence,
+          flow: dispatched.flow ?? null,
+          dutyLevels: dispatched.dutyLevels ?? null,
           routing: ov,
+          autonomy,
           sessionId: opts.sessionId ?? null,
           sessionTitle: opts.sessionTitle ?? null,
           rejected
@@ -3175,5 +3647,11 @@ export async function createRoutedGateway(opts = {}) {
   gw.secretsFn = opts.secretsFn ?? null;
   gw._projectResolver = opts.resolveProject ?? null;
   gw._accountResolver = opts.resolveAccount ?? null;
+  // Warm the level chain HERE rather than on first use: the HTTP edge validates a
+  // pinned flow synchronously (sanitizeRouting) and reads `gw.flowAliases` to do
+  // it, so a lazy load would silently reject a retired flow name on the first
+  // request after every gateway start. Best-effort - _levelChain never throws, and
+  // an absent chain leaves the map empty, which is the pre-level-chain behaviour.
+  await gw._levelChain();
   return gw;
 }

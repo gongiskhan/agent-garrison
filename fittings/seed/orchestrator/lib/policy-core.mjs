@@ -63,7 +63,13 @@ export const FLOW_ALIASES = Object.freeze({
   "api-change": "feature",
   "docs-change": "docs",
   "video-edit": "video",
-  "channel": "task"
+  // `channel` -> `personal`, NOT `task`. The two are similar in size and the
+  // obvious mapping is wrong: `task` is agentful (its level 1 really runs the
+  // `other` duty), while the retired `channel` flow was manual-only. Aliasing a
+  // legacy channel card onto `task` would make work that was never meant to
+  // dispatch suddenly dispatchable - an alias must preserve what a card MEANT,
+  // and the manual/agentful line matters more here than the subject matter does.
+  "channel": "personal"
 });
 
 /** Resolve a flow name read from persisted data through the alias table. */
@@ -429,12 +435,64 @@ export function levelPlanFor(flow, requested) {
 }
 
 export function railFor(config, flowName, cardToggles, level) {
-  const kindName = flowName || config.defaultFlow;
-  const kind = (config.flows || {})[kindName];
-  if (!kind) throw new Error(`policy: unknown flow "${kindName}"`);
+  const flows = config.flows || {};
+  const requested = flowName || config.defaultFlow;
+  // A flow name reaching this function is usually READ OFF SOMETHING PERSISTED -
+  // a card written months ago, a decision record, a pin the user saved - and the
+  // 2026-08-09 library rewrite retired six of the nine names those documents
+  // carry. Without the alias every one of them throws `unknown flow` at the exact
+  // moment the card is dispatched, which is the loudest possible failure for the
+  // most ordinary case there is.
+  //
+  // The alias is a FALLBACK, never a rewrite: a config that still DEFINES the old
+  // name means it (a composition may keep its own `ui-change`), so adopting first
+  // would silently re-point a live flow at a different one.
+  // DECIDED ASYMMETRY (2026-08-13): this function THROWS on a name that resolves
+  // to nothing, while the board's railForCard (kanban-loop/lib/policy.mjs) falls
+  // back to a forgiving all-on rail. That is not a drift between two mirrors, it
+  // is two different jobs:
+  //
+  //   • Here the input is CONFIG being authored, compiled or previewed. A flow
+  //     name the library does not carry is an error in the thing being written,
+  //     and it must fail where it is written - loudly, once - rather than compile
+  //     into a policy that silently runs some other plan.
+  //   • There the input is a CARD read off disk, written by whatever the library
+  //     looked like when it was created. History cannot be re-authored, and a
+  //     board that throws while rendering is a board that cannot show the user
+  //     the card they need to fix.
+  //
+  // Both sides adopt the alias first, so the two agree on every name that HAS a
+  // successor; they differ only on names that have none.
+  const kindName = flows[requested] ? requested : adoptFlow(requested);
+  const kind = flows[kindName];
+  if (!kind) throw new Error(`policy: unknown flow "${requested}"`);
+  const allPhases = Array.isArray(config.phases) ? config.phases : [...PHASES];
+  const bindings = (config.phaseSkills || {}).bindings || {};
+  const overrides = ((config.phaseSkills || {}).overrides || {})[kindName] || {};
+  const entry = (id, planOn, offReason = "phase-plan") => {
+    const toggledOff = cardToggles && cardToggles[id] === false;
+    return {
+      id,
+      on: planOn && !toggledOff,
+      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: offReason }),
+      skill: overrides[id] || bindings[id] || null
+    };
+  };
+  // A MANUAL flow refuses to run, whatever its levels say: `personal` declares
+  // levels.1.duties = ["other"] to document the shape of the work, not to license
+  // dispatching it. Resolved before the plan so a manual flow needs no plan at
+  // all, and so the rendered rail (this is what compileRoutingV2 puts in front of
+  // the operative) can never advertise a phase that will never run.
+  if (kind.manual === true) {
+    return {
+      flow: kindName,
+      evidence: "none",
+      phases: allPhases.map((id) => entry(id, false, "manual-flow"))
+    };
+  }
   // A LEVELLED flow (2026-08-09) carries its ordered duty list per level, so the
   // rail is resolved from the level the router chose. A flow with no `levels` is
-  // the pre-levels shape and still resolves through its single phase plan — one
+  // the pre-levels shape and still resolves through its single phase plan - one
   // flow, one plan, whatever the level.
   const plan = levelPlanFor(kind, level) ?? (config.phasePlans || {})[kind.phasePlan];
   if (!plan) {
@@ -444,18 +502,6 @@ export function railFor(config, flowName, cardToggles, level) {
         : `policy: flow "${kindName}" names unknown phase plan "${kind.phasePlan}"`
     );
   }
-  const allPhases = Array.isArray(config.phases) ? config.phases : [...PHASES];
-  const bindings = (config.phaseSkills || {}).bindings || {};
-  const overrides = ((config.phaseSkills || {}).overrides || {})[kindName] || {};
-  const entry = (id, planOn) => {
-    const toggledOff = cardToggles && cardToggles[id] === false;
-    return {
-      id,
-      on: planOn && !toggledOff,
-      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: "phase-plan" }),
-      skill: overrides[id] || bindings[id] || null
-    };
-  };
   const inPlan = new Map(
     (plan.phases || []).map((ph) => {
       const id = typeof ph === "string" ? ph : ph.id;
@@ -920,7 +966,7 @@ export function isSignificantAutonomous(classification) {
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
 // optional per-card toggle map merged over the flow's plan (D17).
-export function buildAutonomousCardPayload({ brief, project, flow, phases, taskType, tier, duty, level, sequence, originChannel, clarity } = {}) {
+export function buildAutonomousCardPayload({ brief, project, flow, phases, taskType, tier, duty, level, sequence, dutyLevels, originChannel, clarity } = {}) {
   return {
     description: brief || "",
     project: project || null,
@@ -953,7 +999,18 @@ export function buildAutonomousCardPayload({ brief, project, flow, phases, taskT
       ? { duty, level, sequence }
       : Array.isArray(sequence) && sequence.length
         ? { sequence }
-        : {})
+        : {}),
+    // The level EACH duty in the sequence runs at, once the flow definition's pins
+    // are applied (level-resolution.mjs: inherit → pin → escalate). Absent for a
+    // card whose sequence came from the duty ladder rather than a levelled flow -
+    // and absence is the legacy behaviour, so every consumer reads
+    // `dutyLevels?.[phase] ?? level`. It is NOT gated on duty/level like the block
+    // above: a levelled plan is a complete resolution on its own, and dropping it
+    // when the duty cell failed to resolve would throw away the only record of
+    // which level each phase was meant to run at.
+    ...(dutyLevels && typeof dutyLevels === "object" && !Array.isArray(dutyLevels) && Object.keys(dutyLevels).length
+      ? { dutyLevels }
+      : {})
   };
 }
 

@@ -3,7 +3,8 @@
 //   --setup            seed the board + register the Test scheduler beat
 //   --probe            verify the engine + board are loadable
 //   --tick             process due IMMEDIATE agent-list cards (skips scheduler-beat,
-//                      manual, and interactive lists)
+//                      manual, and interactive lists), and run the gateway-free
+//                      sweeps, including the Discuss inactivity auto-archive
 //   --tick-list <id>   process ONE list. For the Test list this is the BATCHED path
 //                      (one session per project); the Test scheduler beat calls it.
 //   --review           weekly board review: bucket cards into moving / stalled /
@@ -761,6 +762,105 @@ async function gatewayReachable(url) {
   }
 }
 
+// ── Discuss inactivity auto-archive ─────────────────────────────────────────
+// A Discuss card is a resumable conversation, which is exactly why it never leaves
+// on its own: the list is interactive, the engine never dispatches it, and a
+// discussion nobody comes back to sits on the board forever. So a Discuss card that
+// has gone quiet for the idle window moves to the terminal `archived` column with an
+// event naming the reason. A HELD card archives on the same terms - being parked on
+// a question nobody answered for a week IS inactivity.
+//
+// Archiving is reversible (a human Move brings the card back), needs no gateway, and
+// is the least destructive way to say "this conversation is over".
+const DEFAULT_DISCUSS_IDLE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The idle window in ms. GARRISON_KANBAN_DISCUSS_IDLE_DAYS overrides the default (the
+// same env-knob shape as GARRISON_KANBAN_ITERATION_CAP); an explicit 0 turns the
+// sweep OFF. A non-numeric or negative value falls back to the default rather than
+// silently disabling a sweep the operator thought they had configured.
+export function discussIdleWindowMs(env = process.env) {
+  const raw = String(env.GARRISON_KANBAN_DISCUSS_IDLE_DAYS ?? "").trim();
+  if (!raw) return DEFAULT_DISCUSS_IDLE_DAYS * DAY_MS;
+  const days = Number(raw);
+  if (!Number.isFinite(days) || days < 0) return DEFAULT_DISCUSS_IDLE_DAYS * DAY_MS;
+  return Math.round(days * DAY_MS);
+}
+
+// The freshest timestamp the CARD ITSELF carries: its created/updated stamps, the
+// last of its events, and a live run's start. Deliberately NOT the web channel's
+// thread file - the board owns cards, the channel owns threads, and reaching across
+// that line to age a card would make the board depend on a surface it does not
+// install. Every card write stamps `updated`, so a reply that touches the card (a
+// brief link, a hold, a move) counts as activity. Null when a card carries no
+// parseable timestamp at all; such a card is never archived, because we cannot prove
+// it is idle.
+export function lastCardActivityAt(card) {
+  let newest = null;
+  const consider = (value) => {
+    const t = Date.parse(value ?? "");
+    if (Number.isFinite(t) && (newest === null || t > newest)) newest = t;
+  };
+  consider(card?.created);
+  consider(card?.updated);
+  consider(card?.runningSince);
+  for (const event of Array.isArray(card?.events) ? card.events : []) consider(event?.at);
+  return newest;
+}
+
+export async function sweepIdleDiscussCards(
+  root,
+  board,
+  { now = () => Date.now(), windowMs = discussIdleWindowMs() } = {}
+) {
+  if (!(windowMs > 0)) return [];
+  const lists = Array.isArray(board?.lists) ? board.lists : [];
+  // Without the terminal column there is nowhere to archive TO, and moving a card to
+  // a list the board does not have would make it invisible.
+  if (!lists.some((l) => l?.id === "archived")) return [];
+  const discussLists = new Set(lists.filter((l) => phaseForList(l) === "discuss").map((l) => l.id));
+  if (!discussLists.size) return [];
+  const cards = await loadAllCards(root);
+  const archived = [];
+  for (const card of cards) {
+    if (!discussLists.has(card.list)) continue;
+    // A live run is not idle. A run that DIED mid-turn is released by
+    // sweepOrphanedRuns earlier in this same tick, so it becomes eligible next tick.
+    if (card.status === "running") continue;
+    const last = lastCardActivityAt(card);
+    if (last === null) continue;
+    if (now() - last < windowMs) continue;
+    const res = await updateCardCAS(root, card.id, (c) => {
+      // Re-check against the card the CAS loop just read: a reply may have landed
+      // between our scan and this write, and a reply un-idles the conversation.
+      if (!discussLists.has(c.list) || c.status === "running") return null;
+      const fresh = lastCardActivityAt(c);
+      if (fresh === null || now() - fresh < windowMs) return null;
+      const idleDays = Math.floor((now() - fresh) / DAY_MS);
+      return {
+        ...c,
+        list: "archived",
+        status: "ok",
+        runningSince: null,
+        events: withEvent(c, {
+          at: new Date(now()).toISOString(),
+          kind: "archived",
+          message: `Archived from Discuss: discuss-inactivity (${idleDays}d quiet)`,
+          detail:
+            `Nothing touched this Discuss card for ${idleDays} day(s), past the ${Math.round(windowMs / DAY_MS)}-day ` +
+            `inactivity window (GARRISON_KANBAN_DISCUSS_IDLE_DAYS). The conversation is kept - move the card back ` +
+            `to Discuss to pick it up again.`
+        })
+      };
+    });
+    // updateCardCAS returns the UNCHANGED card when the mutate opts out, so a
+    // declined re-check is truthy. Only a card that actually landed on `archived`
+    // is reported (and logged) as archived.
+    if (res?.list === "archived") archived.push(card.id);
+  }
+  return archived;
+}
+
 // Process due IMMEDIATE agent-list cards. Skips scheduler-beat (Test runs on its own
 // beat), manual, and interactive lists.
 async function tick() {
@@ -793,6 +893,13 @@ async function tick() {
   for (const failure of morning.errors) {
     console.log(`kanban-loop: Morning briefing reconciliation failed for ${failure.cardId}: ${failure.error}`);
   }
+  // Retire conversations nobody came back to. Local bookkeeping like the sweeps
+  // above, so it runs whether or not a gateway is reachable.
+  const staleDiscuss = await sweepIdleDiscussCards(root, board).catch((error) => {
+    console.log(`kanban-loop: discuss inactivity sweep failed: ${error?.message || error}`);
+    return [];
+  });
+  for (const id of staleDiscuss) console.log(`kanban-loop: archived idle Discuss card ${id} (discuss-inactivity)`);
   if (!gatewayUrl) {
     // Distinct from "the gateway is down": this instance never told the tick WHICH
     // gateway is its own, so dispatching would be a guess. Silently logging
@@ -828,6 +935,13 @@ async function tick() {
     // list-kind/trigger/interactive guards so the tick self-heals it like any agent
     // list; a card held-for-go is left alone (processCard's discuss-held guard skips it,
     // and !discussHeld gates it here too).
+    // §7.1: a card the router held below its autonomy threshold is waiting for a
+    // go and the tick must not answer on the human's behalf. A held card sits in
+    // the capture list, which the list-kind guard below already skips, so this is
+    // belt-and-suspenders in the same spirit as the discuss-held skip - and it is
+    // checked BEFORE the gated-discuss exemption, which is the one path that
+    // deliberately walks past those guards.
+    if (card.autonomyHeld === true) continue;
     const gatedDiscuss = isGatedDiscuss(card, list) && card.discussHeld !== true;
     if (!gatedDiscuss) {
       if (list.kind !== "agent") continue;                // manual / agent-interactive skip

@@ -88,6 +88,10 @@ export async function createAutonomousCard({ message, classification, opts = {},
           duty: opts.duty,
           level: opts.level,
           sequence: opts.sequence,
+          // The level EACH duty in that sequence runs at, once the flow
+          // definition's pins are applied. Absent for a duty-ladder sequence,
+          // and absence is the legacy reading (every phase runs at card.level).
+          dutyLevels: opts.dutyLevels ?? null,
           originChannel: opts.originChannel ?? null,
           // S3d (D9b): the dispatcher's clarity verdict - a needs-discuss card is
           // carded onto the interactive Discuss list (targetList) and stamped so
@@ -323,6 +327,61 @@ export async function moveCardEngine({ id, targetList, logFn = () => {} }) {
   } catch (err) {
     logFn({ kind: "card-move-failed", id, targetList, error: err?.message });
     return false;
+  }
+}
+
+// Raise a card's per-duty levels (the level chain's escalation, applied). The
+// board is the storage boundary that enforces raise-only, so a REFUSAL here is a
+// real answer and not a transport failure: it comes back as {ok:false, error} and
+// the caller reports it rather than retrying into the same refusal.
+//
+// Same engine-context PATCH + rev-refresh retry as every other move in this file
+// (the board bumps a card's rev under us for its own reasons). Unlike the moves,
+// this one does NOT swallow its failure: an escalation that was logged as applied
+// but never landed on the card is precisely the drift the decisions log exists to
+// make impossible.
+export async function patchCardDutyLevels({ id, dutyLevels, reason = null, logFn = () => {} }) {
+  try {
+    const base = boardBase();
+    if (!base || !id) return { ok: false, error: "board unavailable" };
+    if (!dutyLevels || typeof dutyLevels !== "object") return { ok: false, error: "dutyLevels is required" };
+    let lastError = "board PATCH failed";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let rev = 0;
+      try {
+        const fresh = await fetch(`${base}/cards/${encodeURIComponent(id)}`);
+        if (fresh.ok) {
+          const doc = await fresh.json();
+          rev = doc.card?.rev ?? doc.rev ?? 0;
+        }
+      } catch { /* fall through with rev 0 */ }
+      const patched = await fetch(`${base}/cards/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ dutyLevels, ...(reason ? { escalationReason: reason } : {}), rev })
+      });
+      if (patched.ok) {
+        const doc = await patched.json().catch(() => null);
+        logFn({ kind: "card-duty-levels-raised", id, dutyLevels });
+        return { ok: true, card: doc?.card ?? null };
+      }
+      // A refusal (the raise-only guard, a bad shape, engine context missing) is
+      // FINAL - only the board's 409 "card changed under you" is worth another
+      // attempt, and only because the board bumps a card's rev for its own
+      // reasons between the read and the write.
+      if (patched.status !== 409) {
+        const body = await patched.json().catch(() => null);
+        lastError = body?.message || body?.error || `board PATCH ${patched.status}`;
+        break;
+      }
+      lastError = "card changed under the escalation";
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+    logFn({ kind: "card-duty-levels-failed", id, error: lastError });
+    return { ok: false, error: lastError };
+  } catch (err) {
+    logFn({ kind: "card-duty-levels-failed", id, error: err?.message });
+    return { ok: false, error: err?.message ?? "board PATCH failed" };
   }
 }
 

@@ -58,7 +58,20 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
     status: "ok",
     iterations: 0,
     rev: 0,
+    // Deliberately a RETIRED flow name (the 2026-08-09 library rewrite folded
+    // `full-feature` into `feature`). Every card already on a real board carries a
+    // pre-rewrite name, so this fixture doubles as the alias path's coverage: the
+    // rail must resolve through FLOW_ALIASES to the levelled `feature` plan instead
+    // of failing to find the flow at all and rendering every phase on.
+    //
+    // The level is now load-bearing and therefore explicit: a levelled flow's rail
+    // IS its duty list at the card's level, and these cases advance implement ->
+    // review and test -> adversarial-test, which only level 3 runs. At a lower
+    // level the rail would skip the gate's declared next phase and the D9
+    // concordance check would refuse the advance - correctly, but that is a
+    // different test than the empty-output race.
     flow: "full-feature",
+    level: 3,
     goalMode: false,
     acceptance: null,
     events: [],
