@@ -118,9 +118,9 @@ x-garrison:
       description: >-
         Comma-separated spellings of the operative's name (Zeca), matched case-insensitively on word boundaries; a
         space inside a spelling also matches a hyphen, for transcripts that split the name. Portuguese and English
-        transcripts both occur. A wake only fires when the name is ADDRESSED - opening the utterance or a clause, or
-        after a short vocative lead-in - never on a passing mention. A value left over from the retired name (gary,
-        garry, gerry, géri) is ignored in favour of this default.
+        transcripts both occur. Position is not considered: the name ANYWHERE in a segment opens a capture window,
+        mid-sentence included. A value left over from the retired name (gary, garry, gerry, géri) is ignored in
+        favour of this default.
     - key: wake_silence_close_ms
       type: integer
       default: 4000

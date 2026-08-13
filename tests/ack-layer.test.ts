@@ -106,12 +106,10 @@ describe("ack — spoken into a live microphone", () => {
     expect(() => renderAck("card.created", { subject: "send Zeca the invoice" })).toThrow(/wake word/);
   });
 
-  // This guard is INTENTIONALLY blunter than omi-channel's wake gate, which
-  // additionally requires the name to be addressed and so would let "send Zeca
-  // the invoice" pass. The two ask different questions: the gate asks "was the
-  // operative addressed", this asks "could saying this aloud ever be heard as
-  // the wake word". Only the conservative answer is safe to speak.
-  it("refuses even where the wake gate itself would not fire", () => {
+  // omi-channel's gate matches the token ANYWHERE in a segment, so a sentence
+  // carrying the name mid-clause really would open a capture window if spoken.
+  // That makes this the only thing between a voice sink and the pendant.
+  it("refuses the name mid-sentence, not just at the front", () => {
     expect(() => assertSpeakable("Finished it, tell Zeca to run card 4F2A.")).toThrow(/wake word/);
   });
 

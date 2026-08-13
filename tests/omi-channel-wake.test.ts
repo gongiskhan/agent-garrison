@@ -1,7 +1,7 @@
 // Omi channel M4 — wake bus acceptance (build spec): scripted segment streams
 // with timing trigger exactly on the configured variants and never on
-// near-misses ("garrison", "seca" must NOT trigger) nor on a mere MENTION of
-// the operative's name ("o Zeca ligou"); duplicate segment
+// near-misses ("garrison", "seca", "biblioteca" must NOT trigger) but DO trigger
+// on the name anywhere in a segment, mid-sentence included; duplicate segment
 // delivery does not double-dispatch; the kill switch is honored mid-session;
 // non-hit segments are never persisted (I5); the wake_hit_to_notification_ms
 // latency metric is emitted; each intent lands in its home (card via board,
@@ -17,11 +17,11 @@ import { Ingress } from "../fittings/seed/omi-channel/lib/ingress.mjs";
 import {
   WakeBus,
   buildWakePrompt,
+  buildDelegatePrompt,
   parseWakeReply,
-  wakeRegex,
-  matchWake,
-  isAddressPosition
+  wakeRegex
 } from "../fittings/seed/omi-channel/lib/wake.mjs";
+import { buildAskDelegatePrompt } from "../fittings/seed/omi-channel/lib/chat.mjs";
 import { MemoryWriter } from "../fittings/seed/omi-channel/lib/memory-writer.mjs";
 
 const VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
@@ -127,12 +127,12 @@ describe("wake token match", () => {
   });
 });
 
-// The token is only half the gate. "Zeca" is an ordinary Portuguese given name,
-// so a pendant hears it in conversation ABOUT a person many times a day; only
-// speech ADDRESSED to the operative may open a capture window.
-describe("wake address-position gate", () => {
+// Position is deliberately NOT part of the gate: the operator's call is that the
+// name essentially never occurs in ambient speech here, so a mid-sentence hit is
+// a real command far more often than it is a false wake. These pin that the
+// anywhere-match is intended behaviour and not an oversight to be "fixed" later.
+describe("wake fires on the token anywhere in the segment", () => {
   const re = wakeRegex(VARIANTS)!;
-  const fires = (text: string) => matchWake(text, re) !== null;
 
   it("fires when the name opens the utterance", () => {
     for (const hit of [
@@ -141,83 +141,36 @@ describe("wake address-position gate", () => {
       "Zeca?",
       "zeca cria uma tarefa para comprar peixe"
     ]) {
-      expect(fires(hit), hit).toBe(true);
+      expect(re.test(hit), hit).toBe(true);
     }
   });
 
-  it("fires after a short vocative lead-in, in either language", () => {
+  it("fires after a vocative lead-in, in either language", () => {
     for (const hit of [
       "Hey Zeca, what is on my board?",
       "ok Zeca do it",
       "no Zeca, make that Wednesday not Tuesday",
       "não Zeca, quarta-feira",
       "então Zeca, marca a revisão do carro",
-      "oi Zeca",
-      "well ok Zeca do the thing"
+      "ó Zeca!"
     ]) {
-      expect(fires(hit), hit).toBe(true);
+      expect(re.test(hit), hit).toBe(true);
     }
   });
 
-  it("fires when the name opens a later clause in the same segment", () => {
-    expect(fires("I called him earlier. Zeca, create a task")).toBe(true);
-    // A mention must not mask a genuine address later in the same segment.
-    expect(fires("o Zeca ligou. Zeca, cria uma tarefa")).toBe(true);
-  });
-
-  it("does NOT fire on the name in object position", () => {
-    for (const miss of [
-      "send Zeca the invoice",
+  // The cases an address-position rule would reject. They MUST wake: an
+  // address-only gate was built, tested live, and removed because the missed
+  // wakes were the real cost and the false wakes were theoretical.
+  it("fires on the name mid-sentence and in object position", () => {
+    for (const hit of [
+      "manda ao Zeca a factura da oficina",
+      "depois pergunta ao Zeca sobre isso",
+      "o Zeca que trate disto",
       "I'll ask Zeca about the invoice tomorrow",
-      "we should tell Zeca to run card 4F2A",
-      // Garrison's own outbound copy has exactly this shape, so this is also
-      // what stops a voice sink from re-triggering the pendant it speaks into.
-      'Tell Zeca: "run card 4F2A" to start it, or "snooze card 4F2A for 2 hours"'
+      "yesterday Zeca called me about it"
     ]) {
-      expect(fires(miss), miss).toBe(false);
+      expect(re.test(hit), hit).toBe(true);
     }
-  });
-
-  it("does NOT fire on a third-person mention", () => {
-    for (const miss of [
-      // The Portuguese article is how the language talks ABOUT someone, and is
-      // excluded from the lead-in set for exactly this reason.
-      "o Zeca ligou ontem",
-      "a Zeca chegou tarde",
-      "acho que o Zeca já foi embora",
-      "yesterday Zeca called me about it",
-      "my cousin Zeca is coming over"
-    ]) {
-      expect(fires(miss), miss).toBe(false);
-    }
-  });
-
-  it("does NOT fire when the lead-in run is longer than a vocative", () => {
-    // Every word here is individually a lead-in, but four of them is a sentence,
-    // not an address - the cap is what stops the set from becoming a substring.
-    expect(fires("well now look listen Zeca")).toBe(false);
-  });
-
-  it("keeps the near-miss and retired-name negatives at the gate level", () => {
-    for (const miss of ["the garrison deploy is fine", "Hey Gary, create a task", "a roupa está seca"]) {
-      expect(fires(miss), miss).toBe(false);
-    }
-  });
-});
-
-describe("isAddressPosition", () => {
-  it("treats the start of the text as an address", () => {
-    expect(isAddressPosition("Zeca, do it", 0)).toBe(true);
-  });
-
-  it("reads only the current clause, not the whole segment", () => {
-    const text = "I spoke to the lawyer about the contract yesterday. Zeca, create a task";
-    expect(isAddressPosition(text, text.indexOf("Zeca"))).toBe(true);
-  });
-
-  it("rejects a preceding verb", () => {
-    const text = "send Zeca the invoice";
-    expect(isAddressPosition(text, text.indexOf("Zeca"))).toBe(false);
   });
 });
 
@@ -273,7 +226,7 @@ describe("wake bus sessions", () => {
     }
   });
 
-  it("near-misses, homophones and mere MENTIONS never open a session or persist anything", async () => {
+  it("near-misses and homophones never open a session or persist anything", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-miss-"));
     try {
       const { bus, store, counters, sent } = makeDeps(home, () => "{}");
@@ -281,14 +234,11 @@ describe("wake bus sessions", () => {
         sessionId: "s2",
         segments: [
           seg("the garrison deploy finished", 0, 2),
-          // Ordinary words that carry the name's sound or letters.
+          // Ordinary words that carry the name's sound or its letters. These are
+          // the ONLY class of non-hit now that position is not part of the gate,
+          // which is exactly why the variant list excludes "seca" and "sega".
           seg("a roupa ainda está seca", 3, 5),
-          seg("fui à biblioteca com a Rebeca", 6, 8),
-          // The case the gate tightened for: an always-on mic in a Portuguese
-          // house hears the name in third person and in object position all day,
-          // and neither is speech addressed to the operative.
-          seg("o Zeca ligou ontem à noite", 9, 11),
-          seg("depois mando ao Zeca a factura", 12, 14)
+          seg("fui à biblioteca com a Rebeca", 6, 8)
         ]
       });
       await new Promise((r) => setTimeout(r, 150));
@@ -296,7 +246,26 @@ describe("wake bus sessions", () => {
       expect(store.listEvents()).toHaveLength(0);
       const c = counters.read();
       expect(c.wake_hits ?? 0).toBe(0);
-      expect(c.wake_segments_dropped).toBe(5);
+      expect(c.wake_segments_dropped).toBe(3);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // The behavioural counterpart of the regex tests above, through the real bus:
+  // a mid-sentence mention is a WAKE and gets captured like any other command.
+  it("a mid-sentence hit opens a capture window like any other", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-mid-"));
+    try {
+      const { bus, counters, sent } = makeDeps(home, () =>
+        JSON.stringify({ intent: "note", title: "factura", note_content: "Send the invoice." })
+      );
+      bus.handleSegments({
+        sessionId: "s-mid",
+        segments: [seg("depois manda ao Zeca a factura da oficina", 0, 2)]
+      });
+      await waitFor(() => sent.length === 1);
+      expect(counters.read().wake_hits).toBe(1);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -420,6 +389,39 @@ describe("wake bus sessions", () => {
       expect(result.intent).toBe("note_fallback");
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+// Regression, 2026-08-13. The wake lane's delegate prompt said only "using your
+// tools and connected services" while the chat lane's named the Kanban board.
+// Same operative, same operativeFn object, same minute: spoken "what is on my
+// board?" answered "your board is empty - I checked the task list" (its own
+// in-session to-do list, which really was empty) while the chat lane correctly
+// reported 10 To Do / 41 Backlog. Nothing downstream can catch that - the answer
+// is confident, well-formed and wrong - so both prompts are pinned here.
+describe("delegate prompts name the user's real surfaces", () => {
+  const prompts: Array<[string, string]> = [
+    ["wake", buildDelegatePrompt("what is on my board?")],
+    ["chat", buildAskDelegatePrompt("what is on my board?")]
+  ];
+
+  it("names the Kanban board explicitly on every lane", () => {
+    for (const [lane, prompt] of prompts) {
+      expect(prompt, lane).toMatch(/Kanban board/i);
+    }
+  });
+
+  it("rules out the operative's own to-do list on every lane", () => {
+    for (const [lane, prompt] of prompts) {
+      expect(prompt, lane).toMatch(/to-do list/i);
+      expect(prompt, lane).toMatch(/never report an empty tool of your own/i);
+    }
+  });
+
+  it("still carries the request itself", () => {
+    for (const [lane, prompt] of prompts) {
+      expect(prompt, lane).toContain("what is on my board?");
     }
   });
 });

@@ -285,23 +285,24 @@ after it, and both changed:
 - **Chat tool.** `ask_gary` -> `ask_zeca`, in the manifest, the handler and
   the status message.
 
-The rename forced a gate change rather than a substitution. "Gary" is rare
-in a Portuguese-speaking house; **"Zeca" is an ordinary given name**, and
-the old gate fired on the token ANYWHERE in a segment - so every "o Zeca
-ligou" would have opened a capture window and fed the next sentence to the
-operative as a command. The gate is now two halves: `wakeRegex` finds the
-token, and `isAddressPosition` requires it to be ADDRESSED - opening the
-utterance or a clause, or after at most three vocative lead-ins ("hey",
-"ok", "não", "então"). The Portuguese article "o" is excluded from that
-list on purpose, which also costs the vocative "ó Zeca" (they are the same
-word once accents are folded); losing one vocative beats admitting every
-third-person mention.
+**The gate stayed position-blind, after an experiment that said otherwise.**
+Because "Gary" is rare in a Portuguese-speaking house and **"Zeca" is an
+ordinary given name**, an address-position rule was built alongside the
+rename: `wakeRegex` found the token, `isAddressPosition` required it to be
+ADDRESSED (opening the utterance or a clause, or after a short vocative
+lead-in). It shipped, was proven live against the real `/omi/realtime`
+webhook, and was then REMOVED the same day on the operator's call: in this
+household the name essentially never occurs in ambient speech, so the false
+wakes it defended against were theoretical while the missed wakes it caused
+would have been real and daily. "manda ao Zeca a factura" wakes exactly like
+"Zeca, manda a factura".
 
-Side effect worth having: the name in object position no longer self-
-triggers, so Garrison's own outbound copy ("tell Zeca to run card 4F2A")
-is inert to the pendant. `ack.mjs`'s speakability guard stays a bare
-substring check anyway - it fails closed by design, and diverging in the
-stricter direction is what its comment already blesses.
+That decision leans on one guard, so do not weaken it: `ack.mjs`'s
+`assertSpeakable` refuses to RENDER any ack carrying the word, which is what
+stops a voice sink from speaking the pendant into a capture window. With no
+address rule, that render-time rejection is the only thing standing between
+Garrison's own voice and its own ears. A capture that turns out to be
+nothing still classifies as `unknown` and is saved as a note, not acted on.
 
 Compatibility: a stored `wake_variants` made up entirely of retired
 spellings (`gary,garry,gerry,géri`) is read as unset and falls through to

@@ -150,12 +150,18 @@ Expected, in order:
 Negative checks - none of these may push or card, and each should only
 increment `wake_segments_dropped`:
 
-- "the garrison deploy is fine" - near-miss, no wake token at all.
-- "o Zeca ligou ontem" / "I'll send Zeca the invoice" - the name is
-  MENTIONED, not addressed. This is the case the wake gate tightened for:
-  "Zeca" is an ordinary Portuguese given name, so it only wakes when it
-  opens the utterance or a clause, or follows a short vocative lead-in
-  ("hey Zeca", "ok Zeca do it", "não Zeca, quarta-feira").
+- "the garrison deploy is fine" - no wake token at all.
+- "a roupa ainda está seca" / "fui à biblioteca com a Rebeca" - words that
+  carry the name's sound or its letters. These are the ONLY class of
+  non-hit, which is why `seca` and `sega` are excluded from the variants.
+
+**Position does not matter.** The name ANYWHERE in a segment wakes the
+operative, mid-sentence included: "manda ao Zeca a factura" opens a capture
+window exactly like "Zeca, manda a factura". An address-position rule was
+built and removed on 2026-08-13 - the name essentially never comes up in
+ambient speech here, so the missed wakes cost more than the false ones. If
+that ever stops being true, the symptom is spurious cards with `origin: omi`
+after conversations ABOUT someone of that name.
 
 ## 8. Day summary caveat
 

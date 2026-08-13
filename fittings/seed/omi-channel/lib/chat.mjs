@@ -84,7 +84,7 @@ If answering correctly requires ANY of the things you cannot see, or requires do
 export function buildAskDelegatePrompt(query) {
   return `The user asked this in their wearable's chat: "${query}"
 
-Answer it properly using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. If they are asking you to do something, do it. If something is genuinely unavailable (no access, missing credential, service not connected), say exactly what is missing in one sentence rather than guessing.
+Answer it properly using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. "My board", "my tasks" and "my cards" always mean the user's KANBAN BOARD, never your own in-session to-do list; read the board through its tool before answering anything about it. If they are asking you to do something, do it. If something is genuinely unavailable (no access, missing credential, service not connected), say exactly what is missing in one sentence rather than guessing, and never report an empty tool of your own as if it were the user's data.
 
 Reply in under 80 words, plain text, no markdown, no preamble. This is delivered to their phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
 }

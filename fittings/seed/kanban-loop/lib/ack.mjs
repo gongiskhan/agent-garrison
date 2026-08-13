@@ -34,11 +34,11 @@ import crypto from "node:crypto";
 // drift here fails closed (a stricter regex rejects more templates, it never lets
 // a wake word through unnoticed).
 //
-// One drift is INTENTIONAL: omi-channel's gate additionally requires the name to
-// be ADDRESSED (isAddressPosition), so it ignores "send Zeca the invoice". This
-// guard deliberately does not, because it is asking a different question - "could
-// speaking this sentence out loud ever be heard as the wake word" - and the
-// conservative answer is the safe one.
+// This guard carries MORE weight than it looks like it should. omi-channel's gate
+// matches the token anywhere in a segment, with no address-position requirement,
+// so a spoken sentence carrying the word ANYWHERE opens a capture window. That
+// makes render-time rejection here the only thing standing between a voice sink
+// and the pendant it speaks into.
 const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
 
 // Kept in step with omi-channel's config.mjs: a stored value made up entirely of

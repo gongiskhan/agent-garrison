@@ -341,8 +341,6 @@ declare module "*/omi-channel/lib/notify.mjs" {
 
 declare module "*/omi-channel/lib/wake.mjs" {
   export function wakeRegex(variants: string[]): RegExp | null;
-  export function isAddressPosition(text: unknown, index: number): boolean;
-  export function matchWake(text: string, regex: RegExp | null): { index: number; token: string } | null;
   export function normalizeTitle(title: unknown): string;
   export function buildRevisionPrompt(args: {
     command: string;
@@ -357,6 +355,7 @@ declare module "*/omi-channel/lib/wake.mjs" {
     note: string;
   } | null;
   export function buildWakePrompt(command: string, projects: string[]): string;
+  export function buildDelegatePrompt(request: string): string;
   export function parseWakeReply(reply: string): {
     intent: "create_task" | "create_event" | "query" | "note" | "unknown";
     title: string;
@@ -401,6 +400,7 @@ declare module "*/omi-channel/lib/wake.mjs" {
 
 declare module "*/omi-channel/lib/chat.mjs" {
   export const ASK_DEADLINE_MS: number;
+  export function buildAskDelegatePrompt(query: string): string;
   export function buildManifest(cfg: unknown): {
     tools: Array<{
       name: string;

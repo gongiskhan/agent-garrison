@@ -23,7 +23,19 @@ const SESSION_IDLE_GC_MS = 10 * 60 * 1000;
 // Whitespace inside a variant is a split form ("ze ca"): Deepgram sometimes
 // breaks the name across a space or a hyphen, so either separator matches.
 //
-// Finding the token is only HALF the gate - see isAddressPosition below.
+// The token ANYWHERE in the segment is the whole gate: position is deliberately
+// not considered, so "manda ao Zeca a factura" wakes exactly like "Zeca, manda
+// a factura". An address-position rule was built and then removed (2026-08-13)
+// on the operator's call - in this household the name essentially never occurs
+// in ambient speech, so the false-wake risk it defended against is theoretical
+// while the missed wakes it caused would be real and daily.
+//
+// Two things make that safe to rely on rather than lucky:
+//   * Garrison's own spoken acks cannot carry the word at all - ack.mjs's
+//     assertSpeakable refuses to render one, so a voice sink can never speak the
+//     pendant into a capture window.
+//   * A capture that turns out to be nothing classifies as `unknown` and is
+//     saved as a note rather than acted on.
 export function wakeRegex(variants) {
   const escaped = variants
     .map((v) => v.trim())
@@ -33,87 +45,6 @@ export function wakeRegex(variants) {
   // Deliberately NOT global: callers use .test() on a long-lived instance, and a
   // sticky lastIndex would make every other call a miss.
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "iu");
-}
-
-// Words that may precede a direct address without turning the name into an
-// object: greetings, acknowledgements, hesitation noises and the conjunctions a
-// sentence actually starts with, in both languages the wearer speaks.
-//
-// Portuguese articles are POINTEDLY absent. "o Zeca fez isso" is how Portuguese
-// talks ABOUT someone, and it is the single most common way the name occurs in
-// ambient speech - admitting "o" would hand back most of what this gate buys.
-// That also costs us the vocative particle "ó Zeca!", which folds to the same
-// bare "o" once accents are stripped and so cannot be told apart from the
-// article. Losing one vocative is the cheaper side of that trade.
-const VOCATIVE_LEAD_INS = new Set([
-  // English
-  "hey", "hi", "hello", "ok", "okay", "oh", "ah", "so", "well", "now", "look",
-  "listen", "please", "yes", "yeah", "yep", "no", "nope", "um", "uh", "er",
-  // Portuguese
-  "oi", "ola", "opa", "entao", "mas", "e", "bom", "bem", "olha", "escuta",
-  "atencao", "sim", "nao", "pa", "epa", "ha", "por", "favor"
-]);
-const MAX_LEAD_IN_WORDS = 3;
-
-function foldWord(w) {
-  return String(w ?? "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase();
-}
-
-// The second half of the gate: is the token an ADDRESS, or merely a mention?
-//
-// "Zeca" is an ordinary Portuguese given name. An always-on pendant in a
-// Portuguese-speaking house hears it in conversation ABOUT a person several
-// times a day, and every one of those used to open a capture window and feed
-// whatever was said next to the operative as a command. So a hit only counts
-// when the speech is aimed AT the operative: the name opens the utterance, or
-// opens a clause after sentence punctuation, or trails a short run of vocative
-// lead-ins ("hey Zeca", "ok Zeca do it", "não Zeca, quarta-feira").
-//
-// Everything else is left to pass by uncaptured - most importantly the name in
-// object position, which is exactly the shape of the sentences Garrison's OWN
-// notifications and voice sinks produce ("send Zeca the invoice", "tell Zeca to
-// run card 4F2A"). Those cannot self-trigger the pendant any more.
-//
-// This is a hit-rate trade made on purpose. A missed wake costs one repeated
-// sentence; a false wake silently captures speech the user never addressed to
-// anyone and acts on it.
-export function isAddressPosition(text, index) {
-  const before = String(text ?? "").slice(0, index);
-  // Only the current clause matters: "I called him. Zeca, create a task" is an
-  // address even though the segment does not start with the name.
-  const clause = before.split(/[.!?;:\n]/u).pop() ?? "";
-  const words = clause.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (words.length === 0) return true;
-  if (words.length > MAX_LEAD_IN_WORDS) return false;
-  return words.every((w) => VOCATIVE_LEAD_INS.has(foldWord(w)));
-}
-
-// Scanning needs a global regex; the shared one is deliberately not global, so
-// keep one global twin per instance rather than recompiling per segment.
-const globalTwins = new WeakMap();
-function globalTwin(regex) {
-  let g = globalTwins.get(regex);
-  if (!g) {
-    g = new RegExp(regex.source, `${regex.flags}g`);
-    globalTwins.set(regex, g);
-  }
-  return g;
-}
-
-// First token in the segment that is BOTH a variant and an address. Scans every
-// occurrence rather than stopping at the first, so a mention early in a segment
-// cannot mask a real address later in it ("o Zeca ligou. Zeca, cria uma tarefa").
-export function matchWake(text, regex) {
-  if (!regex) return null;
-  const g = globalTwin(regex);
-  g.lastIndex = 0;
-  for (let m = g.exec(text); m; m = g.exec(text)) {
-    if (isAddressPosition(text, m.index)) return { index: m.index, token: m[0] };
-  }
-  return null;
 }
 
 // Does this segment end a sentence? Omi's transcriber punctuates, so a trailing
@@ -332,12 +263,23 @@ export function parseWakeReply(reply) {
 // may be mangled and the reply will be READ ALOUD or shown on a phone), that he
 // should act rather than propose, and that the answer must be short enough to
 // survive a notification.
+//
+// The surfaces are NAMED, and the Kanban board is disambiguated from the
+// session to-do list on purpose. This prompt used to say only "using your tools
+// and connected services", and a spoken "what is on my board?" came back
+// "your board is empty right now - I checked the task list" while the chat lane,
+// whose prompt did name the board, correctly reported 10 To Do / 41 Backlog on
+// the same operative in the same minute (2026-08-13). The operative had reached
+// for its own in-session to-do list, which really was empty, and reported that
+// as the user's board. Vocabulary the user shares with an unrelated tool has to
+// be pinned to the right one here, because nothing downstream can catch it: the
+// answer is confident, well-formed, and wrong.
 export function buildDelegatePrompt(request) {
   return `This request came from the user speaking to their wearable, so the wording may be garbled by transcription - read it for intent, not literally.
 
 Request: "${request}"
 
-Do it now, using your tools and connected services. Don't ask for confirmation and don't propose a plan - if something is ambiguous, make the reasonable choice and say which one you made. If you genuinely cannot do it (no access, missing credential, service not connected), say exactly what is missing in one sentence - do not pretend it is done.
+Do it now, using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. "My board", "my tasks" and "my cards" always mean the user's KANBAN BOARD, never your own in-session to-do list; read the board through its tool before answering anything about it. Don't ask for confirmation and don't propose a plan - if something is ambiguous, make the reasonable choice and say which one you made. If you genuinely cannot do it (no access, missing credential, service not connected), say exactly what is missing in one sentence - do not pretend it is done, and never report an empty tool of your own as if it were the user's data.
 
 Then reply with what you DID (or found), in under 60 words, plain text, no markdown, no preamble. This reply is delivered to the user's phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
 }
@@ -562,7 +504,7 @@ export class WakeBus {
           continue;
         }
 
-        const m = matchWake(text, this.regex);
+        const m = this.regex.exec(text);
         if (!m) {
           // Non-hit: dropped in memory, counted, never persisted/logged (I5).
           // It is retained ONLY in the bounded in-memory context ring, which is
@@ -581,7 +523,7 @@ export class WakeBus {
         s.contextUsed = this.contextWindow(s);
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
-        const after = text.slice(m.index + m.token.length).replace(/^[\s,.:;!?-]+/u, "").trim();
+        const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
         // Only a wake segment that itself carries a complete command settles
         // early; a bare "Zeca" waits the full window for what follows it.
