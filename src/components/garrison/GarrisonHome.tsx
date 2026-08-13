@@ -12,6 +12,16 @@ import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
 import styles from "./GarrisonHome.module.css";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
+import type { Correction, CorrectionField, Verdict } from "@/lib/decision-verdicts";
+import {
+  fetchRouteOptions,
+  postVerdict,
+  verdictPayload,
+  type FeedbackDecision,
+  type RouteOptionsResponse
+} from "@/lib/decision-feedback";
+import { RouterFeedbackCard } from "./RouterFeedbackCard";
+import { OutboxStrip } from "./OutboxStrip";
 
 export function GarrisonHome() {
   const {
@@ -114,6 +124,11 @@ export function GarrisonHome() {
             </div>
           </div>
         ) : null}
+
+        {/* Above the dossier on purpose: a cancel window is 60 seconds long, so
+            it has to be the first thing on the page, not a panel below the
+            fold. Renders nothing at all when nothing is parked. */}
+        <OutboxStrip />
 
         <article className={styles.operativeDossier}>
           <div className={styles.dossierHead}>
@@ -269,8 +284,11 @@ const ATTENTION_TITLES_SHOWN = 5;
 // is just an assertion.
 function RouterPanel() {
   const [tracks, setTracks] = useState<RouterTracks | null>(null);
-  const [latest, setLatest] = useState<LatestDecision | null>(null);
-  const [answered, setAnswered] = useState<string | null>(null);
+  const [latest, setLatest] = useState<FeedbackDecision | null>(null);
+  const [answered, setAnswered] = useState<Verdict | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [options, setOptions] = useState<RouteOptionsResponse | null>(null);
+  const [openField, setOpenField] = useState<CorrectionField | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,7 +301,7 @@ function RouterPanel() {
         if (cancelled) return;
         if (a) setTracks(a as RouterTracks);
         const row = (d?.decisions ?? d?.rows ?? [])[0] ?? null;
-        if (row) setLatest(row as LatestDecision);
+        if (row) setLatest(row as FeedbackDecision);
       } catch {
         // Quiet on failure, like every other panel here: a dashboard should not
         // shout about a feed that simply is not there.
@@ -297,17 +315,26 @@ function RouterPanel() {
     };
   }, []);
 
-  const verdict = async (v: "right" | "wrong") => {
+  // The routing vocabulary costs a gateway round trip and almost every visit to
+  // this page never opens a menu, so it is read on the first correction rather
+  // than on the 60s poll.
+  const openDimension = (field: CorrectionField) => {
+    setOpenField((prev) => (prev === field ? null : field));
+    if (!options) void fetchRouteOptions().then(setOptions);
+  };
+
+  const answer = async (verdict: Verdict, correction?: Correction) => {
     if (!latest?.id) return;
-    setAnswered(v); // optimistic: the answer is recorded, the panel moves on
+    setAnswered(verdict); // optimistic: the answer is recorded, the panel moves on
+    setOpenField(null);
+    setFailed(false);
     try {
-      await fetch("/api/orchestrator/decisions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decisionId: latest.id, verdict: v })
-      });
+      await postVerdict(verdictPayload(latest, verdict, correction));
     } catch {
+      // Put the card back rather than leaving a "thanks" over a verdict that
+      // never landed.
       setAnswered(null);
+      setFailed(true);
     }
   };
 
@@ -329,20 +356,16 @@ function RouterPanel() {
       )}
 
       {latest && !answered ? (
-        <div className={styles.routerAsk}>
-          <div className={styles.routerAskHead}>Was this route right?</div>
-          <div className={styles.routerAskBody}>
-            {[latest.flow, latest.duty, latest.level ? `L${latest.level}` : null, latest.model]
-              .filter(Boolean)
-              .join(" · ")}
-          </div>
-          <div className={styles.routerAskActions}>
-            <button type="button" onClick={() => void verdict("right")}>
-              Right
-            </button>
-            <Link href="/muster?section=decisions">Wrong - correct it</Link>
-          </div>
-        </div>
+        <RouterFeedbackCard
+          decision={latest}
+          options={options}
+          openField={openField}
+          failed={failed}
+          onOpenField={openDimension}
+          onConfirm={() => void answer("right")}
+          onWrong={() => void answer("wrong")}
+          onCorrect={(field, value) => void answer("wrong", { [field]: value } as Correction)}
+        />
       ) : null}
       {answered ? <p className={styles.panelNote}>Recorded. Thanks.</p> : null}
 
@@ -376,14 +399,6 @@ interface RouterTracks {
     signals: Record<string, number>;
     band: { band: string; confidence: number };
   }[];
-}
-
-interface LatestDecision {
-  id: string;
-  flow?: string | null;
-  duty?: string | null;
-  level?: number | null;
-  model?: string | null;
 }
 
 function BoardPanel() {

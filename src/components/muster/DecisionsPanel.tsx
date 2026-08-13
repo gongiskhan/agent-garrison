@@ -19,10 +19,20 @@
 // records carry a digest, never the user's message. A verdict adds no free text —
 // it is a closed vocabulary plus ids — so there is nothing new to redact.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { DecisionView } from "@/lib/decisions-feed";
-import { CORRECTION_FIELDS, type Correction, type Verdict } from "@/lib/decision-verdicts";
+import { type Correction, type Verdict } from "@/lib/decision-verdicts";
+import {
+  CARD_FIELD_ORDER,
+  fetchRouteOptions,
+  fieldLabel,
+  optionsForField,
+  postVerdict,
+  resolvedSpec,
+  verdictPayload,
+  type RouteOptionsResponse
+} from "@/lib/decision-feedback";
 import styles from "./Orchestrator.module.css";
 
 type Status = "loading" | "ready" | "error";
@@ -61,30 +71,10 @@ function sessionHref(id: string): string {
   return `/fitting/web-channel-default/?thread=${encodeURIComponent(id)}`;
 }
 
-/** What this decision actually resolved to, in the run-spec vocabulary — recorded
- *  alongside a correction so the Improver sees the delta without re-reading the log. */
-function resolvedSpec(d: DecisionView): Correction {
-  const out: Correction = {};
-  if (d.target) out.target = d.target;
-  if (d.model) out.model = d.model;
-  if (d.effort) out.effort = d.effort;
-  if (d.duty) out.duty = d.duty;
-  if (d.tier) out.tier = d.tier;
-  return out;
-}
-
 const VERDICT_LABEL: Record<Verdict, string> = {
   right: "Right call",
   wrong: "Wrong",
   unsure: "Not sure"
-};
-
-/** Human names for the correction fields. The wire names are camelCase, and
- *  uppercased in the UI they render as WORKKIND / PHASESOFF - identifiers, not
- *  words. Only the two that need it are listed; the rest are already words. */
-const FIELD_LABEL: Partial<Record<string, string>> = {
-  flow: "flow",
-  phasesOff: "phases off"
 };
 
 /**
@@ -94,24 +84,32 @@ const FIELD_LABEL: Partial<Record<string, string>> = {
  * express "I cannot evaluate this" is silence, and silence would read to the
  * Improver as approval.
  *
- * The correction is free text per dimension rather than a menu, deliberately: this
- * panel is a Garrison-shell surface and the routing vocabulary lives in the gateway
- * process, so a menu here would need a fourth copy of that catalogue. The value is
- * validated where every other pin is — at the gateway edge — and the Improver only
- * ever produces a proposal a human approves. A wrong string costs a rejected
- * proposal, not a misrouted run.
+ * The correction was free text per dimension because the routing vocabulary lives
+ * in the gateway process and a menu here would have needed a fourth copy of that
+ * catalogue. It no longer does: the shell proxies the gateway's own
+ * `/route/options` (`/api/orchestrator/route-options`), so both verdict surfaces
+ * offer the SAME list the edge validates a value against, and neither can offer
+ * one that would then be refused. Typed values survive only as the fallback for a
+ * gateway that is not answering — a missing vocabulary must not block a
+ * correction.
  */
 function VerdictControls({
   decision,
   state,
+  options,
+  onNeedOptions,
   onSubmit
 }: {
   decision: DecisionView;
   state: "idle" | "saving" | "saved" | "error";
+  /** null while the routing vocabulary has not been read yet. */
+  options: RouteOptionsResponse | null;
+  onNeedOptions: () => void;
   onSubmit: (verdict: Verdict, correction?: Correction) => void;
 }) {
   const [correcting, setCorrecting] = useState(false);
   const [correction, setCorrection] = useState<Correction>({});
+  const resolved = resolvedSpec(decision);
 
   if (state === "saved") {
     return <span className={styles.decisionVerdictDone}>thanks — recorded for the Improver</span>;
@@ -129,8 +127,12 @@ function VerdictControls({
             // "Wrong" opens the correction rather than submitting immediately: the
             // counterfactual is the part that actually teaches the orchestrator
             // anything, and a one-tap "wrong" would throw it away.
-            if (v === "wrong") setCorrecting((c) => !c);
-            else onSubmit(v);
+            if (v === "wrong") {
+              setCorrecting((c) => !c);
+              // Read the vocabulary on the first correction, not on every feed
+              // load: opening this box is the only thing that needs it.
+              onNeedOptions();
+            } else onSubmit(v);
           }}
           aria-expanded={v === "wrong" ? correcting : undefined}
         >
@@ -141,30 +143,62 @@ function VerdictControls({
       {correcting ? (
         <div className={styles.correctionBox}>
           <span className={styles.correctionLead}>What should it have been? Leave blank what was fine.</span>
-          <div className={styles.correctionGrid}>
-            {CORRECTION_FIELDS.map((field) => (
-              <label key={field} className={styles.correctionField}>
-                <span>{FIELD_LABEL[field] ?? field}</span>
-                <input
-                  type="text"
-                  value={correction[field] ?? ""}
-                  placeholder={resolvedSpec(decision)[field] ?? "automatic"}
-                  onChange={(e) => setCorrection((c) => ({ ...c, [field]: e.target.value }))}
-                />
-              </label>
-            ))}
-          </div>
+          {/* The grid waits for the vocabulary rather than rendering as text
+              inputs that turn into menus a moment later - a value typed into the
+              input the menu replaces would be silently dropped. */}
+          {options === null ? (
+            <span className={styles.correctionLead}>reading the routing vocabulary</span>
+          ) : (
+            <div className={styles.correctionGrid}>
+              {CARD_FIELD_ORDER.map((field) => {
+                const choices = optionsForField(field, options, decision);
+                return (
+                  <label key={field} className={styles.correctionField}>
+                    <span>{fieldLabel(field)}</span>
+                    {choices.length ? (
+                      <select
+                        value={correction[field] ?? ""}
+                        onChange={(e) => setCorrection((c) => ({ ...c, [field]: e.target.value }))}
+                      >
+                        {/* The empty row is "leave this dimension alone", named
+                            after what actually ran so it is not mistaken for a
+                            value that would be sent. */}
+                        <option value="">
+                          {resolved[field] ? `${resolved[field]} (unchanged)` : "automatic"}
+                        </option>
+                        {choices.map((choice) => (
+                          <option key={choice.value} value={choice.value}>
+                            {choice.detail ? `${choice.value} - ${choice.detail}` : choice.value}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={correction[field] ?? ""}
+                        placeholder={resolved[field] ?? "automatic"}
+                        onChange={(e) => setCorrection((c) => ({ ...c, [field]: e.target.value }))}
+                      />
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {options && !options.available ? (
+            <span className={styles.correctionLead}>
+              {options.reason ?? "the gateway is not answering - type the values instead"}
+            </span>
+          ) : null}
           <button
             type="button"
             className={styles.verdictBtn}
             disabled={state === "saving"}
             onClick={() => {
-              const filled = Object.fromEntries(
-                Object.entries(correction).filter(([, v]) => typeof v === "string" && v.trim())
-              ) as Correction;
-              // A bare "wrong" with no counterfactual is still recorded — it is a
-              // weaker signal, not a non-signal, and refusing it would just lose it.
-              onSubmit("wrong", Object.keys(filled).length ? filled : undefined);
+              // Blank dimensions are dropped by the shared payload builder, and a
+              // bare "wrong" with no counterfactual is still recorded — it is a
+              // weaker signal, not a non-signal, and refusing it would lose it.
+              onSubmit("wrong", correction);
               setCorrecting(false);
             }}
           >
@@ -181,6 +215,16 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
+  // The routing vocabulary for the correction menus. Panel-level so 25 rows share
+  // ONE read, and lazy so a feed nobody corrects never touches the gateway.
+  const [options, setOptions] = useState<RouteOptionsResponse | null>(null);
+  const optionsAsked = useRef(false);
+
+  const needOptions = useCallback(() => {
+    if (optionsAsked.current) return;
+    optionsAsked.current = true;
+    void fetchRouteOptions().then(setOptions);
+  }, []);
 
   const load = useCallback(async (id: string) => {
     setStatus((s) => (s === "ready" ? s : "loading"));
@@ -207,18 +251,10 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
     async (decision: DecisionView, verdict: Verdict, correction?: Correction) => {
       setVerdicts((v) => ({ ...v, [decision.id]: "saving" }));
       try {
-        const res = await fetch("/api/orchestrator/decisions", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            decisionId: decision.id,
-            verdict,
-            resolved: resolvedSpec(decision),
-            correction,
-            sessionId: decision.sessionId
-          })
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // The SAME builder and endpoint the home page's card uses: two surfaces
+        // that record verdicts in two shapes would train the Improver on two
+        // different things.
+        await postVerdict(verdictPayload(decision, verdict, correction));
         setVerdicts((v) => ({ ...v, [decision.id]: "saved" }));
       } catch {
         setVerdicts((v) => ({ ...v, [decision.id]: "error" }));
@@ -322,6 +358,8 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
                   <VerdictControls
                     decision={d}
                     state={verdicts[d.id] ?? "idle"}
+                    options={options}
+                    onNeedOptions={needOptions}
                     onSubmit={(verdict, correction) => void submitVerdict(d, verdict, correction)}
                   />
                 </div>
