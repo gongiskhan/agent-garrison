@@ -1,0 +1,117 @@
+name: jarvis-os
+version: 0.1.0
+description: Jarvis Agentic OS — a voice-first, Jarvis-style HUD (channels role, own-port). Serves a React HUD on its own port (default 7097) with a central audio-reactive core (DitherCore), push-to-talk, and reply read-aloud. Talks to the Operative through the http-gateway (same proven path as web-channel) and to a kind:voice Fitting for STT/TTS. Visual layer reused from the Fable jarvis-hud reference.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: single
+  own_port: true
+  default_port: 7097
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Voice-first Jarvis HUD on its own port (default 7097). Hold-to-talk → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes a kind:voice Fitting (local-voice or deepgram-voice); never spawns Claude itself.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7097
+      description: HTTP port the Jarvis HUD server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address. Set to 0.0.0.0 to expose to the LAN (e.g. phone access).
+    - key: gateway_url
+      type: string
+      default: ""
+      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+    - key: tls_cert
+      type: path
+      default: ""
+      description: Optional TLS certificate path. When set with tls_key, serves https so mobile browsers get a secure context (required for mic capture over a LAN IP). Prefer `tailscale serve`; this is the in-app fallback.
+    - key: tls_key
+      type: path
+      default: ""
+      description: Optional TLS private key path; pairs with tls_cert.
+    - key: vad_redemption_ms
+      type: integer
+      default: 550
+      description: Trailing silence (ms) before Silero VAD closes a speech segment. Segmentation only — the real end-of-turn decision adds the adaptive grace window (endpoint_min_ms/endpoint_max_ms) on top, so this can stay short. Too low clips word endings.
+    - key: endpoint_min_ms
+      type: integer
+      default: 350
+      description: Grace window (ms) after a segment that SOUNDS complete (terminal punctuation, high eot_prob from the voice Fitting). Total silence before send ≈ vad_redemption_ms + this. Raise if complete-sounding sentences still get cut off; lower for snappier sends.
+    - key: endpoint_max_ms
+      type: integer
+      default: 2600
+      description: Grace window (ms) after a segment that sounds UNFINISHED (trailing "e…", "quero que…", comma, filler). Speaking again within the window MERGES into the same turn instead of firing two fragmented ones. This is the mid-thought pause tolerance — raise it to think longer between words.
+    - key: bargein_confirm_ms
+      type: integer
+      default: 350
+      description: Sustained speech (ms) required to count as the user talking OVER Jarvis while it thinks/speaks (barge-in). Cuts TTS + cancels the in-flight turn, then treats the speech as the next turn. Raise if playback on loud speakers falsely interrupts; 0 disables barge-in entirely.
+    - key: bargein_prob
+      type: number
+      default: 0.55
+      description: 'RESERVED — currently no effect: vad-web 0.0.30 never invokes its per-frame callback, so barge-in confirmation is time-based (speech still open after bargein_confirm_ms) gated by Silero''s own speech threshold. Tune bargein_confirm_ms instead; this key activates if the VAD lib gains working frame callbacks.'
+    - key: wake_idle_timeout_s
+      type: integer
+      default: 90
+      description: Seconds of inactivity (session armed, nothing said either way) before a hands-free session returns to wake-word standby. Only applies when the voice Fitting reports the wake word armed — "hey jarvis" re-arms by voice. 0 keeps sessions armed forever.
+    - key: ambient_after_s
+      type: integer
+      default: 180
+      description: Seconds of total inactivity (idle session, no pointer/keys, no overlays) before the HUD enters ambient mode (the idle smart-display). 0 disables the automatic entry; "modo ambiente" by voice always works.
+    - key: project_root
+      type: path
+      default: ""
+      description: Absolute path of the repository whose state (branch, recent commits, GitHub PRs) the HUD's Workspace panel shows. Empty = auto-detect via `git rev-parse --show-toplevel` from the server's cwd. Read-only — the panel only runs read git/gh commands, never writes.
+  provides:
+    - kind: channel
+      name: jarvis
+  consumes:
+    - kind: voice
+      cardinality: one
+  setup:
+    command: node ui/build.mjs
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: node apm_modules/_local/jarvis-os/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Jarvis HUD is a voice-first front-end to the Operative. The browser
+    drives; the Orchestrator does not call it directly. It reuses the proven
+    web-channel path: POST /api/chat → gateway /chat/stream, and assistant
+    replies are read aloud via the stationed voice Fitting.
+
+    Channel id: "web" — replies multiplexed into the gateway's "web" ring
+    buffer. Station EITHER jarvis-os OR web-channel-default, not both (they
+    share the channel).
+
+    Status file at ~/.garrison/ui-fittings/jarvis-os.json:
+      { fittingId, port, url, pid, startedAt }
+
+    Endpoints (served by this Fitting on its own port):
+      GET  /health            → liveness
+      GET  /api/stream        → SSE proxy of gateway /channels/web/stream
+      POST /api/chat          → SSE proxy of gateway /chat/stream (body: {message})
+      GET  /api/voice         → { available, url? } — voice Fitting discovery
+      POST /api/voice/stt     → binary proxy to the voice Fitting's /stt
+      POST /api/voice/tts     → binary proxy to the voice Fitting's /tts
+      GET  /api/project       → read-only repo state for the Workspace panel
+                                (branch, ahead/behind, recent commits, `gh` PRs;
+                                15s cache; { available:false } when no repo)
+      GET  /api/operative     → runtime health + agent surface for the Operative
+                                panel (gateway /health, voice /health, souls /
+                                skills / commands read from disk; 10s cache)
+      GET  /api/sessions      → JSON proxy of gateway /sessions ({sessions:[]} on error)
+      GET  /api/worktrees     → JSON proxy of gateway /worktrees ({worktrees:[]} when
+                                the dev-env worktrees proxy isn't stationed)
+      GET  /                  → React Jarvis HUD (dist/index.html)
+
+    Voice (push-to-talk) needs a kind:voice Fitting stationed — local-voice
+    (fully local) or deepgram-voice. The HUD discovers it via the voice status
+    file; STT keeps the recording, TTS streams audio back, and the central core
+    pulses to both (mic while listening, TTS while speaking).

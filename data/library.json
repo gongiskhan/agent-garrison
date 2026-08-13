@@ -1001,5 +1001,20 @@
       "global": 4.3,
       "claude_code": 4.3
     }
+  },
+  {
+    "id": "jarvis-os",
+    "name": "Jarvis Agentic OS",
+    "repo": "local:fittings/seed/jarvis-os",
+    "localPath": "fittings/seed/jarvis-os",
+    "summary": "Voice-first Jarvis-style HUD on port 7097. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-jarvis-os",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
   }
 ]
