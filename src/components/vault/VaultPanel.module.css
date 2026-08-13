@@ -195,6 +195,7 @@
 }
 
 .secretRow {
+  display: grid;
   grid-template-columns: minmax(9.5rem, 0.72fr) minmax(12rem, 1fr) auto auto;
   grid-template-areas:
     "key value reveal remove"
@@ -202,6 +203,21 @@
   gap: 0.65rem 0.75rem;
   padding: 1rem 0;
   background: transparent;
+  border-bottom: 1px solid var(--rule);
+}
+
+.secretRow:last-child {
+  border-bottom: 0;
+}
+
+/* Pin the buttons to their named areas — auto-placement happens to land them
+   there today, but only while the area maps keep exactly these empty cells. */
+.secretRow :global(.secret-reveal) {
+  grid-area: reveal;
+}
+
+.secretRow :global(.secret-remove) {
+  grid-area: remove;
 }
 
 .secretField {
