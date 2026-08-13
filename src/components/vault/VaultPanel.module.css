@@ -325,6 +325,29 @@
   border-top: 3px solid var(--ink);
 }
 
+.unsavedBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid var(--rule);
+  background: var(--surface, #f8f4eb);
+  box-shadow: 0 -0.6rem 1.4rem rgba(34, 44, 36, 0.08);
+}
+
+.unsavedBar span {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
 @media (max-width: 900px) {
   .vaultGrid {
     grid-template-columns: 1fr;

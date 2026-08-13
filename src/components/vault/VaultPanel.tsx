@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import type { LibraryEntry, VaultSecretRow } from "@/lib/types";
@@ -23,6 +23,30 @@ export function VaultPanel() {
   } = useAppShell();
 
   const consumers = useMemo(() => buildConsumerMap(library, composition?.selections), [library, composition]);
+
+  // Removing a STORED row is an unsaved change too, but it leaves no dirty row
+  // behind to prove it — count removals here until a seal round-trips.
+  const [removedStored, setRemovedStored] = useState(0);
+  const unsavedCount =
+    secrets.filter((s) => s.dirty || !s.set).length + removedStored;
+  const hasUnsaved = unsavedCount > 0;
+
+  const seal = async () => {
+    if (await saveSecrets()) setRemovedStored(0);
+  };
+
+  // The seal action is explicit (this page deliberately has no autosave — a
+  // half-typed credential must never be written), so an unsaved register must
+  // survive an accidental refresh at least by warning first.
+  useEffect(() => {
+    if (!hasUnsaved) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasUnsaved]);
 
   return (
     <main>
@@ -107,9 +131,13 @@ export function VaultPanel() {
                   className="btn small ghost"
                   disabled={!vaultUnlocked || vaultNeedsPassword}
                   onClick={() =>
+                    // Prepend: the blank row must land beside these buttons,
+                    // not below a screen-heights-long register where the save
+                    // affordance is out of sight (the reported way to lose an
+                    // entry on a phone).
                     setSecrets([
-                      ...secrets,
-                      { key: "", set: false, preview: "", value: "", dirty: true }
+                      { key: "", set: false, preview: "", value: "", dirty: true },
+                      ...secrets
                     ])
                   }
                 >
@@ -118,7 +146,7 @@ export function VaultPanel() {
                 <button
                   className="btn small primary"
                   disabled={!vaultUnlocked || vaultNeedsPassword || busy === "secrets"}
-                  onClick={() => void saveSecrets()}
+                  onClick={() => void seal()}
                 >
                   {busy === "secrets" ? "Sealing…" : "Seal changes"}
                 </button>
@@ -148,11 +176,32 @@ export function VaultPanel() {
                     onChange={(next) =>
                       setSecrets(secrets.map((s, i) => (i === index ? next : s)))
                     }
-                    onRemove={() => setSecrets(secrets.filter((_, i) => i !== index))}
+                    onRemove={() => {
+                      if (secret.set) setRemovedStored((n) => n + 1);
+                      setSecrets(secrets.filter((_, i) => i !== index));
+                    }}
                   />
                 ))}
               </div>
             )}
+            {hasUnsaved && vaultUnlocked && !vaultNeedsPassword ? (
+              // Sticks to the viewport bottom while the register is in view,
+              // so the seal action stays reachable however deep the edited row
+              // sits — without it, an entry typed at the foot of a long list
+              // had no visible save control at all.
+              <div className={styles.unsavedBar}>
+                <span>
+                  {unsavedCount} unsealed {unsavedCount === 1 ? "change" : "changes"}
+                </span>
+                <button
+                  className="btn small primary"
+                  disabled={busy === "secrets"}
+                  onClick={() => void seal()}
+                >
+                  {busy === "secrets" ? "Sealing…" : "Seal changes"}
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
 

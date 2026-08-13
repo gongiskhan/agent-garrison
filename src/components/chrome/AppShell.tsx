@@ -58,7 +58,7 @@ export interface AppShellState {
   unlockVault: (passphrase?: string) => Promise<void>;
   setSecrets: (secrets: VaultSecretRow[]) => void;
   revealSecret: (key: string) => Promise<void>;
-  saveSecrets: () => Promise<void>;
+  saveSecrets: () => Promise<boolean>;
   setError: (err: string | null) => void;
   // sidebar
   sidebarCollapsed: boolean;
@@ -417,8 +417,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? res.statusText);
       setSecrets(data.secrets ?? []);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setBusy(null);
     }
