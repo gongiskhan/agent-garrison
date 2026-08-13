@@ -157,11 +157,19 @@ describe("capture-service server", () => {
     });
     expect(health.gatewayConfigured).toBe(false);
 
-    // Not-yet-implemented capture surfaces answer 501 (the flag-off answer
-    // becomes 403 when each milestone lands).
-    for (const route of ["/capture/stream", "/capture/devices", "/capture/sessions"]) {
-      const res = await fetch(`${base}${route}`, { method: "POST", body: "{}" });
-      expect(res.status).toBe(501);
+    // M1 landed: implemented surfaces answer 403 with the master flag off
+    // (nothing about routes leaks to an unauthenticated caller); a plain HTTP
+    // hit on the websocket path asks for an upgrade; unrouted /capture/*
+    // stays 501 until its milestone.
+    const surfaces: Array<[string, RequestInit, number]> = [
+      ["/capture/devices", { method: "POST", body: "{}" }, 403],
+      ["/capture/sessions", {}, 403],
+      ["/capture/stream", { method: "POST", body: "{}" }, 400],
+      ["/capture/later-milestone", { method: "POST", body: "{}" }, 501]
+    ];
+    for (const [route, init, expected] of surfaces) {
+      const res = await fetch(`${base}${route}`, init);
+      expect(res.status).toBe(expected);
     }
 
     // NOT a sink yet: /ack and /notify must 404 so fanOutAck/fanOutNotification

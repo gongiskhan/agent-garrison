@@ -60,8 +60,38 @@ declare module "*/capture-service/scripts/server.mjs" {
     server: Server;
     cfg: { port: number; statusFile: string; stateDir: string };
     store: unknown;
-    counters: unknown;
+    counters: { read(): Record<string, number>; bump(key: string, by?: number): number };
+    ingress: { sessions: Map<string, unknown>; close(): void };
   }>;
+}
+
+declare module "*/capture-service/lib/ingress.mjs" {
+  export const FRAME_HEADER: number;
+  export function tokenMatches(presented: unknown, expected: unknown): boolean;
+  export function bearerToken(req: { headers?: Record<string, string> }): string | null;
+  export function parseMediaFrame(buf: Buffer): { kind: number; seq: number; ts: number; bytes: Buffer } | null;
+  export function encodeMediaFrame(kind: number, seq: number, ts: number, bytes: Buffer): Buffer;
+  export class CaptureIngress {
+    constructor(deps: Record<string, unknown>);
+    sessions: Map<string, unknown>;
+    handleUpgrade(req: unknown, socket: unknown, head: unknown): void;
+    finalizeSession(id: string, reason: string): void;
+    close(): void;
+  }
+}
+
+declare module "*/capture-service/lib/media-log.mjs" {
+  export const AUDIO_RECORD_HEADER: number;
+  export const REORDER_WINDOW: number;
+  export function scanAudioLog(file: string): { lastSeq: number; records: number };
+  export function readAudioLog(file: string): Generator<{ seq: number; ts: number; bytes: Buffer }>;
+  export class SessionMedia {
+    constructor(root: string, sessionId: string, opts?: Record<string, unknown>);
+    acceptAudio(seq: number, ts: number, bytes: Buffer): number;
+    acceptVideo(seq: number, ts: number, bytes: Buffer): number;
+    highWater(): { audio: number; video: number };
+    audioBytes(): number;
+  }
 }
 
 declare module "*/capture-service/lib/store.mjs" {

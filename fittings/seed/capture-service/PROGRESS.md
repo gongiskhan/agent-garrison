@@ -49,3 +49,50 @@ Shipped:
 
 Next: M1 — websocket ingress per spec §4 (token auth, acks, resume, dedupe),
 session store, fixtures, replay client.
+
+## M1 — Ingress and wire protocol (2026-08-13)
+
+Shipped:
+- `lib/ingress.mjs`: one websocket per session at `/capture/stream`, Bearer
+  `CAPTURE_TOKEN` on the upgrade (timing-safe digest compare; 403 disabled /
+  403 unsealed / 401 bad token, each counted). Binary media framing
+  `[u8 kind][u32 seq][f64 ts][u32 len]` (kind 0 = Opus packet, 1 = JPEG
+  still); per-stream contiguous acks `{type:"ack", stream, seq}` — stream-
+  tagged because two interleaved streams share one socket. Sessions survive
+  socket drops and process restarts (resume answers both high-water marks);
+  an ended session refuses to reopen (dedupe by session id); a reconnect
+  supersedes its own dying socket; idle sessions close with reason
+  "timeout". Malformed session_start closes 1008 with no state created.
+  Session records are deterministic (no server wall-clock) — invariant I7's
+  byte-identical double replay holds for the whole store.
+- `lib/media-log.mjs`: append-only framed Opus log per session (one file, not
+  180k inodes), JPEG stills one file per seq; only next-expected seqs are
+  ever persisted, with a bounded reorder buffer (256) and dedupe-with-ack for
+  everything at or behind the edge; high-water recovered by scanning the log
+  (the log is the authority, a truncated crash tail is skipped dead bytes).
+- Server surfaces: `POST /capture/devices` (APNs token registry, idempotent),
+  `GET /capture/sessions` + `/capture/sessions/<id>` (authed read API for the
+  replay client and the M2 view), flag-off answers moved 501 -> 403 for the
+  implemented routes. `ws` resolves from the repo root like kanban-loop's.
+- Fixtures: real recorded speech as raw Opus packets (Joana pt_PT command,
+  Samantha en_US command, pt ambient, en near-miss with Zeca in object
+  position; 134-197 packets each) via `scripts/make-fixtures.sh` (macOS
+  say + ffmpeg + an Ogg-page parser in python, committed for regeneration);
+  JPEG still set; malformed session.
+- `scripts/replay-client.mjs`: full-protocol driver in the speak.mjs shape —
+  follows every injection to the stored session record and the counters,
+  prints the effect or says nothing arrived, states its coverage limits in
+  the header (starts at the wire, not at sound; Deepgram not under test;
+  byte-identical proof lives in the disk-access test). Modes: run
+  (--twice / --drop-at / --mode screen_audio), bad-token, malformed.
+
+Tests (19, green on dev-madrid): end-to-end session with per-stream acks;
+duplicate replay acked-at-edge with byte-identical store hash; refused reopen
+after end; resume-after-drop from last acked seq; out-of-order reassembly;
+bad token counted; disabled 403; malformed close without state; idempotent
+device registry; idle timeout; the replay client run as a real subprocess
+over the committed fixtures (drop at 50, --twice, effect-following) plus its
+refusal modes.
+
+Next: M2 — Deepgram live client (mocked in tests, env-gated real-key smoke),
+per-session transcript store, live transcript view + session list/detail.
