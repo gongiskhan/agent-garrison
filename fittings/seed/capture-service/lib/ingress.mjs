@@ -23,10 +23,10 @@
 // text — only ids, seqs, counts and reasons.
 
 import crypto from "node:crypto";
+import path from "node:path";
 import { WebSocketServer } from "ws";
 import { atomicWriteJSON, readJSON } from "./store.mjs";
 import { SessionMedia } from "./media-log.mjs";
-import path from "node:path";
 
 export const FRAME_HEADER = 17; // u8 kind + u32 seq + f64 ts + u32 len
 const KIND_AUDIO = 0;
@@ -86,7 +86,7 @@ function validateSessionStart(msg) {
 }
 
 export class CaptureIngress {
-  constructor({ cfg, store, counters, log = console, now = () => Date.now(), onSessionEnd = null }) {
+  constructor({ cfg, store, counters, log = console, now = () => Date.now(), onSessionEnd = null, transcriber = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -94,6 +94,8 @@ export class CaptureIngress {
     this.now = now;
     // M4 seam: called with the finalized session record when a session ends.
     this.onSessionEnd = onSessionEnd;
+    // M2: the Deepgram lane; null when the flag or key is absent.
+    this.transcriber = transcriber;
     this.sessions = new Map(); // session_id -> {record, media, socket, idleTimer}
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES + FRAME_HEADER });
   }
@@ -181,9 +183,12 @@ export class CaptureIngress {
             return;
           }
           const reason = END_REASONS.has(msg.reason) ? msg.reason : "user";
-          this.finalizeSession(session.record.id, reason);
-          send({ type: "session_ended", reason });
-          ws.close(1000, "ended");
+          // Finalize awaits the transcript flush; the session_ended reply
+          // means the record (and any transcript) is on disk.
+          void this.finalizeSession(session.record.id, reason).then(() => {
+            send({ type: "session_ended", reason });
+            ws.close(1000, "ended");
+          });
           return;
         }
         if (msg?.type === "spoken") {
@@ -261,7 +266,11 @@ export class CaptureIngress {
     };
     if (!stored) this.writeSessionRecord(record);
 
-    const media = new SessionMedia(this.store.dirs.media, id, { counters: this.counters });
+    const transcribing = this.transcriber ? this.transcriber.openSession(id) : false;
+    const media = new SessionMedia(this.store.dirs.media, id, {
+      counters: this.counters,
+      onAudioFrame: transcribing ? (seq, ts, bytes) => this.transcriber.feed(id, bytes) : null
+    });
     const session = { record, media, socket: ws, idleTimer: null };
     this.sessions.set(id, session);
     this.armIdleTimer(session);
@@ -302,19 +311,43 @@ export class CaptureIngress {
     if (session.idleTimer) clearTimeout(session.idleTimer);
     session.idleTimer = setTimeout(() => {
       this.counters.bump("sessions_timeout");
-      this.finalizeSession(session.record.id, "timeout");
-      try {
-        session.socket?.close(1000, "session timeout");
-      } catch {}
+      void this.finalizeSession(session.record.id, "timeout").then(() => {
+        try {
+          session.socket?.close(1000, "session timeout");
+        } catch {}
+      });
     }, this.cfg.sessionIdleTimeoutMs);
     session.idleTimer.unref?.();
   }
 
-  finalizeSession(id, reason) {
+  async finalizeSession(id, reason) {
     const session = this.sessions.get(id);
     if (!session) return;
     if (session.idleTimer) clearTimeout(session.idleTimer);
     this.sessions.delete(id);
+
+    // Flush the transcription lane first so the record can reference the
+    // stored transcript. A lane failure costs the transcript, never the
+    // session record (counted, logged without content — I5).
+    let transcript = null;
+    if (this.transcriber) {
+      try {
+        const segments = await this.transcriber.end(id);
+        if (segments && segments.length > 0) {
+          transcript = {
+            session_id: id,
+            segments,
+            words: segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0)
+          };
+          atomicWriteJSON(path.join(this.store.dirs.transcripts, `${id}.json`), transcript);
+          this.counters.bump("transcripts_stored");
+        }
+      } catch (err) {
+        this.counters.bump("transcribe_finalize_failed");
+        this.log.error(`[capture-service] transcript finalize failed: ${err?.message ?? err}`);
+      }
+    }
+
     const hw = session.media.highWater();
     const record = {
       ...session.record,
@@ -322,6 +355,9 @@ export class CaptureIngress {
       audio_seq: hw.audio,
       video_seq: hw.video,
       audio_bytes: session.media.audioBytes(),
+      ...(transcript
+        ? { transcript_ref: `transcripts/${id}.json`, transcript_words: transcript.words }
+        : {}),
       ended: { reason }
     };
     this.writeSessionRecord(record);

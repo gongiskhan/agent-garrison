@@ -94,6 +94,28 @@ declare module "*/capture-service/lib/media-log.mjs" {
   }
 }
 
+declare module "*/capture-service/lib/deepgram-live.mjs" {
+  export function deepgramUrl(cfg: unknown): string;
+  export function segmentFromResults(msg: unknown): {
+    start: number;
+    end: number;
+    text: string;
+    speaker: number | null;
+    is_user: boolean;
+    final: boolean;
+  } | null;
+  export class TranscriptionLane {
+    constructor(deps: Record<string, unknown>);
+    available(): { ok: boolean; reason?: string };
+    openSession(sessionId: string): boolean;
+    feed(sessionId: string, bytes: Buffer): void;
+    liveSegments(sessionId: string): unknown[] | null;
+    subscribe(sessionId: string, listener: (segment: unknown) => void): (() => void) | null;
+    end(sessionId: string): Promise<unknown[] | null>;
+    close(): void;
+  }
+}
+
 declare module "*/capture-service/lib/store.mjs" {
   export function ulid(now?: number): string;
   export function atomicWriteJSON(file: string, value: unknown): void;

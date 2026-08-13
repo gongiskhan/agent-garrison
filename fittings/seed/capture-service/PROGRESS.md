@@ -96,3 +96,42 @@ refusal modes.
 
 Next: M2 — Deepgram live client (mocked in tests, env-gated real-key smoke),
 per-session transcript store, live transcript view + session list/detail.
+
+## M2 — Live transcription and the transcript view (2026-08-13)
+
+Shipped:
+- Docs fetched and verified first (`docs/api-notes.md`): endpoint, **Token**
+  auth scheme (not Bearer), nova-3 + `language=multi` covers the operator's
+  Portuguese/English code-switching, `encoding=opus` means bare packets (the
+  wire protocol's exact payload; `ogg-opus` would be the container),
+  `sample_rate` required, diarize word-level speaker ints, KeepAlive /
+  CloseStream control messages.
+- `lib/deepgram-live.mjs`: one Deepgram socket per LIVE session (cost gate
+  I4 — billed only while a session is live), fed in seq order by the media
+  log's persist hook (exactly-once, deduped); interims in memory for the
+  view, finals accumulated and flushed on CloseStream; 5s KeepAlive when
+  idle; one delayed reconnect per unexpected drop with a bounded catch-up
+  queue (gaps are lost words, counted, never a crashed session); injectable
+  wsFactory (cfg escape hatch) so tests run a mock endpoint while asserting
+  the REAL URL and Token header the lane would have used.
+- Session finalize awaits the transcript flush: `transcripts/<id>.json`
+  (segments + word count), `transcript_ref`/`transcript_words` on the session
+  record, `session_ended` sent only after both are on disk. Lane failures
+  cost the transcript, never the record.
+- Own-port view: session list on `/`, per-session page `/sessions/<id>`
+  rendering stored finals server-side, live sessions streaming interim+final
+  segments over SSE (`/sessions/<id>/events`, replay-then-stream, 15s
+  heartbeats). View surface is unauthenticated loopback/tailnet like every
+  own-port fitting UI; the programmatic `/capture/*` API keeps Bearer.
+- `scripts/deepgram-smoke.mjs`: env-gated real-key smoke (SKIP + exit 0
+  without the key) streaming a committed fixture through the same lane and
+  printing what arrived — the one live external before TestFlight.
+
+Tests (24 total, green on dev-madrid): segment mapping (diarized speaker,
+is_user heuristic, interim/final), verified URL+auth assertions, fixture
+replay -> stored transcript + record refs + API + rendered view, live SSE
+interim/final streaming mid-session, flag-off and keyless skip paths, and
+the I5 console-spy proof that no transcript text reaches logs.
+
+Next: M3 — the wake gate over companion live segments (byte-identical wake
+module copy + lockstep test, pinned classification, delegate lane).

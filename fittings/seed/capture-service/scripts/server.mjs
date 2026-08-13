@@ -16,11 +16,13 @@
 // in logs or counters — ids, seqs, counts and reasons only.
 
 import { createServer } from "node:http";
+import { readdirSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON } from "../lib/store.mjs";
 import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
+import { TranscriptionLane } from "../lib/deepgram-live.mjs";
 
 // True when `pid` names a live process (EPERM still means alive, just not ours).
 function pidAlive(pid) {
@@ -110,7 +112,22 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-function statusPage(cfg, counters) {
+const PAGE_CSS = `body{font-family:system-ui,sans-serif;margin:2rem;color:#222;max-width:52rem}
+table{border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #ccc;padding:.3rem .8rem;text-align:left}
+h1{font-size:1.3rem}h2{font-size:1rem}a{color:#0a58ca}
+.seg{margin:.35rem 0;line-height:1.4}.seg .who{color:#777;font-size:.85em;margin-right:.5em}
+.seg.interim{color:#999;font-style:italic}.live{color:#0a7d33}.endedtag{color:#777}`;
+
+function listSessions(store) {
+  return readdirSync(store.dirs.sessions)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .reverse()
+    .map((f) => readJSON(path.join(store.dirs.sessions, f)))
+    .filter(Boolean);
+}
+
+function statusPage(cfg, counters, store) {
   const flags = flagSummary(cfg);
   const flagRows = Object.entries(flags)
     .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v ? "on" : "off"}</td></tr>`)
@@ -120,13 +137,80 @@ function statusPage(cfg, counters) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v}</td></tr>`)
     .join("");
+  const sessionRows = listSessions(store)
+    .slice(0, 50)
+    .map(
+      (s) =>
+        `<tr><td><a href="/sessions/${escapeHtml(s.id)}">${escapeHtml(s.id)}</a></td>` +
+        `<td>${escapeHtml(s.mode)}</td>` +
+        `<td>${s.status === "live" ? '<span class="live">live</span>' : `<span class="endedtag">${escapeHtml(s.ended?.reason ?? "ended")}</span>`}</td>` +
+        `<td>${escapeHtml(s.started_at ?? "")}</td>` +
+        `<td>${s.transcript_words ?? 0}</td></tr>`
+    )
+    .join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>capture-service</title>
-<style>body{font-family:system-ui,sans-serif;margin:2rem;color:#222}table{border-collapse:collapse;margin:1rem 0}
-td{border:1px solid #ccc;padding:.3rem .8rem}h1{font-size:1.3rem}h2{font-size:1rem}</style></head>
+<style>${PAGE_CSS}</style></head>
 <body><h1>capture-service</h1>
-<p>iOS companion capture channel. Secrets and transcript text are never shown here.</p>
+<p>iOS companion capture channel. Secrets are never shown here.</p>
+<h2>Sessions</h2><table><tr><th>id</th><th>mode</th><th>status</th><th>started</th><th>words</th></tr>
+${sessionRows || "<tr><td colspan=5>none yet</td></tr>"}</table>
 <h2>Pipes</h2><table>${flagRows}</table>
 <h2>Counters</h2><table>${counterRows || "<tr><td colspan=2>none yet</td></tr>"}</table>
+</body></html>`;
+}
+
+// The live transcript view: stored finals render server-side; a live session
+// streams interim + final segments over SSE. This page (and its SSE feed) is
+// the operator's own-port view surface — reachable only on loopback/tailnet,
+// unauthenticated like every other own-port fitting UI; the programmatic
+// /capture/* API keeps its Bearer token.
+function sessionPage(store, id) {
+  const record = readJSON(path.join(store.dirs.sessions, `${id}.json`));
+  if (!record) return null;
+  const transcript = record.transcript_ref
+    ? readJSON(path.join(store.root, record.transcript_ref))
+    : null;
+  const segments = (transcript?.segments ?? [])
+    .map(
+      (s) =>
+        `<div class="seg"><span class="who">${s.is_user ? "you" : `speaker ${escapeHtml(s.speaker ?? "?")}`}</span>${escapeHtml(s.text)}</div>`
+    )
+    .join("");
+  const liveBadge =
+    record.status === "live"
+      ? '<span class="live">live</span>'
+      : `<span class="endedtag">${escapeHtml(record.ended?.reason ?? "ended")}</span>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(id)} — capture-service</title>
+<style>${PAGE_CSS}</style></head>
+<body><h1><a href="/">capture-service</a> / ${escapeHtml(id)}</h1>
+<p>${escapeHtml(record.mode)} · ${liveBadge} · consent ${escapeHtml(record.consent)} · device ${escapeHtml(record.device_name)}</p>
+<div id="transcript">${segments || '<p id="empty">No transcript stored.</p>'}</div>
+<script>
+(function () {
+  var live = ${JSON.stringify(record.status === "live")};
+  if (!live) return;
+  var box = document.getElementById("transcript");
+  var empty = document.getElementById("empty");
+  var interim = null;
+  var es = new EventSource("/sessions/" + ${JSON.stringify(id)} + "/events");
+  es.onmessage = function (ev) {
+    var msg = JSON.parse(ev.data);
+    if (msg.done) { es.close(); location.reload(); return; }
+    if (empty) { empty.remove(); empty = null; }
+    var el = document.createElement("div");
+    el.className = "seg" + (msg.final ? "" : " interim");
+    var who = document.createElement("span");
+    who.className = "who";
+    who.textContent = msg.is_user ? "you" : "speaker " + (msg.speaker == null ? "?" : msg.speaker);
+    el.appendChild(who);
+    el.appendChild(document.createTextNode(msg.text));
+    if (interim) interim.remove();
+    interim = msg.final ? null : el;
+    box.appendChild(el);
+    window.scrollTo(0, document.body.scrollHeight);
+  };
+})();
+</script>
 </body></html>`;
 }
 
@@ -180,7 +264,49 @@ export function makeRequestHandler(ctx) {
 
       if (req.method === "GET" && p === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(statusPage(cfg, mergedCounters(store.root)));
+        res.end(statusPage(cfg, mergedCounters(store.root), store));
+        return;
+      }
+
+      // ---- Transcript view (own-port surface; loopback/tailnet trust) ----
+      const viewMatch = req.method === "GET" ? /^\/sessions\/([A-Za-z0-9_-]{10,40})(\/events)?$/.exec(p) : null;
+      if (viewMatch) {
+        const [, id, wantsEvents] = viewMatch;
+        if (!wantsEvents) {
+          const html = sessionPage(store, id);
+          if (!html) return json(res, 404, { error: "no such session" });
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end(html);
+          return;
+        }
+        // SSE: replay the finals accumulated so far, then stream live
+        // interim + final segments until the session ends.
+        const record = readJSON(path.join(store.dirs.sessions, `${id}.json`));
+        if (!record) return json(res, 404, { error: "no such session" });
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive"
+        });
+        const sendEvent = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+        for (const segment of ctx.transcriber?.liveSegments(id) ?? []) sendEvent(segment);
+        if (record.status !== "live") {
+          sendEvent({ done: true });
+          res.end();
+          return;
+        }
+        const unsubscribe = ctx.transcriber?.subscribe(id, (segment) => sendEvent(segment));
+        const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 15000);
+        heartbeat.unref?.();
+        req.on("close", () => {
+          clearInterval(heartbeat);
+          unsubscribe?.();
+        });
+        if (!unsubscribe) {
+          // Live session but no transcription lane: nothing will ever arrive.
+          sendEvent({ done: true });
+          res.end();
+        }
         return;
       }
 
@@ -218,12 +344,7 @@ export function makeRequestHandler(ctx) {
       if (req.method === "GET" && p === "/capture/sessions") {
         const auth = authorizeHttp(cfg, req, counters);
         if (!auth.ok) return json(res, auth.status, { error: auth.reason });
-        const { readdirSync } = await import("node:fs");
-        const sessions = readdirSync(store.dirs.sessions)
-          .filter((f) => f.endsWith(".json"))
-          .sort()
-          .map((f) => readJSON(path.join(store.dirs.sessions, f)))
-          .filter(Boolean)
+        const sessions = listSessions(store)
           .map((s) => ({
             id: s.id,
             mode: s.mode,
@@ -286,8 +407,9 @@ export async function startServer(cfg = loadConfig()) {
   const live = { ...cfg };
   const store = new CaptureStore(live.stateDir);
   const counters = new Counters(store.root, "server");
-  const ingress = new CaptureIngress({ cfg: live, store, counters });
-  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress }));
+  const transcriber = new TranscriptionLane({ cfg: live, counters });
+  const ingress = new CaptureIngress({ cfg: live, store, counters, transcriber });
+  const server = createServer(makeRequestHandler({ cfg: live, store, counters, ingress, transcriber }));
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
 
   server.on("error", (err) => {
@@ -315,6 +437,7 @@ export async function startServer(cfg = loadConfig()) {
   const shutdown = async (signal) => {
     console.log(`[capture-service] ${signal} received; shutting down`);
     ingress.close();
+    transcriber.close();
     await clearStatusFile(live.statusFile);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
@@ -322,5 +445,5 @@ export async function startServer(cfg = loadConfig()) {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  return { server, cfg: live, store, counters, ingress };
+  return { server, cfg: live, store, counters, ingress, transcriber };
 }

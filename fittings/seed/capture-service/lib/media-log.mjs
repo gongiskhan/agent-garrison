@@ -106,7 +106,7 @@ class OrderedStream {
 }
 
 export class SessionMedia {
-  constructor(root, sessionId, { counters = null } = {}) {
+  constructor(root, sessionId, { counters = null, onAudioFrame = null } = {}) {
     this.dir = path.join(root, sessionId);
     this.framesDir = path.join(this.dir, "frames");
     mkdirSync(this.framesDir, { recursive: true });
@@ -117,7 +117,12 @@ export class SessionMedia {
       counters,
       dedupeKey: "audio_frames_deduped",
       dropKey: "audio_frames_dropped_ahead",
-      persist: (seq, ts, bytes) => appendFileSync(this.audioFile, encodeRecord(seq, ts, bytes))
+      // The hook fires once per persisted frame, in seq order, after the
+      // append — the transcription lane sees exactly the bytes the log holds.
+      persist: (seq, ts, bytes) => {
+        appendFileSync(this.audioFile, encodeRecord(seq, ts, bytes));
+        onAudioFrame?.(seq, ts, bytes);
+      }
     });
     this.video = new OrderedStream({
       lastSeq: this.scanFrames(),
