@@ -207,6 +207,14 @@
 .secretField {
   display: grid;
   gap: 0.28rem;
+  /* Let the fr columns actually shrink on narrow rows — an input's intrinsic
+     min-width otherwise squeezes the auto columns until "reveal" clips. */
+  min-width: 0;
+}
+
+.secretField input {
+  width: 100%;
+  min-width: 0;
 }
 
 .secretField > span {
