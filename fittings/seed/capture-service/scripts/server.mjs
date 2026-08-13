@@ -28,6 +28,7 @@ import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier } from "../lib/notify.mjs";
+import { emitSessionEvent } from "../lib/events.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
 // Source identity handed to the byte-identical wake module (invariant I2:
@@ -460,7 +461,15 @@ export async function startServer(cfg = loadConfig()) {
       if (live.wakeEnabled) wakeBus.handleSegments({ sessionId, segments: [segment] });
     }
   });
-  const ingress = new CaptureIngress({ cfg: live, store, counters, transcriber });
+  const ingress = new CaptureIngress({
+    cfg: live,
+    store,
+    counters,
+    transcriber,
+    // M4: every ended session with a transcript becomes ONE pending
+    // capture_event for the shared triage tick (dedupe by session id).
+    onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
+  });
   const server = createServer(
     makeRequestHandler({ cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier })
   );

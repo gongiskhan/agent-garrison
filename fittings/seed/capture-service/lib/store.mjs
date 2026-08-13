@@ -108,12 +108,30 @@ export class CaptureStore {
       .filter((e) => e && (status === null || e.status === status));
   }
 
-  updateEvent(id, patch) {
+  // Accepts a patch object OR an updater function — the shared triage tick
+  // calls the omi signature updateEvent(id, fn); local callers pass patches.
+  updateEvent(id, patchOrFn) {
     const event = this.getEvent(id);
     if (!event) return null;
-    const next = { ...event, ...patch };
+    const next = typeof patchOrFn === "function" ? patchOrFn(event) : { ...event, ...patchOrFn };
     this.writeEvent(next);
     return next;
+  }
+
+  // ---- session -> event dedupe index (I7: one event per session, ever) ----
+  readIndex() {
+    const index = readJSON(this.indexFile, {});
+    return { bySession: index.bySession ?? {} };
+  }
+
+  sessionEventId(sessionId) {
+    return this.readIndex().bySession[sessionId] ?? null;
+  }
+
+  recordSessionEvent(sessionId, eventId) {
+    const index = this.readIndex();
+    index.bySession[sessionId] = eventId;
+    atomicWriteJSON(this.indexFile, index);
   }
 
   removeSessionMedia(sessionId) {

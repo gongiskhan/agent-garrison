@@ -273,3 +273,53 @@ export class RelayNotifier extends Notifier {
     }
   }
 }
+
+// Relay for COMPANION-sourced triage results: hands the notification to the
+// capture-service's /notify (the fan-out contract shape), which holds the
+// APNs flag, per-day cap and device registry — same authoritative-server rule
+// as RelayNotifier.sendOmi above, different owning fitting. A 404 means the
+// sink milestone has not landed there yet; absent status file means the
+// fitting is not running. Both are honest skips, never errors.
+export class CompanionRelayNotifier {
+  constructor({ counters = null, env = process.env, fetchImpl = fetch } = {}) {
+    this.counters = counters;
+    this.env = env;
+    this.fetchImpl = fetchImpl;
+  }
+
+  cardUrl(cardId) {
+    return boardCardUrl(cardId, this.env);
+  }
+
+  async send({ template, params = {} }) {
+    const means = "companion-push";
+    const title = params.title ?? "";
+    const text = renderTemplate(template, params);
+    const base = statusFileUrl("capture-service", this.env);
+    if (!base) {
+      this.counters?.bump("companion_notify_skipped_down");
+      return [{ means, ok: false, skipped: "capture-service not running" }];
+    }
+    try {
+      const res = await this.fetchImpl(`${base}/notify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, text, link: params.cardUrl ?? null, tag: template }),
+        signal: AbortSignal.timeout(8_000)
+      });
+      if (res.status === 404) {
+        this.counters?.bump("companion_notify_skipped_no_sink");
+        return [{ means, ok: false, skipped: "capture-service /notify not implemented" }];
+      }
+      const receipt = await res.json().catch(() => null);
+      if (!res.ok || typeof receipt !== "object" || receipt === null) {
+        this.counters?.bump("companion_notify_failed");
+        return [{ means, ok: false, error: `relay HTTP ${res.status}` }];
+      }
+      return Array.isArray(receipt) ? receipt : [receipt];
+    } catch (err) {
+      this.counters?.bump("companion_notify_failed");
+      return [{ means, ok: false, error: `relay: ${err?.message ?? err}` }];
+    }
+  }
+}

@@ -249,6 +249,41 @@ export class OmiStore {
 }
 
 // ---- counters. Per-writer file so the server and the triage CLI never race.
+// Read/update surface over a SIBLING channel's events directory (the iOS
+// companion's $GARRISON_HOME/capture). The store LAYOUT is the sharing
+// contract — cross-fitting imports are forbidden, so the triage tick reaches
+// the sibling's inbox through this minimal adapter rather than its classes.
+// Root is the sibling's state root; events live in <root>/events.
+export class EventsDirStore {
+  constructor(root) {
+    this.root = root;
+    this.eventsDir = path.join(root, "events");
+  }
+
+  listEvents(status = null) {
+    let files;
+    try {
+      files = readdirSync(this.eventsDir);
+    } catch {
+      return [];
+    }
+    return files
+      .filter((f) => f.endsWith(".json"))
+      .sort()
+      .map((f) => readJSON(path.join(this.eventsDir, f)))
+      .filter((e) => e && (status === null || e.status === status));
+  }
+
+  updateEvent(id, fn) {
+    const file = path.join(this.eventsDir, `${id}.json`);
+    const event = readJSON(file);
+    if (!event) return null;
+    const next = fn(event);
+    atomicWriteJSON(file, next);
+    return next;
+  }
+}
+
 export class Counters {
   constructor(root, name) {
     this.file = path.join(root, `counters-${name}.json`);

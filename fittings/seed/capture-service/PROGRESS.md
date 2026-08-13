@@ -174,3 +174,46 @@ echo fingerprint suppresses the app's own voice before the gate.
 
 Next: M4 — triage generalization (second inbox root, one tick, one model
 call, wait-for-context hold).
+
+## M4 — Triage generalization (2026-08-13)
+
+Shipped:
+- One engine, second inbox: omi's `runTriageTick` gains `extraStores` — the
+  companion's `$GARRISON_HOME/capture` joins the SAME tick through the
+  `EventsDirStore` adapter (store LAYOUT is the sharing contract), discovered
+  by directory-existence convention, no registration. One batch, ONE model
+  call across all sources, one dedupe space; the triage-result doc is
+  written into every participating store root so each state dir stays
+  self-contained.
+- Source identities (`TRIAGE_SOURCES` keyed by `event.source`) replace every
+  hardcoded "omi" in the card/memory paths: origin prefixes, originChannel,
+  provenance ref keys/labels, source-context labels, prompt source lines.
+  Per-event `memoryWriterFor` / `notifierFor` route memories (companion-
+  prefixed vault files) and notifications (a `CompanionRelayNotifier` that
+  hands card_created to the capture-service's /notify, which owns the APNs
+  flag/cap/registry — the authoritative-server rule; 404 until M5 = honest
+  skip).
+- Wait-for-context, both halves: the capture-service emits ONE capture_event
+  per session at session END only (`lib/events.mjs`, dedupe-by-session-id
+  index, consent + mode + device in provenance per I6, the hold floor
+  stamped on `normalized.stats`), and the shared rule layer HOLDS a
+  thin-fragment session (below its floor) while it is alone — zero model
+  calls — releasing it the moment any other event shares the batch or the
+  30-minute hold window expires.
+- Session kind is always task-eligible (no upstream action-item extractor;
+  the model decides from the transcript; card rule text extended).
+- The lockstep gate caught its first REAL drift mid-milestone: a concurrent
+  commit (`568ce931`) amended omi's `buildDelegatePrompt` after the M3 copy;
+  the mirror was re-synced. The mechanism works.
+
+Tests (32 across the M4-affected suites, green on dev-madrid; full-repo
+sweep run once — 5156 pass; the two failing `flow-*` suites belong to
+another session's in-flight work and read generated state absent from any
+clean clone): emission with consent provenance + forever-dedupe; a MIXED
+omi+companion batch in one model call with per-source identity on cards,
+memories and notifications; re-runs creating zero duplicates via origin
+dedupe; the hold-alone / release-on-context / age-release ladder; empty
+tick zero calls; rule-layer verdicts stable for both sources.
+
+Next: M5 — APNs transport (ported apns.js, device registry, /notify sink,
+caps and Retry-After backoff, non-loopback deep links).

@@ -96,9 +96,10 @@ const gatewayServer = createServer(async (req, res) => {
   const prompt = String(body.message ?? "");
   gateway.calls.push(prompt);
   let reply = "";
-  if (prompt.includes("Omi-inbox triage step")) {
-    // Build candidates from the ACTUAL event blocks in the prompt.
-    const events = [...prompt.matchAll(/### Event (\S+)\n- kind: (\S+)\n- task-eligible: (yes|no)/g)].map((m) => ({
+  if (prompt.includes("capture-inbox triage step")) {
+    // Build candidates from the ACTUAL event blocks in the prompt (the
+    // per-event `- source:` line sits between kind and task-eligible).
+    const events = [...prompt.matchAll(/### Event (\S+)\n- kind: (\S+)\n- source: [^\n]+\n- task-eligible: (yes|no)/g)].map((m) => ({
       id: m[1],
       kind: m[2],
       taskEligible: m[3] === "yes"

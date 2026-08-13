@@ -77,7 +77,7 @@ interface OmiCaptureEvent {
   uid: string | null;
   received_at: string;
   occurred_at: string;
-  kind: "conversation" | "day_summary" | "wake_command";
+  kind: "conversation" | "day_summary" | "wake_command" | "session";
   day_key?: string;
   normalized: {
     title: string | null;
@@ -144,6 +144,13 @@ declare module "*/omi-channel/lib/store.mjs" {
       options?: { cap?: number; idempotencyKey?: string | null }
     ): Array<{ role: string; text: string; at: string }>;
   }
+  export class EventsDirStore {
+    constructor(root: string);
+    root: string;
+    eventsDir: string;
+    listEvents(status?: string | null): OmiCaptureEvent[];
+    updateEvent(id: string, mutate: (ev: OmiCaptureEvent) => OmiCaptureEvent): OmiCaptureEvent | null;
+  }
 }
 
 declare module "*/omi-channel/lib/ingress.mjs" {
@@ -176,10 +183,14 @@ declare module "*/omi-channel/lib/normalize.mjs" {
 }
 
 declare module "*/omi-channel/lib/triage.mjs" {
+  export const HOLD_MAX_MS: number;
+  export const TRIAGE_SOURCES: Record<string, Record<string, unknown>>;
+  export function sourceIdentity(event: unknown): Record<string, unknown> & { originPrefix: string; label: string };
   export function ruleFilter(
     event: unknown,
-    cfg: unknown
-  ): { action: "drop"; reason: string } | { action: "keep"; taskPath: boolean };
+    cfg: unknown,
+    now?: Date
+  ): { action: "drop"; reason: string } | { action: "hold"; reason: string } | { action: "keep"; taskPath: boolean };
   export function buildTriagePrompt(args: { batch: unknown[]; projects: string[] }): string;
   export function parseTriageReply(reply: string): {
     cards: Array<Record<string, unknown> & { event_id?: string }>;
@@ -197,9 +208,13 @@ declare module "*/omi-channel/lib/triage.mjs" {
     notifier?: unknown;
     log?: unknown;
     now?: Date;
+    extraStores?: unknown[];
+    memoryWriterFor?: (event: unknown) => unknown;
+    notifierFor?: (event: unknown) => unknown;
   }): Promise<{
     modelCalls: number;
     dropped: number;
+    held: number;
     cardsCreated: number;
     cardsDeduped: number;
     cardsSuppressed: number;
@@ -237,7 +252,7 @@ declare module "*/omi-channel/lib/memory-writer.mjs" {
   export function vaultMemoryDir(env?: Record<string, string | undefined>): { vault: string; dir: string };
   export function redactSecrets(text: string): string;
   export class MemoryWriter {
-    constructor(opts?: { dir?: string | null; env?: Record<string, string | undefined> });
+    constructor(opts?: { dir?: string | null; env?: Record<string, string | undefined>; prefix?: string; label?: string });
     vault: string;
     dir: string;
     available(): boolean;

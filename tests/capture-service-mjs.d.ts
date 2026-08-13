@@ -116,6 +116,24 @@ declare module "*/capture-service/lib/deepgram-live.mjs" {
   }
 }
 
+declare module "*/capture-service/lib/events.mjs" {
+  export function transcriptProse(segments: Array<{ is_user?: boolean; speaker?: number | null; text: string }>): string;
+  export function emitSessionEvent(args: {
+    record: Record<string, unknown> & { id: string };
+    store: unknown;
+    counters: unknown;
+    cfg: unknown;
+    log?: unknown;
+    now?: () => Date;
+  }): (Record<string, unknown> & {
+    id: string;
+    status: string;
+    source: string;
+    normalized: { transcript_text: string; stats: { words: number; segments: number; hold_floor: number } };
+    provenance: Record<string, unknown>;
+  }) | null;
+}
+
 declare module "*/capture-service/lib/store.mjs" {
   export function ulid(now?: number): string;
   export function atomicWriteJSON(file: string, value: unknown): void;
@@ -124,10 +142,19 @@ declare module "*/capture-service/lib/store.mjs" {
     constructor(root?: string);
     root: string;
     dirs: Record<string, string>;
+    devicesFile: string;
+    indexFile: string;
+    pinnedUid(): null;
     writeEvent(event: { id: string } & Record<string, unknown>): string;
     getEvent(id: string): unknown;
-    listEvents(status?: string | null): unknown[];
-    updateEvent(id: string, patch: Record<string, unknown>): unknown;
+    listEvents(status?: string | null): Array<Record<string, unknown> & { id: string; status?: string }>;
+    updateEvent(
+      id: string,
+      patchOrFn: Record<string, unknown> | ((ev: Record<string, unknown>) => Record<string, unknown>)
+    ): unknown;
+    readIndex(): { bySession: Record<string, string> };
+    sessionEventId(sessionId: string): string | null;
+    recordSessionEvent(sessionId: string, eventId: string): void;
   }
   export class Counters {
     constructor(root: string, name: string);
