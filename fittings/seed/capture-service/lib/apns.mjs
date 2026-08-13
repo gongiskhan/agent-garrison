@@ -106,7 +106,9 @@ export class ApnsSender {
         ...(data || {})
       });
 
-      const client = this.connectFn(`https://${this.host()}`);
+      // cfg.apnsBaseUrl is the sandboxed-E2E mock redirect (env-only test
+      // hook, plain h2c); production always connects to the real gateway.
+      const client = this.connectFn(this.cfg.apnsBaseUrl || `https://${this.host()}`);
       const results = new Map(); // token -> outcome
       let settled = false;
       // Idempotent teardown: fills any unresolved token as failed, closes the

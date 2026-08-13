@@ -340,3 +340,40 @@ Verified:
   session view. The broadcast path stays device-only by design.
 
 Next: M7 — the all-flags-on fixture E2E (npm run e2e:companion).
+
+## M7 — E2E on fixtures, all flags on (2026-08-13)
+
+Shipped: `npm run e2e:companion` -> `tests/companion-e2e.test.ts`, green from
+a clean sandbox in one run. Every flag on; every external boundary mocked
+locally (mock Deepgram behind `GARRISON_CAPTURESERVICE_DG_URL`, a plain-h2c
+mock APNs behind the new `GARRISON_CAPTURESERVICE_APNS_URL` env hook, stub
+kanban board discovered via the sandbox status file, stub gateway answering
+both prompt kinds). The loop proven end to end:
+
+- device registration; the committed replay client as a real subprocess
+  (fixture streaming, mid-stream drop + resume, --twice dedupe);
+- a live session hears "Zeca, cria uma tarefa..." -> wake gate -> PINNED
+  classify (routing asserted on the stub gateway) -> card on the backlog
+  with origin companion:wake:<id> -> confirmation push on the mock APNs
+  with the right topic;
+- the kanban ack arrives at POST /ack, echo registers FIRST, the app
+  stand-in speaks it and the {spoken} receipt ledgers; the app's own voice
+  comes back fragmented and is SUPPRESSED FROM THE STORED TRANSCRIPT while
+  the operator's real sentence survives;
+- session end emits ONE capture_event with consent provenance; the shared
+  triage tick (run one-shot, as omi's e2e does — the cron cadence belongs
+  to the scheduler) makes ONE model call, cards with
+  origin companion:<session>:0, persists a companion-prefixed memory with
+  provenance, and the relay pushes card_created through /notify -> APNs;
+- the ask template goes out through /notify; /health counters reflect every
+  pipe (ingress, dedupe, transcription, wake legs, echo, speech receipts,
+  pushes, emission).
+
+Coverage limits stated in the test header: Deepgram/APNs are mocks (the
+env-gated smoke and TestFlight cover the live halves); the phone's encoder
+is the device smoke's job; the scheduler daemon is not under test.
+
+Full companion suite: 55 tests across 10 files, green on dev-madrid;
+typecheck clean.
+
+Next: M8 — TestFlight (ported fastlane lane, match on ios-certificates).
