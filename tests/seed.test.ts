@@ -30,7 +30,8 @@ const seedIds = [
   "taste",
   "opencode-runtime",
   "cursor-runtime",
-  "roadmaps"
+  "roadmaps",
+  "project-viewer"
 ] as const;
 
 interface RawManifest {

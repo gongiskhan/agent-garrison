@@ -483,6 +483,16 @@
     }
   },
   {
+    "id": "project-viewer",
+    "name": "Project Viewer",
+    "repo": "local:fittings/seed/project-viewer",
+    "localPath": "fittings/seed/project-viewer",
+    "summary": "Flow-based codebase navigator.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
     "id": "http-gateway",
     "name": "HTTP gateway",
     "repo": "local:fittings/seed/http-gateway",

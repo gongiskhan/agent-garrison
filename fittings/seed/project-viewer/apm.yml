@@ -1,0 +1,97 @@
+name: project-viewer
+version: 0.1.0
+description: Project Viewer — a codebase explained as end-to-end flows, with every code sample extracted from a pinned commit.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  # `knowledge`, not `code-intelligence`: the latter reads better on paper but
+  # only accepts mcp/skill/cli-skill shapes, and this fitting is an own-port
+  # plugin that serves a UI. `knowledge` is the honest home anyway — it is the
+  # faculty for producing and organising documents and generated reports and
+  # pulling facts back out of them, which is what the viewer is, including the
+  # documentation-consolidation half of its job.
+  faculty: knowledge
+  cardinality_hint: single
+  component_shape: plugin
+  own_port: true
+  # 7098, in the committed 7xxx base map — NOT 27097. A base port is shifted by the
+  # profile offset (dev +0, prod +1000, codex +20000), so declaring 27097 would have
+  # meant a codex-shifted value used as a base, and 47097 on codex. Several older seed
+  # fittings carry that drift; the newest ones do not.
+  #
+  # 7098 and not 7097: the default-2 composition already gives 7097 to jarvis-os. In
+  # that composition 7077-7097 is almost solid, leaving 7078, 7085 and 7098 free, and
+  # 7099 is the scheduler.
+  default_port: 7098
+  # No `lifecycle`: the parser now warns that it is deprecated and ignored, since
+  # every own-port Fitting shares the operative's lifecycle.
+  platforms:
+    - claude-code
+  summary: A navigator that explains a project as end-to-end flows rather than as a file tree, with no diagrams and no screenshots. Each flow is a JSON manifest under the target repo's viewer/ directory; the server renders it on request as half-screen code samples plus half-screen plain-language descriptions. Every sample is extracted mechanically from the repository at an anchored commit SHA and carries the sha256 of the extracted bytes, which the renderer re-checks before it will show code — a sample that no longer matches renders an integrity error instead of the wrong lines. Also serves a findings area, a per-file "which flows use this" view, an uncommitted-changes view, commit walkthroughs whose spine is the diff hunks, and buttons that compose prompts re-invoking the garrison-project-viewer skill.
+  config_schema:
+    - key: port
+      type: integer
+      default: 7098
+      description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing.
+    - key: target_repo
+      type: string
+      default: .
+      description: The repository to analyse and serve. Read from GARRISON_PROJECTVIEWER_TARGET_REPO at runtime; must be a git repo, since every sample is anchored to a commit.
+    - key: store
+      type: string
+      default: ~/.garrison/project-viewer
+      description: Machine-local store for runtime captures and derived caches. Flow manifests do NOT live here — they live in the target repo's viewer/ directory so they travel with the code they describe.
+    - key: language
+      type: string
+      default: en
+      description: Default interface language, en or pt. Only a default — a reader flips it with the toggle in the header, which sets a per-browser cookie. This governs the interface chrome only; the language of the flow descriptions is chosen once at intake and stored in the manifests.
+  provides: []
+  consumes: []
+  ui:
+    views:
+      - id: project-viewer
+        placement: faculty-tab
+        entry: ./dist/index.html
+        route: /
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 15000
+  verify:
+    command: node apm_modules/_local/project-viewer/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The Project Viewer explains a repository as end-to-end flows. Use the
+    `garrison-project-viewer` skill for anything that changes its content; the
+    server only serves.
+
+    Modes, named in the prompt as `mode: <m>`:
+
+    - `full-run` — first analysis of a project. Asks intake questions first.
+    - `update` — re-anchor after commits; only steps whose spans were touched
+      get re-narrated, everything else is rebased and re-stamped for free.
+    - `fix-findings` — fix listed or accepted findings, then update the flows.
+    - `compare` — static reading versus what actually executed: dead code and
+      the same job solved differently in different places.
+    - `generate-tests` — write tests for steps that have no coverage.
+    - `walkthrough` — narrate one commit as a flow whose spine is its hunks.
+    - `cleanup` — consolidate docs into the viewer, then remove the originals.
+      Destructive, so it is ALWAYS asked and never a default.
+
+    Two rules that are not negotiable when you write to viewer/:
+
+    1. Never type code into a manifest. Samples are produced only by
+       `lib/samples.mjs`, which reads `git show <sha>:<path>` and stores the
+       sha256 of what it extracted. The renderer re-checks that hash and refuses
+       to display a sample that does not match, so a hand-written sample shows
+       up as an error rather than as documentation.
+    2. Manifests belong in `<repo>/viewer/`, not in the machine-local store, so
+       a manifest and the commit it describes travel together through clone,
+       branch and revert.
+
+    Flow sources, in priority order: the drillbook (`drills/`), the e2e tests,
+    the live UI by vision, then recent commits. Where the drillbook and a test
+    describe the same flow, the drillbook wins. A flow with no test is itself a
+    finding worth recording.
