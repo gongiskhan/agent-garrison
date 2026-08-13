@@ -69,8 +69,10 @@ describe("readRoutingPolicy", () => {
     writeFileSync(CONFIG(), JSON.stringify(bare, null, 2) + "\n", "utf8");
 
     const { config } = await readRoutingPolicy(dir);
-    expect(Object.keys(config.flows ?? {})).toContain("full-feature");
-    expect(config.defaultFlow).toBe("full-feature");
+    // The backfill serves the SHIPPED library, whatever it currently is: the
+    // flow the seed names as its default has to be both present and named.
+    expect(config.defaultFlow).toBe("fix");
+    expect(Object.keys(config.flows ?? {})).toContain(config.defaultFlow);
     expect((config as Record<string, unknown>).coordination).toBeTruthy();
     expect(config.uxQa?.severityThreshold).toBe("major");
     // served, not persisted: the disk file still carries the bare shape
@@ -237,19 +239,50 @@ describe("v1 → v2 migrate-at-read (moved from the retired server's startup)", 
 });
 
 describe("simulateTryIt — dry-run rail + gate reasoning", () => {
-  it("full-feature: every phase ON, enriched with skill + model + effort + runtime", async () => {
+  // 2026-08-09: flows became LEVELLED, and `simulateTryIt` takes no level — it
+  // resolves each flow at that flow's own `defaultLevel`. So the deep rail is
+  // reached the way a user would reach it from the panel: raise the flow's
+  // default level through the store and dry-run again. That doubles as proof
+  // that a level edit actually reaches the dry run, which is the whole point of
+  // editing it.
+  const raiseDefaultLevel = async (flow: string, level: number) => {
+    const cur = await readRoutingPolicy(dir);
+    const next = structuredClone(cur.config);
+    // routing.json is owned by the fitting's routing-core; PolicyConfig only
+    // narrows the fields the store itself touches, and `levels` is not one.
+    const flows = (next as Record<string, unknown>).flows as Record<string, { defaultLevel?: number }>;
+    flows[flow].defaultLevel = level;
+    const res = await write(next, cur.baselineSha);
+    expect(res.status).toBe("ok");
+  };
+
+  it("feature at level 3: every duty of the level is ON, enriched with skill + model + effort + runtime", async () => {
     await readRoutingPolicy(dir); // seed
-    const out = await simulateTryIt(dir, { prompt: "implement a login page", flow: "full-feature" });
+    await raiseDefaultLevel("feature", 3);
+    const out = await simulateTryIt(dir, { prompt: "implement a login page", flow: "feature" });
     expect(out.status).toBe("ok");
     if (out.status !== "ok") return;
     const r = out.result;
     expect(r.dryRun).toBe(true);
-    expect(r.flow).toBe("full-feature");
+    expect(r.flow).toBe("feature");
     expect(r.classification.taskType).toBe("implement");
     expect(["interactive", "autonomous"]).toContain(r.classification.execution);
     const rail = r.rail as { phases: { id: string; on: boolean; skill?: string | null; target?: { targetId?: string; model: string | null; effort: string | null; runtime: string | null } }[] };
     const onChips = rail.phases.filter((p) => p.on);
-    expect(onChips.length).toBe(11);
+    // The level's duty list, in the order it names them — the deepest rail the
+    // library ships. Pinning the list, not a count, says what it actually runs.
+    expect(onChips.map((p) => p.id)).toEqual([
+      "plan",
+      "implement",
+      "test",
+      "review",
+      "adversarial-review",
+      "adversarial-test",
+      "ux-qa",
+      "walkthrough",
+      "validate",
+      "report"
+    ]);
     for (const ph of onChips) {
       expect(typeof ph.skill).toBe("string");
       expect((ph.skill as string).length).toBeGreaterThan(0);
@@ -263,9 +296,11 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
     expect(impl?.target?.model).toBe("opus");
   });
 
-  it("a partial-plan flow keeps OFF phases in the rail (honesty), un-enriched", async () => {
+  it("a shallow level keeps OFF phases in the rail (honesty), un-enriched", async () => {
     await readRoutingPolicy(dir);
-    const out = await simulateTryIt(dir, { prompt: "add a REST endpoint", flow: "api-change" });
+    // `fix` at its default level 1 is the two-duty cheap path — the successor to
+    // the old api-change plan, and the same shape of claim.
+    const out = await simulateTryIt(dir, { prompt: "add a REST endpoint", flow: "fix" });
     expect(out.status).toBe("ok");
     if (out.status !== "ok") return;
     const rail = out.result.rail as { phases: { id: string; on: boolean; off_reason?: string; target?: unknown }[] };
@@ -283,16 +318,17 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
     ).toEqual(["implement", "test"]);
   });
 
-  it("gate reasoning: ui-change includes ux-qa (with threshold) but not security-review; docs-change neither", async () => {
+  it("gate reasoning: a rail that runs ux-qa reports it (with threshold) but not security-review; a docs rail neither", async () => {
     await readRoutingPolicy(dir);
-    const ui = await simulateTryIt(dir, { prompt: "implement a login page", flow: "ui-change" });
+    await raiseDefaultLevel("feature", 3);
+    const ui = await simulateTryIt(dir, { prompt: "implement a login page", flow: "feature" });
     expect(ui.status).toBe("ok");
     if (ui.status !== "ok") return;
     expect(ui.result.gates?.uxQa.included).toBe(true);
     expect(ui.result.gates?.uxQa.severityThreshold).toBe("major");
     expect(ui.result.gates?.securityReview.included).toBe(false);
 
-    const docs = await simulateTryIt(dir, { prompt: "update the README", flow: "docs-change" });
+    const docs = await simulateTryIt(dir, { prompt: "update the README", flow: "docs" });
     expect(docs.status).toBe("ok");
     if (docs.status !== "ok") return;
     expect(docs.result.gates?.uxQa.included).toBe(false);
@@ -300,11 +336,26 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
     expect(docs.result.gates?.securityReview.included).toBe(false);
   });
 
+  it("the SAME flow one level down drops the ux-qa gate", async () => {
+    // The gate follows the level, not the flow name. Without this, "feature
+    // includes ux-qa" could pass off a flow-wide claim as a level-wise one.
+    await readRoutingPolicy(dir);
+    const deep = await simulateTryIt(dir, { prompt: "implement a login page", flow: "feature" });
+    expect(deep.status).toBe("ok");
+    if (deep.status !== "ok") return;
+    expect(deep.result.gates?.uxQa.included).toBe(false); // feature defaults to level 2
+    await raiseDefaultLevel("feature", 3);
+    const deeper = await simulateTryIt(dir, { prompt: "implement a login page", flow: "feature" });
+    expect(deeper.status).toBe("ok");
+    if (deeper.status !== "ok") return;
+    expect(deeper.result.gates?.uxQa.included).toBe(true);
+  });
+
   it("flipping a project's security_sensitive flag ADDS security-review to the same request", async () => {
     const cur = await readRoutingPolicy(dir);
     const before = await simulateTryIt(dir, {
       prompt: "implement a login page",
-      flow: "ui-change",
+      flow: "feature",
       project: "agent-garrison"
     });
     expect(before.status).toBe("ok");
@@ -320,7 +371,7 @@ describe("simulateTryIt — dry-run rail + gate reasoning", () => {
 
     const after = await simulateTryIt(dir, {
       prompt: "implement a login page",
-      flow: "ui-change",
+      flow: "feature",
       project: "agent-garrison"
     });
     expect(after.status).toBe("ok");

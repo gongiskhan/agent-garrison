@@ -8,8 +8,8 @@
 // old (task-type, tier) matrix produced.
 //
 // Two independent anchors:
-//   1. compilePolicy (policy-core, the exact golden the corpus asserts) fills all
-//      60 cells with {runtime, model, effort} — compared cell-by-cell.
+//   1. compilePolicy (policy-core, the exact golden the corpus asserts) fills
+//      every cell with {runtime, model, effort} — compared cell-by-cell.
 //   2. The old resolveRoute + shedTargets mapping (router-migrate) — the migration
 //      the composition actually shipped.
 // Both must agree with the (duty, level) resolution via the Resolver.
@@ -37,7 +37,7 @@ const ACTIVE: string = seed.activeProfile ?? "balanced";
 // here we give a modelless target a placeholder model (its runtime name); the
 // parity assertions below then compare runtime + effort for EVERY cell and
 // compare model ONLY where the golden has a real one — so the placeholder is
-// never asserted, and all 60 cells are still covered.
+// never asserted, and every cell is still covered.
 const foldableTargets = (seed.targets ?? []).map((t: { model?: unknown; runtime?: string }) =>
   typeof t.model === "string" && t.model.length > 0 ? t : { ...t, model: t.runtime }
 );
@@ -51,6 +51,12 @@ const targetsById = new Map(fold.targets.map((t) => [t.id, t]));
 // tier index -> level (T0->1, T1->2, T2->3), the migration's mapping.
 const levelForTier = (tierIndex: number) => tierIndex + 1;
 
+// Derived, never written down: the seed's duty vocabulary grows (it went 20 ->
+// 22 on 2026-08-09 when `discuss` and `drill` became duties), and a hardcoded
+// cell count in the test NAME is the one part of a parity claim that can go
+// stale while every assertion still passes.
+const CELLS = seed.taskTypes.length * seed.tiers.length;
+
 describe("Dispatcher fixture parity — full seed matrix (duty, level) == (task-type, tier)", () => {
   it("every migrated duty carries one leaf level per tier", () => {
     for (const taskType of seed.taskTypes) {
@@ -61,7 +67,7 @@ describe("Dispatcher fixture parity — full seed matrix (duty, level) == (task-
     }
   });
 
-  it("anchor 1 — resolves to the SAME (runtime, model, effort) the compiled policy pins (all 60 cells)", () => {
+  it(`anchor 1 — resolves to the SAME (runtime, model, effort) the compiled policy pins (all ${CELLS} cells)`, () => {
     const policy = compilePolicy(seed);
     let checked = 0;
     for (const taskType of seed.taskTypes) {
@@ -88,7 +94,7 @@ describe("Dispatcher fixture parity — full seed matrix (duty, level) == (task-
     expect(checked).toBe(seed.taskTypes.length * seed.tiers.length);
   });
 
-  it("anchor 2 — matches the old resolveRoute + effort-shedding mapping (all 60 cells)", () => {
+  it(`anchor 2 — matches the old resolveRoute + effort-shedding mapping (all ${CELLS} cells)`, () => {
     for (const taskType of seed.taskTypes) {
       for (let ti = 0; ti < seed.tiers.length; ti++) {
         const tier = seed.tiers[ti];

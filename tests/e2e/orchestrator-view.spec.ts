@@ -116,17 +116,20 @@ test("composer renders the whole policy: tray, matrix, flow rails, try-it", asyn
   await expect(fastCard.locator(".tcard-runtime")).toContainText("agent-sdk");
   await expect(fastCard.locator(".tcard-auth")).toHaveText("subscription");
 
-  // Matrix - the complete 20-task policy × 3 tier columns, in seed order,
-  // with resolved tokens in every cell.
-  expect(SEED_TASK_TYPES).toHaveLength(20);
+  // Matrix - the complete 22-duty policy × 3 tier columns, in seed order,
+  // with resolved tokens in every cell. (20 until 2026-08-09, when `discuss`
+  // and `drill` became duties - both ran in practice with a live board list but
+  // neither could name a runtime, model or effort at any level.)
+  expect(SEED_TASK_TYPES).toHaveLength(22);
   await expect(page.locator("table.matrix thead .ch-name", { hasText: "T2-deep" })).toBeVisible();
   await expect(page.locator("table.matrix tbody .rh-name")).toHaveText(SEED_TASK_TYPES);
   expect(await implementRow(page).locator("td.cell").count()).toBe(3);
 
   // Flow rails - one rail per seed flow, in seed order, with the
-  // configured default identified. The current policy has five (video-edit was
-  // added after this test's original four-kind fixture).
-  expect(SEED_FLOWS).toHaveLength(5);
+  // configured default identified. The 2026-08-09 rewrite replaced the old
+  // five-flow library (two of which were duplicate-action clones of a third)
+  // with thirteen levelled flows mined from four weeks of real work.
+  expect(SEED_FLOWS).toHaveLength(13);
   await expect(page.locator(".rail .rail-kind")).toHaveText(SEED_FLOWS);
   await expect(
     page.locator(".rail").filter({ hasText: SEED_CONFIG.defaultFlow }).locator(".rail-badge")

@@ -49,7 +49,10 @@ describe("routing compiler (MR1a)", () => {
     const compiled = compileRouting(config, "balanced");
     expect(compiled).toContain("ex-secrets");
     expect(compiled).toContain("Flows → phase rails");
-    expect(compiled).toContain("full-feature");
+    // One rail line per shipped flow, with the default flow marked — what the
+    // Orchestrator falls back to when a card pins nothing.
+    expect(compiled).toContain(`**${config.defaultFlow}** (default)`);
+    for (const flow of Object.keys(config.flows)) expect(compiled).toContain(`**${flow}**`);
   });
 
   it("renders the reply-token duty + discipline + matrix", () => {
