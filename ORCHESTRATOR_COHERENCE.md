@@ -616,3 +616,45 @@ else pends the consolidated remote check.
 | Delay-buffer send | Agent-triggered Slack/WhatsApp sends park in a 60s cancel window (exactly-once drain, crash-safe, batched same-destination flushes on Slack); cancel surface on the home page (`OutboxStrip` + server-side aggregation - the browser never sees a fitting URL); gmail declared immediate-and-irreversible in its manifest (F5). |
 | Discuss finished | Kickoff carries the full doctrine (document triggers, search-before-asserting, anti-persuasion-modifiers, language matching, level-aware depth); the engine's clarity-gated block carries the SAME doctrine (it could not push back before); ladder restored to Fable low/medium/high; Discuss-UI pin level-aware; 7-day inactivity auto-archive; the unequipped duty-discuss skill text reconciled. |
 | Slack two-way | `/notify` + thread-append + status-file discovery + inbound channel/session attribution; the origin id round-trips into discuss-intercept, so answering a question and "go" work on Slack. |
+
+## Phase 6 - live evidence (in progress, 2026-08-13 morning)
+
+Deployed: prod pulled `adb9ec01`+`98ede5a2`, redeployed, policy PUT recompiled
+(compiled file fresh, 13 flows, defaultFlow fix, discuss on fable/low, drill
+routable, `code` gone), composition bounced so the gateway holds the new
+policy. The tracked policy.json is now the real compile, committed from the
+prod host (D13 satisfied).
+
+| exercise | evidence |
+|---|---|
+| Act band, seeded shape, real work | The F3 defect (loopback card links in phone notifications) sent through the web channel routed `duty implement · level 2 · flow fix`, card `01KZWR2XBB…`: sequence `[implement, test, review]` FROM THE FLOW (first card in history whose sequence came from a flow definition), `dutyLevels {implement:2, test:2, review:2}`, `project: agent-garrison` with `inferState: done` BEFORE the run started (the resized gate closing the old #1 complaint), decision record carrying `autonomy: {band: act-revert, shape: fix, confidence 0.8, observations 50, seeded: true}` - the mined seed landing exactly where the arithmetic said it would. Proceeded unheld, as the band intends. The ack's own card link is the loopback defect the card fixes. |
+| Ask band, rare shape | A real research request (internet prices, no-contract) routed `research / L2 / research flow` and instead of acting the reply WAS the question ("…not confident enough on this shape yet. Reply go to proceed, or correct me"), card held in Backlog with `autonomyHeld: true` + the ask recorded against the daily budget (asked: 2 that day). |
+| Go release, any channel | A bare "go" on the same web thread answered "Going ahead - research.", moved the card to its list, cleared the hold inside the move's CAS, dispatched (`[research, writing]` - the flow's own gather-then-write sequence), and wrote the audit record `{kind: autonomy-ask, resolution: go, flow: research}`. |
+| Escalation, both directions | `POST /escalate` raised review 2->3 on the running fix card with a reason: applied, `dutyLevels {…review: 3}`, record flow-stamped into decisions.jsonl - the first escalation record the system has ever produced. The lowering attempt answered `applied: false` with `why: escalation may only raise a level, never lower it` and the REFUSAL recorded too. |
+| Cross-channel parity | The same rare-shape message through web and omi produced byte-identical routing (`research / 2 / research`), one held card each, zero execution; both duplicates archived. Slack inbound could not be exercised - the hand-started adapter is not running on the box (no tunnel session) - recorded as a coverage gap, not a pass. |
+
+### Phase 6 - completion (2026-08-13 morning)
+
+| exercise | evidence |
+|---|---|
+| Cards to completion | `research` card: Done in 2 iterations on its flow sequence (research -> writing), brief produced. `fix` card (F3): implement 9 min -> batched test 3.5 min (passed) -> review dispatched at the ESCALATED L3 - the `sol` cell, Codex GPT-5.6 high - proving a runtime escalation changes what actually dispatches - then hit the known stale Codex login (401) and parked in needs-attention carrying the true reason. That parking IS the pass for the failure path; the card completes when `codex login` is redone. |
+| The fix itself | The operative committed the F3 fix WITH a test (`446321b5 fix(kanban-loop): deliver tailnet-reachable card links to channels` + tests/kanban-tailnet-notify.test.ts) - the fix flow's definition of done honoured unprompted. The completion run's first flow-driven card fixed one of the completion run's own findings. |
+| Manual rails + aliases, live | Against the live compiled policy: `personal` -> all-off rail, evidenceRequired false; legacy `channel` -> aliases to personal, still manual; legacy `full-feature` -> feature L3 full rail. No unknown-flow throw anywhere. |
+| Discuss before/after | AFTER (live, Fable L1, 13.6s): topic-derived turn, plain prose, position with a stated reservation, the failure mode of the user's own proposal argued back, commitment at the end, Portuguese matched. BEFORE (corpus thread, Aug 7): the templated kickoff re-sent as the user message on every turn, markdown-bold headers, near-duplicate assistant restatements. One full pair captured with artifacts; the remaining comparisons accrue in daily use (recorded as partial coverage, not claimed). |
+| Vision judge | Board at 1440x900: duty-prefixed columns after the plain human lists, Discuss deliberately unprefixed, cards carrying project chips, honest inference banners, the Scheduled card showing its full route chips. Home page: healthy post-redeploy (running / 42-42 verified / 17-17 live / attention queue naming real cards). The judge DISAGREED with reality once - a stuck loading skeleton - and the disagreement was a finding: another session's builds were racing the running server (see F8). |
+
+### Phase 6 - honest coverage gaps
+
+- One card per flow: 2 of 13 flows ran end to end tonight (fix, research). The rest route correctly (proven at dispatch) but were not run to completion - real cards run real work, and thirteen simultaneous real builds is not validation, it is chaos. They accrue in daily use, which is the brief's actual success test anyway.
+- act-inform band: unreachable by design in one day (needs a track above 0.95 from real evidence; the seed deliberately cannot buy it).
+- Recurrence-to-pin: one escalation record exists; the improver rule fires at 3. Wired and tested, awaiting organic recurrence.
+- Revert proof: blocked by F7 (fences skip on prod for agent-garrison), so no trailer-attributed commits existed to revert. Machinery unit-tested and previously live-proven (4d1866f3 carries a Garrison-Card trailer).
+- Slack inbound + outposts: adapter not running on the box (needs its tunnel session); outposts not exercised. Both recorded, neither claimed.
+
+### New findings from the live run
+
+| # | finding | state |
+|---|---|---|
+| F7 | Fences skip on prod for agent-garrison ("could not resolve a repo path") - cards run real work whose commits carry no card attribution, and per-card revert has nothing to target. Project inference now settles in time (proven); fence repo-path resolution is the remaining half of the old §7.1. | open |
+| F8 | The kanban-test-beat cron is `0 */5 * * *` - a fix-flow card can finish implement in 9 minutes and then wait five HOURS for its test batch. That cadence defeats the fix flow's entire reason to exist (cheap and FAST for the modal shape). Needs a tighter beat or an immediate-trigger exception for single-card batches. | open, decision needed |
+| F9 | A session building `.next-prod` in the live tree without restarting leaves prod serving a stale in-memory build over new disk chunks - blank-skeleton pages and 404 chunks until someone completes the cycle. The S14 lesson's production variant: build + restart + up is ONE motion (`prod:redeploy`), never a bare build. | recorded |

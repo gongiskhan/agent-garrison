@@ -333,3 +333,63 @@ Ranked by how often the Phase 0 corpus says it will bite.
    collapsing reduces 784 `image` pins to 62 occasions, but the records carry no
    channel attribution, so human and machine overrides cannot be told apart
    retrospectively. New records should carry it.
+
+---
+
+# Completion run - 2026-08-13
+
+The brief was re-submitted four days after the run above; everything §5 called
+partial is now built, deployed, and exercised live. Working ledger with all
+evidence: [`ORCHESTRATOR_COHERENCE.md`](./ORCHESTRATOR_COHERENCE.md) (the
+"Completion run" sections). Eleven work waves, ten commits (`742e967e..2a874b51`
+plus the policy-compile commit from the prod host), 5,500+ tests green remotely
+with three verified pre-existing load flakes.
+
+## What §5 said was missing, and where it stands now
+
+| §5 gap | now |
+|---|---|
+| Router does not consult the bands | Consulted at the one moment ask-first is still possible, live-proven both ways: a seeded shape proceeded with the consult on its decision record (`act-revert, confidence 0.8, observations 50, seeded`); a rare shape was ASKED about - held card, question in the thread, budget counted - and a bare "go" released it, recorded as audit AND as learning signal. Explicit pins, scheduled and card-originated work exempt; consult failure fails open. |
+| Cold-start seeding not fed | The Phase 0 mined volumes ship as committed data, capped at 50 per shape so history lands exactly on the lower threshold - act-revert, never act-inform. The arithmetic is pinned by tests against the shipped files. |
+| Dimension feedback card | Built on the home Router panel and mirrored in the Decisions log - real option menus from the gateway's own vocabulary, one tap confirms, a dimension tap corrects, and `resolved` finally carries the flow so verdicts land on flow tracks. (Also fixed en route: the verdict reader spoke a field shape no producer ever wrote - no tap had ever taught the bands anything.) |
+| Signals view + deletable inferences | The improver's Signals tab lists every captured record across all four producers (the fourth was uncatalogued) with per-row delete as append-only tombstones every reader filters. |
+| Delay-buffer send | WhatsApp and Slack sends from an agent context park in a real 60-second cancel window (exactly-once, crash-safe, batched flushes); the cancel surface is on the home page; gmail is DECLARED unbufferable and ask-first-forever rather than pretended at. |
+| Probe on the Stop hook | The probe now delivers through every running channel's notify fan-out with tappable, tailnet-published answer actions; out-of-band questions live 7 days instead of self-dismissing in 90 seconds. And the reason the improver looked dead for a month: its nightly pass died every night in the one unguarded phase (a PTY auth trap under the scheduler env) - guarded now, underlying auth issue documented. |
+| Discuss two-thirds missing | Kickoff carries the full doctrine (document triggers, search-before-asserting, anti-persuasion-modifiers, language matching, level-aware depth); the clarity-gated engine block carries the SAME doctrine (it could extract requirements but never push back); ladder back on Fable low/medium/high; 7-day inactivity auto-archive. Live after-turn: topic-derived prose, a position with a stated reservation, the user's own proposal argued against, commitment - versus the before-thread's templated spam and markdown headers. |
+| Level chain unwired (the re-audit's R3) | Flow definitions now drive card sequences with per-duty levels stamped (pins applied); the first flow-driven card in Garrison's history ran implement -> test -> review where the old path would have run implement alone. `POST /escalate` raised review 2->3 mid-run with a reason and the review DISPATCHED at the L3 cell - and refused to lower, with the refusal logged. |
+| E2E coverage | fix and research flows ran end to end on real cards (the fix card's deliverable: the operative fixed one of this run's own findings, with a committed test, unprompted). Web/omi routing parity byte-identical. The fix card's review parks on the stale Codex login exactly as the failure path should - it completes when `codex login` is redone on dev-madrid. Vision judge over board and home concurs with the ledger; its one disagreement was itself a finding (F9, builds racing the live server). |
+
+## What still pulls Gonçalo back to a raw Claude Code session - re-ranked
+
+1. **The five-hour test beat (F8).** The modal fix finished implement in nine
+   minutes and would have waited to 10:00 for its test batch. Nothing sends work
+   back to a terminal faster than a pipeline that is idle on purpose. One cron
+   decision away from fixed.
+2. **Codex login (external).** Every decorrelation gate parks until
+   `~/.local/bin/codex login` is redone on dev-madrid. The failure path behaves
+   perfectly; the gates still do not run.
+3. **Fences skip on prod for agent-garrison (F7).** Work lands uncommitted or
+   unattributed, and per-card revert has nothing to target. The other half of
+   the old #1 is fixed (inference now settles before the run); this half is a
+   repo-path resolution bug with a card-shaped fix.
+4. **Eleven flows have routed but never run to completion.** feature L3
+   especially: authored, rail resolves, never driven end to end. Until one runs,
+   a big build is still safer where you can watch it.
+5. **Slack needs its tunnel session up** to be a real channel in practice, and
+   the outposts remain unexercised.
+6. **Day-one question volume.** Seeded shapes sit exactly on the lower threshold,
+   so the near-boundary rule generates informational questions (budgeted at 5/day)
+   until real evidence moves the tracks. By design, but it will be felt.
+
+## Open questions added by this run
+
+1. F8: tighten the test beat, or immediate-trigger single-card batches?
+2. Should `up()` refuse to start when `.next-prod`'s BUILD_ID is newer than the
+   running server (the F9 race made visible)?
+3. The freeze gate and `check-flow-rename` are still not in any automatic gate -
+   a docs commit broke it silently once already.
+4. The §8.2 free-text note stays unimplemented on purpose (the verdict store
+   strips prose by design); revisit only with a redaction story.
+5. `advanceCardPhase` enforces an OFF phase's evidence contract while the
+   dispatch path fast-forwards it - defensible asymmetry, now documented, worth
+   one deliberate ruling.
