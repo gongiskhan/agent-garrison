@@ -4825,7 +4825,12 @@ async function handlePutProjectMapping(req, res, opts, label) {
     target = path.resolve(target);
   }
   const expectedRev = Number.isInteger(clientRev) ? clientRev : undefined;
-  const result = await saveBoardCAS(opts.root, expectedRev, (board) => applyProjectMapping(board, name, remove ? null : target));
+  // saveBoardCAS's mutator contract is {board, list?, error?} - the pure helper
+  // returns the next board, so wrap it (returning the board bare leaves
+  // result.board undefined and the rev stamp throws).
+  const result = await saveBoardCAS(opts.root, expectedRev, (board) => ({
+    board: applyProjectMapping(board, name, remove ? null : target)
+  }));
   if (result.conflict) return jsonRes(res, 409, { error: "board changed under you — retry the mapping", rev: result.rev });
   if (result.error) return jsonRes(res, 400, { error: result.error });
   jsonRes(res, 200, { label: name, path: target, removed: remove, rev: result.rev });
