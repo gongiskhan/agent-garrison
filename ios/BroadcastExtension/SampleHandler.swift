@@ -54,6 +54,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastFinished() {
+        // Drain the converter's tail (the end of the last word) before ending.
+        if let encoder, let uploader {
+            let ts = Date().timeIntervalSince(sessionStart) * 1000
+            for packet in encoder.flush() {
+                uploader.sendAudioPacket(packet, ts: ts)
+            }
+        }
         uploader?.end(reason: "user")
         uploader = nil
         encoder = nil
@@ -107,6 +114,17 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private func handleAudio(_ sampleBuffer: CMSampleBuffer) {
         guard let uploader else { return }
         guard let pcm = OpusEncoder.pcmBuffer(from: sampleBuffer) else { return }
+        // ReplayKit mic buffers can change format mid-broadcast (route change,
+        // incoming call, headset connect: 44.1k<->48k, mono<->stereo). A
+        // converter fed a mismatched format fails on every call from then on,
+        // ending audio for good — rebuild instead, shipping the old tail.
+        if let current = encoder, current.inputFormat != pcm.format {
+            let ts = Date().timeIntervalSince(sessionStart) * 1000
+            for packet in current.flush() {
+                uploader.sendAudioPacket(packet, ts: ts)
+            }
+            encoder = nil
+        }
         if encoder == nil {
             encoder = OpusEncoder(inputFormat: pcm.format)
         }
