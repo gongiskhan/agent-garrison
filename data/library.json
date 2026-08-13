@@ -629,7 +629,7 @@
     "name": "Omi channel",
     "repo": "local:fittings/seed/omi-channel",
     "localPath": "fittings/seed/omi-channel",
-    "summary": "Bidirectional Omi wearable channel: webhook ingress, heartbeat triage into cards and memories, wake-word commands, Omi direct notifications, ask_gary chat tool, backfeed.",
+    "summary": "Bidirectional Omi wearable channel: webhook ingress, heartbeat triage into cards and memories, wake-word commands, Omi direct notifications, ask_zeca chat tool, backfeed.",
     "platforms": [
       "claude-code"
     ],

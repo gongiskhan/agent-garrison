@@ -221,7 +221,7 @@ Current kinds — **16**, per `capabilityKinds` in `src/lib/types.ts`:
 `screen-share`, `outpost`, `monitor`, `voice`, `duty`, `view` (`view` is
 derived by the resolver from `ui.views[]` / `own_port`, never declared in
 `provides`). There is no persona Fitting: the Orchestrator provides `identity`,
-its editable Identity section owns Gary, and `duty` carries per-work behaviour.
+its editable Identity section owns Zeca, and `duty` carries per-work behaviour.
 Dropped:
 `data-source` (2026-06-26, superseded by `connector`) and `artifact-store`
 (the file-browser Fitting is the artifact surface).

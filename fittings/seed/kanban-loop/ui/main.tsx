@@ -1778,7 +1778,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
             <input id="nc-sched-cron" aria-label="Five-field cron" type="text" value={scheduleCron} placeholder="0 8 * * 1-5" onChange={(e) => setScheduleCron(e.target.value)} />
           )}
           <select aria-label="Schedule action" value={scheduleAction} disabled={scheduleKind === "none"} onChange={(e) => setScheduleAction(e.target.value === "run" ? "run" : "notify")}>
-            <option value="notify">notify me (tell Gary to run/snooze)</option>
+            <option value="notify">notify me (tell Zeca to run/snooze)</option>
             <option value="run">run automatically</option>
           </select>
           {scheduleKind !== "none" && (
@@ -3128,7 +3128,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
               <input aria-label="Five-field cron" type="text" value={schedCronDraft} placeholder="0 8 * * 1-5" onChange={(e) => setSchedCronDraft(e.target.value)} />
             )}
             <select value={schedActionDraft} onChange={(e) => setSchedActionDraft(e.target.value === "run" ? "run" : "notify")}>
-              <option value="notify">notify me (tell Gary to run/snooze)</option>
+              <option value="notify">notify me (tell Zeca to run/snooze)</option>
               <option value="run">run automatically</option>
             </select>
             <input aria-label="Schedule timezone" type="text" value={schedTimezoneDraft} onChange={(e) => setSchedTimezoneDraft(e.target.value)} />

@@ -92,7 +92,7 @@ export async function migrateLegacyIdentityOverride(
           const preserved = trimmed
             .replace(/^# Agent Garrison Soul\s*/i, "")
             .replace(/You are called \*\*Verity\*\*\. When asked your name, identify yourself as Verity\.\s*/i, "")
-            .replace(/\bVerity\b/g, "Gary")
+            .replace(/\bVerity\b/g, "Zeca")
             .trim();
           document.identity = `${AUTHORED_SECTION_DEFAULTS.identity.content}\n\n## Migrated legacy customization\n\n${preserved}`;
         } else {

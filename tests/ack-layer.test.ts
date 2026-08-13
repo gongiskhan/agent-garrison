@@ -102,8 +102,27 @@ describe("ack — spoken into a live microphone", () => {
   // say into a command they never issued. Slots are free text from the operator's
   // own request, so the check must run on the FINISHED sentence.
   it("refuses a rendered sentence containing the wake word", () => {
-    expect(() => assertSpeakable("Created a task, send Gary the invoice.")).toThrow(/wake word/);
-    expect(() => renderAck("card.created", { subject: "send Gary the invoice" })).toThrow(/wake word/);
+    expect(() => assertSpeakable("Created a task, send Zeca the invoice.")).toThrow(/wake word/);
+    expect(() => renderAck("card.created", { subject: "send Zeca the invoice" })).toThrow(/wake word/);
+  });
+
+  // This guard is INTENTIONALLY blunter than omi-channel's wake gate, which
+  // additionally requires the name to be addressed and so would let "send Zeca
+  // the invoice" pass. The two ask different questions: the gate asks "was the
+  // operative addressed", this asks "could saying this aloud ever be heard as
+  // the wake word". Only the conservative answer is safe to speak.
+  it("refuses even where the wake gate itself would not fire", () => {
+    expect(() => assertSpeakable("Finished it, tell Zeca to run card 4F2A.")).toThrow(/wake word/);
+  });
+
+  // The operative was renamed, and omi-channel ignores a stored wake_variants
+  // made up entirely of retired spellings. If this guard honoured that stale
+  // value it would police the WRONG word and pass an ack carrying the live one -
+  // the single way this check can fail open.
+  it("guards the current name when the config still holds the retired one", () => {
+    const env = { GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary,garry,gerry,géri" };
+    expect(() => assertSpeakable("Created a task, send Zeca the invoice.", env)).toThrow(/wake word/);
+    expect(assertSpeakable("Created a task, send Gary the invoice.", env)).toContain("Gary");
   });
 
   it("allows the same sentence without the wake word", () => {
@@ -111,7 +130,7 @@ describe("ack — spoken into a live microphone", () => {
   });
 
   it("a wake collision skips the ack without killing the card event", () => {
-    const a = ackFromOriginEvent({ kind: "created" }, card({ title: "ask Gary about the invoice" })) as any;
+    const a = ackFromOriginEvent({ kind: "created" }, card({ title: "ask Zeca about the invoice" })) as any;
     expect(a.skipped).toBe("wake-collision");
     expect(a.text).toBeUndefined();
   });

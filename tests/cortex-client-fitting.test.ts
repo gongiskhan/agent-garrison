@@ -827,7 +827,7 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
 // verify and the install only LOOKS done. Asserting the selection survives that
 // filter is the difference between "the manifest parses" and "the fitting is
 // actually stationed".
-describe("cortex-client is stationed in dogfood-dev (and nowhere else)", () => {
+describe("cortex-client stationing", () => {
   async function selectionsOf(compositionId: string): Promise<FittingSelectionMap> {
     const yaml = await import("js-yaml");
     const manifest = yaml.load(
@@ -883,9 +883,16 @@ describe("cortex-client is stationed in dogfood-dev (and nowhere else)", () => {
     expect(defaults.get("base_url")).toBe("");
   });
 
-  it("leaves compositions/default alone (working agreement: existing users see zero change)", async () => {
+  // The original working agreement ("compositions/default sees zero change") was
+  // retired deliberately by 68faa2e8, which equipped cortex-client in default AND
+  // configured it against a real repo. That is a composition-level choice, not a
+  // Rule 6 question: Rule 6 governs what the FITTING ships, and the test above
+  // pins those defaults empty. So this asserts the stationing that now exists
+  // rather than an agreement that no longer holds.
+  it("is stationed in compositions/default too, configured at the composition level", async () => {
     const selections = await selectionsOf("default");
-    const allIds = Object.values(selections).flatMap((items) => (items ?? []).map((s) => s.id));
-    expect(allIds).not.toContain("cortex-client");
+    const selected = (selections.connectors ?? []).find((s) => s.id === "cortex-client");
+    // Reading it out of `selections.connectors` is itself the faculty assertion.
+    expect(selected, "cortex-client has been equipped in default since 68faa2e8").toBeTruthy();
   });
 });

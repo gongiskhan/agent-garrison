@@ -32,7 +32,7 @@ it is not subject to Omi's 10-messages-per-hour chat cap. Speech is therefore a
 first-class deliverable of this run (M5b), not a later addition.
 
 By the end of the run, the full loop must work against Garrison: live
-transcription with a visible transcript, wake commands ("Gary, ...") during a
+transcription with a visible transcript, wake commands ("Zeca, ...") during a
 session, memories persisted, tasks created on the Kanban Loop through the
 existing triage (with its wait-for-context batching), iOS push notifications out
 (including asks the user answers by voice), **[R2] spoken acknowledgements while
@@ -113,11 +113,11 @@ Proven on 2026-08-09 against the live system:
 - Ambient speech reaching the conversation pipeline **does** become Kanban cards.
   This is the designed behaviour of triage, and it does not distinguish the
   operator's voice from a speaker's.
-- The wake regex matches `Gary` anywhere in a segment with word boundaries.
-  Tested directly: `"Gary created a task, follow up with the lawyer."` is a wake
+- The wake regex matches `Zeca` anywhere in a segment with word boundaries.
+  Tested directly: `"Zeca created a task, follow up with the lawyer."` is a wake
   hit. `"Created a task, follow up with the lawyer."` is not.
 - Template text avoids the wake word, but **slots do not**: they carry free text
-  from the operator's own request, so "send Gary the invoice" renders a sentence
+  from the operator's own request, so "send Zeca the invoice" renders a sentence
   that re-opens the capture window on the app's own voice.
 
 Three defences, all of which this run must implement for the companion:
@@ -180,7 +180,7 @@ on the same device with the same speaker and microphone. Additionally required:
   `omi-push`, `omi-chat`, and `web-channel` only on failure. Adding `companion`
   must not assume an index.
 - **Ask-then-listen semantics (v1)**: an `ask` is just a push carrying a question.
-  The user answers by voice with a normal "Gary, ..." command during a live
+  The user answers by voice with a normal "Zeca, ..." command during a live
   session (or via Omi if it's listening). The orchestrator receives recent-ask
   context so the answer lands connected. No special reply protocol in v1.
 - **Transport**: v1 rides Tailscale; the phone runs the Tailscale app and the
@@ -333,7 +333,7 @@ one line in `DECISIONS.md`.
 ### M1 Ingress and protocol
 - Websocket ingress per section 4 with token auth, acks, resume, dedupe, session
   store (transcript, media segments, consent context), counters.
-- Fixtures: recorded Opus audio (Portuguese and English speech including "Gary"
+- Fixtures: recorded Opus audio (Portuguese and English speech including "Zeca"
   commands), a small fMP4 segment set, duplicate and out-of-order chunk cases, a
   malformed session.
 - A node replay client (`scripts/replay-client.mjs`) that speaks the full
@@ -367,7 +367,7 @@ one line in `DECISIONS.md`.
 - **[R2]** Latency is counted in three legs - capture, classify, notify - not as
   one number. A single end-to-end figure cannot say which regressed and already
   produced one wrong diagnosis.
-- Acceptance: the scripted "Gary, create a test task called hello companion"
+- Acceptance: the scripted "Zeca, create a test task called hello companion"
   fixture triggers exactly once; near-misses do not; duplicate segments do not
   double-dispatch.
 
@@ -520,7 +520,7 @@ rediscovering any of them.
 
 1. **A cheap-looking call on an expensive lane.** Classification without a pinned
    target took 82 s because it inherited the operative's full toolset.
-2. **A budget shorter than the work.** `ask_gary` allowed 8.5 s for a lane that
+2. **A budget shorter than the work.** `ask_zeca` allowed 8.5 s for a lane that
    takes 8-82 s, so every real question timed out and the question was discarded
    rather than queued.
 3. **A closed intent set with no escape hatch.** Spoken commands could only

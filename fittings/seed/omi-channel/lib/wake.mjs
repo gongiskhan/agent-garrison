@@ -1,5 +1,5 @@
 // The wake bus (spec M4): watches the realtime transcript pipe for the wake
-// word ("Gary" + configured variants), assembles the spoken command, and
+// word ("Zeca" + configured variants), assembles the spoken command, and
 // dispatches it as an orchestrator command.
 //
 // Privacy (I5) is the governing invariant: everything here is in-memory.
@@ -17,16 +17,103 @@ import path from "node:path";
 
 const SESSION_IDLE_GC_MS = 10 * 60 * 1000;
 
-// Word-boundary, case-insensitive, unicode-aware gate. \b fails on accented
-// variants (e.g. "géri"), so boundaries are explicit letter/number lookarounds:
-// "gary" must match "Gary,", "gary?" and never "garrison", "hungary", "gario".
+// Word-boundary, case-insensitive, unicode-aware TOKEN match. \b fails on
+// accented variants (e.g. "zéca"), so boundaries are explicit letter/number
+// lookarounds: "zeca" must match "Zeca,", "zeca?" and never "zecar", "azeca".
+// Whitespace inside a variant is a split form ("ze ca"): Deepgram sometimes
+// breaks the name across a space or a hyphen, so either separator matches.
+//
+// Finding the token is only HALF the gate - see isAddressPosition below.
 export function wakeRegex(variants) {
   const escaped = variants
     .map((v) => v.trim())
     .filter((v) => v.length > 0)
-    .map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    .map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "[\\s-]+"));
   if (escaped.length === 0) return null;
+  // Deliberately NOT global: callers use .test() on a long-lived instance, and a
+  // sticky lastIndex would make every other call a miss.
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "iu");
+}
+
+// Words that may precede a direct address without turning the name into an
+// object: greetings, acknowledgements, hesitation noises and the conjunctions a
+// sentence actually starts with, in both languages the wearer speaks.
+//
+// Portuguese articles are POINTEDLY absent. "o Zeca fez isso" is how Portuguese
+// talks ABOUT someone, and it is the single most common way the name occurs in
+// ambient speech - admitting "o" would hand back most of what this gate buys.
+// That also costs us the vocative particle "ó Zeca!", which folds to the same
+// bare "o" once accents are stripped and so cannot be told apart from the
+// article. Losing one vocative is the cheaper side of that trade.
+const VOCATIVE_LEAD_INS = new Set([
+  // English
+  "hey", "hi", "hello", "ok", "okay", "oh", "ah", "so", "well", "now", "look",
+  "listen", "please", "yes", "yeah", "yep", "no", "nope", "um", "uh", "er",
+  // Portuguese
+  "oi", "ola", "opa", "entao", "mas", "e", "bom", "bem", "olha", "escuta",
+  "atencao", "sim", "nao", "pa", "epa", "ha", "por", "favor"
+]);
+const MAX_LEAD_IN_WORDS = 3;
+
+function foldWord(w) {
+  return String(w ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+// The second half of the gate: is the token an ADDRESS, or merely a mention?
+//
+// "Zeca" is an ordinary Portuguese given name. An always-on pendant in a
+// Portuguese-speaking house hears it in conversation ABOUT a person several
+// times a day, and every one of those used to open a capture window and feed
+// whatever was said next to the operative as a command. So a hit only counts
+// when the speech is aimed AT the operative: the name opens the utterance, or
+// opens a clause after sentence punctuation, or trails a short run of vocative
+// lead-ins ("hey Zeca", "ok Zeca do it", "não Zeca, quarta-feira").
+//
+// Everything else is left to pass by uncaptured - most importantly the name in
+// object position, which is exactly the shape of the sentences Garrison's OWN
+// notifications and voice sinks produce ("send Zeca the invoice", "tell Zeca to
+// run card 4F2A"). Those cannot self-trigger the pendant any more.
+//
+// This is a hit-rate trade made on purpose. A missed wake costs one repeated
+// sentence; a false wake silently captures speech the user never addressed to
+// anyone and acts on it.
+export function isAddressPosition(text, index) {
+  const before = String(text ?? "").slice(0, index);
+  // Only the current clause matters: "I called him. Zeca, create a task" is an
+  // address even though the segment does not start with the name.
+  const clause = before.split(/[.!?;:\n]/u).pop() ?? "";
+  const words = clause.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length === 0) return true;
+  if (words.length > MAX_LEAD_IN_WORDS) return false;
+  return words.every((w) => VOCATIVE_LEAD_INS.has(foldWord(w)));
+}
+
+// Scanning needs a global regex; the shared one is deliberately not global, so
+// keep one global twin per instance rather than recompiling per segment.
+const globalTwins = new WeakMap();
+function globalTwin(regex) {
+  let g = globalTwins.get(regex);
+  if (!g) {
+    g = new RegExp(regex.source, `${regex.flags}g`);
+    globalTwins.set(regex, g);
+  }
+  return g;
+}
+
+// First token in the segment that is BOTH a variant and an address. Scans every
+// occurrence rather than stopping at the first, so a mention early in a segment
+// cannot mask a real address later in it ("o Zeca ligou. Zeca, cria uma tarefa").
+export function matchWake(text, regex) {
+  if (!regex) return null;
+  const g = globalTwin(regex);
+  g.lastIndex = 0;
+  for (let m = g.exec(text); m; m = g.exec(text)) {
+    if (isAddressPosition(text, m.index)) return { index: m.index, token: m[0] };
+  }
+  return null;
 }
 
 // Does this segment end a sentence? Omi's transcriber punctuates, so a trailing
@@ -169,17 +256,17 @@ Rules:
   "7Q2M"); never invent, complete or translate it. A relative snooze gives
   "minutes"; an absolute one gives "until" computed from the current local
   time above. Never emit both.
-- delegate: the user wants Gary to DO something now, or asks something that
+- delegate: the user wants Zeca to DO something now, or asks something that
   cannot be answered without looking at their real data. You are a small, fast,
   tool-less classifier: you cannot send a message, read their calendar, search
   their files, open a web page, look at the Kanban board or read their memories.
-  Gary himself can do all of that. So anything of that shape is "delegate":
+  Zeca himself can do all of that. So anything of that shape is "delegate":
   sending or drafting a message anywhere (Slack, email, WhatsApp), anything
   touching a connected service (calendar, Trello, Google, GitHub), reading or
   changing files or code, searching the web, running or checking anything in
   Garrison, and any question about the user's own tasks, schedule, memories,
   projects or past conversations. Put the instruction in "request" - restated
-  clearly and self-contained, because Gary sees ONLY that sentence, not this
+  clearly and self-contained, because Zeca sees ONLY that sentence, not this
   transcript. Put a short spoken-style acknowledgement in "ack" ("On it - I'll
   message Ana on Slack"). When in doubt between delegate and query, choose
   delegate: a real answer late beats a confident wrong one now.
@@ -458,7 +545,7 @@ export class WakeBus {
         if (!text.trim()) continue;
         // A revision watch listens to everything after its card was created,
         // including the speech that belongs to a later wake capture - a
-        // correction is often phrased as a fresh command ("Gary, no, Wednesday").
+        // correction is often phrased as a fresh command ("Zeca, no, Wednesday").
         if (watch && watch.lines.length < (this.cfg.wakeReviseMaxSegments ?? 0)) {
           watch.lines.push(text.trim());
         }
@@ -475,7 +562,7 @@ export class WakeBus {
           continue;
         }
 
-        const m = this.regex.exec(text);
+        const m = matchWake(text, this.regex);
         if (!m) {
           // Non-hit: dropped in memory, counted, never persisted/logged (I5).
           // It is retained ONLY in the bounded in-memory context ring, which is
@@ -494,10 +581,10 @@ export class WakeBus {
         s.contextUsed = this.contextWindow(s);
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
-        const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
+        const after = text.slice(m.index + m.token.length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
         // Only a wake segment that itself carries a complete command settles
-        // early; a bare "Gary" waits the full window for what follows it.
+        // early; a bare "Zeca" waits the full window for what follows it.
         this.armSilenceTimer(s, Boolean(after) && endsSentence(after));
         s.capTimer = setTimeout(() => this.close(sessionId, "max-capture"), this.cfg.wakeMaxCaptureMs);
         if (s.capTimer.unref) s.capTimer.unref();
@@ -534,7 +621,7 @@ export class WakeBus {
   // That window is sized for the worst case - Omi splits one utterance across
   // bursts with real gaps, so closing early truncates "create a task saying"
   // into nothing - but paying the worst case on every command is what made a
-  // spoken request feel dead for the ~15s before Gary said anything. When the
+  // spoken request feel dead for the ~15s before Zeca said anything. When the
   // transcript itself signals the end of a sentence, a shorter settle is enough;
   // anything unpunctuated still gets the full window.
   armSilenceTimer(s, settled = false) {
@@ -596,7 +683,7 @@ export class WakeBus {
       this.counters.bump("wake_killed_mid_session");
       return this.dispatchChain;
     }
-    // A bare "Gary" with nothing after it used to dead-end here. With context
+    // A bare "Zeca" with nothing after it used to dead-end here. With context
     // available the intent is often still recoverable from what surrounded it,
     // which is exactly the fragmented-speech case this is for.
     if (!command && context.length === 0) {
@@ -639,7 +726,7 @@ export class WakeBus {
       outcome = await this.fallbackNote({
         command,
         eventId,
-        confirmation: "Couldn't reach Gary - saved your command as a note.",
+        confirmation: "Couldn't reach Zeca - saved your command as a note.",
         reason: `dispatch failed: ${err?.message ?? err}`
       });
     }
@@ -682,7 +769,7 @@ export class WakeBus {
       return this.fallbackNote({
         command,
         eventId,
-        confirmation: "Gary is offline - saved your command as a note.",
+        confirmation: "Zeca is offline - saved your command as a note.",
         reason: "no gateway"
       });
     }
@@ -829,7 +916,7 @@ export class WakeBus {
     }
   }
 
-  // The spoken command needs Gary himself - his tools, his connectors, his view
+  // The spoken command needs Zeca himself - his tools, his connectors, his view
   // of the user's data. Two notifications by design: the wearer hears "on it"
   // within seconds, and the real answer arrives when the work is actually done.
   // Blocking the wearer on a turn that routinely runs a minute or more is what
@@ -842,7 +929,7 @@ export class WakeBus {
       return this.fallbackNote({
         command,
         eventId,
-        confirmation: "I can't reach Gary for that right now - saved it as a note.",
+        confirmation: "I can't reach Zeca for that right now - saved it as a note.",
         reason: this.cfg.delegateEnabled ? "no operative lane" : "delegation disabled"
       });
     }

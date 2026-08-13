@@ -6,6 +6,10 @@ import { capabilityKinds, facultyIds, singletonCapabilityKinds } from "@/lib/typ
 const ROOT = path.resolve(__dirname, "..");
 const SEED_DIR = path.join(ROOT, "fittings", "seed");
 
+// The retired ids below are historical fitting NAMES (the operative was Gary
+// before the 2026-08-13 rename to Zeca). They stay spelled as they shipped:
+// asserting the absence of an "identity-zeca" that never existed would prove
+// nothing.
 describe("named modes and persona fittings are retired", () => {
   it("has no modes, soul, Dispatcher, Identity Gary, or legacy delegating Orchestrator fitting", () => {
     const seeds = new Set(readdirSync(SEED_DIR));

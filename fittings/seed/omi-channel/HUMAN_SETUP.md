@@ -119,10 +119,10 @@ verifying each:
    wait one triage tick (default 5 min): a card appears in the Kanban
    backlog with `origin: omi` and a `card_created` push arrives.
 4. `wake_enabled` — the spoken smoke test below.
-5. `chat_enabled` — in Omi chat, type: "ask Gary how my board looks".
-   Omi should call `ask_gary` and answer with Garrison's reply within
+5. `chat_enabled` — in Omi chat, type: "ask Zeca how my board looks".
+   Omi should call `ask_zeca` and answer with Garrison's reply within
    ~10s. If Omi's model doesn't pick the tool, re-save the app (manifest
-   refresh) and phrase with "Gary".
+   refresh) and phrase with "Zeca".
 6. `backfeed_enabled` (+ optionally add `daily_digest` to
    `backfeed_kinds`) — complete a card, wait <=30 min (or run
    `node scripts/backfeed.mjs --run`), then in the Omi app check
@@ -133,7 +133,7 @@ verifying each:
 
 Wearing/near the mic, say:
 
-> "Gary, create a test task called hello garrison."
+> "Zeca, create a test task called hello garrison."
 
 Expected, in order:
 
@@ -147,8 +147,15 @@ Expected, in order:
    context.
 3. `/health`: `wake_hits: 1`, `wake_dispatches: 1`.
 
-Negative check: say "the garrison deploy is fine" — no push, no card;
-`wake_segments_dropped` increments only.
+Negative checks - none of these may push or card, and each should only
+increment `wake_segments_dropped`:
+
+- "the garrison deploy is fine" - near-miss, no wake token at all.
+- "o Zeca ligou ontem" / "I'll send Zeca the invoice" - the name is
+  MENTIONED, not addressed. This is the case the wake gate tightened for:
+  "Zeca" is an ordinary Portuguese given name, so it only wakes when it
+  opens the utterance or a clause, or follows a short vocative lead-in
+  ("hey Zeca", "ok Zeca do it", "não Zeca, quarta-feira").
 
 ## 8. Day summary caveat
 
@@ -162,6 +169,35 @@ timezone = no delivery (that is "no recap", not a failure).
 
 Record real numbers for: realtime webhook latency/variance
 (`wake_hit_to_notification_ms_*`), direct-notification rate limits and
-Watch delivery behavior, whether Omi's model calls `ask_gary` reliably or
+Watch delivery behavior, whether Omi's model calls `ask_zeca` reliably or
 paraphrases its results, whether notification replies are read aloud, and
 the actual free-tier burn rate under always-on.
+
+## 10. REQUIRED after the Gary -> Zeca rename (2026-08-13)
+
+The operative was renamed. Everything in this repo already says Zeca, but
+**two things live on Omi's servers and can only be changed from the phone**.
+Until you do them, the chat tool silently keeps failing:
+
+1. **Re-save the private Omi app** (Explore -> your app -> Save), with no
+   field edited. The chat tool was renamed `ask_gary` -> `ask_zeca`, and
+   **Omi caches the Chat Tools Manifest**. Until the app is re-saved, Omi
+   keeps calling the tool by its old name against a server that no longer
+   serves it. This is the same cache that once made a rotated key 401 every
+   call for a day.
+2. **Re-phrase your chat probe.** In Omi chat, "ask Zeca how my board looks"
+   should now call `ask_zeca`. If Omi's model still doesn't pick the tool
+   after a re-save, wait a minute and try once more - the manifest refresh is
+   not instant.
+
+Nothing else on the Omi side changes: App ID, App Secret, Import key, the
+manifest URL and all four Developer-Mode webhook URLs are untouched, because
+no route or secret was renamed.
+
+Then re-run the §7 spoken smoke test with the new wake word:
+
+> "Zeca, create a test task called hello garrison."
+
+If the wake word does not fire, check `/health` -> the fitting logs a line at
+startup when it finds a `wake_variants` config left over from the old name and
+ignores it. You do not need to edit that key; clearing it just silences the log.

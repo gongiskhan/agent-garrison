@@ -17,7 +17,7 @@ describe("Orchestrator session placement", () => {
     expect(result.targetId).toBeNull();
     expect(existsSync(result.promptPath)).toBe(true);
     const prompt = readFileSync(result.promptPath, "utf8");
-    expect(prompt.match(/\bGary\b/g) ?? []).toHaveLength(1);
+    expect(prompt.match(/\bZeca\b/g) ?? []).toHaveLength(1);
     expect(prompt).not.toMatch(/\b(?:Verity|Joe|James)\b/);
     expect(JSON.parse(readFileSync(decisionsPath, "utf8").trim())).toMatchObject({
       kind: "session-placement",

@@ -1,6 +1,7 @@
 // Omi channel M4 — wake bus acceptance (build spec): scripted segment streams
 // with timing trigger exactly on the configured variants and never on
-// near-misses ("garrison", "hungary" must NOT trigger); duplicate segment
+// near-misses ("garrison", "seca" must NOT trigger) nor on a mere MENTION of
+// the operative's name ("o Zeca ligou"); duplicate segment
 // delivery does not double-dispatch; the kill switch is honored mid-session;
 // non-hit segments are never persisted (I5); the wake_hit_to_notification_ms
 // latency metric is emitted; each intent lands in its home (card via board,
@@ -13,10 +14,17 @@ import path from "node:path";
 import { loadConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
 import { OmiStore, Counters, mergedCounters } from "../fittings/seed/omi-channel/lib/store.mjs";
 import { Ingress } from "../fittings/seed/omi-channel/lib/ingress.mjs";
-import { WakeBus, buildWakePrompt, parseWakeReply, wakeRegex } from "../fittings/seed/omi-channel/lib/wake.mjs";
+import {
+  WakeBus,
+  buildWakePrompt,
+  parseWakeReply,
+  wakeRegex,
+  matchWake,
+  isAddressPosition
+} from "../fittings/seed/omi-channel/lib/wake.mjs";
 import { MemoryWriter } from "../fittings/seed/omi-channel/lib/memory-writer.mjs";
 
-const VARIANTS = ["gary", "garry", "gerry", "géri"];
+const VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
 
 function seg(text: string, start = 0, end = 1) {
   return { text, speaker: "SPEAKER_00", speakerId: 0, is_user: true, start, end };
@@ -77,19 +85,139 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000) {
   if (!predicate()) throw new Error("waitFor timed out");
 }
 
-describe("wake regex gate", () => {
+describe("wake token match", () => {
   const re = wakeRegex(VARIANTS)!;
 
-  it("matches the variants on word boundaries, case-insensitively", () => {
-    for (const hit of ["gary", "Gary,", "GARY?", "ok Garry do it", "gerry:", "géri faz isso", "Hey Gary"]) {
+  it("matches the configured spellings on word boundaries, case-insensitively", () => {
+    for (const hit of ["zeca", "Zeca,", "ZECA?", "ok Zeka do it", "zecca:", "zéca faz isso", "Hey Zeca"]) {
       expect(re.test(hit), hit).toBe(true);
     }
   });
 
-  it("never matches near-misses", () => {
-    for (const miss of ["garrison", "hungary", "Hungary's", "gario", "sugary", "garyish", "the garrison deploy"]) {
+  // Deepgram breaks a two-syllable name across a separator often enough that the
+  // split form is a shipped variant; a space in a variant matches a hyphen too.
+  it("tolerates the transcriber splitting the name", () => {
+    for (const hit of ["Ze ca, cria uma tarefa", "ze-ca do it", "Ze  Ca?"]) {
+      expect(re.test(hit), hit).toBe(true);
+    }
+  });
+
+  it("never matches near-misses or the name inside a longer word", () => {
+    for (const miss of [
+      "garrison",
+      "the garrison deploy",
+      "zecar",
+      "azeca",
+      "zecas",
+      "rebeca",
+      "biblioteca",
+      // Near-homophones that are ordinary words are deliberately NOT variants:
+      // an always-on mic would wake on them constantly.
+      "a roupa está seca",
+      "joguei na sega"
+    ]) {
       expect(re.test(miss), miss).toBe(false);
     }
+  });
+
+  it("does not match the retired name", () => {
+    for (const miss of ["gary", "Gary,", "Hey Gary", "ok Garry do it", "géri faz isso"]) {
+      expect(re.test(miss), miss).toBe(false);
+    }
+  });
+});
+
+// The token is only half the gate. "Zeca" is an ordinary Portuguese given name,
+// so a pendant hears it in conversation ABOUT a person many times a day; only
+// speech ADDRESSED to the operative may open a capture window.
+describe("wake address-position gate", () => {
+  const re = wakeRegex(VARIANTS)!;
+  const fires = (text: string) => matchWake(text, re) !== null;
+
+  it("fires when the name opens the utterance", () => {
+    for (const hit of [
+      "Zeca, create a test task called hello garrison",
+      "Zeca do it",
+      "Zeca?",
+      "zeca cria uma tarefa para comprar peixe"
+    ]) {
+      expect(fires(hit), hit).toBe(true);
+    }
+  });
+
+  it("fires after a short vocative lead-in, in either language", () => {
+    for (const hit of [
+      "Hey Zeca, what is on my board?",
+      "ok Zeca do it",
+      "no Zeca, make that Wednesday not Tuesday",
+      "não Zeca, quarta-feira",
+      "então Zeca, marca a revisão do carro",
+      "oi Zeca",
+      "well ok Zeca do the thing"
+    ]) {
+      expect(fires(hit), hit).toBe(true);
+    }
+  });
+
+  it("fires when the name opens a later clause in the same segment", () => {
+    expect(fires("I called him earlier. Zeca, create a task")).toBe(true);
+    // A mention must not mask a genuine address later in the same segment.
+    expect(fires("o Zeca ligou. Zeca, cria uma tarefa")).toBe(true);
+  });
+
+  it("does NOT fire on the name in object position", () => {
+    for (const miss of [
+      "send Zeca the invoice",
+      "I'll ask Zeca about the invoice tomorrow",
+      "we should tell Zeca to run card 4F2A",
+      // Garrison's own outbound copy has exactly this shape, so this is also
+      // what stops a voice sink from re-triggering the pendant it speaks into.
+      'Tell Zeca: "run card 4F2A" to start it, or "snooze card 4F2A for 2 hours"'
+    ]) {
+      expect(fires(miss), miss).toBe(false);
+    }
+  });
+
+  it("does NOT fire on a third-person mention", () => {
+    for (const miss of [
+      // The Portuguese article is how the language talks ABOUT someone, and is
+      // excluded from the lead-in set for exactly this reason.
+      "o Zeca ligou ontem",
+      "a Zeca chegou tarde",
+      "acho que o Zeca já foi embora",
+      "yesterday Zeca called me about it",
+      "my cousin Zeca is coming over"
+    ]) {
+      expect(fires(miss), miss).toBe(false);
+    }
+  });
+
+  it("does NOT fire when the lead-in run is longer than a vocative", () => {
+    // Every word here is individually a lead-in, but four of them is a sentence,
+    // not an address - the cap is what stops the set from becoming a substring.
+    expect(fires("well now look listen Zeca")).toBe(false);
+  });
+
+  it("keeps the near-miss and retired-name negatives at the gate level", () => {
+    for (const miss of ["the garrison deploy is fine", "Hey Gary, create a task", "a roupa está seca"]) {
+      expect(fires(miss), miss).toBe(false);
+    }
+  });
+});
+
+describe("isAddressPosition", () => {
+  it("treats the start of the text as an address", () => {
+    expect(isAddressPosition("Zeca, do it", 0)).toBe(true);
+  });
+
+  it("reads only the current clause, not the whole segment", () => {
+    const text = "I spoke to the lawyer about the contract yesterday. Zeca, create a task";
+    expect(isAddressPosition(text, text.indexOf("Zeca"))).toBe(true);
+  });
+
+  it("rejects a preceding verb", () => {
+    const text = "send Zeca the invoice";
+    expect(isAddressPosition(text, text.indexOf("Zeca"))).toBe(false);
   });
 });
 
@@ -110,7 +238,7 @@ describe("wake bus sessions", () => {
       // segment. "garrison" INSIDE the capture must not re-trigger anything.
       bus.handleSegments({
         sessionId: "s1",
-        segments: [seg("Gary, create a test task", 10, 12)]
+        segments: [seg("Zeca, create a test task", 10, 12)]
       });
       bus.handleSegments({
         sessionId: "s1",
@@ -145,7 +273,7 @@ describe("wake bus sessions", () => {
     }
   });
 
-  it("near-misses and ordinary speech never open a session or persist anything", async () => {
+  it("near-misses, homophones and mere MENTIONS never open a session or persist anything", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-miss-"));
     try {
       const { bus, store, counters, sent } = makeDeps(home, () => "{}");
@@ -153,8 +281,14 @@ describe("wake bus sessions", () => {
         sessionId: "s2",
         segments: [
           seg("the garrison deploy finished", 0, 2),
-          seg("we should visit Hungary next year", 3, 5),
-          seg("sugary snacks are the worst", 6, 8)
+          // Ordinary words that carry the name's sound or letters.
+          seg("a roupa ainda está seca", 3, 5),
+          seg("fui à biblioteca com a Rebeca", 6, 8),
+          // The case the gate tightened for: an always-on mic in a Portuguese
+          // house hears the name in third person and in object position all day,
+          // and neither is speech addressed to the operative.
+          seg("o Zeca ligou ontem à noite", 9, 11),
+          seg("depois mando ao Zeca a factura", 12, 14)
         ]
       });
       await new Promise((r) => setTimeout(r, 150));
@@ -162,7 +296,7 @@ describe("wake bus sessions", () => {
       expect(store.listEvents()).toHaveLength(0);
       const c = counters.read();
       expect(c.wake_hits ?? 0).toBe(0);
-      expect(c.wake_segments_dropped).toBe(3);
+      expect(c.wake_segments_dropped).toBe(5);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -174,7 +308,7 @@ describe("wake bus sessions", () => {
       const { bus, sent, counters, store } = makeDeps(home, () =>
         JSON.stringify({ intent: "note", title: "Dup test", note_content: "x" })
       );
-      const hit = seg("Gary remember the dup test", 20, 22);
+      const hit = seg("Zeca remember the dup test", 20, 22);
       bus.handleSegments({ sessionId: "s3", segments: [hit] });
       // Omi redelivers the same segment in the next call (documented behavior).
       bus.handleSegments({ sessionId: "s3", segments: [hit] });
@@ -197,7 +331,7 @@ describe("wake bus sessions", () => {
         () => JSON.stringify({ intent: "note", title: "t", note_content: "c" }),
         { wakeSilenceCloseMs: 10_000, wakeMaxCaptureMs: 120 }
       );
-      bus.handleSegments({ sessionId: "s4", segments: [seg("gary note this down", 0, 1)] });
+      bus.handleSegments({ sessionId: "s4", segments: [seg("zeca note this down", 0, 1)] });
       // Keep feeding segments faster than the (huge) silence window; only the
       // hard cap can close the session.
       const feeder = setInterval(() => {
@@ -218,7 +352,7 @@ describe("wake bus sessions", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-kill-"));
     try {
       const { bus, cfg, sent, store, counters } = makeDeps(home, () => "{}");
-      bus.handleSegments({ sessionId: "s5", segments: [seg("gary do something", 0, 1)] });
+      bus.handleSegments({ sessionId: "s5", segments: [seg("zeca do something", 0, 1)] });
       (cfg as { wakeEnabled: boolean }).wakeEnabled = false; // flag flipped between hit and close
       await new Promise((r) => setTimeout(r, 250));
       expect(sent).toHaveLength(0);
@@ -239,11 +373,11 @@ describe("wake bus sessions", () => {
       ];
       const { bus, sent } = makeDeps(home, () => replies.shift() ?? "{}");
 
-      bus.handleSegments({ sessionId: "q1", segments: [seg("gary how is the board looking", 0, 1)] });
+      bus.handleSegments({ sessionId: "q1", segments: [seg("zeca how is the board looking", 0, 1)] });
       await waitFor(() => sent.length === 1);
       expect(String(sent[0].params.text)).toContain("3 open cards");
 
-      bus.handleSegments({ sessionId: "q2", segments: [seg("gary remember I prefer portuguese emails", 0, 1)] });
+      bus.handleSegments({ sessionId: "q2", segments: [seg("zeca remember I prefer portuguese emails", 0, 1)] });
       await waitFor(() => sent.length === 2);
       expect(String(sent[1].params.text)).toContain("Noted");
       const vault = path.join(home, "vault");
@@ -251,7 +385,7 @@ describe("wake bus sessions", () => {
       const note = readFileSync(path.join(vault, readdirSync(vault)[0]), "utf8");
       expect(note).toContain("- **source**: omi wake command");
 
-      bus.handleSegments({ sessionId: "q3", segments: [seg("gary blorp fizzle", 0, 1)] });
+      bus.handleSegments({ sessionId: "q3", segments: [seg("zeca blorp fizzle", 0, 1)] });
       await waitFor(() => sent.length === 3);
       expect(String(sent[2].params.text)).toContain("saved it as a note");
     } finally {
@@ -275,7 +409,7 @@ describe("wake bus sessions", () => {
         notifier: deps.notifier,
         log: { log: () => {}, error: () => {} }
       });
-      failingBus.handleSegments({ sessionId: "f1", segments: [seg("gary ship the release notes", 0, 1)] });
+      failingBus.handleSegments({ sessionId: "f1", segments: [seg("zeca ship the release notes", 0, 1)] });
       await waitFor(() => deps.sent.length === 1);
       expect(String(deps.sent[0].params.text)).toContain("saved your command as a note");
       expect(readdirSync(path.join(home, "vault"))).toHaveLength(1);
@@ -314,7 +448,7 @@ describe("wake units", () => {
 // and the wake bus still do nothing.
 describe("realtime payload envelopes and session id recovery", () => {
   const segs = [
-    { text: "Gary, create a task called envelope test.", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 0, end: 2 }
+    { text: "Zeca, create a task called envelope test.", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 0, end: 2 }
   ];
 
   function harness(home: string) {
@@ -366,7 +500,7 @@ describe("realtime payload envelopes and session id recovery", () => {
 // Feature (2026-07-31, user-requested): Omi fragments speech across segments and
 // mis-attributes speakers, so the detail a command refers to often sits in a
 // segment BEFORE the wake word - which the gate dropped. The classifier now gets
-// a bounded pre-wake context window. Real case: "Gary, create a task saying"
+// a bounded pre-wake context window. Real case: "Zeca, create a task saying"
 // arrived with the subject ("tomorrow it could rain") in an earlier segment, and
 // classified as unknown because the command alone was meaningless.
 describe("wake pre-wake context window", () => {
@@ -410,7 +544,7 @@ describe("wake pre-wake context window", () => {
     const { wake, prompts } = bus(home);
     // The subject arrives BEFORE the wake word, as it did live.
     wake.handleSegments({ sessionId: "s1", segments: [seg("tomorrow it could rain", 0)] });
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary, create a task saying", 2)] });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, create a task saying", 2)] });
     await wake.close("s1", "silence");
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("tomorrow it could rain");
@@ -426,7 +560,7 @@ describe("wake pre-wake context window", () => {
     for (let i = 0; i < 5; i++) {
       wake.handleSegments({ sessionId: "s1", segments: [seg(`filler ${i}`, i)] });
     }
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary do it", 9)] });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca do it", 9)] });
     await wake.close("s1", "silence");
     expect(prompts[0]).toContain("filler 4");
     expect(prompts[0]).toContain("filler 3");
@@ -455,7 +589,7 @@ describe("wake pre-wake context window", () => {
     });
     wake.handleSegments({ sessionId: "s1", segments: [seg("stale talk", 0)] });
     clock += 60_000; // a minute later - unrelated conversation
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary do it", 9)] });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca do it", 9)] });
     await wake.close("s1", "silence");
     expect(prompts[0]).not.toContain("stale talk");
     rmSync(home, { recursive: true, force: true });
@@ -506,7 +640,7 @@ describe("wake minimum capture window", () => {
 
     wake.handleSegments({
       sessionId: "s1",
-      segments: [{ text: "Gary, create a task saying", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca, create a task saying", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     // Silence arrives long before the minimum - must NOT dispatch yet.
     clock += 2000;
@@ -551,7 +685,7 @@ describe("wake minimum capture window", () => {
     });
     wake.handleSegments({
       sessionId: "s1",
-      segments: [{ text: "Gary do the thing", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca do the thing", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     await wake.close("s1", "max-capture");
     expect(prompts).toHaveLength(1);
@@ -684,7 +818,7 @@ describe("wake command window vs trailing context", () => {
     });
 
     const seg = (text: string) => ({ text, speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 });
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Gary, create a task to book the car service")] });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, create a task to book the car service")] });
     clock += 10_000; // still inside the command window
     wake.handleSegments({ sessionId: "s1", segments: [seg("for next Tuesday morning")] });
     clock += 300_000; // five minutes of television later
@@ -753,7 +887,7 @@ describe("wake revision pass", () => {
     );
     await wake.handleCommand({ command: "create a task to book the car service", eventId: "e1", sessionId: "s1" });
     // The correction arrives afterwards, in the same session.
-    wake.handleSegments({ sessionId: "s1", segments: [seg("no Gary, make that Wednesday not Tuesday")] });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("no Zeca, make that Wednesday not Tuesday")] });
     await wake.runRevision("s1");
     expect(revised).toHaveLength(1);
     expect(revised[0].cardId).toBe("card-1");
@@ -817,7 +951,7 @@ describe("wake settled close (punctuated end of command)", () => {
     // A finished sentence must not wait the full 15s window.
     wake.handleSegments({
       sessionId: "s-done",
-      segments: [{ text: "Gary, cria uma tarefa para comprar peixe.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca, cria uma tarefa para comprar peixe.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     closed.push(String((wake as any).sessions.get("s-done").silenceTimer._idleTimeout));
 
@@ -825,7 +959,7 @@ describe("wake settled close (punctuated end of command)", () => {
     // failure this window exists to prevent.
     wake.handleSegments({
       sessionId: "s-open",
-      segments: [{ text: "Gary, cria uma tarefa a dizer", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca, cria uma tarefa a dizer", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     closed.push(String((wake as any).sessions.get("s-open").silenceTimer._idleTimeout));
 
@@ -853,7 +987,7 @@ describe("wake settled close (punctuated end of command)", () => {
     });
     wake.handleSegments({
       sessionId: "s-bare",
-      segments: [{ text: "Gary?", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca?", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     expect(String((wake as any).sessions.get("s-bare").silenceTimer._idleTimeout)).toBe("15000");
     rmSync(home, { recursive: true, force: true });
@@ -908,7 +1042,7 @@ describe("wake delegation to the operative", () => {
 
     wake.handleSegments({
       sessionId: "s1",
-      segments: [{ text: "Gary, manda uma mensagem à Ana no Slack.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca, manda uma mensagem à Ana no Slack.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     await wake.close("s1", "max-capture");
     // The acknowledgement must be out before the operative is done - the whole
@@ -953,7 +1087,7 @@ describe("wake delegation to the operative", () => {
     });
     wake.handleSegments({
       sessionId: "s1",
-      segments: [{ text: "Gary, faz uma coisa qualquer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+      segments: [{ text: "Zeca, faz uma coisa qualquer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     await wake.close("s1", "max-capture");
     expect(notifications[0]).toContain("saved it as a note");

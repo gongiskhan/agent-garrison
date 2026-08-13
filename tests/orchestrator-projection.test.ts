@@ -155,7 +155,7 @@ describe("buildOrchestratorInstructions (pure fold + capabilities substitution)"
       `${LEGACY_SHIPPED_IDENTITY}\n\nAlways remember the school pickup is at 16:00.\n`
     );
     const overrides = await readAuthoredOverrides(composition);
-    expect(overrides.identity).toContain("You are Gary");
+    expect(overrides.identity).toContain("You are Zeca");
     expect(overrides.identity).toContain("school pickup is at 16:00");
     expect(overrides.identity).not.toContain("Verity");
     expect(fs.existsSync(path.join(composition, ".garrison", "prompts", "soul.md"))).toBe(false);
@@ -178,12 +178,12 @@ describe("buildOrchestratorInstructions (pure fold + capabilities substitution)"
     fs.mkdirSync(path.join(composition, ".garrison", "prompts"), { recursive: true });
     const authored = path.join(composition, ".garrison", "orchestrator-authored.json");
     const legacy = path.join(composition, ".garrison", "prompts", "soul.md");
-    fs.writeFileSync(authored, `${JSON.stringify({ identity: "Canonical Gary identity." })}\n`);
+    fs.writeFileSync(authored, `${JSON.stringify({ identity: "Canonical Zeca identity." })}\n`);
     fs.writeFileSync(legacy, "# Custom legacy identity\nKeep this historical voice note.\n");
 
-    expect(await readAuthoredOverrides(composition)).toEqual({ identity: "Canonical Gary identity." });
+    expect(await readAuthoredOverrides(composition)).toEqual({ identity: "Canonical Zeca identity." });
     const persisted = JSON.parse(fs.readFileSync(authored, "utf8"));
-    expect(persisted.identity).toBe("Canonical Gary identity.");
+    expect(persisted.identity).toBe("Canonical Zeca identity.");
     expect(persisted["retired-legacy-identity"]).toContain("historical voice note");
     expect(fs.existsSync(legacy)).toBe(false);
     fs.rmSync(composition, { recursive: true, force: true });

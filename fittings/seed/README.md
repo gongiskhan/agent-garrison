@@ -29,7 +29,7 @@ only their declared `secret_scope`.
 
 The `orchestrator` Fitting is the single public home for both concerns. It
 provides `identity:authored` and the reserved `duty:dispatch`; its editable
-Identity section owns Gary and its Routing inference section owns the bounded
+Identity section owns Zeca and its Routing inference section owns the bounded
 pre-session policy. The assembled layered Orchestrator document is the only
 runtime prompt source.
 

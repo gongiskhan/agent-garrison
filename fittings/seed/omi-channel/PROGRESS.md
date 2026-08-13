@@ -144,8 +144,9 @@ wake_hit_to_notification_ms metric.
 Shipped:
 - `lib/wake.mjs` (WakeBus): unicode-aware word-boundary regex over the
   configured variants (letter/number lookarounds, since \b fails on
-  accented variants like "géri") — matches "Gary,"/"GARY?"/"géri", never
-  "garrison"/"hungary"/"sugary", asserted.
+  accented variants like "zéca") - matches "Zeca,"/"ZECA?"/"zéca", never
+  "zecar"/"azeca", asserted. (Shipped under the operative's former name;
+  the spellings here are the current ones - see M8.)
 - In-memory wake_session per session_id: capture opens on a hit with the
   post-token remainder, extends per segment, closes on
   `wake_silence_close_ms` of silence or the `wake_max_capture_ms` hard
@@ -175,11 +176,11 @@ Deviations: create_event lands as a Kanban card titled "Event: ..." (no
 calendar write from the fitting; the orchestrator owns calendars via its
 connectors when the card runs) — added to DECISIONS.md.
 
-Next: M5 — ask_gary chat tool: manifest endpoint (absolute URLs from
+Next: M5 — ask_zeca chat tool: manifest endpoint (absolute URLs from
 public_base_url + ?key=), handler auth (app id + uid), bounded fast path
 (<10s wall, AbortController, friendly partial answer on overrun).
 
-## M5 — Chat tool ask_gary (2026-07-30)
+## M5 — Chat tool ask_zeca (2026-07-30)
 
 Shipped:
 - `lib/chat.mjs`: manifest per the verified ChatTools format (one tool,
@@ -257,21 +258,60 @@ Shipped:
   installs, vault seals, funnel click-path with off-box verification,
   private-app creation (App ID/Secret, sk_ Import key, Chat Tools
   Manifest URL), Developer Mode webhook URLs, flag-by-flag turn-on with
-  verification, the spoken smoke test ("Gary, create a test task called
+  verification, the spoken smoke test ("Zeca, create a test task called
   hello garrison") with expected outcomes/timings, day-summary caveats,
   and the post-go-live measurement list.
 - Acceptance: `tests/omi-channel-e2e.test.ts` — the full local demo on
   fixtures with ALL flags on: idempotent double replay -> one-model-call
   triage (card + memory + tip, discarded dropped by rule, empty second
   tick = zero calls) -> spoken wake command -> card + confirmation with
-  latency metric -> ask_gary answer -> kanban lifecycle relay ->
+  latency metric -> ask_zeca answer -> kanban lifecycle relay ->
   idempotent backfeed -> counters for every pipe on /health.
 
 Deviations: funnel-ensure is human-invoked, not redeploy-invoked
 (recorded in DECISIONS.md).
 
+## M8 - Operative renamed Gary -> Zeca (2026-08-13)
+
+The operative answers to **Zeca**. Two things in this fitting are named
+after it, and both changed:
+
+- **Wake word.** Default variants are now `zeca,zeka,zecca,zéca,ze ca`.
+  The split form is there because the transcriber sometimes breaks a
+  two-syllable name across a space; whitespace inside a variant matches a
+  hyphen too. `seca`/`sega` are deliberately NOT variants - near-homophones
+  that are also ordinary words would wake the operative out of ambient
+  speech.
+- **Chat tool.** `ask_gary` -> `ask_zeca`, in the manifest, the handler and
+  the status message.
+
+The rename forced a gate change rather than a substitution. "Gary" is rare
+in a Portuguese-speaking house; **"Zeca" is an ordinary given name**, and
+the old gate fired on the token ANYWHERE in a segment - so every "o Zeca
+ligou" would have opened a capture window and fed the next sentence to the
+operative as a command. The gate is now two halves: `wakeRegex` finds the
+token, and `isAddressPosition` requires it to be ADDRESSED - opening the
+utterance or a clause, or after at most three vocative lead-ins ("hey",
+"ok", "não", "então"). The Portuguese article "o" is excluded from that
+list on purpose, which also costs the vocative "ó Zeca" (they are the same
+word once accents are folded); losing one vocative beats admitting every
+third-person mention.
+
+Side effect worth having: the name in object position no longer self-
+triggers, so Garrison's own outbound copy ("tell Zeca to run card 4F2A")
+is inert to the pendant. `ack.mjs`'s speakability guard stays a bare
+substring check anyway - it fails closed by design, and diverging in the
+stricter direction is what its comment already blesses.
+
+Compatibility: a stored `wake_variants` made up entirely of retired
+spellings (`gary,garry,gerry,géri`) is read as unset and falls through to
+the current default, logged once at startup. Nothing is written back.
+
+Manual step that cannot be done from here: the tool name lives in the Omi
+private app's cached manifest. See HUMAN_SETUP.md §10.
+
 ## Done
 
-All milestones M0-M7 complete, 2026-07-30. 74 omi-channel tests plus the
-kanban pinning suites green; typecheck clean; validation pipeline PASS.
-Live wiring is HUMAN_SETUP.md.
+All milestones M0-M7 complete, 2026-07-30; M8 (rename) 2026-08-13.
+75 omi-channel tests plus the kanban pinning suites green; typecheck
+clean; validation pipeline PASS. Live wiring is HUMAN_SETUP.md.

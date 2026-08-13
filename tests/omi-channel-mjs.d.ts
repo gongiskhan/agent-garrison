@@ -5,6 +5,8 @@ declare module "*/omi-channel/lib/config.mjs" {
   export const FITTING_ID: string;
   export const CHANNEL_ID: string;
   export const DEFAULT_PORT: number;
+  export const DEFAULT_WAKE_VARIANTS: string[];
+  export function isRetiredWakeVariantSet(variants: unknown): boolean;
   export function garrisonDir(env?: Record<string, string | undefined>): string;
   export function omiDir(env?: Record<string, string | undefined>): string;
   export function statusFilePath(env?: Record<string, string | undefined>): string;
@@ -32,6 +34,7 @@ declare module "*/omi-channel/lib/config.mjs" {
     blockedFolders: string[];
     dropDiscarded: boolean;
     wakeVariants: string[];
+    wakeVariantsRetiredFallback: boolean;
     wakeSilenceCloseMs: number;
     wakeMaxCaptureMs: number;
     notifyMaxPerDay: number;
@@ -338,6 +341,8 @@ declare module "*/omi-channel/lib/notify.mjs" {
 
 declare module "*/omi-channel/lib/wake.mjs" {
   export function wakeRegex(variants: string[]): RegExp | null;
+  export function isAddressPosition(text: unknown, index: number): boolean;
+  export function matchWake(text: string, regex: RegExp | null): { index: number; token: string } | null;
   export function normalizeTitle(title: unknown): string;
   export function buildRevisionPrompt(args: {
     command: string;

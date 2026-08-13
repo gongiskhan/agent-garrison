@@ -32,9 +32,9 @@ describe("identity + mined-persona duties (S3f2a)", () => {
     ]));
   });
 
-  it("the authored Identity default names Gary once and has no old faces", async () => {
+  it("the authored Identity default names Zeca once and has no old faces", async () => {
     const source = readFileSync(path.resolve(__dirname, "..", "src/lib/orchestrator-authored-defaults.ts"), "utf8");
-    expect(source).toMatch(/You are Gary/);
+    expect(source).toMatch(/You are Zeca/);
     expect(source).not.toMatch(/\b(?:Verity|Joe|James)\b/);
   });
 

@@ -6,7 +6,7 @@
 //
 // Flow: fixtures replayed twice (idempotent) -> heartbeat triage (one model
 // call, cards + memories + tips) -> wake command spoken -> card + confirmation
-// -> ask_gary chat answer -> kanban lifecycle relay -> backfeed into Omi.
+// -> ask_zeca chat answer -> kanban lifecycle relay -> backfeed into Omi.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
@@ -304,7 +304,7 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify([
         { text: "ok so anyway", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 1, end: 2 },
-        { text: "Gary, create a test task called hello garrison", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 3, end: 6 }
+        { text: "Zeca, create a test task called hello garrison", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 3, end: 6 }
       ])
     });
     expect(res.status).toBe(200);
@@ -325,11 +325,11 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
     expect(health.counters.wake_hit_to_notification_ms_count).toBe(1);
   }, 15000);
 
-  it("answers ask_gary within budget through the live route", async () => {
+  it("answers ask_zeca within budget through the live route", async () => {
     const res = await fetch(`${base}/omi/chat?key=${SECRET}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uid: UID, app_id: "app_e2e", tool_name: "ask_gary", query: "how is the board?" })
+      body: JSON.stringify({ uid: UID, app_id: "app_e2e", tool_name: "ask_zeca", query: "how is the board?" })
     });
     expect(res.status).toBe(200);
     const payload = await res.json();

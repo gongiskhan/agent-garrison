@@ -1,6 +1,6 @@
 // Spoken card commands + spoken scheduling on the wake bus (2026-08-01).
 // A scheduled card's due notification tells the wearer exactly:
-//   Tell Gary: "run card <REF>" to start it, or "snooze card <REF> for 2 hours"
+//   Tell Zeca: "run card <REF>" to start it, or "snooze card <REF> for 2 hours"
 // (REF = last 4 chars of the card ULID, uppercase). This suite covers the
 // reply half: the classifier's card_command intent (resolve via GET
 // /cards/resolve, then POST /start or /snooze - ambiguity is read back, never

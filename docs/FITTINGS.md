@@ -15,8 +15,8 @@ are inventoried at the end under "Later additions". See
 > roles, and `connectors`. Faculty names
 > like `classifier`, `heartbeat`, `automations`, `data-sources` in the
 > original catalogue below are retired, not selectable roles. Routing
-> inference and Gary's editable Identity are owned by Orchestrator; no
-> Dispatcher, Identity Gary, modes, or Soul Fitting contributes to the live
+> inference and Zeca's editable Identity are owned by Orchestrator; no
+> Dispatcher, Identity Zeca, modes, or Soul Fitting contributes to the live
 > prompt. Morning briefing is a Kanban Scheduled template rather than a Fitting
 > or per-template scheduler job.
 

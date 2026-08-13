@@ -82,6 +82,8 @@ async function writeSource(): Promise<void> {
   await fs.writeFile(path.join(SOURCE_DIR, "local.yml"), "global_config:\n  projects_root: /home/someone/dev\n");
   await fs.writeFile(path.join(SOURCE_DIR, "apm.lock.yaml"), "resolved: true\n");
   await fs.mkdir(path.join(SOURCE_DIR, ".garrison", "souls"), { recursive: true });
+  // Named for the file that actually exists in legacy checkouts - souls were
+  // retired under the operative's former name, so this fixture keeps it.
   await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "souls", "gary.md"), "generated soul\n");
   await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "decisions.jsonl"), "{}\n");
   await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "owner.json"), `${JSON.stringify({ instanceId: "dev" })}`);

@@ -1,4 +1,4 @@
-// ask_gary chat tool (spec M5): Omi's chat UI answers with Garrison's
+// ask_zeca chat tool (spec M5): Omi's chat UI answers with Garrison's
 // orchestrator on a bounded fast path. One tool, one param ({query}), plain
 // text back, under a hard wall-time budget - overruns abort into a friendly
 // partial answer rather than an Omi-side timeout.
@@ -19,11 +19,11 @@ import { atomicWriteJSON, ulid } from "./store.mjs";
 export const ASK_DEADLINE_MS = Number(process.env.OMI_CHAT_DEADLINE_MS) || 8500;
 
 const BUSY_ANSWER =
-  "Gary couldn't finish thinking in time - he may be mid-task. Ask again in a moment.";
+  "Zeca couldn't finish thinking in time - he may be mid-task. Ask again in a moment.";
 // Said when the question has been handed to the operative: the wearer must know
 // an answer is still coming, or they will re-ask and queue the work twice.
 const WORKING_ANSWER = "Looking into that now - I'll message you the answer in a moment.";
-const OFFLINE_ANSWER = "Gary is offline right now (his gateway is not running). Try again later.";
+const OFFLINE_ANSWER = "Zeca is offline right now (his gateway is not running). Try again later.";
 
 export function buildManifest(cfg) {
   const key = cfg.secrets.webhookSecret ?? "";
@@ -34,9 +34,9 @@ export function buildManifest(cfg) {
   return {
     tools: [
       {
-        name: "ask_gary",
+        name: "ask_zeca",
         description:
-          "Ask Gary - the user's personal AI chief of staff - anything about the user's tasks, projects, Kanban board, schedule, plans, memories, notes, past conversations, or decisions, and any question that requires reasoning over the user's personal or work context. Use this whenever the user addresses Gary directly or asks about their own work, agenda, or saved information.",
+          "Ask Zeca - the user's personal AI chief of staff - anything about the user's tasks, projects, Kanban board, schedule, plans, memories, notes, past conversations, or decisions, and any question that requires reasoning over the user's personal or work context. Use this whenever the user addresses Zeca directly or asks about their own work, agenda, or saved information.",
         endpoint,
         method: "POST",
         parameters: {
@@ -49,7 +49,7 @@ export function buildManifest(cfg) {
           required: ["query"]
         },
         auth_required: false,
-        status_message: "Asking Gary..."
+        status_message: "Asking Zeca..."
       }
     ],
     // Lets the app post into the user's chat (docs: ChatTools "Proactive chat
@@ -70,14 +70,14 @@ export function buildManifest(cfg) {
 // tools and no view of the user's data - it must therefore be allowed to DECLINE
 // rather than guess, which is what the sentinel is for. A confident invention
 // about the user's own board or calendar is the worst possible answer here.
-export const NEEDS_GARY = "NEEDS_GARY";
+export const NEEDS_ZECA = "NEEDS_ZECA";
 
 export function buildAskPrompt(query) {
   return `The user asked this through their wearable's chat. You are a small, fast model with NO tools: you cannot see their Kanban board, calendar, files, memories, messages or past conversations, and you cannot search the web or contact any service.
 
 Question: ${query}
 
-If answering correctly requires ANY of the things you cannot see, or requires doing something, reply with exactly ${NEEDS_GARY} and nothing else. Only answer directly when general knowledge is genuinely enough. When you do answer: under 120 words, plain text, no markdown, no preamble. Keep the user's language (Portuguese stays Portuguese).`;
+If answering correctly requires ANY of the things you cannot see, or requires doing something, reply with exactly ${NEEDS_ZECA} and nothing else. Only answer directly when general knowledge is genuinely enough. When you do answer: under 120 words, plain text, no markdown, no preamble. Keep the user's language (Portuguese stays Portuguese).`;
 }
 
 // What the OPERATIVE sees for a question escalated out of Omi chat.
@@ -130,7 +130,7 @@ export class ChatTool {
           });
           text = String(reply ?? "").trim();
         } catch (err) {
-          this.log.error(`[omi-channel] ask_gary delegate failed: ${err?.message ?? err}`);
+          this.log.error(`[omi-channel] ask_zeca delegate failed: ${err?.message ?? err}`);
           text = "I couldn't finish that one - try asking again.";
         }
         if (!text) text = "I looked, but had nothing to report back.";
@@ -138,7 +138,7 @@ export class ChatTool {
         this.counters.observe("chat_delegate_ms", elapsedMs);
         this.counters.bump("chat_delegates_answered");
         // The answer leaves over a notification and is gone. Keeping the pair
-        // on disk is what makes "Gary answered nonsense" a diagnosable claim
+        // on disk is what makes "Zeca answered nonsense" a diagnosable claim
         // rather than a memory of a phone screen - the wake path already does
         // this for its delegated requests.
         atomicWriteJSON(path.join(this.store.root, "chat-results", `${ulid()}.json`), {
@@ -151,7 +151,7 @@ export class ChatTool {
           .send({ template: "wake_confirmation", params: { text: text.slice(0, 800) } })
           .catch(() => []);
       })
-      .catch((err) => this.log.error(`[omi-channel] ask_gary delegate chain error: ${err?.message ?? err}`));
+      .catch((err) => this.log.error(`[omi-channel] ask_zeca delegate chain error: ${err?.message ?? err}`));
   }
 
   // -> { ok: true, uid } | { ok: false, status, error }  (error text is
@@ -165,7 +165,7 @@ export class ChatTool {
     if (!expected || !secretMatches(query?.key, expected)) {
       this.counters.bump("chat_rejected_auth");
       // Lengths only, never the secret - the ingress routes log rejects the
-      // same way, and a silent chat 401 already cost a day of "Gary is broken"
+      // same way, and a silent chat 401 already cost a day of "Zeca is broken"
       // (Omi caches the tools manifest, so a stale cached key 401s forever
       // until the app is re-saved).
       const presented = typeof query?.key === "string" ? query.key : "";
@@ -219,7 +219,7 @@ export class ChatTool {
       ]);
     } catch (err) {
       this.counters.bump("chat_failed");
-      this.log.error(`[omi-channel] ask_gary failed: ${err?.message ?? err}`);
+      this.log.error(`[omi-channel] ask_zeca failed: ${err?.message ?? err}`);
       return { status: 200, body: { result: BUSY_ANSWER } };
     }
     const elapsed = Date.now() - startedAt;
@@ -242,7 +242,7 @@ export class ChatTool {
     const reply = String(outcome?.reply ?? "").trim();
     // The sentinel may arrive alone or wrapped in a sentence; either way the
     // fast lane is telling us it had to guess, so treat it as a refusal.
-    if (reply.includes(NEEDS_GARY)) {
+    if (reply.includes(NEEDS_ZECA)) {
       this.counters.bump("chat_needs_operative");
       if (canEscalate) {
         this.escalate(question);
@@ -256,7 +256,7 @@ export class ChatTool {
         this.escalate(question);
         return { status: 200, body: { result: WORKING_ANSWER } };
       }
-      return { status: 200, body: { result: "Gary had no answer for that." } };
+      return { status: 200, body: { result: "Zeca had no answer for that." } };
     }
     this.counters.bump("chat_answered");
     return { status: 200, body: { result: reply.slice(0, 2000) } };

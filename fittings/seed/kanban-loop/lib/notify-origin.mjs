@@ -431,7 +431,7 @@ export function routeOriginEvent(root, disk, card, event) {
 // Fire-and-forget, and swallowing its own failures: an ack is a courtesy on top
 // of a write that has already succeeded, so nothing here may propagate into the
 // caller. A skipped ack (wake-word collision, unrenderable slots) is logged once
-// rather than silently dropped - "Gary never says anything" is otherwise
+// rather than silently dropped - "Zeca never says anything" is otherwise
 // indistinguishable from "the sink is off".
 function emitAckForEvent(card, event) {
   try {
@@ -480,7 +480,7 @@ export function routeTerminalTransition(root, prev, next, { summary } = {}) {
 // Omi notifications are PLAIN TEXT (two query params, no buttons - verified
 // against the integration OpenAPI). So the "snooze / run" actions are a text
 // protocol: the reminder carries the exact phrases the wearer can say aloud
-// (wake word) or type to the ask_gary chat, plus the card deep link. The
+// (wake word) or type to the ask_zeca chat, plus the card deep link. The
 // operative holds the matching tools (run_card / schedule_card), so the
 // phrases are executable, not aspirational.
 
@@ -500,7 +500,7 @@ export function scheduleReminderMessage(card, { started = false } = {}) {
   } else {
     lines.push(`Scheduled: "${title}" is due (card ${ref}).`);
     if (card.project) lines.push(`Project: ${card.project}`);
-    lines.push(`Tell Gary: "run card ${ref}" to start it, or "snooze card ${ref} for 2 hours" - say it aloud (wake word) or type it in this chat.`);
+    lines.push(`Tell Zeca: "run card ${ref}" to start it, or "snooze card ${ref} for 2 hours" - say it aloud (wake word) or type it in this chat.`);
   }
   if (url) lines.push(`Card: ${url}`);
   return lines.join("\n\n");

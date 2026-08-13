@@ -154,13 +154,15 @@ describe("brain merge grep proofs (D6/D7, acceptance 10)", () => {
     );
     expect(packaged).toContain("live system prompt is the layered Orchestrator document");
     expect(packaged).not.toContain("{{routing}}");
-    expect(packaged).not.toMatch(/\b(?:Gary|Verity|Joe|James)\b/);
+    // Retired names count too: one reappearing in the shipped prompt is the same
+    // bug as the current one leaking into it.
+    expect(packaged).not.toMatch(/\b(?:Zeca|Gary|Verity|Joe|James)\b/);
 
     const authoredDefaults = readFileSync(
       path.join(ROOT, "src/lib/orchestrator-authored-defaults.ts"),
       "utf8"
     );
-    expect(authoredDefaults).toContain("You are Gary");
-    expect(authoredDefaults).not.toMatch(/\b(?:Verity|Joe|James)\b/);
+    expect(authoredDefaults).toContain("You are Zeca");
+    expect(authoredDefaults).not.toMatch(/\b(?:Gary|Verity|Joe|James)\b/);
   });
 });

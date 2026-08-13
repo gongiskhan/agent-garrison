@@ -263,7 +263,7 @@ The Monitor Faculty extends Garrison beyond the original v1 five-kind vocabulary
 
 ## 16. Web channel
 
-- Purpose: mobile-first browser chat surface for talking to the Operative ("Gary") from a phone on the same LAN. Distinct from the desktop Next.js shell; this is the planned successor to the deleted built-in chat.
+- Purpose: mobile-first browser chat surface for talking to the Operative ("Zeca") from a phone on the same LAN. Distinct from the desktop Next.js shell; this is the planned successor to the deleted built-in chat.
 - Cardinality: single.
 - Shapes: `plugin`, `script`.
 - Config: bind port (default `27083`), bind host (default `127.0.0.1`; set to `0.0.0.0` to expose to the LAN), optional `gateway_url` override.

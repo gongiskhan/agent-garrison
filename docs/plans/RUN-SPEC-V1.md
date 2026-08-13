@@ -79,7 +79,7 @@ This is an **EXTEND**, not a build. Ground truth from a 12-reader sweep:
 
 ## Decisions taken
 
-1. **Identity is not a run pin.** Gary is authored once in Orchestrator; `duty`
+1. **Identity is not a run pin.** Zeca is authored once in Orchestrator; `duty`
    carries per-run behaviour, is pinnable, and can bypass model inference. No
    persona dropdown or selectable persona Fitting exists.
 2. **Expose both phase mechanisms, do not merge them.** The duty/level resolved

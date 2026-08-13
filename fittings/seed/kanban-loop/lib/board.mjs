@@ -278,7 +278,7 @@ export function normalisePlacement(raw, legacyOutpost = null) {
 // ── Card scheduling ────────────────────────────────────────────────────────
 // `scheduledFor` (ISO instant) holds the card OUT of every dispatch path until
 // the instant passes; the tick's due-sweep then either notifies ("notify", the
-// default — the reminder carries the tell-Gary phrases) or auto-starts ("run").
+// default — the reminder carries the tell-Zeca phrases) or auto-starts ("run").
 // An unparseable value HOLDS the card (same fail-closed rule as placement
 // not_before in claimability): a scheduled card that runs early is worse than
 // one that waits for a human.
@@ -471,7 +471,7 @@ export async function createCard(root, { title, description = "", project = null
     dispatch: null,
     // ── scheduling (see scheduleHolds above) ──────────────────────────────
     // scheduledFor holds dispatch until the instant passes; scheduleAction
-    // decides what the due-sweep does (notify = reminder with tell-Gary
+    // decides what the due-sweep does (notify = reminder with tell-Zeca
     // phrases, run = auto-start); scheduleNotifiedAt makes the reminder
     // fire once (cleared by snooze/reschedule). position orders the card
     // within its list (null = created order); checklist is the in-card

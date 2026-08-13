@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   DEFAULT_PORT,
+  DEFAULT_WAKE_VARIANTS,
   loadConfig,
   omiDir,
   resolveGatewayUrl,
@@ -44,17 +45,39 @@ describe("omi-channel config", () => {
     const cfg = loadConfig({
       GARRISON_OMICHANNEL_PORT: "8094",
       GARRISON_OMICHANNEL_ENABLED: "true",
-      GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary, garry ,gérri",
+      GARRISON_OMICHANNEL_WAKE_VARIANTS: "zeca, zeka ,zéca",
       GARRISON_OMICHANNEL_ALLOWED_CATEGORIES: "work,personal",
       GARRISON_OMICHANNEL_TRIAGE_BATCH_CAP: "7",
       OMI_APP_SECRET: "s3cret"
     });
     expect(cfg.port).toBe(8094);
     expect(cfg.enabled).toBe(true);
-    expect(cfg.wakeVariants).toEqual(["gary", "garry", "gérri"]);
+    expect(cfg.wakeVariants).toEqual(["zeca", "zeka", "zéca"]);
     expect(cfg.allowedCategories).toEqual(["work", "personal"]);
     expect(cfg.triageBatchCap).toBe(7);
     expect(cfg.secrets.appSecret).toBe("s3cret");
+  });
+
+  // The operative was renamed Gary -> Zeca. An install that still has the old
+  // spellings pinned would wake on a name nothing answers to and never on the
+  // one it does - a silently dead channel, which is worse than a loud one.
+  it("ignores a wake_variants value left over from the retired name", () => {
+    const cfg = loadConfig({ GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary,garry,gerry,géri" });
+    expect(cfg.wakeVariants).toEqual(DEFAULT_WAKE_VARIANTS);
+    expect(cfg.wakeVariantsRetiredFallback).toBe(true);
+  });
+
+  it("keeps a genuinely customised wake_variants value, retired spelling or not", () => {
+    // Only an ENTIRELY retired set is treated as stale. Anything the user
+    // actually chose is theirs, even if it still mentions the old name.
+    const cfg = loadConfig({ GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary,chefe" });
+    expect(cfg.wakeVariants).toEqual(["gary", "chefe"]);
+    expect(cfg.wakeVariantsRetiredFallback).toBe(false);
+  });
+
+  it("defaults to the current name when nothing is configured", () => {
+    expect(loadConfig({}).wakeVariants).toEqual(DEFAULT_WAKE_VARIANTS);
+    expect(loadConfig({}).wakeVariantsRetiredFallback).toBe(false);
   });
 
   it("never invents a gateway port literal", () => {

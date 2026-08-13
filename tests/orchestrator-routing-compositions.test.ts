@@ -24,6 +24,8 @@ const ACTIVE_DEFAULT_COMPOSITIONS = [
 ] as const;
 
 describe("Orchestrator-owned routing and identity", () => {
+  // "identity-gary" is the id this fitting shipped under, kept verbatim: the
+  // operative's rename to Zeca does not rename a fitting that no longer exists.
   it("retires the standalone Dispatcher and Identity Gary fittings from the public library", async () => {
     const ids = (await readRawLibrary()).map((entry) => entry.id);
     expect(ids).not.toContain("dispatcher");

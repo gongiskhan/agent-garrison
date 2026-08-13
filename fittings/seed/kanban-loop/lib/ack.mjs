@@ -33,25 +33,51 @@ import crypto from "node:crypto";
 // imported (the gateway-client precedent). It is a SAFETY check, not a feature:
 // drift here fails closed (a stricter regex rejects more templates, it never lets
 // a wake word through unnoticed).
+//
+// One drift is INTENTIONAL: omi-channel's gate additionally requires the name to
+// be ADDRESSED (isAddressPosition), so it ignores "send Zeca the invoice". This
+// guard deliberately does not, because it is asking a different question - "could
+// speaking this sentence out loud ever be heard as the wake word" - and the
+// conservative answer is the safe one.
+const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
+
+// Kept in step with omi-channel's config.mjs: a stored value made up entirely of
+// the retired name's spellings is ignored there, so honouring it here would guard
+// the WRONG word - the guard would pass an ack containing the live wake word.
+// That is the one way this check can fail open, so the fallback is mirrored too.
+const RETIRED_WAKE_VARIANTS = new Set(["gary", "garry", "gerry", "geri", "géri"]);
+
+function fold(v) {
+  return String(v ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export function wakeVariants(env = process.env) {
   const raw = String(env.GARRISON_OMICHANNEL_WAKE_VARIANTS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return raw.length > 0 ? raw : ["gary", "garry", "gerry", "géri"];
+  if (raw.length === 0) return [...DEFAULT_WAKE_VARIANTS];
+  if (raw.every((v) => RETIRED_WAKE_VARIANTS.has(fold(v)))) return [...DEFAULT_WAKE_VARIANTS];
+  return raw;
 }
 
 export function wakeRegex(variants) {
-  const escaped = variants.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).filter(Boolean);
+  const escaped = variants
+    .map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "[\\s-]+"))
+    .filter(Boolean);
   if (escaped.length === 0) return null;
   return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "iu");
 }
 
 // Rendered ack text that contains the wake word would re-trigger the wake bus the
-// moment it is spoken: the pendant hears "Gary", opens a capture window, and the
+// moment it is spoken: the pendant hears "Zeca", opens a capture window, and the
 // operator's next sentence becomes a command they never issued. Templates are
 // authored so this cannot happen, but SLOTS are free text lifted from the
-// operator's own request ("send Gary the invoice"), so the check has to run at
+// operator's own request ("send Zeca the invoice"), so the check has to run at
 // render time on the finished sentence, not once on the template.
 export function assertSpeakable(text, env = process.env) {
   const re = wakeRegex(wakeVariants(env));

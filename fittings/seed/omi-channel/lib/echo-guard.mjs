@@ -9,7 +9,7 @@
 //
 //   * conversation triage sees an actionable sentence and cards it, so an ack for
 //     a card creates another card, which acks, which cards;
-//   * if a slot ever carries the wake word, the capture window opens on Gary's
+//   * if a slot ever carries the wake word, the capture window opens on Zeca's
 //     own voice (ack.mjs rejects those at render time, but this is the second
 //     line of defence and the two are independent on purpose).
 //

@@ -281,7 +281,7 @@ replies to audio. Singleton; the deepgram-voice Fitting provides it today
 
 The persona + tone layer of the operative's system prompt. It is provided by
 Orchestrator, not by a selectable persona Fitting. The editable Identity section
-owns Gary and is assembled exactly once; edits invalidate warm sessions so the
+owns Zeca and is assembled exactly once; edits invalidate warm sessions so the
 next turn receives them. The former per-mode routing bias, pinning, sticky
 switching, and named work faces are gone; work register belongs to duties.
 
@@ -320,7 +320,7 @@ read old manifests; `src/lib/metadata.ts` rejects them today.
 
 ## modes
 
-The Gary/Joe/James soul engine, sticky mode switching, and per-mode routing
+The Zeca/Joe/James soul engine, sticky mode switching, and per-mode routing
 bias are retired. The kind and Faculty are no longer accepted by the live
 metadata vocabulary; composition migration removes legacy selections.
 

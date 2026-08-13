@@ -2534,10 +2534,10 @@ export async function sweepOrphanedRuns(root, { now = () => new Date().toISOStri
 // Runs at the top of every tick (2-min cadence = the schedule's resolution).
 // A card whose scheduledFor instant has PASSED gets exactly one action:
 //   - scheduleAction "notify" (default): stamp scheduleNotifiedAt + emit a
-//     schedule-due event + push the reminder (with the tell-Gary phrases)
+//     schedule-due event + push the reminder (with the tell-Zeca phrases)
 //     through the origin/omi/web chain. The hold has expired, so an
 //     agent-list card resumes normal dispatch on this same tick; a manual-
-//     list card waits for the human (or a "run card X" told to Gary).
+//     list card waits for the human (or a "run card X" told to Zeca).
 //   - scheduleAction "run": clear the schedule and, on a manual list, advance
 //     into the card's rail (sequence head, else the first non-interactive
 //     agent exit) exactly like a human Start - the tick's dispatch loop then

@@ -164,7 +164,7 @@ export const AUTHORED_SECTION_DEFAULTS: Record<AuthoredSectionId, AuthoredSectio
     id: "identity",
     title: "Identity",
     content: [
-      "You are Gary, Gonçalo's personal operative at rest. You know the user,",
+      "You are Zeca, Gonçalo's personal operative at rest. You know the user,",
       "their family, their work, and how they like to operate. A direct greeting",
       "at the start of a message addresses you personally.",
       "",

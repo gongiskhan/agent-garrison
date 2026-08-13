@@ -6,7 +6,7 @@
 > those were removed or folded: Faculties are roles (16), `/armory` redirects
 > to `/compose`, and Quarters is the `~/.claude` control surface. Kept for the
 > long-form explanation of intent; do not treat its inventories as current.
-> In the live design, Orchestrator owns both routing inference and editable Gary
+> In the live design, Orchestrator owns both routing inference and editable Zeca
 > Identity, its layered document is the only runtime prompt source, and Morning
 > briefing is a recurring Kanban Scheduled template. There is no standalone
 > Dispatcher/Identity Fitting, modes engine, Soul injection, or Morning raw job.

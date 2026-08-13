@@ -133,7 +133,7 @@ function readyModel() {
     libEntry("chan", { faculty: "channels", provides: [{ kind: "channel", name: "web" }] }),
     libEntry("mem", { faculty: "memory", provides: [{ kind: "memory-store", name: "basic" }] }),
     libEntry("gw", { faculty: "gateway" }),
-    libEntry("ident", { faculty: "orchestrator", provides: [{ kind: "identity", name: "gary" } as never] }),
+    libEntry("ident", { faculty: "orchestrator", provides: [{ kind: "identity", name: "zeca" } as never] }),
     libEntry("disp", { provides: [{ kind: "duty", name: "dispatch" }], duties: [dispatchDuty] })
   ];
   const model = resolveModel({ fittings: toFittings(entries), selectedDuties: ["dispatch"] });
@@ -308,7 +308,7 @@ describe("assembleLayeredPrompt", () => {
     expect(assembled).toContain("## Routing philosophy");
     // locked marker carries the regeneration provenance for the UI badge
     expect(assembled).toContain("kind=locked regenerated-from=composition");
-    expect((assembled.match(/\bGary\b/g) ?? [])).toHaveLength(1);
+    expect((assembled.match(/\bZeca\b/g) ?? [])).toHaveLength(1);
     expect(assembled).not.toMatch(/\b(?:Verity|Joe|James)\b/);
     // no leaked placeholders
     expect(assembled).not.toContain("{{capabilities}}");

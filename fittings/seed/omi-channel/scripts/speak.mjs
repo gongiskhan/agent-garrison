@@ -15,7 +15,7 @@
 //             conversation into the user's Omi account via the Developer API;
 //             Omi transcribes/structures it and calls our public webhook back.
 //             This is the only mode that exercises Omi's own processing.
-//   ask       the Omi chat tool (ask_gary), called exactly as Omi calls it.
+//   ask       the Omi chat tool (ask_zeca), called exactly as Omi calls it.
 //
 // What this canNOT do, stated so nobody mistakes a green run for more coverage
 // than it gives: Omi exposes no inbound audio API, so the `say` path starts at
@@ -25,8 +25,8 @@
 // transcriber produces.
 //
 // Usage:
-//   node scripts/speak.mjs say "Gary, cria uma tarefa para comprar peixe"
-//   node scripts/speak.mjs say "Gary, what is on my board?" --garble --wait 180
+//   node scripts/speak.mjs say "Zeca, cria uma tarefa para comprar peixe"
+//   node scripts/speak.mjs say "Zeca, what is on my board?" --garble --wait 180
 //   node scripts/speak.mjs converse "I decided we ship on Friday. Remind me to call the bank."
 //   node scripts/speak.mjs ask "which cards are in progress?"
 //
@@ -229,7 +229,7 @@ async function runSay() {
     await sleep(700);
   }
 
-  say(`[say] delivered; waiting for the capture window to close and Gary to answer...`);
+  say(`[say] delivered; waiting for the capture window to close and Zeca to answer...`);
   const deadline = Date.now() + WAIT_MS;
   const hit = await waitForNew(resultsDir, before, deadline, "wake result");
   if (!hit) return { ok: false, reason: "no wake result - was the wake word recognised?" };
@@ -347,7 +347,7 @@ async function runAsk() {
     body: JSON.stringify({
       uid: requireValue(UID, "pinned uid"),
       app_id: secrets.OMI_APP_ID,
-      tool_name: "ask_gary",
+      tool_name: "ask_zeca",
       query: text
     })
   });

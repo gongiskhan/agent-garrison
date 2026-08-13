@@ -3213,7 +3213,7 @@ async function handleBriefCard(req, res, opts, id) {
 // AGENT list, Start dispatches the card through the engine (processCard) using
 // the live gateway, exactly as --tick would. An interactive list (Discuss) is
 // never auto-dispatched.
-// POST /cards/:id/snooze - the human/Gary verb for "push the schedule out".
+// POST /cards/:id/snooze - the human/Zeca verb for "push the schedule out".
 // Accepts { minutes } (relative) or { until } (ISO), optional { action }.
 // Works on a card with no schedule too (snooze = schedule from now).
 async function handleSnoozeCard(req, res, opts, id) {

@@ -22,7 +22,7 @@ const OMI_INFER_TIMEOUT_MS = Number(process.env.OMI_INFER_TIMEOUT_MS) || 120 * 1
 // hint alone resolves to the composition's `other`/L1 duty cell, which on the
 // default composition is a full Sonnet agent-sdk turn WITH the operative's
 // toolset: measured 82s for one classification, against a spoken command the
-// wearer is waiting on and an ask_gary budget of 8.5s. Every call here answers
+// wearer is waiting on and an ask_zeca budget of 8.5s. Every call here answers
 // a closed-form question (classify this, revise this, triage this batch), so it
 // belongs on the small fast lane; the pin is what puts it there. Delegated work
 // that genuinely needs tools goes through `operativeRunFn` below instead.

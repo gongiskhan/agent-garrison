@@ -124,7 +124,7 @@ export type FittingShape = (typeof fittingShapes)[number];
 export const capabilityKinds = [
   "orchestrator",
   // identity: the editable persona + tone section authored by Orchestrator.
-  // It replaces the retired persona/modes fitting path; "Hey Gary" addresses
+  // It replaces the retired persona/modes fitting path; "Hey Zeca" addresses
   // the one routed Operative. A composition-readiness rule requires one.
   "identity",
   "memory-store",

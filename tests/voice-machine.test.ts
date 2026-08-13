@@ -39,7 +39,7 @@ describe("transcript helpers", () => {
     expect(isMeaningfulTranscript(".")).toBe(false);
     expect(isMeaningfulTranscript("a")).toBe(false); // < 2 letters/digits
     expect(isMeaningfulTranscript("ok")).toBe(true);
-    expect(isMeaningfulTranscript("hey gary")).toBe(true);
+    expect(isMeaningfulTranscript("hey zeca")).toBe(true);
   });
 });
 

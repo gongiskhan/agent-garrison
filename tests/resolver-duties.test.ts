@@ -398,7 +398,7 @@ describe("readiness rules (D10)", () => {
       fitting("chan", { faculty: "channels", provides: [{ kind: "channel", name: "web" }] }),
       fitting("mem", { faculty: "memory", provides: [{ kind: "memory-store", name: "basic" }] }),
       fitting("gw", { faculty: "gateway" }),
-      fitting("ident", { faculty: "orchestrator", provides: [{ kind: "identity", name: "gary" } as never] }),
+      fitting("ident", { faculty: "orchestrator", provides: [{ kind: "identity", name: "zeca" } as never] }),
       fitting("disp", { provides: [{ kind: "duty", name: "dispatch" }], duties: [dispatcherDuty] })
     ];
     const { duties } = collectDuties(fittings);

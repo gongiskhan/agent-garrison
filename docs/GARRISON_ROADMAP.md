@@ -124,7 +124,7 @@ work.
   resumes the same session by id. Auth is the Max account; no API
   key billing.
 - **The layered Orchestrator document is the one runtime prompt source.** Its
-  editable Identity section owns Gary; routing doctrine plus generated duties,
+  editable Identity section owns Zeca; routing doctrine plus generated duties,
   capabilities, and readiness are assembled into
   `assembled-system-prompt.md`. Legacy `soul.md` is not injected.
 - **Permission mode is `bypassPermissions` for now.** Anything
@@ -705,7 +705,7 @@ for long-form discussion.
 
 1. **Product/architecture register in the Discuss duty.** Orchestrator routing
    detects discussion language before the Operative turn and selects Discuss;
-   the duty owns the work-specific register. Gary remains the single authored
+   the duty owns the work-specific register. Zeca remains the single authored
    Identity rather than switching to a second persona.
 1. **Document-during-conversation discipline.** Operative
    proactively writes documents into the Documents Fitting when a
@@ -874,7 +874,7 @@ Skills evolution direction) feeds detailed planning.
 - **2026-08-05** — Orchestrator became the single routing and identity surface.
   Pre-session routing uses deterministic bypasses and a bounded explicit
   `dispatch` target for ambiguous human requests; schema-v4 no longer starts
-  Stage-A. Gary lives once in editable Orchestrator Identity; modes, selectable
+  Stage-A. Zeca lives once in editable Orchestrator Identity; modes, selectable
   persona Fittings, and unconditional Soul injection are retired. User
   schedules live in Kanban's fixed Scheduled column, with Morning briefing
   migrating from its raw job to a recurring template and receipt-backed

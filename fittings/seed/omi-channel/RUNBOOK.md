@@ -36,7 +36,7 @@ the composition manifest), all default OFF:
 | `triage_enabled` | heartbeat triage | scheduler job removed on next restart; ticks exit "disabled" |
 | `wake_enabled` | wake bus | realtime segments counted and dropped; mid-capture sessions never dispatch |
 | `notify_enabled` | Omi push | outbound degrades to the web-channel thread |
-| `chat_enabled` | ask_gary | tool + manifest answer 403 |
+| `chat_enabled` | ask_zeca | tool + manifest answer 403 |
 | `backfeed_enabled` | import into Omi | no interval scheduled |
 | `tips_enabled` | tips | triage emits no tips |
 
@@ -49,10 +49,10 @@ Every model call this fitting makes goes to the gateway's `/chat`, but they are
 not the same kind of work and must not share a lane:
 
 - **Classification** (wake intent, wake revision, batch triage, the fast half of
-  `ask_gary`) is pinned to `classify_target` (default `cc-haiku-low`). Unpinned,
+  `ask_zeca`) is pinned to `classify_target` (default `cc-haiku-low`). Unpinned,
   these resolve to the composition's `other`/L1 duty cell - a full Sonnet
   agent-sdk turn carrying the operative's whole toolset. Measured: **82s** for
-  one classification, against a wearer waiting to hear back and an `ask_gary`
+  one classification, against a wearer waiting to hear back and an `ask_zeca`
   budget of 8.5s. Pinned: ~6s.
 - **Delegation** (`delegate_enabled`) is the opposite: the real operative with
   its tools and connectors, no pin, a ten-minute budget. Nothing blocks on it -
@@ -76,8 +76,8 @@ unpunctuated still waits the full `wake_silence_close_ms`.
 
 ```bash
 # a spoken command, injected at the realtime webhook exactly as Omi delivers it
-node scripts/speak.mjs say "Gary, cria uma tarefa para comprar peixe."
-node scripts/speak.mjs say "Gary, what is on my board?" --garble --wait 300
+node scripts/speak.mjs say "Zeca, cria uma tarefa para comprar peixe."
+node scripts/speak.mjs say "Zeca, what is on my board?" --garble --wait 300
 
 # a conversation, injected THROUGH the Omi cloud - Omi structures it and calls
 # our webhook back, so this is the only mode that exercises Omi's own pipeline
@@ -101,7 +101,7 @@ signal-to-noise ratio the wake bus actually faces.
   test.** `converse` is the only mode where Omi's own processing runs.
 - `ask` proves our endpoint answers correctly; it cannot prove **Omi decides to
   call it**. There is no API to post a message into the user's chat, so that one
-  step - Omi's model choosing the `ask_gary` tool, against its cached copy of
+  step - Omi's model choosing the `ask_zeca` tool, against its cached copy of
   our manifest - is only verifiable by asking in the Omi app by hand. That is
   also exactly where a stale cached `?key=` bites (see `chat_rejected_auth`),
   so when chat misbehaves but `speak.mjs ask` passes, re-save the app at Omi.
@@ -188,7 +188,7 @@ fingerprint from `index.json`.
   the wake word alone), `wake_killed_mid_session`, or dispatch degraded
   to a note (see `wake-results/<id>.json` for the reason; the wearer got
   an honest confirmation either way).
-- **ask_gary slow/unanswered** — overruns return a friendly answer and
+- **ask_zeca slow/unanswered** — overruns return a friendly answer and
   count `chat_overruns`; the operative's serialized turn chain is the
   usual cause (a long card run in flight).
 - **Backfeed silent** — flag off, `OMI_IMPORT_API_KEY` missing

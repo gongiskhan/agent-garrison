@@ -1,6 +1,6 @@
 name: omi-channel
 version: 0.1.0
-description: Bidirectional Omi wearable channel — webhook ingress, heartbeat triage into Kanban cards and memories, wake-word command pipe, outbound Omi notifications, ask_gary chat tool, and a backfeed into Omi memories.
+description: Bidirectional Omi wearable channel — webhook ingress, heartbeat triage into Kanban cards and memories, wake-word command pipe, outbound Omi notifications, ask_zeca chat tool, and a backfeed into Omi memories.
 target: claude
 type: hybrid
 includes: auto
@@ -52,7 +52,7 @@ x-garrison:
     - key: chat_enabled
       type: boolean
       default: false
-      description: The ask_gary chat tool endpoint plus its manifest, so Omi's chat UI can answer with Garrison's orchestrator on a bounded fast path.
+      description: The ask_zeca chat tool endpoint plus its manifest, so Omi's chat UI can answer with Garrison's orchestrator on a bounded fast path.
     - key: backfeed_enabled
       type: boolean
       default: false
@@ -114,8 +114,13 @@ x-garrison:
       description: Drop conversations Omi marked discarded at the rule layer.
     - key: wake_variants
       type: string
-      default: 'gary,garry,gerry,géri'
-      description: Comma-separated wake-word spellings matched case-insensitively on word boundaries (Portuguese and English transcripts both occur).
+      default: 'zeca,zeka,zecca,zéca,ze ca'
+      description: >-
+        Comma-separated spellings of the operative's name (Zeca), matched case-insensitively on word boundaries; a
+        space inside a spelling also matches a hyphen, for transcripts that split the name. Portuguese and English
+        transcripts both occur. A wake only fires when the name is ADDRESSED - opening the utterance or a clause, or
+        after a short vocative lead-in - never on a passing mention. A value left over from the retired name (gary,
+        garry, gerry, géri) is ignored in favour of this default.
     - key: wake_silence_close_ms
       type: integer
       default: 4000

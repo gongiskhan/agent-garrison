@@ -75,13 +75,13 @@ async function checkAssembledPrompt() {
   const contents = await fs.readFile(promptPath, "utf8");
   const missing = [];
   if (!contents.includes("[orchestrator-active]")) missing.push("[orchestrator-active] marker");
-  const garyIdentityCount = (contents.match(/\bYou are Gary\b/g) ?? []).length;
-  if (garyIdentityCount === 0) missing.push("Gary identity");
+  const zecaIdentityCount = (contents.match(/\bYou are Zeca\b/g) ?? []).length;
+  if (zecaIdentityCount === 0) missing.push("Zeca identity");
   const retiredIdentities = ["Verity", "Joe", "James"]
     .filter((name) => new RegExp(`\\b${name}\\b`, "i").test(contents));
-  if (missing.length > 0 || garyIdentityCount !== 1 || retiredIdentities.length > 0) {
+  if (missing.length > 0 || zecaIdentityCount !== 1 || retiredIdentities.length > 0) {
     const conflicts = [];
-    if (garyIdentityCount > 1) conflicts.push(`Gary identity appears ${garyIdentityCount} times`);
+    if (zecaIdentityCount > 1) conflicts.push(`Zeca identity appears ${zecaIdentityCount} times`);
     if (retiredIdentities.length > 0) conflicts.push(`retired identities present: ${retiredIdentities.join(", ")}`);
     record(
       "Assembled system prompt",
@@ -97,7 +97,7 @@ async function checkAssembledPrompt() {
   record(
     "Assembled system prompt",
     "pass",
-    "Assembled prompt contains the orchestrator marker and exactly one Gary identity.",
+    "Assembled prompt contains the orchestrator marker and exactly one Zeca identity.",
     path.relative(REPO_ROOT, promptPath)
   );
 }
@@ -271,13 +271,13 @@ async function runNetworkChecks() {
     return;
   }
   const sameSession = turn2.session_id === turn1.session_id;
-  const namedGary = /\bGary\b/i.test(turn2.reply ?? "");
-  if (sameSession && namedGary) {
-    record("Identity + session resume (turn 2)", "pass", "Session resumed and operative identified as Gary.", `session_id=${turn2.session_id}`);
+  const namedZeca = /\bZeca\b/i.test(turn2.reply ?? "");
+  if (sameSession && namedZeca) {
+    record("Identity + session resume (turn 2)", "pass", "Session resumed and operative identified as Zeca.", `session_id=${turn2.session_id}`);
   } else {
     const misses = [];
     if (!sameSession) misses.push(`session_id changed: turn1=${turn1.session_id} turn2=${turn2.session_id}`);
-    if (!namedGary) misses.push(`reply did not contain "Gary": ${truncate(turn2.reply ?? "(empty reply)")}`);
+    if (!namedZeca) misses.push(`reply did not contain "Zeca": ${truncate(turn2.reply ?? "(empty reply)")}`);
     record("Identity + session resume (turn 2)", "fail", "Conditions failed.", misses.join(" | "));
   }
 

@@ -51,6 +51,41 @@ function parseCsv(raw) {
     .filter((s) => s.length > 0);
 }
 
+// The operative answers to Zeca. Transcription is the reason this is a LIST and
+// not a word: Deepgram hears a two-syllable Portuguese name ("ZEH-kah") through
+// an English-leaning model and spells it several ways. Whitespace inside a
+// variant is a SPLIT FORM - the transcriber sometimes breaks the name across a
+// space or a hyphen - and wakeRegex() matches either.
+//
+// Deliberately NOT in this list: "seca" and "sega". Both are near-homophones and
+// both are ordinary words ("seca" is Portuguese for dry), so they would wake the
+// operative out of ambient conversation. A missed wake costs one repeat; a false
+// wake captures speech the user never addressed to anyone.
+export const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
+
+// The pre-rename spellings (the operative was Gary until 2026-08-13). An install
+// that still has these pinned in its composition config would wake on a name the
+// operative no longer answers to and never wake on the one it does - a silent
+// dead channel. So a stored value made up ENTIRELY of retired spellings is read
+// as "unset" and falls through to the default above. A value the user actually
+// customised (anything outside the retired set) is left exactly as configured.
+// Read-only compatibility: nothing here is written back, and no new code carries
+// both names.
+const RETIRED_WAKE_VARIANTS = new Set(["gary", "garry", "gerry", "geri", "géri"]);
+
+function foldVariant(v) {
+  return String(v ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+export function isRetiredWakeVariantSet(variants) {
+  if (!Array.isArray(variants) || variants.length === 0) return false;
+  return variants.every((v) => RETIRED_WAKE_VARIANTS.has(foldVariant(v)));
+}
+
 // Gateway URL resolution — GARRISON_GATEWAY_URL, else HOST/PORT pair when the
 // port is explicitly numeric. NEVER a baked port literal (every baked port
 // literal in this repo has crossed instances). null = gateway-dependent
@@ -128,8 +163,13 @@ export function loadConfig(env = process.env) {
     // Wake bus (M4)
     wakeVariants: (() => {
       const v = parseCsv(env.GARRISON_OMICHANNEL_WAKE_VARIANTS);
-      return v.length > 0 ? v : ["gary", "garry", "gerry", "géri"];
+      if (v.length === 0 || isRetiredWakeVariantSet(v)) return [...DEFAULT_WAKE_VARIANTS];
+      return v;
     })(),
+    // Surfaced so the server can say ONCE at startup that a retired wake-word
+    // config was ignored. Silently overriding a user's stored value is the kind
+    // of thing that costs a day when the channel later behaves unexpectedly.
+    wakeVariantsRetiredFallback: isRetiredWakeVariantSet(parseCsv(env.GARRISON_OMICHANNEL_WAKE_VARIANTS)),
     wakeSilenceCloseMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_SILENCE_CLOSE_MS, 4000),
     // Shorter close used only when the last segment ends a sentence. The full
     // silence window has to assume a mid-utterance gap; a punctuated ending says
@@ -154,7 +194,7 @@ export function loadConfig(env = process.env) {
     // it is still captured but handed to the classifier as trailing context.
     // With an always-on mic in a room with a television the capture window can
     // run for minutes; without this split a 10-minute transcript of the TV
-    // would drown the two sentences the user actually addressed to Gary.
+    // would drown the two sentences the user actually addressed to Zeca.
     wakeCommandWindowMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_COMMAND_WINDOW_MS, 60000),
     // The revision pass. The card is created fast so it can be SEEN and then
     // corrected out loud; this window is how long we keep listening for that

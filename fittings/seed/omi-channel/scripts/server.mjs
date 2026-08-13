@@ -325,7 +325,7 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
               ${row("Heartbeat triage", flags.triage)}
               ${row("Wake bus", flags.wake)}
               ${row("Outbound notifications", flags.notify)}
-              ${row("Chat tool — ask_gary", flags.chat)}
+              ${row("Chat tool — ask_zeca", flags.chat)}
               ${row("Memory backfeed", flags.backfeed)}
               ${row("Tips", flags.tips)}
             </tbody>
@@ -626,7 +626,7 @@ export function makeRequestHandler(ctx) {
         }
       }
 
-      // ---- ask_gary chat tool (M5). Own auth (chat_enabled + key + app_id +
+      // ---- ask_zeca chat tool (M5). Own auth (chat_enabled + key + app_id +
       // pinned uid from the BODY - Omi tool calls carry uid in the payload).
       if (pathname === "/omi/chat" && method === "POST" && chatTool) {
         const bodyText = await readBody(req);
@@ -743,6 +743,12 @@ export async function startServer(cfg = loadConfig()) {
   );
   if (!cfg.gatewayUrl) {
     console.log("[omi-channel] no gateway URL in env; gateway-dependent pipes will skip with a reason");
+  }
+  if (cfg.wakeVariantsRetiredFallback) {
+    console.log(
+      `[omi-channel] wake_variants is set to the retired name and was ignored; ` +
+        `using ${JSON.stringify(cfg.wakeVariants.join(","))}. Clear the config key to silence this.`
+    );
   }
 
   // Boot-time scheduler-job sync (kanban server precedent: the server has the
