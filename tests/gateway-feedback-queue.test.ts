@@ -92,6 +92,9 @@ describe("buildOverrideRecord — the D20 schema", () => {
       at: "2026-07-11T00:00:00.000Z",
     });
     expect(rec).toEqual({
+      // Every producer now mints a stable id (tombstone deletes target it);
+      // sortable-by-mint-time, format owned by improver/lib/feedback-signals.mjs.
+      id: expect.stringMatching(/^fq-[0-9a-z]{9}-[0-9a-f]{8}$/),
       session_id: "thread-7",
       area: "orchestrator",
       question: "override",

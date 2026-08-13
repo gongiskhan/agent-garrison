@@ -1,7 +1,8 @@
 // feedback-rule.mjs — the Improver's consumer of the feedback queue
-// (GARRISON-FLOW-V2 S8, D27). The Probe (probe/retrospective records) and the
-// gateway (conversational-override records) both append to ONE queue,
-// ~/.garrison/improver/feedback-queue.jsonl. This rule reads that queue and turns
+// (GARRISON-FLOW-V2 S8, D27). Three producers append to ONE queue,
+// ~/.garrison/improver/feedback-queue.jsonl: the Probe (probe/retrospective
+// records), the gateway (conversational-override records), and the Decisions
+// panel (decision-verdict records). This rule reads that queue and turns
 // the operator's EXPLICIT answers into reviewable policy proposals — phase-plan
 // changes, matrix-cell effort steps, and kind-matcher reviews — routed through the
 // SAME review queue as every other Improver rule and rendered in the composer as
@@ -13,41 +14,31 @@
 //
 // The ANALYSIS is pure (analyzeFeedbackProposals) so it unit-tests without a
 // filesystem; the collector does the I/O.
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { createHash } from "node:crypto";
+import { feedbackQueuePath as queuePath, readFeedbackQueue, liveRecords } from "./feedback-signals.mjs";
 
 const shortHash = (s) => createHash("sha256").update(String(s)).digest("hex").slice(0, 8);
 
 // ── Collector (I/O) ───────────────────────────────────────────────────────────
-function garrisonHome() {
-  const o = process.env.GARRISON_HOME;
-  return o && o.trim().length ? o : path.join(os.homedir(), ".garrison");
-}
+export { queuePath as feedbackQueuePath };
 
-export function feedbackQueuePath() {
-  return path.join(garrisonHome(), "improver", "feedback-queue.jsonl");
-}
-
-export function collectFeedback(file = feedbackQueuePath(), cap = 2000) {
-  if (!existsSync(file)) return [];
-  let text = "";
-  try {
-    text = readFileSync(file, "utf8");
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim() || out.length >= cap) continue;
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-      /* skip malformed line */
-    }
-  }
-  return out;
+/**
+ * The records this rule learns from: every queue line EXCEPT the ones a
+ * tombstone deletes.
+ *
+ * The delete path is what makes this filter load-bearing. A wrong inference is
+ * corrected by deleting the record that caused it (Signals view → DELETE
+ * /api/signals/:id, which appends a tombstone), and that correction is only real
+ * if the next nightly run stops counting the record. Reading + tombstone
+ * resolution live in feedback-signals.mjs so this consumer, the Signals API and
+ * the shell's autonomy bands cannot disagree about what is still on the queue.
+ *
+ * `cap` now bounds the SURVIVING records rather than the raw lines: a deleted
+ * record must not go on consuming a slot it was removed from.
+ */
+export function collectFeedback(file = queuePath(), cap = 2000) {
+  const { entries } = readFeedbackQueue(file);
+  return liveRecords(entries).slice(0, cap);
 }
 
 // ── Pure analysis (D27) ───────────────────────────────────────────────────────
@@ -118,7 +109,20 @@ function kindOf(rec) {
   return rec?.classification?.kind || "(unspecified)";
 }
 
-export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {}) {
+// The bar a tally must clear before it becomes a proposal. Exported so the
+// Signals view can tell the operator how far a given group still is from
+// producing one, instead of showing a row with no stated consequence.
+export const DEFAULT_MIN_SIGNAL = 2;
+
+/** What this rule makes of one record: its direction category (null = no signal)
+ *  and the group it accumulates into. The Signals view renders this so a row can
+ *  say which rule it feeds rather than just what it said. */
+export function describeFeedbackSignal(rec) {
+  const category = categorize(rec);
+  return { category, group: category ? kindOf(rec) : null, minSignal: DEFAULT_MIN_SIGNAL };
+}
+
+export function analyzeFeedbackProposals({ records = [], at, minSignal = DEFAULT_MIN_SIGNAL } = {}) {
   // tally[kind][category] = { count, provenances:Set, tiers:Set }
   const tally = new Map();
   for (const rec of records) {

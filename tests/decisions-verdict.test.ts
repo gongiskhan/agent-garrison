@@ -73,6 +73,11 @@ describe("buildVerdictRecord", () => {
       at: "2026-07-29T12:00:00.000Z"
     })!;
     expect(rec).toEqual({
+      // Minted per record, so it is matched by shape rather than by value. It is
+      // the handle a tombstone names when this verdict is deleted from the
+      // Signals view — without it the record can only be addressed by hashing
+      // its own line.
+      id: expect.stringMatching(/^fq-[0-9a-z]{9}-[0-9a-f]{8}$/),
       session_id: "thread-1",
       area: "orchestrator",
       question: "decision-verdict",
@@ -83,6 +88,9 @@ describe("buildVerdictRecord", () => {
       timestamp: "2026-07-29T12:00:00.000Z",
       provenance: "decision-verdict"
     });
+    // The id's timestamp half is derived from the record's own `at`, so ids
+    // sort in the order the verdicts were actually given.
+    expect(String(rec.id)).toContain(Date.parse("2026-07-29T12:00:00.000Z").toString(36));
   });
 
   it("refuses a verdict with no decision to attach to, or an unknown verdict", () => {

@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,7 +24489,7 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/improver/ui/main.tsx
 var import_react = __toESM(require_react());
 var import_client = __toESM(require_client());
 var import_jsx_runtime = __toESM(require_jsx_runtime());
@@ -24509,6 +24509,14 @@ async function putJSON(p, body) {
   const r = await fetch(p, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   return r.json();
 }
+async function deleteJSON(p, body) {
+  const r = await fetch(p, {
+    method: "DELETE",
+    headers: body ? { "content-type": "application/json" } : void 0,
+    body: body ? JSON.stringify(body) : void 0
+  });
+  return r.json();
+}
 function DiffView({ diff }) {
   if (!diff) return null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "diff", "data-testid": "diff", children: diff.split("\n").map((line, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: line.startsWith("+") ? "add" : void 0, children: line }, i)) });
@@ -24517,6 +24525,7 @@ function ProposalCard({ p, onApply, onReject }) {
   const [open, setOpen] = (0, import_react.useState)(false);
   const pending = p.status === "pending";
   const canReject = pending || p.status === "reapply-failed";
+  const manualOnly = p.appliable === false;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card", "data-testid": `proposal-${p.id}`, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "row", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "claim", children: p.claim }),
@@ -24553,17 +24562,128 @@ function ProposalCard({ p, onApply, onReject }) {
       p.evidence.targetFile,
       " \xB7 ",
       p.evidence.bytes,
-      " bytes \xB7 ",
-      p.evidence.sha.slice(0, 19),
-      "\u2026"
+      " bytes",
+      p.evidence.sha ? ` \xB7 ${p.evidence.sha.slice(0, 19)}\u2026` : ""
     ] }),
+    manualOnly && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "evidence", "data-testid": `manual-only-${p.id}`, children: "manual \u2014 this one has no mechanical edit; it names what to change and a human makes the call." }),
     p.status === "reapply-failed" && p.reapplyFailureReason && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", "data-testid": `reapply-failure-${p.id}`, children: [
       "reapply sweep could not restore this after an ecosystem update: ",
       p.reapplyFailureReason
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "actions", style: { marginTop: 12 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "primary", disabled: !pending, onClick: () => onApply(p.id), "data-testid": `approve-${p.id}`, children: "Approve" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "primary", disabled: !pending || manualOnly, onClick: () => onApply(p.id), "data-testid": `approve-${p.id}`, children: "Approve" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "danger", disabled: !canReject, onClick: () => onReject(p.id), "data-testid": `reject-${p.id}`, children: "Reject" })
+    ] })
+  ] });
+}
+function fmtWhen(iso) {
+  if (!iso) return "unknown time";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+function dimensionPairs(dims) {
+  if (!dims) return "";
+  const side = (label, o) => {
+    if (!o) return null;
+    const parts = Object.entries(o).filter(([, v]) => typeof v === "string" || typeof v === "number").map(([k, v]) => `${k}=${v}`);
+    return parts.length ? `${label} ${parts.join(", ")}` : null;
+  };
+  return [side("was", dims.original), side("should have been", dims.applied)].filter(Boolean).join(" \xB7 ");
+}
+function SignalRow({ s, onDelete }) {
+  const feeds = [];
+  if (s.feedsRule.category) {
+    feeds.push(`feedback rule \u2192 ${s.feedsRule.category} (group "${s.feedsRule.group}", ${s.feedsRule.minSignal} needed to propose)`);
+  }
+  for (const t of s.feedsTracks) feeds.push(`${t.category} track "${t.shape}" \u2192 ${t.signal}`);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card", "data-testid": `signal-${s.key}`, style: s.tombstoned ? { opacity: 0.55 } : void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "claim", children: s.answer ?? "(no answer)" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `badge ${s.tombstoned ? "rejected" : s.contributes ? "applied" : "skipped"}`, "data-testid": `signal-status-${s.key}`, children: s.tombstoned ? "deleted" : s.contributes ? "counted" : "inert" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "meta", children: [
+      s.provenance,
+      " \xB7 ",
+      fmtWhen(s.at),
+      s.area ? ` \xB7 ${s.area}` : "",
+      s.deliveredVia ? ` \xB7 via ${s.deliveredVia}` : ""
+    ] }),
+    s.question && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", children: [
+      "asked: ",
+      s.question
+    ] }),
+    dimensionPairs(s.dimensions) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "evidence", children: dimensionPairs(s.dimensions) }),
+    s.classification?.kind && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", children: [
+      "classified as ",
+      s.classification.kind,
+      s.classification.tier ? ` (${s.classification.tier})` : ""
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "evidence", "data-testid": `signal-feeds-${s.key}`, children: feeds.length ? `feeds: ${feeds.join(" \xB7 ")}` : "feeds nothing \u2014 an approving or unrecognised answer proposes no change" }),
+    s.tombstoned ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", children: [
+      "deleted ",
+      fmtWhen(s.tombstonedAt),
+      s.tombstoneReason ? ` \u2014 ${s.tombstoneReason}` : ""
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "actions", style: { marginTop: 12 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "danger", onClick: () => onDelete(s), "data-testid": `delete-${s.key}`, children: "Delete" }) })
+  ] });
+}
+function SignalsPane({ data, refresh }) {
+  const onDelete = (0, import_react.useCallback)(
+    async (s) => {
+      const what = s.contributes ? "This record currently feeds the Improver." : "This record feeds nothing today.";
+      const reason = typeof window !== "undefined" ? window.prompt(`${what}
+
+Deleting it appends a tombstone \u2014 the line stays on disk, but nothing counts it again.
+
+Why delete it?`) : null;
+      if (reason === null) return;
+      await deleteJSON(`/api/signals/${encodeURIComponent(s.key)}`, { reason });
+      refresh();
+    },
+    [refresh]
+  );
+  if (!data) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "loading\u2026" });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { "data-testid": "signals-pane", children: [
+    data.pendingProbes.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sub", style: { margin: "0 0 8px" }, children: "Questions still waiting for an answer" }),
+      data.pendingProbes.map((p) => {
+        const channels = p.deliveredVia?.channels ?? [];
+        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "card", "data-testid": `pending-${p.id}`, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "claim", children: p.questions[0]?.question ?? "(no question)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `badge ${channels.length ? "pending" : "reapply-failed"}`, children: channels.length ? `sent to ${channels.length}` : "terminal only" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "meta", children: [
+            p.mode,
+            " \xB7 asked ",
+            fmtWhen(p.askedAt),
+            " \xB7 session ",
+            p.sessionId ?? "?"
+          ] }),
+          p.questions[0]?.options && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", children: [
+            "options: ",
+            p.questions[0].options.join(" \xB7 ")
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "evidence", children: [
+            channels.length ? `delivered to ${channels.join(", ")}` : "delivered only through the Stop-hook relay \u2014 nobody sees this unless that terminal is open",
+            p.deliveredVia && p.deliveredVia.reachable === false && p.deliveredVia.reason ? ` \xB7 ${p.deliveredVia.reason}` : ""
+          ] })
+        ] }, p.id ?? p.sessionId);
+      })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sub", style: { margin: "16px 0 8px" }, children: [
+      "Raw signals \u2014 ",
+      data.counts.live,
+      " live, ",
+      data.counts.deleted,
+      " deleted, showing ",
+      data.counts.shown,
+      " newest"
+    ] }),
+    data.signals.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "empty", children: "Nothing on the feedback queue yet. Verdicts, overrides and probe answers land here." }),
+    data.signals.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SignalRow, { s, onDelete }, s.key)),
+    data.probeSkips.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "sub", style: { margin: "16px 0 8px" }, children: "Probe skips \u2014 times the Probe declined to ask" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "diff", "data-testid": "probe-skips", children: data.probeSkips.join("\n") })
     ] })
   ] });
 }
@@ -24695,10 +24815,12 @@ function EcosystemPane({ status }) {
 function App() {
   const [data, setData] = (0, import_react.useState)(null);
   const [ecosystem, setEcosystem] = (0, import_react.useState)(null);
+  const [signals, setSignals] = (0, import_react.useState)(null);
   const [tab, setTab] = (0, import_react.useState)("queue");
   const refresh = (0, import_react.useCallback)(async () => {
     setData(await getJSON("/api/queue"));
     setEcosystem(await getJSON("/api/ecosystem-status"));
+    setSignals(await getJSON("/api/signals"));
   }, []);
   (0, import_react.useEffect)(() => {
     refresh();
@@ -24722,9 +24844,10 @@ function App() {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "primary", onClick: runNow, "data-testid": "btn-run-now", children: "Run Improver now" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "tabs", children: ["queue", "autonomy", "ecosystem"].map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: `tab ${tab === t ? "active" : ""}`, "data-testid": `tab-${t}`, onClick: () => setTab(t), children: t[0].toUpperCase() + t.slice(1) }, t)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "tabs", children: ["queue", "signals", "autonomy", "ecosystem"].map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: `tab ${tab === t ? "active" : ""}`, "data-testid": `tab-${t}`, onClick: () => setTab(t), children: t[0].toUpperCase() + t.slice(1) }, t)) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { children: [
       tab === "queue" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(QueuePane, { data, refresh }),
+      tab === "signals" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SignalsPane, { data: signals, refresh }),
       tab === "autonomy" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AutonomyPane, { data, refresh }),
       tab === "ecosystem" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EcosystemPane, { status: ecosystem })
     ] })

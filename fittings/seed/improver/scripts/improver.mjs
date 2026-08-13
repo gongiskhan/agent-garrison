@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 
 import { runImprover, upsertQueue } from "../lib/improver-core.mjs";
 import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
+import { runEscalationRule } from "../lib/escalation-rule.mjs";
 import { runCoordinationRule } from "../lib/coordination-rule.mjs";
 import { runFeedbackRule } from "../lib/feedback-rule.mjs";
 import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
@@ -317,7 +318,25 @@ async function runSkills() {
     process.env.IMPROVER_MEMORY ||
     path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".claude", "projects"), "MEMORY.md");
   const memoryEntries = existsSync(memoryPath) ? parseMemory(readFileSync(memoryPath, "utf8")) : [];
-  const dream = await computeDream({ now });
+  // The dream phase drives a PTY model pass, and a PTY pass can fail for reasons
+  // that have nothing to do with this run: on prod it has thrown AuthTrapError
+  // ("Claude TUI appears to be waiting on a login/setup screen") on every nightly
+  // firing since 16 July, and because it was the only unguarded phase here it
+  // took the WHOLE pass down with it — the memory rule, the policy rule, the
+  // coordination rule, the feedback rule and the skills pass all stopped
+  // producing on that date while the cron went on firing and exiting 1.
+  //
+  // Every other rule below is already wrapped for exactly this reason. This one
+  // was not, which made one broken subsystem look like a dead improver. A failed
+  // dream is now a recorded skip like any other.
+  let dream;
+  try {
+    dream = await computeDream({ now });
+  } catch (err) {
+    const reason = String(err?.message || err).split("\n")[0].slice(0, 200);
+    console.error("dream phase failed (skipped):", reason);
+    dream = { dreamProposals: [], housekeeping: { skipped: `dream phase failed: ${reason}` } };
+  }
   if (dream.housekeeping?.skipped) {
     console.log(`DREAM — skipped: ${dream.housekeeping.skipped}`);
   } else {
@@ -347,6 +366,23 @@ async function runSkills() {
     console.log(`ORCHESTRATOR-POLICY — proposals=${policyRule.proposals.length} (runs=${policyRule.inputs.runs}, frictionLines=${policyRule.inputs.frictionLines})`);
   } catch (err) {
     console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
+  }
+  // ── escalation rule (ORCHESTRATOR_COHERENCE §2.3) ──
+  // Recurring runtime escalations are the router saying a flow DEFINITION is
+  // wrong. This turns them into a proposal to promote the escalation into a pin
+  // — into the SAME queue, never auto-applied.
+  try {
+    const escalationRule = runEscalationRule({ now, compositionDir: resolveCompositionDir() });
+    for (const p of escalationRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(
+      `ESCALATION — proposals=${escalationRule.proposals.length} (decisions=${escalationRule.inputs.decisions}, ` +
+        `groups=${escalationRule.inputs.groups}, recurring=${escalationRule.inputs.recurring}, threshold=${escalationRule.inputs.threshold})`
+    );
+  } catch (err) {
+    console.error("escalation rule failed (skipped):", err?.message || err);
   }
   // ── coordination rule (GARRISON-FLOW-V2 S6, D17) ──
   // Watches attributed interference + ordering decisions + touch-set-prediction

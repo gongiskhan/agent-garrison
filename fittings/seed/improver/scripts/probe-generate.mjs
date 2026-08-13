@@ -14,11 +14,19 @@
 //   6. Write the pending record; print the verbatim relay instruction as a
 //      {decision:"block", reason} line on stdout — the model relays it via
 //      AskUserQuestion (D24, the model is a relay).
+//   7. Ask the improver server to push the SAME question out of band, so it
+//      also reaches a surface someone is actually looking at (step 6 only
+//      reaches whoever has that terminal open — on prod a question sat there
+//      unanswered from 31 July on). One localhost POST, hard-bounded: the
+//      discovery, the tailnet resolution and the fan-out all happen in the
+//      long-lived server, never on this latency-sensitive Stop path.
 //
 // Fail-safe: ANY error prints nothing on stdout and exits 0 (a wrong block would
 // nag; staying silent is the safe failure). The bash wrapper also swallows errors.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import {
   isAttended,
   hasGoalSentinel,
@@ -81,7 +89,33 @@ function checkTarget() {
   }
 }
 
-function main() {
+// Ask the improver's own server to fan the question out to every running channel
+// Fitting. Deliberately a one-line localhost call with a hard timeout: this runs
+// inside a Stop hook, so anything slower is latency the operator pays on every
+// turn. A down server, an absent status file or a timeout all mean "relay only",
+// which the sweep already knows how to age out. Never throws.
+const DELIVER_TIMEOUT_MS = 2000;
+
+async function requestOutOfBandDelivery(pending, now) {
+  try {
+    const home = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+    const statusFile = path.join(home, "ui-fittings", "improver.json");
+    if (!existsSync(statusFile)) return;
+    const doc = JSON.parse(readFileSync(statusFile, "utf8"));
+    const base = typeof doc.url === "string" && doc.url.length ? doc.url.replace(/\/+$/, "") : null;
+    if (!base) return;
+    await fetch(`${base}/api/probe/deliver`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pendingId: pending.id, sessionId: pending.session_id, at: now }),
+      signal: AbortSignal.timeout(DELIVER_TIMEOUT_MS),
+    });
+  } catch {
+    // relay-only delivery; the pending stays on the 90s sweep, as before.
+  }
+}
+
+async function main() {
   if (process.argv.includes("--check-target")) return checkTarget();
   const now = process.env.PROBE_NOW || new Date().toISOString();
   let payload = {};
@@ -175,13 +209,17 @@ function main() {
     store.logSkip(`failed to write pending: ${err?.message || err}`, now);
     return 0;
   }
+  // 7) the same question, out of band. Awaited so the pending's deliveredVia is
+  // written before the sweep can see it, and bounded so the Stop never hangs on
+  // a channel; PROBE_NO_OUT_OF_BAND=1 keeps the hook tests on the relay path.
+  if (process.env.PROBE_NO_OUT_OF_BAND !== "1") await requestOutOfBandDelivery(pending, now);
   process.stdout.write(JSON.stringify({ decision: "block", reason: relayReason(pending) }));
   return 0;
 }
 
-try {
-  process.exit(main() ?? 0);
-} catch {
-  // fail-safe: never block on an unexpected error.
-  process.exit(0);
-}
+main()
+  .then((code) => process.exit(code ?? 0))
+  .catch(() => {
+    // fail-safe: never block on an unexpected error.
+    process.exit(0);
+  });

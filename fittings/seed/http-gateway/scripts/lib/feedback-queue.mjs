@@ -56,12 +56,35 @@ export function detectOverride(message) {
   return null;
 }
 
+// Mint the queue-record id.
+//
+// FORMAT SOURCE OF TRUTH: improver/lib/feedback-signals.mjs (`mintFeedbackId`) —
+// `fq-<9 chars base36 millis>-<8 hex random>`. Replicated rather than imported
+// because that module lives in the improver fitting, a separate installed
+// package at runtime, and a cross-fitting import would break this fitting's
+// containment (the same reason probe-core.mjs replicates promptDigest).
+//
+// The id is what makes a record DELETABLE: deletion is a tombstone appended to
+// this same queue naming this id, never a rewrite of the file — three writers
+// hold it open in O_APPEND and a filter-rewrite would drop whichever lines
+// landed between the read and the write.
+function mintFeedbackId(at) {
+  const parsed = Date.parse(at ?? "");
+  const ms = Number.isFinite(parsed) ? parsed : Date.now();
+  const stamp = Math.max(0, ms).toString(36).padStart(9, "0").slice(-9);
+  const bytes = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(bytes);
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `fq-${stamp}-${rand}`;
+}
+
 // Build the D20 override feedback record. `original`/`applied` are the prior and
 // applied resolutions ({taskType, tier, flow, plan}); the caller supplies
 // them so this stays pure/testable. session_id is optional (absent on channels
 // that don't carry one).
 export function buildOverrideRecord({ session_id, answer, original, applied, at } = {}) {
   const rec = {};
+  rec.id = mintFeedbackId(at);
   if (session_id != null && String(session_id).length) rec.session_id = String(session_id);
   rec.area = "orchestrator";
   rec.question = "override";

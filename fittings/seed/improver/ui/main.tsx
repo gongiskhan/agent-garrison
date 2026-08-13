@@ -21,9 +21,52 @@ type Proposal = {
   citations?: Array<{ file: string; line: number; snippet?: string }>;
   confidence?: "high" | "medium" | "low";
   rejectionReason?: string;
+  // `false` = this finding is real but has no mechanical edit (the split variant
+  // of an escalation proposal). Approve must not offer to do something else.
+  appliable?: boolean;
 };
 type RuleState = { autonomy: "manual" | "auto"; streak: number; accepted: number; rejected: number; reverted: number };
 type Queue = { queue: Proposal[]; autonomy: Record<string, RuleState>; promotionThreshold: number };
+
+// One raw record off the shared feedback queue, as /api/signals renders it.
+type Signal = {
+  key: string;
+  id: string | null;
+  provenance: string;
+  area: string | null;
+  question: string | null;
+  answer: string | null;
+  at: string | null;
+  sessionId: string | null;
+  cardId: string | null;
+  decisionId: string | null;
+  deliveredVia: string | null;
+  classification: { kind: string | null; tier: string | null; plan: string | null } | null;
+  dimensions: { original?: Record<string, unknown>; applied?: Record<string, unknown> } | null;
+  feedsRule: { category: string | null; group: string | null; minSignal: number };
+  feedsTracks: Array<{ category: string; shape: string; signal: string }>;
+  contributes: boolean;
+  tombstoned: boolean;
+  tombstonedAt: string | null;
+  tombstoneReason: string | null;
+  lineNumber: number;
+};
+type PendingProbe = {
+  id: string | null;
+  sessionId: string | null;
+  mode: string;
+  askedAt: string | null;
+  target: string | null;
+  deliveredVia: { relay?: boolean; channels?: string[]; reachable?: boolean; reason?: string } | null;
+  questions: Array<{ question: string; options?: string[]; area?: string }>;
+};
+type Signals = {
+  queueFile: string;
+  signals: Signal[];
+  counts: { total: number; live: number; deleted: number; tombstones: number; shown: number };
+  pendingProbes: PendingProbe[];
+  probeSkips: string[];
+};
 
 type EcosystemUpdateEntry = {
   at: string;
@@ -50,6 +93,14 @@ async function putJSON(p: string, body: any) {
   const r = await fetch(p, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   return r.json();
 }
+async function deleteJSON(p: string, body?: any) {
+  const r = await fetch(p, {
+    method: "DELETE",
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
+}
 
 function DiffView({ diff }: { diff?: string }) {
   if (!diff) return null;
@@ -73,6 +124,10 @@ function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: str
   // clear it from the queue instead of leaving it permanently stuck with no
   // available action.
   const canReject = pending || p.status === "reapply-failed";
+  // A manual-only proposal is evidence, not an action. Showing a live Approve
+  // would either lie about what it does or apply the fallback markdown-append,
+  // which is not what the claim describes.
+  const manualOnly = p.appliable === false;
   return (
     <div className="card" data-testid={`proposal-${p.id}`}>
       <div className="row">
@@ -107,7 +162,16 @@ function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: str
       {open && <DiffView diff={p.diff} />}
       {p.evidence && (
         <div className="evidence" data-testid={`evidence-${p.id}`}>
-          applied → {p.evidence.targetFile} · {p.evidence.bytes} bytes · {p.evidence.sha.slice(0, 19)}…
+          applied → {p.evidence.targetFile} · {p.evidence.bytes} bytes
+          {/* The flow-apply path reports the shell's new baselineSha here; a
+              future apply path may report none, and a missing sha must not blank
+              the whole card. */}
+          {p.evidence.sha ? ` · ${p.evidence.sha.slice(0, 19)}…` : ""}
+        </div>
+      )}
+      {manualOnly && (
+        <div className="evidence" data-testid={`manual-only-${p.id}`}>
+          manual — this one has no mechanical edit; it names what to change and a human makes the call.
         </div>
       )}
       {p.status === "reapply-failed" && p.reapplyFailureReason && (
@@ -116,13 +180,151 @@ function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: str
         </div>
       )}
       <div className="actions" style={{ marginTop: 12 }}>
-        <button className="primary" disabled={!pending} onClick={() => onApply(p.id)} data-testid={`approve-${p.id}`}>
+        <button className="primary" disabled={!pending || manualOnly} onClick={() => onApply(p.id)} data-testid={`approve-${p.id}`}>
           Approve
         </button>
         <button className="danger" disabled={!canReject} onClick={() => onReject(p.id)} data-testid={`reject-${p.id}`}>
           Reject
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Signals ─────────────────────────────────────────────────────────────────
+// The raw evidence the Improver reasons from. It exists because a proposal you
+// cannot trace is a proposal you cannot correct: before this pane the only way
+// to undo a wrong inference was to hand-edit a JSONL. Each row states what was
+// said, what it currently feeds, and therefore what deleting it undoes.
+
+function fmtWhen(iso: string | null): string {
+  if (!iso) return "unknown time";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function dimensionPairs(dims: Signal["dimensions"]): string {
+  if (!dims) return "";
+  const side = (label: string, o?: Record<string, unknown>) => {
+    if (!o) return null;
+    const parts = Object.entries(o)
+      .filter(([, v]) => typeof v === "string" || typeof v === "number")
+      .map(([k, v]) => `${k}=${v}`);
+    return parts.length ? `${label} ${parts.join(", ")}` : null;
+  };
+  return [side("was", dims.original), side("should have been", dims.applied)].filter(Boolean).join(" · ");
+}
+
+function SignalRow({ s, onDelete }: { s: Signal; onDelete: (s: Signal) => void }) {
+  const feeds: string[] = [];
+  if (s.feedsRule.category) {
+    feeds.push(`feedback rule → ${s.feedsRule.category} (group "${s.feedsRule.group}", ${s.feedsRule.minSignal} needed to propose)`);
+  }
+  for (const t of s.feedsTracks) feeds.push(`${t.category} track "${t.shape}" → ${t.signal}`);
+  return (
+    <div className="card" data-testid={`signal-${s.key}`} style={s.tombstoned ? { opacity: 0.55 } : undefined}>
+      <div className="row">
+        <div className="claim">{s.answer ?? "(no answer)"}</div>
+        <span className={`badge ${s.tombstoned ? "rejected" : s.contributes ? "applied" : "skipped"}`} data-testid={`signal-status-${s.key}`}>
+          {s.tombstoned ? "deleted" : s.contributes ? "counted" : "inert"}
+        </span>
+      </div>
+      <div className="meta">
+        {s.provenance} · {fmtWhen(s.at)}
+        {s.area ? ` · ${s.area}` : ""}
+        {s.deliveredVia ? ` · via ${s.deliveredVia}` : ""}
+      </div>
+      {s.question && <div className="evidence">asked: {s.question}</div>}
+      {dimensionPairs(s.dimensions) && <div className="evidence">{dimensionPairs(s.dimensions)}</div>}
+      {s.classification?.kind && (
+        <div className="evidence">
+          classified as {s.classification.kind}
+          {s.classification.tier ? ` (${s.classification.tier})` : ""}
+        </div>
+      )}
+      <div className="evidence" data-testid={`signal-feeds-${s.key}`}>
+        {feeds.length ? `feeds: ${feeds.join(" · ")}` : "feeds nothing — an approving or unrecognised answer proposes no change"}
+      </div>
+      {s.tombstoned ? (
+        <div className="evidence">
+          deleted {fmtWhen(s.tombstonedAt)}
+          {s.tombstoneReason ? ` — ${s.tombstoneReason}` : ""}
+        </div>
+      ) : (
+        <div className="actions" style={{ marginTop: 12 }}>
+          <button className="danger" onClick={() => onDelete(s)} data-testid={`delete-${s.key}`}>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SignalsPane({ data, refresh }: { data: Signals | null; refresh: () => void }) {
+  const onDelete = useCallback(
+    async (s: Signal) => {
+      const what = s.contributes ? "This record currently feeds the Improver." : "This record feeds nothing today.";
+      const reason =
+        typeof window !== "undefined"
+          ? window.prompt(`${what}\n\nDeleting it appends a tombstone — the line stays on disk, but nothing counts it again.\n\nWhy delete it?`)
+          : null;
+      if (reason === null) return; // cancelled
+      await deleteJSON(`/api/signals/${encodeURIComponent(s.key)}`, { reason });
+      refresh();
+    },
+    [refresh]
+  );
+  if (!data) return <div className="empty">loading…</div>;
+  return (
+    <div data-testid="signals-pane">
+      {data.pendingProbes.length > 0 && (
+        <>
+          <div className="sub" style={{ margin: "0 0 8px" }}>Questions still waiting for an answer</div>
+          {data.pendingProbes.map((p) => {
+            const channels = p.deliveredVia?.channels ?? [];
+            return (
+              <div className="card" key={p.id ?? p.sessionId} data-testid={`pending-${p.id}`}>
+                <div className="row">
+                  <div className="claim">{p.questions[0]?.question ?? "(no question)"}</div>
+                  <span className={`badge ${channels.length ? "pending" : "reapply-failed"}`}>
+                    {channels.length ? `sent to ${channels.length}` : "terminal only"}
+                  </span>
+                </div>
+                <div className="meta">
+                  {p.mode} · asked {fmtWhen(p.askedAt)} · session {p.sessionId ?? "?"}
+                </div>
+                {p.questions[0]?.options && <div className="evidence">options: {p.questions[0].options.join(" · ")}</div>}
+                <div className="evidence">
+                  {channels.length
+                    ? `delivered to ${channels.join(", ")}`
+                    : "delivered only through the Stop-hook relay — nobody sees this unless that terminal is open"}
+                  {p.deliveredVia && p.deliveredVia.reachable === false && p.deliveredVia.reason ? ` · ${p.deliveredVia.reason}` : ""}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      <div className="sub" style={{ margin: "16px 0 8px" }}>
+        Raw signals — {data.counts.live} live, {data.counts.deleted} deleted, showing {data.counts.shown} newest
+      </div>
+      {data.signals.length === 0 && (
+        <div className="empty">Nothing on the feedback queue yet. Verdicts, overrides and probe answers land here.</div>
+      )}
+      {data.signals.map((s) => (
+        <SignalRow key={s.key} s={s} onDelete={onDelete} />
+      ))}
+
+      {data.probeSkips.length > 0 && (
+        <>
+          <div className="sub" style={{ margin: "16px 0 8px" }}>Probe skips — times the Probe declined to ask</div>
+          <pre className="diff" data-testid="probe-skips">
+            {data.probeSkips.join("\n")}
+          </pre>
+        </>
+      )}
     </div>
   );
 }
@@ -265,10 +467,12 @@ function EcosystemPane({ status }: { status: EcosystemStatus | null }) {
 function App() {
   const [data, setData] = useState<Queue | null>(null);
   const [ecosystem, setEcosystem] = useState<EcosystemStatus | null>(null);
+  const [signals, setSignals] = useState<Signals | null>(null);
   const [tab, setTab] = useState("queue");
   const refresh = useCallback(async () => {
     setData(await getJSON("/api/queue"));
     setEcosystem(await getJSON("/api/ecosystem-status"));
+    setSignals(await getJSON("/api/signals"));
   }, []);
   useEffect(() => {
     refresh();
@@ -291,7 +495,7 @@ function App() {
         </button>
       </header>
       <div className="tabs">
-        {["queue", "autonomy", "ecosystem"].map((t) => (
+        {["queue", "signals", "autonomy", "ecosystem"].map((t) => (
           <div key={t} className={`tab ${tab === t ? "active" : ""}`} data-testid={`tab-${t}`} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </div>
@@ -299,6 +503,7 @@ function App() {
       </div>
       <main>
         {tab === "queue" && <QueuePane data={data} refresh={refresh} />}
+        {tab === "signals" && <SignalsPane data={signals} refresh={refresh} />}
         {tab === "autonomy" && <AutonomyPane data={data} refresh={refresh} />}
         {tab === "ecosystem" && <EcosystemPane status={ecosystem} />}
       </main>

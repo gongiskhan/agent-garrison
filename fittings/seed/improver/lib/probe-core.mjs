@@ -29,6 +29,25 @@ export function promptDigest(prompt) {
   return createHash("sha256").update(String(prompt ?? "")).digest("hex").slice(0, 16);
 }
 
+// mintFeedbackId — the queue-record id every producer of the shared feedback
+// queue stamps. FORMAT SOURCE OF TRUTH: ./feedback-signals.mjs (`mintFeedbackId`).
+// Replicated here for the same reason promptDigest is: this module is the PURE
+// half of the probe (no filesystem), and feedback-signals.mjs is a reader that
+// imports node:fs. Six lines of format beats breaking that split.
+//
+// The id is what makes a record DELETABLE from the Signals view: deletion is a
+// tombstone appended to the queue naming this id, never a rewrite (three writers
+// hold the file open in O_APPEND).
+export function mintFeedbackId(at) {
+  const parsed = Date.parse(at ?? "");
+  const ms = Number.isFinite(parsed) ? parsed : Date.now();
+  const stamp = Math.max(0, ms).toString(36).padStart(9, "0").slice(-9);
+  const bytes = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(bytes);
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `fq-${stamp}-${rand}`;
+}
+
 // YYYY-MM-DD in UTC for the per-day mute / retrospective flag files.
 export function dayStamp(now) {
   const d = now ? new Date(now) : new Date();
@@ -309,8 +328,9 @@ function resemblesQuestion(pendingText, askedText) {
 // (fittings/seed/http-gateway/scripts/lib/feedback-queue.mjs): session_id?, area,
 // question, answer, timestamp, provenance. The probe/retrospective records add
 // options[], classification{kind,tier,plan}, and card_id when known.
-export function buildFeedbackRecord({ session_id, area, question, options, answer, classification, card_id, provenance = "probe", at } = {}) {
+export function buildFeedbackRecord({ session_id, area, question, options, answer, classification, card_id, provenance = "probe", delivered_via, at } = {}) {
   const rec = {};
+  rec.id = mintFeedbackId(at);
   if (session_id != null && String(session_id).length) rec.session_id = String(session_id);
   rec.area = area || "orchestrator";
   rec.question = question ?? null;
@@ -318,6 +338,11 @@ export function buildFeedbackRecord({ session_id, area, question, options, answe
   rec.answer = answer ?? null;
   rec.timestamp = at ?? new Date().toISOString();
   rec.provenance = provenance;
+  // Which delivery path produced this record: the blocking Stop-hook relay, an
+  // out-of-band channel notification, or (on a dismissal) the path that timed
+  // out. Absent on records written before out-of-band delivery existed. Purely
+  // descriptive — no consumer branches on it, so an unknown value is inert.
+  if (delivered_via != null && String(delivered_via).length) rec.delivered_via = String(delivered_via);
   rec.classification = {
     kind: classification?.kind ?? null,
     tier: classification?.tier ?? null,
