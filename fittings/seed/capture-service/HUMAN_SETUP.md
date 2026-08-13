@@ -18,12 +18,14 @@ Open `/vault` on the prod shell and add:
   deployment).
 - `APNS_KEY_ID` + `APNS_P8` — an APNs AUTH KEY (NOT the App Store Connect
   API key). The team already has one from the RemoteThing era, id
-  `JUJBGTKB6F`, whose .p8 lives on the mac-mini at
-  `~/.config/remotething/` — paste its CONTENT (the whole PEM, BEGIN/END
-  lines included; base64 also accepted) as `APNS_P8` and `JUJBGTKB6F` as
-  `APNS_KEY_ID`. If that file is lost, mint a new key in the Developer
-  portal (Certificates, Identifiers & Profiles -> Keys -> "+", enable APNs)
-  — new keys download once, seal immediately.
+  `JUJBGTKB6F`, whose .p8 lives on the MacBook Pro at
+  `~/.config/remotething/AuthKey_JUJBGTKB6F.p8` (2026-08-13: recovered from
+  there and sealed; earlier revisions said the mac-mini, which was wrong) —
+  paste its CONTENT (the whole PEM, BEGIN/END lines included; base64 also
+  accepted) as `APNS_P8` and `JUJBGTKB6F` as `APNS_KEY_ID`. If that file is
+  lost, mint a new key in the Developer portal (Certificates, Identifiers &
+  Profiles -> Keys -> "+", enable APNs) — new keys download once, seal
+  immediately.
 
 Then flip the composition flags you want (Compose -> capture-service):
 `enabled`, `transcribe_enabled`, `wake_enabled`, `notify_enabled`,
