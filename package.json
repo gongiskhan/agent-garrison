@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "e2e:companion": "vitest run tests/companion-e2e.test.ts",
+    "ios:testflight": "bash scripts/ios-testflight.sh",
     "test:all": "npm test && npm run test:e2e",
     "check:integration": "node scripts/integration-check.mjs",
     "refresh:prompts": "tsx scripts/refresh-default-prompts.ts",

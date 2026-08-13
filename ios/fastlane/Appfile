@@ -1,0 +1,4 @@
+# Bundle id + team are driven by environment variables so the same config
+# works in CI and locally. See fastlane/Fastfile and .github/workflows/ios.yml.
+app_identifier(ENV["BUNDLE_ID"] || "com.gomes.garrison")
+team_id(ENV["APPLE_TEAM_ID"])

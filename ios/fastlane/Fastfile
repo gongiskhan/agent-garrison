@@ -1,0 +1,139 @@
+# Garrison companion — iOS build + TestFlight automation, ported from the
+# proven ios-thing arrangement (API-key cloud signing + fastlane match).
+# Runs locally on a Mac with Xcode, or on a macOS CI runner — the lane is the
+# same either way.
+#
+# Required environment (CI sets these from repo secrets; local runs export
+# them or use scripts/ios-testflight.sh):
+#   ASC_KEY_ID       App Store Connect API key id
+#   ASC_ISSUER_ID    App Store Connect API issuer id
+#   ASC_KEY_P8       contents of the .p8 key (raw PEM or base64)
+#   APPLE_TEAM_ID    10-character Apple Developer Team id
+#   BUNDLE_ID        app bundle id (default com.gomes.garrison)
+#   MATCH_PASSWORD   passphrase encrypting the stored signing assets
+#   MATCH_GIT_URL    match storage repo. Default: the PRIVATE ios-thing repo's
+#                    match-certs branch, which already holds the team's Apple
+#                    Distribution certificate — match adds profiles for the
+#                    garrison bundle ids next to it instead of burning another
+#                    cert slot. (agent-garrison itself is PUBLIC, so signing
+#                    assets never live on a branch of it.)
+
+default_platform(:ios)
+
+BUNDLE_ID = ENV["BUNDLE_ID"] || "com.gomes.garrison"
+TEAM_ID   = ENV["APPLE_TEAM_ID"]
+SCHEME    = "GarrisonApp"
+PROJECT   = "Garrison.xcodeproj"
+MATCH_URL = ENV["MATCH_GIT_URL"] || "https://github.com/gongiskhan/ios-thing.git"
+
+def api_key
+  p8 = (ENV["ASC_KEY_P8"] || "").strip
+  # Accept the .p8 pasted raw (PEM, with the BEGIN/END lines) or base64-encoded.
+  is_base64 = !p8.include?("BEGIN PRIVATE KEY")
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_content: p8,
+    is_key_content_base64: is_base64,
+    in_house: false,
+    # Make spaceship-based actions (e.g. produce) authenticate with this key.
+    set_spaceship_token: true
+  )
+end
+
+def generate_project
+  # XcodeGen reads APPLE_TEAM_ID from the environment (see project.yml).
+  sh("cd .. && xcodegen generate")
+end
+
+platform :ios do
+  # One-time setup: create the App Store Connect app record so TestFlight has
+  # somewhere to receive the build. Idempotent (skips if it already exists).
+  desc "Create the App Store Connect app record (run once)"
+  lane :bootstrap do
+    api_key
+    produce(
+      app_identifier: BUNDLE_ID,
+      app_name: "Garrison",
+      language: "English",
+      app_version: "1.0",
+      sku: BUNDLE_ID,
+      team_id: TEAM_ID
+    )
+    UI.success("App record ready. You can now run the `beta` lane.")
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    setup_ci if ENV["CI"]
+    key = api_key
+    generate_project
+
+    build_number = ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
+    ext_id = "#{BUNDLE_ID}.broadcast"
+
+    # Code signing via fastlane match: the Apple Distribution certificate +
+    # App Store profiles live encrypted (MATCH_PASSWORD) in the private
+    # ios-certificates repo and the SAME private key is re-imported on every
+    # run — the fix for "private key not installed" on ephemeral runners, and
+    # equally deterministic for local Macs. Profiles are named
+    # "match AppStore <bundle id>" and pinned per target in project.yml.
+    require "base64"
+    token = ENV["GH_TOKEN_FOR_MATCH"].to_s
+    unless token.empty?
+      ENV["MATCH_GIT_BASIC_AUTHORIZATION"] = Base64.strict_encode64("x-access-token:#{token}")
+    end
+
+    # The host app needs Push Notifications on its App ID so the match profile
+    # carries the aps-environment entitlement. Best-effort + idempotent;
+    # non-fatal if the API token can't manage portal capabilities (then enable
+    # Push for the bundle id once in the Developer portal and re-run with
+    # MATCH_FORCE=1).
+    begin
+      produce(
+        app_identifier: BUNDLE_ID,
+        enable_services: { push_notification: "on" },
+        skip_itc: true
+      )
+    rescue => e
+      UI.important("Could not auto-enable Push on #{BUNDLE_ID} (#{e.message}). If signing fails on aps-environment, enable Push Notifications for the App ID in the Developer portal once, then re-run with MATCH_FORCE=1.")
+    end
+
+    match(
+      type: "appstore",
+      app_identifier: [BUNDLE_ID, ext_id],
+      api_key: key,
+      storage_mode: "git",
+      git_url: MATCH_URL,
+      git_branch: ENV["MATCH_GIT_BRANCH"] || "match-certs",
+      readonly: false,
+      force: ENV["MATCH_FORCE"] == "1"
+    )
+
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "build",
+      output_name: "Garrison.ipa",
+      xcargs: "DEVELOPMENT_TEAM=#{TEAM_ID} CURRENT_PROJECT_VERSION=#{build_number}",
+      export_options: {
+        provisioningProfiles: {
+          BUNDLE_ID => "match AppStore #{BUNDLE_ID}",
+          ext_id => "match AppStore #{ext_id}"
+        }
+      }
+    )
+
+    upload_to_testflight(
+      api_key: key,
+      app_identifier: BUNDLE_ID,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+      notify_external_testers: false
+    )
+
+    UI.success("Uploaded build #{build_number} to TestFlight. Open the TestFlight app on the iPhone to install once processing finishes (a few minutes).")
+  end
+end
