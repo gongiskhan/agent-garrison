@@ -12,8 +12,12 @@ import path from "node:path";
 // @ts-expect-error — plain .mjs fitting module, no types
 import { defaultFlowForDuty } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
+// Read the COMMITTED seed, not this box's composition-scoped routing.json: that
+// file is gitignored, so reading it made these tests pass on the prod host alone
+// and fail with ENOENT on every fresh clone. The seed is what a fresh install
+// materialises from, so deriving against it is what the acceptance actually means.
 const cfg = JSON.parse(
-  fs.readFileSync(path.join(process.cwd(), "compositions/default/.garrison/routing.json"), "utf8")
+  fs.readFileSync(path.join(process.cwd(), "fittings/seed/orchestrator/config/routing.seed.json"), "utf8")
 );
 
 describe("defaultFlowForDuty", () => {

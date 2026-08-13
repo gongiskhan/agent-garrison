@@ -181,9 +181,25 @@ export interface PhasePlan {
   phases: Array<string | { id: string; on?: boolean }>;
   evidence?: EvidenceKind;
 }
+// A LEVELLED flow (2026-08-09) carries its ordered duty list per level; the
+// pre-levels shape resolved through a single named phase plan. Both survive:
+// `phasePlan` is the legacy pointer (optional now — every shipped flow is
+// levelled), `levels` is the current shape. `manual: true` marks a flow whose
+// rail must never dispatch an agent regardless of its documented duty list.
+export interface FlowLevel {
+  duties: string[];
+  definitionOfDone?: string;
+  evidence?: EvidenceKind;
+  pins?: Record<string, number>;
+}
 export interface Flow {
-  phasePlan: string;
+  phasePlan?: string;
   description?: string;
+  cluster?: string;
+  examples?: string[];
+  defaultLevel?: number;
+  levels?: Record<string, FlowLevel>;
+  manual?: boolean;
 }
 export interface PhaseSkills {
   bindings: Record<string, string>;

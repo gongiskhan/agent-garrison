@@ -13,17 +13,42 @@ import path from "node:path";
 import * as policyCore from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 import { validateRoutingConfig, compilePolicy } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
-const ROUTING = path.join(process.cwd(), "compositions/default/.garrison/routing.json");
-const cfg = JSON.parse(fs.readFileSync(ROUTING, "utf8"));
+// The library is judged where it SHIPS. It was authored straight into
+// compositions/default/.garrison/routing.json, which .gitignore excludes, so for
+// four days it existed only as machine-local state on the prod host and a fresh
+// clone had no library at all (and this file could not even be read). The seed is
+// the committed source every composition is materialised from, so that is what
+// these tests read: deterministic on any checkout, and a fresh install ships wired.
+const SEED = path.join(process.cwd(), "fittings/seed/orchestrator/config/routing.seed.json");
+const cfg = JSON.parse(fs.readFileSync(SEED, "utf8"));
 const flows: Record<string, Record<string, unknown>> = cfg.flows;
 
-describe("the default composition's routing config", () => {
+describe("the shipped orchestrator seed config", () => {
   it("validates", () => {
     expect(validateRoutingConfig(cfg)).toEqual([]);
   });
 
   it("compiles", () => {
     expect(() => compilePolicy(cfg, cfg.activeProfile ?? null)).not.toThrow();
+  });
+});
+
+// The wiring half: this box's own default composition, if it has one. It is
+// machine-local and gitignored, so it cannot be a precondition of the suite -
+// but where it exists it must still be a config the runtime can compile, and it
+// must not have drifted off the shipped library.
+const LIVE_ROUTING = path.join(process.cwd(), "compositions/default/.garrison/routing.json");
+const liveCfg = fs.existsSync(LIVE_ROUTING) ? JSON.parse(fs.readFileSync(LIVE_ROUTING, "utf8")) : null;
+
+describe.skipIf(!liveCfg)("this machine's default composition, where it exists", () => {
+  it("validates and compiles", () => {
+    expect(validateRoutingConfig(liveCfg)).toEqual([]);
+    expect(() => compilePolicy(liveCfg, liveCfg.activeProfile ?? null)).not.toThrow();
+  });
+
+  it("carries the same flow library the seed ships", () => {
+    expect(Object.keys(liveCfg.flows ?? {}).sort()).toEqual(Object.keys(flows).sort());
+    expect(liveCfg.defaultFlow).toBe(cfg.defaultFlow);
   });
 });
 
