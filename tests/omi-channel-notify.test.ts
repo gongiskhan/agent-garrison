@@ -311,13 +311,23 @@ describe("kanban notify-origin omi transport", () => {
       };
       routeOriginEvent(boardRoot, null, card, { kind: "finished", message: "Run complete - Email the beta list." });
 
+      // The ack rides ALONGSIDE the delivery (routeOriginEvent fires both,
+      // fire-and-forget), and being the shorter code path it usually lands
+      // first. Wait for the delivery itself rather than for "the first
+      // request" - the two are different classes and neither replaces the
+      // other, so ordering between them is not a property worth pinning.
       const deadline = Date.now() + 3000;
-      while (Date.now() < deadline && stub.received.length === 0) {
+      const delivery = () =>
+        stub.received.find((r) => r.path === "/api/threads/omi-reports/messages");
+      while (Date.now() < deadline && !delivery()) {
         await new Promise((r) => setTimeout(r, 25));
       }
-      expect(stub.received.length).toBeGreaterThanOrEqual(1);
-      expect(stub.received[0].path).toBe("/api/threads/omi-reports/messages");
-      expect(JSON.stringify(stub.received[0].body)).toContain("Run complete");
+      const delivered = delivery();
+      expect(delivered).toBeDefined();
+      expect(JSON.stringify(delivered!.body)).toContain("Run complete");
+      // ...and the ack is an addition, never a substitution: a terminal
+      // outcome that only acked would leave the origin thread silent.
+      expect(stub.received.some((r) => r.path === "/ack")).toBe(true);
     } finally {
       await new Promise<void>((r) => stub.server.close(() => r()));
       if (prevHome === undefined) delete process.env.GARRISON_HOME;
