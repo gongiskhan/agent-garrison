@@ -770,7 +770,11 @@ describe("a held card holds, and a go releases it", () => {
         resolveThreadCard: async () => ({ attach: free })
       })
     ).toBeNull();
-    // An ordinary sentence containing the word is not a go.
+    // A sentence containing the word is not a GO. On a HELD card it is the ask's
+    // other answer - a correction (2026-08-13) - which is what this sentence
+    // plainly is: "check whether the tests pass first" corrects the plan. Before
+    // that branch existed this returned null and the sentence was routed as a
+    // brand-new turn with none of the thread's context.
     expect(
       await resolveDiscussInterception({
         text: "go ahead and check whether the tests pass first",
@@ -778,6 +782,16 @@ describe("a held card holds, and a go releases it", () => {
         sessionId: "t1",
         pendingQuestions: new Map(),
         resolveThreadCard: async () => ({ attach: held })
+      })
+    ).toMatchObject({ action: "autonomy-correct", card: held });
+    // On an UNHELD card the same sentence is still an ordinary turn.
+    expect(
+      await resolveDiscussInterception({
+        text: "go ahead and check whether the tests pass first",
+        channel: "web",
+        sessionId: "t1",
+        pendingQuestions: new Map(),
+        resolveThreadCard: async () => ({ attach: free })
       })
     ).toBeNull();
   });

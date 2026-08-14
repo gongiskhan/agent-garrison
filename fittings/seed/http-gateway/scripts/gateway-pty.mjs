@@ -52,6 +52,7 @@ import {
   listVaultAccounts,
   resolveVaultAccount,
   autonomyHoldPlan,
+  heldCardRoute,
   TURN_EFFORTS
 } from "./lib/gateway-routing.mjs";
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
@@ -2459,7 +2460,18 @@ async function dispatchDiscussIntercept(body) {
       // board starts the card because CLEARING a hold is itself the authorisation
       // to progress - see handlePatchCard, where the release overrides the
       // engine-context suppression for exactly this reason.
-      const targetList = decision.card.autonomyAsk?.resumeList || "plan";
+      //
+      // A card the user CORRECTED before saying go carries its corrected route on
+      // the run spec (heldCardRoute states that precedence). The go then confirms
+      // what the correction proposed, and resumes onto the list the corrected
+      // route actually starts at - not the list the rejected route named. An
+      // uncorrected card takes neither branch: `corrected` is false, so both the
+      // resume list and the confirmation are byte-identical to what they were.
+      const held = heldCardRoute(decision.card);
+      const targetList =
+        (held.corrected ? await router.resumeListFor(held) : null) ||
+        decision.card.autonomyAsk?.resumeList ||
+        "plan";
       const moved = await moveCardEngine({
         id: decision.card.id,
         targetList,
@@ -2469,14 +2481,13 @@ async function dispatchDiscussIntercept(body) {
       // confirmation for work that never started would teach the router that a
       // failed move was a job well done.
       if (moved) {
-        const ask = decision.card.autonomyAsk ?? {};
         await router.recordAutonomyGo({
           cardId: decision.card.id,
-          flow: ask.flow ?? decision.card.flow ?? null,
-          duty: ask.duty ?? decision.card.duty ?? null,
-          level: Number.isInteger(ask.level) ? ask.level : decision.card.level ?? null,
-          tier: ask.tier ?? decision.card.tier ?? null,
-          decisionId: ask.decisionId ?? null,
+          flow: held.flow,
+          duty: held.duty,
+          level: held.level,
+          tier: held.tier,
+          decisionId: held.decisionId,
           sessionId: typeof body?.sessionId === "string" ? body.sessionId : null
         });
       }
@@ -2485,6 +2496,44 @@ async function dispatchDiscussIntercept(body) {
         : `Couldn't start the card just now - try again, or move it on the board.`;
       logEvent("stdout", { kind: "autonomy-go", card: decision.card.id, targetList, moved });
       return { reply, card: decision.card.id, action: "autonomy-go" };
+    }
+    if (decision.action === "autonomy-correct") {
+      // §7.1: the ask's OTHER answer. "Reply go to proceed, or correct me" invited
+      // a correction and, until 2026-08-13, had no branch to receive one - the
+      // correction was routed as a brand-new turn and answered without the thread.
+      // The correction is re-dispatched over the card's original brief, re-stamps
+      // the card, and the card STAYS HELD: re-routing is not authorisation.
+      const outcome = await router.correctHeldCard({
+        card: decision.card,
+        correction: decision.correction,
+        sessionId: typeof body?.sessionId === "string" ? body.sessionId : null
+      });
+      if (!outcome?.ok) {
+        // Honest failure. Falling through to an ordinary turn here is exactly the
+        // bug, so a correction that cannot be applied says so and leaves the hold.
+        const reply =
+          "I couldn't apply that correction just now - the card is still held. " +
+          "Try again in a moment, or set the route on the card and move it on the board.";
+        logEvent("stderr", { kind: "autonomy-correct-failed", card: decision.card.id, reason: outcome?.reason ?? "unknown" });
+        return { reply, card: decision.card.id, action: "autonomy-correct-failed" };
+      }
+      // The re-ask is a question POSED, so it counts against today's budget for the
+      // same reason the first one did (autonomy-consult §6: count delivery, not intent).
+      await router.recordAutonomyAsked();
+      const what = outcome.phrase || `duty ${outcome.applied.duty}, level ${outcome.applied.level}`;
+      const reply = outcome.unchanged
+        ? `Still ${what} - the correction did not change the call. Reply go to proceed, or correct me again.`
+        : `Re-routed as ${what} - reply go to proceed, or correct me again.`;
+      logEvent("stdout", {
+        kind: "autonomy-corrected",
+        card: decision.card.id,
+        from: outcome.original.duty ?? null,
+        to: outcome.applied.duty,
+        level: outcome.applied.level,
+        flow: outcome.applied.flow ?? null,
+        unchanged: outcome.unchanged === true
+      });
+      return { reply, card: decision.card.id, action: "autonomy-correct" };
     }
     if (decision.action === "go") {
       const moved = await moveCardEngine({ id: decision.card.id, targetList: "plan", logFn: (e) => logEvent("stdout", e) });

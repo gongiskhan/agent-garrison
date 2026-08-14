@@ -26,6 +26,77 @@
 import { createHash } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 
+// ── Attachments are CONTEXT, never routing signal ────────────────────────────
+//
+// 2026-08-13. A user asked a question on the web channel and attached a
+// screenshot. The channel appends the attachment block to the message text
+// (packages/claude-chat/src/ClaudeChat.tsx builds "\n\nAttached file:\n- <path>"),
+// and the upload path carried the word "image" INSIDE ITS FILENAME
+// (…/uploads/1786740935450-fjqmoh-image.png). deterministicFallbackDispatch's
+// /\b(image|photo|…)\b/ rule matched the filename, and a question was routed as
+// duty image, level 2. The user attached a picture; they did not ask for one.
+//
+// So every lane that reads the message for ROUTING reads it through this
+// stripper first: the block becomes a neutral "[n attachment(s)]" marker, which
+// still tells the model something is attached without leaking filename words
+// into the classification. The digest in routingEvidence deliberately stays on
+// the RAW message - it identifies what the user actually sent.
+
+// The header line, with whatever follows it on the same line captured: the
+// canonical form puts the items on their own lines, but a channel that inlines
+// them ("Attached file: - /a/b.png") must strip identically.
+const ATTACHMENT_HEADER = /^[ \t]*attached files?:[ \t]*(.*)$/i;
+// A list item directly under that header. Only a contiguous run counts - the
+// first non-item line ends the block, so an ordinary bullet list later in the
+// message is never eaten.
+const ATTACHMENT_ITEM = /^[ \t]*-[ \t]*\S/;
+// A bare upload path on its own line (dash optional), for a channel that appends
+// the path without writing the header at all.
+const UPLOAD_PATH_LINE = /^[ \t]*(?:-[ \t]*)?\S*[\\/]uploads[\\/]\S+[ \t]*$/i;
+
+/** Path-looking tokens in one fragment - how an inlined header is counted. */
+function countPathTokens(fragment) {
+  const found = String(fragment ?? "").match(/\S*[\\/]\S+/g);
+  return found ? found.length : 0;
+}
+
+/**
+ * The message as ROUTING should read it: attachment reference lines replaced by
+ * a neutral "[n attachment(s)]" marker. A message with no attachment lines is
+ * returned unchanged (identity), and the function is idempotent - the marker is
+ * not itself an attachment line.
+ */
+export function stripAttachmentLines(message) {
+  const text = String(message ?? "");
+  const kept = [];
+  let count = 0;
+  let inBlock = false;
+  for (const line of text.split("\n")) {
+    const header = line.match(ATTACHMENT_HEADER);
+    if (header) {
+      inBlock = true;
+      count += countPathTokens(header[1]);
+      continue;
+    }
+    if (inBlock) {
+      if (ATTACHMENT_ITEM.test(line)) {
+        count += 1;
+        continue;
+      }
+      inBlock = false;
+    }
+    if (UPLOAD_PATH_LINE.test(line)) {
+      count += 1;
+      continue;
+    }
+    kept.push(line);
+  }
+  if (!count) return text;
+  const body = kept.join("\n").replace(/\s+$/, "");
+  const marker = `[${count} attachment${count === 1 ? "" : "s"}]`;
+  return body ? `${body}\n\n${marker}` : marker;
+}
+
 // ── Model helpers ────────────────────────────────────────────────────────────
 // A "model" is the shape the Resolver emits: { duties, selectedDuties }.
 //   duties:         Record<dutyId, { id, title, description, levels: [{description, cell?, sequence?}] }>
@@ -33,12 +104,27 @@ import { appendFile } from "node:fs/promises";
 // A leaf duty (one whose chosen level is a `cell`) is the dispatch target; the
 // old classifier only ever produced leaf task-types, so parity lives here.
 
+// Duties that exist for the MACHINE and are never a destination for a human
+// channel turn. `dispatch` is the routing mechanism itself; `probe-question` is
+// the Improver's ask-relay, dispatched straight from the compiled policy's
+// probe-question cell (improver/lib/probe-core.mjs) and never inferred.
+//
+// 2026-08-13. The user corrected a misrouted card by replying "what?!? no! I was
+// asking a question! should be discuss duty level 1 or level 2!" - and THAT
+// sentence was routed as a fresh turn to duty probe-question, level 1, which
+// answered with no thread context at all. An internal duty had been offered to
+// the inference as if it were work. The exclusion is INFERENCE-ONLY: an explicit
+// pin (sanitizeRouting accepts `duty` as a free string) and every internal caller
+// still reach these duties directly.
+export const INTERNAL_DUTIES = Object.freeze(["dispatch", "probe-question"]);
+
 function selectedDutyList(model) {
   const selected = Array.isArray(model?.selectedDuties) ? model.selectedDuties : [];
   const duties = model?.duties ?? {};
-  // Only duties that actually exist in the model are dispatchable. `dispatch`
-  // itself is the routing mechanism, never a destination for user work.
-  return selected.filter((id) => id !== "dispatch" && duties[id]);
+  // Only duties that actually exist in the model are dispatchable, and never an
+  // internal one - this list IS the inference vocabulary (the prompt's candidate
+  // list, the parse clamp, the default duty, and the deterministic fallback).
+  return selected.filter((id) => !INTERNAL_DUTIES.includes(id) && duties[id]);
 }
 
 function dutySpec(model, dutyId) {
@@ -103,7 +189,9 @@ export function buildDispatchPrompt(model, userPrompt, opts = {}) {
   lines.push("");
   lines.push('Respond exactly like: {"duty":"code","level":2,"confidence":"high","clarity":"clear","reason":"bounded bug fix"}');
   lines.push("");
-  lines.push(`Task: """${String(userPrompt ?? "").slice(0, 4000)}"""`);
+  // Attachment reference lines are stripped to a neutral marker before the task
+  // reaches the model: a filename is not a description of the work.
+  lines.push(`Task: """${stripAttachmentLines(userPrompt).slice(0, 4000)}"""`);
   return lines.join("\n");
 }
 
@@ -140,7 +228,7 @@ export const CLARITY_VALUES = new Set(["clear", "needs-discuss"]);
 // null (no explicit phrasing → the model / default decides). "let's discuss first"
 // forces needs-discuss; "just do it" / "no questions" / "skip discussion" force clear.
 export function clarityShortCircuit(message) {
-  const text = String(message ?? "");
+  const text = stripAttachmentLines(message);
   // needs-discuss: the operator explicitly wants to talk scope through first.
   if (
     /\b(?:let'?s\s+(?:discuss|talk\s+it\s+through)|discuss\s+(?:this\s+)?first|discuss\s+before\s+building|talk\s+it\s+through\s+first)\b/i.test(
@@ -163,7 +251,7 @@ export function clarityShortCircuit(message) {
 // work for the Portuguese Web Channel without maintaining an ASCII shadow list.
 export function discussionDutyShortCircuit(message, model) {
   if (!selectedDutyList(model).includes("discuss")) return null;
-  const text = String(message ?? "")
+  const text = stripAttachmentLines(message)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
@@ -266,7 +354,11 @@ export function fallbackDispatch(model, reason = "dispatch parse failed; default
 // configured end-to-end sequence instead of collapsing to legacy `other`.
 export function deterministicFallbackDispatch(model, message) {
   const selected = selectedDutyList(model);
-  const lower = String(message ?? "").toLowerCase();
+  // The attachment block is stripped BEFORE any keyword matches: this is the
+  // exact rule that routed a question to `image` because the uploaded file was
+  // named "…-image.png".
+  const routable = stripAttachmentLines(message);
+  const lower = routable.toLowerCase();
   const has = (id) => selected.includes(id);
   let duty = null;
   const discussion = discussionDutyShortCircuit(message, model);
@@ -284,7 +376,7 @@ export function deterministicFallbackDispatch(model, message) {
   const spec = dutySpec(model, duty);
   const count = Math.max(1, Array.isArray(spec?.levels) ? spec.levels.length : 1);
   const deep = /\b(deep|architecture|migration|security|critical|wide[- ]blast|end[- ]to[- ]end|e2e)\b/.test(lower);
-  const trivial = String(message ?? "").length < 90 && /\b(typo|rename|one[- ]line|tiny|trivial)\b/.test(lower);
+  const trivial = routable.length < 90 && /\b(typo|rename|one[- ]line|tiny|trivial)\b/.test(lower);
   const level = discussion?.level ?? (trivial ? 1 : deep && count >= 3 ? 3 : Math.min(2, count));
   return {
     duty,
@@ -300,7 +392,9 @@ export function deterministicFallbackDispatch(model, message) {
 // most-explicit first; returns the integer or null. Kept conservative so an
 // incidental "level 3" only fires with a routing verb/preposition in front.
 export function parseLevelOverride(message) {
-  const text = String(message ?? "");
+  // Stripped first, or an upload named "screenshot-level-3.png" reads as an
+  // explicit human "run at level 3".
+  const text = stripAttachmentLines(message);
   // Each pattern requires an EXPLICIT routing directive — a routing verb, an
   // assignment, or a leading "level N" — never a bare "at level N" in prose
   // (codex S3d finding: "the crash happens at level 3 of the menu" must NOT be a

@@ -95,9 +95,13 @@ describe("the cases that must stay ordinary turns, on every channel", () => {
         resolveThreadCard: resolve
       });
       expect(out, channel).toBeNull();
-      // No pending question and not a bare affirmative, so the board is never
-      // consulted — ordinary turns must not pay a round-trip.
-      expect(resolve.seen, channel).toEqual([]);
+      // 2026-08-13: this used to assert the board was NEVER consulted for an
+      // ordinary message. That early return is what made the autonomy ask a dead
+      // end — a correction is not affirmative, so it fell through and ran as a
+      // fresh turn. Whether a card is HELD cannot be known without asking, so the
+      // lookup now happens once, at the same origin, and the DECISION is what
+      // must stay unchanged: an ordinary message is still an ordinary turn.
+      expect(resolve.seen, channel).toEqual([`${channel}:t1`]);
     });
 
     it(`does not resume a card that is not held on ${channel}`, async () => {

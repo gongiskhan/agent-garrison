@@ -122,6 +122,14 @@ export interface DispatchResult extends OverriddenPick {
   evidence: RoutingEvidence;
 }
 
+// Attachment reference lines are CONTEXT, never routing signal (2026-08-13): the
+// message every routing lane reads, with the channel's attachment block replaced
+// by a neutral "[n attachment(s)]" marker. Identity when there are none.
+export function stripAttachmentLines(message: unknown): string;
+// The duties that exist for the MACHINE (`dispatch`, `probe-question`) and are
+// therefore never offered to inference. Explicit pins still reach them.
+export const INTERNAL_DUTIES: readonly string[];
+
 // S3d (D9b): the default clarity rubric text + the valid verdict set.
 export const DEFAULT_CLARITY_RUBRIC: string;
 export const CLARITY_VALUES: Set<string>;

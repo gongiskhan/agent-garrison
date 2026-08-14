@@ -336,7 +336,13 @@ describe("discuss interception decision (HTTP seam, review R1/R3)", () => {
     expect(d).toBeNull();
   });
 
-  it("NO board lookup for an ordinary turn (no pending question, not affirmative)", async () => {
+  it("ordinary turn stays an ordinary turn, whatever the board says", async () => {
+    // 2026-08-13: this used to assert that the board was never consulted here.
+    // That early return is what made the autonomy hold's ask a dead end - a
+    // correction ("what?!? no! I was asking a question!") is not affirmative, so
+    // it fell through and was routed as a brand-new turn. Whether the thread's
+    // card is HELD cannot be known without asking, so one bounded lookup now
+    // happens; what must not change is the DECISION for an ordinary message.
     let looked = false;
     const d = await resolveDiscussInterception({
       text: "please build a login page", channel: "web", sessionId: "th1",
@@ -344,7 +350,7 @@ describe("discuss interception decision (HTTP seam, review R1/R3)", () => {
       resolveThreadCard: async () => { looked = true; return null; }
     });
     expect(d).toBeNull();
-    expect(looked).toBe(false); // ordinary turns pay no board round-trip
+    expect(looked).toBe(true);
   });
 
   it("GO path: a bare affirmative on a card HELD in discuss by an explicit gate", async () => {

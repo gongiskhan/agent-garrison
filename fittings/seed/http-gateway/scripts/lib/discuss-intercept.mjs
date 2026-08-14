@@ -57,13 +57,22 @@ export function originIdFor(channel, sessionId) {
 }
 
 // Decide whether an inbound message is a discuss ANSWER, an explicit GO, an
-// autonomy-hold GO, or none of them.
+// autonomy-hold GO, an autonomy-hold CORRECTION, or none of them.
 // resolveThreadCard(origin_id) -> { attach } | { continueFrom } | null (injectable).
 // Returns { action: "answer", toolUseId, card } | { action: "go", card } |
-// { action: "autonomy-go", card } | null. A null
-// result (the common case) means "run the ordinary turn"; the board is only consulted
-// when there is a pending question OR the message is a bare affirmative, so ordinary
-// turns pay no extra round-trip. Never throws.
+// { action: "autonomy-go", card } | { action: "autonomy-correct", card, correction }
+// | null. A null result (the common case) means "run the ordinary turn". Never throws.
+//
+// THE BOARD LOOKUP (2026-08-13). This used to return early - no lookup - unless
+// there was a pending question or the message was a bare affirmative, so an
+// ordinary turn paid no round-trip. That early return is what made the ask a
+// dead end: the router held a card, asked "reply go to proceed, or correct me",
+// and the correction that came back ("what?!? no! I was asking a question!") was
+// not affirmative, so it fell through this function and was routed as a brand-new
+// turn with no thread context at all. A held card BLOCKS the thread, so any reply
+// on it is the answer to the question - which cannot be known without asking the
+// board whether one is held. The lookup is one 3s-bounded localhost GET, out of
+// band (before enqueueTurn), and the ordinary-turn DECISION is unchanged.
 //
 // Works for EVERY channel. Behaviour is identical across channels; only rendering
 // differs, and rendering is the caller's business.
@@ -72,7 +81,8 @@ export async function resolveDiscussInterception({ text, channel, sessionId, pen
   if (!originId) return null;
   const hasPending = !!(pendingQuestions && pendingQuestions.size > 0);
   const affirmative = isAffirmativeGo(text);
-  if (!hasPending && !affirmative) return null; // ordinary turn - no board lookup
+  const reply = String(text ?? "").trim();
+  if (!hasPending && !affirmative && !reply) return null; // nothing to interpret
   let liveCard = null;
   try {
     const resolved = await resolveThreadCard(originId);
@@ -81,14 +91,17 @@ export async function resolveDiscussInterception({ text, channel, sessionId, pen
     return null;
   }
   if (!liveCard) return null;
-  // (0) AUTONOMY-HOLD resume (ORCHESTRATOR_COHERENCE.md §7.1). A card the router
-  // parked below its lower threshold is waiting for exactly this word - and it is
-  // NOT on the Discuss list. It sits in the board's capture list on whatever the
-  // router proposed, so this branch is checked FIRST and is deliberately not
-  // list-scoped, unlike the two below it. Same word, same out-of-band position,
-  // same channel-agnostic lookup; only the effect the caller wires differs.
-  if (affirmative && liveCard.autonomyHeld === true) {
-    return { action: "autonomy-go", card: liveCard };
+  // (0) AUTONOMY-HOLD (ORCHESTRATOR_COHERENCE.md §7.1). A card the router parked
+  // below its lower threshold is waiting for an answer - and it is NOT on the
+  // Discuss list. It sits in the board's capture list on whatever the router
+  // proposed, so this branch is checked FIRST and is deliberately not list-scoped,
+  // unlike the two below it. The ask offers two answers and both land here: the
+  // word "go" releases it, and anything else IS the correction it invited. A held
+  // card has never dispatched, so it can hold no live picker of its own - the
+  // reply cannot belong to the answer branch below.
+  if (liveCard.autonomyHeld === true) {
+    if (affirmative) return { action: "autonomy-go", card: liveCard };
+    if (reply) return { action: "autonomy-correct", card: liveCard, correction: reply };
   }
   if (liveCard.list !== "discuss") return null;
   // (1) reply-as-answer: a pending question bound to (or unambiguous for) this card.

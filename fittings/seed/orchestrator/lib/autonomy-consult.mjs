@@ -449,6 +449,44 @@ export function buildGoConfirmationRecord({ flow = null, duty = null, level = nu
   };
 }
 
+/**
+ * The record a CORRECTION writes - the other answer the hold can receive.
+ *
+ * Same verdict shape as the go, with the closed vocabulary's other value: the
+ * user looked at the proposal and said it was wrong. `original` is the route the
+ * router PROPOSED (both folds key the track on it, so the evidence lands on the
+ * shape that was chosen, never on the counterfactual) and `applied` names what
+ * the user corrected TOWARD, which is what evidenceFromVerdict reads to decide
+ * whether the flow, the level, or both were the wrong half.
+ *
+ * Without this, a hold could only ever teach the router that it was right: the
+ * go wrote evidence and the correction wrote nothing, so a shape the user kept
+ * correcting would look, in the tracks, like a shape nobody had ever disputed.
+ */
+export function buildCorrectionRecord({ original = {}, applied = {}, decisionId = null, sessionId = null, at = null } = {}) {
+  const stamp = at ?? new Date().toISOString();
+  const route = (src) => {
+    const out = {};
+    if (str(src?.flow)) out.flow = src.flow;
+    if (str(src?.duty)) out.duty = src.duty;
+    if (str(src?.tier)) out.tier = src.tier;
+    if (Number.isInteger(src?.level)) out.level = src.level;
+    return out;
+  };
+  return {
+    id: mintFeedbackId(stamp),
+    ...(str(sessionId) ? { session_id: sessionId } : {}),
+    area: "orchestrator",
+    question: "decision-verdict",
+    answer: "wrong",
+    ...(str(decisionId) ? { decision_id: decisionId } : {}),
+    original: route(original),
+    applied: route(applied),
+    timestamp: stamp,
+    provenance: VERDICT_PROVENANCE
+  };
+}
+
 // ── 8. The consult ──────────────────────────────────────────────────────────
 
 const BAND_ORDER = { ask: 0, "act-revert": 1, "act-inform": 2 };
@@ -465,17 +503,25 @@ export function worstBand(bands) {
   return worst;
 }
 
-/** The one sentence the router says when it has to ask. Names what it proposes
- *  to do, in the vocabulary the board and the thread already use, and states the
- *  two ways to answer. */
-export function askQuestion({ flow, duty, level, band, reason } = {}) {
-  const what = [
+/** One route, in the vocabulary the board and the thread already use. Extracted
+ *  from askQuestion so the gateway's re-ask after a CORRECTION names the new
+ *  route in exactly the words the first ask named the old one - two spellings of
+ *  the same route in one conversation reads as two different proposals. */
+export function routePhrase({ flow = null, duty = null, level = null } = {}) {
+  return [
     flow ? `the ${flow} flow` : null,
     duty ? `duty ${duty}` : null,
     Number.isInteger(level) ? `level ${level}` : null
   ]
     .filter(Boolean)
     .join(", ");
+}
+
+/** The one sentence the router says when it has to ask. Names what it proposes
+ *  to do, in the vocabulary the board and the thread already use, and states the
+ *  two ways to answer. */
+export function askQuestion({ flow, duty, level, band, reason } = {}) {
+  const what = routePhrase({ flow, duty, level });
   const why =
     reason === "cold-start"
       ? "I have no track record on this shape yet"

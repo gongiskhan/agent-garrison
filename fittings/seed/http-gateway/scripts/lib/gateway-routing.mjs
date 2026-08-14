@@ -894,6 +894,108 @@ export function autonomyHoldPlan(autonomy, { significant = false, sequence = nul
   };
 }
 
+// The route a HELD card is currently proposing, and whether a correction changed
+// it (§7.1, 2026-08-13).
+//
+// A hold is stamped into `autonomyAsk` at create time, and `autonomyAsk` is NOT a
+// patchable card field - the board's PATCH accepts the run spec (`routing`) and
+// engine-only `dutyLevels`, nothing else routing-shaped. So a correction lands on
+// `routing`, and this reader states the precedence once: a run spec on a HELD card
+// is always fresher than the ask that created it, because a card carrying a human
+// pin never reaches the autonomy consult in the first place (preRoute exempts a
+// pinned turn), so the only way a held card can carry `routing.duty` is a
+// correction that re-stamped it.
+//
+// Pure. `corrected` is what lets the go branch stay byte-identical on an
+// uncorrected card: false means every field below came from exactly where it came
+// from before this seam existed.
+export function heldCardRoute(card) {
+  const ask = card?.autonomyAsk && typeof card.autonomyAsk === "object" ? card.autonomyAsk : {};
+  const routing = card?.routing && typeof card.routing === "object" && !Array.isArray(card.routing) ? card.routing : {};
+  const corrected = typeof routing.duty === "string" && routing.duty.trim().length > 0;
+  return {
+    corrected,
+    flow: (corrected ? routing.flow : null) ?? ask.flow ?? card?.flow ?? null,
+    duty: (corrected ? routing.duty : null) ?? ask.duty ?? card?.duty ?? null,
+    level: corrected && Number.isInteger(routing.level)
+      ? routing.level
+      : Number.isInteger(ask.level) ? ask.level : card?.level ?? null,
+    tier: (corrected ? routing.tier : null) ?? ask.tier ?? card?.tier ?? null,
+    decisionId: ask.decisionId ?? null,
+    resumeList: typeof ask.resumeList === "string" && ask.resumeList ? ask.resumeList : null
+  };
+}
+
+// Re-stamp a HELD card's routing on the board: an engine-context PATCH of the run
+// spec, with the same rev-refresh retry every other write in this layer uses.
+//
+// Deliberately NOT a list move. Moving a held card is what RELEASES the hold (the
+// board clears autonomyHeld inside the same CAS as the move), and a correction
+// must leave the card exactly as held as it found it - the user corrected the
+// route, they did not say go.
+//
+// `dutyLevels` rides along only when the caller has verified it raises nothing
+// down: the board enforces raise-only at the storage boundary and answers a lower
+// with a 400 that would take the whole re-stamp with it.
+//
+// Injectable `fetchImpl` so the seam is testable without a live board; the caller
+// supplies `base` (from the board's status file, never a hardcoded port).
+export async function patchHeldCardRouting({ base, id, routing, dutyLevels = null, fetchImpl = fetch, logFn = () => {} }) {
+  if (!base || !id) return { ok: false, error: "board unavailable" };
+  if (!routing || typeof routing !== "object") return { ok: false, error: "routing is required" };
+  let lastError = "board PATCH failed";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let rev = 0;
+    try {
+      const fresh = await fetchImpl(`${base}/cards/${encodeURIComponent(id)}`);
+      if (fresh.ok) {
+        const doc = await fresh.json();
+        rev = doc.card?.rev ?? doc.rev ?? 0;
+      }
+    } catch { /* fall through with rev 0 */ }
+    const patched = await fetchImpl(`${base}/cards/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+      body: JSON.stringify({ routing, ...(dutyLevels ? { dutyLevels } : {}), rev })
+    });
+    if (patched.ok) {
+      const doc = await patched.json().catch(() => null);
+      logFn({ kind: "held-card-rerouted", id, routing });
+      return { ok: true, card: doc?.card ?? null };
+    }
+    // Only a 409 ("the card changed under you") is worth another attempt; a
+    // refusal is final and must never be retried into the same refusal.
+    if (patched.status !== 409) {
+      const body = await patched.json().catch(() => null);
+      lastError = body?.message || body?.error || `board PATCH ${patched.status}`;
+      break;
+    }
+    lastError = "card changed under the correction";
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+  }
+  logFn({ kind: "held-card-reroute-failed", id, error: lastError });
+  return { ok: false, error: lastError };
+}
+
+// The subset of a resolved `dutyLevels` map that is safe to send with a re-stamp:
+// every entry the card does not already hold at a HIGHER level. The board refuses
+// a lower with a 400, and a correction that re-routes DOWN (image L2 -> discuss
+// L1, the incident) is the common case, so filtering here is what keeps the run
+// spec landing instead of the whole PATCH bouncing. Returns null when nothing
+// survives - the run spec alone is still the correction.
+export function raisableDutyLevels(next, held) {
+  if (!next || typeof next !== "object") return null;
+  const current = held && typeof held === "object" && !Array.isArray(held) ? held : {};
+  const out = {};
+  for (const [duty, level] of Object.entries(next)) {
+    if (!Number.isInteger(level)) continue;
+    const have = current[duty];
+    if (Number.isInteger(have) && level < have) continue;
+    out[duty] = level;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // Deterministic keyword classifier: when an exception declares `keywords`, a
 // message containing ALL of them classifies straight to that exception — fast,
 // and immune to LLM-classifier drift across a rapid multi-step session. Returns
@@ -1009,6 +1111,9 @@ export class RoutedGateway {
     // Injectable board-cards lib (tests) - resolveThreadCard uses it; null =
     // the real autonomous-cards module.
     this._cardsLib = opts.cardsLib ?? null;
+    // Injectable board base URL (tests). Null = discover it from the kanban-loop
+    // status file, which is the only production path.
+    this._boardBaseOverride = opts.boardBase ?? null;
   }
 
   async start() {
@@ -1672,9 +1777,10 @@ export class RoutedGateway {
   // Resolve the board's base URL from the kanban-loop status file (URL-link
   // contract, never a hardcoded port — the same discovery the gateway uses for
   // every fitting). Returns the base URL or null (board down / not installed).
-  // Implementation lives in the shared board-card client.
+  // Implementation lives in the shared board-card client; an injected base (tests)
+  // wins, the same seam `_cardsLib` provides for the card client itself.
   _boardBase() {
-    return cards.boardBase();
+    return this._boardBaseOverride ?? cards.boardBase();
   }
 
   // D19: register a turn as a card on the board. Thin wrapper over the shared
@@ -2377,6 +2483,187 @@ export class RoutedGateway {
     }
     this.logFn({ kind: "autonomy-go-recorded", cardId, flow, duty, level, logged, signalled });
     return { logged, signalled };
+  }
+
+  /**
+   * Record the CORRECTION of a held card - the hold's other answer.
+   *
+   * Same two writes as recordAutonomyGo, for the same two reasons, with the
+   * verdict flipped: decisions.jsonl gets the audit record ("the router asked
+   * about this card and was corrected") and the feedback queue gets the SIGNAL,
+   * an explicit-negative against the shape the router PROPOSED, naming what the
+   * user corrected toward. Without the second write a hold could only ever teach
+   * the router that it was right.
+   *
+   * Returns {logged, signalled}; neither failure is fatal - the card is already
+   * re-stamped, and losing a log line must not un-apply a correction.
+   */
+  async recordAutonomyCorrection({ cardId = null, original = {}, applied = {}, decisionId = null, sessionId = null } = {}) {
+    const at = this.nowFn();
+    let logged = false;
+    let signalled = false;
+    try {
+      await this.core.appendDecision(this.decisionsFile, {
+        at,
+        kind: "autonomy-ask",
+        resolution: "corrected",
+        cardId,
+        flow: applied.flow ?? null,
+        duty: applied.duty ?? null,
+        level: Number.isInteger(applied.level) ? applied.level : null,
+        // The proposal the user rejected, so the pair is reconstructable from the
+        // audit log alone rather than only from the feedback queue.
+        from: {
+          flow: original.flow ?? null,
+          duty: original.duty ?? null,
+          level: Number.isInteger(original.level) ? original.level : null
+        },
+        ...(decisionId ? { decisionId } : {})
+      });
+      logged = true;
+    } catch (err) {
+      this.logFn({ kind: "autonomy-correction-log-failed", error: err?.message ?? String(err) });
+    }
+    try {
+      const lib = await this._autonomyConsult();
+      if (lib && typeof lib.buildCorrectionRecord === "function") {
+        await appendFeedback(lib.buildCorrectionRecord({ original, applied, decisionId, sessionId, at }));
+        signalled = true;
+      }
+    } catch (err) {
+      this.logFn({ kind: "autonomy-correction-signal-failed", error: err?.message ?? String(err) });
+    }
+    this.logFn({
+      kind: "autonomy-correction-recorded",
+      cardId,
+      from: original.duty ?? null,
+      to: applied.duty ?? null,
+      logged,
+      signalled
+    });
+    return { logged, signalled };
+  }
+
+  /**
+   * The list a (flow, duty, level) resumes onto: the first step of the sequence
+   * that route would walk. The SAME resolution dispatchRoute performs, so a
+   * corrected card resumes onto the list its corrected route actually starts at
+   * instead of the list the rejected route proposed.
+   *
+   * Null when the model/flow library is unavailable - the caller then keeps the
+   * resume list already stamped on the card, which is the pre-correction answer
+   * rather than a guess.
+   */
+  async resumeListFor({ flow = null, duty = null, level = null } = {}) {
+    if (!duty) return null;
+    try {
+      const plan = await this.resolvedFlowPlan(duty, level, flow);
+      if (plan?.sequence?.length) return plan.sequence[0];
+      const sequence = await this.resolvedSequenceForDispatch(duty, level);
+      if (sequence.length) return sequence[0];
+    } catch (err) {
+      this.logFn({ kind: "resume-list-unresolved", duty, level, error: err?.message ?? String(err) });
+    }
+    return null;
+  }
+
+  /**
+   * Apply a user's CORRECTION to a card the router is holding (§7.1, 2026-08-13).
+   *
+   * The ask says "reply go to proceed, or correct me" and, until this existed,
+   * only the first half had a branch: a correction fell through to ordinary
+   * routing and ran as a brand-new turn with no thread context, answering a
+   * question nobody had asked. The correction is re-dispatched over the card's
+   * ORIGINAL brief plus what the user just said - the correction usually names
+   * the answer outright ("should be discuss duty level 1") - and the result
+   * re-stamps the card, which STAYS HELD. Re-routing is not authorisation.
+   *
+   * Fails HONESTLY: every failure returns {ok:false, reason} and the caller says
+   * so. Falling through to routing the correction as a fresh turn is the exact
+   * failure this seam exists to remove, so it is never a fallback here.
+   */
+  async correctHeldCard({ card, correction, sessionId = null } = {}) {
+    const id = card?.id ?? null;
+    const text = typeof correction === "string" ? correction.trim() : "";
+    if (!id || !text) return { ok: false, reason: "no-correction" };
+    const original = heldCardRoute(card);
+
+    // The brief the card was created from, plus the correction. The description is
+    // the brief the run would execute; the title is the fallback for a card whose
+    // description never made it across the projection.
+    const brief = typeof card.description === "string" && card.description.trim()
+      ? card.description.trim()
+      : typeof card.title === "string" ? card.title.trim() : "";
+    const message = `${brief}\n\nCorrection from the user about how to run this: ${text}`;
+
+    let dispatched = null;
+    try {
+      dispatched = await this.dispatchRoute(message, { deterministicOnly: false });
+    } catch (err) {
+      this.logFn({ kind: "autonomy-correction-dispatch-failed", cardId: id, error: err?.message ?? String(err) });
+      return { ok: false, reason: "dispatch-unavailable" };
+    }
+    if (!dispatched?.duty || !Number.isInteger(dispatched.level)) {
+      return { ok: false, reason: "dispatch-unresolved" };
+    }
+
+    const applied = {
+      flow: dispatched.flow ?? null,
+      duty: dispatched.duty,
+      level: dispatched.level,
+      // The compatibility tier the v4 lane derives from a level, so the re-stamped
+      // run spec carries the same pair preRouteV4 would have stamped.
+      tier: dispatched.level <= 1 ? "T0-trivial" : dispatched.level >= 3 ? "T2-deep" : "T1-standard"
+    };
+
+    const base = this._boardBase();
+    const patched = await patchHeldCardRouting({
+      base,
+      id,
+      routing: {
+        ...(applied.flow ? { flow: applied.flow } : {}),
+        duty: applied.duty,
+        level: applied.level,
+        tier: applied.tier
+      },
+      dutyLevels: raisableDutyLevels(dispatched.dutyLevels ?? null, card.dutyLevels ?? null),
+      logFn: (e) => this.logFn(e)
+    });
+    if (!patched.ok) {
+      this.logFn({ kind: "autonomy-correction-restamp-failed", cardId: id, error: patched.error });
+      return { ok: false, reason: "restamp-failed", error: patched.error };
+    }
+
+    await this.recordAutonomyCorrection({
+      cardId: id,
+      original: { flow: original.flow, duty: original.duty, level: original.level, tier: original.tier },
+      applied,
+      decisionId: original.decisionId,
+      sessionId
+    });
+
+    const resumeList = Array.isArray(dispatched.sequence) && dispatched.sequence.length
+      ? dispatched.sequence[0]
+      : original.resumeList;
+    // The re-ask names the new route in the SAME words the first ask named the old
+    // one (askQuestion's own phrase builder). Null only when the consult module is
+    // unresolvable - which is also the state in which no card would have been held.
+    const consult = await this._autonomyConsult();
+    return {
+      ok: true,
+      original,
+      applied,
+      phrase: typeof consult?.routePhrase === "function" ? consult.routePhrase(applied) : null,
+      resumeList: resumeList ?? null,
+      // True when the correction landed on the same route the router proposed. The
+      // caller says so rather than announcing a change that did not happen. An
+      // UNRESOLVED flow (no flow library on this composition) is not a change -
+      // comparing it as one would report every correction as a re-route.
+      unchanged:
+        original.duty === applied.duty &&
+        original.level === applied.level &&
+        (applied.flow == null || (original.flow ?? null) === applied.flow)
+    };
   }
 
   /** Count a question that was ACTUALLY POSED against today's budget. Counting
