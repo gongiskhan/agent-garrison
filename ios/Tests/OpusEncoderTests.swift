@@ -34,21 +34,25 @@ final class OpusEncoderTests: XCTestCase {
         XCTAssertTrue(packets.allSatisfy { !$0.isEmpty })
     }
 
-    func testGainRisesForQuietInputAndFreezesOnSilence() throws {
+    func testGainAdaptsToSpeechOnlyAndNeverPumpsNoise() throws {
         let format = makeFormat()
         let encoder = try XCTUnwrap(OpusEncoder(inputFormat: format))
-        // Quiet speech-level input (-40 dBFS): gain must climb toward the cap.
-        for _ in 0 ..< 8 {
-            _ = encoder.encode(toneBuffer(format: format, peak: 0.01))
+        // Quiet speech-level input (-34 dBFS): the scene gain climbs smoothly.
+        for _ in 0 ..< 20 {
+            _ = encoder.encode(toneBuffer(format: format, peak: 0.02))
         }
-        XCTAssertEqual(encoder.gain, 8, accuracy: 0.01, "quiet input should reach the +18 dB cap")
-        // Near-silence must not change the gain (no noise pumping).
+        XCTAssertGreaterThan(encoder.gain, 3, "quiet speech should raise the scene gain")
+        XCTAssertLessThanOrEqual(encoder.gain, 8.01, "never past the +18 dB cap")
+        // Sub-speech input (noise floor) must not move the gain at all — the
+        // 2026-08-14 wall-of-noise regression was exactly this pumping.
         let before = encoder.gain
-        _ = encoder.encode(toneBuffer(format: format, peak: 0.0005))
+        for _ in 0 ..< 10 {
+            _ = encoder.encode(toneBuffer(format: format, peak: 0.005))
+        }
         XCTAssertEqual(encoder.gain, before)
-        // Loud input drops the gain immediately (fast attack down).
+        // Loud input triggers the instant anti-clip.
         _ = encoder.encode(toneBuffer(format: format, peak: 0.9))
-        XCTAssertLessThan(encoder.gain, 1.01)
+        XCTAssertLessThan(encoder.gain, 1.2)
     }
 
     func testFlushDrainsTailAndFinishesEncoder() throws {

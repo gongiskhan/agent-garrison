@@ -23,14 +23,25 @@ final class OpusEncoder {
     // sessions: speech peaked at -21 dBFS (under 10% of full scale) and the
     // same audio normalized +18 dB lifted transcription confidence from 0.92
     // to 0.99 and fixed a verb misrecognition. The mic level itself is not
-    // settable on iPhones, so gain is applied here, before the encode:
-    // target peak -12 dBFS, capped at 8x (+18 dB), hard-clamped so it can
-    // never clip, and frozen during near-silence so noise floors are not
-    // pumped up between utterances.
+    // settable on iPhones, so gain is applied here, before the encode.
+    //
+    // This is a SLOW, scene-level AGC, not per-buffer peak normalization.
+    // The first shipped version normalized each buffer's peak to -12 dBFS,
+    // which amplified room noise to speech level between words — a real
+    // session came back as a wall of noise Deepgram transcribed as "A"
+    // (conf 0.16), with zero silence gaps in 26 s (2026-08-14). The exact
+    // failure ios-thing and the jarvis branch both warn about. One gain for
+    // the whole acoustic scene: referenced to a rolling peak that only
+    // speech-plausible buffers (> -40 dBFS raw) may raise, decaying slowly,
+    // approached smoothly — so noise between utterances keeps its true level
+    // relative to speech. Anti-clip stays instant.
     private(set) var gain: Float = 1
+    private var rollingPeak: Float = 0.05 // assume ~-26 dBFS speech until heard
     private let targetPeak: Float = 0.25 // -12 dBFS
     private let maxGain: Float = 8 // +18 dB
-    private let silenceFloor: Float = 0.001
+    private let speechFloor: Float = 0.01 // -40 dBFS: below this, never adapt
+    private let peakDecay: Float = 0.999 // per buffer (~-0.1 dB/s at tap sizes)
+    private let gainSmoothing: Float = 0.2
 
     init?(inputFormat: AVAudioFormat) {
         guard let opusFormat = AVAudioFormat(settings: [
@@ -150,15 +161,19 @@ final class OpusEncoder {
     }
 
     private func updateGain(peak: Float) {
-        guard peak > silenceFloor else { return } // freeze during silence
-        let desired = min(maxGain, targetPeak / peak)
-        if desired < gain {
-            gain = desired // fast attack down: never amplify into the clamp
-        } else {
-            // Release upward over a few buffers (~0.4 s at tap sizes) so a
-            // session's opening wake word is already usable by its second
-            // syllable without pumping breath noise to full gain instantly.
-            gain = min(gain * 1.5, desired)
+        // Anti-clip is the one instant move: never amplify into the clamp.
+        if peak * gain > 0.98 {
+            gain = max(1, 0.98 / peak)
+            rollingPeak = max(rollingPeak, peak)
+            return
+        }
+        if peak > speechFloor {
+            // Plausible speech: let it raise the scene reference instantly,
+            // decay it slowly otherwise. Noise-only buffers (below -40 dBFS
+            // raw) never adapt anything — their gain is whatever speech set.
+            rollingPeak = max(peak, rollingPeak * peakDecay)
+            let desired = max(1, min(maxGain, targetPeak / rollingPeak))
+            gain += (desired - gain) * gainSmoothing
         }
     }
 
