@@ -931,6 +931,20 @@ export function PushNotice({
   );
 }
 
+// Dismissing a push notice is a decision, and a decision must survive the tab.
+// The dismissal was plain component state, so an installed PWA with
+// notifications deliberately blocked re-showed "Notifications blocked" on
+// EVERY launch - a permanent nag with an X that never stuck. Persist per
+// notice kind, so a future genuine state change (e.g. needs-install after a
+// reinstall) still gets its one showing.
+const PUSH_NOTICE_DISMISSED_PREFIX = "garrison.web.pushNoticeDismissed.";
+function pushNoticeDismissed(kind: string): boolean {
+  try { return localStorage.getItem(PUSH_NOTICE_DISMISSED_PREFIX + kind) === "1"; } catch { return false; }
+}
+function rememberPushNoticeDismissed(kind: string) {
+  try { localStorage.setItem(PUSH_NOTICE_DISMISSED_PREFIX + kind, "1"); } catch { /* private mode - session-only dismissal */ }
+}
+
 function PushEnroller() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -976,11 +990,17 @@ function PushEnroller() {
   return (
     <>
       {state === "prompt" && pill("Enable notifications", onEnable)}
-      {!noticeDismissed && state === "needs-install" && (
-        <PushNotice text="Add to Home Screen to enable notifications" onDismiss={() => setNoticeDismissed(true)} />
+      {!noticeDismissed && state === "needs-install" && !pushNoticeDismissed("needs-install") && (
+        <PushNotice
+          text="Add to Home Screen to enable notifications"
+          onDismiss={() => { rememberPushNoticeDismissed("needs-install"); setNoticeDismissed(true); }}
+        />
       )}
-      {!noticeDismissed && state === "denied" && (
-        <PushNotice text="Notifications blocked — enable them in browser settings" onDismiss={() => setNoticeDismissed(true)} />
+      {!noticeDismissed && state === "denied" && !pushNoticeDismissed("denied") && (
+        <PushNotice
+          text="Notifications blocked — enable them in browser settings"
+          onDismiss={() => { rememberPushNoticeDismissed("denied"); setNoticeDismissed(true); }}
+        />
       )}
       {toast && (
         <PushNotice kind="toast" text={toast} onDismiss={() => setToast(null)} />
