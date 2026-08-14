@@ -170,7 +170,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
   it("offers every tier under an Automatic row, and says whether pinning one skips the classifier", () => {
     const alone = menuForField("tier", OPTIONS, {});
     expect(alone?.rows.map((r) => r.label)).toEqual([
-      "Automatic - the classifier decides",
+      "Automatic - routing inference decides",
       "T0-trivial",
       "T1-standard",
       "T2-deep",
@@ -188,7 +188,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     // Source order is preserved: the gateway already sorts the catalogue, and a
     // second sort here would be a second opinion about ordering.
     expect(menu?.rows.map((r) => r.label)).toEqual([
-      "Automatic - the plan inferred from the tier",
+      "Automatic - the router picks the flow, its level picks the plan",
       "full-feature (default)",
       "docs-change",
     ]);
@@ -237,7 +237,7 @@ describe("menuForField", () => {
     // stale when the two sibling badges merged (e34b1246) and the flow rows
     // started appearing here - it was asserting the pre-merge menu.
     expect(menu?.rows.map((r) => r.label)).toEqual([
-      "Automatic - the classifier decides",
+      "Automatic - routing inference decides",
       "full-feature (default plan)",
       "docs-change (plan)",
       "plan L1",

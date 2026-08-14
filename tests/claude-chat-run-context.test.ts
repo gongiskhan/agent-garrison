@@ -91,7 +91,7 @@ describe("claude-chat run context: railBadges omission discipline", () => {
     // exists to explain, so the OFF count stands alone.
     const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "flow");
     expect(inferred?.label).toBe("plan -1");
-    expect(inferred?.title).toContain("inferred from the tier");
+    expect(inferred?.title).toContain("flow derived by the router");
   });
 
   it("says so on the tier badge when no classifier ran", () => {
