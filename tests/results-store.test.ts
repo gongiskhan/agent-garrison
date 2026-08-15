@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   appendStep,
   attachMedia,
+  evidenceCensus,
   Conflict,
   finalizeRun,
   isSafeMediaName,
@@ -370,5 +371,58 @@ describe("the report escapes what it renders", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("the report says how much of itself is shown rather than asserted", () => {
+  it("counts backed steps, artifacts, and passes claimed without one", async () => {
+    const run = await openRun({ title: "census" });
+    await appendStep(run.id, { name: "backed", status: "pass" });
+    const ref = await writeMedia(run.id, { name: "shot.png", bytes: Buffer.from("x") });
+    await attachMedia(run.id, ref, null);
+    await appendStep(run.id, { name: "asserted", status: "pass" });
+    await appendStep(run.id, { name: "not run", status: "skipped" });
+    const record = (await readRun(run.id))!;
+    expect(evidenceCensus(record)).toEqual({ steps: 3, backed: 1, artifacts: 1, unbackedPasses: 1 });
+  });
+
+  it("does not let a log line count as evidence", async () => {
+    // A session can type a log without having run anything; an artifact had to
+    // be produced. This is the exact shape of the run that prompted the check:
+    // every step logged, nothing attached.
+    const run = await openRun({ title: "logs only" });
+    for (let i = 0; i < 10; i += 1) {
+      await appendStep(run.id, { name: `check ${i}`, status: "pass", logs: "exit 0" });
+    }
+    const record = (await readRun(run.id))!;
+    expect(evidenceCensus(record)).toMatchObject({ backed: 0, artifacts: 0, unbackedPasses: 10 });
+  });
+
+  it("states an evidence-free run on its face instead of rendering as clean proof", async () => {
+    const run = await openRun({ title: "nothing attached" });
+    await appendStep(run.id, { name: "a", status: "pass", logs: "looked fine" });
+    await appendStep(run.id, { name: "b", status: "pass" });
+    const html = renderReportHtml((await readRun(run.id))!);
+    expect(html).toContain("No artifacts.");
+    expect(html).toContain("including 2 marked pass");
+    expect(html).toContain("asserted in text");
+  });
+
+  it("reports the ratio plainly once anything is attached", async () => {
+    const run = await openRun({ title: "some" });
+    await appendStep(run.id, { name: "a", status: "pass" });
+    const ref = await writeMedia(run.id, { name: "a.png", bytes: Buffer.from("x") });
+    await attachMedia(run.id, ref, null);
+    await appendStep(run.id, { name: "b", status: "pass" });
+    const html = renderReportHtml((await readRun(run.id))!);
+    expect(html).toContain("evidence: 1/2 steps carry an artifact");
+    expect(html).toContain("1 pass asserted without one");
+    expect(html).not.toContain("No artifacts.");
+  });
+
+  it("says nothing at all on a run with no steps yet", async () => {
+    const run = await openRun({ title: "empty" });
+    expect(renderReportHtml(run)).not.toContain("No artifacts.");
+    expect(renderReportHtml(run)).not.toContain("evidence:");
   });
 });

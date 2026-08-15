@@ -195,6 +195,32 @@ export function summarize(steps: ReportStep[]): { summary: RunRecord["summary"];
   return { summary, terminal };
 }
 
+export interface EvidenceCensus {
+  steps: number;
+  backed: number; // steps carrying at least one artifact
+  artifacts: number; // media items across steps and the run
+  // The case worth naming: steps claiming pass with nothing attached to look at.
+  unbackedPasses: number;
+}
+
+// Pure: how much of this run is actually shown rather than asserted. A report
+// whose every step says "pass" with no artifact anywhere is a claim, not
+// evidence, and the page has to say so - the whole point of the origin banner
+// is that a reader can tell what backs what. Logs count for nothing here on
+// purpose: a session can type a log line without having run anything, whereas
+// an artifact had to be produced.
+export function evidenceCensus(record: Pick<RunRecord, "steps" | "media">): EvidenceCensus {
+  let backed = 0;
+  let artifacts = record.media.length;
+  let unbackedPasses = 0;
+  for (const step of record.steps) {
+    artifacts += step.media.length;
+    if (step.media.length > 0) backed += 1;
+    else if (step.status === "pass") unbackedPasses += 1;
+  }
+  return { steps: record.steps.length, backed, artifacts, unbackedPasses };
+}
+
 async function atomicWrite(file: string, body: string | Uint8Array): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.${randomBytes(3).toString("hex")}.tmp`;

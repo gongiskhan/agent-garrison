@@ -162,13 +162,22 @@ export async function finalizeRun(args = {}, env = process.env) {
     { status: args.status, conclusion: args.conclusion },
     env
   );
-  if (currentRunId === runId) currentRunId = null;
+  // Do NOT clear currentRunId when the run went out with no evidence: the
+  // warning tells the caller to attach what it still holds, and media can be
+  // attached after finalize. Dropping the default target would make the very
+  // next results_attach_media fail for want of a runId.
+  const thin = Array.isArray(result.warnings) && result.warnings.length > 0;
+  if (currentRunId === runId && !thin) currentRunId = null;
   return {
     runId,
     status: result.status,
     summary: result.summary,
+    evidence: result.evidence,
+    ...(thin ? { warnings: result.warnings } : {}),
     url: result.url,
-    note: "Print this url as the LAST line of your output so it is tappable from the phone."
+    note: thin
+      ? "Attach what you still hold with results_attach_media (it works after finalize), THEN print this url as the last line of your output."
+      : "Print this url as the LAST line of your output so it is tappable from the phone."
   };
 }
 
@@ -199,7 +208,7 @@ const TOOLS = [
   {
     name: "results_add_step",
     description:
-      "Append one step to the open run. Only name and status are required; description, logs and notes are optional and you choose what fits the evidence you actually have.",
+      "Append one step to the open run, AT THE MOMENT you finish that check - not in a batch at the end. Only name and status are required. Report as you go because the evidence is only in your hands then: the screenshot you just took and the output you just read are attachable now and gone later.",
     inputSchema: {
       type: "object",
       properties: {
@@ -218,7 +227,7 @@ const TOOLS = [
   {
     name: "results_attach_media",
     description:
-      "Attach a screenshot, image, video or file to a step (defaults to the newest step). Pass `path` for a file already on this machine. A video is capped by size and gets keyframes extracted so the report shows visual evidence before it is played.",
+      "Attach a screenshot, image, video or file to a step (defaults to the newest step). Pass `path` for a file already on this machine. Call this right after the step it backs: if you drove a browser, took a screenshot, ran Playwright (test-results/ holds its screenshots, traces and videos), or wrote output to a file, that artifact belongs on the step - a `pass` nobody can look at is an assertion, not evidence. A video gets keyframes extracted so the report shows something before it is played.",
     inputSchema: {
       type: "object",
       properties: {

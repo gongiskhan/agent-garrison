@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { finalizeRun, NotFound } from "@/lib/results-store";
+import { evidenceCensus, finalizeRun, NotFound } from "@/lib/results-store";
 import { resultLinks } from "@/lib/results-links";
 
 export const runtime = "nodejs";
@@ -21,7 +21,29 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       conclusion: (body.conclusion ?? body.summary) as string | undefined
     });
     const links = await resultLinks(request, record.id);
-    return NextResponse.json({ ok: true, runId: record.id, status: record.status, summary: record.summary, ...links });
+    // Tell the caller what it actually filed. A run of green steps with nothing
+    // attached is the failure mode this API invites: the session finishes the
+    // work, reports it from memory afterwards, and by then the screenshot it
+    // took is a path it no longer holds. Media may still be attached after
+    // finalize, so this warning is actionable rather than a post-mortem.
+    const census = evidenceCensus(record);
+    const warnings: string[] = [];
+    if (census.steps > 0 && census.artifacts === 0) {
+      warnings.push(
+        `No artifacts attached to any of the ${census.steps} steps. The report says so on its face. If you still hold a screenshot, log file or recording, POST it to /api/results/${record.id}/media (stepId optional) - that still works after finalize.`
+      );
+    } else if (census.unbackedPasses > 0) {
+      warnings.push(`${census.unbackedPasses} step(s) claim pass with no artifact attached.`);
+    }
+    return NextResponse.json({
+      ok: true,
+      runId: record.id,
+      status: record.status,
+      summary: record.summary,
+      evidence: census,
+      ...(warnings.length ? { warnings } : {}),
+      ...links
+    });
   } catch (error) {
     if (error instanceof NotFound) return NextResponse.json({ error: error.message }, { status: 404 });
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });

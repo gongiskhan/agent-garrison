@@ -1,4 +1,4 @@
-import type { MediaRef, ReportStep, RunRecord, RunListingRow } from "./results-store";
+import { evidenceCensus, type MediaRef, type ReportStep, type RunRecord, type RunListingRow } from "./results-store";
 
 // The report renderer. PURE - record in, HTML string out, no filesystem, no
 // clock - so the whole page is testable and so re-rendering on every append is
@@ -111,6 +111,9 @@ const SUMMARY_CSS = `
 .tally .cell.fail{border-color:var(--alarm);color:var(--alarm)}
 .tally .cell.pass{border-color:var(--sage);color:var(--sage)}
 .conclusion{border:1px solid var(--rule);border-left-width:5px;border-left-color:var(--brass);background:var(--paper-2);padding:12px 14px;margin:14px 0 0;overflow-wrap:anywhere}
+.census{font-family:var(--mono);font-size:12px;color:var(--mute);margin:10px 0 0}
+.census.thin{color:var(--warn-ink);background:var(--warn-soft);border:1px solid var(--warn);padding:8px 10px;display:block}
+.census.thin b{font-weight:600}
 `;
 
 const LIST_CSS = `
@@ -265,11 +268,26 @@ export function renderReportHtml(record: RunRecord): string {
     ? `<ul class="steps">${record.steps.map((s) => renderStep(record.id, s)).join("\n")}</ul>`
     : `<p class="empty">No steps reported yet.</p>`;
 
+  // How much of this is shown rather than asserted. Stated plainly next to the
+  // tally, because a wall of green with nothing attached is exactly the report
+  // that reads as proof and is not.
+  const census = evidenceCensus(record);
+  const censusBlock = !census.steps
+    ? ""
+    : census.artifacts === 0
+      ? `<p class="census thin"><b>No artifacts.</b> ${esc(census.steps)} step${census.steps === 1 ? "" : "s"} reported, nothing attached to look at${
+          census.unbackedPasses ? `, including ${esc(census.unbackedPasses)} marked pass` : ""
+        }. Everything here is asserted in text.</p>`
+      : `<p class="census">evidence: ${esc(census.backed)}/${esc(census.steps)} steps carry an artifact &middot; ${esc(
+          census.artifacts
+        )} total${census.unbackedPasses ? ` &middot; ${esc(census.unbackedPasses)} pass asserted without one` : ""}</p>`;
+
   const body = `${originBlock}
 <p class="kicker">Garrison results &middot; ${esc(record.status)}</p>
 <h1>${esc(record.title)}</h1>
 <div class="meta">${meta}</div>
 <div class="tally">${tally}</div>
+${censusBlock}
 ${record.conclusion ? `<div class="conclusion">${esc(record.conclusion)}</div>` : ""}
 <hr class="rule">
 <h2>Steps</h2>
