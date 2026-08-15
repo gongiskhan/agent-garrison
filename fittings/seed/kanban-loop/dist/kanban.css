@@ -2721,6 +2721,19 @@ button:active, .btn:active { transform: translateY(1px); }
   background: rgba(255, 255, 255, 0.04);
   border-radius: 1px;
 }
+/* Neutral topbar buttons (Export / Import) sit on the dark olive bar, so the base
+   ink-on-paper .btn (near-black border + near-black text) is nearly invisible.
+   `.topbar .btn` (0,2,0) beats the base `.btn` (0,1,0); `.topbar .btn.primary`
+   (0,2,1) still wins below, so New card keeps its brass fill. */
+.topbar .btn {
+  color: #f5efdf;
+  border-color: rgba(245, 239, 223, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+}
+.topbar .btn:hover:not(:disabled) {
+  border-color: #f5efdf;
+  background: rgba(255, 255, 255, 0.14);
+}
 .topbar .btn.primary {
   background: var(--brass-2);
   border-color: var(--brass-2);

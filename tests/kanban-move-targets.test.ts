@@ -68,6 +68,15 @@ describe("deriveMoveTargets — move offers every list except the current one", 
     expect(board.lists.filter(isManualImportTarget).map((list) => list.id)).toEqual(["backlog", "todo", "done"]);
   });
 
+  it("offers a user-created manual list (e.g. Ice Box) as an import destination", () => {
+    // A human-managed parking column carries no agent behaviour, so imports can
+    // target it — the whole point of making the Kanban "Add list" manual.
+    const iceBox = { id: "ice-box", title: "Ice Box", kind: "manual", userCreated: true };
+    expect(isManualImportTarget(iceBox)).toBe(true);
+    const withIceBox = { lists: [...board.lists, iceBox] };
+    expect(withIceBox.lists.filter(isManualImportTarget).map((l) => l.id)).toContain("ice-box");
+  });
+
   it("never offers the system Scheduled column as a raw move target", () => {
     expect(deriveMoveTargets(board as any, { list: "todo" }).map((target) => target.id)).not.toContain("scheduled");
     expect(isManualImportTarget(board.lists[0])).toBe(false);

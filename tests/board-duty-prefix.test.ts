@@ -93,3 +93,56 @@ describe("board v7 — duty: prefix + the retired code list", () => {
     expect(byId(out, "ux-qa")?.title).toBe("duty: UX QA");
   });
 });
+
+// v7→v8: the mis-created `ice-box` list — a human-managed parking column that the
+// old "Add list" flow turned into an agent DUTY — becomes what the user intended.
+describe("board v8 — ice-box converted to a human-managed manual list", () => {
+  const v7WithIceBox = () => ({
+    version: 7,
+    lists: [
+      { id: "scheduled", kind: "scheduled", title: "Scheduled", order: -1, validNext: [] },
+      { id: "todo", kind: "manual", title: "To Do", order: 1, validNext: ["implement"] },
+      { id: "implement", kind: "agent", phase: "implement", title: "duty: Implement", order: 2, validNext: ["review"] },
+      {
+        id: "ice-box",
+        kind: "agent",
+        phase: "ice-box",
+        title: "duty: Ice Box",
+        order: 3,
+        trigger: "immediate",
+        executePrompt: "run the ice-box phase",
+        routerPrompt: "end with the next list",
+        validNext: ["done"]
+      },
+      { id: "done", kind: "manual", title: "Done", order: 8, validNext: [] },
+      { id: "archived", kind: "manual", title: "Archived", order: 9, validNext: [] }
+    ]
+  });
+
+  it("turns ice-box into a manual, user-created, unprefixed list without touching its id", () => {
+    const out = migrateBoard(v7WithIceBox());
+    expect(out.version).toBe(BOARD_VERSION);
+    const ib = byId(out, "ice-box");
+    expect(ib?.id).toBe("ice-box"); // cards reference it
+    expect(ib?.title).toBe("Ice Box"); // no `duty:` prefix
+    expect(ib?.kind).toBe("manual");
+    expect(ib?.trigger).toBe("manual");
+    expect(ib?.userCreated).toBe(true);
+    expect(ib?.validNext).toEqual([]);
+    // Agent behaviour is stripped so it can never start a run on drop.
+    expect(ib?.phase).toBeUndefined();
+    expect(ib?.executePrompt).toBeUndefined();
+    expect(ib?.routerPrompt).toBeUndefined();
+  });
+
+  it("leaves the genuine duty lists agent-managed", () => {
+    const out = migrateBoard(v7WithIceBox());
+    expect(byId(out, "implement")?.kind).toBe("agent");
+    expect(byId(out, "implement")?.title).toBe("duty: Implement");
+  });
+
+  it("is idempotent", () => {
+    const once = migrateBoard(v7WithIceBox());
+    expect(migrateBoard(structuredClone(once))).toEqual(once);
+  });
+});

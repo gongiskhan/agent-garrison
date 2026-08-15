@@ -433,6 +433,32 @@ export function buildBoard(model, opts = {}) {
   return { version: 5, lists, projects: {} };
 }
 
+// A human-managed list the operator created from the Kanban "Add list" affordance
+// (NOT a composition duty). These are plain manual parking columns that carry no
+// agent behaviour and are NOT part of the resolved model, so the duty reconcile
+// must PRESERVE them rather than treat them as removed. Marked by `userCreated`.
+export function isUserList(list) {
+  return !!list && list.userCreated === true;
+}
+
+// Splice user-created manual lists into a board just before the fixed human tail
+// (done / needs-attention / archived), preserving their relative order. Each gets a
+// FRACTIONAL `order` in the gap so no existing list's order churns (idempotent
+// reconcile); `order` is only the fallback sort key — the operator-owned `userOrder`
+// (drag-reorder) still wins at serve time. Returns a NEW array; input untouched.
+export function insertUserLists(lists, extras) {
+  const base = Array.isArray(lists) ? lists : [];
+  if (!Array.isArray(extras) || extras.length === 0) return base.slice();
+  const tail = new Set(HUMAN_TAIL);
+  let at = base.findIndex((l) => tail.has(l.id));
+  if (at === -1) at = base.length;
+  const before = at === 0 ? 0 : Number(base[at - 1]?.order ?? at - 1);
+  const after = at < base.length ? Number(base[at]?.order ?? before + 1) : before + 1;
+  const step = (after - before) / (extras.length + 1);
+  const placed = extras.map((l, i) => ({ ...l, order: before + step * (i + 1) }));
+  return [...base.slice(0, at), ...placed, ...base.slice(at)];
+}
+
 // Reconcile an EXISTING board's phase-list SET to the current resolved model
 // (D15, S4a finding): rebuild the list STRUCTURE from the model — add lists for
 // newly-selected duties, drop lists for deselected ones — while preserving the
@@ -451,13 +477,24 @@ export function reconcileBoardLists(existingBoard, model, opts = {}) {
   const existingById = new Map(existingLists.map((list) => [list.id, list]));
   const oldIds = new Set(existingLists.map((l) => l.id));
   const newIds = new Set(rebuilt.lists.map((l) => l.id));
-  const removed = [...oldIds].filter((id) => !newIds.has(id));
+  // User-created manual lists are NOT in the model. Preserve every one the model
+  // does not also define, and keep it OUT of `removed` so its cards are never
+  // stranded when duties change.
+  const userLists = existingLists.filter((l) => isUserList(l) && !newIds.has(l.id));
+  const userListIds = new Set(userLists.map((l) => l.id));
+  const removed = [...oldIds].filter((id) => !newIds.has(id) && !userListIds.has(id));
   const added = [...newIds].filter((id) => !oldIds.has(id));
-  const lists = rebuilt.lists.map((list) =>
+  const reconciled = rebuilt.lists.map((list) =>
     reconcileList(existingById.get(list.id), list, opts.legacyDefaultPrompts)
   );
+  const lists = insertUserLists(reconciled, userLists);
   const updated = lists
-    .filter((list) => oldIds.has(list.id) && !isDeepStrictEqual(existingById.get(list.id), list))
+    .filter(
+      (list) =>
+        oldIds.has(list.id) &&
+        !userListIds.has(list.id) &&
+        !isDeepStrictEqual(existingById.get(list.id), list)
+    )
     .map((list) => list.id);
   const board = {
     ...rebuilt,

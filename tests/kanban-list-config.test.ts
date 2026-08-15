@@ -21,7 +21,7 @@ import { join } from "node:path";
 // Plain ESM .mjs with no .d.ts — import via a non-literal specifier so tsc
 // treats it as `any` (same convention as tests/kanban-board-ui.test.ts).
 const SERVER = "../fittings/seed/kanban-loop/scripts/server.mjs";
-const { applyListConfig, isValidListId } = await import(SERVER);
+const { applyListConfig, isValidListId, deriveUniqueListId } = await import(SERVER);
 const BOARD_LIB = "../fittings/seed/kanban-loop/lib/board.mjs";
 const { saveBoardCAS, loadBoard, atomicWriteJSON } = await import(BOARD_LIB);
 
@@ -49,6 +49,32 @@ function fakeBoard() {
     ]
   };
 }
+
+describe("deriveUniqueListId — human title → clean, unique board id", () => {
+  it("kebab-slugs a title and keeps a valid id", () => {
+    const id = deriveUniqueListId("Ice Box", fakeBoard());
+    expect(id).toBe("ice-box");
+    expect(isValidListId(id)).toBe(true);
+  });
+
+  it("uniquifies against ids already on the board (never clobbers a duty/head list)", () => {
+    const board = fakeBoard(); // has `plan`, `todo`, …
+    expect(deriveUniqueListId("Plan", board)).toBe("plan-2");
+    expect(deriveUniqueListId("Implement", board)).toBe("implement-2");
+  });
+
+  it("strips punctuation and collapses separators, never emitting a leading dash", () => {
+    const id = deriveUniqueListId("  ***Cold / Later!!!  ", fakeBoard());
+    expect(id).toBe("cold-later");
+    expect(isValidListId(id)).toBe(true);
+  });
+
+  it("falls back to a valid id when the title has no alphanumerics", () => {
+    const id = deriveUniqueListId("!!!", fakeBoard());
+    expect(isValidListId(id)).toBe(true); // e.g. "list"
+    expect(id).toBe("list");
+  });
+});
 
 describe("applyListConfig — happy path (agent list)", () => {
   it("edits an agent list's prompts, validNext and trigger and returns the mutated board", () => {

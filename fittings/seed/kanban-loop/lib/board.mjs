@@ -44,7 +44,7 @@ async function readJSON(file) {
 
 // The current on-disk board schema version. Bumped whenever a migration below
 // must run once on load for EVERY existing board (not just model-driven ones).
-export const BOARD_VERSION = 7;
+export const BOARD_VERSION = 9;
 
 // A duty-backed list's display title. The board is the thing Gonçalo looks at all
 // day, so a list that runs a duty must SAY it runs a duty (brief §2.4) — otherwise
@@ -197,6 +197,34 @@ export function migrateBoard(board) {
           ? list.validNext.map((n) => (n === "code" && hasImplement ? "implement" : n))
           : list.validNext
       }));
+  }
+  if ((board.version || 0) < 9) {
+    // v7→v9 (2026-08-15): the Kanban "Add list" affordance used to create a
+    // composition DUTY — an agent list carrying the `duty:` prefix that starts a
+    // run when a card lands on it. It now creates a human-managed manual list.
+    // The one list created under the old flow on the live boards is `ice-box`,
+    // explicitly described "human managed"; convert it to what the user intended:
+    // a manual, human-managed parking column, no `duty:` prefix, no agent
+    // behaviour. Its ID is NOT touched — cards reference it. Marking it
+    // `userCreated` makes the duty reconcile PRESERVE it (resolved-model.mjs) once
+    // the composition drops the ice-box duty, instead of stranding its cards.
+    //   (Numbered 9, not 8: a live process re-read this module mid-edit — after
+    //   BOARD_VERSION became 8 but before this block existed — and stamped the prod
+    //   board v8 with nothing applied, exactly the v6→v7 window above. Gating on <9
+    //   heals it; the conversion is idempotent, and a board with no ice-box list is
+    //   untouched.)
+    lists = lists.map((list) => {
+      if (list.id !== "ice-box") return list;
+      const { phase, executePrompt, routerPrompt, beatCron, interactive, surface, ...rest } = list;
+      return {
+        ...rest,
+        title: "Ice Box",
+        kind: "manual",
+        trigger: "manual",
+        userCreated: true,
+        validNext: []
+      };
+    });
   }
   return { ...board, version: BOARD_VERSION, lists };
 }

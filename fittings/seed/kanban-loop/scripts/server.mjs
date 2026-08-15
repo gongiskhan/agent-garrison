@@ -87,7 +87,9 @@ import {
   loadResolvedModel,
   hasExecutionModel,
   resolveCardSequence,
-  executionRouteFor
+  executionRouteFor,
+  isUserList,
+  insertUserLists
 } from "../lib/resolved-model.mjs";
 import { batchGatewayRunFn, reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
@@ -1039,6 +1041,27 @@ export function isValidCardId(id) {
 // before it reaches applyListConfig.
 export function isValidListId(s) {
   return typeof s === "string" && /^[a-z0-9][a-z0-9-]*$/i.test(s) && s.length <= 64;
+}
+
+// Derive a clean, UNIQUE kebab list id from a human list title, avoiding every id
+// already on the board (including the fixed head/tail and duty lists) so a
+// user-created manual list can never clobber a modeled column. Returns null only
+// if a unique id could not be formed (never in practice).
+export function deriveUniqueListId(title, board) {
+  const slug = String(title || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  const base = slug && /^[a-z0-9]/.test(slug) ? slug : `list-${slug}`.replace(/-+$/g, "") || "list";
+  const existing = new Set((board?.lists || []).map((l) => l.id));
+  if (isValidListId(base) && !existing.has(base)) return base;
+  for (let i = 2; i < 1000; i++) {
+    const cand = `${base.slice(0, 58)}-${i}`;
+    if (isValidListId(cand) && !existing.has(cand)) return cand;
+  }
+  return null;
 }
 
 // A cron field for a scheduler-beat list (the schedule the beat fires on) or null.
@@ -4724,6 +4747,9 @@ async function handleGetLists(req, res, opts) {
       interactive: Boolean(isInteractive(l)),
       terminal: Boolean(l.terminal),
       system: Boolean(l.system),
+      // A human-managed list the operator added from "Add list" (not a duty). The
+      // config UI uses this to offer a plain "Remove list" (no duty language).
+      userCreated: Boolean(l.userCreated),
       // D15: a list maps to a phase name and nothing else; skill/taskType/
       // tier/mode resolve from the compiled Orchestrator policy.
       phase: l.phase ?? (l.kind === "agent" ? l.id : null),
@@ -5447,42 +5473,45 @@ export function makeRequestHandler(opts, distDir) {
         return await handlePatchList(req, res, opts, listId);
       }
 
-      // POST /lists { title, id?, description?, target?, effort? } - create a
-      // new column = create a composition-local DUTY. The board never writes
-      // apm.yml itself: it proxies to the shell (the single composition
-      // writer), which appends the duty + selection, reprojects model.json,
-      // and calls back POST /reconcile so the column appears live.
-      // DELETE /lists/:id - the inverse (deselect + delete the duty definition);
-      // the shell's reconcile callback parks any cards stranded on the list.
+      // POST /lists { title } - create a new column = a HUMAN-MANAGED manual list
+      // (a plain parking column, no agent behaviour, no run-on-drop). It is NOT a
+      // composition duty: agent-managed lists are added by selecting a DUTY in
+      // Muster, which projects its list through the resolved model. A user list is
+      // marked `userCreated` so the duty reconcile preserves it, and is spliced in
+      // just before the fixed human tail. Persisted straight to the board.
       if (pathname === "/lists" && method === "POST") {
         if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list create rejected" });
-        const appUrl = (process.env.GARRISON_APP_URL || "").trim();
-        if (!appUrl) return jsonRes(res, 503, { error: "no GARRISON_APP_URL in this fitting's env - re-up the composition so the runner projects it" });
         const body = (await readBody(req)) || {};
-        try {
-          const r = await fetch(`${appUrl}/api/muster/duty`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              action: "create",
-              dutyId: body.id,
-              title: body.title,
-              description: body.description,
-              target: body.target,
-              effort: body.effort
-            }),
-            signal: AbortSignal.timeout(20000)
-          });
-          const doc = await r.json().catch(() => ({}));
-          return jsonRes(res, r.status, doc);
-        } catch (e) {
-          return jsonRes(res, 502, { error: `shell unreachable for duty create: ${e?.message || e}` });
-        }
+        const title = typeof body.title === "string" ? body.title.trim() : "";
+        if (!title) return jsonRes(res, 400, { error: "give the list a name" });
+        if (title.length > 80) return jsonRes(res, 400, { error: "list name is too long (max 80 characters)" });
+        const board = await loadBoard(opts.root).catch(() => null);
+        if (!board) return jsonRes(res, 409, { error: "no board on disk" });
+        const id = deriveUniqueListId(title, board);
+        if (!id) return jsonRes(res, 400, { error: "could not derive a valid id from that name" });
+        const newList = { id, title, kind: "manual", trigger: "manual", userCreated: true, validNext: [] };
+        const next = { ...board, lists: insertUserLists(board.lists, [newList]) };
+        await atomicWriteJSON(path.join(opts.root, "board.json"), next);
+        return jsonRes(res, 200, { ok: true, list: newList });
       }
       if (listMatch && method === "DELETE") {
         if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list delete rejected" });
         const listId = decodeURIComponent(listMatch[1]);
         if (!isValidListId(listId)) return jsonRes(res, 400, { error: "invalid list id" });
+        const board = await loadBoard(opts.root).catch(() => null);
+        if (!board) return jsonRes(res, 409, { error: "no board on disk" });
+        const target = getList(board, listId);
+        if (!target) return jsonRes(res, 404, { error: `no such list: ${listId}` });
+        // A human-managed (user-created) list is owned by the board: drop it and
+        // park any cards left on it (never lost). A duty-backed list is owned by
+        // the composition, so its removal is proxied to the shell (the single
+        // composition writer), which deselects the duty and reconciles the board.
+        if (isUserList(target)) {
+          const next = { ...board, lists: (board.lists || []).filter((l) => l.id !== listId) };
+          await atomicWriteJSON(path.join(opts.root, "board.json"), next);
+          const moved = await relocateStrandedCards(opts.root, next, [listId]);
+          return jsonRes(res, 200, { ok: true, removed: [listId], movedToAttention: moved });
+        }
         const appUrl = (process.env.GARRISON_APP_URL || "").trim();
         if (!appUrl) return jsonRes(res, 503, { error: "no GARRISON_APP_URL in this fitting's env - re-up the composition so the runner projects it" });
         try {

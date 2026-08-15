@@ -387,6 +387,9 @@ export interface ListConfig {
   interactive: boolean;
   terminal: boolean;
   system?: boolean;
+  // A human-managed list the operator added via "Add list" (not a duty). Removable
+  // directly from the board with no composition change.
+  userCreated?: boolean;
   // D15: skill/taskType/tier/mode are GONE — a list maps to a phase name and
   // nothing else; resolution lives in the compiled Orchestrator policy.
   phase?: string | null;
@@ -638,15 +641,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ order, ...(Number.isInteger(rev) ? { rev } : {}) })
     }),
-  // Create a new column = create a composition-local duty (proxied to the
-  // shell, which writes apm.yml, reprojects, and reconciles the board live).
-  createList: (body: { title: string; id?: string; description?: string; target?: string; effort?: string }) =>
-    jfetch<{ ok: boolean; dutyId?: string; reconciled?: boolean; error?: string }>("/lists", {
+  // Create a new column = a human-managed manual list, persisted straight to the
+  // board (agent-managed lists come from selecting a duty in Muster).
+  createList: (body: { title: string }) =>
+    jfetch<{ ok: boolean; list?: { id: string; title: string }; error?: string }>("/lists", {
       method: "POST",
       body: JSON.stringify(body)
     }),
-  // Remove a column = deselect (and, when composition-local and unreferenced,
-  // delete) its duty. Cards on the list are parked to Needs attention.
+  // Remove a column. A user-created manual list is dropped from the board; a
+  // duty-backed list deselects its duty via the shell. Cards on it are parked.
   deleteList: (id: string) =>
     jfetch<{ ok: boolean; dutyId?: string; reconciled?: boolean; reconcile?: { movedToAttention?: string[] } }>(
       `/lists/${encodeURIComponent(id)}`,

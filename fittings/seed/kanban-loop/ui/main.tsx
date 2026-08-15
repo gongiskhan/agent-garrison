@@ -4107,11 +4107,12 @@ function ListConfigSheet({
         <a className="btn small" href={api.exportListUrl(cfg.id)} download>Export list (JSON)</a>
       </div>
 
-      {/* Remove list - only the derived duty columns; the fixed human head/tail
-          (backlog, todo, discuss, done, needs-attention) is structural. Removing
-          the list removes its DUTY from the composition; cards sitting here are
-          parked to Needs attention by the reconcile. */}
-      {cfg.kind === "agent" && !cfg.interactive && !["backlog", "todo", "discuss", "done", "needs-attention"].includes(cfg.id) && (
+      {/* Remove list - a user-created human-managed list (dropped straight from the
+          board) OR a derived duty column (deselects its DUTY from the composition).
+          The fixed human head/tail (backlog, todo, discuss, done, needs-attention)
+          is structural and never removable. Either way, cards sitting here are
+          parked to Needs attention. */}
+      {(cfg.userCreated || (cfg.kind === "agent" && !cfg.interactive)) && !["backlog", "todo", "discuss", "done", "needs-attention"].includes(cfg.id) && (
         <div className="danger-zone" style={{ marginTop: 16 }}>
           <div className="dd-title">Remove list</div>
           {!confirmRemove ? (
@@ -4121,10 +4122,15 @@ function ListConfigSheet({
           ) : (
             <div>
               <p className="muted" style={{ fontSize: 12 }}>
-                This removes the <strong>{cfg.id}</strong> duty from the composition as
-                well - the operative will no longer route work through this phase. Cards
-                currently on this list will be moved to Needs attention. Cards whose
-                journey includes it will re-route past it.
+                {cfg.userCreated ? (
+                  <>This removes the <strong>{cfg.title}</strong> list from the board. Cards
+                  currently on it will be moved to Needs attention.</>
+                ) : (
+                  <>This removes the <strong>{cfg.id}</strong> duty from the composition as
+                  well - the operative will no longer route work through this phase. Cards
+                  currently on this list will be moved to Needs attention. Cards whose
+                  journey includes it will re-route past it.</>
+                )}
               </p>
               <div className="row" style={{ gap: 8 }}>
                 <button
@@ -4138,7 +4144,7 @@ function ListConfigSheet({
                       .catch((e) => { setErr(e instanceof Error ? e.message : String(e)); setRemoving(false); });
                   }}
                 >
-                  {removing ? "Removing…" : "Yes, remove list + duty"}
+                  {removing ? "Removing…" : cfg.userCreated ? "Yes, remove list" : "Yes, remove list + duty"}
                 </button>
                 <button className="btn small" disabled={removing} onClick={() => setConfirmRemove(false)}>Cancel</button>
               </div>
@@ -4194,12 +4200,12 @@ function initialOverlayFromLocation(): Overlay {
 }
 
 // ── add-list sheet ──────────────────────────────────────────────────────────
-// A new column IS a new composition-local duty: the sheet says so plainly and
-// the shell (via the board's /lists proxy) owns the apm.yml write + live
-// reconcile. Target/effort are optional - the shell picks sane defaults.
+// A new column is a HUMAN-MANAGED manual list: a plain parking column with no
+// agent behaviour and no run-on-drop. It is NOT a composition duty — agent-managed
+// lists are added by selecting a DUTY in Muster, which projects its list onto the
+// board. The board owns the manual list directly (no apm.yml write).
 function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function submit() {
@@ -4207,7 +4213,7 @@ function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setBusy(true);
     setErr(null);
     try {
-      const res = await api.createList({ title: title.trim(), description: description.trim() || undefined });
+      const res = await api.createList({ title: title.trim() });
       onCreated();
       onClose();
       void res;
@@ -4220,17 +4226,12 @@ function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     <Sheet title="Add list" onClose={onClose}>
       <div className="field">
         <label htmlFor="al-name">Name</label>
-        <input id="al-name" autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Research" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
-      </div>
-      <div className="field">
-        <label htmlFor="al-desc">When should the operative pick this list? <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
-        <textarea id="al-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="describes the new duty so Orchestrator routing inference can route work to it" />
+        <input id="al-name" autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ideas" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
       </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
-        Creating a list creates a matching duty in the composition (a new agent
-        phase with sensible defaults). Tune its prompts, model and schedule
-        afterwards from the list's gear menu. Removing the list later removes
-        the duty too.
+        This creates a human-managed list - a place to park cards by hand. It does
+        not run anything. To add an agent-managed list, add a duty in Muster and its
+        column appears here automatically.
       </div>
       {err && <div className="banner">{err}</div>}
       <button className="btn primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
