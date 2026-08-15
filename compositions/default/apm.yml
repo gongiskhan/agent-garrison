@@ -283,343 +283,346 @@ x-garrison:
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
     duties:
-    - id: implement
-      title: Implement
-      description: 'Write or change code: features, fixes, refactors, carried end to end.'
-      levels:
-      - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
-        cell:
-          target: opus
-          effort: medium
-      - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
-        cell:
-          target: opus
-          effort: high
-      - description: 'deep: architecture, cross-cutting refactors, tricky bugs with unclear cause, security-sensitive
-          or multi-subsystem work'
-        cell:
-          target: opus
-          effort: xhigh
-      context_hold: true
-    - id: test
-      title: Test
-      description: Write and run the checks that prove a change works.
-      levels:
-      - description: 'trivial: assert one obvious thing'
-        cell:
-          target: cc-sonnet
-          effort: low
-      - description: 'standard: cover the change and its edges'
-        cell:
-          target: opus
-          effort: medium
-      - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
-        cell:
-          target: cc-opus
-          effort: high
-    - id: review
-      title: Review
-      description: Read a change against what it claimed to do.
-      levels:
-      - description: 'trivial: a skim for obvious mistakes'
-        cell:
-          target: cc-opus
-          effort: low
-      - description: 'standard: read the diff against its acceptance'
-        cell:
-          target: cc-opus
-          effort: medium
-      - description: 'deep: argue with it - assume it is wrong and try to show how'
-        cell:
-          target: sol
-          effort: high
-    - id: research
-      title: Research
-      description: 'Find things out: look up, survey, investigate.'
-      levels:
-      - description: 'lookup: a fact check or a single-source answer'
-        cell:
-          target: cc-opus
-          effort: low
-      - description: 'focused: survey a topic or compare a few options, with sources'
-        cell:
-          target: cc-opus
-          effort: medium
-      - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
-        cell:
-          target: cc-opus
-          effort: high
-    - id: discuss
-      title: Discuss
-      description: Talk a problem through and write a brief when the thinking settles.
-      levels:
-      - description: 'level 1: talk a focused question or tradeoff through in prose'
-        cell:
-          target: fable
-          effort: low
-      - description: 'level 2: research it mid-conversation and write the brief when it settles'
-        cell:
-          target: fable
-          effort: medium
-      - description: 'level 3: argue both sides properly before converging, then write it up'
-        cell:
-          target: fable
-          effort: high
-    - id: plan
-      title: Plan
-      description: Decide what to build and in what order before building it.
-      levels:
-      - description: 'sketch: the shape of the change in a few lines'
-        cell:
-          target: opus
-          effort: high
-      - description: 'standard: a slice plan with acceptance per slice'
-        cell:
-          target: opus
-          effort: xhigh
-      - description: 'deep: design alternatives weighed, risks named, sequencing argued'
-        cell:
-          target: cc-opus
-          effort: max
-    - id: image
-      title: Image
-      description: Produce or edit an image.
-      levels:
-      - description: 'quick: one image to a clear description'
-        cell:
-          target: opus
-          effort: medium
-      - description: 'standard: iterate on composition and detail'
-        cell:
-          target: opus
-          effort: high
-      - description: 'deep: art-direct it against where it will actually appear'
-        cell:
-          target: opus
-          effort: xhigh
-    - id: video
-      title: Video
-      description: Produce or edit a video.
-      levels:
-      - description: 'quick: assemble what is already shot'
-        cell:
-          target: opus
-          effort: medium
-      - description: 'standard: script, assemble and check it plays'
-        cell:
-          target: opus
-          effort: high
-      - description: 'deep: direct it for the audience it is for'
-        cell:
-          target: opus
-          effort: xhigh
-    - id: ux-qa
-      title: UX QA
-      description: Walk the running UI and judge whether it is actually good.
-      levels:
-      - description: 'quick: the obvious breakages on one surface'
-        cell:
-          target: opus
-          effort: medium
-      - description: 'standard: the six-section checklist on desktop and mobile'
-        cell:
-          target: opus
-          effort: high
-      - description: 'deep: contrast, tap targets and states measured, not eyeballed'
-        cell:
-          target: opus
-          effort: xhigh
-    - id: writing
-      title: Writing
-      description: 'Prose: docs, site copy, a written answer.'
-      levels:
-      - description: 'quick: a short passage or a correction'
-        cell:
-          target: opus
-          effort: medium
-      - description: 'standard: a full piece with structure'
-        cell:
-          target: opus
-          effort: high
-      - description: 'deep: researched, sourced and argued'
-        cell:
-          target: opus
-          effort: xhigh
-    - id: ops
-      title: Ops
-      description: Deploys, infrastructure, provisioning.
-      levels:
-      - description: 'routine: a known operation with a known outcome'
-        cell:
-          target: cc-opus
-          effort: low
-      - description: 'standard: plan it, run it, verify it'
-        cell:
-          target: cc-opus
-          effort: medium
-      - description: 'deep: blast radius established first, rollback rehearsed'
-        cell:
-          target: cc-opus
-          effort: high
-    - id: drill
-      title: Drill
-      description: Drive the whole app looking for defects.
-      levels:
-      - description: 'targeted: one area or one reported finding'
-        cell:
-          target: cc-opus
-          effort: xhigh
-      - description: 'standard: a full sweep of the app'
-        cell:
-          target: cc-opus
-          effort: max
-      - description: 'deep: a sweep plus the judgement of what the findings mean'
-        cell:
-          target: opus
-          effort: max
-    - id: adversarial-review
-      title: Adversarial Review
-      description: A decorrelated second read whose job is to find what the first one missed.
-      levels:
-      - description: 'quick: the diff against its stated invariants'
-        cell:
-          target: sol
-          effort: medium
-      - description: 'standard: hunt for violations, cite each one'
-        cell:
-          target: sol
-          effort: xhigh
-      - description: 'deep: assume it is broken and prove it'
-        cell:
-          target: sol
-          effort: max
-    - id: adversarial-test
-      title: Adversarial Test
-      description: An independent functional pass that has not seen the diff.
-      levels:
-      - description: 'quick: drive the happy path independently'
-        cell:
-          target: sol
-          effort: medium
-      - description: 'standard: drive the acceptance criteria and try to break them'
-        cell:
-          target: sol
-          effort: high
-      - description: 'deep: probe the failure modes the implementer would not think of'
-        cell:
-          target: sol
-          effort: xhigh
-    - id: security-review
-      title: Security Review
-      description: 'The security-boundary rubric: authorization, injection, secrets, tenancy, input validation.'
-      levels:
-      - description: 'quick: the boundary checklist on the diff'
-        cell:
-          target: sol
-          effort: high
-      - description: 'standard: the checklist plus the surfaces the change touches'
-        cell:
-          target: sol
-          effort: xhigh
-      - description: 'deep: adversarial, whole-surface, assume a motivated attacker'
-        cell:
-          target: sol
-          effort: max
-    - id: walkthrough
-      title: Walkthrough
-      description: Record self-verified evidence that the change works.
-      levels:
-      - description: 'quick: capture the flow end to end'
-        cell:
-          target: cc-opus
-          effort: low
-      - description: 'standard: a narrated walkthrough of the acceptance path'
-        cell:
-          target: cc-opus
-          effort: high
-    - id: validate
-      title: Validate
-      description: Check the definition of done from the durable gate markers.
-      levels:
-      - description: 'standard: read the gate records and decide done or not'
-        cell:
-          target: cc-sonnet
-          effort: low
-      - description: 'strict: re-run what the markers claim rather than trusting them'
-        cell:
-          target: cc-opus
-          effort: low
-    - id: codex-checkpoint
-      title: Codex Checkpoint
-      description: A cross-model pass over the security-critical surfaces.
-      levels:
-      - description: 'standard: the named invariants, narrowly scoped'
-        cell:
-          target: sol
-          effort: high
-    - id: report
-      title: Report
-      description: Say what happened, to whoever needs to know.
-      levels:
-      - description: 'quick: a one-line outcome'
-        cell:
-          target: cc-sonnet
-          effort: low
-      - description: 'standard: what changed, what was proven, what is still open'
-        cell:
-          target: cc-opus
-          effort: low
-    - id: other
-      title: Other
-      description: Anything that fits no other duty.
-      levels:
-      - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
-        cell:
-          target: cc-haiku
-          effort: low
-      - description: 'involved: unclassified work that still needs real thought or multiple steps'
-        cell:
-          target: cc-opus
-          effort: low
-    - id: probe-question
-      title: Probe Question
-      description: The improver asking one question worth asking.
-      levels:
-      - description: 'standard: one short, high-information question'
-        cell:
-          target: cc-sonnet
-          effort: low
-    - id: dispatch
-      title: Dispatch
-      description: Decide which flow, duty and level an ambiguous request needs.
-      levels:
-      - description: 'standard: a bounded, tool-free, one-turn classification'
-        cell:
-          target: dispatch-fast
-          effort: low
+      - id: implement
+        title: Implement
+        description: 'Write or change code: features, fixes, refactors, carried end to end.'
+        levels:
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
+            cell:
+              target: opus
+              effort: high
+          - description: >-
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
+              security-sensitive or multi-subsystem work
+            cell:
+              target: opus
+              effort: xhigh
+        context_hold: true
+      - id: test
+        title: Test
+        description: Write and run the checks that prove a change works.
+        levels:
+          - description: 'trivial: assert one obvious thing'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'standard: cover the change and its edges'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: review
+        title: Review
+        description: Read a change against what it claimed to do.
+        levels:
+          - description: 'trivial: a skim for obvious mistakes'
+            cell:
+              target: cc-opus
+              effort: low
+          - description: 'standard: read the diff against its acceptance'
+            cell:
+              target: cc-opus
+              effort: medium
+          - description: 'deep: argue with it - assume it is wrong and try to show how'
+            cell:
+              target: sol
+              effort: high
+      - id: research
+        title: Research
+        description: 'Find things out: look up, survey, investigate.'
+        levels:
+          - description: 'lookup: a fact check or a single-source answer'
+            cell:
+              target: cc-opus
+              effort: low
+          - description: 'focused: survey a topic or compare a few options, with sources'
+            cell:
+              target: cc-opus
+              effort: medium
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: discuss
+        title: Discuss
+        description: Talk a problem through and write a brief when the thinking settles.
+        levels:
+          - description: 'level 1: talk a focused question or tradeoff through in prose'
+            cell:
+              target: fable
+              effort: low
+          - description: 'level 2: research it mid-conversation and write the brief when it settles'
+            cell:
+              target: fable
+              effort: medium
+          - description: 'level 3: argue both sides properly before converging, then write it up'
+            cell:
+              target: fable
+              effort: high
+      - id: plan
+        title: Plan
+        description: Decide what to build and in what order before building it.
+        levels:
+          - description: 'sketch: the shape of the change in a few lines'
+            cell:
+              target: opus
+              effort: high
+          - description: 'standard: a slice plan with acceptance per slice'
+            cell:
+              target: opus
+              effort: xhigh
+          - description: 'deep: design alternatives weighed, risks named, sequencing argued'
+            cell:
+              target: cc-opus
+              effort: max
+      - id: image
+        title: Image
+        description: Produce or edit an image.
+        levels:
+          - description: 'quick: one image to a clear description'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: iterate on composition and detail'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: art-direct it against where it will actually appear'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: video
+        title: Video
+        description: Produce or edit a video.
+        levels:
+          - description: 'quick: assemble what is already shot'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: script, assemble and check it plays'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: direct it for the audience it is for'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: ux-qa
+        title: UX QA
+        description: Walk the running UI and judge whether it is actually good.
+        levels:
+          - description: 'quick: the obvious breakages on one surface'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: the six-section checklist on desktop and mobile'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: contrast, tap targets and states measured, not eyeballed'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: writing
+        title: Writing
+        description: 'Prose: docs, site copy, a written answer.'
+        levels:
+          - description: 'quick: a short passage or a correction'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: a full piece with structure'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: researched, sourced and argued'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: ops
+        title: Ops
+        description: Deploys, infrastructure, provisioning.
+        levels:
+          - description: 'routine: a known operation with a known outcome'
+            cell:
+              target: cc-opus
+              effort: low
+          - description: 'standard: plan it, run it, verify it'
+            cell:
+              target: cc-opus
+              effort: medium
+          - description: 'deep: blast radius established first, rollback rehearsed'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: drill
+        title: Drill
+        description: Drive the whole app looking for defects.
+        levels:
+          - description: 'targeted: one area or one reported finding'
+            cell:
+              target: cc-opus
+              effort: xhigh
+          - description: 'standard: a full sweep of the app'
+            cell:
+              target: cc-opus
+              effort: max
+          - description: 'deep: a sweep plus the judgement of what the findings mean'
+            cell:
+              target: opus
+              effort: max
+      - id: adversarial-review
+        title: Adversarial Review
+        description: A decorrelated second read whose job is to find what the first one missed.
+        levels:
+          - description: 'quick: the diff against its stated invariants'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: hunt for violations, cite each one'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'deep: assume it is broken and prove it'
+            cell:
+              target: sol
+              effort: max
+      - id: adversarial-test
+        title: Adversarial Test
+        description: An independent functional pass that has not seen the diff.
+        levels:
+          - description: 'quick: drive the happy path independently'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: drive the acceptance criteria and try to break them'
+            cell:
+              target: sol
+              effort: high
+          - description: 'deep: probe the failure modes the implementer would not think of'
+            cell:
+              target: sol
+              effort: xhigh
+      - id: security-review
+        title: Security Review
+        description: >-
+          The security-boundary rubric: authorization, injection, secrets, tenancy, input
+          validation.
+        levels:
+          - description: 'quick: the boundary checklist on the diff'
+            cell:
+              target: sol
+              effort: high
+          - description: 'standard: the checklist plus the surfaces the change touches'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'deep: adversarial, whole-surface, assume a motivated attacker'
+            cell:
+              target: sol
+              effort: max
+      - id: walkthrough
+        title: Walkthrough
+        description: Record self-verified evidence that the change works.
+        levels:
+          - description: 'quick: capture the flow end to end'
+            cell:
+              target: cc-opus
+              effort: low
+          - description: 'standard: a narrated walkthrough of the acceptance path'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: validate
+        title: Validate
+        description: Check the definition of done from the durable gate markers.
+        levels:
+          - description: 'standard: read the gate records and decide done or not'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'strict: re-run what the markers claim rather than trusting them'
+            cell:
+              target: cc-opus
+              effort: low
+      - id: codex-checkpoint
+        title: Codex Checkpoint
+        description: A cross-model pass over the security-critical surfaces.
+        levels:
+          - description: 'standard: the named invariants, narrowly scoped'
+            cell:
+              target: sol
+              effort: high
+      - id: report
+        title: Report
+        description: Say what happened, to whoever needs to know.
+        levels:
+          - description: 'quick: a one-line outcome'
+            cell:
+              target: cc-sonnet
+              effort: low
+          - description: 'standard: what changed, what was proven, what is still open'
+            cell:
+              target: cc-opus
+              effort: low
+      - id: other
+        title: Other
+        description: Anything that fits no other duty.
+        levels:
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+            cell:
+              target: cc-haiku
+              effort: low
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+            cell:
+              target: cc-opus
+              effort: low
+      - id: probe-question
+        title: Probe Question
+        description: The improver asking one question worth asking.
+        levels:
+          - description: 'standard: one short, high-information question'
+            cell:
+              target: cc-sonnet
+              effort: low
+      - id: dispatch
+        title: Dispatch
+        description: Decide which flow, duty and level an ambiguous request needs.
+        levels:
+          - description: 'standard: a bounded, tool-free, one-turn classification'
+            cell:
+              target: dispatch-fast
+              effort: low
     selected_duties:
-    - implement
-    - test
-    - review
-    - research
-    - discuss
-    - plan
-    - image
-    - video
-    - ux-qa
-    - writing
-    - ops
-    - drill
-    - adversarial-review
-    - adversarial-test
-    - security-review
-    - walkthrough
-    - validate
-    - codex-checkpoint
-    - report
-    - other
-    - probe-question
-    - dispatch
+      - implement
+      - test
+      - review
+      - research
+      - discuss
+      - plan
+      - image
+      - video
+      - ux-qa
+      - writing
+      - ops
+      - drill
+      - adversarial-review
+      - adversarial-test
+      - security-review
+      - walkthrough
+      - validate
+      - codex-checkpoint
+      - report
+      - other
+      - probe-question
+      - dispatch
     targets:
       - id: dispatch-fast
         runtime: agent-sdk
