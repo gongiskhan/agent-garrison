@@ -336,6 +336,15 @@ describe("the /notify sink", () => {
 
     expect((await post({ title: "x" })).status).toBe(400); // text required
 
+    // A relayed wake_confirmation must survive an exhausted ROUTINE budget:
+    // the 2026-08-15 silence was exactly this path being capped by chatter.
+    (handle.cfg as any).notifyMaxPerDay = 0;
+    const relayedAnswer = await (await post({ title: "Zeca", text: "Criei a tarefa.", tag: "wake_confirmation" })).json();
+    expect(relayedAnswer[0]).toMatchObject({ means: "companion-push", ok: true });
+    const relayedChatter = await (await post({ title: "Garrison", text: "Rotina.", tag: "relay" })).json();
+    expect(relayedChatter[0]).toMatchObject({ ok: false, skipped: "daily routine cap 0 reached" });
+    (handle.cfg as any).notifyMaxPerDay = 50;
+
     // Toggle honoured live: flip off, receipts say so, nothing sends.
     (handle.cfg as any).notifyEnabled = false;
     const off = await (await post({ title: "T", text: "y" })).json();

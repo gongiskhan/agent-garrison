@@ -27,7 +27,7 @@ import { WakeBus } from "../lib/wake.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
-import { CompanionNotifier, isLoopbackUrl } from "../lib/notify.mjs";
+import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
@@ -415,11 +415,16 @@ export function makeRequestHandler(ctx) {
           counters.bump("notify_loopback_link_stripped");
           link = null;
         }
+        const tag = typeof parsed.tag === "string" ? parsed.tag : "relay";
         const receipts = await ctx.notifier.deliver({
           title: String(parsed.title ?? "Garrison").slice(0, 120),
           body: link && !text.includes(link) ? `${text}\n${link}` : text,
           link,
-          tag: typeof parsed.tag === "string" ? parsed.tag : "relay"
+          tag,
+          // A relayed confirmation/ask answers something the user did, so it
+          // draws on the interactive budget too — otherwise the fan-out's
+          // routine chatter silences it exactly as it did on 2026-08-15.
+          priority: priorityForTag(tag)
         });
         if (receipts.some((r) => r.ok)) ctx.notifier.markDelivered(idempotencyKey);
         return json(res, 200, receipts);

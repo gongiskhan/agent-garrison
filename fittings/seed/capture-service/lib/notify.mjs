@@ -63,6 +63,12 @@ const TEMPLATE_TITLES = {
 // starved by the operative's routine fan-out.
 const INTERACTIVE_TEMPLATES = new Set(["wake_confirmation", "card_created", "ask"]);
 
+// The /notify relay sink carries the same names as tags, so one rule serves
+// both paths.
+export function priorityForTag(tag) {
+  return INTERACTIVE_TEMPLATES.has(tag) ? "interactive" : "routine";
+}
+
 function statusFileUrl(fittingId, env = process.env) {
   try {
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
