@@ -19,12 +19,25 @@ export interface ResultLinks {
   localUrl: string;
 }
 
+// The serve map keys the app's root mapping as `host:443`, so the raw form is
+// `https://host:443/...`. Valid, but this link is printed for a human to read
+// and tap, and an explicit default port reads as a mistake. URL parsing drops
+// it for us; anything unparseable is returned untouched rather than mangled.
+export function tidyOrigin(origin: string): string {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return origin;
+  }
+}
+
 export async function resultLinks(request: Request, runId: string): Promise<ResultLinks> {
   const path = `/results/${encodeURIComponent(runId)}`;
-  const origin = publicOrigin(request);
+  const origin = tidyOrigin(publicOrigin(request));
   let tailnet: string | null = null;
   try {
-    tailnet = await tailnetUrlForPort(appPort());
+    const mapped = await tailnetUrlForPort(appPort());
+    tailnet = mapped ? tidyOrigin(mapped) : null;
   } catch {
     // tailscale missing or unreadable - the loopback/origin form still works
   }

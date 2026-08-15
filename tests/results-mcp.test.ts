@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COORD_OWNERS, reconcileCoordTeardown } from "@/lib/coord-wiring";
+import { tidyOrigin } from "@/lib/results-links";
 import { apiBase, TOOLS } from "../fittings/seed/drill/scripts/results-mcp.mjs";
 import { serverEntry, NAME } from "../fittings/seed/drill/scripts/register-results-mcp.mjs";
 
@@ -185,5 +186,19 @@ describe("deselecting drill takes the registration away again", () => {
     expect(readFileSync(cj, "utf8")).toBe("{ corrupt");
     // Retained in the ledger, so the removal is retried once the file is fixed.
     expect(JSON.parse(readFileSync(ledger, "utf8")).c).toEqual(["drill"]);
+  });
+});
+
+describe("the link that gets printed", () => {
+  it("drops the default port so the tailnet URL reads like a link, not a config value", () => {
+    // The serve map keys the app's root mapping as `host:443`, which would
+    // otherwise print as https://dev-madrid.tail31efa.ts.net:443/results/<id>.
+    expect(tidyOrigin("https://dev-madrid.tail31efa.ts.net:443")).toBe("https://dev-madrid.tail31efa.ts.net");
+    expect(tidyOrigin("http://example.ts.net:80")).toBe("http://example.ts.net");
+    // A real non-default port is load-bearing and stays.
+    expect(tidyOrigin("https://dev-madrid.tail31efa.ts.net:8496")).toBe("https://dev-madrid.tail31efa.ts.net:8496");
+    expect(tidyOrigin("http://127.0.0.1:8777")).toBe("http://127.0.0.1:8777");
+    // Unparseable input is returned untouched rather than mangled.
+    expect(tidyOrigin("not a url")).toBe("not a url");
   });
 });
