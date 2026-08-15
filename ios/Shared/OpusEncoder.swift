@@ -54,10 +54,14 @@ final class OpusEncoder {
         self.outputFormat = opusFormat
         self.converter = converter
         // 24k VBR measured ~18 kbps effective on speech — below the 24-32k
-        // band where Opus wideband stops smearing consonants. Constant 32k
-        // keeps every frame in the safe band; ~4 KB/s is nothing to the spool.
+        // band where Opus wideband stops smearing consonants — so target 32k.
+        // VBR, NEVER AVAudioBitRateStrategy_Constant: constant-rate mode pads
+        // every packet to a fixed size via code-3 wrapping, which Deepgram's
+        // LIVE decoder chokes on — a real 6-minute session came back as 4
+        // garbage fragments while the same bytes with padding stripped
+        // transcribed at conf 0.99 (2026-08-15). The server unwraps such
+        // packets defensively now, but the encoder must not produce them.
         converter.bitRate = 32_000
-        converter.bitRateStrategy = AVAudioBitRateStrategy_Constant
         converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
     }
 

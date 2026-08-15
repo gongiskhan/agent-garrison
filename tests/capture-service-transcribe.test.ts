@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
+import { normalizeOpusPacket } from "../fittings/seed/capture-service/lib/opus-normalize.mjs";
 import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs";
 import { encodeMediaFrame } from "../fittings/seed/capture-service/lib/ingress.mjs";
 import { segmentFromResults, deepgramUrl } from "../fittings/seed/capture-service/lib/deepgram-live.mjs";
@@ -313,5 +314,56 @@ describe("capture-service transcription", () => {
     s2.ws.send(JSON.stringify({ type: "session_end", reason: "user" }));
     await s2.next((m) => m.type === "session_ended");
     expect(keyless.counters.read().transcribe_skipped).toBe(1);
+  });
+});
+
+// The 2026-08-15 incident: AVAudioConverter's constant-bitrate mode wraps
+// every frame as [TOC code=3][count=1|pad][padlen][frame][zeros], and
+// Deepgram's LIVE decoder stalls on those (a 6-minute session became 4
+// garbage fragments; the same bytes unwrapped transcribed at conf 0.99).
+// The feed path must unwrap exactly that shape and touch nothing else.
+describe("opus packet normalization", () => {
+  const CONFIG9_CODE0 = 0x48; // SILK-WB 20ms, mono, code 0
+  const CONFIG9_CODE3 = 0x4b;
+
+  it("unwraps a padded CBR code-3 packet to the identical code-0 frame", () => {
+    const frame = Buffer.from([1, 2, 3, 4, 5]);
+    const padded = Buffer.concat([
+      Buffer.from([CONFIG9_CODE3, 0x41, 3]), // count=1, pad bit, 3 pad bytes
+      frame,
+      Buffer.alloc(3)
+    ]);
+    const out = normalizeOpusPacket(padded);
+    expect([...out]).toEqual([CONFIG9_CODE0, ...frame]);
+  });
+
+  it("unwraps zero-length padding and no-padding code-3 packets", () => {
+    const frame = Buffer.from([9, 8, 7]);
+    const zeroPad = Buffer.concat([Buffer.from([CONFIG9_CODE3, 0x41, 0]), frame]);
+    expect([...normalizeOpusPacket(zeroPad)]).toEqual([CONFIG9_CODE0, ...frame]);
+    const noPad = Buffer.concat([Buffer.from([CONFIG9_CODE3, 0x01]), frame]);
+    expect([...normalizeOpusPacket(noPad)]).toEqual([CONFIG9_CODE0, ...frame]);
+  });
+
+  it("handles chained 255 padding-length bytes", () => {
+    const frame = Buffer.from([42]);
+    const pkt = Buffer.concat([
+      Buffer.from([CONFIG9_CODE3, 0x41, 255, 6]), // 254 + 6 = 260 pad bytes
+      frame,
+      Buffer.alloc(260)
+    ]);
+    expect([...normalizeOpusPacket(pkt)]).toEqual([CONFIG9_CODE0, ...frame]);
+  });
+
+  it("passes through code-0 packets, multi-frame code-3, and malformed padding", () => {
+    const code0 = Buffer.from([CONFIG9_CODE0, 1, 2, 3]);
+    expect(normalizeOpusPacket(code0)).toBe(code0);
+    const multi = Buffer.from([CONFIG9_CODE3, 0x02, 1, 2, 3, 4]);
+    expect(normalizeOpusPacket(multi)).toBe(multi);
+    // Padding claims more bytes than the packet holds: pass through, never throw.
+    const malformed = Buffer.from([CONFIG9_CODE3, 0x41, 200, 1]);
+    expect(normalizeOpusPacket(malformed)).toBe(malformed);
+    const tiny = Buffer.from([CONFIG9_CODE3]);
+    expect(normalizeOpusPacket(tiny)).toBe(tiny);
   });
 });

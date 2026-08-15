@@ -16,6 +16,7 @@
 // real endpoint with the same code.
 
 import WebSocket from "ws";
+import { normalizeOpusPacket } from "./opus-normalize.mjs";
 
 const KEEPALIVE_MS = 5000;
 const CLOSE_FLUSH_TIMEOUT_MS = 3000;
@@ -167,7 +168,13 @@ class SessionTranscription {
     });
   }
 
-  feed(bytes) {
+  feed(rawBytes) {
+    // CBR-padded code-3 packets stall Deepgram's live decoder (the
+    // 2026-08-15 "captures almost nothing" incident); unwrap them to code-0
+    // here, at the one point every packet passes. The media log keeps the
+    // original bytes — this rewrite exists only on the STT wire.
+    const bytes = normalizeOpusPacket(rawBytes);
+    if (bytes !== rawBytes) this.lane.counters.bump("opus_packets_normalized");
     this.lastAudioAt = Date.now();
     if (this.open) {
       try {
