@@ -132,7 +132,11 @@ x-garrison:
     - key: notify_max_per_day
       type: integer
       default: 50
-      description: Per-day cap on outbound APNs pushes; beyond it delivery degrades to the web-channel thread.
+      description: Per-day cap on ROUTINE outbound APNs pushes (error acks); beyond it delivery degrades to the web-channel thread. Interactive pushes have their own budget.
+    - key: notify_interactive_max_per_day
+      type: integer
+      default: 200
+      description: Per-day cap on INTERACTIVE pushes - wake confirmations, asks, card links answering the user's own spoken commands. Separate from the routine budget so fan-out chatter can never starve feedback.
     - key: apns_environment
       type: string
       default: production

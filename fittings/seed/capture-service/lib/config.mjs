@@ -155,6 +155,9 @@ export function loadConfig(env = process.env) {
 
     // Outbound push (M5)
     notifyMaxPerDay: parseIntOr(env.GARRISON_CAPTURESERVICE_NOTIFY_MAX_PER_DAY, 50),
+    // Separate budget for pushes that answer the user's own spoken commands
+    // (wake confirmations, asks) — routine fan-out can never starve these.
+    notifyInteractiveMaxPerDay: parseIntOr(env.GARRISON_CAPTURESERVICE_NOTIFY_INTERACTIVE_MAX_PER_DAY, 200),
     apnsEnvironment:
       (env.GARRISON_CAPTURESERVICE_APNS_ENVIRONMENT || "").trim().toLowerCase() === "sandbox"
         ? "sandbox"

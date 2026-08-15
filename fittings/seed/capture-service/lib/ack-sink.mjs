@@ -92,27 +92,38 @@ export class AckSink {
       }
     }
 
-    // 3. Push lane. Errors always try to reach the operator; info-level acks
-    // ride the same chain (muting info acks is the app's control, §5b).
+    // 3. Push lane — for ERRORS only. Routine info acks (the operative's
+    // created/completed chatter fanned out from the board) go to the
+    // web-channel thread and never buzz the phone: 2026-08-15 they burned the
+    // whole daily push budget by mid-afternoon (69 pushes), which then
+    // starved the pushes answering the user's own spoken commands. When a
+    // session is live they are still SPOKEN (lane 2, above).
+    const wantsPush = ack.severity === "error";
     const receipts = ack.idempotencyKey && this.notifier.alreadyDelivered(ack.idempotencyKey)
       ? [{ means: "companion-push", ok: true, deduplicated: true }]
-      : await this.notifier.deliver({
-          title: ack.severity === "error" ? "Zeca - problem" : "Zeca",
-          body: ack.text,
-          link: null,
-          tag: "ack"
-        });
+      : wantsPush
+        ? await this.notifier.deliver({
+            title: "Zeca - problem",
+            body: ack.text,
+            link: null,
+            tag: "ack"
+          })
+        : [
+            { means: "companion-push", ok: false, skipped: "routine ack (web-channel only)" },
+            await this.notifier.sendWebChannelFallback(ack.text)
+          ];
     if (ack.idempotencyKey && receipts.some((r) => r.ok)) this.notifier.markDelivered(ack.idempotencyKey);
+    const via = wantsPush || receipts.some((r) => r.deduplicated) ? "push" : "web-channel";
     this.logAck({
       id: ack.id,
       kind: ack.kind ?? null,
       severity: ack.severity ?? null,
       templateId: ack.templateId ?? null,
-      via: "push",
+      via,
       receipts: receipts.map((r) => ({ means: r.means, ok: r.ok, skipped: r.skipped ?? null })),
       at: new Date(this.now()).toISOString()
     });
-    return { status: 200, body: { ok: true, registered, delivered: "push", receipts } };
+    return { status: 200, body: { ok: true, registered, delivered: via, receipts } };
   }
 
   // {spoken: <ack id>, ok, reason?} from the app over the session socket.

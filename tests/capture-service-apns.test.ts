@@ -180,6 +180,11 @@ describe("companion notifier", () => {
     const receipts = await notifier.send({ template: "wake_confirmation", params: { text: "Created a task, test." } });
     expect(receipts).toEqual([{ means: "companion-push", ok: true, target: "1/1 devices" }]);
     expect(counters.read().notifications_sent).toBe(1);
+    // wake_confirmation answers a spoken command: it draws on the interactive
+    // budget, leaving the routine one untouched.
+    expect(notifier.sentToday("interactive")).toBe(1);
+    expect(notifier.sentToday()).toBe(0);
+    await notifier.send({ template: "tip", params: { text: "Routine one." } });
     expect(notifier.sentToday()).toBe(1);
   });
 
@@ -262,11 +267,20 @@ describe("companion notifier", () => {
   });
 
   it("enforces the per-day cap and strips loopback links", async () => {
-    const { notifier, counters, calls, home } = makeNotifier({}, { notifyMaxPerDay: 1 });
+    const { notifier, counters, calls, home } = makeNotifier({}, { notifyMaxPerDay: 1, notifyInteractiveMaxPerDay: 2 });
     await notifier.send({ template: "tip", params: { text: "one" } });
     const capped = await notifier.send({ template: "tip", params: { text: "two" } });
-    expect(capped[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "daily cap 1 reached" });
+    expect(capped[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "daily routine cap 1 reached" });
     expect(counters.read().notify_capped).toBe(1);
+
+    // The budgets are SEPARATE (2026-08-15): routine fan-out exhausting its
+    // cap must never silence the confirmations answering a spoken command.
+    const answer = await notifier.send({ template: "wake_confirmation", params: { text: "Criei a tarefa." } });
+    expect(answer[0]).toMatchObject({ means: "companion-push", ok: true });
+    const answer2 = await notifier.send({ template: "wake_confirmation", params: { text: "Outra." } });
+    expect(answer2[0]).toMatchObject({ means: "companion-push", ok: true });
+    const answer3 = await notifier.send({ template: "wake_confirmation", params: { text: "Terceira." } });
+    expect(answer3[0]).toMatchObject({ ok: false, skipped: "daily interactive cap 2 reached" });
 
     // Loopback deep links never reach a phone (unreachable + mixed content).
     expect(isLoopbackUrl("http://127.0.0.1:8089/#/cards/x")).toBe(true);

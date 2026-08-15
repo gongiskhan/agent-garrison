@@ -58,6 +58,11 @@ const TEMPLATE_TITLES = {
   relay: "Garrison"
 };
 
+// Templates that answer something the user just DID (spoke a command, was
+// asked a question). These draw on the interactive push budget — never
+// starved by the operative's routine fan-out.
+const INTERACTIVE_TEMPLATES = new Set(["wake_confirmation", "card_created", "ask"]);
+
 function statusFileUrl(fittingId, env = process.env) {
   try {
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
@@ -123,16 +128,37 @@ export class CompanionNotifier {
     return path.join(this.store.root, "notify-ledger.json");
   }
 
-  sentToday() {
+  // Two push budgets (the 2026-08-15 "no feedback" incident): the operative's
+  // routine ack fan-out burned the single daily cap by mid-afternoon, so the
+  // pushes that answer the user's OWN spoken commands were all skipped.
+  // "interactive" (wake confirmations, asks, card links from a wake) draws on
+  // its own budget that routine traffic can never starve. A ledger day entry
+  // is {routine, interactive}; plain numbers from the old format read as
+  // routine counts.
+  todayEntry(ledger) {
     const today = this.now().toISOString().slice(0, 10);
-    return readJSON(this.ledgerFile(), {})[today] ?? 0;
+    const raw = ledger[today];
+    if (typeof raw === "number") return { routine: raw, interactive: 0 };
+    return { routine: raw?.routine ?? 0, interactive: raw?.interactive ?? 0 };
   }
 
-  bumpLedger() {
+  sentToday(priority = "routine") {
+    return this.todayEntry(readJSON(this.ledgerFile(), {}))[priority] ?? 0;
+  }
+
+  capFor(priority) {
+    return priority === "interactive"
+      ? this.cfg.notifyInteractiveMaxPerDay
+      : this.cfg.notifyMaxPerDay;
+  }
+
+  bumpLedger(priority = "routine") {
     const file = this.ledgerFile();
     const ledger = readJSON(file, {});
     const today = this.now().toISOString().slice(0, 10);
-    ledger[today] = (ledger[today] ?? 0) + 1;
+    const entry = this.todayEntry(ledger);
+    entry[priority] = (entry[priority] ?? 0) + 1;
+    ledger[today] = entry;
     atomicWriteJSON(file, ledger);
   }
 
@@ -192,14 +218,15 @@ export class CompanionNotifier {
       title: TEMPLATE_TITLES[template] ?? "Garrison",
       body: message,
       link: cleanParams.cardUrl ?? null,
-      tag: template
+      tag: template,
+      priority: INTERACTIVE_TEMPLATES.has(template) ? "interactive" : "routine"
     });
   }
 
   // The real chain: push, degrading to the web-channel thread. Receipts for
   // every means attempted, in delivery order.
-  async deliver({ title, body, link, tag }) {
-    const push = await this.sendPush({ title, body, link, tag });
+  async deliver({ title, body, link, tag, priority = "routine" }) {
+    const push = await this.sendPush({ title, body, link, tag, priority });
     const receipts = [push];
     if (!push.ok) {
       receipts.push(await this.sendWebChannelFallback(body));
@@ -212,15 +239,15 @@ export class CompanionNotifier {
     return receipts;
   }
 
-  async sendPush({ title, body, link, tag }) {
+  async sendPush({ title, body, link, tag, priority = "routine" }) {
     const means = "companion-push";
     if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
     if (!this.apns.enabled()) return { means, ok: false, skipped: "APNS_TEAM_ID/APNS_KEY_ID/APNS_P8 not sealed" };
     const tokens = this.deviceTokens();
     if (tokens.length === 0) return { means, ok: false, skipped: "no registered devices" };
-    if (this.sentToday() >= this.cfg.notifyMaxPerDay) {
+    if (this.sentToday(priority) >= this.capFor(priority)) {
       this.counters.bump("notify_capped");
-      return { means, ok: false, skipped: `daily cap ${this.cfg.notifyMaxPerDay} reached` };
+      return { means, ok: false, skipped: `daily ${priority} cap ${this.capFor(priority)} reached` };
     }
 
     const data = { ...(link ? { link } : {}), ...(tag ? { tag } : {}) };
@@ -235,7 +262,7 @@ export class CompanionNotifier {
       this.pruneTokens(dead);
       const delivered = outcome.results.filter((r) => r.ok);
       if (delivered.length > 0) {
-        this.bumpLedger();
+        this.bumpLedger(priority);
         this.counters.bump("notifications_sent");
         return { means, ok: true, target: `${delivered.length}/${tokens.length} devices` };
       }

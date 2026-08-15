@@ -193,23 +193,28 @@ describe("capture-service ack sink", () => {
     expect(handle.counters.read().speak_confirm_ms_count).toBe(1);
     expect(pushes.length).toBe(0); // spoken, not buzzed
 
-    // Sink toggled off: the very next ack rides APNs, no restart.
+    // Sink toggled off: a ROUTINE ack no longer buzzes the phone — it takes
+    // the web-channel thread, because the operative's created/completed
+    // fan-out once burned the whole daily push budget and starved the
+    // pushes that answer the user's own spoken commands (2026-08-15).
     (handle.cfg as any).speakEnabled = false;
     const off = await (await postAck(base, { id: "ack-c2", kind: "completed", severity: "info", text: "Finished the report." })).json();
-    expect(off.delivered).toBe("push");
-    expect(off.receipts[0]).toMatchObject({ means: "companion-push", ok: true });
+    expect(off.delivered).toBe("web-channel");
+    expect(off.receipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "routine ack (web-channel only)" });
     expect(app.speaks.length).toBe(1);
-    expect(pushes.length).toBe(1);
+    expect(pushes.length).toBe(0);
     (handle.cfg as any).speakEnabled = true;
 
-    // screen_audio sessions never speak in-session (no AEC coupling, ADR §6).
+    // screen_audio sessions never speak in-session (no AEC coupling, ADR §6);
+    // an ERROR there still buzzes.
     app.ws.close();
     await waitFor(() => handle.ingress.sessions.get("01ACKSESSION0001") ? (handle.ingress.sessions.get("01ACKSESSION0001") as any).socket === null : true);
     const screen = await appSession(base, "01ACKSESSION0002", "screen_audio");
-    const screenAck = await (await postAck(base, { id: "ack-c3", kind: "created", severity: "info", text: "Created a task, second." })).json();
+    const screenAck = await (await postAck(base, { id: "ack-c3", kind: "failed", severity: "error", text: "Could not create the second task." })).json();
     expect(screenAck.delivered).toBe("push");
+    expect(screenAck.receipts[0]).toMatchObject({ means: "companion-push", ok: true });
     expect(screen.speaks.length).toBe(0);
-    expect(pushes.length).toBe(2);
+    expect(pushes.length).toBe(1);
 
     // The app-side failure receipt is ledgered too.
     screen.ws.close();
