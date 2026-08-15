@@ -223,3 +223,24 @@ declare module "*/drill/lib/video-compose.mjs" {
     dir: string; source?: string; frames?: any[]; steps?: any[]; title?: string | null; options?: any; timeoutMs?: number;
   }): Promise<any>;
 }
+declare module "*/drill/scripts/results-mcp.mjs" {
+  export const TOOLS: Array<{ name: string; description: string; inputSchema: any }>;
+  export const SESSION: string;
+  export const SERVER_NAME: string;
+  export function apiBase(env?: Record<string, string | undefined>): string;
+  export function openRun(args?: any, env?: Record<string, string | undefined>): Promise<any>;
+  export function addStep(args?: any, env?: Record<string, string | undefined>): Promise<any>;
+  export function attachMedia(args?: any, env?: Record<string, string | undefined>): Promise<any>;
+  export function finalizeRun(args?: any, env?: Record<string, string | undefined>): Promise<any>;
+  export function listRuns(args?: any, env?: Record<string, string | undefined>): Promise<any>;
+  export function handle(msg: any): Promise<void>;
+}
+declare module "*/drill/scripts/register-results-mcp.mjs" {
+  export const NAME: string;
+  export const SERVER: string;
+  export function serverEntry(
+    env?: Record<string, string | undefined>,
+    execPath?: string,
+    server?: string
+  ): { command: string; args: string[]; env?: Record<string, string> };
+}

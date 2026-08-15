@@ -1294,16 +1294,23 @@ export function setupConfigEnv(
 // spawnGateway will bind, and available before the gateway is up because it is
 // only a config read.
 async function gatewayHookEnv(compositionId: string): Promise<Record<string, string>> {
+  // This instance's own app URL travels with it. A setup hook that writes
+  // standing config naming a Garrison endpoint (drill's Results MCP
+  // registration) must bake the REGISTERING instance's app, and it cannot
+  // derive the port without re-hardcoding the port map a fitting must never
+  // hold. Same value own-port fittings already receive at runtime.
+  const base: Record<string, string> = { GARRISON_APP_URL: garrisonSelfBaseUrl() };
   try {
     const gateway = await resolveGatewayFitting(compositionId);
-    if (!gateway) return {};
+    if (!gateway) return base;
     return {
+      ...base,
       GARRISON_GATEWAY_HOST: gateway.host,
       GARRISON_GATEWAY_PORT: String(gateway.port),
       GARRISON_GATEWAY_URL: gateway.baseUrl
     };
   } catch {
-    return {};
+    return base;
   }
 }
 

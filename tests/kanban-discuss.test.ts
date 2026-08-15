@@ -293,12 +293,16 @@ describe("kanban discuss — the discussion result becomes downstream context", 
     const root = mkdtempSync(join(tmpdir(), "kanban-discuss-brief-"));
     const cwd = mkdtempSync(join(tmpdir(), "kanban-discuss-cwd-"));
     const board = seedBoard();
-    const card = await createCard(root, { title: "T", project: "p", list: "plan" });
+    // Implement, not Plan: the default rail has the plan phase OFF, so a card
+    // seeded there fast-forwards (outcome `moved`, phasesOff ["plan"]) and
+    // never dispatches - which asserts nothing about the prompt. This test is
+    // about what reaches runFn, so it has to sit on a phase that is ON.
+    const card = await createCard(root, { title: "T", project: "p", list: "implement" });
     // The brief lives next to the card's card.json — the deterministic location James is
     // told to write to; the engine reads it from there regardless of any project cwd.
     writeFileSync(join(root, "cards", card.id, "brief.md"), "AGREED: build the widget behind a flag.");
     let captured = "";
-    const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "implement" }; };
+    const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "review" }; };
     await processCard({ root, board, card: await loadCard(root, card.id), runFn, cap: 10, cwd });
     expect(captured).toContain("## Discussion");
     expect(captured).toContain("AGREED: build the widget behind a flag.");

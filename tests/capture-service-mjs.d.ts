@@ -208,3 +208,9 @@ declare module "*/capture-service/lib/store.mjs" {
   }
   export function mergedCounters(root: string): Record<string, number>;
 }
+declare module "*/capture-service/lib/opus-normalize.mjs" {
+  // Unwraps a CBR-padded Opus packet back to its true payload length (padding
+  // stalls Deepgram live); returns the bytes unchanged when there is nothing
+  // to unwrap.
+  export function normalizeOpusPacket(bytes: Uint8Array): Uint8Array;
+}

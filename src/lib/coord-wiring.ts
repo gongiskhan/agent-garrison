@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { claudeHome, claudeJsonPath, garrisonDir } from "./claude-home";
 
-// Clean-removal wiring for the coordination Fittings (coord-agentmail / coord-mcp).
+// Clean-removal wiring for the Fittings that install standing user-scope config
+// (coord-agentmail / coord-mcp / drill's Results MCP).
 // These install STANDING user-scope config (a SessionStart hook, an
 // http/stdio MCP server registration) that must persist across operative `down`
 // so a DIRECT `claude` run in any repo keeps coordination — but must be removed
@@ -26,9 +27,17 @@ export interface CoordOwnerSpec {
   mcpNames: string[];
 }
 
+// The registry of Fittings that install STANDING user-scope config. The
+// coordination Fittings were the first and named the const; drill joined when
+// it started registering the Results MCP, which has exactly the same
+// lifecycle: equipping drill registers it, deselecting drill must take it away
+// again, and neither may be touched by a plain operative `down`. The name
+// stays as-is rather than churning for taxonomy - what it means is "whoever
+// writes standing config", and every entry here is that.
 export const COORD_OWNERS: Record<string, CoordOwnerSpec> = {
   "coord-agentmail": { mcpNames: ["coord-agentmail"] },
-  "coord-mcp": { hookOwner: "fitting:coord-mcp", mcpNames: ["coord-mcp"] }
+  "coord-mcp": { hookOwner: "fitting:coord-mcp", mcpNames: ["coord-mcp"] },
+  drill: { mcpNames: ["drill-results"] }
 };
 
 export function coordLedgerPath(): string {
