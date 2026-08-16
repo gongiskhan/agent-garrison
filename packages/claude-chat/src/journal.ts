@@ -216,11 +216,19 @@ export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBea
  * Group the flat Claude/Agent SDK journal into conversational turns. A real user
  * message starts a turn; user-shaped tool-result rows remain attached to the
  * preceding assistant tool and never open a new visual message. Assistant-only
- * journals (for example a recovered kickoff) receive one stable synthetic turn.
+ * journals (for example a recovered kickoff) receive stable synthetic turns,
+ * split only when their exact non-null turn coordinate changes.
  */
 export function groupSessionTurns(events: SessionEvent[]): SessionTurn[] {
   const turns: SessionTurn[] = [];
   let current: SessionTurn | null = null;
+  let currentAssistantTurnId: string | null = null;
+  const assistantTurnId = (event: SessionEvent): string | null => {
+    if (typeof event.turnId === "number" && Number.isFinite(event.turnId)) return String(event.turnId);
+    if (typeof event.turnId !== "string") return null;
+    const value = event.turnId.trim();
+    return value || null;
+  };
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index];
     if (event.role === "user" && !event.toolResultsOnly) {
@@ -230,9 +238,22 @@ export function groupSessionTurns(events: SessionEvent[]): SessionTurn[] {
         assistantEvents: [],
       };
       turns.push(current);
+      currentAssistantTurnId = null;
       continue;
     }
     if (event.role !== "assistant") continue;
+    const eventTurnId = assistantTurnId(event);
+    // Thread-level recovery intentionally excludes the raw human prompt because
+    // the chat already owns that bubble. Its assistant-only canonical chain still
+    // needs conversational boundaries. Split only synthetic (no real user row)
+    // turns with established, differing exact coordinates; null/legacy streams
+    // retain their historical grouping.
+    if (
+      current && current.userEvents.length === 0 && current.assistantEvents.length > 0 &&
+      currentAssistantTurnId !== null && eventTurnId !== null && currentAssistantTurnId !== eventTurnId
+    ) {
+      current = null;
+    }
     if (!current) {
       current = {
         key: event.id ? `assistant-turn-${event.id}` : `assistant-turn-${index}`,
@@ -242,6 +263,7 @@ export function groupSessionTurns(events: SessionEvent[]): SessionTurn[] {
       turns.push(current);
     }
     current.assistantEvents.push(event);
+    if (eventTurnId !== null) currentAssistantTurnId = eventTurnId;
   }
   return turns;
 }

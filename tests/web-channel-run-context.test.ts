@@ -31,7 +31,7 @@ const server = await import("../fittings/seed/web-channel-default/scripts/server
 // @ts-ignore - pure .mjs store
 const threads = await import("../fittings/seed/web-channel-default/scripts/threads.mjs");
 
-const { buildGatewayChatBody, mergeTurnRouting, attributionFromFrame, startServer } = server as any;
+const { buildGatewayChatBody, agentSdkResumeFromThread, mergeTurnRouting, attributionFromFrame, startServer } = server as any;
 // The shared ambient declaration for threads.mjs (tests/web-channel-mjs.d.ts) predates
 // the run-context contract and does not know setThreadRouting, so reach it through a
 // narrow local view rather than widening a file this change does not own.
@@ -211,6 +211,51 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       turnSeq: 7,
     });
   });
+
+  it("derives SDK resume only from the latest session's complete persisted attribution", () => {
+    const route = {
+      route: "sonnet-plan",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      effort: "high",
+      account: "work",
+      accountSource: "override",
+      projectPath: "/home/u/dev/project",
+      sessionId: "sdk-session-latest",
+    };
+    const thread = {
+      claudeSessionId: "sdk-session-latest",
+      messages: [
+        { role: "assistant", text: "older", route: { ...route, sessionId: "sdk-session-old" } },
+        { role: "assistant", text: "external notice" },
+        { role: "assistant", text: "latest", route },
+        { role: "assistant", text: "restart note", route: { stoppedReason: "restart" } },
+      ],
+    };
+    const candidate = agentSdkResumeFromThread(thread);
+    expect(candidate).toEqual({
+      sessionId: "sdk-session-latest",
+      route: "sonnet-plan",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      effort: "high",
+      account: "work",
+      accountSource: "override",
+      projectPath: "/home/u/dev/project",
+    });
+    expect(buildGatewayChatBody({ message: "continue", agentSdkResume: candidate })).toEqual({
+      message: "continue",
+      channel: "web",
+      agentSdkResume: candidate,
+    });
+    expect(agentSdkResumeFromThread({ ...thread, claudeSessionId: "unmatched" })).toBeNull();
+    expect(agentSdkResumeFromThread({
+      claudeSessionId: "sdk-session-latest",
+      messages: [{ role: "assistant", route: { runtime: "agent-sdk", sessionId: "sdk-session-latest" } }],
+    })).toBeNull();
+  });
 });
 
 describe("mergeTurnRouting - per-turn over the conversation pin", () => {
@@ -283,7 +328,7 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
       frames: [
         // Pre-turn frame (pending) then the done frame: the merge means a field known
         // only pre-turn survives onto the persisted message.
-        sse("route", { route: "sonnet-plan", runtime: "agent-sdk", duty: "build", level: 2, pending: true, turnSeq: 3 }),
+        sse("route", { route: "sonnet-plan", runtime: "agent-sdk", provider: "anthropic", duty: "build", level: 2, pending: true, turnSeq: 3 }),
         sse("chunk", { text: "working" }),
         sse("done", { reply: "shipped it", model: "claude-sonnet-4-5", effort: "low", effortApplied: true, session_id: "sess-abc", overridesApplied: ["effort"] }),
       ],
@@ -322,6 +367,30 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
     // Back-compat: the thread-level session id is still written, so
     // /api/session-stream?thread=<id> keeps working without a message id.
     expect(t.claudeSessionId).toBe("sess-abc");
+
+    turnScript = {
+      frames: [sse("done", {
+        reply: "continued",
+        route: "sonnet-plan",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        effort: "low",
+        session_id: "sess-abc",
+      })],
+    };
+    expect((await runTurn({ message: "continue", thread: id, turnSeq: 4 })).status).toBe(200);
+    expect(lastChatBody.agentSdkResume).toEqual({
+      sessionId: "sess-abc",
+      route: "sonnet-plan",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      effort: "low",
+      account: null,
+      accountSource: null,
+      projectPath: null,
+    });
   });
 
   it("tees canonical session_event frames unchanged and persists revisions for thread GET reload", async () => {

@@ -9,7 +9,9 @@ Started: 2026-08-16
 - Live sessions spawned by this run: **1 / 5 maximum**.
 - `PRD.md`, `PLANING.md`, and `TASKS.md`: absent at startup.
 - CodeGraph: unavailable in this checkout/tool session; repository search is the fallback.
-- Pre-existing user change preserved: `compositions/default/apm.yml` changes Agent SDK account from empty to `auto`. It is not part of a milestone unless later evidence makes it part of the required model-swap config.
+- Pre-existing user change preserved: `compositions/default/apm.yml` selects the
+  named `pro-ekoa` Codex account and changes the Agent SDK account from empty to
+  `auto`. It is not part of this Web-parity work and remains unstaged.
 - No deployment or live-data mutation is authorized by this plan. M8 may exercise isolated live sessions only.
 - UI work follows the existing fitting stack with accessible controls and phone-viewport behavior; no dependency or design-system migration is planned.
 
@@ -36,9 +38,9 @@ The legacy target ids remain unchanged so authored matrix references and sticky 
 | M1 — Event layer | done | Opus config; Agent SDK normalizer/adapter; gateway event forwarding; Web thread event store; capture script/fixture; focused tests | 10 files / 216 tests green; full typecheck + diff check green; live count 1 | Render the canonical stream in the main thread from fixtures. |
 | M2 — Rendering | done | canonical per-turn timeline; shared safe Markdown; durable identity/hydration; accessible transcript controls; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 362 tests; full suite 514 files / 5,728 tests green (6 files / 21 tests skipped); typecheck, 3 builds, and diff check green | Implement durable, non-expiring SDK permission prompts with explicit allow/deny resolution. |
 | M3 — Permissions | done | Agent SDK permission bridge; generation-bound gateway resolver; durable thread revisions; Web answer proxy/transports; shared accessible permission cards; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 393 tests; full suite 514 files / 5,759 tests green (6 files / 21 tests skipped); typecheck, 3 builds, and diff check green | Implement running-turn interrupt and queued/streaming input semantics. |
-| M4 — Interrupt/input | pending | — | — | Exercise the standing-query seam offline, then add generation-scoped stop and input handling. |
-| M5 — Continuity | pending | — | — | Await M4. |
-| M6 — Routes/errors | pending | — | — | Await M5. |
+| M4 — Interrupt/input | done | standing Agent SDK Query; durable Web FIFO/input receipts; exact generation stop/replay; recovery-safe transport; queue/voice UI; rebuilt Web/Dev Env/Kanban assets | 16 focused files / 290 tests; full suite 519 files / 5,819 tests green (6 files / 21 tests skipped); voice Playwright 6/6; typecheck, 3 builds, optimized build, and diff check green | Reconcile process-restart ownership and rebuild complete history from the SDK journal chain. |
+| M5 — Continuity | done | atomic no-replay restart reconciliation; exact SDK resume/cold-generation barrier; full-chain JSONL recovery; authoritative transcript snapshots; stale-control hardening; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 388 tests; full suite 520 files / 5,855 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Normalize typed route and failure state without weakening exact generation ownership. |
+| M6 — Routes/errors | pending | — | — | Audit the canonical route, rate-limit, retry, runtime-error, and terminal-state seams. |
 | M7 — Prefix guard | pending | — | — | Await M6. |
 | M8 — Live validation | pending | — | — | Await offline milestones. |
 | M9 — Report | pending | — | — | Await M8. |
@@ -189,6 +191,101 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
 - `node fittings/seed/web-channel-default/ui/build.mjs`, `node fittings/seed/dev-env/ui/build.mjs`, and `node fittings/seed/kanban-loop/ui/build.mjs` rebuilt every shared-chat consumer. `npm run typecheck -- --pretty false` and `git diff --check` passed.
 - Repository-wide `npm test` — **514 files, 5,759 tests passed; 6 files / 21 opt-in tests skipped**. No process was deployed and no additional live model session was launched.
 
+## M4 — Generation-safe interrupt and queued input
+
+- Web input is now a durable per-thread FIFO rather than an overlapping set of
+  anonymous fetches. The browser retries one opaque `clientRequestId`; the Web
+  store admits it once as an `inputId`; and the gateway owns a distinct opaque
+  `generationId`. Admission, live replay, canonical events, Stop, permissions,
+  questions, persistence, and terminal receipts retain those exact coordinates.
+- One input runs per thread while separate threads remain concurrent. The first
+  successful gateway `open` binds the generation; malformed ordering, a second
+  `open`, pre-open hangs, lost admission responses, reader failures, and transient
+  resume failures all fail or retry without duplicating the operative turn. An
+  authoritative reply write must succeed before the FIFO advances.
+- Streamed Web Agent SDK work uses the pinned SDK's standing `streamingInput`
+  Query and treats `session_state_changed: idle` as the reusable boundary. Warm
+  compatible turns send only their new input. A cold replacement receives the
+  bounded durable thread context once, including after active-safe LRU eviction;
+  raw credentials never enter the compatibility key and token rotation retires
+  the old session through a process-local non-reversible fingerprint.
+- Stop is exact-generation only, coalesces concurrent attempts, and memoizes only
+  success so an explicit retry can reach a newly usable primitive. Native vision
+  reports its non-cancellable state honestly. AskUserQuestion display and answer
+  actuation are turn-scoped, require the exact tool/thread owner, and never fan out
+  across concurrent streams or drive a different PTY session.
+- Hydration preserves queued/running/terminal input state and pairs keyed replies
+  even when unrelated assistant-only notifications interleave. The shared chat
+  blocks stale question/permission/Stop controls synchronously at terminal state,
+  preserves the exact reply identity for voice, keeps queue-locked voice controls
+  mounted, and provides keyboard-operable PTT and attachment removal at a real
+  320px viewport.
+
+### M4 verification
+
+- Focused regression gate: **16 files / 290 tests passed**; voice Playwright:
+  **6/6 passed**.
+- `node fittings/seed/web-channel-default/ui/build.mjs`,
+  `node fittings/seed/dev-env/ui/build.mjs`, and
+  `node fittings/seed/kanban-loop/ui/build.mjs` rebuilt all shared-chat consumers;
+  the optimized repository build, full typecheck, syntax checks, and
+  `git diff --check` passed.
+- Repository-wide `npm test` — **519 files, 5,819 tests passed; 6 files / 21
+  opt-in tests skipped**. No process was deployed and no additional live model
+  session was launched.
+
+## M5 — Restart-safe continuity and complete transcript recovery
+
+- Startup reconciliation never replays uncertain side effects. Persisted
+  `starting`, `running`, or `stopping` inputs atomically become visible failed
+  turns, their pending permission controls are cancelled, and queued successors
+  remain behind a durable recovery gate. The Web process probes exact
+  `{threadId,inputId}` gateway ownership and requests exact recovery; conflicts
+  and unavailable ownership retry with bounded backoff for the server lifetime,
+  and only authoritative release clears the gate. Corrupt or unreadable thread
+  storage fails startup closed.
+- Standing SDK continuity now distinguishes an ordinary cold process from a
+  contaminated interrupted generation. Exact, fully compatible durable SDK
+  attribution uses the pinned SDK's native resume option and appends any refined
+  session id. A restart barrier retires a still-warm contaminated Query and
+  forces a clean journal generation; incompatible or malformed attribution cold
+  starts with bounded materialized context once instead of silently attaching
+  to the wrong conversation.
+- Thread history joins every unambiguous local JSONL in the append-only session
+  chain. The durable canonical store remains authoritative for terminal and
+  control state; recovery may add missing events or strictly complete a partial
+  snapshot, but refuses cross-session collisions, ambiguous transcript files,
+  changed parseable tool inputs, unsafe truncation claims, and reordered stable
+  slots. Whole recovered turn groups bind to claimed-input time intervals, so
+  queued successors, same-millisecond boundaries, SDK session rollover, and
+  legacy history cannot steal one another's events.
+- Transcript polling is serialized and emits authoritative ordered snapshots,
+  allowing the shared renderer to replace, remove, or move recovered rows rather
+  than append stale deltas. Schedulable FIFO handoffs keep the stream alive;
+  parked queues end honestly and reconnect when ownership clears; an idle
+  transcript reconnects on a later `live:false` to `live:true` transition. Stale
+  permission, question, and Stop controls are synchronously disabled against the
+  exact parent generation after recovery or terminal state.
+- Deliberate boundaries remain fail closed: an SDK provider failure after native
+  resume has begun is surfaced rather than automatically cold-retrying a turn
+  that may already have side effects. A full gateway restart cannot detect a
+  credential rotation hidden behind the same durable account alias, and prompt
+  or tool-policy changes are not yet part of durable SDK compatibility identity.
+
+### M5 verification
+
+- Focused regression gate: **17 files / 388 tests passed**, including real
+  Chromium coverage for recovered terminal controls, authoritative snapshot
+  replacement, parked-stream recovery, and idle-to-live reconnection.
+- `node fittings/seed/web-channel-default/ui/build.mjs`,
+  `node fittings/seed/dev-env/ui/build.mjs`, and
+  `node fittings/seed/kanban-loop/ui/build.mjs` rebuilt all shared-chat consumers;
+  the optimized repository build, full typecheck, MJS syntax checks, and
+  `git diff --check` passed.
+- Repository-wide `npm test` — **520 files, 5,855 tests passed; 6 files / 21
+  opt-in tests skipped**. No process was deployed and no additional live model
+  session was launched.
+
 ## Resolved questions
 
 - **Which checkout may execute tests?** This process is on `dev-madrid`, not macOS, so the repository's Linux commands are permitted here. Production deployment remains separately unauthorized.
@@ -196,5 +293,6 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
 
 ## Open questions
 
-- The authentic partial-message ordering is recorded by M1's bounded fixture. Whether one streaming-input query remains open across `result`/`idle` is intentionally left to M4's offline standing-query fixture.
-- The exact priority/timing semantics for input submitted during a running SDK turn remain M4's offline fixture task after M1 records the standing query shape.
+- M6 must decide which SDK route, retry, rate-limit, execution-error, and crash
+  fields belong in the provider-neutral durable vocabulary, while retaining M4's
+  exact input/generation settlement rules.

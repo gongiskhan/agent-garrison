@@ -26,14 +26,19 @@ beforeAll(async () => {
         class FixtureEventSource {
           onmessage = null;
           onerror = null;
-          constructor() { window.__sessionSource = this; }
-          close() {}
+          closed = false;
+          constructor() {
+            window.__sessionSources.push(this);
+            window.__sessionSource = this;
+          }
+          close() { this.closed = true; }
         }
+        window.__sessionSources = [];
         window.EventSource = FixtureEventSource;
         window.__permissionAnswers = [];
         window.__permissionBehavior = "resolve";
         let root;
-        window.__mountTimeline = (events, live = false, permissionControls = false) => {
+        window.__mountTimeline = (events, live = false, permissionControls = false, permissionGenerationId) => {
           if (!root) root = createRoot(document.getElementById("root"));
           const onPermissionDecision = permissionControls ? (answer) => {
             window.__permissionAnswers.push(answer);
@@ -42,7 +47,12 @@ beforeAll(async () => {
             }
             return Promise.resolve();
           } : undefined;
-          root.render(React.createElement(SessionEventTimeline, { events, live, onPermissionDecision }));
+          root.render(React.createElement(SessionEventTimeline, {
+            events,
+            live,
+            onPermissionDecision,
+            permissionGenerationId,
+          }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         };
         window.__mountStream = (events, announceLiveUpdates) => {
@@ -59,6 +69,52 @@ beforeAll(async () => {
               });
               return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
             });
+        };
+        window.__mountParkedStream = (events) => {
+          if (!root) root = createRoot(document.getElementById("root"));
+          root.render(React.createElement(SessionStream, {
+            url: "/fixture-session",
+            live: true,
+            announceLiveUpdates: false,
+          }));
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+            .then(() => {
+              const source = window.__sessionSource;
+              source.onmessage({
+                data: JSON.stringify({ type: "init", available: true, live: false, events }),
+              });
+              source.onmessage({ data: JSON.stringify({ type: "end" }) });
+              return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            });
+        };
+        window.__mountIdleStream = (events) => {
+          if (!root) root = createRoot(document.getElementById("root"));
+          root.render(React.createElement(SessionStream, {
+            url: "/fixture-session",
+            live: false,
+            announceLiveUpdates: false,
+          }));
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+            .then(() => {
+              const source = window.__sessionSource;
+              source.onmessage({
+                data: JSON.stringify({ type: "init", available: true, live: false, events }),
+              });
+              source.onmessage({ data: JSON.stringify({ type: "end" }) });
+              return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            });
+        };
+        window.__setStreamLive = (live) => {
+          root.render(React.createElement(SessionStream, {
+            url: "/fixture-session",
+            live,
+            announceLiveUpdates: false,
+          }));
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        };
+        window.__emitSession = (payload) => {
+          window.__sessionSource.onmessage({ data: JSON.stringify(payload) });
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         };
       `,
     },
@@ -97,10 +153,17 @@ afterAll(async () => {
   await browser?.close();
 });
 
-const mount = async (events: unknown[], live = false, permissionControls = false) => {
+const mount = async (
+  events: unknown[],
+  live = false,
+  permissionControls = false,
+  permissionGenerationId?: string
+) => {
   await page.evaluate(
-    ({ events, live, permissionControls }) => (window as any).__mountTimeline(events, live, permissionControls),
-    { events, live, permissionControls }
+    ({ events, live, permissionControls, permissionGenerationId }) => (
+      window as any
+    ).__mountTimeline(events, live, permissionControls, permissionGenerationId),
+    { events, live, permissionControls, permissionGenerationId }
   );
 };
 
@@ -217,6 +280,122 @@ describe("claude-chat canonical timeline in a real browser", () => {
     expect(await page.locator('.cc-session [role="status"]').count()).toBe(1);
   });
 
+  it("replaces and reorders the exact transcript on an authoritative snapshot", async () => {
+    const row = (id: string, turnId: string, text: string) => ({
+      id,
+      role: "assistant",
+      ts: 1,
+      turnId,
+      revision: 1,
+      blocks: [{ type: "text", text }],
+    });
+    await page.evaluate(
+      ({ events }) => (window as any).__mountStream(events, false),
+      { events: [row("later", "input-b", "Later answer"), row("stale", "input-c", "Stale answer")] }
+    );
+    expect((await page.locator(".cc-session-turn.assistant").allTextContents()).map((text) => text.trim())).toEqual([
+      "AssistantLater answer",
+      "AssistantStale answer",
+    ]);
+
+    await page.evaluate(
+      (events) => (window as any).__emitSession({ type: "snapshot", title: "Recovered activity", events }),
+      [row("earlier", "input-a", "Earlier answer"), row("later", "input-b", "Later answer")]
+    );
+
+    expect(await page.locator(".cc-session-head-title").textContent()).toBe("Recovered activity");
+    expect((await page.locator(".cc-session-turn.assistant").allTextContents()).map((text) => text.trim())).toEqual([
+      "AssistantEarlier answer",
+      "AssistantLater answer",
+    ]);
+    expect(await page.getByText("Stale answer").count()).toBe(0);
+  });
+
+  it("reconnects a parked transcript when its queued producer starts without a live-prop change", async () => {
+    const row = (id: string, turnId: string, text: string) => ({
+      id,
+      role: "assistant",
+      ts: 1,
+      turnId,
+      revision: 1,
+      blocks: [{ type: "text", text }],
+    });
+    const settled = row("settled", "input-a", "Settled before recovery");
+    await page.evaluate(
+      (events) => (window as any).__mountParkedStream(events),
+      [settled]
+    );
+
+    expect(await page.getByText("Settled before recovery").count()).toBe(1);
+    expect(await page.locator(".cc-session-awaiting").count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).__sessionSources.length)).toBe(1);
+    expect(await page.evaluate(() => (window as any).__sessionSources[0].closed)).toBe(true);
+
+    await expect.poll(
+      () => page.evaluate(() => (window as any).__sessionSources.length),
+      { timeout: 3_000 }
+    ).toBe(2);
+    await page.evaluate((events) => {
+      const source = (window as any).__sessionSource;
+      source.onmessage({
+        data: JSON.stringify({ type: "init", available: true, live: true, events }),
+      });
+    }, [settled]);
+    expect((await page.locator(".cc-session-live").textContent())?.trim()).toBe("live");
+
+    const resumed = row("resumed", "input-b", "Recovered successor output");
+    await page.evaluate(
+      (events) => (window as any).__emitSession({ type: "snapshot", title: "Recovered activity", events }),
+      [settled, resumed]
+    );
+    expect(await page.locator(".cc-session-head-title").textContent()).toBe("Recovered activity");
+    expect((await page.locator(".cc-session-turn.assistant").allTextContents()).map((text) => text.trim())).toEqual([
+      "AssistantSettled before recovery",
+      "AssistantRecovered successor output",
+    ]);
+  });
+
+  it("reconnects the stable transcript URL when a later turn changes live from false to true", async () => {
+    const idle = {
+      id: "idle-history",
+      role: "assistant",
+      ts: 1,
+      turnId: "input-idle",
+      revision: 1,
+      blocks: [{ type: "text", text: "Idle history" }],
+    };
+    await page.evaluate(
+      (events) => (window as any).__mountIdleStream(events),
+      [idle]
+    );
+    expect(await page.evaluate(() => (window as any).__sessionSources.length)).toBe(1);
+    expect(await page.evaluate(() => (window as any).__sessionSources[0].closed)).toBe(true);
+
+    await page.evaluate(() => (window as any).__setStreamLive(true));
+    await expect.poll(
+      () => page.evaluate(() => (window as any).__sessionSources.length),
+      { timeout: 2_000 }
+    ).toBe(2);
+    await page.evaluate((events) => {
+      (window as any).__sessionSource.onmessage({
+        data: JSON.stringify({ type: "init", available: true, live: true, events }),
+      });
+    }, [idle]);
+    await page.evaluate(
+      (events) => (window as any).__emitSession({ type: "snapshot", events }),
+      [{
+        ...idle,
+        id: "later-turn",
+        turnId: "input-later",
+        blocks: [{ type: "text", text: "Later live output" }],
+      }]
+    );
+
+    expect((await page.locator(".cc-session-live").textContent())?.trim()).toBe("live");
+    expect(await page.getByText("Idle history").count()).toBe(0);
+    expect(await page.getByText("Later live output").count()).toBe(1);
+  });
+
   it("keeps a restored standalone permission visible without inert answer buttons", async () => {
     const events = [{
       id: "standalone-permission",
@@ -254,7 +433,7 @@ describe("claude-chat canonical timeline in a real browser", () => {
       blocks: [{
         type: "permission_request",
         requestId: id,
-        generationId: `generation-${id}`,
+        generationId: "generation-active",
         name: "Bash",
         displayName: id === "one" ? "Release command" : "Audit command",
         input: { command: "printf '<script>literal</script>'" },
@@ -268,7 +447,7 @@ describe("claude-chat canonical timeline in a real browser", () => {
     await mount([
       permission("one", [{ type: "addRules", rules: ["Bash(printf:*)"] }]),
       permission("two"),
-    ], true, true);
+    ], true, true, "generation-active");
 
     const prompts = page.locator(".cc-session-permission");
     expect(await prompts.count()).toBe(2);
@@ -310,9 +489,43 @@ describe("claude-chat canonical timeline in a real browser", () => {
     await prompts.nth(0).getByRole("button", { name: "Retry Deny" }).click();
     await expect.poll(() => prompts.nth(0).locator(".cc-session-permission-submitted").textContent()).toContain("Answer sent");
     expect(await page.evaluate(() => (window as any).__permissionAnswers)).toEqual([
-      { requestId: "one", generationId: "generation-one", decision: "deny" },
-      { requestId: "one", generationId: "generation-one", decision: "deny" },
+      { requestId: "one", generationId: "generation-active", decision: "deny" },
+      { requestId: "one", generationId: "generation-active", decision: "deny" },
     ]);
+  });
+
+  it("keeps a stale-generation permission readable and non-actionable at 320px", async () => {
+    await mount([{
+      id: "stale-permission",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [{
+        type: "permission_request",
+        requestId: "request-before-restart",
+        generationId: "generation-before-restart",
+        name: "Bash",
+        displayName: "Recovered command",
+        input: { command: "deploy" },
+        inputComplete: true,
+        status: "pending",
+        suggestionsComplete: true,
+      }],
+    }], true, true, "generation-after-restart");
+
+    const prompt = page.locator(".cc-session-permission");
+    expect(await prompt.locator(".cc-session-permission-status").textContent()).toBe("No longer active");
+    expect(await prompt.locator(".cc-session-permission-readonly").textContent()).toContain("no longer active");
+    expect(await prompt.locator(".cc-session-permission-actions").count()).toBe(0);
+    const sizes = await prompt.evaluate((node) => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      client: node.clientWidth,
+      scroll: node.scrollWidth,
+    }));
+    expect(sizes.viewport).toBe(320);
+    expect(sizes.document).toBeLessThanOrEqual(320);
+    expect(sizes.scroll).toBeLessThanOrEqual(sizes.client);
   });
 
   it("gives standalone transcript actions 44px targets and a visible focus ring", async () => {

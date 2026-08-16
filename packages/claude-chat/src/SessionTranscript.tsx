@@ -54,6 +54,10 @@ export interface SessionEventTimelineProps {
   /** Chat-owned answer seam. Standalone transcript viewers omit it and retain a
    * complete, read-only record of pending permission prompts. */
   onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
+  /** The exact parent turn generation that may still accept a permission
+   * decision. A pending block from any other/terminal generation stays visible
+   * as history but never renders actionable controls. */
+  permissionGenerationId?: string;
 }
 
 function displayJsonValue(value: unknown): string {
@@ -260,9 +264,11 @@ function permissionDecisionLabel(decision: PermissionDecision | undefined): stri
 function PermissionBlock({
   block,
   onPermissionDecision,
+  activeGenerationId,
 }: {
   block: SessionBlock;
   onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
+  activeGenerationId?: string;
 }) {
   const headingId = React.useId();
   const feedbackId = React.useId();
@@ -283,7 +289,12 @@ function PermissionBlock({
   const inputComplete = block.inputComplete === true;
   const suggestionsComplete = block.suggestionsComplete === true;
   const canAlwaysAllow = inputComplete && suggestionsComplete && hasSuggestions;
-  const canSubmit = status === "pending" && Boolean(requestId && generationId && onPermissionDecision);
+  const belongsToActiveGeneration = Boolean(
+    activeGenerationId && generationId && activeGenerationId === generationId
+  );
+  const canSubmit = status === "pending" && belongsToActiveGeneration && Boolean(
+    requestId && generationId && onPermissionDecision
+  );
   const [submitting, setSubmitting] = useState<PermissionDecision | null>(null);
   const [submitted, setSubmitted] = useState<PermissionDecision | null>(null);
   const [failed, setFailed] = useState<{ decision: PermissionDecision; message: string } | null>(null);
@@ -296,7 +307,7 @@ function PermissionBlock({
     setSubmitted(null);
     setFailed(null);
     decisionLockedRef.current = false;
-  }, [requestId, generationId, status, block.decision]);
+  }, [requestId, generationId, status, block.decision, activeGenerationId]);
 
   const decide = async (decision: PermissionDecision) => {
     if (!canSubmit || decisionLockedRef.current || submitting || submitted || !onPermissionDecision) return;
@@ -339,7 +350,9 @@ function PermissionBlock({
         : "Full persistent permission changes were not retained for this historical request."
       : "";
   const statusLabel = status === "pending"
-    ? !inputComplete
+    ? onPermissionDecision && !belongsToActiveGeneration
+      ? "No longer active"
+      : !inputComplete
       ? "Approval unavailable"
       : submitted
       ? "Awaiting confirmation"
@@ -403,6 +416,9 @@ function PermissionBlock({
       {status === "pending" && onPermissionDecision && (!requestId || !generationId) && (
         <p className="cc-session-permission-readonly">This request is missing its secure answer coordinates and cannot be answered here.</p>
       )}
+      {status === "pending" && onPermissionDecision && requestId && generationId && !belongsToActiveGeneration && (
+        <p className="cc-session-permission-readonly">This permission request is no longer active and cannot be answered.</p>
+      )}
       {!status && (
         <p className="cc-session-permission-readonly">This request has an invalid status and cannot be answered here.</p>
       )}
@@ -461,6 +477,7 @@ function ActivityTimeline({
   onImage,
   renderMarkdown,
   onPermissionDecision,
+  permissionGenerationId,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -472,6 +489,7 @@ function ActivityTimeline({
   onImage: (image: SessionImage, label: string) => void;
   renderMarkdown?: (text: string) => string;
   onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
+  permissionGenerationId?: string;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -514,7 +532,14 @@ function ActivityTimeline({
           return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
         }
         if (beat.type === "permission_request") {
-          return <PermissionBlock key={key} block={block} onPermissionDecision={onPermissionDecision} />;
+          return (
+            <PermissionBlock
+              key={key}
+              block={block}
+              onPermissionDecision={onPermissionDecision}
+              activeGenerationId={live ? permissionGenerationId : undefined}
+            />
+          );
         }
         return (
           <ToolBlock
@@ -541,6 +566,7 @@ export function SessionEventTimeline({
   className = "",
   renderMarkdown,
   onPermissionDecision,
+  permissionGenerationId,
 }: SessionEventTimelineProps) {
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [, setHostMapReady] = useState(false);
@@ -598,6 +624,7 @@ export function SessionEventTimeline({
         onImage={(image, label) => setModalImage({ image, label })}
         renderMarkdown={renderMarkdown}
         onPermissionDecision={onPermissionDecision}
+        permissionGenerationId={permissionGenerationId}
       />
       {terminalText && !terminalDuplicatesText && (
         <div className="cc-session-terminal-text cc-session-markdown">
@@ -766,7 +793,14 @@ export function SessionStream({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const liveRef = useRef(live);
+  const previousLiveRef = useRef(live);
   liveRef.current = live;
+
+  useEffect(() => {
+    const becameLive = live && !previousLiveRef.current;
+    previousLiveRef.current = live;
+    if (becameLive) setRetryToken((value) => value + 1);
+  }, [live]);
 
   useEffect(() => {
     let alive = true;
@@ -781,10 +815,12 @@ export function SessionStream({
     setRelatedView(null);
     stickRef.current = true;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let sawAvailable = false;
     const retryWhileLive = () => {
       if (!liveRef.current || retryTimer) return;
-      retryTimer = setTimeout(() => setRetryToken((value) => value + 1), 900);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (liveRef.current) setRetryToken((value) => value + 1);
+      }, 900);
     };
     const source = new EventSource(url);
     source.onmessage = (message) => {
@@ -798,23 +834,31 @@ export function SessionStream({
         setEvents(Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
-        sawAvailable = payload.available !== false;
         setStatus(nextStatus);
         if (payload.available === false) retryWhileLive();
       } else if (payload.type === "events") {
         if (payload.title) setTitle(String(payload.title));
         const incoming = Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : [];
         if (incoming.length) setEvents((current) => mergeSessionEvents(current, incoming));
+      } else if (payload.type === "snapshot") {
+        // Recovery can discover an event whose canonical position precedes rows
+        // the browser already has. An append/upsert delta cannot express that
+        // insertion (and cannot remove a recovered row that disappeared), so the
+        // thread stream may send one authoritative, already-reconciled ordering.
+        // Refuse malformed snapshots rather than accidentally clearing history.
+        if (!Array.isArray(payload.events)) return;
+        if (payload.title) setTitle(String(payload.title));
+        setEvents(payload.events.filter(isSessionEvent));
       } else if (payload.type === "end") {
         setStatus((current) => (current === "unavailable" ? current : "ended"));
         source.close();
-        if (!sawAvailable) retryWhileLive();
+        retryWhileLive();
       }
     };
     source.onerror = () => {
       setStatus((current) => (current === "unavailable" ? current : "ended"));
       source.close();
-      if (!sawAvailable) retryWhileLive();
+      retryWhileLive();
     };
     return () => {
       source.close();

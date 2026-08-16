@@ -719,6 +719,7 @@ export function QuestionBlock({
   answered,
   answering,
   error,
+  active = true,
   onSelect,
   onOther,
 }: {
@@ -726,12 +727,13 @@ export function QuestionBlock({
   answered?: string;
   answering?: boolean;
   error?: string;
+  active?: boolean;
   onSelect: (label: string) => void;
   onOther: (text: string) => void;
 }) {
   const [otherOpen, setOtherOpen] = useState(false);
   const [otherText, setOtherText] = useState("");
-  const locked = Boolean(answered) || Boolean(answering);
+  const locked = !active || Boolean(answered) || Boolean(answering);
   const title = q.header?.trim() || q.question?.trim() || "Choose an option";
   const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title;
   return (
@@ -784,7 +786,10 @@ export function QuestionBlock({
         </div>
       )}
       {answered && <div className="cc-user cc-question-answer">{answered}</div>}
-      {error && <div className="cc-question-error" role="alert">{error}</div>}
+      {!active && !answered && (
+        <div className="cc-question-inactive">This question is no longer active and cannot be answered.</div>
+      )}
+      {active && error && <div className="cc-question-error" role="alert">{error}</div>}
     </div>
   );
 }
@@ -1658,7 +1663,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         }
         case "input": {
           if (INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
-          setTurns((prev) => applyInputLifecycle(prev, ev));
+          setTurns((prev) => {
+            const next = applyInputLifecycle(prev, ev);
+            if (INPUT_STATE_ORDER[ev.state] !== 4) return next;
+            return applyGeneratedTurn(next, ev, (turn) => ({
+              ...turn,
+              ...(ev.state === "failed" ? { answered: undefined } : {}),
+              answering: false,
+              questionError: undefined,
+            }));
+          });
           setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
@@ -1676,6 +1690,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               inputReason: ev.message,
               activity: "",
               stopError: undefined,
+              answered: undefined,
+              answering: false,
+              questionError: undefined,
             })));
             setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: ev.message }));
           } else {
@@ -2220,7 +2237,13 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   // chosen value renders as the user's message and the buttons disable; the gateway
   // drives the live TUI picker and the reply continues streaming into the same turn.
   const answerQuestion = useCallback(
-    (turnId: string, toolUseId: string, choice: { label?: string; text?: string }) => {
+    (turn: Turn, toolUseId: string, choice: { label?: string; text?: string }) => {
+      const generatedQuestion = Boolean(turn.inputState);
+      const active = generatedQuestion
+        ? isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn)
+        : turn.streaming;
+      if (!active) return;
+      const turnId = turn.id;
       const chosen = choice.label ?? choice.text ?? "";
       setTurns((prev) => prev.map((t) => (
         t.id === turnId && t.question?.toolUseId === toolUseId
@@ -2258,7 +2281,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             : t
         ))));
     },
-    [transport]
+    [transport, isRememberedTerminalCoordinate]
   );
 
   // ── Turn Rail: pin a dimension for the NEXT message ──
@@ -2547,8 +2570,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     events={t.sessionEvents}
                     live={t.streaming}
                     renderMarkdown={renderAssistantMarkdown}
+                    permissionGenerationId={isActiveInputState(t.inputState) ? t.generationId : undefined}
                     onPermissionDecision={transport.answerPermission
-                      ? (answer) => transport.answerPermission!(answer)
+                      ? (answer) => {
+                          if (
+                            !isActiveInputState(t.inputState) ||
+                            !t.generationId ||
+                            answer.generationId !== t.generationId ||
+                            isRememberedTerminalCoordinate(t)
+                          ) {
+                            return Promise.reject(new Error("permission request is no longer active"));
+                          }
+                          return transport.answerPermission!(answer);
+                        }
                       : undefined}
                   />
                 ) : (
@@ -2586,8 +2620,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     answered={t.answered}
                     answering={t.answering}
                     error={t.questionError}
-                    onSelect={(label) => answerQuestion(t.id, t.question!.toolUseId, { label })}
-                    onOther={(text) => answerQuestion(t.id, t.question!.toolUseId, { text })}
+                    active={t.inputState ? isActiveInputState(t.inputState) : t.streaming}
+                    onSelect={(label) => answerQuestion(t, t.question!.toolUseId, { label })}
+                    onOther={(text) => answerQuestion(t, t.question!.toolUseId, { text })}
                   />
                 )}
                 {/* Per-message actions: copy (always) + read-aloud (voice) + a subtle

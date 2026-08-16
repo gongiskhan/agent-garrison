@@ -345,6 +345,7 @@ describe("claude-chat canonical session events", () => {
       events,
       live: true,
       onPermissionDecision: async () => {},
+      permissionGenerationId: "generation-7",
     }));
 
     expect(html.indexOf("Before permission.")).toBeLessThan(html.indexOf("Run the release check?"));
@@ -433,7 +434,9 @@ describe("claude-chat canonical session events", () => {
           suggestionsComplete: true,
         }],
       }],
+      live: true,
       onPermissionDecision: async () => {},
+      permissionGenerationId: "generation-once-only",
     }));
     expect(html).toContain(">Deny<");
     expect(html).toContain(">Allow once<");
@@ -459,7 +462,9 @@ describe("claude-chat canonical session events", () => {
           suggestionsComplete: false,
         }],
       }],
+      live: true,
       onPermissionDecision: async () => {},
+      permissionGenerationId: "generation-incomplete",
     }));
 
     expect(html).toContain("Approval unavailable because the full request details cannot be shown.");
@@ -470,6 +475,34 @@ describe("claude-chat canonical session events", () => {
     expect(html).toContain(">Deny<");
     expect(html).toMatch(/<button type="button" disabled="" title="Unavailable because the full request details cannot be shown">Allow once<\/button>/);
     expect(html).not.toContain(">Always allow<");
+  });
+
+  it("keeps stale-generation pending permissions visible but non-actionable", () => {
+    const html = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "permission-before-restart",
+        role: "assistant",
+        ts: 1,
+        revision: 1,
+        blocks: [{
+          type: "permission_request",
+          requestId: "permission-before-restart",
+          generationId: "generation-before-restart",
+          name: "Bash",
+          input: '{"command":"deploy"}',
+          inputComplete: true,
+          status: "pending",
+          suggestionsComplete: true,
+        }],
+      }],
+      live: true,
+      onPermissionDecision: async () => {},
+      permissionGenerationId: "generation-after-restart",
+    }));
+
+    expect(html).toContain("No longer active");
+    expect(html).toContain("This permission request is no longer active and cannot be answered.");
+    expect(html).not.toContain('class="cc-session-permission-actions"');
   });
 
   it("warns when incomplete persistent changes were omitted entirely", () => {
@@ -490,7 +523,9 @@ describe("claude-chat canonical session events", () => {
           suggestionsComplete: false,
         }],
       }],
+      live: true,
       onPermissionDecision: async () => {},
+      permissionGenerationId: "generation-omitted-suggestions",
     }));
 
     expect(html).toContain("Persistent scope unavailable");

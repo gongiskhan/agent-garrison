@@ -194,4 +194,19 @@ describe("claude-chat: QuestionBlock", () => {
     // The Other affordance is gone once answered.
     expect(html).not.toContain("Other...");
   });
+
+  it("keeps an orphaned question readable without answer controls", async () => {
+    const { QuestionBlock } = await import("../packages/claude-chat/src/index");
+    const html = renderToStaticMarkup(
+      createElement(QuestionBlock, {
+        q: SPIKE_INPUT.questions[0] as any,
+        active: false,
+        onSelect: () => {},
+        onOther: () => {},
+      })
+    );
+    expect(html).toContain("This question is no longer active and cannot be answered.");
+    expect(html).toContain("disabled");
+    expect(html).not.toContain("Other...");
+  });
 });

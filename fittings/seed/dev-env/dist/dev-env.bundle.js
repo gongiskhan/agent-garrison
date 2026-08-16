@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/xterm/lib/xterm.js
+// node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
+// node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../../../node_modules/highlight.js/lib/core.js
+// node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
+  "node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_react9 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// ui/terminal-theme.ts
+// fittings/seed/dev-env/ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_react5 = __toESM(require_react());
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_react4 = __toESM(require_react(), 1);
 
-// ../../../node_modules/marked/lib/marked.esm.js
+// node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// ../../../node_modules/highlight.js/es/core.js
+// node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// ../../../node_modules/highlight.js/es/languages/typescript.js
+// node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// ../../../node_modules/highlight.js/es/languages/javascript.js
+// node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/python.js
+// node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/bash.js
+// node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/json.js
+// node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/css.js
+// node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/xml.js
+// node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/markdown.js
+// node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/yaml.js
+// node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/sql.js
+// node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/rust.js
+// node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/go.js
+// node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/diff.js
+// node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// ../../../packages/claude-chat/src/journal.ts
+// packages/claude-chat/src/journal.ts
 var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
 function isSessionEvent(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -39859,6 +39859,13 @@ function sessionActivityBeats(events) {
 function groupSessionTurns(events) {
   const turns = [];
   let current = null;
+  let currentAssistantTurnId = null;
+  const assistantTurnId = (event) => {
+    if (typeof event.turnId === "number" && Number.isFinite(event.turnId)) return String(event.turnId);
+    if (typeof event.turnId !== "string") return null;
+    const value = event.turnId.trim();
+    return value || null;
+  };
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index];
     if (event.role === "user" && !event.toolResultsOnly) {
@@ -39868,9 +39875,14 @@ function groupSessionTurns(events) {
         assistantEvents: []
       };
       turns.push(current);
+      currentAssistantTurnId = null;
       continue;
     }
     if (event.role !== "assistant") continue;
+    const eventTurnId = assistantTurnId(event);
+    if (current && current.userEvents.length === 0 && current.assistantEvents.length > 0 && currentAssistantTurnId !== null && eventTurnId !== null && currentAssistantTurnId !== eventTurnId) {
+      current = null;
+    }
     if (!current) {
       current = {
         key: event.id ? `assistant-turn-${event.id}` : `assistant-turn-${index}`,
@@ -39880,6 +39892,7 @@ function groupSessionTurns(events) {
       turns.push(current);
     }
     current.assistantEvents.push(event);
+    if (eventTurnId !== null) currentAssistantTurnId = eventTurnId;
   }
   return turns;
 }
@@ -40065,7 +40078,7 @@ function collectRelatedTasks(events, live = false) {
   return [...byKey.values()];
 }
 
-// ../../../packages/claude-chat/src/transport.ts
+// packages/claude-chat/src/transport.ts
 var CHAT_INPUT_STATES = /* @__PURE__ */ new Set([
   "queued",
   "starting",
@@ -40182,10 +40195,10 @@ function createHttpTransport(base = "/api", opts) {
   };
 }
 
-// ../../../packages/claude-chat/src/AttributionRail.tsx
+// packages/claude-chat/src/AttributionRail.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// ../../../packages/claude-chat/src/run-context.ts
+// packages/claude-chat/src/run-context.ts
 function effortState(route) {
   const effort = str(route.effort);
   if (!effort) return null;
@@ -40376,7 +40389,7 @@ function railBadges(route) {
   return badges;
 }
 
-// ../../../packages/claude-chat/src/AttributionRail.tsx
+// packages/claude-chat/src/AttributionRail.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var BADGE_FIELDS = {
   duty: ["duty", "level"],
@@ -41011,7 +41024,7 @@ function AttributionRail({
   ] });
 }
 
-// ../../../packages/claude-chat/src/chat-theme.ts
+// packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -41078,7 +41091,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// ../../../packages/claude-chat/src/voice.ts
+// packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -41121,7 +41134,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// ../../../packages/claude-chat/src/sanitize.ts
+// packages/claude-chat/src/sanitize.ts
 function sanitizeAssistantBadges(raw) {
   const input = typeof raw === "string" ? raw : "";
   const meta = {};
@@ -41199,7 +41212,7 @@ function routeChipFromAttribution(route) {
   return { label, title: title2 || void 0 };
 }
 
-// ../../../packages/claude-chat/src/host-rewrite.ts
+// packages/claude-chat/src/host-rewrite.ts
 var LOOPBACK = /^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i;
 function rewriteHostUrl(raw, ctx) {
   if (!raw || !LOOPBACK.test(raw)) return raw;
@@ -41278,7 +41291,7 @@ function filePathMarkedExtension() {
   };
 }
 
-// ../../../packages/claude-chat/src/markdown-safety.ts
+// packages/claude-chat/src/markdown-safety.ts
 var serveMap = {};
 var hostMapPromise = null;
 function loadHostMap() {
@@ -41337,7 +41350,7 @@ function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
   });
 }
 
-// ../../../packages/claude-chat/src/SessionTranscript.tsx
+// packages/claude-chat/src/SessionTranscript.tsx
 var React2 = __toESM(require_react(), 1);
 var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
@@ -41523,7 +41536,8 @@ function permissionDecisionLabel(decision) {
 }
 function PermissionBlock({
   block: block2,
-  onPermissionDecision
+  onPermissionDecision,
+  activeGenerationId
 }) {
   const headingId = React2.useId();
   const feedbackId = React2.useId();
@@ -41542,7 +41556,12 @@ function PermissionBlock({
   const inputComplete = block2.inputComplete === true;
   const suggestionsComplete = block2.suggestionsComplete === true;
   const canAlwaysAllow = inputComplete && suggestionsComplete && hasSuggestions;
-  const canSubmit = status === "pending" && Boolean(requestId && generationId && onPermissionDecision);
+  const belongsToActiveGeneration = Boolean(
+    activeGenerationId && generationId && activeGenerationId === generationId
+  );
+  const canSubmit = status === "pending" && belongsToActiveGeneration && Boolean(
+    requestId && generationId && onPermissionDecision
+  );
   const [submitting, setSubmitting] = (0, import_react3.useState)(null);
   const [submitted, setSubmitted] = (0, import_react3.useState)(null);
   const [failed, setFailed] = (0, import_react3.useState)(null);
@@ -41554,7 +41573,7 @@ function PermissionBlock({
     setSubmitted(null);
     setFailed(null);
     decisionLockedRef.current = false;
-  }, [requestId, generationId, status, block2.decision]);
+  }, [requestId, generationId, status, block2.decision, activeGenerationId]);
   const decide = async (decision) => {
     if (!canSubmit || decisionLockedRef.current || submitting || submitted || !onPermissionDecision) return;
     if (decision === "allow_once" && !inputComplete) return;
@@ -41578,7 +41597,7 @@ function PermissionBlock({
   };
   const scope = block2.decision === "allow_always" ? "Future matching requests, using the saved changes below" : status === "pending" && hasSuggestions && suggestionsComplete ? "Allow once: this request \xB7 Always allow: future matching requests" : status === "pending" && !suggestionsComplete ? "Allow once: this request \xB7 Persistent scope unavailable" : "This request only";
   const completenessMessage = !inputComplete ? status === "pending" ? "Approval unavailable because the full request details cannot be shown. You can still deny this request." : "Full request details were not retained, so this historical decision cannot be independently reviewed." : !suggestionsComplete ? status === "pending" ? "Always allow is unavailable because the full persistent permission changes cannot be shown. You can allow once or deny." : "Full persistent permission changes were not retained for this historical request." : "";
-  const statusLabel = status === "pending" ? !inputComplete ? "Approval unavailable" : submitted ? "Awaiting confirmation" : "Awaiting your decision" : status === "cancelled" ? "Cancelled" : status === "resolved" ? permissionDecisionLabel(block2.decision) : "Unavailable";
+  const statusLabel = status === "pending" ? onPermissionDecision && !belongsToActiveGeneration ? "No longer active" : !inputComplete ? "Approval unavailable" : submitted ? "Awaiting confirmation" : "Awaiting your decision" : status === "cancelled" ? "Cancelled" : status === "resolved" ? permissionDecisionLabel(block2.decision) : "Unavailable";
   const buttonLabel = (decision, label) => failed?.decision === decision ? `Retry ${label}` : label;
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
     "section",
@@ -41628,6 +41647,7 @@ function PermissionBlock({
         completenessMessage && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { id: completenessId, className: "cc-session-permission-warning", children: completenessMessage }),
         status === "pending" && !onPermissionDecision && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "Return to chat to answer this permission request." }),
         status === "pending" && onPermissionDecision && (!requestId || !generationId) && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "This request is missing its secure answer coordinates and cannot be answered here." }),
+        status === "pending" && onPermissionDecision && requestId && generationId && !belongsToActiveGeneration && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "This permission request is no longer active and cannot be answered." }),
         !status && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "This request has an invalid status and cannot be answered here." }),
         status === "pending" && canSubmit && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
           "div",
@@ -41689,7 +41709,8 @@ function ActivityTimeline({
   progressByToolUse,
   onImage,
   renderMarkdown,
-  onPermissionDecision
+  onPermissionDecision,
+  permissionGenerationId
 }) {
   const beats = sessionActivityBeats(events);
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: `cc-session-activity${live ? " is-live" : ""}`, children: beats.map((beat) => {
@@ -41729,7 +41750,15 @@ function ActivityTimeline({
       return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ThinkingBlock, { block: block2, active: live && activeThinkingBlock === block2 }, key);
     }
     if (beat.type === "permission_request") {
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PermissionBlock, { block: block2, onPermissionDecision }, key);
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        PermissionBlock,
+        {
+          block: block2,
+          onPermissionDecision,
+          activeGenerationId: live ? permissionGenerationId : void 0
+        },
+        key
+      );
     }
     return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ToolBlock,
@@ -41749,7 +41778,8 @@ function SessionEventTimeline({
   live = false,
   className = "",
   renderMarkdown,
-  onPermissionDecision
+  onPermissionDecision,
+  permissionGenerationId
 }) {
   const [modalImage, setModalImage] = (0, import_react3.useState)(null);
   const [, setHostMapReady] = (0, import_react3.useState)(false);
@@ -41812,7 +41842,8 @@ function SessionEventTimeline({
             progressByToolUse,
             onImage: (image, label) => setModalImage({ image, label }),
             renderMarkdown,
-            onPermissionDecision
+            onPermissionDecision,
+            permissionGenerationId
           }
         ),
         terminalText && !terminalDuplicatesText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: terminalText, role: "assistant", renderMarkdown }) }),
@@ -41981,7 +42012,13 @@ function SessionStream({
   const scrollRef = (0, import_react3.useRef)(null);
   const stickRef = (0, import_react3.useRef)(true);
   const liveRef = (0, import_react3.useRef)(live);
+  const previousLiveRef = (0, import_react3.useRef)(live);
   liveRef.current = live;
+  (0, import_react3.useEffect)(() => {
+    const becameLive = live && !previousLiveRef.current;
+    previousLiveRef.current = live;
+    if (becameLive) setRetryToken((value) => value + 1);
+  }, [live]);
   (0, import_react3.useEffect)(() => {
     let alive = true;
     void loadHostMap().then(() => {
@@ -41998,10 +42035,12 @@ function SessionStream({
     setRelatedView(null);
     stickRef.current = true;
     let retryTimer = null;
-    let sawAvailable = false;
     const retryWhileLive = () => {
       if (!liveRef.current || retryTimer) return;
-      retryTimer = setTimeout(() => setRetryToken((value) => value + 1), 900);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (liveRef.current) setRetryToken((value) => value + 1);
+      }, 900);
     };
     const source = new EventSource(url);
     source.onmessage = (message) => {
@@ -42015,23 +42054,26 @@ function SessionStream({
         setEvents(Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
-        sawAvailable = payload.available !== false;
         setStatus(nextStatus);
         if (payload.available === false) retryWhileLive();
       } else if (payload.type === "events") {
         if (payload.title) setTitle(String(payload.title));
         const incoming = Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : [];
         if (incoming.length) setEvents((current) => mergeSessionEvents(current, incoming));
+      } else if (payload.type === "snapshot") {
+        if (!Array.isArray(payload.events)) return;
+        if (payload.title) setTitle(String(payload.title));
+        setEvents(payload.events.filter(isSessionEvent));
       } else if (payload.type === "end") {
         setStatus((current) => current === "unavailable" ? current : "ended");
         source.close();
-        if (!sawAvailable) retryWhileLive();
+        retryWhileLive();
       }
     };
     source.onerror = () => {
       setStatus((current) => current === "unavailable" ? current : "ended");
       source.close();
-      if (!sawAvailable) retryWhileLive();
+      retryWhileLive();
     };
     return () => {
       source.close();
@@ -42150,7 +42192,7 @@ function SessionStream({
   ] });
 }
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 var md2 = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -42549,12 +42591,13 @@ function QuestionBlock({
   answered,
   answering,
   error,
+  active = true,
   onSelect,
   onOther
 }) {
   const [otherOpen, setOtherOpen] = (0, import_react4.useState)(false);
   const [otherText, setOtherText] = (0, import_react4.useState)("");
-  const locked = Boolean(answered) || Boolean(answering);
+  const locked = !active || Boolean(answered) || Boolean(answering);
   const title2 = q.header?.trim() || q.question?.trim() || "Choose an option";
   const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title2;
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-question", role: "group", "aria-label": title2, children: [
@@ -42607,7 +42650,8 @@ function QuestionBlock({
       )
     ] }),
     answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user cc-question-answer", children: answered }),
-    error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-error", role: "alert", children: error })
+    !active && !answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-inactive", children: "This question is no longer active and cannot be answered." }),
+    active && error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-error", role: "alert", children: error })
   ] });
 }
 function InputLifecycleStatus({
@@ -43124,7 +43168,16 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
         }
         case "input": {
           if (INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
-          setTurns((prev) => applyInputLifecycle(prev, ev));
+          setTurns((prev) => {
+            const next = applyInputLifecycle(prev, ev);
+            if (INPUT_STATE_ORDER[ev.state] !== 4) return next;
+            return applyGeneratedTurn(next, ev, (turn) => ({
+              ...turn,
+              ...ev.state === "failed" ? { answered: void 0 } : {},
+              answering: false,
+              questionError: void 0
+            }));
+          });
           setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
@@ -43141,7 +43194,10 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
               inputState: "failed",
               inputReason: ev.message,
               activity: "",
-              stopError: void 0
+              stopError: void 0,
+              answered: void 0,
+              answering: false,
+              questionError: void 0
             })));
             setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: ev.message }));
           } else {
@@ -43601,7 +43657,11 @@ ${full}` : full;
     [transport]
   );
   const answerQuestion = (0, import_react4.useCallback)(
-    (turnId, toolUseId, choice) => {
+    (turn, toolUseId, choice) => {
+      const generatedQuestion = Boolean(turn.inputState);
+      const active = generatedQuestion ? isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn) : turn.streaming;
+      if (!active) return;
+      const turnId = turn.id;
       const chosen = choice.label ?? choice.text ?? "";
       setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answered: chosen, answering: true, questionError: void 0 } : t));
       const fn = transport.answerQuestion;
@@ -43621,7 +43681,7 @@ ${full}` : full;
         questionError: "Could not send the answer. Please try again."
       } : t)));
     },
-    [transport]
+    [transport, isRememberedTerminalCoordinate]
   );
   const applyPin = (0, import_react4.useCallback)(
     (patch) => {
@@ -43846,7 +43906,13 @@ ${full}` : full;
                   events: t.sessionEvents,
                   live: t.streaming,
                   renderMarkdown: renderAssistantMarkdown,
-                  onPermissionDecision: transport.answerPermission ? (answer) => transport.answerPermission(answer) : void 0
+                  permissionGenerationId: isActiveInputState(t.inputState) ? t.generationId : void 0,
+                  onPermissionDecision: transport.answerPermission ? (answer) => {
+                    if (!isActiveInputState(t.inputState) || !t.generationId || answer.generationId !== t.generationId || isRememberedTerminalCoordinate(t)) {
+                      return Promise.reject(new Error("permission request is no longer active"));
+                    }
+                    return transport.answerPermission(answer);
+                  } : void 0
                 }
               ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: renderChatMarkdown(clean.text || "") } }),
               legacyFallback && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
@@ -43877,8 +43943,9 @@ ${full}` : full;
                   answered: t.answered,
                   answering: t.answering,
                   error: t.questionError,
-                  onSelect: (label) => answerQuestion(t.id, t.question.toolUseId, { label }),
-                  onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
+                  active: t.inputState ? isActiveInputState(t.inputState) : t.streaming,
+                  onSelect: (label) => answerQuestion(t, t.question.toolUseId, { label }),
+                  onOther: (text) => answerQuestion(t, t.question.toolUseId, { text })
                 }
               ),
               actionText.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-msgactions", children: [
@@ -44275,7 +44342,7 @@ ${full}` : full;
   ] });
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react5.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -44289,7 +44356,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// ui/browser-pane.tsx
+// fittings/seed/dev-env/ui/browser-pane.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -44623,10 +44690,10 @@ function BrowserPane({
   ] });
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_react7 = __toESM(require_react());
 
-// ui/session-request.ts
+// fittings/seed/dev-env/ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "operative", label: "Operative \u2014 Orchestrator identity (default)" },
   { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
@@ -44649,7 +44716,7 @@ function buildSessionRequest({
   return body;
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -44857,7 +44924,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "toast", children: message });
 }
 
-// ui/session-panels.tsx
+// fittings/seed/dev-env/ui/session-panels.tsx
 var import_react8 = __toESM(require_react());
 var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 function basename2(p) {
@@ -44976,7 +45043,7 @@ function SessionsPanel({
   ] });
 }
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_jsx_runtime9 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {

@@ -368,6 +368,54 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
     expect(bare.routingRejected).toEqual([]);
     expect(bare.turnSeq).toBe(null);
   });
+
+  it("accepts only a complete exact Agent SDK resume attribution and rejects incompatible generations", () => {
+    const candidate = {
+      sessionId: "resume-session-1",
+      route: "sdk-haiku-chat",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      effort: "high",
+      account: "work",
+      accountSource: "target",
+      projectPath: "/work/project",
+    };
+    expect(gw.sanitizeAgentSdkResume(candidate)).toEqual(candidate);
+    expect(gw.routeHintsFromBody({ agentSdkResume: candidate }).agentSdkResume).toEqual(candidate);
+    expect(gw.routeHintsFromBody({ agentSdkNewGeneration: true }).agentSdkNewGeneration).toBe(true);
+    expect(gw.routeHintsFromBody({ agentSdkNewGeneration: "true" }).agentSdkNewGeneration).toBe(false);
+    for (const malformed of [
+      { ...candidate, extra: true },
+      { ...candidate, sessionId: "../foreign" },
+      { ...candidate, runtime: "claude-code" },
+      { ...candidate, effort: "ultra" },
+      { ...candidate, projectPath: "relative/project" },
+      Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== "accountSource")),
+    ]) {
+      expect(gw.sanitizeAgentSdkResume(malformed)).toBe(null);
+    }
+
+    const pre = preFixture({
+      projectPath: "/work/project",
+      route: {
+        targetId: "sdk-haiku-chat",
+        target: {
+          id: "sdk-haiku-chat",
+          runtime: "agent-sdk",
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          effort: "high",
+          account: "work",
+        },
+        role: "fast",
+      },
+    });
+    expect(gw.compatibleAgentSdkResumeSessionId(candidate, pre, {})).toBe("resume-session-1");
+    expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, model: "claude-sonnet-4-6" }, pre, {})).toBe(null);
+    expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, account: "personal" }, pre, {})).toBe(null);
+    expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, projectPath: "/work/other" }, pre, {})).toBe(null);
+  });
 });
 
 describe("the effort vocabulary cannot drift from dutyEfforts", () => {
@@ -997,6 +1045,78 @@ describe("streamed Web generation interrupt control", () => {
     expect(currentStop).not.toHaveBeenCalled();
   });
 
+  it("recovers a claimed generation only through its exact durable Web input id", () => {
+    const control = gw.createGenerationTurnControlPlane();
+    const claimed = control.claim("thread-restart", "generation-restart", {
+      lane: "agent-sdk",
+      inputId: "input-restart",
+    });
+    expect(claimed.status).toBe(201);
+    expect(control.lookupInput({ threadId: "thread-restart", inputId: "input-restart" })).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        threadId: "thread-restart",
+        inputId: "input-restart",
+        generationId: "generation-restart",
+        lane: "agent-sdk",
+        state: "starting",
+      },
+    });
+    expect(control.lookupInput({ threadId: "thread-restart", inputId: "input-foreign" }))
+      .toMatchObject({ status: 409, body: { code: "thread_input_generation_conflict" } });
+    expect(control.lookupInput({ threadId: "thread-foreign", inputId: "input-restart" }))
+      .toMatchObject({ status: 404, body: { code: "input_generation_unavailable" } });
+    expect(control.lookupInput({ threadId: "thread-restart", inputId: "input-restart", extra: true }))
+      .toMatchObject({ status: 400 });
+    expect(control.claim("thread-invalid", "generation-invalid", { inputId: "bad\ninput" }))
+      .toMatchObject({ status: 400, body: { code: "invalid_turn_generation" } });
+
+    expect(control.release(claimed.entry)).toBe(true);
+    expect(control.lookupInput({ threadId: "thread-restart", inputId: "input-restart" }))
+      .toMatchObject({ status: 404, body: { code: "input_generation_unavailable" } });
+  });
+
+  it("holds a recovered generation through its runtime reset before admitting a successor", async () => {
+    const control = gw.createGenerationTurnControlPlane();
+    const claimed = control.claim("thread-recovery", "generation-recovery", {
+      lane: "agent-sdk",
+      inputId: "input-recovery",
+    });
+    const stop = vi.fn(() => true);
+    control.registerStop(claimed.entry, "agent-sdk", stop);
+    let announceReset!: () => void;
+    const resetStarted = new Promise<void>((resolve) => { announceReset = resolve; });
+    let finishReset!: () => void;
+    const allowReset = new Promise<void>((resolve) => { finishReset = resolve; });
+    const reset = vi.fn(async () => {
+      announceReset();
+      await allowReset;
+    });
+    expect(control.registerRecoveryReset(claimed.entry, reset)).toBe(true);
+
+    expect(await control.recoverInput({ threadId: "thread-recovery", inputId: "input-recovery" }))
+      .toMatchObject({
+        status: 200,
+        body: { stopped: true, generationId: "generation-recovery" },
+      });
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(control.release(claimed.entry)).toBe(true);
+    await resetStarted;
+    expect(control.lookupInput({ threadId: "thread-recovery", inputId: "input-recovery" }))
+      .toMatchObject({ status: 200, body: { state: "releasing" } });
+    expect(control.claim("thread-recovery", "generation-successor", { inputId: "input-successor" }))
+      .toMatchObject({ status: 409, body: { code: "thread_generation_conflict" } });
+
+    finishReset();
+    await vi.waitFor(() => expect(
+      control.lookupInput({ threadId: "thread-recovery", inputId: "input-recovery" }).status,
+    ).toBe(404));
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(control.claim("thread-recovery", "generation-successor", { inputId: "input-successor" }).status)
+      .toBe(201);
+  });
+
   it("parses Web and legacy interrupt bodies as a strict, fail-closed union", async () => {
     const control = gw.createGenerationTurnControlPlane();
     const legacyStop = vi.fn(() => true);
@@ -1155,7 +1275,7 @@ class FakeAgentSdk {
     const generated = `sdk-${this.spawned.length}`;
     return {
       alive: true,
-      sessionId: this.initialSessionId === undefined ? generated : this.initialSessionId,
+      sessionId: this.initialSessionId === undefined ? (cfg.sessionId ?? generated) : this.initialSessionId,
       harness: { promptMode: cfg.promptMode },
       config: cfg
     };
@@ -1238,6 +1358,8 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       sessionKey: "credential-thread",
       streamingInput: true,
       generationId: "credential-generation-2",
+      resumeSessionId: first.session_id,
+      coldStartContext: "durable credential-thread history",
     });
 
     expect(adapter.spawned).toHaveLength(2);
@@ -1245,6 +1367,8 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     await vi.waitFor(() => expect(adapter.tornDown).toContain(first.session_id));
     expect(adapter.cancelled).toEqual([]); // standing Query retirement closes; it does not interrupt
     expect(gateway._agentSdkSessions.size).toBe(1);
+    expect(adapter.spawned[1]).not.toHaveProperty("sessionId");
+    expect(adapter.turns.at(-1)).toBe("durable credential-thread history\n\n---\n\nsecond");
     const cacheIdentity = [...gateway._agentSdkSessions.keys()].join("\n");
     expect(cacheIdentity).not.toContain("token-version-one");
     expect(cacheIdentity).not.toContain("token-version-two");
@@ -1295,6 +1419,77 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     ]);
     expect(result.session_id).toBe("sdk-fresh");
     expect(typeof adapter.hooks[0].onSession).toBe("function");
+  });
+
+  it("reports the persisted and provider-refined ids in order when cold-resuming a standing Query", async () => {
+    const adapter = new FakeAgentSdk();
+    adapter.systemSessionId = "sdk-resumed-refined";
+    const journals: any[] = [];
+    const gateway = bareGateway(adapter);
+    const result = await gateway.runAgentSdkTurn(sdkRoute(), "continue exactly once", undefined, {
+      sessionKey: "thread-process-restart",
+      streamingInput: true,
+      generationId: "generation-process-restart",
+      resumeSessionId: "sdk-persisted",
+      coldStartContext: "durable history that native resume already owns",
+      onJournal: (identity: any) => journals.push(identity),
+    });
+
+    expect(adapter.spawned[0]).toMatchObject({ sessionId: "sdk-persisted", streamingInput: true });
+    expect(adapter.turns).toEqual(["continue exactly once"]);
+    expect(journals.map((identity) => identity.session_id)).toEqual(["sdk-persisted", "sdk-resumed-refined"]);
+    expect(result.session_id).toBe("sdk-resumed-refined");
+  });
+
+  it("abandons a recovered SDK journal and cold-materializes the successor", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    let recoverReset: null | (() => Promise<void>) = null;
+    const first = await gateway.runAgentSdkTurn(sdkRoute(), "orphaned input", undefined, {
+      sessionKey: "thread-host-recovery",
+      streamingInput: true,
+      generationId: "generation-host-recovery-1",
+      registerRecoveryReset: (reset: () => Promise<void>) => { recoverReset = reset; },
+    });
+    expect(recoverReset).toBeTypeOf("function");
+    await recoverReset!();
+    expect(adapter.tornDown).toContain(first.session_id);
+
+    const successor = await gateway.runAgentSdkTurn(sdkRoute(), "safe successor", undefined, {
+      sessionKey: "thread-host-recovery",
+      streamingInput: true,
+      generationId: "generation-host-recovery-2",
+      resumeSessionId: first.session_id,
+      coldStartContext: "durable history excluding orphan",
+    });
+    expect(adapter.spawned.at(-1)).not.toHaveProperty("sessionId");
+    expect(adapter.turns.at(-1)).toBe("durable history excluding orphan\n\n---\n\nsafe successor");
+    expect(successor.session_id).not.toBe(first.session_id);
+  });
+
+  it("treats a durable generation barrier as stronger than a same-thread warm Query", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const first = await gateway.runAgentSdkTurn(sdkRoute(), "first", undefined, {
+      sessionKey: "thread-durable-barrier",
+      streamingInput: true,
+      generationId: "generation-durable-barrier-1",
+      coldStartContext: "durable before first",
+    });
+    const successor = await gateway.runAgentSdkTurn(sdkRoute(), "after recovered orphan", undefined, {
+      sessionKey: "thread-durable-barrier",
+      streamingInput: true,
+      generationId: "generation-durable-barrier-2",
+      resumeSessionId: first.session_id,
+      forceNewSession: true,
+      coldStartContext: "durable excluding recovered orphan",
+    });
+
+    expect(adapter.tornDown).toContain(first.session_id);
+    expect(adapter.spawned).toHaveLength(2);
+    expect(adapter.spawned.at(-1)).not.toHaveProperty("sessionId");
+    expect(adapter.turns.at(-1)).toBe("durable excluding recovered orphan\n\n---\n\nafter recovered orphan");
+    expect(successor.session_id).not.toBe(first.session_id);
   });
 
   it("caps the warm map and releases the evicted session WITHOUT relying on teardown", async () => {
@@ -1380,6 +1575,81 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     await standingTurn("thread-a", "third", "generation-a-3", "durable A through second");
     expect(adapter.spawned).toHaveLength(spawnsBeforeReturn + 1);
     expect(adapter.turns.at(-1)).toBe("durable A through second\n\n---\n\nthird");
+  });
+
+  it("natively resumes an evicted standing Query and does not duplicate durable context", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const turn = (sessionKey: string, message: string, generationId: string, extra: Record<string, unknown> = {}) =>
+      gateway.runAgentSdkTurn(sdkRoute(), message, undefined, {
+        sessionKey,
+        streamingInput: true,
+        generationId,
+        coldStartContext: `durable ${sessionKey}`,
+        ...extra,
+      });
+
+    const first = await turn("resume-a", "first", "resume-generation-a-1");
+    for (let index = 0; index < AGENT_SDK_SESSION_CAP; index += 1) {
+      await turn(`resume-pressure-${index}`, `pressure ${index}`, `resume-pressure-generation-${index}`);
+    }
+    expect(adapter.tornDown).toContain(first.session_id);
+
+    const resumed = await turn("resume-a", "after eviction", "resume-generation-a-2", {
+      resumeSessionId: first.session_id,
+    });
+    expect(adapter.spawned.at(-1)).toMatchObject({ sessionId: first.session_id, streamingInput: true });
+    expect(adapter.turns.at(-1)).toBe("after eviction");
+    expect(resumed.session_id).toBe(first.session_id);
+  });
+
+  it("does not resume a journal while its evicted standing Query is still tearing down", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const turn = (sessionKey: string, message: string, generationId: string, extra: Record<string, unknown> = {}) =>
+      gateway.runAgentSdkTurn(sdkRoute(), message, undefined, {
+        sessionKey,
+        streamingInput: true,
+        generationId,
+        coldStartContext: `durable ${sessionKey}`,
+        ...extra,
+      });
+
+    const first = await turn("release-a", "first", "release-generation-a-1");
+    for (let index = 0; index < AGENT_SDK_SESSION_CAP - 1; index += 1) {
+      await turn(`release-pressure-${index}`, `pressure ${index}`, `release-pressure-generation-${index}`);
+    }
+
+    let announceRelease!: () => void;
+    const releaseStarted = new Promise<void>((resolve) => { announceRelease = resolve; });
+    let finishRelease!: () => void;
+    const allowRelease = new Promise<void>((resolve) => { finishRelease = resolve; });
+    const originalTeardown = adapter.teardown.bind(adapter);
+    adapter.teardown = async (session: any) => {
+      if (session.sessionId === first.session_id) {
+        announceRelease();
+        await allowRelease;
+      }
+      return originalTeardown(session);
+    };
+
+    const overflowing = turn(
+      "release-overflow",
+      "overflow",
+      "release-overflow-generation",
+    );
+    await releaseStarted;
+    const resumed = await turn("release-a", "after eviction", "release-generation-a-2", {
+      resumeSessionId: first.session_id,
+    });
+    const resumedSpawn = adapter.spawned.at(-1);
+    const resumedMessage = adapter.turns.at(-1);
+    finishRelease();
+    await overflowing;
+
+    expect(resumedSpawn).not.toHaveProperty("sessionId");
+    expect(resumedMessage).toBe("durable release-a\n\n---\n\nafter eviction");
+    expect(resumed.session_id).not.toBe(first.session_id);
   });
 
   it("streams text through onChunk(replace) and turns tool_use into an activity payload", async () => {

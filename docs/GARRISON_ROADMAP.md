@@ -143,15 +143,27 @@ work.
   are reused per compatible conversation, with active-lane-safe LRU eviction;
   a cold replacement receives the bounded durable thread context once, while a
   warm turn does not receive duplicate history.
-- **Process-restart reconciliation for active Web inputs is the next durability
-  boundary, not an implicit replay.** In-process network failures, ambiguous
-  admissions, upstream protocol failures, and transient thread-store write
-  failures are retried or failed durably before the FIFO advances. A process
-  restart can still orphan a persisted `starting`/`running`/`stopping` input;
-  automatically rerunning it could repeat side effects, so current releases
-  must quiesce Web turns before a stop/start. The follow-up must atomically mark
-  orphaned active work failed (without replay), then resume only queued
-  successors and expose that recovery in the thread.
+- **Process-restart reconciliation for active Web inputs is explicit and never
+  replays uncertain work (implemented in the 2026-08-16 Web-parity
+  continuation; not deployed yet).** On startup, persisted
+  `starting`/`running`/`stopping` inputs atomically become visible failed turns,
+  pending controls are cancelled, and queued successors remain gated by a
+  durable recovery marker. The Web process probes exact gateway
+  `{threadId,inputId}` ownership, abandons/tombstones any contaminated standing
+  SDK Query, and clears the gate only after authoritative release; unavailable
+  ownership retries for the server lifetime with bounded backoff. A durable
+  restart barrier forces the next SDK turn into a clean journal generation.
+  An ordinary cold gateway resumes the latest exactly compatible SDK session
+  id; incompatible or malformed attribution starts cold with bounded
+  materialized context, while a provider failure after resume begins is surfaced
+  rather than silently duplicating the turn.
+- **Web transcript recovery joins the full append-only SDK session chain.** The
+  durable canonical event store remains authoritative for typed terminal and
+  control state; every unambiguous local JSONL named by `sessionIds` may fill a
+  missing row or complete a strict partial snapshot. Recovered rows are rebound
+  to durable Web input intervals as whole turns, raw human prompts stay out of
+  assistant activity, and the thread stream sends authoritative ordered
+  snapshots so reload and live views converge.
 - **No multi-host compositions in v1.** One composition per host.
 - **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
   decision made `terminal`, `worktrees`, `session-view`,

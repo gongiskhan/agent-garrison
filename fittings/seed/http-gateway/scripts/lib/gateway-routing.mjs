@@ -1286,6 +1286,11 @@ export class RoutedGateway {
   //   coldStartContext - caller-owned durable conversation seed. Applied only when
   //                   this call actually spawns a new SDK session; a warm standing
   //                   Query already owns its history and must not receive it twice.
+  //   resumeSessionId - previously persisted SDK journal identity, already checked
+  //                   against the resolved route/account/project by the HTTP edge.
+  //                   Honored only for a cold standing session with no live owner.
+  //   forceNewSession - durable host-recovery boundary. Retires a same-thread warm
+  //                   Query and ignores resume so coldStartContext seeds a new one.
   //   onEvent(event) - channel-neutral structured session event observer.
   //   turnId         - caller-owned stable turn identity attached by the adapter.
   //   generationId   - caller-owned permission-control generation identity.
@@ -1296,6 +1301,8 @@ export class RoutedGateway {
   //   onActivity({kind,name,id}) - tool_use liveness (the `activity` SSE frame).
   //   registerStop(stop)         - hands the caller a real cancel primitive for
   //                   THIS turn's session (adapter.cancel aborts the stashed query).
+  //   registerRecoveryReset(reset) - host-restart-only abandonment primitive;
+  //                   closes/tombstones this journal before FIFO promotion.
   async runAgentSdkTurn(route, message, onChunk, opts = {}) {
     const adapter = await this.getAgentSdkAdapter();
     const t = route.target;
@@ -1318,6 +1325,14 @@ export class RoutedGateway {
       throw new Error("standing Agent SDK streaming input requires a generation id");
     }
     const streamingInput = opts.streamingInput === true && sessionKey !== null && Boolean(generationId);
+    const forceNewSession = streamingInput && opts.forceNewSession === true;
+    const requestedResumeSessionId =
+      streamingInput &&
+      !forceNewSession &&
+      typeof opts.resumeSessionId === "string" &&
+      /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(opts.resumeSessionId)
+        ? opts.resumeSessionId
+        : "";
     const spawnArgs = {
       provider: t.provider,
       model: t.model,
@@ -1373,9 +1388,49 @@ export class RoutedGateway {
     return this._onLane(`sdk:${key}`, async () => {
     let session = this._agentSdkSessions.get(key);
     let spawnedSession = false;
+    let spawnedFromResume = false;
+    if (forceNewSession && session) {
+      // Same-lane serialization proves no turn is active on this Query here. A
+      // recovery barrier cannot be represented by `resumeSessionId: null`: null
+      // would otherwise reuse this cached conversation and inherit the orphan.
+      await this._releaseAgentSdkSession(adapter, key, session, "recovery-generation-reset");
+      session = null;
+    }
     if (!session || session.alive === false) {
-      session = await adapter.spawn(spawnArgs);
+      // Never open two standing Queries on one SDK journal. This is especially
+      // important during an in-process credential rotation: the old cache entry
+      // may still be alive even though the new credential has a different key.
+      const resumeOwnedByAnotherLiveSession = requestedResumeSessionId
+        ? [...this._agentSdkSessions.entries()].some(([candidateKey, candidate]) =>
+            candidateKey !== key &&
+            candidate?.alive !== false &&
+            candidate?.sessionId === requestedResumeSessionId)
+        : false;
+      const resumeIsStillReleasing = requestedResumeSessionId
+        ? this._releasingAgentSdkSessionIds?.has(requestedResumeSessionId) === true
+        : false;
+      const resumeWasRecoveryAbandoned = requestedResumeSessionId
+        ? this._abandonedAgentSdkSessionIds?.has(requestedResumeSessionId) === true
+        : false;
+      const resumeSessionId = resumeOwnedByAnotherLiveSession || resumeIsStillReleasing || resumeWasRecoveryAbandoned
+        ? ""
+        : requestedResumeSessionId;
+      session = await adapter.spawn(resumeSessionId ? { ...spawnArgs, sessionId: resumeSessionId } : spawnArgs);
       spawnedSession = true;
+      // An adapter that ignores the candidate did not resume. Preserve the cold
+      // materialized fallback instead of silently dropping all prior context.
+      spawnedFromResume = Boolean(resumeSessionId && session?.sessionId === resumeSessionId);
+      if (requestedResumeSessionId && !spawnedFromResume) {
+        this.logFn({
+          kind: "agent-sdk-resume-refused",
+          reason: resumeWasRecoveryAbandoned
+            ? "session-abandoned-after-host-recovery"
+            : resumeOwnedByAnotherLiveSession || resumeIsStillReleasing
+              ? "session-owned-by-live-or-releasing-cache-entry"
+              : "adapter-did-not-accept-session",
+          target: route.targetId,
+        });
+      }
     }
     // Re-insert so Map iteration order is least-recently-used first (see
     // _evictAgentSdkSessions: keying by conversation multiplies live sessions by
@@ -1386,6 +1441,28 @@ export class RoutedGateway {
     (this._currentAgentSdkKeyByCompatibility ??= new Map()).set(compatibilityKey, key);
     await this._retireStaleAgentSdkSessions(adapter);
     await this._evictAgentSdkSessions(adapter);
+    if (typeof opts.registerRecoveryReset === "function") {
+      // Host recovery means the durable transcript and this SDK journal diverged:
+      // this turn may already have entered the journal before its SSE owner died.
+      // Hold the generation claim until the Query is closed, and tombstone both
+      // the requested and provider-refined ids so the next turn cold-materializes.
+      opts.registerRecoveryReset(async () => {
+        const abandoned = (this._abandonedAgentSdkSessionIds ??= new Set());
+        for (const candidate of [requestedResumeSessionId, session?.sessionId]) {
+          if (typeof candidate !== "string" || !candidate) continue;
+          abandoned.delete(candidate);
+          abandoned.add(candidate);
+        }
+        while (abandoned.size > 1_024) abandoned.delete(abandoned.values().next().value);
+        const cached = this._agentSdkSessions.get(key);
+        if (cached) {
+          await this._releaseAgentSdkSession(adapter, key, cached, "recovery-abandoned");
+        } else if (session?.alive !== false) {
+          await adapter?.teardown?.(session);
+          session.alive = false;
+        }
+      });
+    }
     if (typeof opts.registerStop === "function") {
       // Bind the cancel to THIS turn's session (the warm session is reused, so a
       // stop captured from an earlier turn would abort the wrong query).
@@ -1399,6 +1476,7 @@ export class RoutedGateway {
       promptMode: session.harness?.promptMode,
       authMode: t.authMode ?? null,
       target: route.targetId,
+      conversation: spawnedFromResume ? "resumed" : spawnedSession ? "new" : "warm",
     });
     await adapter.awaitReady(session);
     // A resumed SDK session is known before sendTurn; a fresh session is only
@@ -1457,7 +1535,11 @@ export class RoutedGateway {
     const coldSessionMessage = coldStartContext
       ? `${coldStartContext}\n\n---\n\n${message}`
       : message;
-    const sessionMessage = spawnedSession ? coldSessionMessage : message;
+    // Native resume loads the persisted SDK transcript, so adding the Web's
+    // materialized history would duplicate every prior turn. Cold/new sessions
+    // receive that bounded context; warm and resumed sessions receive only the
+    // newly admitted message.
+    const sessionMessage = spawnedSession && !spawnedFromResume ? coldSessionMessage : message;
     await adapter.sendTurn(session, sessionMessage, streamHooks);
     let resp = await adapter.awaitResponse(session);
     // BUILD MODE (buildWorkspace set): local models can't drive file-edit tools
@@ -1512,6 +1594,10 @@ export class RoutedGateway {
   // must be closed, not merely interrupted (interrupt intentionally preserves it
   // for the next turn). Historical one-shot sessions retain cancel-before-teardown.
   async _releaseAgentSdkSession(adapter, key, session, kind = "evicted") {
+    const releasingSessionId = typeof session?.sessionId === "string" && session.sessionId
+      ? session.sessionId
+      : null;
+    if (releasingSessionId) (this._releasingAgentSdkSessionIds ??= new Set()).add(releasingSessionId);
     this._agentSdkSessions.delete(key);
     const meta = this._agentSdkSessionMeta?.get(key) ?? null;
     this._agentSdkSessionMeta?.delete(key);
@@ -1532,6 +1618,8 @@ export class RoutedGateway {
       }
     } catch {
       /* an already-finished query is a successful release */
+    } finally {
+      if (releasingSessionId) this._releasingAgentSdkSessionIds?.delete(releasingSessionId);
     }
     if (session) session.alive = false;
     this.logFn({ kind: `agent-sdk-session-${kind}`, live: this._agentSdkSessions.size });

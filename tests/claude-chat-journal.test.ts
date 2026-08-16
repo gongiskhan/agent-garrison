@@ -199,6 +199,63 @@ describe("claude-chat activity journal", () => {
     });
   });
 
+  it("splits an assistant-only recovered chain on exact A/A then B/B turn coordinates", () => {
+    const recovered = (id: string, turnId: string, text: string): SessionEvent => ({
+      ...event(id, [{ type: "text", text }]),
+      turnId,
+    });
+    const turns = groupSessionTurns([
+      recovered("a-interim", "input-a", "Working on A."),
+      recovered("a-final", "input-a", "A complete."),
+      recovered("b-interim", "input-b", "Working on B."),
+      recovered("b-latest", "input-b", "Still checking B."),
+    ]);
+
+    expect(turns.map((turn) => turn.assistantEvents.map((entry) => entry.id))).toEqual([
+      ["a-interim", "a-final"],
+      ["b-interim", "b-latest"],
+    ]);
+    expect(presentSessionTurn(turns[0], false)).toMatchObject({
+      primaryText: "A complete.",
+      interimText: ["Working on A."],
+    });
+    expect(presentSessionTurn(turns[1], true)).toMatchObject({
+      primaryText: "Working on B.\n\nStill checking B.",
+      interimText: [],
+    });
+  });
+
+  it("keeps null-coordinate beats with their surrounding synthetic turn", () => {
+    const recovered = (id: string, turnId?: string): SessionEvent => ({
+      ...event(id, [{ type: "thinking", text: id }]),
+      ...(turnId ? { turnId } : {}),
+    });
+    const turns = groupSessionTurns([
+      recovered("a-one", "input-a"),
+      recovered("a-null"),
+      recovered("a-two", "input-a"),
+      recovered("b-one", "input-b"),
+      recovered("b-null"),
+      recovered("b-two", "input-b"),
+    ]);
+
+    expect(turns.map((turn) => turn.assistantEvents.map((entry) => entry.id))).toEqual([
+      ["a-one", "a-null", "a-two"],
+      ["b-one", "b-null", "b-two"],
+    ]);
+  });
+
+  it("does not split a real user-bounded turn when runtime coordinates roll", () => {
+    const turns = groupSessionTurns([
+      { id: "user", role: "user", ts: null, blocks: [{ type: "text", text: "Run it" }] },
+      { ...event("session-a", [{ type: "text", text: "Starting." }]), turnId: "runtime-a" },
+      { ...event("session-b", [{ type: "text", text: "Finished." }]), turnId: "runtime-b" },
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0].assistantEvents.map((entry) => entry.id)).toEqual(["session-a", "session-b"]);
+  });
+
   it("keeps live prose, tool calls, and later prose in journal order", () => {
     const beats = sessionActivityBeats([
       event("live", [

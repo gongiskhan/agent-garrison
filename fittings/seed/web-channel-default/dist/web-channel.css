@@ -264,6 +264,9 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-question-othersend:disabled { opacity: 0.5; cursor: default; }
 .cc-question-answer { margin-top: 10px; }
+.cc-question-inactive {
+  margin-top: 10px; color: var(--cc-fg-dim); font-size: 12px; line-height: 1.4;
+}
 .cc-question-error {
   margin-top: 10px; color: var(--cc-danger-text, #f85149); font-size: 12px; line-height: 1.4;
 }

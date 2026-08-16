@@ -42,6 +42,8 @@ import {
   bindThreadInputGeneration,
   markThreadInputStopping,
   settleThreadInput,
+  reconcileInterruptedThreadInputs,
+  clearThreadInputRecoveryBlock,
   getThreadInput,
   threadHasPendingInputs,
   startInputLive,
@@ -62,6 +64,8 @@ import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
 import {
   readJsonlLines,
   parseTranscriptLines,
+  recoverTranscriptSessionEvents,
+  reconcileTranscriptSessionEvents,
   extractRelatedTaskRecords,
   relatedTaskEvents
 } from "../lib/session-transcript.mjs";
@@ -748,13 +752,30 @@ async function handleBriefPut(req, res) {
 //   - context absent          → EXACTLY { message, channel: "web" }
 //   - context present          → adds `context` (forwarded untouched)
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, classification, sessionId, routing, turnSeq, autonomous } = {}) {
+export function buildGatewayChatBody({
+  message,
+  context,
+  classification,
+  sessionId,
+  inputId,
+  routing,
+  turnSeq,
+  autonomous,
+  agentSdkResume,
+  agentSdkNewGeneration,
+} = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
   // D19: the conversation's thread id, forwarded as the gateway's session key so a
   // multi-turn thread attaches to ONE card instead of registering a duplicate per
   // turn. Absent → the gateway falls back to the channel name.
   if (typeof sessionId === "string" && sessionId.trim()) body.sessionId = sessionId.trim();
+  // Trusted durable admission coordinate. The browser never writes this gateway
+  // field directly; the queue worker adds its store-owned id so a restart can
+  // recover a claim whose open frame was not persisted yet.
+  if (typeof inputId === "string" && inputId.trim() && inputId.trim().length <= 512) {
+    body.inputId = inputId.trim();
+  }
   // Forward an explicit routing hint (the interactive Discuss path sends
   // { taskType, tier: "T0-trivial" } to keep extended thinking OFF — thinking on a
   // "design a process" prompt trips Anthropic's usage-policy classifier). The gateway
@@ -770,7 +791,86 @@ export function buildGatewayChatBody({ message, context, classification, session
   // Monotonic per-send counter (contract §5). The gateway echoes it on both `route`
   // frames so the client can DROP a frame belonging to an older turn.
   if (Number.isInteger(turnSeq) && turnSeq >= 0) body.turnSeq = turnSeq;
+  // Server-derived only: the browser cannot nominate an SDK journal. The gateway
+  // independently validates this complete prior attribution against the route it
+  // resolves for the new turn before native resume is allowed.
+  if (agentSdkResume && typeof agentSdkResume === "object" && !Array.isArray(agentSdkResume)) {
+    body.agentSdkResume = agentSdkResume;
+  }
+  // Also server-derived: a durable restart barrier proves that any same-thread
+  // warm SDK Query may contain an unconfirmed turn, even when its gateway claim
+  // released before our exact ownership probe. Force eviction/cold seeding until
+  // a later completed SDK attribution establishes a clean generation.
+  if (agentSdkNewGeneration === true) body.agentSdkNewGeneration = true;
   return body;
+}
+
+/** Build the only SDK resume candidate the Web server may send. The latest
+ * thread-level session id must be grounded in a completed assistant attribution;
+ * a partial route, external assistant notice, or stale earlier journal safely
+ * falls back to the bounded materialized context instead. */
+export function agentSdkResumeFromThread(thread) {
+  const sessionId = typeof thread?.claudeSessionId === "string" ? thread.claudeSessionId.trim() : "";
+  if (!sessionId) return null;
+  const messages = Array.isArray(thread?.messages) ? thread.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    // A process-restart failure is a durable journal boundary. The abandoned SDK
+    // process may have accepted the input (and even emitted partial output) before
+    // Web lost ownership, so resuming a session from before this marker could
+    // duplicate or silently inherit that uncertain turn. A later successful SDK
+    // assistant message appears after the barrier and becomes resumable normally.
+    if (message?.agentSdkResumeBarrier === true) return null;
+    const route = message?.role === "assistant" && message.route && typeof message.route === "object"
+      ? message.route
+      : null;
+    if (!route || route.runtime !== "agent-sdk" || route.sessionId !== sessionId) continue;
+    if (
+      typeof route.route !== "string" || !route.route ||
+      typeof route.provider !== "string" || !route.provider ||
+      typeof route.model !== "string" || !route.model
+    ) {
+      return null;
+    }
+    return {
+      sessionId,
+      route: route.route,
+      runtime: "agent-sdk",
+      provider: route.provider,
+      model: route.model,
+      effort: typeof route.effort === "string" && route.effort ? route.effort : null,
+      account: typeof route.account === "string" && route.account ? route.account : null,
+      accountSource: typeof route.accountSource === "string" && route.accountSource ? route.accountSource : null,
+      projectPath: typeof route.projectPath === "string" && route.projectPath ? route.projectPath : null,
+    };
+  }
+  return null;
+}
+
+/** A released gateway claim can leave a warm same-thread SDK Query behind. When
+ * the newest restart barrier is later than every completed SDK attribution, the
+ * next queued input must explicitly evict that Query and cold-seed from durable
+ * context. Once a new completed SDK turn is persisted after the barrier, normal
+ * resume selection is safe again. */
+export function agentSdkNewGenerationFromThread(thread) {
+  const messages = Array.isArray(thread?.messages) ? thread.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.agentSdkResumeBarrier === true) return true;
+    const route = message?.role === "assistant" && message.route && typeof message.route === "object"
+      ? message.route
+      : null;
+    if (
+      route?.runtime === "agent-sdk" &&
+      typeof route.route === "string" && route.route &&
+      typeof route.provider === "string" && route.provider &&
+      typeof route.model === "string" && route.model &&
+      typeof route.sessionId === "string" && route.sessionId
+    ) {
+      return false;
+    }
+  }
+  return false;
 }
 
 // ─────────────────────────── S3b: materialized-turn context assembly (D8)
@@ -896,6 +996,148 @@ async function appendMaterializedTurn(telemetry) {
 // in its first `open` frame. Every live frame carries both once known.
 const inputWorkers = new Map();
 const DEFAULT_GATEWAY_OPEN_TIMEOUT_MS = 30_000;
+// Production recovery is a server-lifetime worker: the delay is bounded, not the
+// outage duration. Tests may set a finite attempt count to exercise the parked
+// state without waiting for another process restart.
+const DEFAULT_RESTART_RECOVERY_ATTEMPTS = Number.POSITIVE_INFINITY;
+const DEFAULT_RESTART_RECOVERY_DELAY_MS = 250;
+
+async function postGatewayRecoveryJson(opts, pathname, body, signal) {
+  try {
+    const timeoutSignal = AbortSignal.timeout(3_000);
+    const requestSignal = signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal;
+    const response = await fetch(new URL(pathname, opts.gatewayUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+      signal: requestSignal,
+    });
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  } catch (err) {
+    return { status: 0, body: { error: String(err?.message ?? err) } };
+  }
+}
+
+async function reconcileRecoveredInputViaGateway(opts, {
+  threadId,
+  inputId,
+  generationId: expectedGenerationId,
+  signal,
+}) {
+  const lookup = await postGatewayRecoveryJson(opts, "/chat/generation", { threadId, inputId }, signal);
+  if (lookup.status === 404 && lookup.body?.code === "input_generation_unavailable") {
+    return { cleared: true };
+  }
+  const foundGenerationId = typeof lookup.body?.generationId === "string" ? lookup.body.generationId.trim() : "";
+  if (
+    lookup.status !== 200 ||
+    lookup.body?.threadId !== threadId ||
+    lookup.body?.inputId !== inputId ||
+    !foundGenerationId ||
+    (typeof expectedGenerationId === "string" && expectedGenerationId !== foundGenerationId)
+  ) {
+    return { cleared: false };
+  }
+  // Restart recovery is stronger than a user Stop: the gateway must also abandon
+  // any cached SDK Query/journal that may contain this unconfirmed input. The
+  // endpoint is exact-input scoped, and retains its claim through runtime teardown.
+  // Leave the marker in place regardless of this response; only a later exact
+  // lookup's authoritative 404 makes the successor claimable.
+  await postGatewayRecoveryJson(opts, "/chat/recover", { threadId, inputId }, signal);
+  return { cleared: false };
+}
+
+function waitForRecoveryDelay(ms, signal) {
+  if (signal?.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Resolve prior-process gateway ownership before a queued successor is allowed
+ * to claim the same thread. The exact trusted inputId seam covers both a pre-open
+ * starting input and a generation-bound input; without an authoritative clear it
+ * stays visibly queued instead of being sacrificed to a gateway 409. */
+export async function reconcileStartupInputOwnership(startupInputs, opts, { signal, onCleared } = {}) {
+  const configuredAttempts = Number(opts.restartRecoveryAttempts ?? opts.restartInterruptAttempts);
+  const configuredDelay = Number(opts.restartRecoveryDelayMs ?? opts.restartInterruptDelayMs);
+  const attempts = Number.isInteger(configuredAttempts) && configuredAttempts > 0
+    ? configuredAttempts
+    : DEFAULT_RESTART_RECOVERY_ATTEMPTS;
+  const baseDelayMs = Number.isFinite(configuredDelay) && configuredDelay >= 0
+    ? configuredDelay
+    : DEFAULT_RESTART_RECOVERY_DELAY_MS;
+  const schedulable = new Set();
+  await Promise.all(startupInputs.map(async (entry) => {
+    const remaining = new Map(
+      (entry.recoveryInputs ?? entry.failedInputs ?? []).map((input) => [input.inputId, input])
+    );
+    let delayMs = baseDelayMs;
+    for (let attempt = 0; attempt < attempts && remaining.size > 0 && !signal?.aborted; attempt += 1) {
+      for (const input of [...remaining.values()]) {
+        let exactCleared = false;
+        try {
+          const reconcileInput = typeof opts.reconcileStartingInput === "function" && !input.generationId
+            ? opts.reconcileStartingInput
+            : (coordinate) => reconcileRecoveredInputViaGateway(opts, coordinate);
+          const result = await reconcileInput({
+            threadId: entry.threadId,
+            inputId: input.inputId,
+            generationId: input.generationId,
+            gatewayUrl: opts.gatewayUrl,
+            signal,
+          });
+          exactCleared = result === true || result?.cleared === true;
+        } catch (err) {
+          if (!signal?.aborted) {
+            console.error(`[web-channel] input reconciliation failed for ${entry.threadId}: ${err.message}`);
+          }
+        }
+        if (!exactCleared || signal?.aborted) continue;
+        let durablyCleared = false;
+        try {
+          durablyCleared = await clearThreadInputRecoveryBlock(entry.threadId, input.inputId);
+        } catch (err) {
+          // A transient store outage must not kill the server-lifetime recovery
+          // worker after the gateway has cleared. Retain the marker in memory and
+          // retry the same idempotent lookup/write on the bounded backoff.
+          if (!signal?.aborted) {
+            console.error(`[web-channel] could not persist input recovery for ${entry.threadId}: ${err.message}`);
+          }
+        }
+        if (durablyCleared) remaining.delete(input.inputId);
+      }
+      if (remaining.size > 0 && attempt + 1 < attempts) {
+        if (!(await waitForRecoveryDelay(delayMs, signal))) return;
+        delayMs = Math.min(Math.max(1, delayMs * 2), 5_000);
+      }
+    }
+    if (remaining.size === 0 && !signal?.aborted) {
+      // Schedule by thread, not by the startup queue snapshot. Admissions remain
+      // allowed (and visibly queued) while ownership is parked; one may arrive
+      // after startup and its first worker will correctly stop at the marker.
+      // Re-triggering here lets that newer queued tail run exactly once too.
+      schedulable.add(entry.threadId);
+      onCleared?.(entry.threadId);
+    } else if (remaining.size > 0 && !signal?.aborted) {
+      console.error(
+        `[web-channel] prior input ownership for ${entry.threadId} did not clear after ${attempts} attempts; ` +
+        "queued inputs remain parked"
+      );
+    }
+  }));
+  return schedulable;
+}
 
 async function retryAuthoritativeWrites(writes, label) {
   let pending = [...writes];
@@ -965,18 +1207,23 @@ function stampInputFrame(name, data, inputId, generationId) {
 
 async function runQueuedInput(threadId, input, opts) {
   const target = new URL("/chat/stream", opts.gatewayUrl);
-  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId, {
-    excludeTurnId: input.inputId,
-  });
+  const [durableThread, materialized] = await Promise.all([
+    getThread(threadId),
+    assembleMaterializedContext(threadId, { excludeTurnId: input.inputId }),
+  ]);
+  const { context: assembledContext, telemetry } = materialized;
   void appendMaterializedTurn(telemetry);
   const payload = JSON.stringify(buildGatewayChatBody({
     message: input.message,
     context: assembledContext,
     classification: input.classification,
     sessionId: threadId,
+    inputId: input.inputId,
     routing: input.routing,
     turnSeq: input.turnSeq,
     autonomous: input.autonomous,
+    agentSdkResume: agentSdkResumeFromThread(durableThread),
+    agentSdkNewGeneration: agentSdkNewGenerationFromThread(durableThread),
   }));
 
   let generationId = null;
@@ -1487,12 +1734,14 @@ async function handleThreadCreate(req, res) {
 async function handleThreadGet(res, id) {
   const snapshot = await getThreadSnapshot(id);
   if (!snapshot) return jsonRes(res, 404, { error: "thread not found" });
+  const sessionEvents = await recoverThreadSessionJournal(snapshot.thread);
   // The client rebuilds a reopened thread from persisted history, which is empty
   // for a turn still in flight. Without this it cannot tell "idle" from "working"
   // and the conversation looks dead until the reply lands.
   jsonRes(res, 200, {
     thread: {
       ...snapshot.thread,
+      sessionEvents,
       pendingInputs: snapshot.pendingInputs,
       inputRevision: snapshot.inputRevision,
       runningSince: runningSince(id),
@@ -1822,16 +2071,201 @@ function claudeProjectsRoot() {
 // Find <sessionId>.jsonl by globbing every project dir - session ids are unique,
 // so this sidesteps any cwd-encoding mismatch (the CLAUDE_CONFIG_DIR / SDK-cwd
 // seam) between where the operative journaled and how we'd encode the dir.
-async function findTranscriptBySession(sessionId) {
+export async function findTranscriptBySession(sessionId) {
   if (!sessionId || !/^[A-Za-z0-9._-]+$/.test(sessionId)) return null;
   const root = claudeProjectsRoot();
   let dirs = [];
   try { dirs = await readdir(root); } catch { return null; }
+  let match = null;
   for (const dir of dirs) {
     const candidate = path.join(root, dir, `${sessionId}.jsonl`);
-    if (existsSync(candidate)) return candidate;
+    if (!existsSync(candidate)) continue;
+    // A copied journal with the same session id in another project directory is
+    // ambiguous evidence. Refuse the recovery overlay instead of trusting
+    // filesystem enumeration order; the durable Web event stream remains usable.
+    if (match) return null;
+    match = candidate;
   }
-  return null;
+  return match;
+}
+
+const SESSION_RECOVERY_CACHE_CAP = 64;
+const sessionRecoveryCache = new Map();
+
+async function recoveredSessionFile(sessionId, transcriptPath) {
+  let signature;
+  try {
+    const stat = statSync(transcriptPath);
+    signature = `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return [];
+  }
+  const cached = sessionRecoveryCache.get(transcriptPath);
+  if (cached?.signature === signature) {
+    sessionRecoveryCache.delete(transcriptPath);
+    sessionRecoveryCache.set(transcriptPath, cached);
+    return cached.events;
+  }
+  const { lines } = await readJsonlLines(transcriptPath, 0);
+  const events = recoverTranscriptSessionEvents(lines, {
+    sessionId,
+    streamUrlFor: (task) => relatedTaskStreamUrl(transcriptPath, sessionId, task),
+  });
+  sessionRecoveryCache.delete(transcriptPath);
+  sessionRecoveryCache.set(transcriptPath, { signature, events });
+  while (sessionRecoveryCache.size > SESSION_RECOVERY_CACHE_CAP) {
+    sessionRecoveryCache.delete(sessionRecoveryCache.keys().next().value);
+  }
+  return events;
+}
+
+export function bindRecoveredEventsToThread(thread, recovered) {
+  const events = Array.isArray(recovered) ? recovered : [];
+  const messages = Array.isArray(thread?.messages) ? thread.messages : [];
+  const inputCoordinates = new Map();
+  for (const input of [
+    ...(Array.isArray(thread?.inputReceipts) ? thread.inputReceipts : []),
+    ...(Array.isArray(thread?.pendingInputs) ? thread.pendingInputs : []),
+  ]) {
+    if (typeof input?.inputId !== "string" || !input.inputId) continue;
+    const started = Date.parse(input.startedAt ?? "");
+    const settled = Date.parse(input.settledAt ?? "");
+    inputCoordinates.set(input.inputId, {
+      start: Number.isFinite(started) ? started : null,
+      end: Number.isFinite(settled) ? settled : null,
+    });
+  }
+  const assistantEnds = new Map();
+  for (const message of messages) {
+    if (message?.role !== "assistant" || typeof message.turnId !== "string" || !message.turnId) continue;
+    const at = Date.parse(message.ts ?? "");
+    if (!Number.isFinite(at)) continue;
+    assistantEnds.set(message.turnId, Math.max(assistantEnds.get(message.turnId) ?? -Infinity, at));
+  }
+  const turns = messages
+    .filter((message) => message?.role === "user" && typeof message.turnId === "string" && message.turnId)
+    .map((message, index) => {
+      const coordinates = inputCoordinates.get(message.turnId);
+      const messageAt = Date.parse(message.ts ?? "");
+      return {
+        turnId: message.turnId,
+        start: coordinates?.start ?? (Number.isFinite(messageAt) ? messageAt : null),
+        end: coordinates?.end ?? assistantEnds.get(message.turnId) ?? null,
+        index,
+      };
+    });
+  if (turns.length === 0) return events;
+
+  // Admission time can predate the prior turn's completion for a queued input
+  // in older M4 stores. Conversation order is authoritative: a successor's
+  // effective interval cannot begin before the preceding turn ended.
+  let previousEnd = null;
+  for (const turn of turns) {
+    if (previousEnd !== null && (turn.start === null || turn.start < previousEnd)) turn.start = previousEnd;
+    if (turn.end !== null) previousEnd = previousEnd === null ? turn.end : Math.max(previousEnd, turn.end);
+  }
+
+  // Bind a recovered conversational turn as a unit. Mapping individual rows can
+  // split a late-flushed result from its original tool when another Web input was
+  // queued meanwhile; the transcript's synthetic turn id is the stable grouping
+  // evidence even when the SDK rolls sessions during one Web turn.
+  const groups = [];
+  const byRecoveredTurn = new Map();
+  events.forEach((event, index) => {
+    const key = event?.turnId == null ? `event:${index}` : String(event.turnId);
+    let group = byRecoveredTurn.get(key);
+    if (!group) {
+      group = { key, events: [], firstIndex: index, times: [] };
+      byRecoveredTurn.set(key, group);
+      groups.push(group);
+    }
+    group.events.push(event);
+    if (typeof event?.ts === "number" && Number.isFinite(event.ts)) group.times.push(event.ts);
+  });
+
+  let fallbackCursor = 0;
+  const owners = new Map();
+  const knownStarts = turns.map((turn) => turn.start).filter((value) => value !== null);
+  const earliestKnownStart = knownStarts.length ? Math.min(...knownStarts) : null;
+  for (const group of groups) {
+    const first = group.times.length ? Math.min(...group.times) : null;
+    const last = group.times.length ? Math.max(...group.times) : null;
+    let owner = null;
+    let preserveSyntheticOwner = false;
+    if (first !== null && last !== null) {
+      if (earliestKnownStart !== null && last < earliestKnownStart) {
+        // A migrated thread may have historical unkeyed exchanges before its
+        // first generated input. No future input may claim that older journal;
+        // retaining the transcript's synthetic coordinate is safer and lets the
+        // standalone viewer keep the legacy turn separate.
+        preserveSyntheticOwner = true;
+      } else {
+        const containing = turns.filter((turn) =>
+          (turn.start === null || turn.start <= first) && (turn.end === null || last <= turn.end)
+        );
+        // Adjacent turns can settle/start in the same millisecond. For a singleton
+        // event exactly on that shared edge, the latest-start interval owns it;
+        // a multi-event group beginning before the edge still remains with A.
+        owner = containing.at(-1) ?? null;
+        if (!owner) {
+          const before = turns.filter((turn) => turn.start !== null && turn.start <= first);
+          owner = before.at(-1) ?? turns.reduce((closest, turn) => {
+            if (turn.start === null) return closest;
+            if (!closest || Math.abs(turn.start - first) < Math.abs(closest.start - first)) return turn;
+            return closest;
+          }, null);
+        }
+      }
+    }
+    if (!owner && !preserveSyntheticOwner) owner = turns[Math.min(fallbackCursor, turns.length - 1)];
+    owners.set(group.key, owner);
+    fallbackCursor = Math.min(fallbackCursor + 1, turns.length - 1);
+  }
+  return events.map((event, index) => {
+    const key = event?.turnId == null ? `event:${index}` : String(event.turnId);
+    const owner = owners.get(key);
+    return owner ? { ...event, turnId: owner.turnId } : event;
+  });
+}
+
+/** Join every durable SDK journal named by a Web thread with the low-latency
+ * canonical event store. JSONL is recovery evidence, not a second authority: the
+ * reconciler only fills absent rows or strict partial snapshots and retains typed
+ * terminal/control events from the Web journal. */
+export async function recoverThreadSessionJournal(thread) {
+  const sessionIds = Array.isArray(thread?.sessionIds) ? thread.sessionIds : [];
+  const sources = [];
+  for (let ordinal = 0; ordinal < sessionIds.length; ordinal += 1) {
+    const sessionId = sessionIds[ordinal];
+    const transcriptPath = await findTranscriptBySession(sessionId);
+    if (!transcriptPath) continue;
+    sources.push({ sessionId, transcriptPath, ordinal });
+  }
+  // Touch cache residents before loading misses. With a journal chain one entry
+  // larger than the bounded cache, naïvely walking oldest-first evicts the next
+  // resident on every iteration and rereads the entire chain each poll.
+  sources.sort((left, right) =>
+    Number(sessionRecoveryCache.has(right.transcriptPath)) - Number(sessionRecoveryCache.has(left.transcriptPath))
+  );
+  const recoveredByOrdinal = new Map();
+  for (const { sessionId, transcriptPath, ordinal } of sources) {
+    try {
+      recoveredByOrdinal.set(ordinal, await recoveredSessionFile(sessionId, transcriptPath));
+    } catch {
+      // A journal can be mid-rename/write or temporarily unavailable. The durable
+      // Web event store remains sufficient; a later hydration retries recovery.
+    }
+  }
+  // Cache traversal is a performance detail. Equal-timestamp events retain the
+  // append-only sessionIds order on every hydration, independent of which one
+  // happened to be resident in the bounded LRU this poll.
+  const recovered = [...recoveredByOrdinal.entries()]
+    .sort(([left], [right]) => left - right)
+    .flatMap(([, events]) => events);
+  return reconcileTranscriptSessionEvents(
+    thread?.sessionEvents ?? [],
+    bindRecoveredEventsToThread(thread, recovered)
+  );
 }
 
 function subagentsDirFor(parentTranscript) {
@@ -1882,6 +2316,94 @@ async function findRelatedTaskTranscript(parentTranscript, publicTaskId) {
   return null;
 }
 
+export function threadSessionJournalIsLive(thread, pendingInputs) {
+  const pending = Array.isArray(pendingInputs) ? pendingInputs : [];
+  if (pending.some((input) => input?.state !== "queued")) return true;
+  if (pending.length === 0) return false;
+  const recoveryBlocks = Array.isArray(thread?.inputRecoveryBlocks) ? thread.inputRecoveryBlocks : [];
+  return recoveryBlocks.length === 0;
+}
+
+async function handleThreadSessionStream(req, res, threadId) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  const emit = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
+  const readSnapshot = async () => {
+    const snapshot = await getThreadSnapshot(threadId);
+    if (!snapshot) return null;
+    return {
+      title: snapshot.thread.title || "Activity",
+      events: await recoverThreadSessionJournal(snapshot.thread),
+      // A normal queued successor is schedulable and must keep the stream across
+      // the tiny settle(A) -> claim(B) handoff. A restart-parked queue is different:
+      // its durable ownership marker proves there is intentionally no producer.
+      live: threadSessionJournalIsLive(snapshot.thread, snapshot.pendingInputs),
+    };
+  };
+  const first = await readSnapshot();
+  if (!first) {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    return res.end();
+  }
+  const available = first.live || first.events.length > 0;
+  emit({ type: "init", available, live: first.live, title: first.title, events: first.events });
+  if (!first.live) {
+    emit({ type: "end" });
+    return res.end();
+  }
+
+  let snapshotSignature = JSON.stringify(first.events);
+  let closed = false;
+  const stop = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(keep);
+    clearInterval(poll);
+  };
+  const keep = setInterval(() => {
+    if (!closed) { try { res.write(": keep-alive\n\n"); } catch { stop(); } }
+  }, 15_000);
+  let polling = false;
+  const poll = setInterval(async () => {
+    if (closed || polling) return;
+    polling = true;
+    try {
+      const next = await readSnapshot();
+      if (closed) return;
+      if (!next) {
+        emit({ type: "end" });
+        stop();
+        return res.end();
+      }
+      const nextSignature = JSON.stringify(next.events);
+      if (nextSignature !== snapshotSignature) {
+        snapshotSignature = nextSignature;
+        // Reconciliation can discover an older JSONL row after a newer durable
+        // row was already painted. A delta cannot express insertion/removal
+        // order, so this thread-level stream sends the complete authoritative
+        // array and the shared client replaces its local snapshot exactly.
+        emit({ type: "snapshot", title: next.title, events: next.events });
+      }
+      if (!next.live) {
+        emit({ type: "end" });
+        stop();
+        res.end();
+      }
+    } catch {
+      // JSONL and thread writes are independently atomic. A transient read miss
+      // is retried on the next poll; it must not turn a live journal unavailable.
+    } finally {
+      polling = false;
+    }
+  }, 800);
+  req.on("close", stop);
+  res.on("close", stop);
+}
+
 // SSE stream of a thread's (or an explicit session's) Claude transcript: the
 // structured blocks (text / collapsible thinking / tool calls / inline images)
 // the plain-text chat stream drops. Tails live; the client closes it.
@@ -1890,6 +2412,9 @@ async function handleSessionStream(req, res) {
   const threadId = typeof parsed.query.thread === "string" ? parsed.query.thread : null;
   let sessionId = typeof parsed.query.session === "string" ? parsed.query.session : null;
   const publicTaskId = typeof parsed.query.task === "string" ? parsed.query.task : null;
+  if (threadId && !sessionId && !publicTaskId) {
+    return handleThreadSessionStream(req, res, threadId);
+  }
   if (!sessionId && threadId) {
     const thread = await getThread(threadId);
     sessionId = thread?.claudeSessionId ?? null;
@@ -2062,6 +2587,22 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     );
     process.exit(1);
   }
+
+  // Runtime ownership is process-local. Any durable starting/running/stopping
+  // input left by the previous process is therefore uncertain and must never be
+  // replayed. Reconcile the receipt, visible failure, and pending controls in one
+  // store mutation before this process can accept requests. Then reconstruct live
+  // streams only for the queued tail; their workers are scheduled after bind.
+  const startupInputs = await reconcileInterruptedThreadInputs();
+  for (const entry of startupInputs) {
+    for (const input of entry.failedInputs) {
+      if (input?.inputId) finishInputLive(entry.threadId, input.inputId, "process-restart");
+    }
+    for (const input of entry.queuedInputs) {
+      startInputLive(input.inputId, input.acceptedAt);
+      publishInputLifecycle(input);
+    }
+  }
   // Optional TLS so mobile browsers get a secure context (getUserMedia / mic
   // capture is blocked on plain http over a LAN IP). When tls_cert/tls_key are
   // configured and readable, serve https; otherwise plain http (localhost is a
@@ -2230,6 +2771,8 @@ async function handleNotify(req, res, opts) {
   const server = tls
     ? https.createServer(tls, requestHandler)
     : http.createServer(requestHandler);
+  const recoveryController = new AbortController();
+  server.once("close", () => recoveryController.abort());
 
   // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting.
   // /api/voice/stream → the Fitting's STT /stream; /api/voice/tts-stream → its
@@ -2272,6 +2815,14 @@ async function handleNotify(req, res, opts) {
 
   server.listen(liveOpts.port, liveOpts.host, async () => {
     await writeStatusFile(liveOpts);
+    void reconcileStartupInputOwnership(startupInputs, liveOpts, {
+      signal: recoveryController.signal,
+      onCleared: (threadId) => scheduleThreadInputs(threadId, liveOpts),
+    }).catch((err) => {
+      if (!recoveryController.signal.aborted) {
+        console.error(`[web-channel] startup input recovery worker failed: ${err.message}`);
+      }
+    });
     console.log(`[web-channel] listening on ${liveOpts.scheme}://${liveOpts.host}:${liveOpts.port} (gateway=${liveOpts.gatewayUrl})`);
   });
 

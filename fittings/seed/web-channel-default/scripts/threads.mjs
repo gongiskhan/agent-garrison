@@ -198,6 +198,7 @@ const INPUT_QUEUE_BYTES_CAP = 2 * 1024 * 1024;
 const INPUT_RECEIPT_CAP = 512;
 const INPUT_ACTIVE_STATES = new Set(["queued", "starting", "running", "stopping"]);
 const INPUT_TERMINAL_STATES = new Set(["settled", "stopped", "failed"]);
+const INPUT_INTERRUPTED_STATES = new Set(["starting", "running", "stopping"]);
 const PERMISSION_SUGGESTION_CAP = 64;
 const PERMISSION_STATUSES = new Set(["pending", "resolved", "cancelled"]);
 const PERMISSION_DECISIONS = new Set(["allow_once", "allow_always", "deny"]);
@@ -380,6 +381,7 @@ function sanitizeInputReceipt(raw) {
   const inputId = cleanInputId(raw.inputId);
   const clientRequestId = cleanInputId(raw.clientRequestId);
   const acceptedAt = cleanIso(raw.acceptedAt);
+  const startedAt = cleanIso(raw.startedAt);
   const settledAt = cleanIso(raw.settledAt);
   const state = typeof raw.state === "string" && INPUT_TERMINAL_STATES.has(raw.state) ? raw.state : null;
   if (!inputId || !clientRequestId || !acceptedAt || !settledAt || !state) return null;
@@ -390,9 +392,27 @@ function sanitizeInputReceipt(raw) {
     clientRequestId,
     state,
     acceptedAt,
+    ...(startedAt ? { startedAt } : {}),
     settledAt,
     ...(generationId ? { generationId } : {}),
     ...(reason ? { reason } : {}),
+  };
+}
+
+function sanitizeInputRecoveryBlock(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const inputId = cleanInputId(raw.inputId);
+  const interruptedState = typeof raw.interruptedState === "string" && INPUT_INTERRUPTED_STATES.has(raw.interruptedState)
+    ? raw.interruptedState
+    : null;
+  const interruptedAt = cleanIso(raw.interruptedAt);
+  const generationId = cleanInputId(raw.generationId);
+  if (!inputId || !interruptedState || !interruptedAt) return null;
+  return {
+    inputId,
+    interruptedState,
+    interruptedAt,
+    ...(generationId ? { generationId } : {}),
   };
 }
 
@@ -427,6 +447,18 @@ function normalizedInputReceipts(raw) {
     out.push(receipt);
   }
   return out.slice(-INPUT_RECEIPT_CAP);
+}
+
+function normalizedInputRecoveryBlocks(raw) {
+  const out = [];
+  const inputIds = new Set();
+  for (const candidate of Array.isArray(raw) ? raw : []) {
+    const block = sanitizeInputRecoveryBlock(candidate);
+    if (!block || inputIds.has(block.inputId)) continue;
+    inputIds.add(block.inputId);
+    out.push(block);
+  }
+  return out.slice(-INPUT_QUEUE_CAP);
 }
 
 function cleanSessionLabel(raw, max = SESSION_LABEL_CAP) {
@@ -838,6 +870,7 @@ async function readThreadFile(id) {
     obj.sessionIds = normalizedSessionIds(obj.sessionIds, obj.sessionEvents, latestSessionId);
     obj.pendingInputs = normalizedPendingInputs(obj.pendingInputs);
     obj.inputReceipts = normalizedInputReceipts(obj.inputReceipts);
+    obj.inputRecoveryBlocks = normalizedInputRecoveryBlocks(obj.inputRecoveryBlocks);
     obj.inputRevision = cleanInt(obj.inputRevision, 0, Number.MAX_SAFE_INTEGER) ?? 0;
     // Legacy files (every thread written before the run-context contract) have no
     // `routing` key at all; normalise to an explicit null so every reader can treat
@@ -936,6 +969,7 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
       sessionIds: [],
       pendingInputs: [],
       inputReceipts: [],
+      inputRecoveryBlocks: [],
       inputRevision: 0,
     };
     await atomicWriteJson(threadPath(safe), thread);
@@ -1074,6 +1108,7 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
         sessionIds: [],
         pendingInputs: [],
         inputReceipts: [],
+        inputRecoveryBlocks: [],
         inputRevision: 0,
       };
     }
@@ -1194,6 +1229,11 @@ export async function claimNextThreadInput(id, { nowIso } = {}) {
     const thread = await readThreadFile(safe);
     if (!thread) return null;
     const pending = normalizedPendingInputs(thread.pendingInputs);
+    // A prior process may have handed this thread to the gateway without living
+    // long enough to observe completion. Until startup clears that exact durable
+    // ownership marker, claiming a successor would only race the old generation
+    // (or an unidentifiable pre-open claim) and turn a benign 409 into data loss.
+    if (normalizedInputRecoveryBlocks(thread.inputRecoveryBlocks).length > 0) return null;
     if (pending.some((input) => input.state !== "queued")) return null;
     const index = pending.findIndex((input) => input.state === "queued");
     if (index === -1) return null;
@@ -1206,7 +1246,10 @@ export async function claimNextThreadInput(id, { nowIso } = {}) {
       thread.messages.push({
         role: "user",
         text: input.message,
-        ts: input.acceptedAt,
+        // Admission may happen while an older turn is still running. Timeline
+        // ownership begins only when this input is promoted, otherwise journal
+        // events from the older turn can be grouped under a queued successor.
+        ts: input.startedAt,
         turnId: input.inputId,
         ...(input.routing ? { overrides: input.routing } : {}),
       });
@@ -1297,6 +1340,7 @@ export async function settleThreadInput(id, inputId, outcome, { generationId, re
       clientRequestId: current.clientRequestId,
       state,
       acceptedAt: current.acceptedAt,
+      startedAt: current.startedAt,
       settledAt: now,
       generationId: current.generationId ?? cleanGeneration ?? undefined,
       reason,
@@ -1314,6 +1358,179 @@ export async function settleThreadInput(id, inputId, outcome, { generationId, re
   });
 }
 
+const RESTART_INPUT_FAILURE_REASON = "web channel restarted before the turn completed; input was not replayed";
+const RESTART_INPUT_FAILURE_TEXT = "_Turn did not complete because the Web channel restarted. It was not replayed automatically._";
+
+function cancelInterruptedCanonicalControls(events, activeInputs, reason) {
+  const inputIds = new Set(activeInputs.map((input) => input.inputId));
+  const generationIds = new Set(activeInputs.map((input) => input.generationId).filter(Boolean));
+  return (Array.isArray(events) ? events : []).map((event) => {
+    const eventOwned = inputIds.has(event.turnId) || generationIds.has(event.generationId);
+    let changed = false;
+    const blocks = event.blocks.map((block) => {
+      // Permission requests are the canonical durable interactive control today.
+      // AskUserQuestion is a live `tool` frame and is not reconstructed as an
+      // actionable control from disk, so there is no durable question callback to
+      // leave enabled after restart.
+      const blockOwned = eventOwned || generationIds.has(block.generationId);
+      if (block.type !== "permission_request" || block.status !== "pending" || !blockOwned) return block;
+      changed = true;
+      const cancelled = { ...block, status: "cancelled", reason };
+      delete cancelled.decision;
+      return cancelled;
+    });
+    if (!changed) return event;
+    return sanitizeSessionEvent({ ...event, revision: event.revision + 1, blocks }) ?? event;
+  });
+}
+
+/**
+ * Reconcile work whose runtime ownership vanished with the prior Web process.
+ *
+ * Each thread is rewritten once: every starting/running/stopping input becomes a
+ * failed receipt, one visible failure is appended for that turn, pending durable
+ * controls are cancelled, and the queued tail is preserved byte-for-byte through
+ * the normal sanitizer. A recovery marker keeps successors parked until the
+ * gateway's exact old ownership has also been cleared. There is no interval where
+ * a failure receipt exists without its transcript outcome (or vice versa), and a
+ * second startup does not duplicate either one.
+ *
+ * The result also names every thread that still has queued work so the server can
+ * recreate only those live streams and schedule only those successors.
+ */
+export async function reconcileInterruptedThreadInputs({ nowIso, reason } = {}) {
+  let names;
+  try {
+    names = (await readdir(THREADS_DIR)).filter((name) => name.endsWith(".json")).sort();
+  } catch (err) {
+    if (err?.code === "ENOENT") return [];
+    // Starting as though an unreadable store were empty could admit work beside
+    // an orphan we failed to discover. Fail startup closed; a later retry remains
+    // idempotent for any thread snapshots already reconciled in this pass.
+    throw err;
+  }
+  const now = cleanIso(nowIso) ?? new Date().toISOString();
+  const why = cleanString(reason, TEXT_CLIP) ?? RESTART_INPUT_FAILURE_REASON;
+  const results = [];
+  for (const name of names) {
+    const id = name.slice(0, -".json".length);
+    const result = await serializeThreadMutation(id, async () => {
+      const thread = await readThreadFile(id);
+      if (!thread) {
+        throw new Error(`could not read persisted thread ${id} during restart reconciliation`);
+      }
+      const pending = normalizedPendingInputs(thread.pendingInputs);
+      const active = pending.filter((input) => input.state !== "queued");
+      const queued = pending.filter((input) => input.state === "queued");
+      let recoveryBlocks = normalizedInputRecoveryBlocks(thread.inputRecoveryBlocks);
+      if (active.length === 0) {
+        return queued.length > 0 || recoveryBlocks.length > 0
+          ? {
+              threadId: id,
+              failedInputs: [],
+              recoveryInputs: recoveryBlocks,
+              queuedInputs: queued.map((input) => publicThreadInput(input, queued)),
+            }
+          : null;
+      }
+
+      let receipts = normalizedInputReceipts(thread.inputReceipts);
+      const failedReceipts = [];
+      const messageKeys = Array.isArray(thread.messageKeys) ? thread.messageKeys.slice() : [];
+      for (const input of active) {
+        const receipt = sanitizeInputReceipt({
+          inputId: input.inputId,
+          clientRequestId: input.clientRequestId,
+          state: "failed",
+          acceptedAt: input.acceptedAt,
+          startedAt: input.startedAt,
+          settledAt: now,
+          generationId: input.generationId,
+          reason: why,
+        });
+        if (!receipt) throw new Error(`could not reconcile interrupted input ${input.inputId}`);
+        receipts = receipts.filter((candidate) =>
+          candidate.inputId !== receipt.inputId && candidate.clientRequestId !== receipt.clientRequestId
+        );
+        receipts.push(receipt);
+        failedReceipts.push({
+          ...receipt,
+          interruptedState: input.state,
+          ...(input.message !== undefined ? { message: input.message } : {}),
+        });
+        recoveryBlocks = recoveryBlocks.filter((block) => block.inputId !== input.inputId);
+        recoveryBlocks.push({
+          inputId: input.inputId,
+          interruptedState: input.state,
+          interruptedAt: now,
+          ...(input.generationId ? { generationId: input.generationId } : {}),
+        });
+
+        const failureKey = `input-restart-failure:${input.inputId}`;
+        if (!messageKeys.includes(failureKey)) {
+          thread.messages.push({
+            role: "assistant",
+            text: RESTART_INPUT_FAILURE_TEXT,
+            ts: now,
+            turnId: input.inputId,
+            // Server-owned durable boundary: the prior SDK journal may already
+            // contain this user input or partial assistant output even though the
+            // Web transcript could not confirm its outcome. A queued successor
+            // must cold-start from materialized durable context instead of
+            // resuming across that uncertain journal tail.
+            agentSdkResumeBarrier: true,
+            route: { stoppedReason: why },
+          });
+          messageKeys.push(failureKey);
+        }
+        bumpInputRevision(thread);
+      }
+
+      thread.pendingInputs = queued;
+      thread.inputReceipts = receipts.slice(-INPUT_RECEIPT_CAP);
+      thread.inputRecoveryBlocks = recoveryBlocks.slice(-INPUT_QUEUE_CAP);
+      thread.messageKeys = messageKeys.slice(-512);
+      thread.sessionEvents = cancelInterruptedCanonicalControls(thread.sessionEvents, active, why);
+      thread.updatedAt = now;
+      if (!thread.title) thread.title = deriveTitle(thread);
+      await atomicWriteJson(threadPath(id), thread);
+      return {
+        threadId: id,
+        failedInputs: failedReceipts.map((receipt) => ({
+          ...publicThreadInput(receipt, queued),
+          interruptedState: receipt.interruptedState,
+        })),
+        recoveryInputs: thread.inputRecoveryBlocks,
+        queuedInputs: queued.map((input) => publicThreadInput(input, queued)),
+      };
+    });
+    if (result) results.push(result);
+  }
+  return results;
+}
+
+/** Clear one exact prior-process ownership marker only after the gateway confirms
+ * that input/generation can no longer own the thread. This write is the durable
+ * gate that makes its queued successor claimable. */
+export async function clearThreadInputRecoveryBlock(id, inputId, { nowIso } = {}) {
+  const safe = safeThreadId(id);
+  const cleanInput = cleanInputId(inputId);
+  if (!safe || !cleanInput) return false;
+  const now = cleanIso(nowIso) ?? new Date().toISOString();
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return false;
+    const recoveryBlocks = normalizedInputRecoveryBlocks(thread.inputRecoveryBlocks);
+    const next = recoveryBlocks.filter((block) => block.inputId !== cleanInput);
+    if (next.length === recoveryBlocks.length) return false;
+    thread.inputRecoveryBlocks = next;
+    bumpInputRevision(thread);
+    thread.updatedAt = now;
+    await atomicWriteJson(threadPath(safe), thread);
+    return true;
+  });
+}
+
 export async function getThreadInput(id, inputId) {
   const cleanInput = cleanInputId(inputId);
   const thread = cleanInput ? await getThread(id) : null;
@@ -1326,7 +1543,10 @@ export async function getThreadInput(id, inputId) {
 
 export async function threadHasPendingInputs(id) {
   const thread = await getThread(id);
-  return Boolean(thread && normalizedPendingInputs(thread.pendingInputs).length);
+  return Boolean(thread && (
+    normalizedPendingInputs(thread.pendingInputs).length ||
+    normalizedInputRecoveryBlocks(thread.inputRecoveryBlocks).length
+  ));
 }
 
 /** Delete a thread. Returns true if a file was removed. */
@@ -1335,7 +1555,10 @@ export async function deleteThread(id) {
   if (!safe) return false;
   return serializeThreadMutation(safe, async () => {
     const thread = await readThreadFile(safe);
-    if (thread && normalizedPendingInputs(thread.pendingInputs).length) return false;
+    if (thread && (
+      normalizedPendingInputs(thread.pendingInputs).length ||
+      normalizedInputRecoveryBlocks(thread.inputRecoveryBlocks).length
+    )) return false;
     try {
       await unlink(threadPath(safe));
       return true;

@@ -508,7 +508,8 @@ import path from "node:path";
 let nextSession = 0;
 export class AgentSdkAdapter {
   async spawn(config) {
-    return { alive: true, config, harness: { promptMode: config.promptMode }, sessionId: "sdk-stream-session-" + (++nextSession) };
+    const generatedSessionId = "sdk-stream-session-" + (++nextSession);
+    return { alive: true, config, harness: { promptMode: config.promptMode }, sessionId: config.sessionId ?? generatedSessionId };
   }
   async awaitReady() {}
   async sendTurn(session, message, hooks = {}) {
@@ -525,6 +526,11 @@ export class AgentSdkAdapter {
     if (/gateway context continuity probe/i.test(session.message)) {
       session.echoReply = session.message;
       hooks.onText?.(session.echoReply);
+      return;
+    }
+    if (/gateway recovery orphan/i.test(session.message)) {
+      hooks.onText?.("orphan partial");
+      await new Promise((resolve) => { session.releaseRecoveryOrphan = resolve; });
       return;
     }
     const questionMatch = session.message.match(/question stream ([AB])/i);
@@ -595,7 +601,10 @@ export class AgentSdkAdapter {
     return { text: "legacy reply", toolUses: [{ name: "Read", id: "tool-1" }], stoppedReason: null };
   }
   async teardown(session) { session.alive = false; }
-  async cancel() { return true; }
+  async cancel(session) {
+    session.releaseRecoveryOrphan?.();
+    return true;
+  }
 }
 `,
         "utf8"
@@ -616,6 +625,7 @@ export class AgentSdkAdapter {
           GARRISON_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
           GARRISON_TEST_TRANSCRIPT_DIR: transcriptDir,
           GARRISON_GATEWAY_RUNTIME_STUB: runtimeStub,
+          GARRISON_ACCOUNT: "",
           GARRISON_GATEWAY_NO_LISTEN: "0"
         },
         stdio: ["ignore", "pipe", "pipe"]
@@ -665,7 +675,12 @@ export class AgentSdkAdapter {
 
       // The Web server supplies materialized durable history on every request,
       // but the standing Query needs it only when its SDK session is cold.
-      const contextTurn = async (message: string, context: string, turnSeq: number) => {
+      const contextTurn = async (
+        message: string,
+        context: string,
+        turnSeq: number,
+        extra: Record<string, unknown> = {},
+      ) => {
         const contextResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -676,6 +691,7 @@ export class AgentSdkAdapter {
             thread: "thread-context-continuity",
             turnSeq,
             routing: { target: "sdk-ollama-chat" },
+            ...extra,
           }),
         });
         expect(contextResponse.status).toBe(200);
@@ -691,6 +707,167 @@ export class AgentSdkAdapter {
         "durable context through first",
         172,
       )).toBe("quick: gateway context continuity probe second");
+      expect(await contextTurn(
+        "quick: gateway context continuity probe after durable barrier",
+        "durable context excluding uncertain turn",
+        173,
+        { agentSdkNewGeneration: true },
+      )).toBe(
+        "durable context excluding uncertain turn\n\n---\n\n" +
+        "quick: gateway context continuity probe after durable barrier",
+      );
+
+      const resumeTurn = async (thread: string, model: string, turnSeq: number) => {
+        const resumeResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: `quick: gateway context continuity probe resume ${turnSeq}`,
+            context: "durable history already stored by the SDK",
+            channel: "web",
+            thread,
+            turnSeq,
+            routing: { target: "sdk-ollama-chat" },
+            agentSdkResume: {
+              sessionId: "persisted-native-session",
+              route: "sdk-ollama-chat",
+              runtime: "agent-sdk",
+              provider: "ollama-local",
+              model,
+              effort: null,
+              account: null,
+              accountSource: null,
+              projectPath: null,
+            },
+          }),
+        });
+        expect(resumeResponse.status).toBe(200);
+        const resumeFrames = parseSse(await resumeResponse.text());
+        return resumeFrames.find((frame) => frame.event === "done")?.data;
+      };
+      const nativeResume = await resumeTurn("thread-native-resume", "qwen3:0.6b", 173);
+      expect(nativeResume).toMatchObject({
+        reply: "quick: gateway context continuity probe resume 173",
+        session_id: "persisted-native-session",
+      });
+
+      // A model mismatch is an explicit new conversation generation. The old
+      // journal id is ignored and coldStartContext remains the continuity seam.
+      const incompatibleResume = await resumeTurn("thread-incompatible-resume", "other-model", 174);
+      expect(incompatibleResume.reply).toBe(
+        "durable history already stored by the SDK\n\n---\n\nquick: gateway context continuity probe resume 174",
+      );
+      expect(incompatibleResume.session_id).not.toBe("persisted-native-session");
+
+      // A dead Web owner can leave a standing Query with non-durable input in its
+      // journal. Exact recovery must stop it, hold the generation through cache
+      // teardown, and tombstone that journal so the successor cold-materializes.
+      const recoveryBaseResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: gateway context continuity probe recovery base",
+          context: "durable recovery base",
+          channel: "web",
+          thread: "thread-host-recovery",
+          inputId: "input-recovery-base",
+          turnSeq: 175,
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      const recoveryBaseDone = parseSse(await recoveryBaseResponse.text())
+        .find((frame) => frame.event === "done")!.data;
+      expect(recoveryBaseDone.session_id).toBeTruthy();
+
+      const orphanResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: gateway recovery orphan",
+          context: "durable recovery base",
+          channel: "web",
+          thread: "thread-host-recovery",
+          inputId: "input-recovery-orphan",
+          turnSeq: 176,
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      const orphanReader = orphanResponse.body!.getReader();
+      const orphanDecoder = new TextDecoder();
+      let orphanRaw = "";
+      while (!orphanRaw.includes("orphan partial")) {
+        const chunk = await orphanReader.read();
+        if (chunk.done) break;
+        orphanRaw += orphanDecoder.decode(chunk.value, { stream: true });
+      }
+      const liveRecovery = await fetch(`http://127.0.0.1:${port}/chat/generation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-host-recovery", inputId: "input-recovery-orphan" }),
+      });
+      expect(liveRecovery.status).toBe(200);
+      expect(await liveRecovery.json()).toMatchObject({ state: "running" });
+      const recover = await fetch(`http://127.0.0.1:${port}/chat/recover`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-host-recovery", inputId: "input-recovery-orphan" }),
+      });
+      expect(recover.status).toBe(200);
+      expect(await recover.json()).toMatchObject({ stopped: true });
+      while (true) {
+        const chunk = await orphanReader.read();
+        if (chunk.done) break;
+        orphanRaw += orphanDecoder.decode(chunk.value, { stream: true });
+      }
+      orphanRaw += orphanDecoder.decode();
+      expect(parseSse(orphanRaw).find((frame) => frame.event === "done")?.data)
+        .toMatchObject({ stoppedByUser: true });
+
+      let recoveryReleased = false;
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const status = await fetch(`http://127.0.0.1:${port}/chat/generation`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ threadId: "thread-host-recovery", inputId: "input-recovery-orphan" }),
+        });
+        if (status.status === 404) {
+          recoveryReleased = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(recoveryReleased).toBe(true);
+
+      const successorResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: gateway context continuity probe recovery successor",
+          context: "durable history excluding orphan",
+          channel: "web",
+          thread: "thread-host-recovery",
+          inputId: "input-recovery-successor",
+          turnSeq: 177,
+          routing: { target: "sdk-ollama-chat" },
+          agentSdkResume: {
+            sessionId: recoveryBaseDone.session_id,
+            route: "sdk-ollama-chat",
+            runtime: "agent-sdk",
+            provider: "ollama-local",
+            model: "qwen3:0.6b",
+            effort: null,
+            account: null,
+            accountSource: null,
+            projectPath: null,
+          },
+        }),
+      });
+      const successorDone = parseSse(await successorResponse.text())
+        .find((frame) => frame.event === "done")!.data;
+      expect(successorDone.reply).toBe(
+        "durable history excluding orphan\n\n---\n\nquick: gateway context continuity probe recovery successor",
+      );
+      expect(successorDone.session_id).not.toBe(recoveryBaseDone.session_id);
 
       // Full control-plane proof over the real child gateway: callback
       // registration publishes pending, the exact HTTP tuple releases it, then
@@ -824,6 +1001,7 @@ export class AgentSdkAdapter {
           message: "quick: pre-stop latch",
           channel: "web",
           thread: "thread-overlap",
+          inputId: "input-overlap",
           turnSeq: 19,
           routing: { target: "sdk-ollama-chat" },
         }),
@@ -839,6 +1017,26 @@ export class AgentSdkAdapter {
       }
       const latchedOpen = parseSse(latchedRaw).find((frame) => frame.event === "open")!;
       expect(latchedOpen.data.generationId).toBeTruthy();
+
+      const recoveredGeneration = await fetch(`http://127.0.0.1:${port}/chat/generation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-overlap", inputId: "input-overlap" }),
+      });
+      expect(recoveredGeneration.status).toBe(200);
+      expect(await recoveredGeneration.json()).toMatchObject({
+        inputId: "input-overlap",
+        threadId: "thread-overlap",
+        generationId: latchedOpen.data.generationId,
+        state: "starting",
+      });
+      const foreignInput = await fetch(`http://127.0.0.1:${port}/chat/generation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-overlap", inputId: "input-foreign" }),
+      });
+      expect(foreignInput.status).toBe(409);
+      expect(await foreignInput.json()).toMatchObject({ code: "thread_input_generation_conflict" });
 
       const overlap = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
         method: "POST",
@@ -885,6 +1083,12 @@ export class AgentSdkAdapter {
         stoppedByUser: true,
         stoppedReason: "user-interrupt",
       });
+      const releasedGeneration = await fetch(`http://127.0.0.1:${port}/chat/generation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-overlap", inputId: "input-overlap" }),
+      });
+      expect(releasedGeneration.status).toBe(404);
 
       // The native Ollama vision subprocess has no supported cancellation seam.
       // Once its marker proves inference is in flight, exact Stop must report a

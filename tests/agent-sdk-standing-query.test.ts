@@ -149,6 +149,7 @@ describe("pinned Agent SDK standing streaming-input wrapper", () => {
         permissionMode: "default",
         maxTurns: 7,
         effort: "high",
+        resume: "11111111-1111-4111-8111-111111111111",
         canUseTool: async (toolName: string, toolInput: any, options: any) => {
           permissionCalls.push({ toolName, toolInput, options });
           return { behavior: "allow", updatedInput: structuredClone(toolInput) };
@@ -203,6 +204,9 @@ describe("pinned Agent SDK standing streaming-input wrapper", () => {
     }
     expect(fixtureProcess.userMessages.map((message: any) => message.priority)).toEqual([undefined, undefined, undefined]);
     expect(spawnOptions.args).toEqual(expect.arrayContaining(["--max-turns", "7", "--effort", "high"]));
+    const resumeIndex = spawnOptions.args.indexOf("--resume");
+    expect(resumeIndex).toBeGreaterThan(-1);
+    expect(spawnOptions.args[resumeIndex + 1]).toBe("11111111-1111-4111-8111-111111111111");
 
     query.close();
     input.close();
@@ -217,6 +221,43 @@ describe("pinned Agent SDK standing streaming-input wrapper", () => {
 });
 
 describe("AgentSdkAdapter standing streaming-input turns", () => {
+  it("opens a cold standing Query with the persisted SDK resume id and sends only the new input", async () => {
+    const { adapter, inputs, clients, optionsSeen } = standingAdapterFixture();
+    const session = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/tmp",
+      streamingInput: true,
+      sessionId: "persisted-standing-session",
+    });
+
+    await adapter.sendTurn(session, "continue without duplicate context", {
+      generationId: "generation-resume",
+    });
+    const response = adapter.awaitResponse(session);
+    await waitFor(() => inputs.length === 1 && clients.length === 1, "resumed adapter input");
+    expect(optionsSeen[0]).toMatchObject({ resume: "persisted-standing-session" });
+    expect(inputs[0]).toEqual(user("continue without duplicate context"));
+
+    clients[0].emit({
+      type: "result",
+      uuid: "result-resume",
+      session_id: "persisted-standing-session",
+      subtype: "success",
+      result: "continued",
+      usage: { output_tokens: 1 },
+    });
+    clients[0].emit({
+      type: "system",
+      subtype: "session_state_changed",
+      state: "idle",
+      uuid: "idle-resume",
+      session_id: "persisted-standing-session",
+    });
+    await expect(response).resolves.toMatchObject({ text: "continued" });
+    await adapter.teardown(session);
+  });
+
   it("reuses one Query, waits for idle after result/postlude, and binds later permissions and events to the current generation", async () => {
     const { adapter, inputs, clients, optionsSeen } = standingAdapterFixture();
     const session = await adapter.spawn({

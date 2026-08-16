@@ -44,6 +44,7 @@ beforeAll(async () => {
           sends: [],
           interrupts: [],
           answers: [],
+          permissionAnswers: [],
           rejectInterrupt: false,
           rejectAnswer: false,
           rejectNextAdmission: false,
@@ -80,6 +81,9 @@ beforeAll(async () => {
             mock.answers.push({ ...answer });
             if (mock.rejectAnswer) throw new Error('<img src=x onerror="window.__unsafe = true">');
           },
+          async answerPermission(answer) {
+            mock.permissionAnswers.push({ ...answer });
+          },
           async fetchCommands() { return []; },
           async uploadFile() { return { path: "/tmp/unused" }; },
         };
@@ -96,6 +100,11 @@ beforeAll(async () => {
             initialHistory,
           }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        };
+        window.__unmount = () => {
+          root?.unmount();
+          root = undefined;
+          listener = undefined;
         };
         window.__emit = (event) => {
           listener(event);
@@ -138,6 +147,32 @@ beforeAll(async () => {
             generationId: "generation-" + number,
           });
         };
+        window.__emitPermission = (number, blockGenerationId = "generation-" + number) => {
+          const sent = mock.sends[number - 1];
+          return window.__emit({
+            type: "session_event",
+            inputId: sent.receipt.inputId,
+            generationId: "generation-" + number,
+            event: {
+              id: "permission-event-" + number,
+              role: "assistant",
+              ts: Date.now(),
+              revision: 1,
+              generationId: "generation-" + number,
+              blocks: [{
+                type: "permission_request",
+                requestId: "permission-" + number,
+                generationId: blockGenerationId,
+                name: "Bash",
+                displayName: "Recovered command",
+                input: { command: "deploy" },
+                inputComplete: true,
+                status: "pending",
+                suggestionsComplete: true,
+              }],
+            },
+          });
+        };
         window.__failThenClickRetry = (number) => {
           const sent = mock.sends[number - 1];
           listener({
@@ -149,6 +184,19 @@ beforeAll(async () => {
             reason: "runtime failed",
           });
           document.querySelector(".cc-lifecycle-stoperror button")?.click();
+        };
+        window.__failThenClickInteractiveControls = (number) => {
+          const sent = mock.sends[number - 1];
+          listener({
+            type: "input",
+            clientRequestId: sent.receipt.clientRequestId,
+            inputId: sent.receipt.inputId,
+            generationId: "generation-" + number,
+            state: "failed",
+            reason: "process restarted; input was not replayed",
+          });
+          document.querySelector(".cc-question-opt")?.click();
+          document.querySelector(".cc-session-permission-deny")?.click();
         };
       `,
     },
@@ -166,6 +214,10 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(async () => {
+  // setContent replaces the nodes but does not dispose React roots. Unmount the
+  // prior root first so its timers cannot keep rendering into the detached tree
+  // and overwrite this test's shared adornment probe.
+  await page.evaluate(() => (window as any).__unmount?.());
   await page.setContent(
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<style>html,body,#root{width:100%;height:100%;margin:0}${css.replace(/<\/style/gi, "<\\/style")}</style>` +
@@ -327,6 +379,109 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
       { toolUseId: "toolu-question", label: "A" },
       { toolUseId: "toolu-question", label: "B" },
     ]);
+  });
+
+  it("makes orphaned permission and question controls terminal before a stale same-task click", async () => {
+    await composer().fill("turn interrupted by restart");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+    await page.evaluate(() => (window as any).__emitQuestion(1, "toolu-before-restart"));
+    await page.evaluate(() => (window as any).__emitPermission(1));
+
+    expect(await page.locator(".cc-question-opt").first().isEnabled()).toBe(true);
+    expect(await page.locator(".cc-session-permission-deny").isEnabled()).toBe(true);
+    await page.evaluate(() => (window as any).__failThenClickInteractiveControls(1));
+
+    await expect.poll(() => page.locator('[data-input-state="failed"]').isVisible()).toBe(true);
+    expect(await page.locator(".cc-question-opt").first().isDisabled()).toBe(true);
+    expect(await page.locator(".cc-question-inactive").textContent()).toContain("no longer active");
+    expect(await page.locator(".cc-question-error").count()).toBe(0);
+    expect(await page.locator(".cc-session-permission-status").textContent()).toBe("No longer active");
+    expect(await page.locator(".cc-session-permission-actions").count()).toBe(0);
+    expect(await page.locator(".cc-session-permission-readonly").textContent()).toContain("no longer active");
+    expect(await page.evaluate(() => (window as any).__mock.answers)).toEqual([]);
+    expect(await page.evaluate(() => (window as any).__mock.permissionAnswers)).toEqual([]);
+    expect(await stopButton().count()).toBe(0);
+    expect(await button("Send").isVisible()).toBe(true);
+    expect(await page.getByRole("button", { name: "Start mock voice" }).isEnabled()).toBe(true);
+    expect(await page.getByRole("button", { name: "Attach a file" }).isEnabled()).toBe(true);
+    const measurements = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      liveRegions: document.querySelectorAll('[role="status"][aria-live]').length,
+    }));
+    expect(measurements).toEqual({ viewport: 320, document: 320, liveRegions: 1 });
+  });
+
+  it("hydrates a failed recovery as settled history while preserving exact running and queued successors", async () => {
+    const cancelledPermission = {
+      id: "permission-before-restart",
+      role: "assistant",
+      ts: 1,
+      revision: 2,
+      generationId: "generation-orphan",
+      blocks: [{
+        type: "permission_request",
+        requestId: "permission-orphan",
+        generationId: "generation-orphan",
+        name: "Bash",
+        displayName: "Interrupted command",
+        input: { command: "deploy" },
+        inputComplete: true,
+        status: "cancelled",
+        suggestionsComplete: true,
+      }],
+    };
+    const recovered = {
+      user: "deploy the release",
+      assistant: "The Web process restarted before this response completed. The input was not replayed.",
+      sessionEvents: [cancelledPermission],
+    };
+    await page.evaluate((history) => (window as any).__mount(history), [
+      recovered,
+      {
+        user: "inspect recovery",
+        assistant: "",
+        input: {
+          clientRequestId: "client-successor",
+          inputId: "input-successor",
+          generationId: "generation-successor",
+          state: "running",
+        },
+      },
+      {
+        user: "summarize next",
+        assistant: "",
+        input: {
+          clientRequestId: "client-queued",
+          inputId: "input-queued",
+          state: "queued",
+          position: 1,
+        },
+      },
+    ]);
+
+    const turns = page.locator(".cc-turn");
+    expect(await turns.nth(0).textContent()).toContain("input was not replayed");
+    expect(await turns.nth(0).locator("[data-input-state]").count()).toBe(0);
+    expect(await turns.nth(0).locator(".cc-cursor, .cc-working").count()).toBe(0);
+    expect(await turns.nth(0).locator(".cc-session-permission-status").textContent()).toBe("Cancelled");
+    expect(await turns.nth(0).locator(".cc-session-permission-actions").count()).toBe(0);
+    expect(await page.locator(".cc-question").count()).toBe(0);
+    expect(await page.locator('[data-input-state="running"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').textContent()).toContain("Position 1");
+
+    await stopButton().click();
+    expect(await page.evaluate(() => (window as any).__mock.interrupts.at(-1))).toEqual({
+      generationId: "generation-successor",
+    });
+
+    await page.evaluate((history) => (window as any).__mount(history), [recovered]);
+    expect(await button("Send").isVisible()).toBe(true);
+    expect(await page.getByRole("button", { name: "Start mock voice" }).isEnabled()).toBe(true);
+    expect(await page.getByRole("button", { name: "Attach a file" }).isEnabled()).toBe(true);
+    expect(await stopButton().count()).toBe(0);
   });
 
   it("uses a focusable native button to remove an attachment", async () => {
